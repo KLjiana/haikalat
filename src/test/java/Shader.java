@@ -1,8 +1,13 @@
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+import org.lwjgl.system.MemoryStack;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.lwjgl.opengl.GL20.*;
+import static org.lwjgl.system.MemoryStack.stackPush;
 
 public class Shader {
     private final int id;
@@ -27,12 +32,11 @@ public class Shader {
         glDeleteShader(fragmentShader);
     }
 
-    private static String readResource(String path) {
+    public static String readResource(String path) {
         try (InputStream is = Shader.class.getResourceAsStream(path)) {
             if (is == null) {
                 throw new RuntimeException(path);
             }
-
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -75,6 +79,18 @@ public class Shader {
 
     public Shader setFloat(String name, float value) {
         glUniform1f(glGetUniformLocation(id, name), value);
+        return this;
+    }
+
+    public Shader setMat4f(String name, Matrix4f value) {
+        try (MemoryStack memoryStack = stackPush()) {
+            glUniformMatrix4fv(glGetUniformLocation(id, name), false, value.get(memoryStack.mallocFloat(16)));
+        }
+        return this;
+    }
+
+    public Shader setVec3(String name, Vector3f value) {
+        glUniform3f(glGetUniformLocation(id, name), value.x, value.y, value.z);
         return this;
     }
 }
