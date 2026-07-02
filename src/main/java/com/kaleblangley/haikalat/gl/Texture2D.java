@@ -1,0 +1,163 @@
+package com.kaleblangley.haikalat.gl;
+
+import com.kaleblangley.haikalat.util.DirectBuffers;
+import org.lwjgl.stb.STBImage;
+import org.lwjgl.system.MemoryStack;
+
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.Objects;
+
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_LINEAR_MIPMAP_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_RED;
+import static org.lwjgl.opengl.GL11.GL_RGB;
+import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.GL_REPEAT;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_2D;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T;
+import static org.lwjgl.opengl.GL11.glBindTexture;
+import static org.lwjgl.opengl.GL11.glDeleteTextures;
+import static org.lwjgl.opengl.GL11.glGenTextures;
+import static org.lwjgl.opengl.GL11.glTexImage2D;
+import static org.lwjgl.opengl.GL11.glTexParameteri;
+import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
+import static org.lwjgl.opengl.GL13.glActiveTexture;
+import static org.lwjgl.opengl.GL30.GL_RG;
+import static org.lwjgl.opengl.GL30.glGenerateMipmap;
+
+public final class Texture2D implements GlResource {
+    private final int id;
+    private final int width;
+    private final int height;
+    private final int format;
+    private boolean closed;
+
+    private Texture2D(int id, int width, int height, int format) {
+        this.id = id;
+        this.width = width;
+        this.height = height;
+        this.format = format;
+    }
+
+    public static Texture2D fromResource(Class<?> anchor, String resourcePath) {
+        return fromResource(anchor, resourcePath, true);
+    }
+
+    public static Texture2D fromResource(Class<?> anchor, String resourcePath, boolean flipVertically) {
+        Objects.requireNonNull(anchor, "anchor");
+        Objects.requireNonNull(resourcePath, "resourcePath");
+
+        STBImage.stbi_set_flip_vertically_on_load(flipVertically);
+        byte[] bytes = DirectBuffers.readResourceBytes(anchor, resourcePath);
+        ByteBuffer data = DirectBuffers.copyOf(bytes);
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer widthBuffer = stack.mallocInt(1);
+            IntBuffer heightBuffer = stack.mallocInt(1);
+            IntBuffer channelsBuffer = stack.mallocInt(1);
+            ByteBuffer image = STBImage.stbi_load_from_memory(data, widthBuffer, heightBuffer, channelsBuffer, 0);
+            if (image == null) {
+                throw new GlException("Failed to load image: " + STBImage.stbi_failure_reason());
+            }
+
+            int width = widthBuffer.get(0);
+            int height = heightBuffer.get(0);
+            int channels = channelsBuffer.get(0);
+            int format = formatFromChannels(channels);
+
+            int textureId = glGenTextures();
+            glBindTexture(GL_TEXTURE_2D, textureId);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, image);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            STBImage.stbi_image_free(image);
+            return new Texture2D(textureId, width, height, format);
+        }
+    }
+
+    public Texture2D bind(int unit) {
+        ensureOpen();
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glBindTexture(GL_TEXTURE_2D, id);
+        return this;
+    }
+
+    public Texture2D unbind() {
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return this;
+    }
+
+    public Texture2D setWrap(int wrapS, int wrapT) {
+        ensureOpen();
+        bind(0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
+        return this;
+    }
+
+    public Texture2D setFiltering(int minFilter, int magFilter) {
+        ensureOpen();
+        bind(0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
+        return this;
+    }
+
+    public Texture2D setDefaultFiltering() {
+        return setFiltering(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+    }
+
+    @Override
+    public int id() {
+        return id;
+    }
+
+    public int width() {
+        return width;
+    }
+
+    public int height() {
+        return height;
+    }
+
+    public int format() {
+        return format;
+    }
+
+    @Override
+    public boolean isClosed() {
+        return closed;
+    }
+
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        glDeleteTextures(id);
+        closed = true;
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new GlException("Texture is closed");
+        }
+    }
+
+    private static int formatFromChannels(int channels) {
+        return switch (channels) {
+            case 1 -> GL_RED;
+            case 2 -> GL_RG;
+            case 3 -> GL_RGB;
+            case 4 -> GL_RGBA;
+            default -> throw new GlException("Unsupported channel count: " + channels);
+        };
+    }
+}
