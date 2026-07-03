@@ -17,7 +17,9 @@ import static org.lwjgl.opengl.GL15.glBufferSubData;
 import static org.lwjgl.opengl.GL15.glDeleteBuffers;
 import static org.lwjgl.opengl.GL15.glGenBuffers;
 import static org.lwjgl.opengl.GL15.glUnmapBuffer;
+import static org.lwjgl.opengl.GL30.glFlushMappedBufferRange;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
+import static org.lwjgl.opengl.GL44.glBufferStorage;
 
 public final class GlBuffer implements GlResource {
     private final int target;
@@ -63,6 +65,19 @@ public final class GlBuffer implements GlResource {
         bind();
         glBufferData(target, sizeBytes, usage);
         return this;
+    }
+
+    public GlBuffer allocateStorage(long sizeBytes) {
+        ensureOpen();
+        bind();
+        glBufferStorage(target, sizeBytes, PersistentMapping.storageFlags());
+        return this;
+    }
+
+    public ByteBuffer mapPersistent(long offset, long length) {
+        ensureOpen();
+        bind();
+        return glMapBufferRange(target, offset, length, PersistentMapping.mapFlags());
     }
 
     public GlBuffer upload(ByteBuffer data) {

@@ -56,7 +56,7 @@ public final class AppWindow {
 
         glfwSetKeyCallback(window, (h, key, scancode, action, mods) -> {
             if (key >= 0 && key < keys.length) {
-                keys[key] = (action == GLFW_PRESS);
+                keys[key] = (action != GLFW_RELEASE);
             }
         });
 
@@ -72,6 +72,10 @@ public final class AppWindow {
         });
 
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+
+    public long windowHandle() {
+        return window;
     }
 
     public void show() {

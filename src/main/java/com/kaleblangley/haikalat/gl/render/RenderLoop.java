@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.gl.render;
 import com.kaleblangley.haikalat.gl.GlDebug;
 import com.kaleblangley.haikalat.gl.RenderSettings;
 import com.kaleblangley.haikalat.gl.RenderStatistics;
+import com.kaleblangley.haikalat.gl.buffer.UploadQueue;
 import com.kaleblangley.haikalat.gl.command.CommandBuffer;
 import com.kaleblangley.haikalat.gl.command.RenderCommand;
 import com.kaleblangley.haikalat.gl.command.RenderCommandQueue;
@@ -17,6 +18,7 @@ public final class RenderLoop {
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final RenderSettings settings;
     private final RenderDevice device;
+    private final UploadQueue uploadQueue = new UploadQueue();
 
     public RenderLoop(RenderSettings settings) {
         this.settings = Objects.requireNonNull(settings, "settings");
@@ -33,6 +35,10 @@ public final class RenderLoop {
 
     public RenderDevice device() {
         return device;
+    }
+
+    public UploadQueue uploadQueue() {
+        return uploadQueue;
     }
 
     public void submit(RenderCommand command) {
@@ -53,6 +59,7 @@ public final class RenderLoop {
     }
 
     public void beginFrame() {
+        uploadQueue.flush();
         statistics.beginFrame();
     }
 

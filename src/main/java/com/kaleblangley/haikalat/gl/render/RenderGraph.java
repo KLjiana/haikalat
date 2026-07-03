@@ -6,17 +6,21 @@ import com.kaleblangley.haikalat.gl.command.RenderDevice;
 import com.kaleblangley.haikalat.gl.fb.Framebuffer;
 import com.kaleblangley.haikalat.gl.material.Texture2D;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
 
 public final class RenderGraph implements AutoCloseable {
     private final List<Pass> passes = new ArrayList<>();
+    private final Map<String, Pass> passByName = new HashMap<>();
+    private List<Pass> sortedPasses;
     private final Map<String, Framebuffer> fbos = new HashMap<>();
     private final Map<String, Integer> colorTextures = new HashMap<>();
     private final Map<String, Integer> colorRenderbuffers = new HashMap<>();
@@ -67,7 +71,45 @@ public final class RenderGraph implements AutoCloseable {
 
     void addPassInternal(Pass pass) {
         passes.add(pass);
+        passByName.put(pass.name, pass);
+        sortedPasses = null;
         allocatePassFramebuffer(pass);
+    }
+
+    public void compile() {
+        Map<String, Integer> inDegree = new HashMap<>();
+        for (Pass pass : passes) {
+            inDegree.putIfAbsent(pass.name, 0);
+            for (String dep : pass.dependencies) {
+                inDegree.merge(pass.name, 1, Integer::sum);
+            }
+        }
+        for (Pass pass : passes) {
+            inDegree.putIfAbsent(pass.name, 0);
+        }
+        List<Pass> sorted = new ArrayList<>();
+        Queue<Pass> queue = new ArrayDeque<>();
+        for (Pass pass : passes) {
+            if (inDegree.getOrDefault(pass.name, 0) == 0) {
+                queue.add(pass);
+            }
+        }
+        while (!queue.isEmpty()) {
+            Pass p = queue.poll();
+            sorted.add(p);
+            for (Pass other : passes) {
+                if (other.dependencies.contains(p.name)) {
+                    int deg = inDegree.merge(other.name, -1, Integer::sum);
+                    if (deg == 0) {
+                        queue.add(other);
+                    }
+                }
+            }
+        }
+        if (sorted.size() != passes.size()) {
+            throw new GlException("RenderGraph has circular dependency");
+        }
+        sortedPasses = sorted;
     }
 
     private void allocatePassFramebuffer(Pass pass) {
@@ -137,10 +179,13 @@ public final class RenderGraph implements AutoCloseable {
 
     public void execute(RenderDevice device) {
         Objects.requireNonNull(device, "device");
+        if (sortedPasses == null) {
+            compile();
+        }
         CommandBuffer cmd = device.createCommandBuffer();
         PassResources resources = new PassResources(this);
 
-        for (Pass pass : passes) {
+        for (Pass pass : sortedPasses) {
             Framebuffer fb = fbos.get(pass.name);
             currentFbo = fb;
 
@@ -228,12 +273,13 @@ public final class RenderGraph implements AutoCloseable {
         final boolean clearDepth;
         final float clearR, clearG, clearB, clearA;
         final boolean useBackbuffer;
+        final List<String> dependencies;
         final PassExecutor executor;
 
         Pass(String name, String colorTextureName, int colorFormat, int samples,
              boolean createDepth, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA,
-             boolean useBackbuffer, PassExecutor executor) {
+             boolean useBackbuffer, List<String> dependencies, PassExecutor executor) {
             this.name = name;
             this.colorTextureName = colorTextureName;
             this.colorFormat = colorFormat;
@@ -246,6 +292,7 @@ public final class RenderGraph implements AutoCloseable {
             this.clearB = clearB;
             this.clearA = clearA;
             this.useBackbuffer = useBackbuffer;
+            this.dependencies = dependencies;
             this.executor = executor;
         }
     }
@@ -264,6 +311,7 @@ public final class RenderGraph implements AutoCloseable {
         private float clearB = 0.14f;
         private float clearA = 1.0f;
         private boolean useBackbuffer;
+        private final List<String> dependencies = new ArrayList<>();
         private PassExecutor executor;
 
         PassBuilder(RenderGraph graph, String name) {
@@ -303,6 +351,11 @@ public final class RenderGraph implements AutoCloseable {
             return this;
         }
 
+        public PassBuilder dependsOn(String passName) {
+            dependencies.add(Objects.requireNonNull(passName, "passName"));
+            return this;
+        }
+
         public PassBuilder clearColor(float r, float g, float b, float a) {
             this.clearR = r;
             this.clearG = g;
@@ -321,7 +374,7 @@ public final class RenderGraph implements AutoCloseable {
             this.executor = Objects.requireNonNull(executor, "executor");
             Pass pass = new Pass(name, colorTextureName, colorFormat, samples,
                     createDepth, clearColor, clearDepth, clearR, clearG, clearB, clearA,
-                    useBackbuffer, executor);
+                    useBackbuffer, List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
             return graph;
         }

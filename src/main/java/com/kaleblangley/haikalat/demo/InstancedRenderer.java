@@ -51,10 +51,9 @@ public final class InstancedRenderer {
     }
 
     public void render(CommandBuffer cmd, Matrix4f projection, Matrix4f view) {
-        Matrix4f projView = new Matrix4f();
-        projection.mul(view, projView);
         cmd.bindShader(shader);
-        cmd.setUniformMat4(shader, "uProjView", projView);
+        cmd.setUniformMat4(shader, "uProjection", projection);
+        cmd.setUniformMat4(shader, "uView", view);
         cmd.custom(() -> {
             batch.beginFrame();
             batch.submitAll(tripleBuffer.read());

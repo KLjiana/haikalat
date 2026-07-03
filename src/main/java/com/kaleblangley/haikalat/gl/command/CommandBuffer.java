@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL20.glUniform1f;
 import static org.lwjgl.opengl.GL20.glUniform1i;
+import static org.lwjgl.opengl.GL20.glUniform2f;
 import static org.lwjgl.opengl.GL20.glUniform3f;
 import static org.lwjgl.opengl.GL20.glUniformMatrix4fv;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
@@ -147,6 +148,14 @@ public final class CommandBuffer {
         float y = value.y;
         float z = value.z;
         commands.add(cache -> glUniform3f(location, x, y, z));
+        return this;
+    }
+
+    public CommandBuffer setUniformVec2(ShaderProgram shader, String name, float x, float y) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        int location = shader.uniformLocation(name);
+        commands.add(cache -> glUniform2f(location, x, y));
         return this;
     }
 

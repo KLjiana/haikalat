@@ -10,17 +10,22 @@ import java.nio.FloatBuffer;
 import java.util.List;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
+import static org.lwjgl.opengl.GL30.glFlushMappedBufferRange;
 
 public final class InstanceBufferRing implements GlResource {
     private static final int FRAME_COUNT = 3;
     private static final int MAT4_FLOATS = 16;
     private static final int MAT4_BYTES = MAT4_FLOATS * Float.BYTES;
 
-    private final GlBuffer buffer;
+    private GlBuffer buffer;
+    private final ByteBuffer mappedPtr;
     private final long frameSize;
     private final int maxInstances;
+    private final GpuFence[] fences = new GpuFence[FRAME_COUNT];
+    private final boolean persistent;
     private int writeSlot;
     private int activeCount;
     private boolean closed;
@@ -33,23 +38,47 @@ public final class InstanceBufferRing implements GlResource {
         this.frameSize = (long) maxInstances * MAT4_BYTES;
         long totalSize = frameSize * FRAME_COUNT;
 
-        this.buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(totalSize);
-    }
+        this.buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW);
+        boolean tryPersistent = PersistentMapping.isSupported();
+        ByteBuffer ptr = null;
+        boolean ok = false;
 
-    public int maxInstances() {
-        return maxInstances;
-    }
+        if (tryPersistent) {
+            try {
+                buffer.allocateStorage(totalSize);
+                ptr = buffer.mapPersistent(0, totalSize);
+                ok = ptr != null;
+            } catch (Exception ignored) {
+            }
+            if (ok) {
+                this.mappedPtr = ptr;
+            } else {
+                buffer.close();
+                this.buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW);
+                this.mappedPtr = null;
+            }
+        } else {
+            this.mappedPtr = null;
+        }
 
-    public int strideBytes() {
-        return MAT4_BYTES;
+        if (!ok) {
+            buffer.allocate(totalSize);
+        }
+        this.persistent = ok;
     }
 
     public boolean isPersistent() {
-        return false;
+        return persistent;
     }
 
     public void beginFrame() {
         ensureOpen();
+        GpuFence fence = fences[writeSlot];
+        if (fence != null) {
+            fence.waitFor(1_000_000_000L);
+            fence.close();
+            fences[writeSlot] = null;
+        }
         activeCount = 0;
     }
 
@@ -64,6 +93,28 @@ public final class InstanceBufferRing implements GlResource {
             return;
         }
 
+        if (persistent && mappedPtr != null) {
+            uploadPersistent(transforms, count);
+        } else {
+            uploadLegacy(transforms, count);
+        }
+        activeCount = count;
+    }
+
+    private void uploadPersistent(List<Matrix4f> transforms, int count) {
+        long offset = (long) writeSlot * frameSize;
+        ByteBuffer slice = mappedPtr.duplicate();
+        slice.position((int) offset);
+        FloatBuffer fb = slice.asFloatBuffer();
+        for (int i = 0; i < count; i++) {
+            transforms.get(i).get(fb);
+            fb.position(fb.position() + MAT4_FLOATS);
+        }
+        buffer.bind();
+        glFlushMappedBufferRange(GL_ARRAY_BUFFER, offset, (long) count * MAT4_BYTES);
+    }
+
+    private void uploadLegacy(List<Matrix4f> transforms, int count) {
         long offset = (long) writeSlot * frameSize;
         FloatBuffer data = createMatrixBuffer(count);
         for (Matrix4f m : transforms) {
@@ -72,7 +123,6 @@ public final class InstanceBufferRing implements GlResource {
         }
         data.flip();
         buffer.update(offset, data);
-        activeCount = count;
     }
 
     public void bindAttributes(int baseLocation) {
@@ -87,6 +137,7 @@ public final class InstanceBufferRing implements GlResource {
 
     public void finishFrame() {
         ensureOpen();
+        fences[writeSlot] = GpuFence.insert();
         writeSlot = (writeSlot + 1) % FRAME_COUNT;
     }
 
@@ -113,6 +164,12 @@ public final class InstanceBufferRing implements GlResource {
     public void close() {
         if (closed) {
             return;
+        }
+        for (int i = 0; i < FRAME_COUNT; i++) {
+            if (fences[i] != null) {
+                fences[i].close();
+                fences[i] = null;
+            }
         }
         buffer.close();
         closed = true;

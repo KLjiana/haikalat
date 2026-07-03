@@ -2,22 +2,11 @@ package com.kaleblangley.haikalat.gl.render;
 
 import com.kaleblangley.haikalat.gl.GlException;
 import com.kaleblangley.haikalat.gl.GlResource;
+import com.kaleblangley.haikalat.gl.command.CommandBuffer;
 import com.kaleblangley.haikalat.gl.material.ShaderProgram;
 
-import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
-import static org.lwjgl.opengl.GL11.GL_DEPTH_TEST;
-import static org.lwjgl.opengl.GL11.GL_TEXTURE_2D;
-import static org.lwjgl.opengl.GL11.glBindTexture;
-import static org.lwjgl.opengl.GL11.glClear;
-import static org.lwjgl.opengl.GL11.glDisable;
-import static org.lwjgl.opengl.GL11.glEnable;
-import static org.lwjgl.opengl.GL11.glViewport;
-import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
-import static org.lwjgl.opengl.GL13.glActiveTexture;
-import static org.lwjgl.opengl.GL20.glGetUniformLocation;
-import static org.lwjgl.opengl.GL20.glUniform1f;
-import static org.lwjgl.opengl.GL20.glUniform1i;
-import static org.lwjgl.opengl.GL20.glUseProgram;
+import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
 public final class TemporalAccumulationPass implements GlResource {
     private static final String VERTEX = """
@@ -47,30 +36,35 @@ public final class TemporalAccumulationPass implements GlResource {
 
     private final ShaderProgram program;
     private final ScreenQuad quad;
+    private final int uCurrentLoc;
+    private final int uHistoryLoc;
+    private final int uWeightLoc;
     private boolean closed;
 
     public TemporalAccumulationPass() {
         this.program = ShaderProgram.fromSources(VERTEX, FRAGMENT);
         this.quad = new ScreenQuad();
+        this.uCurrentLoc = program.uniformLocation("uCurrent");
+        this.uHistoryLoc = program.uniformLocation("uHistory");
+        this.uWeightLoc = program.uniformLocation("uHistoryWeight");
     }
 
-    public void render(int currentTextureId, int historyTextureId, float historyWeight, int targetWidth, int targetHeight) {
-        ensureOpen();
-        glDisable(GL_DEPTH_TEST);
-        glViewport(0, 0, targetWidth, targetHeight);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        program.use();
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, currentTextureId);
-        glUniform1i(glGetUniformLocation(program.id(), "uCurrent"), 0);
-        glActiveTexture(GL_TEXTURE0 + 1);
-        glBindTexture(GL_TEXTURE_2D, historyTextureId);
-        glUniform1i(glGetUniformLocation(program.id(), "uHistory"), 1);
-        glUniform1f(glGetUniformLocation(program.id(), "uHistoryWeight"), historyWeight);
-        quad.draw();
-        glUseProgram(0);
-        glEnable(GL_DEPTH_TEST);
+    public CommandBuffer record(CommandBuffer cmd, int currentTexId, int historyTexId,
+                                 float historyWeight, int targetW, int targetH) {
+        cmd.bindFramebuffer(GL_FRAMEBUFFER, 0);
+        cmd.viewport(0, 0, targetW, targetH);
+        cmd.enableDepthTest(false);
+        cmd.clear(true, false);
+        cmd.bindShader(program);
+        cmd.bindTexture(0, currentTexId);
+        cmd.bindTexture(1, historyTexId);
+        cmd.setUniformInt(program, "uCurrent", 0);
+        cmd.setUniformInt(program, "uHistory", 1);
+        cmd.setUniformFloat(program, "uHistoryWeight", historyWeight);
+        cmd.bindVertexArray(quad.id());
+        cmd.drawArrays(GL_TRIANGLES, 0, 6);
+        cmd.enableDepthTest(true);
+        return cmd;
     }
 
     @Override

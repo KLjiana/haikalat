@@ -19,9 +19,10 @@ import static org.lwjgl.opengl.GL11.*;
 public final class Material implements GlResource {
     private final ShaderProgram shader;
     private final List<TextureBinding> textureBindings;
-    private final Map<String, Object> staticUniforms;
+    private final Map<String, UniformValue> staticUniforms;
     private final BlendMode blendMode;
     private final boolean depthTest;
+    private final boolean ownResources;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -30,6 +31,7 @@ public final class Material implements GlResource {
         this.staticUniforms = Map.copyOf(builder.staticUniforms);
         this.blendMode = builder.blendMode;
         this.depthTest = builder.depthTest;
+        this.ownResources = builder.ownResources;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -39,23 +41,21 @@ public final class Material implements GlResource {
         for (TextureBinding tb : textureBindings) {
             cmd.bindTexture(tb.unit, tb.texture);
         }
-        for (Map.Entry<String, Object> entry : staticUniforms.entrySet()) {
+        for (Map.Entry<String, UniformValue> entry : staticUniforms.entrySet()) {
             applyUniform(cmd, entry.getKey(), entry.getValue());
         }
         return cmd;
     }
 
-    void applyUniform(CommandBuffer cmd, String name, Object value) {
-        if (value instanceof Float f) {
-            cmd.setUniformFloat(shader, name, f);
-        } else if (value instanceof Integer i) {
-            cmd.setUniformInt(shader, name, i);
-        } else if (value instanceof Vector3f v) {
-            cmd.setUniformVec3(shader, name, v);
-        } else if (value instanceof Matrix4f m) {
-            cmd.setUniformMat4(shader, name, m);
-        } else {
-            throw new GlException("Unsupported uniform type: " + value.getClass().getSimpleName());
+    void applyUniform(CommandBuffer cmd, String name, UniformValue value) {
+        if (value instanceof UniformValue.FloatVal f) {
+            cmd.setUniformFloat(shader, name, f.value());
+        } else if (value instanceof UniformValue.IntVal i) {
+            cmd.setUniformInt(shader, name, i.value());
+        } else if (value instanceof UniformValue.Vec3Val v) {
+            cmd.setUniformVec3(shader, name, v.value());
+        } else if (value instanceof UniformValue.Mat4Val m) {
+            cmd.setUniformMat4(shader, name, m.value());
         }
     }
 
@@ -102,6 +102,15 @@ public final class Material implements GlResource {
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
+        if (ownResources) {
+            shader.close();
+            for (TextureBinding tb : textureBindings) {
+                tb.texture.close();
+            }
+        }
         closed = true;
     }
 
@@ -119,9 +128,10 @@ public final class Material implements GlResource {
     public static final class Builder {
         private final ShaderProgram shader;
         private final List<TextureBinding> textureBindings = new ArrayList<>();
-        private final Map<String, Object> staticUniforms = new LinkedHashMap<>();
+        private final Map<String, UniformValue> staticUniforms = new LinkedHashMap<>();
         private BlendMode blendMode = BlendMode.OPAQUE;
         private boolean depthTest = true;
+        private boolean ownResources;
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;
@@ -135,31 +145,31 @@ public final class Material implements GlResource {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(texture, "texture");
             textureBindings.add(new TextureBinding(unit, texture));
-            staticUniforms.put(name, unit);
+            staticUniforms.put(name, new UniformValue.IntVal(unit));
             return this;
         }
 
         public Builder setFloat(String name, float value) {
-            staticUniforms.put(Objects.requireNonNull(name, "name"), value);
+            staticUniforms.put(Objects.requireNonNull(name, "name"), new UniformValue.FloatVal(value));
             return this;
         }
 
         public Builder setInt(String name, int value) {
-            staticUniforms.put(Objects.requireNonNull(name, "name"), value);
+            staticUniforms.put(Objects.requireNonNull(name, "name"), new UniformValue.IntVal(value));
             return this;
         }
 
         public Builder setVec3(String name, Vector3f value) {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(value, "value");
-            staticUniforms.put(name, value);
+            staticUniforms.put(name, new UniformValue.Vec3Val(value));
             return this;
         }
 
         public Builder setMat4(String name, Matrix4f value) {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(value, "value");
-            staticUniforms.put(name, value);
+            staticUniforms.put(name, new UniformValue.Mat4Val(value));
             return this;
         }
 
@@ -170,6 +180,11 @@ public final class Material implements GlResource {
 
         public Builder depthTest(boolean enable) {
             this.depthTest = enable;
+            return this;
+        }
+
+        public Builder ownResources() {
+            this.ownResources = true;
             return this;
         }
 

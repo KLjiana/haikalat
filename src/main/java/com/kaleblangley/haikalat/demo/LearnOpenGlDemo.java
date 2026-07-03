@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.demo;
 
 import com.kaleblangley.haikalat.gl.*;
 import com.kaleblangley.haikalat.gl.command.CommandBuffer;
+import com.kaleblangley.haikalat.gl.buffer.GlBuffer;
 import com.kaleblangley.haikalat.gl.command.RenderDevice;
 import com.kaleblangley.haikalat.gl.material.Material;
 import com.kaleblangley.haikalat.gl.material.ShaderProgram;
@@ -15,11 +16,14 @@ import com.kaleblangley.haikalat.gl.render.RenderLoop;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL33.*;
 
 public final class LearnOpenGlDemo {
 
@@ -102,9 +106,20 @@ public final class LearnOpenGlDemo {
         RenderPipeline pipeline = new RenderPipeline(window, scene, instanced);
         pipeline.build();
 
+        GlBuffer uploadDemoBuf = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(64);
+
         AtomicInteger frame = new AtomicInteger(0);
         window.run((w, dt) -> {
             if (w.consumeResize()) pipeline.resize(w.width(), w.height());
+
+            renderLoop.uploadQueue().submit(() -> {
+                float f = System.nanoTime() / 1e9f;
+                FloatBuffer fb = ByteBuffer
+                        .allocateDirect(16).order(ByteOrder.nativeOrder())
+                        .asFloatBuffer();
+                fb.put(new float[]{f, f, f, f}).flip();
+                uploadDemoBuf.update(0, fb);
+            });
 
             renderLoop.beginFrame();
             instanced.beginFrame(frame.get());

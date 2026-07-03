@@ -81,6 +81,10 @@ public final class GlRenderThread implements AutoCloseable {
             failure.set(throwable);
             renderLoop.requestStop();
         } finally {
+            try {
+                org.lwjgl.glfw.GLFW.glfwMakeContextCurrent(0);
+            } catch (Exception ignored) {
+            }
             closed.set(true);
         }
     }

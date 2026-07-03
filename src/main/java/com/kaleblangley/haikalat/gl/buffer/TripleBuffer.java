@@ -17,16 +17,16 @@ public final class TripleBuffer<T> {
     }
 
     @SuppressWarnings("unchecked")
-    public synchronized T read() {
+    public T read() {
         return (T) buffers[readIndex];
     }
 
     @SuppressWarnings("unchecked")
-    public synchronized T write() {
+    public T write() {
         return (T) buffers[writeIndex];
     }
 
-    public synchronized void flip() {
+    public void flip() {
         int previousRead = readIndex;
         readIndex = writeIndex;
         writeIndex = spareIndex;

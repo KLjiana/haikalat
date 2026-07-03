@@ -4,9 +4,12 @@ import com.kaleblangley.haikalat.gl.AntiAliasingMode;
 import com.kaleblangley.haikalat.gl.GlException;
 import com.kaleblangley.haikalat.gl.GlResource;
 import com.kaleblangley.haikalat.gl.RenderSettings;
+import com.kaleblangley.haikalat.gl.command.CommandBuffer;
 import com.kaleblangley.haikalat.gl.fb.Framebuffer;
 
 import java.util.Objects;
+
+import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
 public final class AntiAliasPipeline implements GlResource {
     private final RenderSettings settings;
@@ -41,17 +44,21 @@ public final class AntiAliasPipeline implements GlResource {
         return sceneFramebuffer;
     }
 
-    public void present(int width, int height) {
+    public CommandBuffer record(CommandBuffer cmd, int width, int height) {
         ensureOpen();
+        cmd.bindFramebuffer(GL_FRAMEBUFFER, 0);
+        cmd.viewport(0, 0, width, height);
         switch (settings.antiAliasingMode()) {
-            case NONE -> sceneFramebuffer.blitToDefault(width, height);
-            case MSAA -> sceneFramebuffer.blitToDefault(width, height);
-            case FXAA -> fxaaPostProcessor.render(sceneFramebuffer, width, height);
+            case NONE, MSAA -> cmd.custom(() -> sceneFramebuffer.blitToDefault(width, height));
+            case FXAA -> fxaaPostProcessor.record(cmd, sceneFramebuffer, width, height);
             case TAA -> {
-                temporalAccumulationPass.render(sceneFramebuffer.colorAttachment(), historyFramebuffer.colorAttachment(), 0.90f, width, height);
-                sceneFramebuffer.blitColorTo(historyFramebuffer);
+                temporalAccumulationPass.record(cmd,
+                        sceneFramebuffer.colorAttachment(),
+                        historyFramebuffer.colorAttachment(), 0.90f, width, height);
+                cmd.custom(() -> sceneFramebuffer.blitColorTo(historyFramebuffer));
             }
         }
+        return cmd;
     }
 
     @Override
