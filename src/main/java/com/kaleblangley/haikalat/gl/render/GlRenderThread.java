@@ -2,90 +2,106 @@ package com.kaleblangley.haikalat.gl.render;
 
 import com.kaleblangley.haikalat.gl.RenderSettings;
 import com.kaleblangley.haikalat.gl.command.CommandBuffer;
-import com.kaleblangley.haikalat.gl.command.RenderCommand;
 
+import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+import static org.lwjgl.glfw.GLFW.glfwMakeContextCurrent;
+import static org.lwjgl.glfw.GLFW.glfwSwapBuffers;
+import static org.lwjgl.opengl.GL.createCapabilities;
 
 public final class GlRenderThread implements AutoCloseable {
+    private final long window;
     private final RenderLoop renderLoop;
-    private final Runnable frameAction;
+    private final Consumer<CommandBuffer> frameCallback;
+    private Runnable initHook;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final AtomicReference<Throwable> failure = new AtomicReference<>();
-    private final Thread thread;
+    private final CompletableFuture<Void> completion = new CompletableFuture<>();
+    private Thread thread;
 
-    public GlRenderThread(RenderSettings settings, Runnable frameAction) {
-        this(settings, frameAction, "GL-RenderThread");
+    public GlRenderThread(long window, RenderSettings settings, Consumer<CommandBuffer> frameCallback) {
+        this.window = window;
+        this.renderLoop = new RenderLoop(Objects.requireNonNull(settings, "settings"));
+        this.frameCallback = Objects.requireNonNull(frameCallback, "frameCallback");
     }
 
-    public GlRenderThread(RenderSettings settings, Runnable frameAction, String threadName) {
-        this.renderLoop = new RenderLoop(Objects.requireNonNull(settings, "settings"));
-        this.frameAction = Objects.requireNonNull(frameAction, "frameAction");
-        this.thread = new Thread(this::runLoop, Objects.requireNonNull(threadName, "threadName"));
-        this.thread.setDaemon(true);
+    public GlRenderThread onInit(Runnable init) {
+        this.initHook = init;
+        return this;
     }
 
     public RenderLoop renderLoop() {
         return renderLoop;
     }
 
-    public void start() {
+    public CompletableFuture<Void> start() {
         if (!started.compareAndSet(false, true)) {
-            throw new IllegalStateException("Render thread already started");
+            throw new IllegalStateException("Already started");
         }
+        thread = new Thread(this::runLoop, "GL-RenderThread");
+        thread.setDaemon(true);
         thread.start();
-    }
-
-    public void submit(RenderCommand command) {
-        renderLoop.submit(command);
-    }
-
-    public void execute(CommandBuffer buffer) {
-        renderLoop.executeCommandBuffer(buffer);
-    }
-
-    public Throwable failure() {
-        return failure.get();
+        return completion;
     }
 
     public boolean isAlive() {
-        return thread.isAlive();
+        return thread != null && thread.isAlive();
     }
 
-    public void requestStop() {
+    public void shutdown(Duration timeout) throws TimeoutException {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         renderLoop.requestStop();
-    }
-
-    public void join() throws InterruptedException {
-        thread.join();
+        try {
+            if (timeout != null) {
+                completion.get(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
+            } else {
+                completion.join();
+            }
+        } catch (java.util.concurrent.TimeoutException e) {
+            if (thread != null) thread.interrupt();
+            throw e;
+        } catch (Exception e) {
+            if (e instanceof RuntimeException re) throw re;
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            requestStop();
+        try {
+            shutdown(Duration.ofSeconds(3));
+        } catch (TimeoutException ignored) {
         }
     }
 
     private void runLoop() {
         try {
+            glfwMakeContextCurrent(window);
+            createCapabilities();
+            if (initHook != null) {
+                initHook.run();
+            }
             while (renderLoop.isRunning() && !closed.get()) {
                 renderLoop.beginFrame();
-                renderLoop.drainCommands();
-                frameAction.run();
+                CommandBuffer cmd = renderLoop.device().createCommandBuffer();
+                frameCallback.accept(cmd);
+                renderLoop.device().execute(cmd);
                 renderLoop.endFrame();
+                glfwSwapBuffers(window);
             }
-        } catch (Throwable throwable) {
-            failure.set(throwable);
+            completion.complete(null);
+        } catch (Throwable t) {
+            completion.completeExceptionally(t);
             renderLoop.requestStop();
         } finally {
-            try {
-                org.lwjgl.glfw.GLFW.glfwMakeContextCurrent(0);
-            } catch (Exception ignored) {
-            }
-            closed.set(true);
+            try { glfwMakeContextCurrent(0); } catch (Exception ignored) {}
         }
     }
 }

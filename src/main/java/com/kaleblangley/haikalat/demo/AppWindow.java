@@ -107,14 +107,17 @@ public final class AppWindow {
     }
 
     private void processInput() {
+        processInput(deltaTime);
+    }
+
+    public void processInput(float dt) {
         if (keys[GLFW_KEY_ESCAPE]) {
             glfwSetWindowShouldClose(window, true);
         }
-        float v = 2.5f * deltaTime;
-        if (keys[GLFW_KEY_W]) camera.processKeyboard(Camera.Movement.FORWARD, deltaTime);
-        if (keys[GLFW_KEY_S]) camera.processKeyboard(Camera.Movement.BACKWARD, deltaTime);
-        if (keys[GLFW_KEY_A]) camera.processKeyboard(Camera.Movement.LEFT, deltaTime);
-        if (keys[GLFW_KEY_D]) camera.processKeyboard(Camera.Movement.RIGHT, deltaTime);
+        if (keys[GLFW_KEY_W]) camera.processKeyboard(Camera.Movement.FORWARD, dt);
+        if (keys[GLFW_KEY_S]) camera.processKeyboard(Camera.Movement.BACKWARD, dt);
+        if (keys[GLFW_KEY_A]) camera.processKeyboard(Camera.Movement.LEFT, dt);
+        if (keys[GLFW_KEY_D]) camera.processKeyboard(Camera.Movement.RIGHT, dt);
     }
 
     public void setTitle(String title) {
