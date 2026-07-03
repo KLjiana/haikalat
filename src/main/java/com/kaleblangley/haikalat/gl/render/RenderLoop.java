@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.gl.RenderSettings;
 import com.kaleblangley.haikalat.gl.RenderStatistics;
 import com.kaleblangley.haikalat.gl.buffer.UploadQueue;
 import com.kaleblangley.haikalat.gl.command.CommandBuffer;
+import com.kaleblangley.haikalat.gl.command.GlRenderDevice;
 import com.kaleblangley.haikalat.gl.command.RenderCommand;
 import com.kaleblangley.haikalat.gl.command.RenderCommandQueue;
 import com.kaleblangley.haikalat.gl.command.RenderDevice;
@@ -22,7 +23,7 @@ public final class RenderLoop {
 
     public RenderLoop(RenderSettings settings) {
         this.settings = Objects.requireNonNull(settings, "settings");
-        this.device = new RenderDevice();
+        this.device = new GlRenderDevice();
     }
 
     public RenderSettings settings() {

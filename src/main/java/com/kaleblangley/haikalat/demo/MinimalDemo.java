@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.demo;
 import com.kaleblangley.haikalat.gl.BlendMode;
 import com.kaleblangley.haikalat.gl.GlDebug;
 import com.kaleblangley.haikalat.gl.RenderStatistics;
+import com.kaleblangley.haikalat.gl.buffer.GlBuffer;
+import com.kaleblangley.haikalat.gl.command.GlRenderDevice;
 import com.kaleblangley.haikalat.gl.buffer.*;
 import com.kaleblangley.haikalat.gl.command.*;
 import com.kaleblangley.haikalat.gl.fb.*;
@@ -49,7 +51,7 @@ public final class MinimalDemo {
         });
         glfwShowWindow(window);
 
-        RenderDevice device = new RenderDevice();
+        GlRenderDevice device = new GlRenderDevice();
         RenderStatistics stats = new RenderStatistics();
 
         ShaderProgram colorShader = ShaderProgram.fromSources(

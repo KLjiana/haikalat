@@ -16,6 +16,7 @@ import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30.glBindRenderbuffer;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
+import static org.lwjgl.opengl.GL20.glDrawBuffers;
 import static org.lwjgl.opengl.GL30.glCheckFramebufferStatus;
 import static org.lwjgl.opengl.GL30.glDeleteFramebuffers;
 import static org.lwjgl.opengl.GL30.glDeleteRenderbuffers;
@@ -29,6 +30,7 @@ import static org.lwjgl.opengl.GL30.glRenderbufferStorageMultisample;
 public final class Framebuffer implements GlResource {
     private final int id;
     private final int colorAttachment;
+    private final int[] colorAttachments;
     private final int depthAttachment;
     private final int width;
     private final int height;
@@ -39,6 +41,18 @@ public final class Framebuffer implements GlResource {
     public Framebuffer(int id, int colorAttachment, int depthAttachment, int width, int height, int samples, boolean multisampled) {
         this.id = id;
         this.colorAttachment = colorAttachment;
+        this.colorAttachments = new int[]{colorAttachment};
+        this.depthAttachment = depthAttachment;
+        this.width = width;
+        this.height = height;
+        this.samples = samples;
+        this.multisampled = multisampled;
+    }
+
+    public Framebuffer(int id, int[] colorAttachments, int depthAttachment, int width, int height, int samples, boolean multisampled) {
+        this.id = id;
+        this.colorAttachment = colorAttachments.length > 0 ? colorAttachments[0] : 0;
+        this.colorAttachments = colorAttachments;
         this.depthAttachment = depthAttachment;
         this.width = width;
         this.height = height;
@@ -142,6 +156,47 @@ public final class Framebuffer implements GlResource {
         return this;
     }
 
+    public static Framebuffer mrt(int width, int height, int... colorFormats) {
+        int fbo = glGenFramebuffers();
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        int[] textures = new int[colorFormats.length];
+
+        for (int i = 0; i < colorFormats.length; i++) {
+            textures[i] = glGenTextures();
+            glBindTexture(GL_TEXTURE_2D, textures[i]);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexImage2D(GL_TEXTURE_2D, 0, colorFormats[i], width, height, 0,
+                    GL_RGBA, GL_UNSIGNED_BYTE, 0L);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
+                    GL_TEXTURE_2D, textures[i], 0);
+        }
+
+        int depthRbo = glGenRenderbuffers();
+        glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                GL_RENDERBUFFER, depthRbo);
+
+        int[] drawBufs = new int[colorFormats.length];
+        for (int i = 0; i < drawBufs.length; i++) {
+            drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+        }
+        glDrawBuffers(drawBufs);
+        glReadBuffer(GL_NONE);
+        ensureComplete(fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        return new Framebuffer(fbo, textures, depthRbo, width, height, 1, false);
+    }
+
+    public int colorAttachment(int index) {
+        if (index < 0 || index >= colorAttachments.length) {
+            throw new IndexOutOfBoundsException("Color attachment index out of range: " + index);
+        }
+        return colorAttachments[index];
+    }
+
     public int colorAttachment() {
         return colorAttachment;
     }
@@ -184,7 +239,9 @@ public final class Framebuffer implements GlResource {
         if (multisampled) {
             glDeleteRenderbuffers(colorAttachment);
         } else {
-            glDeleteTextures(colorAttachment);
+            for (int id : colorAttachments) {
+                if (id != 0) glDeleteTextures(id);
+            }
         }
         glDeleteRenderbuffers(depthAttachment);
         glDeleteFramebuffers(id);

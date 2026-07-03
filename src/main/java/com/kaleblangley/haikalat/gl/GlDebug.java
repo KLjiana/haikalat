@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.gl;
 
+import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GLUtil;
+import org.lwjgl.system.Callback;
+
 import java.util.logging.Logger;
 
 import static org.lwjgl.opengl.GL33.*;
@@ -21,6 +25,16 @@ public final class GlDebug {
         int error = glGetError();
         if (error != GL_NO_ERROR) {
             throw new GlException(context + ": " + errorName(error) + " (" + error + ")");
+        }
+    }
+
+    public static void enableDebugCallback() {
+        try {
+            if (GL.getCapabilities().GL_KHR_debug) {
+                GLUtil.setupDebugMessageCallback(System.err);
+                LOG.info("GL debug output enabled");
+            }
+        } catch (Exception ignored) {
         }
     }
 
