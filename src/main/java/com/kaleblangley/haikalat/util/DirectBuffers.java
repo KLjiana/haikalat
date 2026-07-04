@@ -1,6 +1,6 @@
 package com.kaleblangley.haikalat.util;
 
-import com.kaleblangley.haikalat.gl.GlException;
+import com.kaleblangley.haikalat.backend.GlException;
 
 import java.io.IOException;
 import java.io.InputStream;
