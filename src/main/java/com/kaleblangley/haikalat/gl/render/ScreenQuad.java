@@ -8,8 +8,6 @@ import com.kaleblangley.haikalat.gl.mesh.VertexAttribute;
 import com.kaleblangley.haikalat.gl.mesh.VertexLayout;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
-import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
-import static org.lwjgl.opengl.GL11.glDrawArrays;
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
 
 public final class ScreenQuad implements GlResource {
@@ -37,19 +35,6 @@ public final class ScreenQuad implements GlResource {
         vao.unbind();
     }
 
-    public ScreenQuad bind() {
-        ensureOpen();
-        vao.bind();
-        return this;
-    }
-
-    public ScreenQuad draw() {
-        ensureOpen();
-        vao.bind();
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        return this;
-    }
-
     @Override
     public int id() {
         return vao.id();
@@ -62,17 +47,13 @@ public final class ScreenQuad implements GlResource {
 
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
+        if (closed) return;
         vbo.close();
         vao.close();
         closed = true;
     }
 
-    private void ensureOpen() {
-        if (closed) {
-            throw new GlException("ScreenQuad is closed");
-        }
+    void ensureOpen() {
+        if (closed) throw new GlException("ScreenQuad closed");
     }
 }

@@ -106,20 +106,9 @@ public final class LearnOpenGlDemo {
         RenderPipeline pipeline = new RenderPipeline(window, scene, instanced);
         pipeline.build();
 
-        GlBuffer uploadDemoBuf = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(64);
-
         AtomicInteger frame = new AtomicInteger(0);
         window.run((w, dt) -> {
             if (w.consumeResize()) pipeline.resize(w.width(), w.height());
-
-            renderLoop.uploadQueue().submit(() -> {
-                float f = System.nanoTime() / 1e9f;
-                FloatBuffer fb = ByteBuffer
-                        .allocateDirect(16).order(ByteOrder.nativeOrder())
-                        .asFloatBuffer();
-                fb.put(new float[]{f, f, f, f}).flip();
-                uploadDemoBuf.update(0, fb);
-            });
 
             renderLoop.beginFrame();
             instanced.beginFrame(frame.get());

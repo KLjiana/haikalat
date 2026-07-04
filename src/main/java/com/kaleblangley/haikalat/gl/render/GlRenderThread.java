@@ -6,6 +6,8 @@ import com.kaleblangley.haikalat.gl.command.CommandBuffer;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -19,9 +21,11 @@ public final class GlRenderThread implements AutoCloseable {
     private final RenderLoop renderLoop;
     private final Consumer<CommandBuffer> frameCallback;
     private Runnable initHook;
+    private Runnable cleanupHook;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final CompletableFuture<Void> completion = new CompletableFuture<>();
+    private final CountDownLatch initLatch = new CountDownLatch(1);
     private Thread thread;
 
     public GlRenderThread(long window, RenderSettings settings, Consumer<CommandBuffer> frameCallback) {
@@ -32,6 +36,11 @@ public final class GlRenderThread implements AutoCloseable {
 
     public GlRenderThread onInit(Runnable init) {
         this.initHook = init;
+        return this;
+    }
+
+    public GlRenderThread onCleanup(Runnable cleanup) {
+        this.cleanupHook = cleanup;
         return this;
     }
 
@@ -46,6 +55,11 @@ public final class GlRenderThread implements AutoCloseable {
         thread = new Thread(this::runLoop, "GL-RenderThread");
         thread.setDaemon(true);
         thread.start();
+        try {
+            initLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         return completion;
     }
 
@@ -60,7 +74,7 @@ public final class GlRenderThread implements AutoCloseable {
         renderLoop.requestStop();
         try {
             if (timeout != null) {
-                completion.get(timeout.toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
+                completion.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
             } else {
                 completion.join();
             }
@@ -88,6 +102,7 @@ public final class GlRenderThread implements AutoCloseable {
             if (initHook != null) {
                 initHook.run();
             }
+            initLatch.countDown();
             while (renderLoop.isRunning() && !closed.get()) {
                 renderLoop.beginFrame();
                 CommandBuffer cmd = renderLoop.device().createCommandBuffer();
@@ -101,6 +116,9 @@ public final class GlRenderThread implements AutoCloseable {
             completion.completeExceptionally(t);
             renderLoop.requestStop();
         } finally {
+            try {
+                if (cleanupHook != null) cleanupHook.run();
+            } catch (Exception ignored) {}
             try { glfwMakeContextCurrent(0); } catch (Exception ignored) {}
         }
     }
