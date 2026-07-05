@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 
-import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
 
 public final class RenderGraph implements AutoCloseable {
@@ -93,7 +92,7 @@ public final class RenderGraph implements AutoCloseable {
     /**
      * 拓扑排序并编译渲染图，确定 Pass 执行顺序；检测循环依赖。
      * 编译后可重复调用 execute() 执行。
-     */
+-     */
     public void compile() {
         Map<String, Integer> inDegree = new HashMap<>();
         for (Pass pass : passes) {

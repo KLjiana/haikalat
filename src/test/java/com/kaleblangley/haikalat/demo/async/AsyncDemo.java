@@ -147,7 +147,7 @@ public final class AsyncDemo {
                 uploadFb.position(uploadFb.position() + 16);
             }
             uploadFb.flip();
-            uploadSystem[0].uploadBuffer(dynBuf[0], 0, uploadFb);
+            uploadSystem[0].uploadFloats(dynBuf[0], 0, uploadFb);
 
             writes.view().set(camera.getViewMatrix());
             stateBuffer.flip();
