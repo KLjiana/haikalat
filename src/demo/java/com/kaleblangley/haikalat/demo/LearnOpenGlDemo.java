@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
@@ -11,7 +12,6 @@ import com.kaleblangley.haikalat.core.assets.SceneAssetConfig;
 import com.kaleblangley.haikalat.core.assets.ShaderAsset;
 import com.kaleblangley.haikalat.core.assets.TextureAssetCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -45,13 +45,16 @@ public final class LearnOpenGlDemo {
     public static void main(String[] args) {
         demoVertexPacking();
 
-        RenderSettings settings = RenderSettings.builder().debugErrors(true).build();
+        RenderSettings settings = RenderSettings.builder()
+                .debugErrors(true)
+                .antiAliasingMode(AntiAliasingMode.FXAA)
+                .build();
         AppWindow window = new AppWindow(1280, 720, "LearnOpenGL Demo", settings.vsync());
         window.show();
 
         FrameDriver renderLoop = new FrameDriver(settings);
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
-        SceneAssetConfig sceneConfig = SceneAssetConfig.load(assets, "/demo/learnopengl.scene");
+        SceneAssetConfig sceneConfig = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
         TextureAssetCache textureCache = new TextureAssetCache(ref -> loadTexture(ref, sceneConfig));
 
         ShaderProgram colorShader = loadShader("color", sceneConfig);

@@ -5,7 +5,7 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
 import java.util.Objects;
 
-public final class GlRenderDevice extends GlRenderResourceFactory implements RenderDevice {
+public final class GlRenderDevice implements RenderDevice {
     private final StateCache stateCache;
 
     public GlRenderDevice() {
@@ -42,12 +42,10 @@ public final class GlRenderDevice extends GlRenderResourceFactory implements Ren
         }
     }
 
-    @Override
     public StateCache stateCache() {
         return stateCache;
     }
 
-    @Override
     public void invalidateState() {
         stateCache.invalidate();
     }

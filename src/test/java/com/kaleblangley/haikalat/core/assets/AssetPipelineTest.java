@@ -48,6 +48,35 @@ class AssetPipelineTest {
     }
 
     @Test
+    void sceneConfigParsesStandardPropertiesFormat() {
+        SceneAssetConfig config = SceneAssetConfig.parseProperties("""
+                shader.color.vertex=/demo/color.vert
+                shader.color.fragment=/demo/color.frag
+                texture.wall.path=/wall.png
+                texture.wall.flipVertically=false
+                model.cube.path=/models/cube.obj
+                object.cube01.model=cube
+                object.cube01.material=color
+                object.cube01.position=1,2,3
+                object.cube01.rotation=0,0,0
+                object.cube01.scale=1
+                object.cube01.castShadows=true
+                light.sun.type=directional
+                light.sun.vector=-1,-1,-1
+                light.sun.color=1,1,1
+                light.sun.intensity=2
+                light.sun.range=0
+                light.sun.castShadows=true
+                """);
+
+        assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
+        assertEquals(false, config.textures().get("wall").flipVertically());
+        assertEquals("/models/cube.obj", config.models().get("cube").path().path());
+        assertEquals(1.0f, config.objects().get("cube01").position().x, 1.0e-6f);
+        assertEquals(true, config.lights().get("sun").castShadows());
+    }
+
+    @Test
     void objLoaderTriangulatesQuadsAndBuildsPositionNormalUvVertices() {
         LoadedModel model = ObjModelLoader.parse("""
                 v 0 0 0

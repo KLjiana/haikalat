@@ -1,7 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
-import com.kaleblangley.haikalat.core.device.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -10,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -60,14 +58,5 @@ class ScenePipelineTest {
         assertTrue(Float.isFinite(matrix.m00()));
         assertThrows(IllegalArgumentException.class,
                 () -> shadowMap.lightSpaceMatrix(SceneLight.point(new Vector3f(), new Vector3f(1), 1, 1), new Vector3f()));
-    }
-
-    @Test
-    void deferredPipelineIsEvaluatedButNotDefaultImplementation() {
-        DeferredPipelinePlan plan = RenderPipeline.deferredPipelinePlan();
-
-        assertFalse(plan.implemented());
-        assertEquals(List.of("GBufferPass", "LightingPass", "PostProcessPass", "PresentPass"), plan.passes());
-        assertEquals(RenderFormat.RGBA16F, plan.gBufferAttachments().get(1).format());
     }
 }

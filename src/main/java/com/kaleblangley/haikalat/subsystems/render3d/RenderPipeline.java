@@ -80,10 +80,6 @@ public final class RenderPipeline {
                 forwardPasses.stream()).toList();
     }
 
-    public static DeferredPipelinePlan deferredPipelinePlan() {
-        return DeferredPipelinePlan.evaluatedBaseline();
-    }
-
     public RenderPipelineKind kind() {
         return RenderPipelineKind.FORWARD;
     }

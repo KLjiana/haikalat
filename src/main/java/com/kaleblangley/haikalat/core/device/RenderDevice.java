@@ -1,9 +1,8 @@
 package com.kaleblangley.haikalat.core.device;
 
-import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
-public interface RenderDevice extends RenderResourceFactory {
+public interface RenderDevice {
     RenderBackendKind backendKind();
 
     ExecutionModel executionModel();
@@ -11,10 +10,6 @@ public interface RenderDevice extends RenderResourceFactory {
     CommandBuffer createCommandBuffer();
 
     void execute(CommandBuffer buffer);
-
-    StateCache stateCache();
-
-    void invalidateState();
 
     void transition(ResourceBarrier... barriers);
 }

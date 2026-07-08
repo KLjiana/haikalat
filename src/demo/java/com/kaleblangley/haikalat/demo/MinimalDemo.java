@@ -169,7 +169,8 @@ public final class MinimalDemo {
 
             cmd.bindShader(instShader);
             cmd.setUniformMat4(instShader, "uProjView", projView);
-            // Temporary custom command until instanced batch upload/draw has a formal command API.
+            // TODO(command-api): replace with a formal instanced batch upload/draw command.
+            // This touches the render main path and should not stay as a custom escape hatch.
             cmd.custom(() -> {
                 instBatch.beginFrame();
                 instBatch.submitAll(transformBuf.read());

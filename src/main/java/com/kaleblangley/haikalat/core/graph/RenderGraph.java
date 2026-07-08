@@ -6,9 +6,7 @@ import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.core.device.GlRenderResourceFactory;
 import com.kaleblangley.haikalat.core.device.RenderFormat;
-import com.kaleblangley.haikalat.core.device.RenderResourceFactory;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.runtime.FrameProfile;
 import com.kaleblangley.haikalat.runtime.GpuTimer;
@@ -30,7 +28,6 @@ public final class RenderGraph implements AutoCloseable {
     private final Map<String, Integer> textureAttachmentIds = new HashMap<>();
     private final Map<String, GpuTimer> passTimers = new HashMap<>();
     private final RenderTargetManager renderTargets;
-    private final RenderResourceFactory resourceFactory;
     private final boolean allocateResources;
     private List<Pass> sortedPasses;
     private int width;
@@ -44,22 +41,13 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     RenderGraph(int width, int height, boolean allocateResources) {
-        this(width, height, allocateResources, new GlRenderResourceFactory());
-    }
-
-    public RenderGraph(int width, int height, RenderResourceFactory resourceFactory) {
-        this(width, height, true, resourceFactory);
-    }
-
-    RenderGraph(int width, int height, boolean allocateResources, RenderResourceFactory resourceFactory) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("width and height must be positive");
         }
         this.width = width;
         this.height = height;
         this.allocateResources = allocateResources;
-        this.resourceFactory = Objects.requireNonNull(resourceFactory, "resourceFactory");
-        this.renderTargets = allocateResources ? resourceFactory.createRenderTargetManager() : null;
+        this.renderTargets = allocateResources ? new RenderTargetManager() : null;
     }
 
     public int width() {
@@ -182,6 +170,8 @@ public final class RenderGraph implements AutoCloseable {
             Framebuffer framebuffer = getPassFramebuffer(pass.name);
             currentFbo = framebuffer;
             GpuTimer timer = passTimers.computeIfAbsent(pass.name, ignored -> new GpuTimer());
+            // TODO(command-api): keep as custom unless timer commands need StateCache or command-level tests.
+            // Debug profiling begin/end is an allowed temporary CommandBuffer escape hatch.
             cmd.custom(timer::begin);
 
             if (pass.useBackbuffer) {
@@ -200,6 +190,8 @@ public final class RenderGraph implements AutoCloseable {
             }
 
             pass.executor.execute(resources, cmd);
+            // TODO(command-api): keep as custom unless timer commands need StateCache or command-level tests.
+            // Debug profiling begin/end is an allowed temporary CommandBuffer escape hatch.
             cmd.custom(timer::end);
             cpuRecordNanos.put(pass.name, System.nanoTime() - passCpuStart);
         }

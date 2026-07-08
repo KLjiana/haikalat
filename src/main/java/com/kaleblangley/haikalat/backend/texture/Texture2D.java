@@ -2,9 +2,7 @@ package com.kaleblangley.haikalat.backend.texture;
 
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
-import com.kaleblangley.haikalat.backend.GlFormats;
 import com.kaleblangley.haikalat.backend.GlDebug;
-import com.kaleblangley.haikalat.core.device.TextureDescriptor;
 import com.kaleblangley.haikalat.util.DirectBuffers;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
@@ -101,23 +99,6 @@ public final class Texture2D implements GlResource {
             STBImage.stbi_image_free(image);
             return new Texture2D(textureId, width, height, format);
         }
-    }
-
-    public static Texture2D fromDescriptor(TextureDescriptor descriptor) {
-        Objects.requireNonNull(descriptor, "descriptor");
-        int textureId = glGenTextures();
-        glBindTexture(GL_TEXTURE_2D, textureId);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, descriptor.mipmapped() ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        int format = GlFormats.toGl(descriptor.format());
-        glTexImage2D(GL_TEXTURE_2D, 0, format, descriptor.width(), descriptor.height(), 0,
-                GL_RGBA, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, 0L);
-        if (descriptor.mipmapped()) {
-            glGenerateMipmap(GL_TEXTURE_2D);
-        }
-        return new Texture2D(textureId, descriptor.width(), descriptor.height(), format);
     }
 
     /**

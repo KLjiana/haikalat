@@ -3,21 +3,11 @@ package com.kaleblangley.haikalat.backend.framebuffer;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
 
 public final class RenderTargetManager implements AutoCloseable {
     private final Map<String, FramebufferDescriptor> descriptors = new LinkedHashMap<>();
     private final Map<String, Framebuffer> targets = new LinkedHashMap<>();
-    private final Function<FramebufferDescriptor, Framebuffer> factory;
     private boolean closed;
-
-    public RenderTargetManager() {
-        this(Framebuffer::fromDescriptor);
-    }
-
-    public RenderTargetManager(Function<FramebufferDescriptor, Framebuffer> factory) {
-        this.factory = Objects.requireNonNull(factory, "factory");
-    }
 
     public Framebuffer create(String name, FramebufferDescriptor descriptor) {
         ensureOpen();
@@ -25,7 +15,7 @@ public final class RenderTargetManager implements AutoCloseable {
         Objects.requireNonNull(descriptor, "descriptor");
         closeTarget(name);
         descriptors.put(name, descriptor);
-        Framebuffer target = factory.apply(descriptor);
+        Framebuffer target = Framebuffer.fromDescriptor(descriptor);
         targets.put(name, target);
         return target;
     }
@@ -45,7 +35,7 @@ public final class RenderTargetManager implements AutoCloseable {
         closeTargets();
         descriptors.replaceAll((name, descriptor) -> descriptor.resized(width, height));
         for (Map.Entry<String, FramebufferDescriptor> entry : descriptors.entrySet()) {
-            targets.put(entry.getKey(), factory.apply(entry.getValue()));
+            targets.put(entry.getKey(), Framebuffer.fromDescriptor(entry.getValue()));
         }
     }
 
