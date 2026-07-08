@@ -1,0 +1,102 @@
+package com.kaleblangley.haikalat.core.assets;
+
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Constructor;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class AssetPipelineTest {
+    @Test
+    void assetRefNormalizesPathsAndExtractsExtension() {
+        AssetRef ref = AssetRef.of("models\\cube.OBJ");
+
+        assertEquals("models/cube.OBJ", ref.path());
+        assertEquals("obj", ref.extension());
+    }
+
+    @Test
+    void resourceLocatorReadsFilesystemRoots() throws Exception {
+        Path root = Files.createTempDirectory("haikalat-assets");
+        Files.writeString(root.resolve("scene.txt"), "shader basic a.vert a.frag");
+        ResourceLocator locator = ResourceLocator.classpath(getClass()).addRoot(root);
+
+        assertEquals("shader basic a.vert a.frag", locator.readString(AssetRef.of("scene.txt")));
+        assertTrue(locator.resolveFile(AssetRef.of("scene.txt")).isPresent());
+    }
+
+    @Test
+    void sceneConfigParsesShadersTexturesObjectsAndLights() {
+        SceneAssetConfig config = SceneAssetConfig.parse("""
+                shader color /demo/color.vert /demo/color.frag
+                texture wall /wall.png false
+                model cube /models/cube.obj
+                object cube01 cube color 1 2 3 0 0 0 1 true
+                light sun directional -1 -1 -1 1 1 1 2 0 true
+                """);
+
+        assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
+        assertEquals(false, config.textures().get("wall").flipVertically());
+        assertEquals("cube", config.objects().get("cube01").model());
+        assertEquals("directional", config.lights().get("sun").type());
+    }
+
+    @Test
+    void objLoaderTriangulatesQuadsAndBuildsPositionNormalUvVertices() {
+        LoadedModel model = ObjModelLoader.parse("""
+                v 0 0 0
+                v 1 0 0
+                v 1 1 0
+                v 0 1 0
+                vt 0 0
+                vt 1 0
+                vt 1 1
+                vt 0 1
+                vn 0 0 1
+                f 1/1/1 2/2/1 3/3/1 4/4/1
+                """, "quad.obj");
+
+        assertEquals(1, model.meshes().size());
+        assertEquals(LoadedModel.VertexFormat.POSITION_NORMAL_UV, model.firstMesh().format());
+        assertEquals(4 * 8, model.firstMesh().vertices().length);
+        assertEquals(6, model.firstMesh().indices().length);
+    }
+
+    @Test
+    void modelManagerRoutesByExtension() {
+        ModelAssetManager manager = new ModelAssetManager()
+                .register("obj", ref -> new LoadedModel(java.util.List.of(
+                        new LoadedModel.MeshData(ref.path(), new float[]{0, 0, 0}, new int[]{0},
+                                LoadedModel.VertexFormat.POSITION))));
+
+        assertTrue(manager.supports(".obj"));
+        assertEquals("mesh.obj", manager.load("mesh.obj").firstMesh().name());
+    }
+
+    @Test
+    void textureCacheReusesLoadedTexture() throws Exception {
+        AtomicInteger loads = new AtomicInteger();
+        Texture2D texture = texture(42);
+        TextureAssetCache cache = new TextureAssetCache(ref -> {
+            loads.incrementAndGet();
+            return texture;
+        });
+
+        assertSame(texture, cache.get("wall.png"));
+        assertSame(texture, cache.get("wall.png"));
+        assertEquals(1, loads.get());
+        assertEquals(1, cache.size());
+    }
+
+    private static Texture2D texture(int id) throws Exception {
+        Constructor<Texture2D> ctor = Texture2D.class.getDeclaredConstructor(int.class, int.class, int.class, int.class);
+        ctor.setAccessible(true);
+        return ctor.newInstance(id, 1, 1, 0);
+    }
+}

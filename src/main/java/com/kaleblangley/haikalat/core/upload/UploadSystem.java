@@ -1,7 +1,5 @@
 package com.kaleblangley.haikalat.core.upload;
 
-import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
-
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -65,7 +63,7 @@ public final class UploadSystem implements AutoCloseable {
      *
      * @param offset 偏移量（字节），必须非负
      */
-    public void uploadBuffer(GlBuffer buffer, long offset, ByteBuffer data) {
+    public void uploadBuffer(BufferUploadTarget buffer, long offset, ByteBuffer data) {
         Objects.requireNonNull(buffer, "buffer");
         Objects.requireNonNull(data, "data");
         if (offset < 0) throw new IllegalArgumentException("offset must be >= 0: " + offset);
@@ -79,9 +77,9 @@ public final class UploadSystem implements AutoCloseable {
     }
 
     /**
-     * 提交 FloatBuffer 上传请求。内部转换为 ByteBuffer 后委托给 {@link #uploadBuffer(GlBuffer, long, ByteBuffer)}。
+     * 提交 FloatBuffer 上传请求。内部转换为 ByteBuffer 后委托给 {@link #uploadBuffer(BufferUploadTarget, long, ByteBuffer)}。
      */
-    public void uploadFloats(GlBuffer buffer, long offset, FloatBuffer data) {
+    public void uploadFloats(BufferUploadTarget buffer, long offset, FloatBuffer data) {
         Objects.requireNonNull(data, "data");
         int bytes = data.remaining() * Float.BYTES;
         ByteBuffer bb = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
@@ -91,7 +89,7 @@ public final class UploadSystem implements AutoCloseable {
     }
 
     /** 便捷重载。 */
-    public void uploadFloats(GlBuffer buffer, long offset, float[] data) {
+    public void uploadFloats(BufferUploadTarget buffer, long offset, float[] data) {
         Objects.requireNonNull(data, "data");
         uploadFloats(buffer, offset, FloatBuffer.wrap(data));
     }
@@ -101,7 +99,7 @@ public final class UploadSystem implements AutoCloseable {
      *
      * @return 被丢弃的请求数量
      */
-    public int discardUploadsFor(GlBuffer buffer) {
+    public int discardUploadsFor(BufferUploadTarget buffer) {
         Objects.requireNonNull(buffer, "buffer");
         synchronized (stateLock) {
             int before = bufferUploads.size();
@@ -286,5 +284,5 @@ public final class UploadSystem implements AutoCloseable {
         void execute();
     }
 
-    private record BufferUpload(GlBuffer buffer, long offset, ByteBuffer data, long sequence) {}
+    private record BufferUpload(BufferUploadTarget buffer, long offset, ByteBuffer data, long sequence) {}
 }

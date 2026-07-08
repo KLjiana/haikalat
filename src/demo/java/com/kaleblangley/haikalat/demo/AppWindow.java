@@ -32,7 +32,7 @@ public final class AppWindow implements RenderWindow {
 
     public void setTitle(String t) { glfwSetWindowTitle(window.handle(), t); }
 
-    public boolean consumeResize() { return false; }
+    public boolean consumeResize() { return window.consumeResize(); }
 
     @Override public int width() { return window.width(); }
     @Override public int height() { return window.height(); }

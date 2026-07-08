@@ -3,23 +3,32 @@ package com.kaleblangley.haikalat.core.buffer;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
+import com.kaleblangley.haikalat.backend.sync.GpuFence;
+import com.kaleblangley.haikalat.core.mesh.InstanceDataLayout;
+import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
 import org.joml.Matrix4f;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.List;
+import java.util.Objects;
 
-import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
+import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
+import static org.lwjgl.opengl.GL33.glVertexAttribDivisor;
 
 public final class InstanceBufferRing implements GlResource {
     private static final int FRAME_COUNT = 3;
     private static final int MAT4_FLOATS = 16;
     private static final int MAT4_BYTES = MAT4_FLOATS * Float.BYTES;
+    private static final long FENCE_TIMEOUT_NANOS = 1_000_000_000L;
 
     private final GlBuffer buffer;
+    private final InstanceDataLayout layout;
+    private final InstanceUploadStrategy uploadStrategy;
+    private final GpuFence[] fences = new GpuFence[FRAME_COUNT];
     private final long frameSize;
     private final int maxInstances;
     private int writeSlot;
@@ -27,18 +36,31 @@ public final class InstanceBufferRing implements GlResource {
     private boolean closed;
 
     public InstanceBufferRing(int maxInstances) {
+        this(maxInstances, InstanceDataLayout.mat4Transform(0), InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
+    }
+
+    public InstanceBufferRing(int maxInstances, InstanceDataLayout layout, InstanceUploadStrategy uploadStrategy) {
         if (maxInstances <= 0) {
             throw new IllegalArgumentException("maxInstances must be positive");
         }
         this.maxInstances = maxInstances;
-        this.frameSize = (long) maxInstances * MAT4_BYTES;
-        long totalSize = frameSize * FRAME_COUNT;
+        this.layout = Objects.requireNonNull(layout, "layout");
+        this.uploadStrategy = Objects.requireNonNull(uploadStrategy, "uploadStrategy");
+        this.frameSize = (long) maxInstances * layout.strideBytes();
 
-        this.buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(totalSize);
+        buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(frameSize * FRAME_COUNT);
     }
 
     public boolean isPersistent() {
-        return false;
+        return uploadStrategy.persistent();
+    }
+
+    public InstanceUploadStrategy uploadStrategy() {
+        return uploadStrategy;
+    }
+
+    public InstanceDataLayout layout() {
+        return layout;
     }
 
     public int maxInstances() {
@@ -46,48 +68,81 @@ public final class InstanceBufferRing implements GlResource {
     }
 
     public int strideBytes() {
-        return MAT4_BYTES;
+        return layout.strideBytes();
     }
 
     public void beginFrame() {
         ensureOpen();
+        waitForWritableSlot();
         activeCount = 0;
     }
 
     public void upload(List<Matrix4f> transforms) {
+        upload(transforms, 0);
+    }
+
+    public void upload(List<Matrix4f> transforms, int startInstance) {
         ensureOpen();
+        Objects.requireNonNull(transforms, "transforms");
+        if (!layout.supportsMatrixTransforms()) {
+            throw new GlException("Instance layout does not support Matrix4f uploads: " + layout.name());
+        }
+        if (startInstance < 0) {
+            throw new IllegalArgumentException("startInstance must be non-negative");
+        }
         int count = transforms.size();
-        if (count > maxInstances) {
-            throw new GlException("Instance count exceeds buffer capacity: " + count + " > " + maxInstances);
+        if (startInstance + count > maxInstances) {
+            throw new GlException("Instance count exceeds buffer capacity: "
+                    + (startInstance + count) + " > " + maxInstances);
         }
         if (count == 0) {
-            activeCount = 0;
             return;
         }
 
-        long offset = (long) writeSlot * frameSize;
         FloatBuffer data = createMatrixBuffer(count);
-        for (Matrix4f m : transforms) {
-            m.get(data);
-            data.position(data.position() + MAT4_FLOATS);
+        int paddingFloats = (layout.strideBytes() - MAT4_BYTES) / Float.BYTES;
+        for (Matrix4f transform : transforms) {
+            Objects.requireNonNull(transform, "transform").get(data);
+            data.position(data.position() + MAT4_FLOATS + paddingFloats);
         }
         data.flip();
-        buffer.update(offset, data);
-        activeCount = count;
+
+        buffer.update(frameOffset(startInstance), data);
+        activeCount = Math.max(activeCount, startInstance + count);
     }
 
     public void bindAttributes(int baseLocation) {
+        bindAttributes(InstanceDataLayout.mat4Transform(baseLocation), 0);
+    }
+
+    public void bindAttributes(InstanceDataLayout layout, int startInstance) {
         ensureOpen();
-        long offset = (long) writeSlot * frameSize;
+        Objects.requireNonNull(layout, "layout");
+        if (startInstance < 0) {
+            throw new IllegalArgumentException("startInstance must be non-negative");
+        }
+
+        long offset = frameOffset(startInstance);
         buffer.bind();
-        for (int i = 0; i < 4; i++) {
-            glVertexAttribPointer(baseLocation + i, 4, GL_FLOAT, false, MAT4_BYTES,
-                    offset + (long) i * 4 * Float.BYTES);
+        for (VertexAttribute attribute : layout.attributes()) {
+            glVertexAttribPointer(
+                    attribute.index(),
+                    attribute.size(),
+                    attribute.type(),
+                    attribute.normalized(),
+                    layout.strideBytes(),
+                    offset + attribute.offsetBytes()
+            );
+            glEnableVertexAttribArray(attribute.index());
+            if (attribute.divisor() != 0) {
+                glVertexAttribDivisor(attribute.index(), attribute.divisor());
+            }
         }
     }
 
     public void finishFrame() {
         ensureOpen();
+        insertFenceForCurrentSlot();
         writeSlot = (writeSlot + 1) % FRAME_COUNT;
     }
 
@@ -115,13 +170,47 @@ public final class InstanceBufferRing implements GlResource {
         if (closed) {
             return;
         }
+        for (int i = 0; i < fences.length; i++) {
+            closeFence(i);
+        }
         buffer.close();
         closed = true;
     }
 
     private FloatBuffer createMatrixBuffer(int matrixCount) {
-        ByteBuffer bytes = ByteBuffer.allocateDirect(matrixCount * MAT4_BYTES).order(ByteOrder.nativeOrder());
+        ByteBuffer bytes = ByteBuffer.allocateDirect(matrixCount * layout.strideBytes())
+                .order(ByteOrder.nativeOrder());
         return bytes.asFloatBuffer();
+    }
+
+    private long frameOffset(int startInstance) {
+        return (long) writeSlot * frameSize + (long) startInstance * layout.strideBytes();
+    }
+
+    private void waitForWritableSlot() {
+        if (uploadStrategy != InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA || fences[writeSlot] == null) {
+            return;
+        }
+        boolean signaled = fences[writeSlot].waitFor(FENCE_TIMEOUT_NANOS);
+        if (!signaled) {
+            throw new GlException("Timed out waiting for instance buffer slot " + writeSlot);
+        }
+        closeFence(writeSlot);
+    }
+
+    private void insertFenceForCurrentSlot() {
+        if (uploadStrategy != InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA) {
+            return;
+        }
+        closeFence(writeSlot);
+        fences[writeSlot] = GpuFence.insert();
+    }
+
+    private void closeFence(int slot) {
+        if (fences[slot] != null) {
+            fences[slot].close();
+            fences[slot] = null;
+        }
     }
 
     private void ensureOpen() {

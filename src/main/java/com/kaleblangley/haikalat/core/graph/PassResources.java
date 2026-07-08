@@ -20,6 +20,10 @@ public final class PassResources {
         return graph.getTexture(textureName);
     }
 
+    public int getTextureAttachmentId(String textureName) {
+        return graph.getTextureAttachmentId(textureName);
+    }
+
     public Framebuffer getFramebuffer() {
         return graph.currentPassFramebuffer();
     }

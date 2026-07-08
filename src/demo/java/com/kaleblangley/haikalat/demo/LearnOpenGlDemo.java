@@ -5,6 +5,11 @@ import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.assets.AssetRef;
+import com.kaleblangley.haikalat.core.assets.ResourceLocator;
+import com.kaleblangley.haikalat.core.assets.SceneAssetConfig;
+import com.kaleblangley.haikalat.core.assets.ShaderAsset;
+import com.kaleblangley.haikalat.core.assets.TextureAssetCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
@@ -14,6 +19,7 @@ import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
 import com.kaleblangley.haikalat.core.mesh.VertexLayout;
 import com.kaleblangley.haikalat.core.mesh.VertexPacking;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
@@ -44,16 +50,16 @@ public final class LearnOpenGlDemo {
         window.show();
 
         FrameDriver renderLoop = new FrameDriver(settings);
+        ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
+        SceneAssetConfig sceneConfig = SceneAssetConfig.load(assets, "/demo/learnopengl.scene");
+        TextureAssetCache textureCache = new TextureAssetCache(ref -> loadTexture(ref, sceneConfig));
 
-        ShaderProgram colorShader = ShaderProgram.fromResource(LearnOpenGlDemo.class,
-                "/color.vert", "/color.frag");
-        ShaderProgram texturedShader = ShaderProgram.fromResource(LearnOpenGlDemo.class,
-                "/textured.vert", "/textured.frag");
-        ShaderProgram instancedShader = ShaderProgram.fromResource(LearnOpenGlDemo.class,
-                "/instanced.vert", "/instanced.frag");
+        ShaderProgram colorShader = loadShader("color", sceneConfig);
+        ShaderProgram texturedShader = loadShader("textured", sceneConfig);
+        ShaderProgram instancedShader = loadShader("instanced", sceneConfig);
 
-        Texture2D wallTex = Texture2D.fromResource(LearnOpenGlDemo.class, "/wall.png", false);
-        Texture2D faceTex = Texture2D.fromResource(LearnOpenGlDemo.class, "/awesomeface.png", true);
+        Texture2D wallTex = textureCache.get(sceneConfig.textures().get("wall").path());
+        Texture2D faceTex = textureCache.get(sceneConfig.textures().get("face").path());
 
         Material colorMat = Material.builder(colorShader).blendMode(BlendMode.OPAQUE).build();
         Material wallMat = Material.builder(texturedShader)
@@ -109,38 +115,61 @@ public final class LearnOpenGlDemo {
             }
         }
 
-        RenderPipeline pipeline = new RenderPipeline(window, window.camera(), scene, instanced);
-        pipeline.build();
+        RenderPipeline pipeline = new RenderPipeline(window, window.camera(), scene, instanced, settings);
+        try {
+            pipeline.build();
 
-        AtomicInteger frame = new AtomicInteger(0);
-        window.run((w, dt) -> {
-            if (w.consumeResize()) pipeline.resize(w.width(), w.height());
+            AtomicInteger frame = new AtomicInteger(0);
+            window.run((w, dt) -> {
+                if (w.consumeResize()) pipeline.resize(w.width(), w.height());
 
-            instanced.beginFrame(frame.get());
-            renderLoop.frame(pipeline.graph());
+                instanced.beginFrame(frame.get());
+                renderLoop.frame(pipeline.graph());
 
-            if ((frame.get() % 60) == 0) {
-                double fps = renderLoop.statistics().averageFps();
-                w.setTitle(String.format("LearnOpenGL | FPS %.1f | inst %d | %s",
-                        fps, instanced.drawnCount(),
-                        instanced.supportsPersistent() ? "pers" : "glSub"));
-            }
+                if ((frame.get() % 60) == 0) {
+                    DebugOverlaySnapshot overlay = DebugOverlaySnapshot.from(
+                            renderLoop.statistics(),
+                            instanced.statistics().drawCalls(),
+                            instanced.drawnCount(),
+                            settings.antiAliasingMode());
+                    w.setTitle(String.format("LearnOpenGL | FPS %.1f | draw %d | inst %d | GPU %.2f ms | AA %s",
+                            overlay.fps(), overlay.drawCalls(), overlay.instanceCount(),
+                            overlay.gpuMillis(), overlay.activeAntiAliasingMode()));
+                }
 
-            GlDebug.checkError("LearnOpenGlDemo.frame");
-            frame.incrementAndGet();
-        });
+                GlDebug.checkError("LearnOpenGlDemo.frame");
+                frame.incrementAndGet();
+            });
+        } finally {
+            pipeline.close();
+            instanced.close();
+            coloredQuad.close();
+            texQuad.close();
+            triangle.close();
+            textureCache.close();
+            instancedShader.close();
+            texturedShader.close();
+            colorShader.close();
+            window.close();
+        }
+    }
 
-        pipeline.close();
-        instanced.close();
-        coloredQuad.close();
-        texQuad.close();
-        triangle.close();
-        faceTex.close();
-        wallTex.close();
-        instancedShader.close();
-        texturedShader.close();
-        colorShader.close();
-        window.close();
+    private static ShaderProgram loadShader(String name, SceneAssetConfig config) {
+        ShaderAsset asset = config.shaders().get(name);
+        if (asset == null) {
+            throw new IllegalStateException("Shader not configured: " + name);
+        }
+        return ShaderProgram.fromResource(LearnOpenGlDemo.class,
+                asset.vertexShader().path(), asset.fragmentShader().path());
+    }
+
+    private static Texture2D loadTexture(AssetRef ref, SceneAssetConfig config) {
+        boolean flip = config.textures().values().stream()
+                .filter(texture -> texture.path().equals(ref))
+                .findFirst()
+                .map(SceneAssetConfig.TextureDef::flipVertically)
+                .orElse(true);
+        return Texture2D.fromResource(LearnOpenGlDemo.class, ref.path(), flip);
     }
 
     private static void demoVertexPacking() {

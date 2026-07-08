@@ -121,10 +121,13 @@ public final class GlRenderThread implements AutoCloseable {
             glfwMakeContextCurrent(window);
             createCapabilities();
             glfwSwapInterval(frameDriver.settings().vsync() ? 1 : 0);
-            if (initHook != null) {
-                initHook.run();
+            try {
+                if (initHook != null) {
+                    initHook.run();
+                }
+            } finally {
+                initLatch.countDown();
             }
-            initLatch.countDown();
             while (frameDriver.isRunning() && !closed.get()) {
                 frameDriver.beginFrame();
                 CommandBuffer cmd = frameDriver.device().createCommandBuffer();

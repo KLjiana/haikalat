@@ -7,6 +7,7 @@ import org.lwjgl.system.Callback;
 import java.util.logging.Logger;
 
 import static org.lwjgl.opengl.GL33.*;
+import static org.lwjgl.opengl.GL43.glObjectLabel;
 
 public final class GlDebug {
     private static final Logger LOG = Logger.getLogger(GlDebug.class.getName());
@@ -33,6 +34,18 @@ public final class GlDebug {
             if (GL.getCapabilities().GL_KHR_debug) {
                 GLUtil.setupDebugMessageCallback(System.err);
                 LOG.info("GL debug output enabled");
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static void labelObject(int identifier, int object, String label) {
+        if (object == 0 || label == null || label.isBlank()) {
+            return;
+        }
+        try {
+            if (GL.getCapabilities().GL_KHR_debug || GL.getCapabilities().OpenGL43) {
+                glObjectLabel(identifier, object, label);
             }
         } catch (Exception ignored) {
         }

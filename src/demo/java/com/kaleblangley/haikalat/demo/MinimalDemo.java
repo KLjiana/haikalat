@@ -127,12 +127,19 @@ public final class MinimalDemo {
         int frame = 0;
         CommandBuffer cmd = device.createCommandBuffer();
 
-        while (!glfwWindowShouldClose(window)) {
-            stats.beginFrame();
+        try {
+            while (!glfwWindowShouldClose(window)) {
+                stats.beginFrame();
+                if (sceneFb.width() != fbWidth || sceneFb.height() != fbHeight) {
+                    sceneFb.close();
+                    sceneFb = Framebuffer.singleSampled(fbWidth, fbHeight);
+                }
 
-            triModel.identity().translation(-1.0f, 0.5f, 0).rotateZ(frame * 0.03f);
-            quadModel.identity().translation(1.0f, 0.5f, 0).rotateZ(-frame * 0.02f);
-            proj.mul(view, projView);
+                triModel.identity().translation(-1.0f, 0.5f, 0).rotateZ(frame * 0.03f);
+                quadModel.identity().translation(1.0f, 0.5f, 0).rotateZ(-frame * 0.02f);
+                proj.identity().perspective((float) Math.toRadians(45.0),
+                        fbWidth / (float) Math.max(1, fbHeight), 0.1f, 100.0f);
+                proj.mul(view, projView);
 
             List<Matrix4f> writes = transformBuf.write();
             writes.clear();
@@ -162,6 +169,7 @@ public final class MinimalDemo {
 
             cmd.bindShader(instShader);
             cmd.setUniformMat4(instShader, "uProjView", projView);
+            // Temporary custom command until instanced batch upload/draw has a formal command API.
             cmd.custom(() -> {
                 instBatch.beginFrame();
                 instBatch.submitAll(transformBuf.read());
@@ -169,7 +177,7 @@ public final class MinimalDemo {
             });
 
             cmd.bindFramebuffer(GL_FRAMEBUFFER, 0).viewport(0, 0, fbWidth, fbHeight);
-            cmd.custom(() -> sceneFb.blitToDefault(fbWidth, fbHeight));
+            cmd.blitToDefault(sceneFb, fbWidth, fbHeight);
 
             device.execute(cmd);
 
@@ -183,20 +191,21 @@ public final class MinimalDemo {
             GlDebug.checkError("MinimalDemo");
             glfwSwapBuffers(window);
             glfwPollEvents();
-            frame++;
+                frame++;
+            }
+        } finally {
+            transformBuf.write().clear();
+            instBatch.close();
+            sceneFb.close();
+            texQuad.close();
+            quad.close();
+            triangle.close();
+            wallTex.close();
+            instShader.close();
+            texShader.close();
+            colorShader.close();
+            glfwDestroyWindow(window);
+            glfwTerminate();
         }
-
-        transformBuf.write().clear();
-        instBatch.close();
-        sceneFb.close();
-        texQuad.close();
-        quad.close();
-        triangle.close();
-        wallTex.close();
-        instShader.close();
-        texShader.close();
-        colorShader.close();
-        glfwDestroyWindow(window);
-        glfwTerminate();
     }
 }

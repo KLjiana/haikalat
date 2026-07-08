@@ -51,13 +51,13 @@ public final class AntiAliasPipeline implements GlResource {
         cmd.bindFramebuffer(GL_FRAMEBUFFER, 0);
         cmd.viewport(0, 0, width, height);
         switch (settings.antiAliasingMode()) {
-            case NONE, MSAA -> cmd.custom(() -> sceneFramebuffer.blitToDefault(width, height));
+            case NONE, MSAA -> cmd.blitToDefault(sceneFramebuffer, width, height);
             case FXAA -> fxaaPostProcessor.record(cmd, sceneFramebuffer, width, height);
             case TAA -> {
                 temporalAccumulationPass.record(cmd,
                         sceneFramebuffer.colorAttachment(),
                         historyFramebuffer.colorAttachment(), 0.90f, width, height);
-                cmd.custom(() -> sceneFramebuffer.blitColorTo(historyFramebuffer));
+                cmd.blitColor(sceneFramebuffer, historyFramebuffer);
             }
         }
         return cmd;

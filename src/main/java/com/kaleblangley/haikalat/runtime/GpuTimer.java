@@ -29,10 +29,10 @@ public final class GpuTimer implements GlResource {
     }
 
     public long elapsedNanos() {
-        if (!begun) {
+        ensureOpen();
+        if (begun) {
             return elapsedNanos;
         }
-        ensureOpen();
         int available = glGetQueryObjecti(queryId, GL_QUERY_RESULT_AVAILABLE);
         if (available == GL_TRUE) {
             elapsedNanos = glGetQueryObjectui64(queryId, GL_QUERY_RESULT);

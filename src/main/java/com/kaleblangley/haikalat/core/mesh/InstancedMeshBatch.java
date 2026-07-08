@@ -4,145 +4,228 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.buffer.InstanceBufferRing;
+import com.kaleblangley.haikalat.core.buffer.InstanceUploadStrategy;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
-import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 
 public final class InstancedMeshBatch implements AutoCloseable {
     private final List<MeshEntry> meshes = new ArrayList<>();
+    private final Map<Mesh, MeshEntry> meshesBySource = new LinkedHashMap<>();
     private final InstanceBufferRing instanceBuffers;
-    private final VertexLayout instanceLayout;
-    private final List<Matrix4f> transforms = new ArrayList<>();
+    private final InstanceDataLayout instanceLayout;
+    private MeshEntry defaultMesh;
+    private InstanceBatchStats lastStats = InstanceBatchStats.empty();
     private boolean closed;
 
     private InstancedMeshBatch(int maxInstances, int baseAttributeLocation) {
-        this.instanceLayout = VertexLayout.instanceMatrix(baseAttributeLocation);
-        this.instanceBuffers = new InstanceBufferRing(maxInstances);
+        this(maxInstances, InstanceDataLayout.mat4Transform(baseAttributeLocation),
+                InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
     }
 
-    /**
-     * 创建实例化批次并添加一个网格。
-     *
-     * @param mesh                  网格
-     * @param maxInstances          每批次最大实例数
-     * @param baseAttributeLocation 实例矩阵属性的起始 location
-     * @return 新建的 InstancedMeshBatch
-     */
+    private InstancedMeshBatch(int maxInstances, InstanceDataLayout instanceLayout,
+                              InstanceUploadStrategy uploadStrategy) {
+        this.instanceLayout = Objects.requireNonNull(instanceLayout, "instanceLayout");
+        this.instanceBuffers = new InstanceBufferRing(maxInstances, instanceLayout, uploadStrategy);
+    }
+
     public static InstancedMeshBatch of(Mesh mesh, int maxInstances, int baseAttributeLocation) {
         return new InstancedMeshBatch(maxInstances, baseAttributeLocation).addMesh(mesh);
     }
 
-    /**
-     * 创建实例化批次并添加多个网格。
-     *
-     * @param meshes                网格列表
-     * @param maxInstances          每批次最大实例数
-     * @param baseAttributeLocation 实例矩阵属性的起始 location
-     * @return 新建的 InstancedMeshBatch
-     */
+    public static InstancedMeshBatch of(Mesh mesh, int maxInstances, InstanceDataLayout layout) {
+        return new InstancedMeshBatch(maxInstances, layout, InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA)
+                .addMesh(mesh);
+    }
+
+    public static InstancedMeshBatch of(Mesh mesh, int maxInstances, InstanceDataLayout layout,
+                                       InstanceUploadStrategy uploadStrategy) {
+        return new InstancedMeshBatch(maxInstances, layout, uploadStrategy).addMesh(mesh);
+    }
+
     public static InstancedMeshBatch of(List<Mesh> meshes, int maxInstances, int baseAttributeLocation) {
         InstancedMeshBatch batch = new InstancedMeshBatch(maxInstances, baseAttributeLocation);
-        for (Mesh m : meshes) batch.addMesh(m);
+        for (Mesh mesh : meshes) {
+            batch.addMesh(mesh);
+        }
         return batch;
     }
 
-    /**
-     * 向批次中注册一个网格，为其创建独立的 VAO。
-     *
-     * @param mesh 要注册的网格
-     * @return 自身，支持链式调用
-     */
+    public static InstancedMeshBatch of(List<Mesh> meshes, int maxInstances, InstanceDataLayout layout) {
+        InstancedMeshBatch batch = new InstancedMeshBatch(maxInstances, layout,
+                InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
+        for (Mesh mesh : meshes) {
+            batch.addMesh(mesh);
+        }
+        return batch;
+    }
+
     public InstancedMeshBatch addMesh(Mesh mesh) {
+        ensureOpen();
         Objects.requireNonNull(mesh, "mesh");
+        if (meshesBySource.containsKey(mesh)) {
+            return this;
+        }
+
         VertexArray vao = new VertexArray();
         vao.bind();
         setupMeshAttributes(mesh);
         instanceBuffers.activeBuffer().bind();
-        instanceLayout.apply();
+        instanceLayout.vertexLayout().apply();
         vao.unbind();
-        meshes.add(new MeshEntry(vao, mesh));
+
+        MeshEntry entry = new MeshEntry(vao, mesh, new ArrayList<>());
+        meshes.add(entry);
+        meshesBySource.put(mesh, entry);
+        if (defaultMesh == null) {
+            defaultMesh = entry;
+        }
         return this;
     }
 
-    /** 开始新一帧，清空已提交的变换并置位实例缓冲区轮。 */
     public InstancedMeshBatch beginFrame() {
         ensureOpen();
-        transforms.clear();
+        for (MeshEntry entry : meshes) {
+            entry.transforms.clear();
+        }
+        lastStats = InstanceBatchStats.empty();
         instanceBuffers.beginFrame();
         return this;
     }
 
-    /**
-     * 提交一个实例的模型变换矩阵。
-     *
-     * @param transform 模型矩阵
-     * @return 自身，支持链式调用
-     */
     public InstancedMeshBatch submit(Matrix4f transform) {
+        ensureDefaultMesh();
+        return submit(defaultMesh.mesh, transform);
+    }
+
+    public InstancedMeshBatch submit(Mesh mesh, Matrix4f transform) {
         ensureOpen();
-        transforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
+        MeshEntry entry = requireMesh(mesh);
+        entry.transforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
         return this;
     }
 
-    /**
-     * 批量提交多个实例的模型变换矩阵。
-     *
-     * @param batch 模型矩阵集合
-     * @return 自身，支持链式调用
-     */
     public InstancedMeshBatch submitAll(Iterable<Matrix4f> batch) {
         ensureOpen();
-        for (Matrix4f transform : batch) submit(transform);
+        for (Matrix4f transform : batch) {
+            submit(transform);
+        }
         return this;
     }
 
-    /**
-     * 将当前所有待渲染的实例上传至 GPU 并绘制，绘制完成后清空变换列表。
-     *
-     * @return 本次绘制的实例数量
-     */
+    public InstancedMeshBatch submitAll(Mesh mesh, Iterable<Matrix4f> batch) {
+        ensureOpen();
+        for (Matrix4f transform : batch) {
+            submit(mesh, transform);
+        }
+        return this;
+    }
+
     public int flush() {
         ensureOpen();
-        if (transforms.isEmpty()) return 0;
-        instanceBuffers.upload(transforms);
-        int count = transforms.size();
-        for (MeshEntry entry : meshes) {
-            entry.vao.bind();
-            instanceBuffers.bindAttributes(instanceLayout.attributes().get(0).index());
-            entry.mesh.drawInstancedBound(count);
+        int submitted = pendingInstances();
+        if (submitted == 0) {
+            lastStats = InstanceBatchStats.empty();
+            return 0;
         }
+        if (submitted > instanceBuffers.maxInstances()) {
+            throw new GlException("Instance count exceeds buffer capacity: "
+                    + submitted + " > " + instanceBuffers.maxInstances());
+        }
+
+        int drawn = 0;
+        int drawCalls = 0;
+        int bufferUpdates = 0;
+        int meshGroups = 0;
+        int startInstance = 0;
+        for (MeshEntry entry : meshes) {
+            int count = entry.transforms.size();
+            if (count == 0) {
+                continue;
+            }
+
+            instanceBuffers.upload(entry.transforms, startInstance);
+            bufferUpdates++;
+            entry.vao.bind();
+            instanceBuffers.bindAttributes(instanceLayout, startInstance);
+            entry.mesh.drawInstancedBound(count);
+
+            drawn += count;
+            drawCalls++;
+            meshGroups++;
+            startInstance += count;
+        }
+
         instanceBuffers.finishFrame();
-        int drawn = transforms.size();
-        transforms.clear();
+        lastStats = new InstanceBatchStats(submitted, drawn, drawCalls, bufferUpdates, meshGroups);
+        for (MeshEntry entry : meshes) {
+            entry.transforms.clear();
+        }
         return drawn;
     }
 
-    /** @return 是否使用持久化映射缓冲区 */
     public boolean isPersistent() {
         return instanceBuffers.isPersistent();
     }
 
-    /** @return 当前待渲染的实例数量 */
+    public InstanceUploadStrategy uploadStrategy() {
+        return instanceBuffers.uploadStrategy();
+    }
+
+    public InstanceDataLayout instanceLayout() {
+        return instanceLayout;
+    }
+
+    public InstanceBatchStats statistics() {
+        return lastStats;
+    }
+
     public int pendingInstances() {
-        return transforms.size();
+        int count = 0;
+        for (MeshEntry entry : meshes) {
+            count += entry.transforms.size();
+        }
+        return count;
     }
 
     @Override
     public void close() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         instanceBuffers.close();
-        for (MeshEntry entry : meshes) entry.vao.close();
+        for (MeshEntry entry : meshes) {
+            entry.vao.close();
+        }
         closed = true;
     }
 
     private void ensureOpen() {
-        if (closed) throw new GlException("InstancedMeshBatch is closed");
+        if (closed) {
+            throw new GlException("InstancedMeshBatch is closed");
+        }
+    }
+
+    private void ensureDefaultMesh() {
+        ensureOpen();
+        if (defaultMesh == null) {
+            throw new GlException("No mesh registered in InstancedMeshBatch");
+        }
+    }
+
+    private MeshEntry requireMesh(Mesh mesh) {
+        MeshEntry entry = meshesBySource.get(Objects.requireNonNull(mesh, "mesh"));
+        if (entry == null) {
+            throw new GlException("Mesh is not registered in this InstancedMeshBatch");
+        }
+        return entry;
     }
 
     private static void setupMeshAttributes(Mesh mesh) {
@@ -160,8 +243,11 @@ public final class InstancedMeshBatch implements AutoCloseable {
             allBufs[0].bind();
             mesh.vertexLayout().apply();
         }
-        if (mesh.indexBuffer() != null) mesh.indexBuffer().bind();
+        if (mesh.indexBuffer() != null) {
+            mesh.indexBuffer().bind();
+        }
     }
 
-    private record MeshEntry(VertexArray vao, Mesh mesh) {}
+    private record MeshEntry(VertexArray vao, Mesh mesh, List<Matrix4f> transforms) {
+    }
 }

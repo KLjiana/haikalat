@@ -69,6 +69,7 @@ public final class FrameDriver {
     public void frame(RenderGraph graph) {
         beginFrame();
         graph.execute(device);
+        statistics.recordGraphProfile(graph.lastFrameProfile());
         endFrame();
     }
 

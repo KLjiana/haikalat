@@ -1,70 +1,83 @@
 package com.kaleblangley.haikalat.core.material;
 
-import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.HashSet;
+import java.util.Set;
 
-import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.opengl.GL11.GL_ONE;
+import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
+import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 
+/**
+ * Immutable material template.
+ *
+ * <p>Per-object mutable values belong in {@link MaterialInstance}. A Material owns
+ * GPU resources only when explicitly configured with {@link ResourceOwnership#OWNED}.</p>
+ */
 public final class Material implements GlResource {
     private final ShaderProgram shader;
-    private final List<TextureBinding> textureBindings;
-    private final Map<String, UniformValue> staticUniforms;
+    private final List<TextureBinding> defaultTextures;
+    private final Map<UniformKey<?>, UniformValue> defaultUniforms;
     private final BlendMode blendMode;
     private final boolean depthTest;
-    private final boolean ownResources;
+    private final ResourceOwnership resourceOwnership;
     private boolean closed;
 
     private Material(Builder builder) {
         this.shader = builder.shader;
-        this.textureBindings = List.copyOf(builder.textureBindings);
-        this.staticUniforms = Map.copyOf(builder.staticUniforms);
+        this.defaultTextures = List.copyOf(builder.defaultTextures);
+        this.defaultUniforms = Collections.unmodifiableMap(new LinkedHashMap<>(builder.defaultUniforms));
         this.blendMode = builder.blendMode;
         this.depthTest = builder.depthTest;
-        this.ownResources = builder.ownResources;
+        this.resourceOwnership = builder.resourceOwnership;
     }
 
-    /**
-     * 将材质绑定到命令缓冲区，依次设置着色器、混合状态、深度测试、纹理和静态 uniform。
-     *
-     * @param cmd 命令缓冲区
-     * @return 传入的命令缓冲区，支持链式调用
-     */
     public CommandBuffer bind(CommandBuffer cmd) {
-        cmd.bindShader(shader);
-        applyBlendState(cmd);
-        cmd.enableDepthTest(depthTest);
-        for (TextureBinding tb : textureBindings) {
-            cmd.bindTexture(tb.unit, tb.texture);
-        }
-        for (Map.Entry<String, UniformValue> entry : staticUniforms.entrySet()) {
-            applyUniform(cmd, entry.getKey(), entry.getValue());
-        }
+        bindState(cmd);
+        bindDefaultTextures(cmd);
+        bindDefaultUniforms(cmd);
         return cmd;
     }
 
-    void applyUniform(CommandBuffer cmd, String name, UniformValue value) {
-        if (value instanceof UniformValue.FloatVal f) {
-            cmd.setUniformFloat(shader, name, f.value());
-        } else if (value instanceof UniformValue.IntVal i) {
-            cmd.setUniformInt(shader, name, i.value());
-        } else if (value instanceof UniformValue.Vec3Val v) {
-            cmd.setUniformVec3(shader, name, v.value());
-        } else if (value instanceof UniformValue.Mat4Val m) {
-            cmd.setUniformMat4(shader, name, m.value());
+    void bindState(CommandBuffer cmd) {
+        cmd.bindShader(shader);
+        applyBlendState(cmd);
+        cmd.enableDepthTest(depthTest);
+    }
+
+    void bindDefaultTextures(CommandBuffer cmd) {
+        for (TextureBinding binding : defaultTextures) {
+            cmd.bindTexture(binding.unit(), binding.texture(), binding.sampler());
         }
+    }
+
+    void bindDefaultUniforms(CommandBuffer cmd) {
+        for (Map.Entry<UniformKey<?>, UniformValue> entry : defaultUniforms.entrySet()) {
+            applyUniform(cmd, entry.getKey(), entry.getValue());
+        }
+    }
+
+    void applyUniform(CommandBuffer cmd, String name, UniformValue value) {
+        applyUniform(cmd, new UniformKey<>(name, value.type()), value);
+    }
+
+    void applyUniform(CommandBuffer cmd, UniformKey<?> key, UniformValue value) {
+        key.validate(value);
+        Objects.requireNonNull(value, "value").apply(cmd, shader, key.name());
     }
 
     private void applyBlendState(CommandBuffer cmd) {
@@ -86,19 +99,28 @@ public final class Material implements GlResource {
         }
     }
 
-    /** @return 此材质绑定的着色器程序 */
     public ShaderProgram shader() {
         return shader;
     }
 
-    /** @return 此材质的混合模式 */
     public BlendMode blendMode() {
         return blendMode;
     }
 
-    /** @return 此材质是否启用深度测试 */
     public boolean depthTest() {
         return depthTest;
+    }
+
+    public ResourceOwnership resourceOwnership() {
+        return resourceOwnership;
+    }
+
+    public Map<UniformKey<?>, UniformValue> defaultUniforms() {
+        return defaultUniforms;
+    }
+
+    public List<TextureBinding> defaultTextures() {
+        return defaultTextures;
     }
 
     @Override
@@ -116,147 +138,154 @@ public final class Material implements GlResource {
         if (closed) {
             return;
         }
-        if (ownResources) {
+        if (resourceOwnership == ResourceOwnership.OWNED) {
             shader.close();
-            for (TextureBinding tb : textureBindings) {
-                tb.texture.close();
+            Set<Integer> closedSamplers = new HashSet<>();
+            for (TextureBinding binding : defaultTextures) {
+                binding.texture().close();
+                if (binding.sampler() != null && closedSamplers.add(binding.sampler().id())) {
+                    binding.sampler().close();
+                }
             }
         }
         closed = true;
     }
 
-    /**
-     * 创建一个 Material 的 Builder。
-     *
-     * @param shader 此材质绑定的着色器程序
-     * @return Builder 实例
-     */
     public static Builder builder(ShaderProgram shader) {
         return new Builder(Objects.requireNonNull(shader, "shader"));
     }
 
-    /** @return 通过此材质创建一个可覆盖参数的实例 */
     public MaterialInstance createInstance() {
         return new MaterialInstance(this);
     }
 
-    private record TextureBinding(int unit, Texture2D texture) {
+    public record TextureBinding(int unit, String samplerName, Texture2D texture, Sampler sampler) {
+        public TextureBinding {
+            Objects.requireNonNull(samplerName, "samplerName");
+            Objects.requireNonNull(texture, "texture");
+        }
+
+        public TextureBinding(int unit, String samplerName, Texture2D texture) {
+            this(unit, samplerName, texture, null);
+        }
+
+        public UniformKey<UniformValue.IntVal> samplerKey() {
+            return UniformKey.int1(samplerName);
+        }
     }
 
     public static final class Builder {
         private final ShaderProgram shader;
-        private final List<TextureBinding> textureBindings = new ArrayList<>();
-        private final Map<String, UniformValue> staticUniforms = new LinkedHashMap<>();
+        private final List<TextureBinding> defaultTextures = new ArrayList<>();
+        private final Map<UniformKey<?>, UniformValue> defaultUniforms = new LinkedHashMap<>();
         private BlendMode blendMode = BlendMode.OPAQUE;
         private boolean depthTest = true;
-        private boolean ownResources;
+        private ResourceOwnership resourceOwnership = ResourceOwnership.BORROWED;
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;
         }
 
-        /**
-         * 绑定纹理到默认单元 0。
-         *
-         * @param name    uniform 名称，对应采样器
-         * @param texture 纹理对象
-         */
         public Builder texture(String name, Texture2D texture) {
             return texture(0, name, texture);
         }
 
-        /**
-         * 在指定单元上绑定纹理，并自动设置对应的 uniform int。
-         *
-         * @param unit    纹理单元
-         * @param name    uniform 名称
-         * @param texture 纹理对象
-         */
         public Builder texture(int unit, String name, Texture2D texture) {
+            return texture(unit, name, texture, null);
+        }
+
+        public Builder texture(String name, Texture2D texture, Sampler sampler) {
+            return texture(0, name, texture, sampler);
+        }
+
+        public Builder texture(int unit, String name, Texture2D texture, Sampler sampler) {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(texture, "texture");
-            textureBindings.add(new TextureBinding(unit, texture));
-            staticUniforms.put(name, new UniformValue.IntVal(unit));
+            defaultTextures.add(new TextureBinding(unit, name, texture, sampler));
+            put(UniformKey.int1(name), new UniformValue.IntVal(unit));
             return this;
         }
 
-        /**
-         * 设置 float 类型的静态 uniform。
-         *
-         * @param name  uniform 名称
-         * @param value 浮点值
-         */
+        public Builder setBool(String name, boolean value) {
+            return set(UniformKey.bool(name), new UniformValue.BoolVal(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.BoolVal> key, UniformValue.BoolVal value) {
+            put(key, value);
+            return this;
+        }
+
         public Builder setFloat(String name, float value) {
-            staticUniforms.put(Objects.requireNonNull(name, "name"), new UniformValue.FloatVal(value));
+            return set(UniformKey.float1(name), new UniformValue.FloatVal(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.FloatVal> key, UniformValue.FloatVal value) {
+            put(key, value);
             return this;
         }
 
-        /**
-         * 设置 int 类型的静态 uniform。
-         *
-         * @param name  uniform 名称
-         * @param value 整数值
-         */
         public Builder setInt(String name, int value) {
-            staticUniforms.put(Objects.requireNonNull(name, "name"), new UniformValue.IntVal(value));
+            return set(UniformKey.int1(name), new UniformValue.IntVal(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.IntVal> key, UniformValue.IntVal value) {
+            put(key, value);
             return this;
         }
 
-        /**
-         * 设置 vec3 类型的静态 uniform。
-         *
-         * @param name  uniform 名称
-         * @param value 向量值
-         */
+        public Builder setVec2(String name, float x, float y) {
+            return set(UniformKey.vec2(name), new UniformValue.Vec2Val(x, y));
+        }
+
+        public Builder set(UniformKey<UniformValue.Vec2Val> key, UniformValue.Vec2Val value) {
+            put(key, value);
+            return this;
+        }
+
         public Builder setVec3(String name, Vector3f value) {
-            Objects.requireNonNull(name, "name");
-            Objects.requireNonNull(value, "value");
-            staticUniforms.put(name, new UniformValue.Vec3Val(value));
+            return set(UniformKey.vec3(name), new UniformValue.Vec3Val(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.Vec3Val> key, UniformValue.Vec3Val value) {
+            put(key, value);
             return this;
         }
 
-        /**
-         * 设置 mat4 类型的静态 uniform。
-         *
-         * @param name  uniform 名称
-         * @param value 矩阵值
-         */
         public Builder setMat4(String name, Matrix4f value) {
-            Objects.requireNonNull(name, "name");
-            Objects.requireNonNull(value, "value");
-            staticUniforms.put(name, new UniformValue.Mat4Val(value));
+            return set(UniformKey.mat4(name), new UniformValue.Mat4Val(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.Mat4Val> key, UniformValue.Mat4Val value) {
+            put(key, value);
             return this;
         }
 
-        /**
-         * 设置材质的混合模式。
-         *
-         * @param mode 混合模式
-         */
         public Builder blendMode(BlendMode mode) {
             this.blendMode = Objects.requireNonNull(mode, "blendMode");
             return this;
         }
 
-        /**
-         * 设置材质是否启用深度测试。
-         *
-         * @param enable true 启用
-         */
         public Builder depthTest(boolean enable) {
             this.depthTest = enable;
             return this;
         }
 
-        /** 标记此材质拥有其着色器及纹理资源的所有权，关闭时会一并释放。 */
-        public Builder ownResources() {
-            this.ownResources = true;
+        public Builder resourceOwnership(ResourceOwnership ownership) {
+            this.resourceOwnership = Objects.requireNonNull(ownership, "ownership");
             return this;
         }
 
-        /** @return 构建完成的 Material 实例 */
+        public Builder ownResources() {
+            return resourceOwnership(ResourceOwnership.OWNED);
+        }
+
         public Material build() {
             return new Material(this);
+        }
+
+        private void put(UniformKey<?> key, UniformValue value) {
+            key.validate(value);
+            defaultUniforms.put(key, value);
         }
     }
 }

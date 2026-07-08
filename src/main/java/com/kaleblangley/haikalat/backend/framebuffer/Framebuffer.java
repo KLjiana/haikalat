@@ -1,22 +1,42 @@
 package com.kaleblangley.haikalat.backend.framebuffer;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
 
-import static org.lwjgl.opengl.GL11.*;
+import java.util.Arrays;
+
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
+import static org.lwjgl.opengl.GL11.GL_NONE;
+import static org.lwjgl.opengl.GL11.GL_REPEAT;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_2D;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T;
+import static org.lwjgl.opengl.GL11.glBindTexture;
+import static org.lwjgl.opengl.GL11.glClear;
+import static org.lwjgl.opengl.GL11.glDeleteTextures;
+import static org.lwjgl.opengl.GL11.glDrawBuffer;
+import static org.lwjgl.opengl.GL11.glGenTextures;
+import static org.lwjgl.opengl.GL11.glReadBuffer;
+import static org.lwjgl.opengl.GL11.glTexImage2D;
+import static org.lwjgl.opengl.GL11.glTexParameteri;
+import static org.lwjgl.opengl.GL11.glViewport;
+import static org.lwjgl.opengl.GL20.glDrawBuffers;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
-import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
-import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL_ATTACHMENT;
+import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_COMPLETE;
-import static org.lwjgl.opengl.GL30.GL_RENDERBUFFER;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
-import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_RENDERBUFFER;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30.glBindRenderbuffer;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
-import static org.lwjgl.opengl.GL20.glDrawBuffers;
 import static org.lwjgl.opengl.GL30.glCheckFramebufferStatus;
 import static org.lwjgl.opengl.GL30.glDeleteFramebuffers;
 import static org.lwjgl.opengl.GL30.glDeleteRenderbuffers;
@@ -29,136 +49,112 @@ import static org.lwjgl.opengl.GL30.glRenderbufferStorageMultisample;
 
 public final class Framebuffer implements GlResource {
     private final int id;
-    private final int colorAttachment;
     private final int[] colorAttachments;
+    private final FramebufferDescriptor.AttachmentStorage[] colorAttachmentStorage;
     private final int depthAttachment;
-    private final int width;
-    private final int height;
-    private final int samples;
-    private final boolean multisampled;
+    private final FramebufferDescriptor.AttachmentStorage depthAttachmentStorage;
+    private final FramebufferDescriptor descriptor;
     private boolean closed;
 
-    public Framebuffer(int id, int colorAttachment, int depthAttachment, int width, int height, int samples, boolean multisampled) {
-        this.id = id;
-        this.colorAttachment = colorAttachment;
-        this.colorAttachments = new int[]{colorAttachment};
-        this.depthAttachment = depthAttachment;
-        this.width = width;
-        this.height = height;
-        this.samples = samples;
-        this.multisampled = multisampled;
+    public Framebuffer(int id, int colorAttachment, int depthAttachment, int width, int height,
+                       int samples, boolean multisampled) {
+        this(id, new int[]{colorAttachment}, depthAttachment, width, height, samples, multisampled);
     }
 
-    public Framebuffer(int id, int[] colorAttachments, int depthAttachment, int width, int height, int samples, boolean multisampled) {
-        this.id = id;
-        this.colorAttachment = colorAttachments.length > 0 ? colorAttachments[0] : 0;
-        this.colorAttachments = colorAttachments;
-        this.depthAttachment = depthAttachment;
-        this.width = width;
-        this.height = height;
-        this.samples = samples;
-        this.multisampled = multisampled;
+    public Framebuffer(int id, int[] colorAttachments, int depthAttachment, int width, int height,
+                       int samples, boolean multisampled) {
+        this(
+                id,
+                colorAttachments,
+                defaultColorStorage(colorAttachments.length, multisampled),
+                depthAttachment,
+                depthAttachment == 0 ? FramebufferDescriptor.AttachmentStorage.NONE
+                        : FramebufferDescriptor.AttachmentStorage.RENDERBUFFER,
+                legacyDescriptor(width, height, samples, multisampled, colorAttachments.length, depthAttachment != 0)
+        );
     }
 
-    /**
-     * 创建一个单采样的帧缓冲对象，包含颜色纹理与深度-模板渲染缓冲区。
-     *
-     * @param width  帧缓冲宽度
-     * @param height 帧缓冲高度
-     * @return 新创建的 Framebuffer 实例
-     */
+    private Framebuffer(int id, int[] colorAttachments,
+                        FramebufferDescriptor.AttachmentStorage[] colorAttachmentStorage,
+                        int depthAttachment,
+                        FramebufferDescriptor.AttachmentStorage depthAttachmentStorage,
+                        FramebufferDescriptor descriptor) {
+        this.id = id;
+        this.colorAttachments = colorAttachments.clone();
+        this.colorAttachmentStorage = colorAttachmentStorage.clone();
+        this.depthAttachment = depthAttachment;
+        this.depthAttachmentStorage = depthAttachmentStorage;
+        this.descriptor = descriptor;
+    }
+
     public static Framebuffer singleSampled(int width, int height) {
-        int fbo = glGenFramebuffers();
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-        int colorTexture = org.lwjgl.opengl.GL11.glGenTextures();
-        glBindTexture(GL_TEXTURE_2D, colorTexture);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0L);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
-
-        int depthRbo = glGenRenderbuffers();
-        glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
-
-        glDrawBuffer(GL_COLOR_ATTACHMENT0);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        ensureComplete(fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        return new Framebuffer(fbo, colorTexture, depthRbo, width, height, 1, false);
+        return fromDescriptor(FramebufferDescriptor.singleColorDepthRenderbuffer(width, height));
     }
 
-    /**
-     * 创建一个多重采样的帧缓冲对象，使用渲染缓冲区存储颜色和深度。
-     *
-     * @param width   帧缓冲宽度
-     * @param height  帧缓冲高度
-     * @param samples 采样数，必须 >= 2
-     * @return 新创建的 Framebuffer 实例
-     */
+    public static Framebuffer colorOnly(int width, int height) {
+        return fromDescriptor(FramebufferDescriptor.colorOnly(width, height, GL_RGBA8));
+    }
+
+    public static Framebuffer withDepthTexture(int width, int height) {
+        return fromDescriptor(FramebufferDescriptor.builder(width, height)
+                .colorTexture(GL_RGBA8)
+                .depthTexture()
+                .build());
+    }
+
     public static Framebuffer multiSampled(int width, int height, int samples) {
         if (samples < 2) {
             throw new IllegalArgumentException("samples must be >= 2");
         }
-
-        int fbo = glGenFramebuffers();
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-        int colorRbo = glGenRenderbuffers();
-        glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, width, height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
-
-        int depthRbo = glGenRenderbuffers();
-        glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, width, height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
-
-        glDrawBuffer(GL_COLOR_ATTACHMENT0);
-        glReadBuffer(GL_NONE);
-        ensureComplete(fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        return new Framebuffer(fbo, colorRbo, depthRbo, width, height, samples, true);
+        return fromDescriptor(FramebufferDescriptor.multisampledColorDepthRenderbuffer(width, height, samples));
     }
 
-    /**
-     * 绑定此 FBO 为当前渲染目标，并设置视口为帧缓冲尺寸。
-     *
-     * @return 自身，支持链式调用
-     */
+    public static Framebuffer mrt(int width, int height, int... colorFormats) {
+        return fromDescriptor(FramebufferDescriptor.mrt(width, height, colorFormats));
+    }
+
+    public static Framebuffer fromDescriptor(FramebufferDescriptor descriptor) {
+        int fbo = glGenFramebuffers();
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_FRAMEBUFFER, fbo,
+                "Framebuffer " + descriptor.width() + "x" + descriptor.height());
+
+        int[] colors = new int[descriptor.colorAttachments().size()];
+        FramebufferDescriptor.AttachmentStorage[] colorStorage =
+                new FramebufferDescriptor.AttachmentStorage[colors.length];
+
+        for (int i = 0; i < colors.length; i++) {
+            FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().get(i);
+            int attachmentPoint = GL_COLOR_ATTACHMENT0 + i;
+            colors[i] = createColorAttachment(descriptor, color, attachmentPoint);
+            colorStorage[i] = color.storage();
+            labelAttachment(colors[i], color.storage(), "Framebuffer color[" + i + "]");
+        }
+
+        int depth = createDepthAttachment(descriptor);
+        labelAttachment(depth, descriptor.depthAttachment().storage(), "Framebuffer depth");
+
+        configureDrawBuffers(colors.length);
+        ensureComplete();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        return new Framebuffer(fbo, colors, colorStorage, depth,
+                descriptor.depthAttachment().storage(), descriptor);
+    }
+
     public Framebuffer bind() {
         ensureOpen();
         glBindFramebuffer(GL_FRAMEBUFFER, id);
-        glViewport(0, 0, width, height);
+        glViewport(0, 0, width(), height());
         return this;
     }
 
-    /**
-     * 解绑当前 FBO，恢复默认帧缓冲，并设置视口。
-     *
-     * @param defaultWidth  默认帧缓冲宽度
-     * @param defaultHeight 默认帧缓冲高度
-     * @return 自身，支持链式调用
-     */
     public Framebuffer unbind(int defaultWidth, int defaultHeight) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, defaultWidth, defaultHeight);
         return this;
     }
 
-    /**
-     * 清除当前绑定的帧缓冲的颜色和/或深度缓冲区。
-     *
-     * @param color true 清除颜色缓冲
-     * @param depth true 清除深度缓冲
-     * @return 自身，支持链式调用
-     */
     public Framebuffer clear(boolean color, boolean depth) {
         int mask = 0;
         if (color) {
@@ -171,116 +167,77 @@ public final class Framebuffer implements GlResource {
         return this;
     }
 
-    /**
-     * 将此 FBO 的颜色缓冲区通过像素复制传输到默认帧缓冲。
-     *
-     * @param targetWidth  目标宽度
-     * @param targetHeight 目标高度
-     * @return 自身，支持链式调用
-     */
     public Framebuffer blitToDefault(int targetWidth, int targetHeight) {
         ensureOpen();
         glBindFramebuffer(GL_READ_FRAMEBUFFER, id);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBlitFramebuffer(0, 0, width, height, 0, 0, targetWidth, targetHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, width(), height(), 0, 0, targetWidth, targetHeight,
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return this;
     }
 
-    /**
-     * 将此 FBO 的颜色缓冲区复制到另一个目标 FBO。
-     *
-     * @param target 目标 Framebuffer
-     * @return 自身，支持链式调用
-     */
     public Framebuffer blitColorTo(Framebuffer target) {
         ensureOpen();
         target.ensureOpen();
         glBindFramebuffer(GL_READ_FRAMEBUFFER, id);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target.id);
-        glBlitFramebuffer(0, 0, width, height, 0, 0, target.width, target.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, width(), height(), 0, 0, target.width(), target.height(),
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return this;
     }
 
-    /**
-     * 创建一个支持多渲染目标（MRT）的帧缓冲，每个附件使用指定的内部格式。
-     *
-     * @param width        帧缓冲宽度
-     * @param height       帧缓冲高度
-     * @param colorFormats 各颜色附件的内部格式
-     * @return 新创建的 Framebuffer 实例
-     */
-    public static Framebuffer mrt(int width, int height, int... colorFormats) {
-        int fbo = glGenFramebuffers();
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        int[] textures = new int[colorFormats.length];
-
-        for (int i = 0; i < colorFormats.length; i++) {
-            textures[i] = glGenTextures();
-            glBindTexture(GL_TEXTURE_2D, textures[i]);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexImage2D(GL_TEXTURE_2D, 0, colorFormats[i], width, height, 0,
-                    GL_RGBA, GL_UNSIGNED_BYTE, 0L);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
-                    GL_TEXTURE_2D, textures[i], 0);
-        }
-
-        int depthRbo = glGenRenderbuffers();
-        glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
-                GL_RENDERBUFFER, depthRbo);
-
-        int[] drawBufs = new int[colorFormats.length];
-        for (int i = 0; i < drawBufs.length; i++) {
-            drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-        }
-        glDrawBuffers(drawBufs);
-        glReadBuffer(GL_NONE);
-        ensureComplete(fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        return new Framebuffer(fbo, textures, depthRbo, width, height, 1, false);
-    }
-
-    /**
-     * 获取指定索引的颜色附件 ID。
-     *
-     * @param index 颜色附件索引
-     * @return 颜色附件 ID
-     */
     public int colorAttachment(int index) {
+        ensureOpen();
         if (index < 0 || index >= colorAttachments.length) {
             throw new IndexOutOfBoundsException("Color attachment index out of range: " + index);
         }
         return colorAttachments[index];
     }
 
-    /** @return 第一个颜色附件 ID */
     public int colorAttachment() {
-        return colorAttachment;
+        return colorAttachment(0);
+    }
+
+    public int colorAttachmentCount() {
+        return colorAttachments.length;
+    }
+
+    public boolean colorAttachmentIsTexture(int index) {
+        if (index < 0 || index >= colorAttachmentStorage.length) {
+            throw new IndexOutOfBoundsException("Color attachment index out of range: " + index);
+        }
+        return colorAttachmentStorage[index] == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D;
     }
 
     public int depthAttachment() {
+        ensureOpen();
         return depthAttachment;
     }
 
+    public boolean depthAttachmentIsTexture() {
+        return depthAttachmentStorage == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D;
+    }
+
+    public FramebufferDescriptor descriptor() {
+        return descriptor;
+    }
+
     public int width() {
-        return width;
+        return descriptor.width();
     }
 
     public int height() {
-        return height;
+        return descriptor.height();
     }
 
     public int samples() {
-        return samples;
+        return descriptor.samples();
     }
 
     public boolean multisampled() {
-        return multisampled;
+        return descriptor.multisampled();
     }
 
     @Override
@@ -298,14 +255,10 @@ public final class Framebuffer implements GlResource {
         if (closed) {
             return;
         }
-        if (multisampled) {
-            glDeleteRenderbuffers(colorAttachment);
-        } else {
-            for (int id : colorAttachments) {
-                if (id != 0) glDeleteTextures(id);
-            }
+        for (int i = 0; i < colorAttachments.length; i++) {
+            deleteAttachment(colorAttachments[i], colorAttachmentStorage[i]);
         }
-        glDeleteRenderbuffers(depthAttachment);
+        deleteAttachment(depthAttachment, depthAttachmentStorage);
         glDeleteFramebuffers(id);
         closed = true;
     }
@@ -316,10 +269,132 @@ public final class Framebuffer implements GlResource {
         }
     }
 
-    private static void ensureComplete(int fbo) {
+    private static int createColorAttachment(FramebufferDescriptor descriptor,
+                                             FramebufferDescriptor.ColorAttachment attachment,
+                                             int attachmentPoint) {
+        if (attachment.storage() == FramebufferDescriptor.AttachmentStorage.RENDERBUFFER) {
+            int rbo = glGenRenderbuffers();
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+            if (descriptor.multisampled()) {
+                glRenderbufferStorageMultisample(GL_RENDERBUFFER, descriptor.samples(),
+                        attachment.internalFormat(), descriptor.width(), descriptor.height());
+            } else {
+                glRenderbufferStorage(GL_RENDERBUFFER, attachment.internalFormat(),
+                        descriptor.width(), descriptor.height());
+            }
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachmentPoint, GL_RENDERBUFFER, rbo);
+            return rbo;
+        }
+
+        int texture = glGenTextures();
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexImage2D(GL_TEXTURE_2D, 0, attachment.internalFormat(), descriptor.width(), descriptor.height(),
+                0, attachment.externalFormat(), attachment.dataType(), 0L);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentPoint, GL_TEXTURE_2D, texture, 0);
+        return texture;
+    }
+
+    private static int createDepthAttachment(FramebufferDescriptor descriptor) {
+        FramebufferDescriptor.DepthAttachment depth = descriptor.depthAttachment();
+        if (depth.storage() == FramebufferDescriptor.AttachmentStorage.NONE) {
+            return 0;
+        }
+        if (depth.storage() == FramebufferDescriptor.AttachmentStorage.RENDERBUFFER) {
+            int rbo = glGenRenderbuffers();
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+            if (descriptor.multisampled()) {
+                glRenderbufferStorageMultisample(GL_RENDERBUFFER, descriptor.samples(),
+                        depth.internalFormat(), descriptor.width(), descriptor.height());
+            } else {
+                glRenderbufferStorage(GL_RENDERBUFFER, depth.internalFormat(), descriptor.width(), descriptor.height());
+            }
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, depth.attachmentPoint(), GL_RENDERBUFFER, rbo);
+            return rbo;
+        }
+
+        int texture = glGenTextures();
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexImage2D(GL_TEXTURE_2D, 0, depth.internalFormat(), descriptor.width(), descriptor.height(),
+                0, depth.externalFormat(), depth.dataType(), 0L);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, depth.attachmentPoint(), GL_TEXTURE_2D, texture, 0);
+        return texture;
+    }
+
+    private static void configureDrawBuffers(int colorCount) {
+        if (colorCount == 0) {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+            return;
+        }
+        if (colorCount == 1) {
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            return;
+        }
+        int[] drawBuffers = new int[colorCount];
+        for (int i = 0; i < colorCount; i++) {
+            drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
+        }
+        glDrawBuffers(drawBuffers);
+        glReadBuffer(GL_NONE);
+    }
+
+    private static void ensureComplete() {
         int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (status != GL_FRAMEBUFFER_COMPLETE) {
             throw new GlException("Framebuffer incomplete: " + status);
         }
+    }
+
+    private static void deleteAttachment(int attachment, FramebufferDescriptor.AttachmentStorage storage) {
+        if (attachment == 0 || storage == FramebufferDescriptor.AttachmentStorage.NONE) {
+            return;
+        }
+        if (storage == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D) {
+            glDeleteTextures(attachment);
+        } else {
+            glDeleteRenderbuffers(attachment);
+        }
+    }
+
+    private static void labelAttachment(int attachment, FramebufferDescriptor.AttachmentStorage storage, String label) {
+        if (storage == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D) {
+            GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_TEXTURE, attachment, label);
+        } else if (storage == FramebufferDescriptor.AttachmentStorage.RENDERBUFFER) {
+            GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_RENDERBUFFER, attachment, label);
+        }
+    }
+
+    private static FramebufferDescriptor.AttachmentStorage[] defaultColorStorage(int count, boolean multisampled) {
+        FramebufferDescriptor.AttachmentStorage storage = multisampled
+                ? FramebufferDescriptor.AttachmentStorage.RENDERBUFFER
+                : FramebufferDescriptor.AttachmentStorage.TEXTURE_2D;
+        FramebufferDescriptor.AttachmentStorage[] result = new FramebufferDescriptor.AttachmentStorage[count];
+        Arrays.fill(result, storage);
+        return result;
+    }
+
+    private static FramebufferDescriptor legacyDescriptor(int width, int height, int samples, boolean multisampled,
+                                                         int colorCount, boolean hasDepth) {
+        FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(width, height).samples(samples);
+        for (int i = 0; i < colorCount; i++) {
+            if (multisampled) {
+                builder.colorRenderbuffer(GL_RGBA8);
+            } else {
+                builder.colorTexture(GL_RGBA8);
+            }
+        }
+        if (hasDepth) {
+            builder.depthStencilRenderbuffer();
+        }
+        return builder.build();
     }
 }

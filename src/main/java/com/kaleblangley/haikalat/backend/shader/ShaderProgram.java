@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.backend.shader;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
 
 import org.joml.Matrix4f;
@@ -38,14 +39,19 @@ import static org.lwjgl.opengl.GL20.glUniform1i;
 import static org.lwjgl.opengl.GL20.glUniform3f;
 import static org.lwjgl.opengl.GL20.glUniformMatrix4fv;
 import static org.lwjgl.opengl.GL20.glUseProgram;
+import static org.lwjgl.opengl.GL31.GL_INVALID_INDEX;
+import static org.lwjgl.opengl.GL31.glGetUniformBlockIndex;
+import static org.lwjgl.opengl.GL31.glUniformBlockBinding;
 
 public final class ShaderProgram implements GlResource {
     private final int id;
     private final Map<String, Integer> uniformLocations = new ConcurrentHashMap<>();
+    private final Map<String, Integer> uniformBlockIndices = new ConcurrentHashMap<>();
     private boolean closed;
 
     private ShaderProgram(int id) {
         this.id = id;
+        GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_PROGRAM, id, "ShaderProgram");
     }
 
     /**
@@ -194,13 +200,34 @@ public final class ShaderProgram implements GlResource {
      */
     public int uniformLocation(String name) {
         ensureOpen();
-        return uniformLocations.computeIfAbsent(name, key -> {
-            int location = glGetUniformLocation(id, key);
-            if (location < 0) {
-                throw new GlException("Uniform not found: " + key);
+        int location = uniformLocations.computeIfAbsent(name, key -> glGetUniformLocation(id, key));
+        if (location < 0) {
+            throw new GlException("Uniform not found: " + name);
+        }
+        return location;
+    }
+
+    public int uniformLocationOrMinusOne(String name) {
+        ensureOpen();
+        Objects.requireNonNull(name, "name");
+        return uniformLocations.computeIfAbsent(name, key -> glGetUniformLocation(id, key));
+    }
+
+    public int uniformBlockIndex(String name) {
+        ensureOpen();
+        Objects.requireNonNull(name, "name");
+        return uniformBlockIndices.computeIfAbsent(name, key -> {
+            int index = glGetUniformBlockIndex(id, key);
+            if (index == GL_INVALID_INDEX) {
+                throw new GlException("Uniform block not found: " + key);
             }
-            return location;
+            return index;
         });
+    }
+
+    public ShaderProgram bindUniformBlock(String blockName, int bindingPoint) {
+        glUniformBlockBinding(id, uniformBlockIndex(blockName), bindingPoint);
+        return this;
     }
 
     private void ensureOpen() {

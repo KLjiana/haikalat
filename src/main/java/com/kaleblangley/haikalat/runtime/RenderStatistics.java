@@ -5,6 +5,7 @@ public final class RenderStatistics {
     private long lastFrameStartNanos;
     private long lastFrameDurationNanos;
     private long accumulatedFrameNanos;
+    private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
 
     public void beginFrame() {
         lastFrameStartNanos = System.nanoTime();
@@ -15,6 +16,11 @@ public final class RenderStatistics {
         lastFrameDurationNanos = now - lastFrameStartNanos;
         accumulatedFrameNanos += lastFrameDurationNanos;
         frameCount++;
+        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, lastFrameProfile.passes());
+    }
+
+    public void recordGraphProfile(FrameProfile profile) {
+        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, profile.passes());
     }
 
     public long frameCount() {
@@ -23,6 +29,10 @@ public final class RenderStatistics {
 
     public long lastFrameDurationNanos() {
         return lastFrameDurationNanos;
+    }
+
+    public FrameProfile lastFrameProfile() {
+        return lastFrameProfile;
     }
 
     public double averageFps() {
@@ -38,5 +48,6 @@ public final class RenderStatistics {
         lastFrameStartNanos = 0L;
         lastFrameDurationNanos = 0L;
         accumulatedFrameNanos = 0L;
+        lastFrameProfile = FrameProfile.EMPTY;
     }
 }

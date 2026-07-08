@@ -28,12 +28,16 @@ public final class FxaaPostProcessor implements GlResource {
     public CommandBuffer record(CommandBuffer cmd, Framebuffer source, int targetW, int targetH) {
         cmd.bindFramebuffer(GL_FRAMEBUFFER, 0);
         cmd.viewport(0, 0, targetW, targetH);
+        return recordIntoCurrentTarget(cmd, source.colorAttachment(), source.width(), source.height());
+    }
+
+    public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int sourceTexture, int sourceWidth, int sourceHeight) {
         cmd.enableDepthTest(false);
         cmd.clear(true, false);
         cmd.bindShader(program);
-        cmd.bindTexture(0, source.colorAttachment());
+        cmd.bindTexture(0, sourceTexture);
         cmd.setUniformInt(program, "uScene", 0);
-        cmd.setUniformVec2(program, "uInvResolution", 1.0f / source.width(), 1.0f / source.height());
+        cmd.setUniformVec2(program, "uInvResolution", 1.0f / sourceWidth, 1.0f / sourceHeight);
         cmd.bindVertexArray(quad.id());
         cmd.drawArrays(GL_TRIANGLES, 0, 6);
         cmd.enableDepthTest(true);

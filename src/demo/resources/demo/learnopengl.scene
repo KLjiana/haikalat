@@ -1,0 +1,17 @@
+# shader <name> <vertex> <fragment>
+shader color /demo/color_scene.vert /demo/color_mvp.frag
+shader textured /demo/textured_scene.vert /demo/textured_mvp.frag
+shader instanced /demo/instanced_scene.vert /demo/instanced_projview.frag
+
+# texture <name> <path> <flipVertically>
+texture wall /wall.png false
+texture face /awesomeface.png true
+
+# object <name> <model> <material> px py pz rx ry rz scale castShadows
+object triangle builtin:triangle color -1.5 0.5 -2.5 0 0 0 1 true
+object wall builtin:texturedQuad wall 1.0 0.5 -2.5 0 0 0 1 true
+object coloredQuad builtin:coloredQuad color -1.5 -1.0 -3.0 0 0 0 0.6 true
+object face builtin:texturedQuad face 1.5 -1.0 -3.0 0 0 0 0.5 false
+
+# light <name> <directional|point|spot> x y z r g b intensity range castShadows
+light sun directional -0.3 -1.0 -0.4 1.0 0.96 0.86 1.0 0 true

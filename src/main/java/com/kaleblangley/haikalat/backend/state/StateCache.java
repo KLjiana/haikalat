@@ -8,6 +8,7 @@ import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
+import static org.lwjgl.opengl.GL33.glBindSampler;
 
 public final class StateCache {
     private static final int MAX_TEXTURE_UNITS = 32;
@@ -18,6 +19,7 @@ public final class StateCache {
     private int currentElementBuffer;
     private int activeTextureUnit;
     private final int[] boundTextures2D = new int[MAX_TEXTURE_UNITS];
+    private final int[] boundSamplers = new int[MAX_TEXTURE_UNITS];
     private int currentReadFramebuffer;
     private int currentDrawFramebuffer;
     private int viewportX;
@@ -110,6 +112,13 @@ public final class StateCache {
         if (boundTextures2D[unit] != texture) {
             glBindTexture(GL_TEXTURE_2D, texture);
             boundTextures2D[unit] = texture;
+        }
+    }
+
+    public void bindSampler(int unit, int sampler) {
+        if (boundSamplers[unit] != sampler) {
+            glBindSampler(unit, sampler);
+            boundSamplers[unit] = sampler;
         }
     }
 
@@ -251,6 +260,7 @@ public final class StateCache {
         currentElementBuffer = 0;
         activeTextureUnit = 0;
         Arrays.fill(boundTextures2D, 0);
+        Arrays.fill(boundSamplers, 0);
         currentReadFramebuffer = 0;
         currentDrawFramebuffer = 0;
         viewportSet = false;

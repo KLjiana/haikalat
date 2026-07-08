@@ -3,7 +3,6 @@ package com.kaleblangley.haikalat.subsystems.windowing;
 import org.lwjgl.glfw.GLFWErrorCallback;
 
 import static org.lwjgl.glfw.GLFW.*;
-import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 /**
@@ -22,8 +21,9 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     public enum CursorMode { NORMAL, HIDDEN, DISABLED, CAPTURED }
 
     private final long handle;
-    private int width;
-    private int height;
+    private volatile int width;
+    private volatile int height;
+    private volatile boolean resized;
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
     private double mouseX, mouseY, mouseDeltaX, mouseDeltaY;
     private boolean firstMouse = true;
@@ -85,7 +85,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwSetFramebufferSizeCallback(handle, (h, w, h2) -> {
             this.width = Math.max(1, w);
             this.height = Math.max(1, h2);
-            glViewport(0, 0, this.width, this.height);
+            this.resized = true;
         });
         glfwSetKeyCallback(handle, (h, key, scancode, action, mods) -> {
             if (key >= 0 && key < keys.length) keys[key] = (action != GLFW_RELEASE);
@@ -102,6 +102,11 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     public long handle() { return handle; }
     public int width() { return width; }
     public int height() { return height; }
+    public boolean consumeResize() {
+        boolean value = resized;
+        resized = false;
+        return value;
+    }
 
     /** @return 指定按键是否处于按下状态 */
     public boolean isKeyDown(int key) { return key >= 0 && key < keys.length && keys[key]; }

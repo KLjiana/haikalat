@@ -22,7 +22,7 @@ public final class TripleBuffer<T> {
      * @return 只读缓冲区
      */
     @SuppressWarnings("unchecked")
-    public T read() {
+    public synchronized T read() {
         return (T) buffers[readIndex];
     }
 
@@ -32,14 +32,14 @@ public final class TripleBuffer<T> {
      * @return 可写缓冲区
      */
     @SuppressWarnings("unchecked")
-    public T write() {
+    public synchronized T write() {
         return (T) buffers[writeIndex];
     }
 
     /**
      * 切换缓冲区角色：当前写入缓冲变成可读，空闲缓冲变为可写，原可读缓冲变为空闲。
      */
-    public void flip() {
+    public synchronized void flip() {
         int previousRead = readIndex;
         readIndex = writeIndex;
         writeIndex = spareIndex;

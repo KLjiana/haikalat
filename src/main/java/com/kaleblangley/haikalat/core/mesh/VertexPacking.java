@@ -5,7 +5,11 @@ public final class VertexPacking {
     }
 
     public static int packOctNormal(float x, float y, float z) {
-        float invL1 = 1.0f / (Math.abs(x) + Math.abs(y) + Math.abs(z));
+        float l1 = Math.abs(x) + Math.abs(y) + Math.abs(z);
+        if (!Float.isFinite(l1) || l1 == 0.0f) {
+            throw new IllegalArgumentException("normal must be finite and non-zero");
+        }
+        float invL1 = 1.0f / l1;
         x *= invL1;
         y *= invL1;
         z *= invL1;

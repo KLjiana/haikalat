@@ -1,0 +1,77 @@
+package com.kaleblangley.haikalat.backend.framebuffer;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
+import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
+import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
+import static org.lwjgl.opengl.GL30.GL_RGBA16F;
+import static org.lwjgl.opengl.GL30.GL_RGBA8;
+
+class FramebufferDescriptorTest {
+    @Test
+    void singleColorDepthRenderbufferDescribesDefaultTarget() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.singleColorDepthRenderbuffer(800, 600);
+
+        assertEquals(800, descriptor.width());
+        assertEquals(600, descriptor.height());
+        assertEquals(1, descriptor.samples());
+        assertFalse(descriptor.multisampled());
+        assertEquals(1, descriptor.colorAttachments().size());
+        assertEquals(GL_RGBA8, descriptor.colorAttachments().get(0).internalFormat());
+        assertEquals(FramebufferDescriptor.AttachmentStorage.TEXTURE_2D,
+                descriptor.colorAttachments().get(0).storage());
+        assertEquals(GL_DEPTH24_STENCIL8, descriptor.depthAttachment().internalFormat());
+        assertEquals(FramebufferDescriptor.AttachmentStorage.RENDERBUFFER,
+                descriptor.depthAttachment().storage());
+    }
+
+    @Test
+    void mrtDescriptorKeepsAllColorFormats() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.mrt(320, 200, GL_RGBA8, GL_RGBA16F);
+
+        assertEquals(2, descriptor.colorAttachments().size());
+        assertEquals(GL_RGBA8, descriptor.colorAttachments().get(0).internalFormat());
+        assertEquals(GL_RGBA16F, descriptor.colorAttachments().get(1).internalFormat());
+    }
+
+    @Test
+    void depthTextureDescriptorUsesDepthAttachmentPoint() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.builder(128, 128)
+                .colorTexture(GL_RGBA8)
+                .depthTexture()
+                .build();
+
+        assertEquals(GL_DEPTH_COMPONENT24, descriptor.depthAttachment().internalFormat());
+        assertEquals(GL_DEPTH_ATTACHMENT, descriptor.depthAttachment().attachmentPoint());
+        assertEquals(FramebufferDescriptor.AttachmentStorage.TEXTURE_2D,
+                descriptor.depthAttachment().storage());
+    }
+
+    @Test
+    void resizePreservesFormatsAndSamples() {
+        FramebufferDescriptor resized = FramebufferDescriptor.multisampledColorDepthRenderbuffer(800, 600, 4)
+                .resized(1024, 768);
+
+        assertEquals(1024, resized.width());
+        assertEquals(768, resized.height());
+        assertEquals(4, resized.samples());
+        assertTrue(resized.multisampled());
+    }
+
+    @Test
+    void multisampledTextureAttachmentsAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> FramebufferDescriptor.builder(800, 600)
+                .samples(4)
+                .colorTexture(GL_RGBA8)
+                .build());
+        assertThrows(IllegalArgumentException.class, () -> FramebufferDescriptor.builder(800, 600)
+                .samples(4)
+                .depthTexture()
+                .build());
+    }
+}

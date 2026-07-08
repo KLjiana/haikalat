@@ -30,6 +30,11 @@ public final class TemporalAccumulationPass implements GlResource {
                                  float historyWeight, int targetW, int targetH) {
         cmd.bindFramebuffer(GL_FRAMEBUFFER, 0);
         cmd.viewport(0, 0, targetW, targetH);
+        return recordIntoCurrentTarget(cmd, currentTexId, historyTexId, historyWeight);
+    }
+
+    public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int currentTexId, int historyTexId,
+                                                 float historyWeight) {
         cmd.enableDepthTest(false);
         cmd.clear(true, false);
         cmd.bindShader(program);

@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.buffer.TripleBuffer;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.core.mesh.InstanceBatchStats;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import org.joml.Matrix4f;
 
@@ -40,6 +41,14 @@ public final class InstancedRenderer {
         return batch.isPersistent();
     }
 
+    public InstanceBatchStats statistics() {
+        return batch.statistics();
+    }
+
+    public ShaderProgram shader() {
+        return shader;
+    }
+
     public void beginFrame(int frame) {
         frameIndex.set(frame);
         List<Matrix4f> writes = tripleBuffer.write();
@@ -54,6 +63,16 @@ public final class InstancedRenderer {
         cmd.bindShader(shader);
         cmd.setUniformMat4(shader, "uProjection", projection);
         cmd.setUniformMat4(shader, "uView", view);
+        submitBatch(cmd);
+    }
+
+    public void render(CommandBuffer cmd) {
+        cmd.bindShader(shader);
+        submitBatch(cmd);
+    }
+
+    private void submitBatch(CommandBuffer cmd) {
+        // Temporary custom command until instanced batch upload/draw has a formal command API.
         cmd.custom(() -> {
             batch.beginFrame();
             batch.submitAll(tripleBuffer.read());

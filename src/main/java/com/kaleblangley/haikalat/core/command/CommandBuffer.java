@@ -2,8 +2,10 @@ package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.state.StateCache;
+import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -21,7 +23,12 @@ import static org.lwjgl.opengl.GL20.glUniform1i;
 import static org.lwjgl.opengl.GL20.glUniform2f;
 import static org.lwjgl.opengl.GL20.glUniform3f;
 import static org.lwjgl.opengl.GL20.glUniformMatrix4fv;
+import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
+import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
+import static org.lwjgl.opengl.GL31.glBindBufferRange;
 
 public final class CommandBuffer {
     private final List<Consumer<StateCache>> commands = new ArrayList<>(64);
@@ -72,6 +79,10 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer bindDefaultFramebuffer() {
+        return bindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     /**
      * 记录绑定 ShaderProgram 的命令（通过 useProgram 实现）。
      *
@@ -103,7 +114,38 @@ public final class CommandBuffer {
      */
     public CommandBuffer bindTexture(int unit, Texture2D texture) {
         Objects.requireNonNull(texture, "texture");
-        return bindTexture(unit, texture.id());
+        bindTexture(unit, texture.id());
+        commands.add(cache -> cache.bindSampler(unit, 0));
+        return this;
+    }
+
+    public CommandBuffer bindSampler(int unit, Sampler sampler) {
+        Objects.requireNonNull(sampler, "sampler");
+        int samplerId = sampler.id();
+        commands.add(cache -> {
+            sampler.ensureOpen();
+            cache.bindSampler(unit, samplerId);
+        });
+        return this;
+    }
+
+    public CommandBuffer bindTexture(int unit, Texture2D texture, Sampler sampler) {
+        bindTexture(unit, texture);
+        if (sampler != null) {
+            bindSampler(unit, sampler);
+        }
+        return this;
+    }
+
+    public CommandBuffer bindUniformBlock(int bindingPoint, UniformBlock block) {
+        Objects.requireNonNull(block, "block");
+        int buffer = block.id();
+        int size = block.sizeBytes();
+        commands.add(cache -> {
+            block.flush();
+            glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint, buffer, 0, size);
+        });
+        return this;
     }
 
     /**
@@ -254,6 +296,33 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer blitToDefault(Framebuffer source, int targetWidth, int targetHeight) {
+        Objects.requireNonNull(source, "source");
+        return blitFramebuffer(source.id(), 0, source.width(), source.height(),
+                targetWidth, targetHeight);
+    }
+
+    public CommandBuffer blitColor(Framebuffer source, Framebuffer target) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(target, "target");
+        return blitFramebuffer(source.id(), target.id(), source.width(), source.height(),
+                target.width(), target.height());
+    }
+
+    public CommandBuffer blitFramebuffer(int sourceFbo, int targetFbo,
+                                         int sourceWidth, int sourceHeight,
+                                         int targetWidth, int targetHeight) {
+        commands.add(cache -> {
+            cache.bindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+            cache.bindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFbo);
+            glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
+                    0, 0, targetWidth, targetHeight,
+                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
+        });
+        return this;
+    }
+
     /**
      * 记录设置 mat4 uniform 的命令（捕获副本以避免外部修改）。
      *
@@ -278,6 +347,25 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer trySetUniformMat4(ShaderProgram shader, String name, Matrix4f value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        int location = shader.uniformLocationOrMinusOne(name);
+        if (location < 0) {
+            return this;
+        }
+        Matrix4f copy = new Matrix4f(value);
+        commands.add(cache -> {
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                FloatBuffer buf = stack.mallocFloat(16);
+                copy.get(buf);
+                glUniformMatrix4fv(location, false, buf);
+            }
+        });
+        return this;
+    }
+
     /**
      * 记录设置 vec3 uniform 的命令。
      *
@@ -291,6 +379,21 @@ public final class CommandBuffer {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         int location = shader.uniformLocation(name);
+        float x = value.x;
+        float y = value.y;
+        float z = value.z;
+        commands.add(cache -> glUniform3f(location, x, y, z));
+        return this;
+    }
+
+    public CommandBuffer trySetUniformVec3(ShaderProgram shader, String name, Vector3f value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        int location = shader.uniformLocationOrMinusOne(name);
+        if (location < 0) {
+            return this;
+        }
         float x = value.x;
         float y = value.y;
         float z = value.z;
@@ -331,6 +434,17 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer trySetUniformInt(ShaderProgram shader, String name, int value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        int location = shader.uniformLocationOrMinusOne(name);
+        if (location < 0) {
+            return this;
+        }
+        commands.add(cache -> glUniform1i(location, value));
+        return this;
+    }
+
     /**
      * 记录设置 float uniform 的命令。
      *
@@ -347,8 +461,24 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer trySetUniformFloat(ShaderProgram shader, String name, float value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        int location = shader.uniformLocationOrMinusOne(name);
+        if (location < 0) {
+            return this;
+        }
+        commands.add(cache -> glUniform1f(location, value));
+        return this;
+    }
+
     /**
      * 记录一条自定义 GL 命令。
+     *
+     * <p>Use this only as a temporary escape hatch. Captured data must be immutable,
+     * copied before recording, or owned by the render thread until execution. Do not
+     * capture mutable producer-thread objects whose contents can change before the
+     * command buffer is executed.</p>
      *
      * @param action 要执行的 Runnable
      * @return 自身，支持链式调用

@@ -1,7 +1,9 @@
 package com.kaleblangley.haikalat.backend.buffer;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
+import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
 import com.kaleblangley.haikalat.util.DirectBuffers;
 
 import java.nio.ByteBuffer;
@@ -18,8 +20,9 @@ import static org.lwjgl.opengl.GL15.glDeleteBuffers;
 import static org.lwjgl.opengl.GL15.glGenBuffers;
 import static org.lwjgl.opengl.GL15.glUnmapBuffer;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
+import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
 
-public final class GlBuffer implements GlResource {
+public final class GlBuffer implements GlResource, BufferUploadTarget {
     private final int target;
     private final int usage;
     private final int id;
@@ -29,6 +32,7 @@ public final class GlBuffer implements GlResource {
         this.target = target;
         this.usage = usage;
         this.id = glGenBuffers();
+        GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_BUFFER, id, "GlBuffer target=" + target);
     }
 
     public static GlBuffer arrayBuffer(int usage) {
@@ -37,6 +41,10 @@ public final class GlBuffer implements GlResource {
 
     public static GlBuffer elementArrayBuffer(int usage) {
         return new GlBuffer(GL_ELEMENT_ARRAY_BUFFER, usage);
+    }
+
+    public static GlBuffer uniformBuffer(int usage) {
+        return new GlBuffer(GL_UNIFORM_BUFFER, usage);
     }
 
     public static GlBuffer arrayBuffer(float[] data, int usage) {
