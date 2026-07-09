@@ -1,10 +1,14 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -12,9 +16,20 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
+/**
+ * Asset manifest plus small demo-scene manifest.
+ *
+ * <p>Stable asset-manifest fields are {@code shader.*}, {@code texture.*}, {@code model.*}, and
+ * {@code material.*}. They describe named assets and bindings without owning GL objects.</p>
+ *
+ * <p>Demo-scene convenience fields are {@code object.*} and {@code light.*}. They are intentionally
+ * limited to simple object/material/light binding and static transforms. Animation updaters, procedural
+ * geometry, complex builtin mesh variants, scripts, and editor data stay in Java code.</p>
+ */
 public record SceneAssetConfig(
         Map<String, ShaderAsset> shaders,
         Map<String, TextureDef> textures,
+        Map<String, MaterialDef> materials,
         Map<String, ModelDef> models,
         Map<String, ObjectDef> objects,
         Map<String, LightDef> lights
@@ -22,6 +37,7 @@ public record SceneAssetConfig(
     public SceneAssetConfig {
         shaders = Map.copyOf(Objects.requireNonNull(shaders, "shaders"));
         textures = Map.copyOf(Objects.requireNonNull(textures, "textures"));
+        materials = Map.copyOf(Objects.requireNonNull(materials, "materials"));
         models = Map.copyOf(Objects.requireNonNull(models, "models"));
         objects = Map.copyOf(Objects.requireNonNull(objects, "objects"));
         lights = Map.copyOf(Objects.requireNonNull(lights, "lights"));
@@ -45,6 +61,7 @@ public record SceneAssetConfig(
 
         Map<String, ShaderAsset> shaders = new LinkedHashMap<>();
         Map<String, TextureDef> textures = new LinkedHashMap<>();
+        Map<String, MaterialDef> materials = new LinkedHashMap<>();
         Map<String, ModelDef> models = new LinkedHashMap<>();
         Map<String, ObjectDef> objects = new LinkedHashMap<>();
         Map<String, LightDef> lights = new LinkedHashMap<>();
@@ -56,6 +73,9 @@ public record SceneAssetConfig(
         for (String name : names(properties, "texture.")) {
             textures.put(name, new TextureDef(AssetRef.of(required(properties, "texture." + name + ".path")),
                     Boolean.parseBoolean(properties.getProperty("texture." + name + ".flipVertically", "true"))));
+        }
+        for (String name : names(properties, "material.")) {
+            materials.put(name, material(properties, name));
         }
         for (String name : names(properties, "model.")) {
             models.put(name, new ModelDef(AssetRef.of(required(properties, "model." + name + ".path"))));
@@ -79,12 +99,13 @@ public record SceneAssetConfig(
                     Boolean.parseBoolean(properties.getProperty("light." + name + ".castShadows", "false"))));
         }
 
-        return new SceneAssetConfig(shaders, textures, models, objects, lights);
+        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights);
     }
 
     public static SceneAssetConfig parse(String source) {
         Map<String, ShaderAsset> shaders = new LinkedHashMap<>();
         Map<String, TextureDef> textures = new LinkedHashMap<>();
+        Map<String, MaterialDef> materials = new LinkedHashMap<>();
         Map<String, ModelDef> models = new LinkedHashMap<>();
         Map<String, ObjectDef> objects = new LinkedHashMap<>();
         Map<String, LightDef> lights = new LinkedHashMap<>();
@@ -101,6 +122,7 @@ public record SceneAssetConfig(
                     case "shader" -> shaders.put(parts[1], ShaderAsset.of(parts[2], parts[3]));
                     case "texture" -> textures.put(parts[1], new TextureDef(AssetRef.of(parts[2]),
                             parts.length < 4 || Boolean.parseBoolean(parts[3])));
+                    case "material" -> materials.put(parts[1], parseMaterial(parts));
                     case "model" -> models.put(parts[1], new ModelDef(AssetRef.of(parts[2])));
                     case "object" -> objects.put(parts[1], parseObject(parts));
                     case "light" -> lights.put(parts[1], parseLight(parts));
@@ -110,7 +132,14 @@ public record SceneAssetConfig(
                 throw new GlException("Invalid scene config at line " + (lineNumber + 1) + ": " + lines[lineNumber], e);
             }
         }
-        return new SceneAssetConfig(shaders, textures, models, objects, lights);
+        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights);
+    }
+
+    private static MaterialDef parseMaterial(String[] parts) {
+        requireLength(parts, 3);
+        BlendMode blendMode = parts.length >= 4 ? BlendMode.valueOf(parts[3].toUpperCase()) : BlendMode.OPAQUE;
+        boolean depthTest = parts.length < 5 || Boolean.parseBoolean(parts[4]);
+        return new MaterialDef(parts[2], List.of(), blendMode, depthTest);
     }
 
     private static ObjectDef parseObject(String[] parts) {
@@ -161,6 +190,38 @@ public record SceneAssetConfig(
         return names;
     }
 
+    private static MaterialDef material(Properties properties, String name) {
+        String prefix = "material." + name + ".";
+        String shader = required(properties, prefix + "shader");
+        BlendMode blendMode = BlendMode.valueOf(properties.getProperty(prefix + "blend", "OPAQUE").toUpperCase());
+        boolean depthTest = Boolean.parseBoolean(properties.getProperty(prefix + "depthTest", "true"));
+        List<MaterialDef.TextureBinding> bindings = new ArrayList<>();
+        for (String samplerName : textureBindingNames(properties, prefix + "texture.")) {
+            String bindingPrefix = prefix + "texture." + samplerName;
+            String texture = required(properties, bindingPrefix);
+            int unit = Integer.parseInt(properties.getProperty(bindingPrefix + ".unit", "0"));
+            String sampler = properties.getProperty(bindingPrefix + ".sampler");
+            bindings.add(new MaterialDef.TextureBinding(unit, samplerName, texture, sampler));
+        }
+        return new MaterialDef(shader, bindings, blendMode, depthTest);
+    }
+
+    private static Set<String> textureBindingNames(Properties properties, String prefix) {
+        Set<String> names = new TreeSet<>();
+        for (String key : properties.stringPropertyNames()) {
+            if (!key.startsWith(prefix)) {
+                continue;
+            }
+            String rest = key.substring(prefix.length());
+            int dot = rest.indexOf('.');
+            String name = dot < 0 ? rest : rest.substring(0, dot);
+            if (!name.isBlank()) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
     private static String required(Properties properties, String key) {
         String value = properties.getProperty(key);
         if (value == null || value.isBlank()) {
@@ -191,9 +252,30 @@ public record SceneAssetConfig(
             float scale,
             boolean castShadows
     ) {
+        private static final String BUILTIN_PREFIX = "builtin:";
+
         public ObjectDef {
+            model = Objects.requireNonNull(model, "model");
+            material = Objects.requireNonNull(material, "material");
+            if (model.startsWith(BUILTIN_PREFIX)) {
+                String builtinName = model.substring(BUILTIN_PREFIX.length());
+                if (!BuiltinMeshData.names().contains(builtinName)) {
+                    throw new GlException("Unknown builtin mesh: " + model + ". Supported: " + BuiltinMeshData.names());
+                }
+            }
             position = new Vector3f(Objects.requireNonNull(position, "position"));
             rotationRadians = new Vector3f(Objects.requireNonNull(rotationRadians, "rotationRadians"));
+        }
+
+        public boolean builtinMesh() {
+            return model.startsWith(BUILTIN_PREFIX);
+        }
+
+        public String builtinMeshName() {
+            if (!builtinMesh()) {
+                throw new IllegalStateException("Object does not reference a builtin mesh: " + model);
+            }
+            return model.substring(BUILTIN_PREFIX.length());
         }
     }
 

@@ -1,47 +1,37 @@
 package com.kaleblangley.haikalat.demo;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
-import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
-import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
+import com.kaleblangley.haikalat.core.assets.MaterialDef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.assets.SceneAssetConfig;
 import com.kaleblangley.haikalat.core.assets.ShaderAsset;
 import com.kaleblangley.haikalat.core.assets.TextureAssetCache;
-import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
-import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
-import com.kaleblangley.haikalat.core.mesh.VertexLayout;
 import com.kaleblangley.haikalat.core.mesh.VertexPacking;
-import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
+import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
+import com.kaleblangley.haikalat.subsystems.render3d.Scene;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.lwjgl.opengl.GL33.*;
-
 public final class LearnOpenGlDemo {
-
-    private static final VertexLayout POS_COLOR_LAYOUT = VertexLayout.interleaved(6 * Float.BYTES,
-            VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-            VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build());
-
     public static void main(String[] args) {
         demoVertexPacking();
 
@@ -60,53 +50,19 @@ public final class LearnOpenGlDemo {
         ShaderProgram colorShader = loadShader("color", sceneConfig);
         ShaderProgram texturedShader = loadShader("textured", sceneConfig);
         ShaderProgram instancedShader = loadShader("instanced", sceneConfig);
+        Map<String, ShaderProgram> shaders = Map.of(
+                "color", colorShader,
+                "textured", texturedShader,
+                "instanced", instancedShader);
 
-        Texture2D wallTex = textureCache.get(sceneConfig.textures().get("wall").path());
-        Texture2D faceTex = textureCache.get(sceneConfig.textures().get("face").path());
-
-        Material colorMat = Material.builder(colorShader).blendMode(BlendMode.OPAQUE).build();
-        Material wallMat = Material.builder(texturedShader)
-                .texture("uTexture", wallTex)
-                .setVec3("uTint", new Vector3f(1, 1, 1))
-                .blendMode(BlendMode.OPAQUE).build();
-        Material faceMat = Material.builder(texturedShader)
-                .texture("uTexture", faceTex)
-                .setVec3("uTint", new Vector3f(1, 1, 1))
-                .blendMode(BlendMode.ALPHA).build();
-
-        Mesh triangle = Mesh.builder().layout(POS_COLOR_LAYOUT)
-                .attribute(0, new float[]{-0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f}, 3)
-                .attribute(1, new float[]{1.0f, 0.3f, 0.2f, 0.2f, 1.0f, 0.3f, 0.2f, 0.3f, 1.0f}, 3).build();
-
-        Mesh coloredQuad = Mesh.builder().layout(POS_COLOR_LAYOUT)
-                .attribute(0, new float[]{
-                        -0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 0.0f,
-                        -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 0.0f, -0.5f, 0.5f, 0.0f}, 3)
-                .attribute(1, new float[]{
-                        1.0f, 0.8f, 0.2f, 0.2f, 0.8f, 1.0f, 0.8f, 0.2f, 1.0f,
-                        1.0f, 0.8f, 0.2f, 0.8f, 0.2f, 1.0f, 0.2f, 1.0f, 0.8f}, 3).build();
-
-        Mesh texQuad = Mesh.builder()
-                .vertices(new float[]{
-                        -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
-                        0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-                        0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
-                        -0.5f, 0.5f, 0.0f, 0.0f, 1.0f}, 5 * Float.BYTES,
-                        VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                        VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())
-                .indices(new int[]{0, 1, 2, 0, 2, 3}).build();
-
-        List<SceneObject> scene = new ArrayList<>();
-        scene.add(new SceneObject(triangle, colorMat,
-                (m, f) -> m.translation(-1.5f, 0.5f, -2.5f).rotateZ(f * 0.03f)));
-        scene.add(new SceneObject(texQuad, wallMat,
-                (m, f) -> m.translation(1.0f, 0.5f, -2.5f).rotateZ(-f * 0.02f)));
-        scene.add(new SceneObject(coloredQuad, colorMat,
-                (m, f) -> m.translation(-1.5f, -1.0f, -3.0f).scale(0.6f)));
-        scene.add(new SceneObject(texQuad, faceMat,
-                (m, f) -> m.translation(1.5f, (float) Math.sin(f * 0.04f) * 0.5f - 1.0f, -3.0f).scale(0.5f)));
-
-        InstancedMeshBatch instBatch = InstancedMeshBatch.of(coloredQuad, 16, 2);
+        Map<String, Material> materials = buildMaterials(sceneConfig, shaders, textureCache);
+        Map<String, Mesh> meshes = buildBuiltinMeshes(sceneConfig);
+        Scene scene = buildScene(window.camera(), sceneConfig, meshes, materials);
+        Mesh instancedMesh = meshes.get(BuiltinMeshData.QUAD);
+        if (instancedMesh == null) {
+            throw new IllegalStateException("Builtin instanced mesh is not configured: " + BuiltinMeshData.QUAD);
+        }
+        InstancedMeshBatch instBatch = InstancedMeshBatch.of(instancedMesh, 16, 2);
         InstancedRenderer instanced = new InstancedRenderer(instBatch, instancedShader);
         for (int r = 0; r < 4; r++) {
             for (int c = 0; c < 4; c++) {
@@ -118,7 +74,7 @@ public final class LearnOpenGlDemo {
             }
         }
 
-        RenderPipeline pipeline = new RenderPipeline(window, window.camera(), scene, instanced, settings);
+        RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings);
         try {
             pipeline.build();
 
@@ -146,15 +102,91 @@ public final class LearnOpenGlDemo {
         } finally {
             pipeline.close();
             instanced.close();
-            coloredQuad.close();
-            texQuad.close();
-            triangle.close();
+            meshes.values().forEach(Mesh::close);
             textureCache.close();
             instancedShader.close();
             texturedShader.close();
             colorShader.close();
             window.close();
         }
+    }
+
+    private static Map<String, Material> buildMaterials(SceneAssetConfig config, Map<String, ShaderProgram> shaders,
+                                                        TextureAssetCache textureCache) {
+        Map<String, Material> materials = new LinkedHashMap<>();
+        for (String name : config.materials().keySet()) {
+            materials.put(name, buildMaterial(name, config, shaders, textureCache));
+        }
+        return materials;
+    }
+
+    private static Map<String, Mesh> buildBuiltinMeshes(SceneAssetConfig config) {
+        Map<String, Mesh> meshes = new LinkedHashMap<>();
+        for (SceneAssetConfig.ObjectDef object : config.objects().values()) {
+            if (object.builtinMesh()) {
+                meshes.computeIfAbsent(object.builtinMeshName(), name -> Mesh.from(BuiltinMeshData.named(name)));
+            }
+        }
+        return meshes;
+    }
+
+    private static Scene buildScene(Camera camera, SceneAssetConfig config, Map<String, Mesh> meshes,
+                                    Map<String, Material> materials) {
+        Scene scene = new Scene(camera);
+        for (Map.Entry<String, SceneAssetConfig.ObjectDef> entry : config.objects().entrySet()) {
+            SceneAssetConfig.ObjectDef def = entry.getValue();
+            Mesh mesh = meshFor(def, meshes);
+            Material material = materials.get(def.material());
+            if (material == null) {
+                throw new IllegalStateException("Material not configured for object " + entry.getKey() + ": " + def.material());
+            }
+            scene.add(new SceneObject(mesh, material, updaterFor(entry.getKey(), def)));
+        }
+        for (SceneAssetConfig.LightDef light : config.lights().values()) {
+            scene.addLight(lightFor(light));
+        }
+        return scene;
+    }
+
+    private static Mesh meshFor(SceneAssetConfig.ObjectDef def, Map<String, Mesh> meshes) {
+        if (!def.builtinMesh()) {
+            throw new IllegalStateException("Only builtin demo meshes are wired in LearnOpenGlDemo: " + def.model());
+        }
+        Mesh mesh = meshes.get(def.builtinMeshName());
+        if (mesh == null) {
+            throw new IllegalStateException("Builtin mesh not loaded: " + def.model());
+        }
+        return mesh;
+    }
+
+    private static SceneObject.ModelUpdater updaterFor(String objectName, SceneAssetConfig.ObjectDef def) {
+        return switch (objectName) {
+            case "triangle" -> (m, f) -> baseTransform(m, def).rotateZ(f * 0.03f);
+            case "wall" -> (m, f) -> baseTransform(m, def).rotateZ(-f * 0.02f);
+            case "face" -> (m, f) -> baseTransform(m, def)
+                    .translate(0.0f, (float) Math.sin(f * 0.04f) * 0.5f, 0.0f);
+            default -> (m, f) -> baseTransform(m, def);
+        };
+    }
+
+    private static Matrix4f baseTransform(Matrix4f out, SceneAssetConfig.ObjectDef def) {
+        Vector3f position = def.position();
+        Vector3f rotation = def.rotationRadians();
+        return out.identity()
+                .translation(position)
+                .rotateXYZ(rotation.x, rotation.y, rotation.z)
+                .scale(def.scale());
+    }
+
+    private static SceneLight lightFor(SceneAssetConfig.LightDef def) {
+        String type = def.type().toLowerCase();
+        return switch (type) {
+            case "directional" -> def.castShadows()
+                    ? SceneLight.shadowedDirectional(def.positionOrDirection(), def.color(), def.intensity())
+                    : SceneLight.directional(def.positionOrDirection(), def.color(), def.intensity());
+            case "point" -> SceneLight.point(def.positionOrDirection(), def.color(), def.intensity(), def.range());
+            default -> throw new IllegalStateException("Unsupported demo light type: " + def.type());
+        };
     }
 
     private static ShaderProgram loadShader(String name, SceneAssetConfig config) {
@@ -173,6 +205,35 @@ public final class LearnOpenGlDemo {
                 .map(SceneAssetConfig.TextureDef::flipVertically)
                 .orElse(true);
         return Texture2D.fromResource(LearnOpenGlDemo.class, ref.path(), flip);
+    }
+
+    private static Material buildMaterial(String name, SceneAssetConfig config, Map<String, ShaderProgram> shaders,
+                                          TextureAssetCache textureCache) {
+        MaterialDef def = config.materials().get(name);
+        if (def == null) {
+            throw new IllegalStateException("Material not configured: " + name);
+        }
+        ShaderProgram shader = shaders.get(def.shader());
+        if (shader == null) {
+            throw new IllegalStateException("Shader not loaded for material " + name + ": " + def.shader());
+        }
+        Material.Builder builder = Material.builder(shader)
+                .blendMode(def.blendMode())
+                .depthTest(def.depthTest());
+        for (MaterialDef.TextureBinding binding : def.textures()) {
+            if (binding.sampler() != null) {
+                throw new IllegalStateException("Sampler definitions are not wired yet: " + binding.sampler());
+            }
+            SceneAssetConfig.TextureDef texture = config.textures().get(binding.texture());
+            if (texture == null) {
+                throw new IllegalStateException("Texture not configured for material " + name + ": " + binding.texture());
+            }
+            builder.texture(binding.unit(), binding.samplerName(), textureCache.get(texture.path().path()));
+        }
+        if (!def.textures().isEmpty()) {
+            builder.setVec3("uTint", new Vector3f(1, 1, 1));
+        }
+        return builder.build();
     }
 
     private static void demoVertexPacking() {

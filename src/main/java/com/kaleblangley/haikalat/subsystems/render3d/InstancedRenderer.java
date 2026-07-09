@@ -72,13 +72,7 @@ public final class InstancedRenderer {
     }
 
     private void submitBatch(CommandBuffer cmd) {
-        // TODO(command-api): replace with a formal instanced batch upload/draw command.
-        // This is not debug-only; it exists because batch upload currently owns GL calls.
-        cmd.custom(() -> {
-            batch.beginFrame();
-            batch.submitAll(tripleBuffer.read());
-            drawnCount.set(batch.flush());
-        });
+        cmd.drawInstancedBatch(batch, tripleBuffer.read(), drawnCount::set);
     }
 
     public void close() {

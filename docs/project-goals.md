@@ -33,8 +33,8 @@ Java/LWJGL/OpenGL 3.3 实时渲染框架。当前目标是用可运行 demo、�
   demo、测试和文档。
 - 用少量高质量 demo 证明能力，避免每个新特性都变成长期维护入口。
 - 在 OpenGL 后端稳定前，不急于引入 Vulkan/多后端、不扩展成完整游戏引擎、不做大型编辑器。
-- 中期重点收敛 `cmd.custom()` 中仍处于逃生口状态的 instanced batch upload/draw，使主渲染路径
-  进入正式 command API。
+- instanced batch upload/draw 已经从 `cmd.custom()` 逃生口收敛到正式 `CommandBuffer.drawInstancedBatch(...)`，
+  主渲染路径不再依赖业务侧自定义 GL block。
 - 继续补强资源生命周期错误验证，覆盖 framebuffer、texture、shader、asset cache 等真实 GL 资源边界。
 
 ## Non-Goals

@@ -23,10 +23,15 @@ import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 
 /**
- * Immutable material template.
+ * OpenGL runtime material template.
  *
- * <p>Per-object mutable values belong in {@link MaterialInstance}. A Material owns
- * GPU resources only when explicitly configured with {@link ResourceOwnership#OWNED}.</p>
+ * <p>This class directly references {@link ShaderProgram}, {@link Texture2D}, and optional {@link Sampler}
+ * objects, so it belongs to the GL runtime layer rather than the asset/configuration layer. Use a
+ * non-GL definition object such as {@code MaterialDef} while parsing manifests or preparing assets, then
+ * build a {@code Material} after the required GL resources have been loaded.</p>
+ *
+ * <p>Per-object mutable values belong in {@link MaterialInstance}. A Material closes referenced GPU
+ * resources only when explicitly configured with {@link ResourceOwnership#OWNED}.</p>
  */
 public final class Material implements GlResource {
     private final ShaderProgram shader;

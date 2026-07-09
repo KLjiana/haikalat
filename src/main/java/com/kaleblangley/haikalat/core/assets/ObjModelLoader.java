@@ -67,11 +67,10 @@ public final class ObjModelLoader implements ModelAssetLoader {
             vertexArray[i] = vertices.get(i);
         }
         int[] indexArray = indices.stream().mapToInt(Integer::intValue).toArray();
-        return new LoadedModel(List.of(new LoadedModel.MeshData(
+        return new LoadedModel(List.of(LoadedModel.VertexFormat.POSITION_NORMAL_UV.meshData(
                 name,
                 vertexArray,
-                indexArray,
-                LoadedModel.VertexFormat.POSITION_NORMAL_UV)));
+                indexArray)));
     }
 
     private static void appendFace(String[] parts, List<Vector3f> positions, List<Vector3f> normals,

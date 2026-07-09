@@ -17,6 +17,9 @@ import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 
+/**
+ * Opt-in GL smoke test. Runs only with -Dhaikalat.glSmoke=true because it creates a hidden GLFW window.
+ */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class GlContextSmokeTest {
     @Test

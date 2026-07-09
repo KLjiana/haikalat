@@ -21,18 +21,19 @@ import static org.lwjgl.opengl.GL15.glGenBuffers;
 import static org.lwjgl.opengl.GL15.glUnmapBuffer;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
 import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
+import static org.lwjgl.opengl.GL43.*;
 
 public final class GlBuffer implements GlResource, BufferUploadTarget {
     private final int target;
     private final int usage;
     private final int id;
+    private boolean labeled;
     private boolean closed;
 
     public GlBuffer(int target, int usage) {
         this.target = target;
         this.usage = usage;
         this.id = glGenBuffers();
-        GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_BUFFER, id, "GlBuffer target=" + target);
     }
 
     public static GlBuffer arrayBuffer(int usage) {
@@ -58,6 +59,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     public GlBuffer bind() {
         ensureOpen();
         glBindBuffer(target, id);
+        labelIfNeeded();
         return this;
     }
 
@@ -160,5 +162,13 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         if (closed) {
             throw new GlException("Buffer is closed");
         }
+    }
+
+    private void labelIfNeeded() {
+        if (labeled) {
+            return;
+        }
+        GlDebug.labelObject(GL_BUFFER, id, "GlBuffer target=" + target);
+        labeled = true;
     }
 }

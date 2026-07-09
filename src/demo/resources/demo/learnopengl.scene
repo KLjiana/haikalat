@@ -10,7 +10,7 @@ texture face /awesomeface.png true
 # object <name> <model> <material> px py pz rx ry rz scale castShadows
 object triangle builtin:triangle color -1.5 0.5 -2.5 0 0 0 1 true
 object wall builtin:texturedQuad wall 1.0 0.5 -2.5 0 0 0 1 true
-object coloredQuad builtin:coloredQuad color -1.5 -1.0 -3.0 0 0 0 0.6 true
+object coloredQuad builtin:quad color -1.5 -1.0 -3.0 0 0 0 0.6 true
 object face builtin:texturedQuad face 1.5 -1.0 -3.0 0 0 0 0.5 false
 
 # light <name> <directional|point|spot> x y z r g b intensity range castShadows

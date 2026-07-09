@@ -23,6 +23,10 @@ import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
 
+/**
+ * Runtime mesh resource uploaded to OpenGL.
+ * Use {@link MeshData} for asset parsing, builtin geometry, and pure JVM tests before a GL context exists.
+ */
 public final class Mesh implements GlResource {
     private final VertexArray vertexArray;
     private final GlBuffer vertexBuffer;
@@ -83,6 +87,22 @@ public final class Mesh implements GlResource {
     /** @return 新建一个 Mesh Builder */
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * Uploads pure mesh data into OpenGL buffers and a vertex array.
+     * This method requires a current GL context and transfers lifecycle ownership to the returned {@code Mesh}.
+     */
+    public static Mesh from(MeshData data) {
+        Objects.requireNonNull(data, "data");
+        Builder builder = builder()
+                .vertices(data.vertices(), data.layout().strideBytes(),
+                        data.layout().attributes().toArray(VertexAttribute[]::new))
+                .primitiveMode(data.primitiveMode());
+        if (data.hasIndices()) {
+            builder.indices(data.indices());
+        }
+        return builder.build();
     }
 
     /**

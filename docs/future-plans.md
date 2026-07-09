@@ -1,24 +1,24 @@
 # Future Plans
 
-本文件只记录后续计划。项目目标和非目标记录在 `docs/project-goals.md`。已经完成的功能扩展和稳定化工作迁移到 `docs/changelog.md`，抽象密度盘点记录在 `docs/abstraction-audit.md`。
+本文件只记录后续计划。项目目标和非目标记录在 `docs/project-goals.md`，一线反馈转化后的执行任务记录在 `docs/developer-task-plan.md`。已经完成的功能扩展和稳定化工作迁移到 `docs/changelog.md`，抽象密度盘点记录在 `docs/abstraction-audit.md`。
 
 ## Current Focus
 
-当前阶段从内容扩展转向稳定现有内容，重点是减少没有行为支撑的抽象，保留能被 demo、测试或明确生命周期职责证明的边界。
+当前阶段从内容扩展转向稳定现有内容，重点是减少没有行为支撑的抽象，保留能被 demo、测试或明确生命周期职责证明的边界。执行顺序以 `docs/developer-task-plan.md` 的 P0-P3 为准。
 
 ### 近期
 
-- [x] 为 `RenderDevice` 定义最小稳定接口，避免继续膨胀。
-- [x] 为 `RenderGraph` 明确 pass、resource、profile 三个职责边界。
-- [x] 将资产系统从自定义 DSL 逐步迁移到更标准、可校验的格式。
-- [x] 为 shadow、postprocess、scene pipeline 各保留一个高质量 demo，证明抽象价值。
-- [x] 建立真实 GL context 下的集成测试或截图验证。
+- [x] 把 `InstancedRenderer`、`MinimalDemo`、`AsyncDemo` 中的实例化 batch upload/draw 收敛为正式 `CommandBuffer` API。
+- [x] 将 `RenderPipeline` 拆成 package-private helper，优先提取 camera uniforms、lighting binder、postprocess builder、TAA history。
+- [x] 为 `PassResources` 增加窄 API，并限制普通 pass 直接依赖 `Framebuffer`、`Texture2D`、attachment id。
+- [x] 处理旧顶层 demo 入口，避免 `Main`、`Light`、`Camera`、`Shader` 与新 demo 体系并列。
+- [x] 建立测试分类约定，区分纯 JVM unit、opt-in `glSmoke`、demo/pipeline integration。
 
 ### 中期
 
-- [ ] 根据 `cmd.custom()` TODO，把 instanced batch upload/draw 收敛为正式命令 API。
-- [x] 继续压缩只服务单一调用点的 descriptor、manager、factory。
-- [ ] 为保留的核心抽象补充文档中的职责边界和删除条件。
+- [x] 推广纯数据 `MeshData` 到 demo 和资产路径，明确 `Mesh` 只表示 GL 上传后的运行时资源。
+- [x] 明确 `Material` 是当前 OpenGL runtime material；如需配置驱动材质，新增 `MaterialDef` 作为非 GL 定义层。
+- [x] 将 `.properties` 目标收敛为 asset manifest + 简单 scene manifest，不承担动画、脚本或编辑器职责。
 - [ ] 建立资源生命周期错误的集成验证，覆盖 framebuffer、texture、shader、asset cache。
 - [ ] 为 demo 选择一组稳定基准场景，避免每个功能都新增长期维护入口。
 

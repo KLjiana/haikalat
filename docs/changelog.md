@@ -4,10 +4,19 @@
 
 ### Stabilization
 
+- Added `docs/developer-task-plan.md` to convert front-line development feedback into prioritized engineering tasks.
 - Documented the project goal, current capabilities, target direction, and non-goals in `docs/project-goals.md`.
 - Audited abstraction density and documented the current keep/remove decisions in `docs/abstraction-audit.md`.
 - Removed over-broad resource factory and future-only descriptor abstractions that had no production behavior.
 - Annotated all `cmd.custom()` call sites with replacement direction and whether a formal command API is needed.
+- Added formal `CommandBuffer.drawInstancedBatch(...)` commands and removed instanced batch `cmd.custom()` usage from demo/runtime main paths.
+- Split `RenderPipeline` internals into package-private helpers for camera uniforms, lighting binding, TAA history, postprocess pass creation, and forward pass registration.
+- Added narrow `PassResources` accessors for logical color attachments/current targets and documented backend-facing resource APIs.
+- Introduced pure `MeshData` and builtin mesh data helpers, with `Mesh.from(MeshData)` as the GL upload boundary.
+- Added non-GL `MaterialDef` scene configuration and documented `Material` as an OpenGL runtime resource.
+- Removed legacy default-package demo entry points and their private shaders, keeping the packaged demo entry points as the supported style.
+- Defined `.properties` scene config as asset manifest plus simple demo-scene bindings, with a fixed builtin mesh name set.
+- Documented test categories for pure JVM unit tests, opt-in GL smoke tests, and manual/integration checks.
 - Defined the minimal `RenderDevice` contract and kept OpenGL `StateCache` access on `GlRenderDevice`.
 - Documented `RenderGraph` pass/resource/profile boundaries in `docs/render-boundaries.md`.
 - Added standard Java `.properties` scene asset config parsing and switched `LearnOpenGlDemo` to that format.

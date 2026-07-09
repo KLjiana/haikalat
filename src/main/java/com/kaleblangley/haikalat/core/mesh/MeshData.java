@@ -1,0 +1,69 @@
+package com.kaleblangley.haikalat.core.mesh;
+
+import java.util.Objects;
+
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+
+/**
+ * Pure mesh data that can be created, parsed, and tested without an OpenGL context.
+ * Uploading this data creates a runtime {@link Mesh}.
+ */
+public record MeshData(
+        String name,
+        float[] vertices,
+        int[] indices,
+        VertexLayout layout,
+        int primitiveMode
+) {
+    public MeshData {
+        name = Objects.requireNonNull(name, "name");
+        vertices = Objects.requireNonNull(vertices, "vertices").clone();
+        indices = indices == null ? new int[0] : indices.clone();
+        layout = Objects.requireNonNull(layout, "layout");
+        validate(vertices, layout);
+    }
+
+    public static MeshData of(String name, float[] vertices, VertexLayout layout) {
+        return new MeshData(name, vertices, new int[0], layout, GL_TRIANGLES);
+    }
+
+    public static MeshData indexed(String name, float[] vertices, int[] indices, VertexLayout layout) {
+        return new MeshData(name, vertices, indices, layout, GL_TRIANGLES);
+    }
+
+    public boolean hasIndices() {
+        return indices.length > 0;
+    }
+
+    public int vertexCount() {
+        return vertices.length / floatsPerVertex(layout);
+    }
+
+    @Override
+    public float[] vertices() {
+        return vertices.clone();
+    }
+
+    @Override
+    public int[] indices() {
+        return indices.clone();
+    }
+
+    private static void validate(float[] vertices, VertexLayout layout) {
+        int floatsPerVertex = floatsPerVertex(layout);
+        if (vertices.length == 0 || vertices.length % floatsPerVertex != 0) {
+            throw new IllegalArgumentException("vertex data is not divisible by layout stride");
+        }
+    }
+
+    private static int floatsPerVertex(VertexLayout layout) {
+        if (layout.strideBytes() % Float.BYTES != 0) {
+            throw new IllegalArgumentException("layout stride must be aligned to float size");
+        }
+        int floatsPerVertex = layout.strideBytes() / Float.BYTES;
+        if (floatsPerVertex <= 0) {
+            throw new IllegalArgumentException("layout stride must contain at least one float");
+        }
+        return floatsPerVertex;
+    }
+}

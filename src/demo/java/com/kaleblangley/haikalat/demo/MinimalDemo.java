@@ -58,14 +58,9 @@ public final class MinimalDemo {
         GlRenderDevice device = new GlRenderDevice();
         RenderStatistics stats = new RenderStatistics();
 
-        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/color_mvp.vert", "/demo/color_mvp.frag");
-
-        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/textured_mvp.vert", "/demo/textured_mvp.frag");
-
-        ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
+        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/color_mvp.vert", "/demo/color_mvp.frag");
+        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/textured_mvp.vert", "/demo/textured_mvp.frag");
+        ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
 
         Texture2D wallTex = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);
 
@@ -81,24 +76,24 @@ public final class MinimalDemo {
 
         Mesh quad = Mesh.builder()
                 .vertices(new float[]{
-                        -0.3f, -0.3f, 0.0f, 1, 1, 0,
-                        0.3f, -0.3f, 0.0f, 0, 1, 1,
-                        0.3f, 0.3f, 0.0f, 1, 0, 1,
-                        -0.3f, -0.3f, 0.0f, 1, 1, 0,
-                        0.3f, 0.3f, 0.0f, 1, 0, 1,
-                        -0.3f, 0.3f, 0.0f, 0, 1, 1
-                }, 6 * Float.BYTES,
+                                -0.3f, -0.3f, 0.0f, 1, 1, 0,
+                                0.3f, -0.3f, 0.0f, 0, 1, 1,
+                                0.3f, 0.3f, 0.0f, 1, 0, 1,
+                                -0.3f, -0.3f, 0.0f, 1, 1, 0,
+                                0.3f, 0.3f, 0.0f, 1, 0, 1,
+                                -0.3f, 0.3f, 0.0f, 0, 1, 1
+                        }, 6 * Float.BYTES,
                         VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
                         VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())
                 .build();
 
         Mesh texQuad = Mesh.builder()
                 .vertices(new float[]{
-                        -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
-                        0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-                        0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
-                        -0.5f, 0.5f, 0.0f, 0.0f, 1.0f
-                }, 5 * Float.BYTES,
+                                -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
+                                0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+                                0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
+                                -0.5f, 0.5f, 0.0f, 0.0f, 1.0f
+                        }, 5 * Float.BYTES,
                         VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
                         VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())
                 .indices(new int[]{0, 1, 2, 0, 2, 3})
@@ -141,57 +136,51 @@ public final class MinimalDemo {
                         fbWidth / (float) Math.max(1, fbHeight), 0.1f, 100.0f);
                 proj.mul(view, projView);
 
-            List<Matrix4f> writes = transformBuf.write();
-            writes.clear();
-            for (int r = 0; r < 4; r++) {
-                for (int c = 0; c < 4; c++) {
-                    writes.add(new Matrix4f()
-                            .translation(-1.4f + c * 0.7f, -1.4f + r * 0.7f, 0)
-                            .rotateZ(frame * 0.04f + (r + c) * 0.3f)
-                            .scale(0.3f));
+                List<Matrix4f> writes = transformBuf.write();
+                writes.clear();
+                for (int r = 0; r < 4; r++) {
+                    for (int c = 0; c < 4; c++) {
+                        writes.add(new Matrix4f()
+                                .translation(-1.4f + c * 0.7f, -1.4f + r * 0.7f, 0)
+                                .rotateZ(frame * 0.04f + (r + c) * 0.3f)
+                                .scale(0.3f));
+                    }
                 }
-            }
-            transformBuf.flip();
+                transformBuf.flip();
 
-            cmd.reset();
-            cmd.bindFramebuffer(sceneFb).viewport(0, 0, fbWidth, fbHeight);
-            cmd.clearColor(0.08f, 0.10f, 0.14f, 1.0f).clear(true, true);
+                cmd.reset();
+                cmd.bindFramebuffer(sceneFb).viewport(0, 0, fbWidth, fbHeight);
+                cmd.clearColor(0.08f, 0.10f, 0.14f, 1.0f).clear(true, true);
 
-            colorMat.bind(cmd);
-            projView.mul(triModel, mvp);
-            cmd.setUniformMat4(colorShader, "uMvp", mvp);
-            cmd.bindMesh(triangle).drawMesh(triangle);
+                colorMat.bind(cmd);
+                projView.mul(triModel, mvp);
+                cmd.setUniformMat4(colorShader, "uMvp", mvp);
+                cmd.bindMesh(triangle).drawMesh(triangle);
 
-            texMat.bind(cmd);
-            projView.mul(quadModel, mvp);
-            cmd.setUniformMat4(texShader, "uMvp", mvp);
-            cmd.bindMesh(texQuad).drawMesh(texQuad);
+                texMat.bind(cmd);
+                projView.mul(quadModel, mvp);
+                cmd.setUniformMat4(texShader, "uMvp", mvp);
+                cmd.bindMesh(texQuad).drawMesh(texQuad);
 
-            cmd.bindShader(instShader);
-            cmd.setUniformMat4(instShader, "uProjView", projView);
-            // TODO(command-api): replace with a formal instanced batch upload/draw command.
-            // This touches the render main path and should not stay as a custom escape hatch.
-            cmd.custom(() -> {
-                instBatch.beginFrame();
-                instBatch.submitAll(transformBuf.read());
-                instBatch.flush();
-            });
+                cmd.bindShader(instShader);
+                cmd.setUniformMat4(instShader, "uProjView", projView);
+                cmd.drawInstancedBatch(instBatch, transformBuf.read());
 
-            cmd.bindFramebuffer(GL_FRAMEBUFFER, 0).viewport(0, 0, fbWidth, fbHeight);
-            cmd.blitToDefault(sceneFb, fbWidth, fbHeight);
+                cmd.bindFramebuffer(GL_FRAMEBUFFER, 0).viewport(0, 0, fbWidth, fbHeight);
+                cmd.blitToDefault(sceneFb, fbWidth, fbHeight);
 
-            device.execute(cmd);
+                device.execute(cmd);
 
-            stats.endFrame();
+                stats.endFrame();
 
-            if ((frame % 60) == 0) {
-                glfwSetWindowTitle(window, String.format("Minimal | FPS %.1f | objs=2+inst",
-                        stats.averageFps()));
-            }
+                if ((frame % 60) == 0) {
+                    glfwSetWindowTitle(window, String.format("Minimal | FPS %.1f | objs=2+inst",
+                            stats.averageFps()));
+                }
 
-            GlDebug.checkError("MinimalDemo");
-            glfwSwapBuffers(window);
-            glfwPollEvents();
+                GlDebug.checkError("MinimalDemo");
+                glfwSwapBuffers(window);
+                glfwPollEvents();
                 frame++;
             }
         } finally {

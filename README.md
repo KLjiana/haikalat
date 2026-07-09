@@ -30,24 +30,33 @@ current goals, capabilities, and non-goals.
 
 ## Build And Test
 
+Default tests are pure JVM/unit checks and do not require a desktop GL context:
+
 ```powershell
 .\gradlew.bat compileJava test
 ```
 
-CI runs the non-windowed checks:
+CI runs the same non-windowed path plus demo source compilation:
 
 ```powershell
 .\gradlew.bat compileJava demoClasses test
 ```
 
+Opt-in GL smoke checks create a hidden GLFW window:
+
+```powershell
+.\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
+```
+
+See `docs/testing.md` for the `unit`, `glSmoke`, and `integration` categories.
+
 ## Run Demos
 
 Import the Gradle project in your IDE, then run the demo `main` method directly from
-the `learnopengl.demo` module, for example:
+the `learnopengl.demo` module.
 
-- `com.kaleblangley.haikalat.demo.MinimalDemo`
-- `com.kaleblangley.haikalat.demo.LearnOpenGlDemo`
-- `com.kaleblangley.haikalat.demo.async.AsyncDemo`
+- Main demo: `com.kaleblangley.haikalat.demo.LearnOpenGlDemo`
+- Minimal smoke demo: `com.kaleblangley.haikalat.demo.MinimalDemo`
+- Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
 
 The demo source set lives in `src/demo/java` and uses resources from `src/demo/resources`.
-Unit tests live in `src/test/java` and should avoid requiring a real OpenGL context unless explicitly marked otherwise.

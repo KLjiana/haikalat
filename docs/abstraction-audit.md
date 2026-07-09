@@ -1,6 +1,6 @@
 # Abstraction Audit
 
-本次盘点依据 `docs/abstraction-density.md` 的近期目标执行，重点检查只有一个实现的 `public interface`，以及只有少量调用点的 `descriptor / manager / factory`。
+本次盘点依据 `docs/abstraction-density.md` 执行，重点检查只有一个实现的 `public interface`，以及只有少量调用点的 `descriptor / manager / factory`。
 
 ## Public Interface Inventory
 
@@ -8,11 +8,11 @@
 |---|---|---|
 | `GlResource` | 多个 OpenGL 资源实现，统一释放协议 | 保留 |
 | `RenderWindow` | 当前只有 `GlfwWindow` 实现，但隔离 demo/runtime 对 GLFW 的依赖 | 保留，属于窗口后端边界 |
-| `RenderDevice` | 当前只有 `GlRenderDevice` 实现，接口已收缩到 backend kind、execution model、barrier transition | 保留，但继续限制增长 |
+| `RenderDevice` | 当前只有 `GlRenderDevice` 实现，接口已收缩到 backend kind、execution model、command submit、barrier transition | 保留，但继续限制增长 |
 | `ModelAssetLoader` | `ObjModelLoader` 与 `AssimpModelLoader` 两个实现 | 保留 |
 | `BufferUploadTarget` | 生产实现为 `GlBuffer`，测试使用 fake target 验证 `UploadSystem` | 保留，属于测试隔离 |
 | `UniformValue` | sealed value hierarchy，多个 uniform 类型实现 | 保留 |
-| `UploadRequest` / `PassExecutor` / `InstanceDef` / `ModelUpdater` | 函数式回调，不作为长期架构接口扩展 | 保留，保持局部化 |
+| `UploadSystem.UploadRequest` / `PassExecutor` / `InstanceDef` / `ModelUpdater` | 函数式回调，不作为长期架构接口扩展 | 保留，保持局部化 |
 
 ## Descriptor / Manager / Factory Inventory
 
@@ -34,13 +34,12 @@
 
 ## CommandBuffer Custom Escapes
 
-所有 `cmd.custom()` 调用点已经补充 `TODO(command-api)`：
+`InstancedRenderer`、`MinimalDemo`、`AsyncDemo` 的 instanced batch upload/draw 已经收敛到正式 `CommandBuffer.drawInstancedBatch(...)`。
 
-- `RenderGraph` 中的 GPU timer begin/end：暂时允许作为 profiling escape hatch，只有当需要 StateCache 或命令级测试时再转正式命令。
-- `InstancedRenderer`、`MinimalDemo`、`AsyncDemo` 中的 instanced batch upload/draw：属于渲染主路径，应在 batch API 稳定后转为正式 `CommandBuffer` 命令。
+当前主源码和 demo 中只保留 `RenderGraph` GPU timer begin/end 的 `cmd.custom()`，这是 profiling escape hatch。测试中的 `cmd.custom()` 仅用于验证命令排序。
 
 ## Downgrade Summary
 
-本次降级删除了当前没有实际行为支撑的资源 factory、通用 descriptor、旧上传 wrapper、旧后处理管线和长期评估 plan，避免 roadmap 概念继续留在运行时代码里。`RenderGraph` 重新直接使用 `RenderTargetManager`，`RenderTargetManager` 直接通过 `Framebuffer.fromDescriptor` 创建资源。
+本次降级删除了当前没有实际行为支撑的资源 factory、通用 descriptor、旧上传 wrapper、旧后处理管线和长期评估 plan，避免 roadmap 概念继续留在运行时代码里。`RenderGraph` 直接使用 `RenderTargetManager`，`RenderTargetManager` 直接通过 `Framebuffer.fromDescriptor` 创建资源。
 
 保留的抽象都有至少一种当前证据：demo 使用、单元测试、生命周期管理职责，或明确的后端/测试隔离边界。

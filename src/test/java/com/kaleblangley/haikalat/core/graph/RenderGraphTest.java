@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RenderGraphTest {
@@ -80,5 +81,22 @@ class RenderGraphTest {
                 descriptor.colorAttachments().get(0).storage());
         assertEquals(FramebufferDescriptor.AttachmentStorage.RENDERBUFFER,
                 descriptor.depthAttachment().storage());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void passResourcesExposeNarrowAliasesWithoutOwningLifecycle() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Geometry")
+                .createColor("SceneColor", RenderFormat.RGBA8)
+                .execute((res, cmd) -> {});
+        PassResources resources = new PassResources(graph);
+
+        assertEquals(0, resources.colorAttachment("SceneColor"));
+        assertEquals(resources.getTextureAttachmentId("SceneColor"), resources.colorAttachment("SceneColor"));
+        assertNull(resources.currentTarget());
+        assertNull(resources.framebufferOfPass("Geometry"));
+        assertEquals(resources.getFramebuffer(), resources.currentTarget());
+        assertEquals(resources.getFramebuffer("Geometry"), resources.framebufferOfPass("Geometry"));
     }
 }

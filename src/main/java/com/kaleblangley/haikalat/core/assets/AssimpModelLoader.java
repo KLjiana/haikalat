@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.core.mesh.MeshData;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.assimp.AIFace;
 import org.lwjgl.assimp.AIMesh;
@@ -50,7 +51,7 @@ public final class AssimpModelLoader implements ModelAssetLoader {
         if (meshes == null || scene.mNumMeshes() == 0) {
             throw new GlException("Model contains no meshes: " + assetName);
         }
-        List<LoadedModel.MeshData> result = new ArrayList<>(scene.mNumMeshes());
+        List<MeshData> result = new ArrayList<>(scene.mNumMeshes());
         for (int i = 0; i < scene.mNumMeshes(); i++) {
             AIMesh mesh = AIMesh.create(meshes.get(i));
             result.add(convertMesh(mesh, assetName + "#" + i));
@@ -58,7 +59,7 @@ public final class AssimpModelLoader implements ModelAssetLoader {
         return new LoadedModel(result);
     }
 
-    private static LoadedModel.MeshData convertMesh(AIMesh mesh, String name) {
+    private static MeshData convertMesh(AIMesh mesh, String name) {
         AIVector3D.Buffer positions = mesh.mVertices();
         AIVector3D.Buffer normals = mesh.mNormals();
         AIVector3D.Buffer texCoords = mesh.mTextureCoords(0);
@@ -88,7 +89,7 @@ public final class AssimpModelLoader implements ModelAssetLoader {
                 indices.add(faceIndices.get());
             }
         }
-        return new LoadedModel.MeshData(name, vertices, indices.stream().mapToInt(Integer::intValue).toArray(),
-                LoadedModel.VertexFormat.POSITION_NORMAL_UV);
+        return LoadedModel.VertexFormat.POSITION_NORMAL_UV.meshData(
+                name, vertices, indices.stream().mapToInt(Integer::intValue).toArray());
     }
 }

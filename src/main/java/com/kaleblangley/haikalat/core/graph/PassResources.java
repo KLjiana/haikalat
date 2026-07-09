@@ -12,19 +12,59 @@ public final class PassResources {
         this.graph = graph;
     }
 
-    public Framebuffer getFramebuffer(String passName) {
-        return graph.getPassFramebuffer(passName);
+    /**
+     * Returns the OpenGL texture id for a logical color attachment name declared by a pass.
+     * Prefer this over pulling a framebuffer only to read its color attachment id.
+     */
+    public int colorAttachment(String textureName) {
+        return graph.getTextureAttachmentId(Objects.requireNonNull(textureName, "textureName"));
     }
 
-    public Texture2D getTexture(String textureName) {
-        return graph.getTexture(textureName);
+    /**
+     * Returns the framebuffer owned by a named pass.
+     * This is intended for internal OpenGL passes that need backend framebuffer state such as blits or dimensions.
+     */
+    public Framebuffer framebufferOfPass(String passName) {
+        return graph.getPassFramebuffer(Objects.requireNonNull(passName, "passName"));
     }
 
-    public int getTextureAttachmentId(String textureName) {
-        return graph.getTextureAttachmentId(textureName);
-    }
-
-    public Framebuffer getFramebuffer() {
+    /**
+     * Returns the framebuffer currently bound for the executing pass.
+     * Ordinary passes should usually render through commands and logical resource names instead.
+     */
+    public Framebuffer currentTarget() {
         return graph.currentPassFramebuffer();
+    }
+
+    /**
+     * Backend-facing compatibility API. Prefer {@link #framebufferOfPass(String)} for new code.
+     */
+    @Deprecated(since = "0.6", forRemoval = false)
+    public Framebuffer getFramebuffer(String passName) {
+        return framebufferOfPass(passName);
+    }
+
+    /**
+     * Backend-facing compatibility API for internal passes that need a concrete texture object.
+     * Ordinary passes should use logical resource names and {@link #colorAttachment(String)} when only the id is needed.
+     */
+    public Texture2D getTexture(String textureName) {
+        return graph.getTexture(Objects.requireNonNull(textureName, "textureName"));
+    }
+
+    /**
+     * Backend-facing compatibility API. Prefer {@link #colorAttachment(String)} for new code.
+     */
+    @Deprecated(since = "0.6", forRemoval = false)
+    public int getTextureAttachmentId(String textureName) {
+        return colorAttachment(textureName);
+    }
+
+    /**
+     * Backend-facing compatibility API. Prefer {@link #currentTarget()} for new code.
+     */
+    @Deprecated(since = "0.6", forRemoval = false)
+    public Framebuffer getFramebuffer() {
+        return currentTarget();
     }
 }

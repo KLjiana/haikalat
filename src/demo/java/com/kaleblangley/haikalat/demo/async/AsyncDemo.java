@@ -72,13 +72,7 @@ public final class AsyncDemo {
             if (!transforms.isEmpty()) {
                 cmd.bindShader(instShader[0]);
                 cmd.setUniformMat4(instShader[0], "uProjView", new Matrix4f(proj).mul(state.view()));
-                // TODO(command-api): replace with a formal instanced batch upload/draw command.
-                // This is render-path behavior and needs a typed command once batch APIs settle.
-                cmd.custom(() -> {
-                    batch[0].beginFrame();
-                    batch[0].submitAll(transforms);
-                    batch[0].flush();
-                });
+                cmd.drawInstancedBatch(batch[0], transforms);
             }
 
             cmd.bindFramebuffer(GL_FRAMEBUFFER, 0).viewport(0, 0, window.width(), window.height());

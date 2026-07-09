@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.UniformBlock;
+import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL20.glUniform1f;
@@ -208,6 +210,68 @@ public final class CommandBuffer {
         Objects.requireNonNull(mesh, "mesh");
         commands.add(cache -> mesh.drawInstancedBound(instanceCount));
         return this;
+    }
+
+    /**
+     * Records the standard instanced batch upload/draw path.
+     *
+     * <p>The transform iterable is copied immediately during recording, so callers may
+     * pass data from a producer thread as long as each {@link Matrix4f} represents the
+     * intended value at record time. The command executes on the render thread and runs
+     * {@code beginFrame -> submitAll -> flush}. The underlying batch upload and draw
+     * calls own their GL state setup; they do not currently go through {@link StateCache}.</p>
+     *
+     * @param batch instanced batch to upload and draw
+     * @param transforms transforms to submit to the batch
+     * @return this command buffer
+     */
+    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch, Iterable<Matrix4f> transforms) {
+        return drawInstancedBatch(batch, transforms, null);
+    }
+
+    /**
+     * Records the standard instanced batch upload/draw path and reports the drawn
+     * instance count after execution.
+     *
+     * <p>See {@link #drawInstancedBatch(InstancedMeshBatch, Iterable)} for StateCache
+     * and cross-thread capture rules.</p>
+     *
+     * @param batch instanced batch to upload and draw
+     * @param transforms transforms to submit to the batch
+     * @param drawnCount receives the result of {@link InstancedMeshBatch#flush()}, may be null
+     * @return this command buffer
+     */
+    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch, Iterable<Matrix4f> transforms,
+                                            IntConsumer drawnCount) {
+        Objects.requireNonNull(batch, "batch");
+        Objects.requireNonNull(transforms, "transforms");
+        List<Matrix4f> copiedTransforms = new ArrayList<>();
+        for (Matrix4f transform : transforms) {
+            copiedTransforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
+        }
+        return recordInstancedBatch(new InstancedBatchSubmission() {
+            @Override
+            public void beginFrame() {
+                batch.beginFrame();
+            }
+
+            @Override
+            public void submitAll(Iterable<Matrix4f> submittedTransforms) {
+                batch.submitAll(submittedTransforms);
+            }
+
+            @Override
+            public int flush() {
+                return batch.flush();
+            }
+
+            @Override
+            public void drawn(int count) {
+                if (drawnCount != null) {
+                    drawnCount.accept(count);
+                }
+            }
+        }, copiedTransforms);
     }
 
     /**
@@ -508,5 +572,31 @@ public final class CommandBuffer {
     /** @return 当前已记录的命令数量 */
     public int commandCount() {
         return commands.size();
+    }
+
+    CommandBuffer recordInstancedBatch(InstancedBatchSubmission submission, Iterable<Matrix4f> transforms) {
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(transforms, "transforms");
+        List<Matrix4f> copiedTransforms = new ArrayList<>();
+        for (Matrix4f transform : transforms) {
+            copiedTransforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
+        }
+        commands.add(cache -> {
+            submission.beginFrame();
+            submission.submitAll(copiedTransforms);
+            submission.drawn(submission.flush());
+        });
+        return this;
+    }
+}
+
+interface InstancedBatchSubmission {
+    void beginFrame();
+
+    void submitAll(Iterable<Matrix4f> transforms);
+
+    int flush();
+
+    default void drawn(int count) {
     }
 }

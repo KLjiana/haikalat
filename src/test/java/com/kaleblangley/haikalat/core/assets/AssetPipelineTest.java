@@ -1,6 +1,9 @@
 package com.kaleblangley.haikalat.core.assets;
 
+import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
+import com.kaleblangley.haikalat.core.mesh.MeshData;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
@@ -10,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AssetPipelineTest {
@@ -36,13 +40,16 @@ class AssetPipelineTest {
         SceneAssetConfig config = SceneAssetConfig.parse("""
                 shader color /demo/color.vert /demo/color.frag
                 texture wall /wall.png false
+                material wallMat color alpha false
                 model cube /models/cube.obj
-                object cube01 cube color 1 2 3 0 0 0 1 true
+                object cube01 cube wallMat 1 2 3 0 0 0 1 true
                 light sun directional -1 -1 -1 1 1 1 2 0 true
                 """);
 
         assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
         assertEquals(false, config.textures().get("wall").flipVertically());
+        assertEquals("color", config.materials().get("wallMat").shader());
+        assertEquals(false, config.materials().get("wallMat").depthTest());
         assertEquals("cube", config.objects().get("cube01").model());
         assertEquals("directional", config.lights().get("sun").type());
     }
@@ -52,11 +59,18 @@ class AssetPipelineTest {
         SceneAssetConfig config = SceneAssetConfig.parseProperties("""
                 shader.color.vertex=/demo/color.vert
                 shader.color.fragment=/demo/color.frag
+                shader.textured.vertex=/demo/textured.vert
+                shader.textured.fragment=/demo/textured.frag
                 texture.wall.path=/wall.png
                 texture.wall.flipVertically=false
+                material.wall.shader=textured
+                material.wall.blend=alpha
+                material.wall.depthTest=false
+                material.wall.texture.uTexture=wall
+                material.wall.texture.uTexture.unit=2
                 model.cube.path=/models/cube.obj
                 object.cube01.model=cube
-                object.cube01.material=color
+                object.cube01.material=wall
                 object.cube01.position=1,2,3
                 object.cube01.rotation=0,0,0
                 object.cube01.scale=1
@@ -71,9 +85,26 @@ class AssetPipelineTest {
 
         assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
         assertEquals(false, config.textures().get("wall").flipVertically());
+        MaterialDef wall = config.materials().get("wall");
+        assertEquals("textured", wall.shader());
+        assertEquals(com.kaleblangley.haikalat.core.BlendMode.ALPHA, wall.blendMode());
+        assertEquals(false, wall.depthTest());
+        assertEquals("uTexture", wall.textures().get(0).samplerName());
+        assertEquals("wall", wall.textures().get(0).texture());
+        assertEquals(2, wall.textures().get(0).unit());
         assertEquals("/models/cube.obj", config.models().get("cube").path().path());
         assertEquals(1.0f, config.objects().get("cube01").position().x, 1.0e-6f);
         assertEquals(true, config.lights().get("sun").castShadows());
+    }
+
+    @Test
+    void sceneConfigRejectsUnknownBuiltinMeshNames() {
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                object.bad.model=builtin:customCylinder
+                object.bad.material=mat
+                object.bad.position=0,0,0
+                object.bad.rotation=0,0,0
+                """));
     }
 
     @Test
@@ -92,7 +123,8 @@ class AssetPipelineTest {
                 """, "quad.obj");
 
         assertEquals(1, model.meshes().size());
-        assertEquals(LoadedModel.VertexFormat.POSITION_NORMAL_UV, model.firstMesh().format());
+        assertEquals(8 * Float.BYTES, model.firstMesh().layout().strideBytes());
+        assertEquals(3, model.firstMesh().layout().attributes().size());
         assertEquals(4 * 8, model.firstMesh().vertices().length);
         assertEquals(6, model.firstMesh().indices().length);
     }
@@ -101,11 +133,21 @@ class AssetPipelineTest {
     void modelManagerRoutesByExtension() {
         ModelAssetManager manager = new ModelAssetManager()
                 .register("obj", ref -> new LoadedModel(java.util.List.of(
-                        new LoadedModel.MeshData(ref.path(), new float[]{0, 0, 0}, new int[]{0},
-                                LoadedModel.VertexFormat.POSITION))));
+                        LoadedModel.VertexFormat.POSITION.meshData(ref.path(), new float[]{0, 0, 0}, new int[]{0}))));
 
         assertTrue(manager.supports(".obj"));
         assertEquals("mesh.obj", manager.load("mesh.obj").firstMesh().name());
+    }
+
+    @Test
+    void builtinMeshDataIsPureDataAndValidatesLayout() {
+        MeshData quad = BuiltinMeshData.texturedQuad("quad");
+
+        assertEquals("quad", quad.name());
+        assertEquals(4, quad.vertexCount());
+        assertEquals(6, quad.indices().length);
+        assertEquals(5 * Float.BYTES, quad.layout().strideBytes());
+        assertEquals(2, quad.layout().attributes().size());
     }
 
     @Test
