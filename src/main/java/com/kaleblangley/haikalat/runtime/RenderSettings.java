@@ -4,13 +4,11 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 
 public final class RenderSettings {
     private final boolean vsync;
-    private final boolean debugErrors;
     private final AntiAliasingMode antiAliasingMode;
     private final int msaaSamples;
 
     private RenderSettings(Builder builder) {
         this.vsync = builder.vsync;
-        this.debugErrors = builder.debugErrors;
         this.antiAliasingMode = builder.antiAliasingMode;
         this.msaaSamples = builder.msaaSamples;
     }
@@ -23,10 +21,6 @@ public final class RenderSettings {
         return vsync;
     }
 
-    public boolean debugErrors() {
-        return debugErrors;
-    }
-
     public AntiAliasingMode antiAliasingMode() {
         return antiAliasingMode;
     }
@@ -37,7 +31,6 @@ public final class RenderSettings {
 
     public static final class Builder {
         private boolean vsync = true;
-        private boolean debugErrors;
         private AntiAliasingMode antiAliasingMode = AntiAliasingMode.NONE;
         private int msaaSamples = 4;
 
@@ -46,11 +39,6 @@ public final class RenderSettings {
 
         public Builder vsync(boolean value) {
             this.vsync = value;
-            return this;
-        }
-
-        public Builder debugErrors(boolean value) {
-            this.debugErrors = value;
             return this;
         }
 

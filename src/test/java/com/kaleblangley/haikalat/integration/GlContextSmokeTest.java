@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.integration;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -31,6 +32,7 @@ class GlContextSmokeTest {
                 .build()) {
             window.bindContext();
             GL.createCapabilities();
+            GlDebug.enableDebugCallback();
 
             glViewport(0, 0, 32, 32);
             glClearColor(0.25f, 0.5f, 0.75f, 1.0f);

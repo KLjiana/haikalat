@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.runtime;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
 import java.time.Duration;
@@ -120,6 +121,7 @@ public final class GlRenderThread implements AutoCloseable {
         try {
             glfwMakeContextCurrent(window);
             createCapabilities();
+            GlDebug.enableDebugCallback();
             glfwSwapInterval(frameDriver.settings().vsync() ? 1 : 0);
             try {
                 if (initHook != null) {

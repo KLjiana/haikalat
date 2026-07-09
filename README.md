@@ -24,8 +24,8 @@ current goals, capabilities, and non-goals.
 ## Requirements
 
 - JDK 21 or newer.
-- A GPU/driver with OpenGL 3.3 Core Profile support.
-- Windows, Linux, or macOS. LWJGL natives are selected automatically from the current OS and CPU architecture.
+- A GPU/driver with OpenGL 4.6 Core Profile support.
+- Windows or Linux with an OpenGL 4.6 driver. LWJGL natives are selected automatically from the current OS and CPU architecture.
 - A desktop session is required for demos because they create GLFW windows.
 
 ## Build And Test

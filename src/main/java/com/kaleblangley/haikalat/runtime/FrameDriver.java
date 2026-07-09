@@ -82,9 +82,7 @@ public final class FrameDriver {
     /** 帧结束，记录统计信息，可选检查 GL 错误。 */
     public void endFrame() {
         statistics.endFrame();
-        if (settings.debugErrors()) {
-            GlDebug.checkError("FrameDriver.endFrame");
-        }
+        GlDebug.checkError("FrameDriver.endFrame");
     }
 
     /** 请求停止渲染循环。 */

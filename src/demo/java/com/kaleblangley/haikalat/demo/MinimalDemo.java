@@ -38,14 +38,16 @@ public final class MinimalDemo {
         GLFWErrorCallback.createPrint(System.err).set();
         if (!glfwInit()) throw new IllegalStateException("GLFW init failed");
         glfwDefaultWindowHints();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_CONTEXT_DEBUG, GLFW_TRUE);
         window = glfwCreateWindow(fbWidth, fbHeight, "MinimalDemo", NULL, NULL);
         if (window == NULL) throw new IllegalStateException("Window creation failed");
         glfwMakeContextCurrent(window);
         glfwSwapInterval(1);
         GL.createCapabilities();
+        GlDebug.enableDebugCallback();
         glEnable(GL_DEPTH_TEST);
 
         glfwSetFramebufferSizeCallback(window, (h, w, h2) -> {

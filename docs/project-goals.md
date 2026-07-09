@@ -1,7 +1,7 @@
 # Project Goals
 
 本项目已经从 LearnOpenGL 教程练习演进为一个学习导向、工程化约束明确的
-Java/LWJGL/OpenGL 3.3 实时渲染框架。当前目标是用可运行 demo、单元测试和少量
+Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、单元测试和少量
 清晰文档，沉淀一套可学习、可验证、可逐步扩展的 OpenGL 渲染架构。
 
 当前阶段的重点不是继续扩张功能面，而是稳定已有 runtime、RenderGraph、资源生命周期、

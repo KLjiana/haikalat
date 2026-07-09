@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.demo;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
@@ -23,6 +24,7 @@ public final class AppWindow implements RenderWindow {
                 .dimensions(w, h).title(title).build();
         this.window.bindContext();
         GL.createCapabilities();
+        GlDebug.enableDebugCallback();
         glfwSwapInterval(vsync ? 1 : 0);
         glEnable(GL_DEPTH_TEST);
         this.camera = new Camera(new Vector3f(0, 0, 5));

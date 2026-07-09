@@ -36,7 +36,6 @@ public final class LearnOpenGlDemo {
         demoVertexPacking();
 
         RenderSettings settings = RenderSettings.builder()
-                .debugErrors(true)
                 .antiAliasingMode(AntiAliasingMode.FXAA)
                 .build();
         AppWindow window = new AppWindow(1280, 720, "LearnOpenGL Demo", settings.vsync());

@@ -38,7 +38,7 @@ public final class AsyncDemo {
 
     public static void main(String[] args) {
         Camera camera = new Camera(new Vector3f(0, 0, 5));
-        RenderSettings settings = RenderSettings.builder().debugErrors(true).build();
+        RenderSettings settings = RenderSettings.builder().build();
         TripleBuffer<FrameState> stateBuffer = new TripleBuffer<>(() ->
                 new FrameState(new Matrix4f(), new CopyOnWriteArrayList<>()));
 
