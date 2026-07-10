@@ -10,7 +10,7 @@ import com.kaleblangley.haikalat.core.upload.UploadSystem;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public final class FrameDriver {
+public final class FrameDriver implements AutoCloseable {
     private final RenderStatistics statistics = new RenderStatistics();
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final RenderSettings settings;
@@ -93,5 +93,11 @@ public final class FrameDriver {
     /** @return 渲染循环是否仍在运行 */
     public boolean isRunning() {
         return running.get();
+    }
+
+    @Override
+    public void close() {
+        requestStop();
+        uploadQueue.close();
     }
 }

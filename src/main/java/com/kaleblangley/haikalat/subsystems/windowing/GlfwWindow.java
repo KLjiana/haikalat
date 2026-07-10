@@ -131,6 +131,19 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwShowWindow(handle);
     }
 
+    public void setTitle(String title) {
+        glfwSetWindowTitle(handle, title);
+    }
+
+    public void requestClose() {
+        glfwSetWindowShouldClose(handle, true);
+    }
+
+    /** Sets swap interval for the context currently bound by this window. */
+    public void setVsync(boolean enabled) {
+        glfwSwapInterval(enabled ? 1 : 0);
+    }
+
     public boolean shouldClose() {
         return glfwWindowShouldClose(handle);
     }

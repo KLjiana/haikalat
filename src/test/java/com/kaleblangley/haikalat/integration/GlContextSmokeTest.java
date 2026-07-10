@@ -391,7 +391,7 @@ class GlContextSmokeTest {
                     0.8f, -0.8f, 0.0f, 0.0f, 1.0f, 0.0f,
                     0.0f, 0.8f, 0.0f, 0.0f, 0.0f, 1.0f
             }, layout));
-            InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, 1, 2);
+            InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, 1, 3);
             Framebuffer target = Framebuffer.singleSampled(32, 32);
             try {
                 GlRenderDevice device = new GlRenderDevice();
@@ -410,7 +410,7 @@ class GlContextSmokeTest {
                 assertTrue(Byte.toUnsignedInt(pixel.get(0))
                                 + Byte.toUnsignedInt(pixel.get(1))
                                 + Byte.toUnsignedInt(pixel.get(2)) > 0,
-                        "Attribute-2 instance matrices must produce visible batch geometry");
+                        "Attribute-3 instance matrices must produce visible batch geometry");
                 GlDebug.checkError("minimalAndAsyncInstanceAttributeContractProducesPixels");
             } finally {
                 target.close();

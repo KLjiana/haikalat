@@ -1,203 +1,165 @@
 package com.kaleblangley.haikalat.demo;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
-import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
+import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.buffer.TripleBuffer;
-import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
-import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
-import com.kaleblangley.haikalat.core.mesh.VertexLayout;
-import com.kaleblangley.haikalat.runtime.RenderStatistics;
+import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.opengl.GL;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.lwjgl.glfw.GLFW.*;
-import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
-import static org.lwjgl.system.MemoryUtil.NULL;
 
+/** Minimal proof of the engine window, command, material, mesh, target, and instancing APIs. */
 public final class MinimalDemo {
+    private static final String SCENE_TARGET = "MinimalScene";
 
-    private static long window;
-    private static int fbWidth = 800;
-    private static int fbHeight = 600;
+    private MinimalDemo() {
+    }
 
     public static void main(String[] args) {
-        GLFWErrorCallback.createPrint(System.err).set();
-        if (!glfwInit()) throw new IllegalStateException("GLFW init failed");
-        glfwDefaultWindowHints();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_CONTEXT_DEBUG, GLFW_TRUE);
-        window = glfwCreateWindow(fbWidth, fbHeight, "MinimalDemo", NULL, NULL);
-        if (window == NULL) throw new IllegalStateException("Window creation failed");
-        glfwMakeContextCurrent(window);
-        glfwSwapInterval(1);
-        GL.createCapabilities();
-        GlDebug.enableDebugCallback();
-        glEnable(GL_DEPTH_TEST);
+        RenderSettings settings = RenderSettings.builder().vsync(true).build();
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(800, 600)
+                .title("MinimalDemo")
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            window.setVsync(settings.vsync());
+            window.show();
+            run(window, settings);
+        }
+    }
 
-        glfwSetFramebufferSizeCallback(window, (h, w, h2) -> {
-            fbWidth = Math.max(1, w);
-            fbHeight = Math.max(1, h2);
-            glViewport(0, 0, fbWidth, fbHeight);
-        });
-        glfwShowWindow(window);
+    private static void run(GlfwWindow window, RenderSettings settings) {
+        FrameDriver frameDriver = new FrameDriver(settings);
+        RenderTargetManager targets = new RenderTargetManager();
 
-        GlRenderDevice device = new GlRenderDevice();
-        RenderStatistics stats = new RenderStatistics();
+        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class,
+                "/demo/color_mvp.vert", "/demo/color_unlit.frag");
+        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class,
+                "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
+        ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class,
+                "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
+        Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);
 
-        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/color_mvp.vert", "/demo/color_unlit.frag");
-        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
-        ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
+        Mesh triangle = Mesh.from(BuiltinMeshData.coloredTriangle("minimal-triangle"));
+        Mesh quad = Mesh.from(BuiltinMeshData.coloredQuad("minimal-instanced-quad"));
+        Mesh texturedQuad = Mesh.from(BuiltinMeshData.texturedQuad("minimal-textured-quad"));
+        InstancedMeshBatch instancedBatch = InstancedMeshBatch.of(quad, 16, 3);
 
-        Texture2D wallTex = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);
-
-        VertexLayout posColorLayout = VertexLayout.interleaved(6 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build());
-
-        Mesh triangle = Mesh.builder()
-                .layout(posColorLayout)
-                .attribute(0, new float[]{-0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f}, 3)
-                .attribute(1, new float[]{1.0f, 0.3f, 0.2f, 0.2f, 1.0f, 0.3f, 0.2f, 0.3f, 1.0f}, 3)
-                .build();
-
-        Mesh quad = Mesh.builder()
-                .vertices(new float[]{
-                                -0.3f, -0.3f, 0.0f, 1, 1, 0,
-                                0.3f, -0.3f, 0.0f, 0, 1, 1,
-                                0.3f, 0.3f, 0.0f, 1, 0, 1,
-                                -0.3f, -0.3f, 0.0f, 1, 1, 0,
-                                0.3f, 0.3f, 0.0f, 1, 0, 1,
-                                -0.3f, 0.3f, 0.0f, 0, 1, 1
-                        }, 6 * Float.BYTES,
-                        VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                        VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())
-                .build();
-
-        Mesh texQuad = Mesh.builder()
-                .vertices(new float[]{
-                                -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
-                                0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-                                0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
-                                -0.5f, 0.5f, 0.0f, 0.0f, 1.0f
-                        }, 5 * Float.BYTES,
-                        VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                        VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())
-                .indices(new int[]{0, 1, 2, 0, 2, 3})
-                .build();
-
-        Material colorMat = Material.builder(colorShader).blendMode(BlendMode.OPAQUE).build();
-        Material texMat = Material.builder(texShader)
-                .texture("uTexture", wallTex)
-                .setVec3("uTint", new Vector3f(1, 1, 1))
+        Material colorMaterial = Material.builder(colorShader).blendMode(BlendMode.OPAQUE).build();
+        Material texturedMaterial = Material.builder(texShader)
+                .texture("uTexture", wallTexture)
+                .setVec3("uTint", new Vector3f(1.0f))
                 .blendMode(BlendMode.OPAQUE)
                 .build();
+        TripleBuffer<List<Matrix4f>> transforms = new TripleBuffer<>(ArrayList::new);
 
-        InstancedMeshBatch instBatch = InstancedMeshBatch.of(quad, 16, 2);
-        TripleBuffer<List<Matrix4f>> transformBuf = new TripleBuffer<>(ArrayList::new);
+        targets.create(SCENE_TARGET, FramebufferDescriptor.singleColorDepthRenderbuffer(
+                window.width(), window.height()));
 
-        Framebuffer sceneFb = Framebuffer.singleSampled(fbWidth, fbHeight);
-
-        Matrix4f proj = new Matrix4f().perspective((float) Math.toRadians(45.0),
-                fbWidth / (float) fbHeight, 0.1f, 100.0f);
+        Matrix4f projection = new Matrix4f();
         Matrix4f view = new Matrix4f().lookAt(0, 0, 5, 0, 0, 0, 0, 1, 0);
-        Matrix4f projView = new Matrix4f();
-        Matrix4f triModel = new Matrix4f();
-        Matrix4f quadModel = new Matrix4f();
+        Matrix4f projectionView = new Matrix4f();
+        Matrix4f model = new Matrix4f();
         Matrix4f mvp = new Matrix4f();
 
         int frame = 0;
-        CommandBuffer cmd = device.createCommandBuffer();
-
         try {
-            while (!glfwWindowShouldClose(window)) {
-                stats.beginFrame();
-                if (sceneFb.width() != fbWidth || sceneFb.height() != fbHeight) {
-                    sceneFb.close();
-                    sceneFb = Framebuffer.singleSampled(fbWidth, fbHeight);
+            while (!window.shouldClose()) {
+                if (window.isKeyDown(GLFW_KEY_ESCAPE)) {
+                    window.requestClose();
                 }
-
-                triModel.identity().translation(-1.0f, 0.5f, 0).rotateZ(frame * 0.03f);
-                quadModel.identity().translation(1.0f, 0.5f, 0).rotateZ(-frame * 0.02f);
-                proj.identity().perspective((float) Math.toRadians(45.0),
-                        fbWidth / (float) Math.max(1, fbHeight), 0.1f, 100.0f);
-                proj.mul(view, projView);
-
-                List<Matrix4f> writes = transformBuf.write();
-                writes.clear();
-                for (int r = 0; r < 4; r++) {
-                    for (int c = 0; c < 4; c++) {
-                        writes.add(new Matrix4f()
-                                .translation(-1.4f + c * 0.7f, -1.4f + r * 0.7f, 0)
-                                .rotateZ(frame * 0.04f + (r + c) * 0.3f)
-                                .scale(0.3f));
-                    }
+                if (window.consumeResize()) {
+                    targets.resize(window.width(), window.height());
                 }
-                transformBuf.flip();
+                Framebuffer sceneTarget = targets.get(SCENE_TARGET);
 
-                cmd.reset();
-                cmd.bindFramebuffer(sceneFb).viewport(0, 0, fbWidth, fbHeight);
-                cmd.clearColor(0.08f, 0.10f, 0.14f, 1.0f).clear(true, true);
+                projection.identity().perspective((float) Math.toRadians(45.0),
+                        window.width() / (float) Math.max(1, window.height()), 0.1f, 100.0f);
+                projection.mul(view, projectionView);
+                updateInstances(transforms, frame);
 
-                colorMat.bind(cmd);
-                projView.mul(triModel, mvp);
-                cmd.setUniformMat4(colorShader, "uMvp", mvp);
-                cmd.bindMesh(triangle).drawMesh(triangle);
+                var commands = frameDriver.device().createCommandBuffer();
+                commands.bindFramebuffer(sceneTarget)
+                        .viewport(0, 0, sceneTarget.width(), sceneTarget.height())
+                        .clearColor(0.08f, 0.10f, 0.14f, 1.0f)
+                        .clear(true, true);
 
-                texMat.bind(cmd);
-                projView.mul(quadModel, mvp);
-                cmd.setUniformMat4(texShader, "uMvp", mvp);
-                cmd.bindMesh(texQuad).drawMesh(texQuad);
+                colorMaterial.bind(commands);
+                projectionView.mul(model.identity().translation(-1.0f, 0.5f, 0.0f)
+                        .rotateZ(frame * 0.03f), mvp);
+                commands.setUniformMat4(colorShader, "uMvp", mvp)
+                        .bindMesh(triangle).drawMesh(triangle);
 
-                cmd.bindShader(instShader);
-                cmd.setUniformMat4(instShader, "uProjView", projView);
-                cmd.drawInstancedBatch(instBatch, transformBuf.read());
+                texturedMaterial.bind(commands);
+                projectionView.mul(model.identity().translation(1.0f, 0.5f, 0.0f)
+                        .rotateZ(-frame * 0.02f), mvp);
+                commands.setUniformMat4(texShader, "uMvp", mvp)
+                        .bindMesh(texturedQuad).drawMesh(texturedQuad);
 
-                cmd.bindFramebuffer(GL_FRAMEBUFFER, 0).viewport(0, 0, fbWidth, fbHeight);
-                cmd.blitToDefault(sceneFb, fbWidth, fbHeight);
+                commands.bindShader(instShader)
+                        .setUniformMat4(instShader, "uProjView", projectionView)
+                        .drawInstancedBatch(instancedBatch, transforms.read())
+                        .bindFramebuffer(GL_FRAMEBUFFER, 0)
+                        .viewport(0, 0, window.width(), window.height())
+                        .blitToDefault(sceneTarget, window.width(), window.height());
 
-                device.execute(cmd);
-
-                stats.endFrame();
+                frameDriver.beginFrame();
+                frameDriver.submit(commands);
+                frameDriver.endFrame();
 
                 if ((frame % 60) == 0) {
-                    glfwSetWindowTitle(window, String.format("Minimal | FPS %.1f | objs=2+inst",
-                            stats.averageFps()));
+                    window.setTitle(String.format("Minimal | FPS %.1f | objs=2+inst",
+                            frameDriver.statistics().averageFps()));
                 }
-
                 GlDebug.checkError("MinimalDemo");
-                glfwSwapBuffers(window);
-                glfwPollEvents();
+                window.swapBuffers();
+                window.pollEvents();
                 frame++;
             }
         } finally {
-            transformBuf.write().clear();
-            instBatch.close();
-            sceneFb.close();
-            texQuad.close();
+            frameDriver.close();
+            instancedBatch.close();
+            targets.close();
+            texturedQuad.close();
             quad.close();
             triangle.close();
-            wallTex.close();
+            wallTexture.close();
             instShader.close();
             texShader.close();
             colorShader.close();
-            glfwDestroyWindow(window);
-            glfwTerminate();
         }
+    }
+
+    private static void updateInstances(TripleBuffer<List<Matrix4f>> transforms, int frame) {
+        List<Matrix4f> writes = transforms.write();
+        writes.clear();
+        for (int row = 0; row < 4; row++) {
+            for (int column = 0; column < 4; column++) {
+                writes.add(new Matrix4f()
+                        .translation(-1.4f + column * 0.7f, -1.4f + row * 0.7f, 0.0f)
+                        .rotateZ(frame * 0.04f + (row + column) * 0.3f)
+                        .scale(0.3f));
+            }
+        }
+        transforms.flip();
     }
 }

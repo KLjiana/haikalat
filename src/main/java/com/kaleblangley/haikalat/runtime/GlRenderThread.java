@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.runtime;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.core.upload.UploadSystem;
 
 import java.time.Duration;
 import java.util.Objects;
@@ -33,6 +34,11 @@ public final class GlRenderThread implements AutoCloseable {
         this.window = window;
         this.frameDriver = new FrameDriver(Objects.requireNonNull(settings, "settings"));
         this.frameCallback = Objects.requireNonNull(frameCallback, "frameCallback");
+    }
+
+    /** Thread-safe upload queue flushed by the render thread at the start of each frame. */
+    public UploadSystem uploadQueue() {
+        return frameDriver.uploadQueue();
     }
 
     /**
@@ -118,6 +124,7 @@ public final class GlRenderThread implements AutoCloseable {
     }
 
     private void runLoop() {
+        Throwable failure = null;
         try {
             glfwMakeContextCurrent(window);
             createCapabilities();
@@ -138,15 +145,20 @@ public final class GlRenderThread implements AutoCloseable {
                 frameDriver.endFrame();
                 glfwSwapBuffers(window);
             }
-            completion.complete(null);
         } catch (Throwable t) {
-            completion.completeExceptionally(t);
+            failure = t;
             frameDriver.requestStop();
         } finally {
             try {
                 if (cleanupHook != null) cleanupHook.run();
             } catch (Exception ignored) {}
+            frameDriver.close();
             try { glfwMakeContextCurrent(0); } catch (Exception ignored) {}
+            if (failure == null) {
+                completion.complete(null);
+            } else {
+                completion.completeExceptionally(failure);
+            }
         }
     }
 }

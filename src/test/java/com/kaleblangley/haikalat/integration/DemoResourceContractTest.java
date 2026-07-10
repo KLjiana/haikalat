@@ -18,10 +18,10 @@ class DemoResourceContractTest {
         String projViewShader = Files.readString(DEMO_RESOURCES.resolve("instanced_projview.vert"));
         String sceneShader = Files.readString(DEMO_RESOURCES.resolve("instanced_scene.vert"));
 
-        assertTrue(projViewShader.contains("layout (location = 2) in mat4 aInstanceMatrix;"),
-                "MinimalDemo and AsyncDemo upload instance matrices from attribute 2");
+        assertTrue(projViewShader.contains("layout (location = 3) in mat4 aInstanceMatrix;"),
+                "Builtin meshes reserve attribute 2 for normals, so demo instances start at 3");
         assertTrue(sceneShader.contains("layout (location = 3) in mat4 aInstanceMatrix;"),
-                "LearnOpenGlDemo reserves attribute 2 for mesh normals");
+                "All demos reserve attribute 2 for mesh normals");
     }
 
     @Test

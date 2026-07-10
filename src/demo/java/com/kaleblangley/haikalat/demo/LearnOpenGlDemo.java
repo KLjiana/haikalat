@@ -24,12 +24,14 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
+import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class LearnOpenGlDemo {
     public static void main(String[] args) {
@@ -40,10 +42,18 @@ public final class LearnOpenGlDemo {
                 .antiAliasingMode(options.antiAliasingMode())
                 .vsync(!options.deterministic())
                 .build();
-        AppWindow window = new AppWindow(1280, 720, "LearnOpenGL Demo", settings.vsync());
+        GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(1280, 720)
+                .title("LearnOpenGL Demo")
+                .build();
+        window.bindContext();
+        GL.createCapabilities();
+        GlDebug.enableDebugCallback();
+        window.setVsync(settings.vsync());
         if (!options.deterministic()) {
             window.show();
         }
+        Camera camera = new Camera(new Vector3f(0, 0, 5));
 
         FrameDriver renderLoop = new FrameDriver(settings);
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
@@ -60,7 +70,7 @@ public final class LearnOpenGlDemo {
 
         Map<String, Material> materials = buildMaterials(sceneConfig, shaders, textureCache);
         Map<String, Mesh> meshes = buildBuiltinMeshes(sceneConfig);
-        Scene scene = buildScene(window.camera(), sceneConfig, meshes, materials);
+        Scene scene = buildScene(camera, sceneConfig, meshes, materials);
         Mesh instancedMesh = meshes.get(BuiltinMeshData.QUAD);
         if (instancedMesh == null) {
             throw new IllegalStateException("Builtin instanced mesh is not configured: " + BuiltinMeshData.QUAD);
@@ -81,31 +91,39 @@ public final class LearnOpenGlDemo {
         try {
             pipeline.build();
 
-            AtomicInteger frame = new AtomicInteger(0);
-            window.run((w, dt) -> {
-                if (w.consumeResize()) pipeline.resize(w.width(), w.height());
+            int frame = 0;
+            float lastTime = (float) GLFW.glfwGetTime();
+            while (!window.shouldClose()) {
+                float now = (float) GLFW.glfwGetTime();
+                float deltaTime = Math.min(now - lastTime, 0.1f);
+                lastTime = now;
+                processInput(window, camera, deltaTime);
+                if (window.consumeResize()) pipeline.resize(window.width(), window.height());
 
-                instanced.beginFrame(frame.get());
+                instanced.beginFrame(frame);
                 renderLoop.frame(pipeline.graph());
 
-                if ((frame.get() % 60) == 0) {
+                if ((frame % 60) == 0) {
                     DebugOverlaySnapshot overlay = DebugOverlaySnapshot.from(
                             renderLoop.statistics(),
                             instanced.statistics().drawCalls(),
                             instanced.drawnCount(),
                             settings.antiAliasingMode());
-                    w.setTitle(String.format("LearnOpenGL | FPS %.1f | draw %d | inst %d | GPU %.2f ms | AA %s",
+                    window.setTitle(String.format("LearnOpenGL | FPS %.1f | draw %d | inst %d | GPU %.2f ms | AA %s",
                             overlay.fps(), overlay.drawCalls(), overlay.instanceCount(),
                             overlay.gpuMillis(), overlay.activeAntiAliasingMode()));
                 }
 
                 GlDebug.checkError("LearnOpenGlDemo.frame");
-                int completedFrames = frame.incrementAndGet();
-                if (options.maxFrames() > 0 && completedFrames >= options.maxFrames()) {
-                    w.requestClose();
+                frame++;
+                if (options.maxFrames() > 0 && frame >= options.maxFrames()) {
+                    window.requestClose();
                 }
-            });
+                window.swapBuffers();
+                window.pollEvents();
+            }
         } finally {
+            renderLoop.close();
             pipeline.close();
             instanced.close();
             meshes.values().forEach(Mesh::close);
@@ -115,6 +133,18 @@ public final class LearnOpenGlDemo {
             colorShader.close();
             window.close();
         }
+    }
+
+    private static void processInput(GlfwWindow window, Camera camera, float deltaTime) {
+        if (window.isKeyDown(GLFW.GLFW_KEY_ESCAPE)) window.requestClose();
+        camera.processMouseMovement(
+                (float) window.mouseDeltaX() * 0.1f,
+                (float) window.mouseDeltaY() * 0.1f);
+        float speed = 2.5f * deltaTime;
+        if (window.isKeyDown(GLFW.GLFW_KEY_W)) camera.processKeyboard(Camera.Movement.FORWARD, speed);
+        if (window.isKeyDown(GLFW.GLFW_KEY_S)) camera.processKeyboard(Camera.Movement.BACKWARD, speed);
+        if (window.isKeyDown(GLFW.GLFW_KEY_A)) camera.processKeyboard(Camera.Movement.LEFT, speed);
+        if (window.isKeyDown(GLFW.GLFW_KEY_D)) camera.processKeyboard(Camera.Movement.RIGHT, speed);
     }
 
     private static Map<String, Material> buildMaterials(SceneAssetConfig config, Map<String, ShaderProgram> shaders,

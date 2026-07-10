@@ -4,6 +4,7 @@
 
 ### Stabilization
 
+- Migrated Minimal/Async demo window, render-target, mesh, frame-driver, upload-queue, and cleanup paths onto the retained engine APIs; unified builtin-mesh instancing at attribute 3 and made GL render-thread completion wait for resource cleanup.
 - Completed the real-capabilities closure roadmap: Java 21 toolchains, Windows/Linux CI, lit baseline shaders, bounded light input, fixed-size directional shadow targets, real caster draws, depth sampling with bias/3x3 PCF, deterministic demo integration, GL output checks, and package dependency guards.
 
 - Added `docs/planning/developer-task-plan.md` to convert front-line development feedback into prioritized engineering tasks.
