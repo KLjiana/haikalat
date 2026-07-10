@@ -245,10 +245,6 @@ public final class CommandBuffer {
                                             IntConsumer drawnCount) {
         Objects.requireNonNull(batch, "batch");
         Objects.requireNonNull(transforms, "transforms");
-        List<Matrix4f> copiedTransforms = new ArrayList<>();
-        for (Matrix4f transform : transforms) {
-            copiedTransforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
-        }
         return recordInstancedBatch(new InstancedBatchSubmission() {
             @Override
             public void beginFrame() {
@@ -271,7 +267,7 @@ public final class CommandBuffer {
                     drawnCount.accept(count);
                 }
             }
-        }, copiedTransforms);
+        }, transforms);
     }
 
     /**

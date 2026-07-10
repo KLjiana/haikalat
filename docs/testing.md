@@ -25,7 +25,7 @@ Default command:
 
 ## GL Smoke
 
-Opt-in tests that create a hidden GLFW window and a minimal OpenGL context. These verify that the local graphics stack can execute basic GL work.
+Opt-in tests that create a hidden GLFW window and a minimal OpenGL context. These verify that the local graphics stack can execute basic GL work and that runtime GL resources enforce their lifecycle boundaries.
 
 Use this category for:
 

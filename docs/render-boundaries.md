@@ -95,4 +95,4 @@ demo scene 便利字段：
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
 ```
 
-该 smoke test 会创建隐藏 GLFW 窗口，初始化 GL capabilities，执行 clear，并用 `glReadPixels` 验证回读像素。
+该 smoke test 会创建隐藏 GLFW 窗口，初始化 GL capabilities，执行 clear，并用 `glReadPixels` 验证回读像素。它还覆盖 framebuffer、shader、texture 和 texture cache 的最小生命周期边界，确保关闭后的资源拒绝继续使用。

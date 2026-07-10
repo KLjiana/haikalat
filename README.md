@@ -42,7 +42,7 @@ CI runs the same non-windowed path plus demo source compilation:
 .\gradlew.bat compileJava demoClasses test
 ```
 
-Opt-in GL smoke checks create a hidden GLFW window:
+Opt-in GL smoke checks create a hidden GLFW window and verify minimal GL/resource lifecycle behavior:
 
 ```powershell
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks

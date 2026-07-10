@@ -10,7 +10,7 @@
 
 - [x] 把 `InstancedRenderer`、`MinimalDemo`、`AsyncDemo` 中的实例化 batch upload/draw 收敛为正式 `CommandBuffer` API。
 - [x] 将 `RenderPipeline` 拆成 package-private helper，优先提取 camera uniforms、lighting binder、postprocess builder、TAA history。
-- [x] 为 `PassResources` 增加窄 API，并限制普通 pass 直接依赖 `Framebuffer`、`Texture2D`、attachment id。
+- [x] 为 `PassResources` 增加窄 API，并迁移现有内置 pass 优先使用逻辑 attachment 入口。
 - [x] 处理旧顶层 demo 入口，避免 `Main`、`Light`、`Camera`、`Shader` 与新 demo 体系并列。
 - [x] 建立测试分类约定，区分纯 JVM unit、opt-in `glSmoke`、demo/pipeline integration。
 
@@ -19,7 +19,8 @@
 - [x] 推广纯数据 `MeshData` 到 demo 和资产路径，明确 `Mesh` 只表示 GL 上传后的运行时资源。
 - [x] 明确 `Material` 是当前 OpenGL runtime material；如需配置驱动材质，新增 `MaterialDef` 作为非 GL 定义层。
 - [x] 将 `.properties` 目标收敛为 asset manifest + 简单 scene manifest，不承担动画、脚本或编辑器职责。
-- [ ] 建立资源生命周期错误的集成验证，覆盖 framebuffer、texture、shader、asset cache。
+- [x] 建立资源生命周期错误的 GL smoke 验证，覆盖 framebuffer、texture、shader、asset cache。
+- [ ] 继续降低 `PassResources` backend-facing 兼容 API 的默认可见度，避免普通 pass 误用具体 OpenGL 类型。
 - [ ] 为 demo 选择一组稳定基准场景，避免每个功能都新增长期维护入口。
 
 ### 长期

@@ -10,13 +10,16 @@
 - Removed over-broad resource factory and future-only descriptor abstractions that had no production behavior.
 - Annotated all `cmd.custom()` call sites with replacement direction and whether a formal command API is needed.
 - Added formal `CommandBuffer.drawInstancedBatch(...)` commands and removed instanced batch `cmd.custom()` usage from demo/runtime main paths.
+- Removed redundant transform snapshotting from the instanced batch command path.
 - Split `RenderPipeline` internals into package-private helpers for camera uniforms, lighting binding, TAA history, postprocess pass creation, and forward pass registration.
 - Added narrow `PassResources` accessors for logical color attachments/current targets and documented backend-facing resource APIs.
 - Introduced pure `MeshData` and builtin mesh data helpers, with `Mesh.from(MeshData)` as the GL upload boundary.
 - Added non-GL `MaterialDef` scene configuration and documented `Material` as an OpenGL runtime resource.
 - Removed legacy default-package demo entry points and their private shaders, keeping the packaged demo entry points as the supported style.
 - Defined `.properties` scene config as asset manifest plus simple demo-scene bindings, with a fixed builtin mesh name set.
+- Cleaned the demo scene manifest and kept it within the documented asset/simple-scene scope.
 - Documented test categories for pure JVM unit tests, opt-in GL smoke tests, and manual/integration checks.
+- Added opt-in GL smoke checks for framebuffer, shader, texture, and texture cache lifecycle boundaries.
 - Defined the minimal `RenderDevice` contract and kept OpenGL `StateCache` access on `GlRenderDevice`.
 - Documented `RenderGraph` pass/resource/profile boundaries in `docs/render-boundaries.md`.
 - Added standard Java `.properties` scene asset config parsing and switched `LearnOpenGlDemo` to that format.
