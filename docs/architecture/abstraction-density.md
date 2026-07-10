@@ -200,7 +200,7 @@ Descriptor 适合描述稳定资源，不适合描述临时调用参数。
 - [x] 盘点所有只有一个实现的 public interface。
 - [x] 盘点所有只有一个调用点的 descriptor、manager、factory。
 - [x] 给 `cmd.custom()` 使用点建立 issue 或 TODO，注明是否需要正式命令。
-- [x] 将 `future-plans.md` 中已完成项迁移到 changelog 或 milestone，避免 roadmap 变成历史清单。
+- [x] 将 `docs/planning/future-plans.md` 中已完成项迁移到 changelog 或 milestone，避免 roadmap 变成历史清单。
 - [x] 保留能被 demo 和测试同时证明的抽象，降级没有实际行为支撑的抽象。
 
 ### 中期

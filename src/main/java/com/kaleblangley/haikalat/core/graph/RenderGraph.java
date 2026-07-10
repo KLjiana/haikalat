@@ -181,7 +181,7 @@ public final class RenderGraph implements AutoCloseable {
                         .viewport(0, 0, width, height);
             } else if (framebuffer != null) {
                 cmd.bindFramebuffer(framebuffer)
-                        .viewport(0, 0, width, height);
+                        .viewport(0, 0, framebuffer.width(), framebuffer.height());
             }
 
             if ((pass.clearColor || pass.clearDepth) && !pass.useBackbuffer && framebuffer != null) {
@@ -219,7 +219,11 @@ public final class RenderGraph implements AutoCloseable {
         if (!allocateResources) {
             return;
         }
-        renderTargets.resize(newWidth, newHeight);
+        for (Pass pass : passes) {
+            if (!pass.useBackbuffer && pass.fixedWidth == 0) {
+                allocatePassFramebuffer(pass);
+            }
+        }
         refreshAttachmentLookup();
     }
 
@@ -245,7 +249,10 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     private FramebufferDescriptor descriptorFor(Pass pass) {
-        FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(width, height).samples(pass.samples);
+        int targetWidth = pass.fixedWidth > 0 ? pass.fixedWidth : width;
+        int targetHeight = pass.fixedHeight > 0 ? pass.fixedHeight : height;
+        FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(targetWidth, targetHeight)
+                .samples(pass.samples);
         boolean multisampled = pass.samples > 1;
         for (RenderFormat format : pass.colorFormats) {
             if (multisampled) {
@@ -301,6 +308,8 @@ public final class RenderGraph implements AutoCloseable {
         final List<String> colorTextureNames;
         final List<RenderFormat> colorFormats;
         final int samples;
+        final int fixedWidth;
+        final int fixedHeight;
         final boolean createDepth;
         final String depthTextureName;
         final boolean clearColor;
@@ -314,6 +323,7 @@ public final class RenderGraph implements AutoCloseable {
         final PassExecutor executor;
 
         Pass(String name, List<String> colorTextureNames, List<RenderFormat> colorFormats, int samples,
+             int fixedWidth, int fixedHeight,
              boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
              List<String> dependencies, PassExecutor executor) {
@@ -321,6 +331,8 @@ public final class RenderGraph implements AutoCloseable {
             this.colorTextureNames = colorTextureNames;
             this.colorFormats = colorFormats;
             this.samples = samples;
+            this.fixedWidth = fixedWidth;
+            this.fixedHeight = fixedHeight;
             this.createDepth = createDepth;
             this.depthTextureName = depthTextureName;
             this.clearColor = clearColor;
@@ -341,6 +353,8 @@ public final class RenderGraph implements AutoCloseable {
         private final List<String> colorTextureNames = new ArrayList<>();
         private final List<RenderFormat> colorFormats = new ArrayList<>();
         private int samples = 1;
+        private int fixedWidth;
+        private int fixedHeight;
         private boolean createDepth;
         private String depthTextureName;
         private boolean clearColor = true;
@@ -434,6 +448,19 @@ public final class RenderGraph implements AutoCloseable {
             return this;
         }
 
+        /**
+         * Keeps this pass target independent from the window-sized graph target.
+         * Fixed-size targets are recreated with the same dimensions after a graph resize.
+         */
+        public PassBuilder fixedSize(int width, int height) {
+            if (width <= 0 || height <= 0) {
+                throw new IllegalArgumentException("fixed pass dimensions must be positive");
+            }
+            fixedWidth = width;
+            fixedHeight = height;
+            return this;
+        }
+
         public PassBuilder writeToBackbuffer() {
             useBackbuffer = true;
             return this;
@@ -467,6 +494,7 @@ public final class RenderGraph implements AutoCloseable {
         public RenderGraph execute(PassExecutor executor) {
             this.executor = Objects.requireNonNull(executor, "executor");
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
+                    fixedWidth, fixedHeight,
                     createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
                     useBackbuffer, List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);

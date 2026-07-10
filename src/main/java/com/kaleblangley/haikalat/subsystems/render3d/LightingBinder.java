@@ -5,6 +5,9 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 
 final class LightingBinder {
+    static final int MAX_DIRECTIONAL_LIGHTS = 2;
+    static final int MAX_POINT_LIGHTS = 8;
+    static final int MAX_SPOT_LIGHTS = 4;
     private final Scene scene;
 
     LightingBinder(Scene scene) {
@@ -19,6 +22,9 @@ final class LightingBinder {
         for (SceneLight light : scene.lights()) {
             switch (light.type()) {
                 case DIRECTIONAL -> {
+                    if (directionalCount >= MAX_DIRECTIONAL_LIGHTS) {
+                        continue;
+                    }
                     String prefix = "uDirectionalLights[" + directionalCount + "].";
                     cmd.trySetUniformVec3(shader, prefix + "direction", light.direction());
                     cmd.trySetUniformVec3(shader, prefix + "color", light.color());
@@ -26,6 +32,9 @@ final class LightingBinder {
                     directionalCount++;
                 }
                 case POINT -> {
+                    if (pointCount >= MAX_POINT_LIGHTS) {
+                        continue;
+                    }
                     String prefix = "uPointLights[" + pointCount + "].";
                     cmd.trySetUniformVec3(shader, prefix + "position", light.position());
                     cmd.trySetUniformVec3(shader, prefix + "color", light.color());
@@ -34,6 +43,9 @@ final class LightingBinder {
                     pointCount++;
                 }
                 case SPOT -> {
+                    if (spotCount >= MAX_SPOT_LIGHTS) {
+                        continue;
+                    }
                     String prefix = "uSpotLights[" + spotCount + "].";
                     cmd.trySetUniformVec3(shader, prefix + "position", light.position());
                     cmd.trySetUniformVec3(shader, prefix + "direction", light.direction());
@@ -64,7 +76,10 @@ final class LightingBinder {
                 case SPOT -> spot++;
             }
         }
-        return new LightCounts(directional, point, spot);
+        return new LightCounts(
+                Math.min(directional, MAX_DIRECTIONAL_LIGHTS),
+                Math.min(point, MAX_POINT_LIGHTS),
+                Math.min(spot, MAX_SPOT_LIGHTS));
     }
 
     record LightCounts(int directional, int point, int spot) {

@@ -146,8 +146,8 @@ class AssetPipelineTest {
         assertEquals("quad", quad.name());
         assertEquals(4, quad.vertexCount());
         assertEquals(6, quad.indices().length);
-        assertEquals(5 * Float.BYTES, quad.layout().strideBytes());
-        assertEquals(2, quad.layout().attributes().size());
+        assertEquals(8 * Float.BYTES, quad.layout().strideBytes());
+        assertEquals(3, quad.layout().attributes().size());
     }
 
     @Test

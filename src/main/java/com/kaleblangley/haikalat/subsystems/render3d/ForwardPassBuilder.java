@@ -12,11 +12,13 @@ final class ForwardPassBuilder {
     }
 
     static void addForwardPasses(RenderGraph graph, RenderSettings settings, Scene scene,
+                                 DirectionalShadowMap shadowMap,
                                  PassExecutor shadowExecutor, PassExecutor geometryExecutor) {
         boolean hasDirectionalShadow = scene.hasShadowCastingDirectionalLight();
         if (hasDirectionalShadow) {
             graph.addPass(DirectionalShadowMap.PASS_NAME)
                     .createDepthTexture(DirectionalShadowMap.TEXTURE_NAME)
+                    .fixedSize(shadowMap.settings().resolution(), shadowMap.settings().resolution())
                     .clearDepthOnly()
                     .execute(shadowExecutor);
         }

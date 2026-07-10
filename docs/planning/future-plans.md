@@ -1,10 +1,10 @@
 # Future Plans
 
-本文件只记录后续计划。项目目标和非目标记录在 `docs/project-goals.md`，一线反馈转化后的执行任务记录在 `docs/developer-task-plan.md`。已经完成的功能扩展和稳定化工作迁移到 `docs/changelog.md`，抽象密度盘点记录在 `docs/abstraction-audit.md`。
+本文件只记录后续计划。项目目标和非目标记录在 `docs/planning/project-goals.md`，一线反馈转化后的执行任务记录在 `docs/planning/developer-task-plan.md`。已经完成的功能扩展和稳定化工作迁移到 `docs/history/changelog.md`，抽象密度盘点记录在 `docs/architecture/abstraction-audit.md`。
 
 ## Current Focus
 
-当前阶段从内容扩展转向稳定现有内容，重点是减少没有行为支撑的抽象，保留能被 demo、测试或明确生命周期职责证明的边界。执行顺序以 `docs/developer-task-plan.md` 的 P0-P3 为准。
+当前阶段从内容扩展转向稳定现有内容，重点是减少没有行为支撑的抽象，保留能被 demo、测试或明确生命周期职责证明的边界。执行顺序以 `docs/planning/real-capabilities-roadmap.md` 为准。
 
 ### 近期
 
@@ -20,8 +20,9 @@
 - [x] 明确 `Material` 是当前 OpenGL runtime material；如需配置驱动材质，新增 `MaterialDef` 作为非 GL 定义层。
 - [x] 将 `.properties` 目标收敛为 asset manifest + 简单 scene manifest，不承担动画、脚本或编辑器职责。
 - [x] 建立资源生命周期错误的 GL smoke 验证，覆盖 framebuffer、texture、shader、asset cache。
-- [ ] 继续降低 `PassResources` backend-facing 兼容 API 的默认可见度，避免普通 pass 误用具体 OpenGL 类型。
-- [ ] 为 demo 选择一组稳定基准场景，避免每个功能都新增长期维护入口。
+- [x] 继续降低 `PassResources` backend-facing 兼容 API 的默认可见度，避免普通 pass 误用具体 OpenGL 类型。
+- [x] 为 demo 选择一组稳定基准场景，避免每个功能都新增长期维护入口。
+- [x] 增加源码包依赖守卫，阻止 backend/core seam 扩张以及 core/runtime 反向依赖 subsystem。
 
 ### 长期
 
@@ -38,4 +39,4 @@
 - [ ] 暂不引入复杂 ECS，除非当前 `SceneObject` 模型无法支撑后续需求。
 - [ ] 暂不直接重写 Vulkan 后端，先把 `RenderDevice` 和资源边界打稳。
 - [ ] 暂不做大型编辑器，优先保证运行时框架、Demo 和调试信息稳定。
-- [ ] 暂不引入复杂 PBR 管线，先完成基础光照、阴影、材质和后处理链。
+- [ ] 暂不引入复杂 PBR 管线，保持当前基础光照、阴影、材质和后处理链稳定。

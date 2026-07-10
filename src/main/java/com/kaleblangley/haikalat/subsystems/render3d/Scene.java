@@ -33,7 +33,8 @@ public final class Scene {
 
     public Scene add(SceneObject object) {
         Objects.requireNonNull(object, "object");
-        return add(MeshRenderer.animated(object.mesh(), object.material(), object.updater()));
+        MeshRenderer renderer = MeshRenderer.animated(object.mesh(), object.material(), object.updater());
+        return add(object.castShadows() ? renderer : renderer.withoutShadows());
     }
 
     public Scene addLight(SceneLight light) {

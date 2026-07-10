@@ -4,9 +4,11 @@
 
 ### Stabilization
 
-- Added `docs/developer-task-plan.md` to convert front-line development feedback into prioritized engineering tasks.
-- Documented the project goal, current capabilities, target direction, and non-goals in `docs/project-goals.md`.
-- Audited abstraction density and documented the current keep/remove decisions in `docs/abstraction-audit.md`.
+- Completed the real-capabilities closure roadmap: Java 21 toolchains, Windows/Linux CI, lit baseline shaders, bounded light input, fixed-size directional shadow targets, real caster draws, depth sampling with bias/3x3 PCF, deterministic demo integration, GL output checks, and package dependency guards.
+
+- Added `docs/planning/developer-task-plan.md` to convert front-line development feedback into prioritized engineering tasks.
+- Documented the project goal, current capabilities, target direction, and non-goals in `docs/planning/project-goals.md`.
+- Audited abstraction density and documented the current keep/remove decisions in `docs/architecture/abstraction-audit.md`.
 - Removed over-broad resource factory and future-only descriptor abstractions that had no production behavior.
 - Annotated all `cmd.custom()` call sites with replacement direction and whether a formal command API is needed.
 - Added formal `CommandBuffer.drawInstancedBatch(...)` commands and removed instanced batch `cmd.custom()` usage from demo/runtime main paths.
@@ -21,7 +23,7 @@
 - Documented test categories for pure JVM unit tests, opt-in GL smoke tests, and manual/integration checks.
 - Added opt-in GL smoke checks for framebuffer, shader, texture, and texture cache lifecycle boundaries.
 - Defined the minimal `RenderDevice` contract and kept OpenGL `StateCache` access on `GlRenderDevice`.
-- Documented `RenderGraph` pass/resource/profile boundaries in `docs/render-boundaries.md`.
+- Documented `RenderGraph` pass/resource/profile boundaries in `docs/architecture/render-boundaries.md`.
 - Added standard Java `.properties` scene asset config parsing and switched `LearnOpenGlDemo` to that format.
 - Kept `LearnOpenGlDemo` as the combined scene, shadow, and postprocess proof demo.
 - Added an opt-in hidden-window GL smoke test with pixel readback verification.
@@ -29,7 +31,7 @@
 
 ### Completed Roadmap Work
 
-The completed items previously listed in `docs/future-plans.md` have been migrated here so the roadmap can focus on next work instead of historical checklists.
+The completed items previously listed in `docs/planning/future-plans.md` have been migrated here so the roadmap can focus on next work instead of historical checklists.
 
 #### v0.1-stable-demo
 

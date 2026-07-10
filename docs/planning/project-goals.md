@@ -16,8 +16,8 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
   GPU fence、state cache、GL debug/error 分类。
 - 核心渲染协议：`CommandBuffer`、`RenderDevice`、`RenderGraph`、mesh/vertex layout、
   instancing、triple buffer、upload system、material/material instance、typed uniform value。
-- 3D 管线：forward pipeline、scene/camera/object/light 模型、方向光/点光/聚光基础参数、
-  directional shadow map pass、FXAA/TAA/MSAA/none 后处理选择。
+- 3D 管线：forward pipeline、scene/camera/object/light 模型、带输入校验和数量上限的基础光照、
+  固定分辨率 directional shadow map、depth-only caster pass、bias/3x3 PCF，以及 FXAA/TAA/MSAA/none 后处理选择。
 - 资产系统：classpath resource locator、shader asset、texture cache、`.properties` 场景配置、
   OBJ/Assimp 模型加载入口。
 - Demo 证明：`LearnOpenGlDemo` 作为综合场景、阴影、后处理证明；`MinimalDemo` 验证最小窗口、

@@ -36,6 +36,8 @@ public final class StateCache {
     private boolean depthWriteCached;
     private boolean depthTestEnabled;
     private boolean depthTestCached;
+    private boolean cullFaceEnabled;
+    private boolean cullFaceCached;
 
     public StateCache() {
         invalidate();
@@ -229,6 +231,19 @@ public final class StateCache {
         }
     }
 
+    /** Enables or disables face culling while avoiding redundant GL state changes. */
+    public void enableCullFace(boolean enable) {
+        if (!cullFaceCached || enable != cullFaceEnabled) {
+            if (enable) {
+                glEnable(GL_CULL_FACE);
+            } else {
+                glDisable(GL_CULL_FACE);
+            }
+            cullFaceEnabled = enable;
+            cullFaceCached = true;
+        }
+    }
+
     /**
      * 直接调用 glClear，不做状态缓存。
      *
@@ -268,6 +283,7 @@ public final class StateCache {
         blendFuncCached = false;
         depthWriteCached = false;
         depthTestCached = false;
+        cullFaceCached = false;
     }
 
     /**

@@ -52,6 +52,8 @@ public final class AppWindow implements RenderWindow {
 
     public boolean shouldClose() { return window.shouldClose(); }
 
+    public void requestClose() { glfwSetWindowShouldClose(window.handle(), true); }
+
     public void run(BiConsumer<AppWindow, Float> frame) {
         while (!window.shouldClose()) {
             float now = (float) glfwGetTime();

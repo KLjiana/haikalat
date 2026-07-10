@@ -1,6 +1,6 @@
 # Abstraction Audit
 
-本次盘点依据 `docs/abstraction-density.md` 执行，重点检查只有一个实现的 `public interface`，以及只有少量调用点的 `descriptor / manager / factory`。
+本次盘点依据 `docs/architecture/abstraction-density.md` 执行，重点检查只有一个实现的 `public interface`，以及只有少量调用点的 `descriptor / manager / factory`。
 
 ## Public Interface Inventory
 

@@ -29,12 +29,23 @@
 普通 pass 应按逻辑资源工作，优先使用 `PassResources` 的窄 API：
 
 - `colorAttachment(String textureName)`：按声明的逻辑纹理名取得 color attachment id。
+- `depthAttachment(String textureName)`：按声明的逻辑纹理名取得 depth texture id。
 - `currentTarget()`：取得当前 pass 的 render target，仅在需要查询当前目标尺寸或调试状态时使用。
 - `framebufferOfPass(String passName)`：取得指定 pass 的 framebuffer，仅限 postprocess、present、shadow 等内部 OpenGL pass 使用。
 
-保留的旧入口 `getFramebuffer(...)`、`getFramebuffer()`、`getTextureAttachmentId(...)`、`getTexture(...)` 属于 backend-facing/internal 兼容 API。新写普通 pass 不应先取得 `Framebuffer` 再读取 attachment id；如果只需要采样上游颜色结果，应通过逻辑纹理名调用 `colorAttachment(...)`。
+旧入口 `getFramebuffer(...)`、`getFramebuffer()`、`getTextureAttachmentId(...)`、`getTexture(...)` 已收窄为 package-private backend-facing 兼容 API。新写普通 pass 不应先取得 `Framebuffer` 再读取 attachment id；如果只需要采样上游结果，应通过逻辑纹理名调用 `colorAttachment(...)` 或 `depthAttachment(...)`。
 
 Pass 只查询 graph 已声明的资源，不自行创建、resize 或释放 render target。资源生命周期仍由 `RenderGraph` 和 `RenderTargetManager` 统一管理。
+
+Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder.fixedSize(...)` 声明。窗口 resize 会重建窗口相关 target，但固定 pass 保持声明尺寸。方向光 shadow target 使用该机制维持 2048x2048。
+
+## Directional Shadow Boundary
+
+`RenderPipeline` 拥有 depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 只遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer；独立的 instanced batch 暂不投射阴影。基准场景由双面平面组成，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
+
+## Package Dependency Guard
+
+当前项目明确保持 OpenGL 专用框架定位，`core` 中允许存在由现有 GL runtime 使用的数据协议。`ArchitectureBoundaryTest` 锁定现有 backend-to-core seam，并禁止 `core`/`runtime` 新增对 `subsystems` 的反向依赖。新增跨层依赖必须先更新本边界说明和测试中的显式允许集合。
 
 ## Mesh Data And Runtime Mesh
 

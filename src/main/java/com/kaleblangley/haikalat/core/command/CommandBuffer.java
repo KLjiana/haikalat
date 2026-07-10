@@ -317,6 +317,11 @@ public final class CommandBuffer {
         return this;
     }
 
+    public CommandBuffer enableCullFace(boolean enable) {
+        commands.add(cache -> cache.enableCullFace(enable));
+        return this;
+    }
+
     /**
      * 记录设置混合函数的命令。
      *

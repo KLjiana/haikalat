@@ -2,6 +2,12 @@ plugins {
     id 'java'
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
 group = 'com.kaleblangley'
 version = '1.0-SNAPSHOT'
 
@@ -74,4 +80,34 @@ test {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.register('runDemoIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the hidden deterministic baseline scene for a finite number of frames.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    args '--deterministic', '--frames=8', '--aa=FXAA'
+}
+
+[
+        runLearnOpenGlDemo: 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo',
+        runMinimalDemo    : 'com.kaleblangley.haikalat.demo.MinimalDemo',
+        runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo'
+].each { taskName, mainClassName ->
+    tasks.register(taskName, JavaExec) {
+        group = 'application'
+        description = "Runs ${mainClassName} for interactive graphics debugging."
+        dependsOn demoClasses
+        classpath = sourceSets.demo.runtimeClasspath
+        mainClass = mainClassName
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+        workingDir = projectDir
+    }
 }

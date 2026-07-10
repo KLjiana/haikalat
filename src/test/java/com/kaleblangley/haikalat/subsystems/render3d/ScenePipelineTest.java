@@ -59,4 +59,17 @@ class ScenePipelineTest {
         assertThrows(IllegalArgumentException.class,
                 () -> shadowMap.lightSpaceMatrix(SceneLight.point(new Vector3f(), new Vector3f(1), 1, 1), new Vector3f()));
     }
+
+    @Test
+    void directionalShadowMatrixHandlesWorldUpParallelDirection() {
+        DirectionalShadowMap shadowMap = DirectionalShadowMap.defaults();
+        SceneLight light = SceneLight.shadowedDirectional(new Vector3f(0, -1, 0), new Vector3f(1), 1.0f);
+
+        Matrix4f matrix = shadowMap.lightSpaceMatrix(light, new Vector3f());
+
+        float[] values = matrix.get(new float[16]);
+        for (float value : values) {
+            assertTrue(Float.isFinite(value));
+        }
+    }
 }

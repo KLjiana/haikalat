@@ -61,3 +61,11 @@ Use this category for:
 Naming/package convention: `*IntegrationTest` under `com.kaleblangley.haikalat.integration`, or manual demo entry points in `src/demo/java`. Integration tests must remain opt-in through a system property or a separate Gradle task if they are automated later.
 
 CI should run only the default unit path unless the environment explicitly provides a desktop GL context.
+
+The deterministic baseline integration uses a hidden 1280x720 window, fixed camera and frame indices, disabled VSync, and exits after eight frames:
+
+```powershell
+.\gradlew.bat runDemoIntegration
+```
+
+The current GL smoke path additionally verifies project shadow shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, and one-frame output for none/MSAA/FXAA/TAA.

@@ -1,11 +1,13 @@
 # learnopengl
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Java/LWJGL OpenGL learning renderer with a small layered rendering framework:
 `backend`, `core`, `subsystems`, and `runtime`.
 
 The project goal is to keep a learning-oriented but engineering-constrained
 OpenGL renderer: stable enough to validate rendering architecture, small enough
-to avoid becoming a full game engine. See `docs/project-goals.md` for the
+to avoid becoming a full game engine. See `docs/planning/project-goals.md` for the
 current goals, capabilities, and non-goals.
 
 ## Current Capabilities
@@ -14,7 +16,8 @@ current goals, capabilities, and non-goals.
   vertex arrays, uniform blocks, GPU fences, state caching, and error reporting.
 - Core rendering protocols for command recording, render devices, render graphs,
   mesh layouts, instancing, upload flow, triple buffering, and materials.
-- A forward 3D scene pipeline with basic lights, directional shadow-map pass,
+- A forward 3D scene pipeline with basic Blinn-Phong lighting, a fixed-size
+  directional shadow map with 3x3 PCF,
   and selectable none/MSAA/FXAA/TAA postprocess paths.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, and OBJ/Assimp model loading entry points.
@@ -48,7 +51,15 @@ Opt-in GL smoke checks create a hidden GLFW window and verify minimal GL/resourc
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
 ```
 
-See `docs/testing.md` for the `unit`, `glSmoke`, and `integration` categories.
+See `docs/guides/testing.md` for the `unit`, `glSmoke`, and `integration` categories.
+
+Run the hidden deterministic baseline scene for eight frames:
+
+```powershell
+.\gradlew.bat runDemoIntegration
+```
+
+The documentation index is available at [`docs/README.md`](docs/README.md).
 
 ## Run Demos
 

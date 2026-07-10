@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RenderPipelineTest {
     @Test
@@ -49,6 +50,33 @@ class RenderPipelineTest {
         assertEquals(1, counts.directional());
         assertEquals(1, counts.point());
         assertEquals(1, counts.spot());
+    }
+
+    @Test
+    void lightingBinderClampsCountsToShaderArrayLimits() {
+        Scene scene = new Scene(new Camera());
+        for (int i = 0; i < LightingBinder.MAX_DIRECTIONAL_LIGHTS + 3; i++) {
+            scene.addLight(SceneLight.directional(new Vector3f(-1, -1, -1), new Vector3f(1), 1.0f));
+        }
+        for (int i = 0; i < LightingBinder.MAX_POINT_LIGHTS + 3; i++) {
+            scene.addLight(SceneLight.point(new Vector3f(i, 0, 0), new Vector3f(1), 1.0f, 10.0f));
+        }
+
+        LightingBinder.LightCounts counts = LightingBinder.count(scene);
+
+        assertEquals(LightingBinder.MAX_DIRECTIONAL_LIGHTS, counts.directional());
+        assertEquals(LightingBinder.MAX_POINT_LIGHTS, counts.point());
+    }
+
+    @Test
+    void sceneLightRejectsDegenerateRuntimeInputs() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SceneLight.directional(new Vector3f(), new Vector3f(1), 1.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SceneLight.point(new Vector3f(), new Vector3f(1), 1.0f, 0.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SceneLight.spot(new Vector3f(), new Vector3f(0, -1, 0), new Vector3f(1),
+                        1.0f, 10.0f, 0.8f, 0.3f));
     }
 
     @Test

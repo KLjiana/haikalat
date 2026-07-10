@@ -60,8 +60,8 @@ public final class MinimalDemo {
         GlRenderDevice device = new GlRenderDevice();
         RenderStatistics stats = new RenderStatistics();
 
-        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/color_mvp.vert", "/demo/color_mvp.frag");
-        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/textured_mvp.vert", "/demo/textured_mvp.frag");
+        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/color_mvp.vert", "/demo/color_unlit.frag");
+        ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
         ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class, "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
 
         Texture2D wallTex = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);

@@ -84,6 +84,20 @@ class RenderGraphTest {
     }
 
     @Test
+    void fixedSizePassDescriptorDoesNotUseGraphDimensions() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Shadow")
+                .createDepthTexture("ShadowDepth")
+                .fixedSize(2048, 2048)
+                .execute((res, cmd) -> {});
+
+        FramebufferDescriptor descriptor = graph.passFramebufferDescriptor("Shadow");
+
+        assertEquals(2048, descriptor.width());
+        assertEquals(2048, descriptor.height());
+    }
+
+    @Test
     @SuppressWarnings("deprecation")
     void passResourcesExposeNarrowAliasesWithoutOwningLifecycle() {
         RenderGraph graph = new RenderGraph(800, 600, false);

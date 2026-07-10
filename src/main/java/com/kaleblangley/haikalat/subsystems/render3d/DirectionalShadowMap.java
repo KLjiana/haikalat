@@ -41,11 +41,14 @@ public final class DirectionalShadowMap {
             direction.set(0.0f, -1.0f, 0.0f);
         }
         Vector3f eye = new Vector3f(focus).fma(-settings.sceneRadius(), direction);
+        Vector3f up = Math.abs(direction.dot(0.0f, 1.0f, 0.0f)) > 0.99f
+                ? new Vector3f(0.0f, 0.0f, 1.0f)
+                : new Vector3f(0.0f, 1.0f, 0.0f);
         Matrix4f projection = new Matrix4f().ortho(
                 -settings.sceneRadius(), settings.sceneRadius(),
                 -settings.sceneRadius(), settings.sceneRadius(),
                 settings.nearPlane(), settings.farPlane());
-        Matrix4f view = new Matrix4f().lookAt(eye, focus, new Vector3f(0.0f, 1.0f, 0.0f));
+        Matrix4f view = new Matrix4f().lookAt(eye, focus, up);
         return projection.mul(view);
     }
 }

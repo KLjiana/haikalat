@@ -20,6 +20,11 @@ public final class PassResources {
         return graph.getTextureAttachmentId(Objects.requireNonNull(textureName, "textureName"));
     }
 
+    /** Returns the OpenGL texture id for a logical depth texture declared by a pass. */
+    public int depthAttachment(String textureName) {
+        return graph.getTextureAttachmentId(Objects.requireNonNull(textureName, "textureName"));
+    }
+
     /**
      * Returns the framebuffer owned by a named pass.
      * This is intended for internal OpenGL passes that need backend framebuffer state such as blits or dimensions.
@@ -40,7 +45,7 @@ public final class PassResources {
      * Backend-facing compatibility API. Prefer {@link #framebufferOfPass(String)} for new code.
      */
     @Deprecated(since = "0.6", forRemoval = false)
-    public Framebuffer getFramebuffer(String passName) {
+    Framebuffer getFramebuffer(String passName) {
         return framebufferOfPass(passName);
     }
 
@@ -48,7 +53,7 @@ public final class PassResources {
      * Backend-facing compatibility API for internal passes that need a concrete texture object.
      * Ordinary passes should use logical resource names and {@link #colorAttachment(String)} when only the id is needed.
      */
-    public Texture2D getTexture(String textureName) {
+    Texture2D getTexture(String textureName) {
         return graph.getTexture(Objects.requireNonNull(textureName, "textureName"));
     }
 
@@ -56,7 +61,7 @@ public final class PassResources {
      * Backend-facing compatibility API. Prefer {@link #colorAttachment(String)} for new code.
      */
     @Deprecated(since = "0.6", forRemoval = false)
-    public int getTextureAttachmentId(String textureName) {
+    int getTextureAttachmentId(String textureName) {
         return colorAttachment(textureName);
     }
 
@@ -64,7 +69,7 @@ public final class PassResources {
      * Backend-facing compatibility API. Prefer {@link #currentTarget()} for new code.
      */
     @Deprecated(since = "0.6", forRemoval = false)
-    public Framebuffer getFramebuffer() {
+    Framebuffer getFramebuffer() {
         return currentTarget();
     }
 }

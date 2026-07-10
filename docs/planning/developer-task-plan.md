@@ -12,7 +12,7 @@
 
 - 在 `CommandBuffer` 增加实例化 batch 上传和绘制命令，覆盖 `InstancedRenderer`、`MinimalDemo`、
   `AsyncDemo` 当前 custom block 的行为。
-- 明确这些命令是否经过 `StateCache`，并把跨线程捕获规则写进方法注释或 `docs/render-boundaries.md`。
+- 明确这些命令是否经过 `StateCache`，并把跨线程捕获规则写进方法注释或 `docs/architecture/render-boundaries.md`。
 - 让 `InstancedRenderer` 只记录正式命令，不直接捕获裸 GL upload/draw 逻辑。
 - 保留 `RenderGraph` GPU timer begin/end 的 `cmd.custom()`，它是 profiling escape hatch，不属于主绘制路径。
 
@@ -50,7 +50,7 @@
   `currentTarget()`。
 - 将已有 pass 代码优先迁移到窄 API；直接拿 `Framebuffer` 或 attachment id 的用法限制在 postprocess、
   present、shadow 等内部 pass。
-- 在 `docs/render-boundaries.md` 记录 pass 资源访问分层：普通 pass 使用逻辑资源名，内部 OpenGL pass
+- 在 `docs/architecture/render-boundaries.md` 记录 pass 资源访问分层：普通 pass 使用逻辑资源名，内部 OpenGL pass
   才允许访问 backend 类型。
 
 验收：

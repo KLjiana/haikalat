@@ -33,13 +33,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class LearnOpenGlDemo {
     public static void main(String[] args) {
+        DemoOptions options = DemoOptions.parse(args);
         demoVertexPacking();
 
         RenderSettings settings = RenderSettings.builder()
-                .antiAliasingMode(AntiAliasingMode.FXAA)
+                .antiAliasingMode(options.antiAliasingMode())
+                .vsync(!options.deterministic())
                 .build();
         AppWindow window = new AppWindow(1280, 720, "LearnOpenGL Demo", settings.vsync());
-        window.show();
+        if (!options.deterministic()) {
+            window.show();
+        }
 
         FrameDriver renderLoop = new FrameDriver(settings);
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
@@ -61,7 +65,7 @@ public final class LearnOpenGlDemo {
         if (instancedMesh == null) {
             throw new IllegalStateException("Builtin instanced mesh is not configured: " + BuiltinMeshData.QUAD);
         }
-        InstancedMeshBatch instBatch = InstancedMeshBatch.of(instancedMesh, 16, 2);
+        InstancedMeshBatch instBatch = InstancedMeshBatch.of(instancedMesh, 16, 3);
         InstancedRenderer instanced = new InstancedRenderer(instBatch, instancedShader);
         for (int r = 0; r < 4; r++) {
             for (int c = 0; c < 4; c++) {
@@ -96,7 +100,10 @@ public final class LearnOpenGlDemo {
                 }
 
                 GlDebug.checkError("LearnOpenGlDemo.frame");
-                frame.incrementAndGet();
+                int completedFrames = frame.incrementAndGet();
+                if (options.maxFrames() > 0 && completedFrames >= options.maxFrames()) {
+                    w.requestClose();
+                }
             });
         } finally {
             pipeline.close();
@@ -139,7 +146,7 @@ public final class LearnOpenGlDemo {
             if (material == null) {
                 throw new IllegalStateException("Material not configured for object " + entry.getKey() + ": " + def.material());
             }
-            scene.add(new SceneObject(mesh, material, updaterFor(entry.getKey(), def)));
+            scene.add(new SceneObject(mesh, material, updaterFor(entry.getKey(), def), def.castShadows()));
         }
         for (SceneAssetConfig.LightDef light : config.lights().values()) {
             scene.addLight(lightFor(light));
@@ -240,5 +247,32 @@ public final class LearnOpenGlDemo {
                 VertexPacking.packOctNormal(0.5f, 0.5f, 0.7071f));
         System.out.printf("[VertexPacking] packed=0x%08X unpacked=(%.3f,%.3f,%.3f)%n",
                 VertexPacking.packOctNormal(0.5f, 0.5f, 0.7071f), u[0], u[1], u[2]);
+    }
+
+    private record DemoOptions(boolean deterministic, int maxFrames, AntiAliasingMode antiAliasingMode) {
+        static DemoOptions parse(String[] args) {
+            boolean deterministic = false;
+            int maxFrames = -1;
+            AntiAliasingMode mode = AntiAliasingMode.FXAA;
+            for (String arg : args) {
+                if ("--deterministic".equals(arg)) {
+                    deterministic = true;
+                } else if (arg.startsWith("--frames=")) {
+                    maxFrames = Integer.parseInt(arg.substring("--frames=".length()));
+                    if (maxFrames <= 0) {
+                        throw new IllegalArgumentException("--frames must be positive");
+                    }
+                    deterministic = true;
+                } else if (arg.startsWith("--aa=")) {
+                    mode = AntiAliasingMode.valueOf(arg.substring("--aa=".length()).toUpperCase());
+                } else {
+                    throw new IllegalArgumentException("Unknown demo argument: " + arg);
+                }
+            }
+            if (deterministic && maxFrames < 0) {
+                maxFrames = 8;
+            }
+            return new DemoOptions(deterministic, maxFrames, mode);
+        }
     }
 }

@@ -19,15 +19,33 @@ public record SceneLight(
         type = Objects.requireNonNull(type, "type");
         color = new Vector3f(Objects.requireNonNull(color, "color"));
         direction = new Vector3f(Objects.requireNonNull(direction, "direction"));
+        position = new Vector3f(Objects.requireNonNull(position, "position"));
+        requireFinite(color, "color");
+        requireFinite(direction, "direction");
+        requireFinite(position, "position");
+        if (color.x < 0.0f || color.y < 0.0f || color.z < 0.0f) {
+            throw new IllegalArgumentException("color components must be non-negative");
+        }
+        if (!Float.isFinite(intensity) || intensity < 0.0f) {
+            throw new IllegalArgumentException("intensity must be non-negative");
+        }
+        if (!Float.isFinite(range) || range < 0.0f) {
+            throw new IllegalArgumentException("range must be non-negative");
+        }
+        if ((type == LightType.DIRECTIONAL || type == LightType.SPOT) && direction.lengthSquared() == 0.0f) {
+            throw new IllegalArgumentException(type + " light direction must be non-zero");
+        }
         if (direction.lengthSquared() > 0.0f) {
             direction.normalize();
         }
-        position = new Vector3f(Objects.requireNonNull(position, "position"));
-        if (intensity < 0.0f) {
-            throw new IllegalArgumentException("intensity must be non-negative");
+        if ((type == LightType.POINT || type == LightType.SPOT) && range <= 0.0f) {
+            throw new IllegalArgumentException(type + " light range must be positive");
         }
-        if (range < 0.0f) {
-            throw new IllegalArgumentException("range must be non-negative");
+        if (type == LightType.SPOT
+                && (!Float.isFinite(innerConeRadians) || !Float.isFinite(outerConeRadians)
+                || innerConeRadians < 0.0f || outerConeRadians <= innerConeRadians
+                || outerConeRadians > (float) (Math.PI * 0.5))) {
+            throw new IllegalArgumentException("spot cone must satisfy 0 <= inner < outer <= PI/2");
         }
     }
 
@@ -51,5 +69,11 @@ public record SceneLight(
                                   float outerConeRadians) {
         return new SceneLight(LightType.SPOT, color, intensity, direction,
                 position, range, innerConeRadians, outerConeRadians, false);
+    }
+
+    private static void requireFinite(Vector3f value, String name) {
+        if (!Float.isFinite(value.x) || !Float.isFinite(value.y) || !Float.isFinite(value.z)) {
+            throw new IllegalArgumentException(name + " must contain finite values");
+        }
     }
 }
