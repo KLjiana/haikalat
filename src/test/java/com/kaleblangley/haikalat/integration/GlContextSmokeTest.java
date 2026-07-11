@@ -137,6 +137,26 @@ class GlContextSmokeTest {
             }
             """;
 
+    private static final String INVISIBLE_CASTER_VERTEX_SOURCE = """
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (std140) uniform CameraBlock {
+                mat4 uProjection;
+                mat4 uView;
+            };
+            uniform mat4 uModel;
+            void main() {
+                gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+            }
+            """;
+
+    private static final String INVISIBLE_CASTER_FRAGMENT_SOURCE = """
+            #version 330 core
+            void main() {
+                discard;
+            }
+            """;
+
     @Test
     void hiddenWindowCanClearAndReadBackPixel() {
         try (GlfwWindow window = new GlfwWindow.Builder()
@@ -419,6 +439,95 @@ class GlContextSmokeTest {
                 shader.close();
             }
         }
+    }
+
+    @Test
+    void fullLightingAndShadowPipelineChangesFinalPixels() throws Exception {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(128, 128)
+                .title("Lighting Shadow Integration")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            byte[] noLight = renderLitShadowScene(window, false, false, -0.8f,
+                    new Vector3f(0.5f, 0.0f, -1.0f));
+            byte[] litWithoutShadow = renderLitShadowScene(window, true, false, -0.8f,
+                    new Vector3f(0.5f, 0.0f, -1.0f));
+            byte[] shadowed = renderLitShadowScene(window, true, true, -0.8f,
+                    new Vector3f(0.5f, 0.0f, -1.0f));
+            byte[] movedCaster = renderLitShadowScene(window, true, true, 0.8f,
+                    new Vector3f(0.5f, 0.0f, -1.0f));
+            byte[] movedLight = renderLitShadowScene(window, true, true, -0.8f,
+                    new Vector3f(-0.5f, 0.0f, -1.0f));
+
+            assertTrue(pixelDifference(noLight, litWithoutShadow) > 10_000,
+                    "Turning lighting on must change final scene pixels");
+            assertTrue(pixelDifference(litWithoutShadow, shadowed) > 1_000,
+                    "The complete shadow pass and lighting shader chain must darken final pixels");
+            assertTrue(pixelDifference(shadowed, movedCaster) > 1_000,
+                    "Moving an invisible caster must move its final-pixel shadow");
+            assertTrue(pixelDifference(shadowed, movedLight) > 1_000,
+                    "Changing the shadow light direction must update final-pixel shadows");
+            GlDebug.checkError("fullLightingAndShadowPipelineChangesFinalPixels");
+        }
+    }
+
+    private static byte[] renderLitShadowScene(GlfwWindow window, boolean lighting, boolean shadows,
+                                                float casterX, Vector3f lightDirection) throws Exception {
+        Path resources = Path.of("src", "demo", "resources", "demo");
+        ShaderProgram receiverShader = ShaderProgram.fromSources(
+                Files.readString(resources.resolve("color_scene.vert")),
+                Files.readString(resources.resolve("color_mvp.frag")));
+        ShaderProgram casterShader = ShaderProgram.fromSources(
+                INVISIBLE_CASTER_VERTEX_SOURCE, INVISIBLE_CASTER_FRAGMENT_SOURCE);
+        Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("shadow-receiver"));
+        Mesh casterMesh = Mesh.from(BuiltinMeshData.coloredQuad("invisible-shadow-caster"));
+        Material receiverMaterial = Material.builder(receiverShader).build();
+        Material casterMaterial = Material.builder(casterShader).build();
+
+        Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+        scene.add(new SceneObject(receiverMesh, receiverMaterial,
+                (model, frame) -> model.identity().translation(0.0f, 0.0f, -3.0f).scale(4.0f), false));
+        scene.add(new SceneObject(casterMesh, casterMaterial,
+                (model, frame) -> model.identity().translation(casterX, 0.0f, -1.0f).scale(0.7f), true));
+        if (lighting) {
+            scene.addLight(shadows
+                    ? SceneLight.shadowedDirectional(lightDirection, new Vector3f(1.0f), 1.0f)
+                    : SceneLight.directional(lightDirection, new Vector3f(1.0f), 1.0f));
+        }
+
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build());
+        try {
+            pipeline.build();
+            pipeline.execute(new GlRenderDevice());
+            ByteBuffer pixels = BufferUtils.createByteBuffer(window.width() * window.height() * 4);
+            glReadPixels(0, 0, window.width(), window.height(), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            byte[] image = new byte[pixels.remaining()];
+            pixels.get(image);
+            return image;
+        } finally {
+            pipeline.close();
+            casterMaterial.close();
+            receiverMaterial.close();
+            casterMesh.close();
+            receiverMesh.close();
+            casterShader.close();
+            receiverShader.close();
+        }
+    }
+
+    private static long pixelDifference(byte[] left, byte[] right) {
+        long difference = 0L;
+        for (int i = 0; i < left.length; i += 4) {
+            difference += Math.abs(Byte.toUnsignedInt(left[i]) - Byte.toUnsignedInt(right[i]));
+            difference += Math.abs(Byte.toUnsignedInt(left[i + 1]) - Byte.toUnsignedInt(right[i + 1]));
+            difference += Math.abs(Byte.toUnsignedInt(left[i + 2]) - Byte.toUnsignedInt(right[i + 2]));
+        }
+        return difference;
     }
 
     private static GlfwWindow hiddenWindow() {

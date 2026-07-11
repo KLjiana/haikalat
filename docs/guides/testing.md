@@ -68,4 +68,4 @@ The deterministic baseline integration uses a hidden 1280x720 window, fixed came
 .\gradlew.bat runDemoIntegration
 ```
 
-The current GL smoke path additionally verifies project shadow shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, and one-frame output for none/MSAA/FXAA/TAA.
+The current GL smoke path additionally verifies project shadow shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, and the complete scene-to-shadow-to-lighting pixel chain. The final-pixel assertions cover lighting on/off, shadow on/off, moving an invisible caster, and changing the shadow light direction.

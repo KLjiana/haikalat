@@ -1,6 +1,6 @@
 # 真实能力闭环建设计划
 
-> 实施状态：2026-07-10 已完成主实现。基础光照、固定分辨率方向光阴影、caster draw、shadow sampling、3x3 PCF、确定性基准场景、四种 AA GL smoke、Demo integration、Java 21 Toolchain、Windows/Linux CI 和架构依赖守卫均已落地。第一版明确不包含 instanced shadow caster；该限制记录在能力矩阵和渲染边界文档中。
+> 实施状态：2026-07-11 已完成并补齐端到端画面验收。基础光照、固定分辨率方向光阴影、caster draw、shadow sampling、3x3 PCF、确定性基准场景、四种 AA GL smoke、Demo integration、Java 21 Toolchain、Windows/Linux CI 和架构依赖守卫均已落地。真实 GL 测试现已断言有光/无光、最终阴影像素、移动不可见 caster 和改变方向光均产生预期画面差异；多方向光通过显式 shadow light index 对齐 shadow pass 与 shader。第一版明确不包含 instanced shadow caster；该限制记录在能力矩阵和渲染边界文档中。
 
 ## 1. 背景
 

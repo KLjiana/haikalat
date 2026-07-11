@@ -4,6 +4,8 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 
+import java.util.Optional;
+
 final class LightingBinder {
     static final int MAX_DIRECTIONAL_LIGHTS = 2;
     static final int MAX_POINT_LIGHTS = 8;
@@ -63,6 +65,8 @@ final class LightingBinder {
         cmd.trySetUniformInt(shader, "uSpotLightCount", counts.spot());
         cmd.trySetUniformVec3(shader, "uCameraPosition", scene.camera().position());
         cmd.trySetUniformMat4(shader, "uDirectionalLightSpace", directionalLightSpace);
+        cmd.trySetUniformInt(shader, "uDirectionalShadowLightIndex",
+                shadowDirectionalLight(scene).map(ShadowDirectionalLight::shaderIndex).orElse(-1));
     }
 
     static LightCounts count(Scene scene) {
@@ -82,6 +86,30 @@ final class LightingBinder {
                 Math.min(spot, MAX_SPOT_LIGHTS));
     }
 
+    /**
+     * Selects the shadow-casting directional light from the same bounded array uploaded to shaders.
+     * A shadow light beyond the shader array limit is deliberately ignored by both passes.
+     */
+    static Optional<ShadowDirectionalLight> shadowDirectionalLight(Scene scene) {
+        int directionalIndex = 0;
+        for (SceneLight light : scene.lights()) {
+            if (light.type() != LightType.DIRECTIONAL) {
+                continue;
+            }
+            if (directionalIndex >= MAX_DIRECTIONAL_LIGHTS) {
+                break;
+            }
+            if (light.castShadows()) {
+                return Optional.of(new ShadowDirectionalLight(light, directionalIndex));
+            }
+            directionalIndex++;
+        }
+        return Optional.empty();
+    }
+
     record LightCounts(int directional, int point, int spot) {
+    }
+
+    record ShadowDirectionalLight(SceneLight light, int shaderIndex) {
     }
 }

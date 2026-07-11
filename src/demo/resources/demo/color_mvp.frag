@@ -26,6 +26,7 @@ uniform PointLight uPointLights[8];
 uniform vec3 uCameraPosition;
 uniform sampler2D uShadowMap;
 uniform int uHasDirectionalShadow;
+uniform int uDirectionalShadowLightIndex;
 uniform float uShadowBias;
 
 float shadowFactor(vec3 normal, vec3 lightDirection) {
@@ -58,7 +59,8 @@ vec3 shade(vec3 baseColor) {
         float diffuse = max(dot(normal, lightDirection), 0.0);
         vec3 halfwayDirection = normalize(lightDirection + viewDirection);
         float specular = pow(max(dot(normal, halfwayDirection), 0.0), 32.0) * 0.25;
-        float visibility = i == 0 ? 1.0 - shadowFactor(normal, lightDirection) : 1.0;
+        float visibility = i == uDirectionalShadowLightIndex
+                ? 1.0 - shadowFactor(normal, lightDirection) : 1.0;
         result += visibility * (baseColor * diffuse + vec3(specular))
                 * uDirectionalLights[i].color * uDirectionalLights[i].intensity;
     }

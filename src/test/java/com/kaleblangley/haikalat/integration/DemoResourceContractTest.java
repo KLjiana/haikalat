@@ -36,4 +36,17 @@ class DemoResourceContractTest {
         assertEquals(-(float) Math.PI * 0.5f, rotateX, 1.0e-5f);
         assertEquals("0.0,-1.4,-3.0", properties.getProperty("object.ground.position"));
     }
+
+    @Test
+    void litShadersUseTheSelectedShadowDirectionalLightIndex() throws IOException {
+        String colorShader = Files.readString(DEMO_RESOURCES.resolve("color_mvp.frag"));
+        String texturedShader = Files.readString(DEMO_RESOURCES.resolve("textured_mvp.frag"));
+
+        for (String shader : java.util.List.of(colorShader, texturedShader)) {
+            assertTrue(shader.contains("uniform int uDirectionalShadowLightIndex;"));
+            assertTrue(shader.contains("i == uDirectionalShadowLightIndex"));
+            assertTrue(!shader.contains("i == 0 ? 1.0 - shadowFactor"),
+                    "Shadowing must not be hard-coded to the first directional light");
+        }
+    }
 }

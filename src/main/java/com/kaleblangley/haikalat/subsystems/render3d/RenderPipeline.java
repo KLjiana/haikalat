@@ -69,7 +69,7 @@ public final class RenderPipeline {
         cameraUniforms = new CameraUniforms();
         lightingBinder = new LightingBinder(scene);
         postProcess = PostProcessPassBuilder.create(settings, window, w, h);
-        if (scene.hasShadowCastingDirectionalLight()) {
+        if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
             shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                     "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
         }
@@ -133,13 +133,14 @@ public final class RenderPipeline {
     }
 
     private PassExecutor geometryExecutor() {
-        return (res, cmd) -> renderScene(cmd, scene.hasShadowCastingDirectionalLight()
+        return (res, cmd) -> renderScene(cmd, LightingBinder.shadowDirectionalLight(scene).isPresent()
                 ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME)
                 : 0);
     }
 
     private PassExecutor shadowExecutor() {
-        return (res, cmd) -> scene.firstShadowCastingDirectionalLight().ifPresent(light -> {
+        return (res, cmd) -> LightingBinder.shadowDirectionalLight(scene).ifPresent(selection -> {
+            SceneLight light = selection.light();
             lastDirectionalLightSpaceMatrix = directionalShadowMap.lightSpaceMatrix(
                     light, scene.camera().position());
             int frameIndex = instanced == null ? 0 : instanced.frameIndex();

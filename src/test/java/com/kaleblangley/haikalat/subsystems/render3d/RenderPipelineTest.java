@@ -11,6 +11,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderPipelineTest {
     @Test
@@ -66,6 +67,33 @@ class RenderPipelineTest {
 
         assertEquals(LightingBinder.MAX_DIRECTIONAL_LIGHTS, counts.directional());
         assertEquals(LightingBinder.MAX_POINT_LIGHTS, counts.point());
+    }
+
+    @Test
+    void shadowDirectionalIndexMatchesOriginalShaderLightOrder() {
+        Scene scene = new Scene(new Camera());
+        SceneLight unshadowed = SceneLight.directional(
+                new Vector3f(1, -1, 0), new Vector3f(1), 0.5f);
+        SceneLight shadowed = SceneLight.shadowedDirectional(
+                new Vector3f(-1, -1, 0), new Vector3f(1), 1.0f);
+        scene.addLight(unshadowed).addLight(shadowed);
+
+        LightingBinder.ShadowDirectionalLight selection =
+                LightingBinder.shadowDirectionalLight(scene).orElseThrow();
+
+        assertEquals(shadowed, selection.light());
+        assertEquals(1, selection.shaderIndex());
+    }
+
+    @Test
+    void shadowLightOutsideDirectionalShaderLimitIsNotSelected() {
+        Scene scene = new Scene(new Camera());
+        for (int i = 0; i < LightingBinder.MAX_DIRECTIONAL_LIGHTS; i++) {
+            scene.addLight(SceneLight.directional(new Vector3f(i + 1, -1, 0), new Vector3f(1), 1.0f));
+        }
+        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(0, -1, -1), new Vector3f(1), 1.0f));
+
+        assertTrue(LightingBinder.shadowDirectionalLight(scene).isEmpty());
     }
 
     @Test

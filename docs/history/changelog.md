@@ -4,6 +4,7 @@
 
 ### Stabilization
 
+- Fixed multi-directional-light shadow association with an explicit bounded shader light index, and added final-pixel GL assertions for lighting, shadowing, caster movement, and light-direction changes.
 - Migrated Minimal/Async demo window, render-target, mesh, frame-driver, upload-queue, and cleanup paths onto the retained engine APIs; unified builtin-mesh instancing at attribute 3 and made GL render-thread completion wait for resource cleanup.
 - Completed the real-capabilities closure roadmap: Java 21 toolchains, Windows/Linux CI, lit baseline shaders, bounded light input, fixed-size directional shadow targets, real caster draws, depth sampling with bias/3x3 PCF, deterministic demo integration, GL output checks, and package dependency guards.
 

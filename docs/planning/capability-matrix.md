@@ -6,8 +6,8 @@
 | --- | --- | --- | --- | --- | --- |
 | RenderGraph 排序与资源生命周期 | 完整 | `core/graph/RenderGraph`、`backend/framebuffer/RenderTargetManager` | 三个 Demo | `RenderGraphTest`、`FramebufferDescriptorTest`、`GlContextSmokeTest` | GPU timing 仍通过受控 `custom` 命令记录 |
 | 材质与纹理 | 完整 | `core/material`、`core/assets/TextureAssetCache` | `LearnOpenGlDemo` | `MaterialTest`、`AssetPipelineTest`、`GlContextSmokeTest` | `Material` 是 OpenGL runtime resource，不是跨后端定义 |
-| 方向光、点光、聚光参数 | 完整 | `SceneLight`、`LightingBinder`、Demo forward shader | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | shader 数组上限为方向光 2、点光 8、聚光 4；基准 shader 当前消费方向光和点光 |
-| 方向光阴影 | 完整 | `DirectionalShadowMap`、`ForwardPassBuilder`、`RenderPipeline` | `LearnOpenGlDemo` | `ScenePipelineTest`、`GlContextSmokeTest`、`runDemoIntegration` | 第一版不把独立 instanced batch 作为 shadow caster |
+| 方向光、点光、聚光参数 | 完整 | `SceneLight`、`LightingBinder`、Demo forward shader | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | shader 数组上限为方向光 2、点光 8、聚光 4；shadow light index 与有界方向光数组使用同一选择结果 |
+| 方向光阴影 | 完整 | `DirectionalShadowMap`、`ForwardPassBuilder`、`RenderPipeline` | `LearnOpenGlDemo` | `ScenePipelineTest`、`GlContextSmokeTest.fullLightingAndShadowPipelineChangesFinalPixels`、`runDemoIntegration` | GL 测试覆盖光照开关、阴影最终像素、移动不可见 caster 和改变光方向；第一版不把独立 instanced batch 作为 shadow caster |
 | Instancing | 完整 | `InstancedMeshBatch`、`InstancedRenderer`、`CommandBuffer.drawInstancedBatch` | 三个 Demo | `CommandBufferTest`、`InstanceDataLayoutTest` | 第一版 shadow pass 不保证实例化 caster |
 | None / MSAA / FXAA / TAA | 完整 | `PostProcessPassBuilder`、`subsystems/postprocess` | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | GL smoke 对每种模式执行一帧并验证非空输出 |
 | 模型加载与场景配置 | 部分完成 | `ObjModelLoader`、`AssimpModelLoader`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest` | 主 Demo 当前只接通固定 builtin mesh 集合 |
@@ -18,7 +18,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 默认测试：77 个测试方法；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
+- 默认测试：81 个测试方法；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
 
