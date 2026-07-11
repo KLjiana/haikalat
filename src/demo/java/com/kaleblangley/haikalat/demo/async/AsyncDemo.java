@@ -6,74 +6,78 @@ import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
-import com.kaleblangley.haikalat.core.buffer.TripleBuffer;
+import com.kaleblangley.haikalat.demo.DemoSupport;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
-import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.GlRenderThread;
+import com.kaleblangley.haikalat.runtime.LatestFrameMailbox;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.lwjgl.glfw.GLFW;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
 /** Demonstrates producer-thread frame state and uploads consumed by the engine GL render thread. */
 public final class AsyncDemo {
+    private static final String TITLE = "Async Demo";
     private static final String SCENE_TARGET = "AsyncScene";
-    private static final int MAX_INSTANCES = 16;
+    private static final int ACTIVE_INSTANCES = 4;
+    private static final int INSTANCE_CAPACITY = 16;
+    private static final int MATRIX_FLOATS = 16;
+    private static final int INSTANCE_BUFFER_BYTES = INSTANCE_CAPACITY * MATRIX_FLOATS * Float.BYTES;
+    private static final int INSTANCE_BLOCK_BINDING = 1;
+    private static final float ROTATION_RADIANS_PER_SECOND = 4.8f;
 
     private AsyncDemo() {
     }
 
     public static void main(String[] args) {
+        AsyncOptions options = AsyncOptions.parse(args);
         Camera camera = new Camera(new Vector3f(0, 0, 5));
-        RenderSettings settings = RenderSettings.builder().vsync(true).build();
-        TripleBuffer<FrameState> stateBuffer = new TripleBuffer<>(() ->
-                new FrameState(new Matrix4f(), new CopyOnWriteArrayList<>()));
+        RenderSettings settings = RenderSettings.builder().vsync(options.vsync()).build();
+        LatestFrameMailbox<FrameState> frameMailbox = new LatestFrameMailbox<>(
+                new FrameState(new Matrix4f(), 0));
 
         try (GlfwWindow window = new GlfwWindow.Builder()
-                .dimensions(800, 600)
-                .title("Async Demo")
+                .dimensions(DemoSupport.DEFAULT_WIDTH, DemoSupport.DEFAULT_HEIGHT)
+                .title(TITLE)
                 .build()) {
-            window.show();
-            run(window, camera, settings, stateBuffer);
+            if (!options.hidden()) {
+                window.show();
+            }
+            run(window, camera, settings, frameMailbox, options.maxFrames());
         }
     }
 
     private static void run(GlfwWindow window, Camera camera, RenderSettings settings,
-                            TripleBuffer<FrameState> stateBuffer) {
+                            LatestFrameMailbox<FrameState> frameMailbox, int maxFrames) {
         AsyncResources resources = new AsyncResources();
         GlRenderThread renderThread = new GlRenderThread(window.handle(), settings, commands -> {
             resources.resizeIfNeeded(window.width(), window.height());
             Framebuffer sceneTarget = resources.targets.get(SCENE_TARGET);
-            FrameState state = stateBuffer.read();
-            List<Matrix4f> transforms = state.transforms();
+            LatestFrameMailbox.Snapshot<FrameState> snapshot = frameMailbox.latest();
+            resources.observe(snapshot.sequence());
+            FrameState state = snapshot.value();
+            Matrix4f projectionView = DemoSupport.perspective(
+                    new Matrix4f(), window.width(), window.height()).mul(state.view());
 
-            Matrix4f projectionView = new Matrix4f().perspective(
-                    (float) Math.toRadians(45.0),
-                    window.width() / (float) Math.max(1, window.height()), 0.1f, 100.0f)
-                    .mul(state.view());
-
-            commands.bindFramebuffer(sceneTarget)
-                    .viewport(0, 0, sceneTarget.width(), sceneTarget.height())
-                    .clearColor(0.08f, 0.10f, 0.14f, 1.0f)
-                    .clear(true, true);
-            if (!transforms.isEmpty()) {
+            DemoSupport.beginScene(commands, sceneTarget);
+            if (state.instanceCount() > 0) {
                 commands.bindShader(resources.shader)
-                        .setUniformMat4(resources.shader, "uProjView", projectionView)
-                        .drawInstancedBatch(resources.batch, transforms);
+                        .setUniformMat4(resources.shader, DemoSupport.U_PROJECTION_VIEW, projectionView)
+                        .bindUniformBuffer(INSTANCE_BLOCK_BINDING, resources.instanceMatrices,
+                                0L, INSTANCE_BUFFER_BYTES)
+                        .bindMesh(resources.mesh)
+                        .drawMeshInstanced(resources.mesh, state.instanceCount());
             }
             commands.bindFramebuffer(GL_FRAMEBUFFER, 0)
                     .viewport(0, 0, window.width(), window.height())
@@ -84,85 +88,75 @@ public final class AsyncDemo {
         renderThread.onCleanup(resources::close);
         CompletableFuture<Void> done = renderThread.start();
 
-        FloatBuffer uploadData = ByteBuffer.allocateDirect(MAX_INSTANCES * 16 * Float.BYTES)
+        FloatBuffer uploadData = ByteBuffer.allocateDirect(INSTANCE_BUFFER_BYTES)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
         try {
-            float lastTime = (float) GLFW.glfwGetTime();
+            FrameClock clock = new FrameClock();
             int frame = 0;
-            while (!window.shouldClose() && !done.isCompletedExceptionally()) {
-                float now = (float) GLFW.glfwGetTime();
-                float deltaTime = Math.min(now - lastTime, 0.1f);
-                lastTime = now;
-                window.pollEvents();
+            while (!window.shouldClose() && !done.isDone()) {
+                window.waitEvents(1.0 / 120.0);
+                FrameClock.Tick time = clock.tick();
 
-                updateCamera(window, camera, deltaTime);
-                publishFrame(stateBuffer, camera, frame, uploadData);
-                renderThread.uploadQueue().uploadFloats(resources.uploadProbe, 0, uploadData);
-
-                if ((frame % 120) == 0) {
-                    window.setTitle(String.format("Async Demo | uploaded %.1f KiB | GPU updates %d",
-                            renderThread.uploadQueue().totalBytesUploaded() / 1024.0,
-                            renderThread.uploadQueue().totalGpuUpdates()));
+                DemoSupport.updateFreeCamera(window, camera, time.deltaSeconds());
+                if (maxFrames < 0 || frame < maxFrames) {
+                    FrameState frameState = prepareFrame(camera, time.elapsedSeconds(), uploadData);
+                    if (!submitFrame(renderThread, resources.instanceMatrices,
+                            uploadData, frameState, frameMailbox)) {
+                        break;
+                    }
+                    frame++;
+                } else if (resources.lastObservedSequence() >= maxFrames) {
+                    window.requestClose();
                 }
-                frame++;
+
+                if (frame > 0 && (frame % 120) == 0) {
+                    GlRenderThread.UploadStats uploadStats = renderThread.uploadStats();
+                    window.setTitle(String.format(TITLE + " | uploaded %.1f KiB | GPU updates %d | dropped %d",
+                            uploadStats.bytesUploaded() / 1024.0,
+                            uploadStats.gpuUpdates(), resources.droppedFrames()));
+                }
             }
         } finally {
             renderThread.close();
-            try {
-                done.get();
-            } catch (Exception e) {
-                System.err.println("Render failed: " + e.getCause());
-            }
+            done.join();
         }
     }
 
-    private static void updateCamera(GlfwWindow window, Camera camera, float deltaTime) {
-        camera.processMouseMovement((float) window.mouseDeltaX() * 0.1f,
-                (float) window.mouseDeltaY() * 0.1f);
-        float speed = 2.5f * deltaTime;
-        if (window.isKeyDown(GLFW.GLFW_KEY_W)) camera.processKeyboard(Camera.Movement.FORWARD, speed);
-        if (window.isKeyDown(GLFW.GLFW_KEY_S)) camera.processKeyboard(Camera.Movement.BACKWARD, speed);
-        if (window.isKeyDown(GLFW.GLFW_KEY_A)) camera.processKeyboard(Camera.Movement.LEFT, speed);
-        if (window.isKeyDown(GLFW.GLFW_KEY_D)) camera.processKeyboard(Camera.Movement.RIGHT, speed);
-        if (window.isKeyDown(GLFW.GLFW_KEY_ESCAPE)) window.requestClose();
-    }
-
-    private static void publishFrame(TripleBuffer<FrameState> stateBuffer, Camera camera,
-                                     int frame, FloatBuffer uploadData) {
-        FrameState writes = stateBuffer.write();
-        List<Matrix4f> transforms = writes.transforms();
-        transforms.clear();
+    private static FrameState prepareFrame(Camera camera, double elapsedSeconds, FloatBuffer uploadData) {
         uploadData.clear();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < ACTIVE_INSTANCES; i++) {
             Matrix4f transform = new Matrix4f()
                     .translation(-1.5f + i, 0.0f, -2.0f)
-                    .rotateZ(frame * 0.04f + i * 0.3f)
+                    .rotateZ((float) elapsedSeconds * ROTATION_RADIANS_PER_SECOND + i * 0.3f)
                     .scale(0.9f);
-            transforms.add(transform);
             transform.get(uploadData);
-            uploadData.position(uploadData.position() + 16);
+            uploadData.position(uploadData.position() + MATRIX_FLOATS);
         }
         uploadData.flip();
-        writes.view().set(camera.getViewMatrix());
-        stateBuffer.flip();
+        return new FrameState(camera.getViewMatrix(), ACTIVE_INSTANCES);
+    }
+
+    private static boolean submitFrame(GlRenderThread renderThread, GlBuffer target,
+                                       FloatBuffer data, FrameState state,
+                                       LatestFrameMailbox<FrameState> mailbox) {
+        return renderThread.enqueueFloatUpload(target, 0, data, () -> mailbox.publish(state));
     }
 
     private static final class AsyncResources implements AutoCloseable {
         private final RenderTargetManager targets = new RenderTargetManager();
         private ShaderProgram shader;
         private Mesh mesh;
-        private InstancedMeshBatch batch;
-        private GlBuffer uploadProbe;
+        private GlBuffer instanceMatrices;
+        private volatile long lastObservedSequence;
+        private volatile long droppedFrames;
 
         void initialize(int width, int height) {
             targets.create(SCENE_TARGET,
                     FramebufferDescriptor.singleColorDepthRenderbuffer(width, height));
-            shader = ShaderProgram.fromResource(AsyncDemo.class,
-                    "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
-            mesh = Mesh.from(BuiltinMeshData.coloredQuad("async-instanced-quad"));
-            batch = InstancedMeshBatch.of(mesh, MAX_INSTANCES, 3);
-            uploadProbe = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW)
-                    .allocate(MAX_INSTANCES * 16L * Float.BYTES);
+            shader = DemoSupport.loadAsyncInstancedShader(AsyncDemo.class);
+            shader.bindUniformBlock("AsyncInstances", INSTANCE_BLOCK_BINDING);
+            mesh = Mesh.from(BuiltinMeshData.named(BuiltinMeshData.QUAD));
+            instanceMatrices = GlBuffer.uniformBuffer(GL_DYNAMIC_DRAW).allocate(INSTANCE_BUFFER_BYTES);
         }
 
         void resizeIfNeeded(int width, int height) {
@@ -172,13 +166,56 @@ public final class AsyncDemo {
             }
         }
 
+        void observe(long sequence) {
+            if (sequence > lastObservedSequence) {
+                droppedFrames += Math.max(0L, sequence - lastObservedSequence - 1L);
+                lastObservedSequence = sequence;
+            }
+        }
+
+        long droppedFrames() {
+            return droppedFrames;
+        }
+
+        long lastObservedSequence() {
+            return lastObservedSequence;
+        }
+
         @Override
         public void close() {
-            if (batch != null) batch.close();
             if (mesh != null) mesh.close();
             if (shader != null) shader.close();
-            if (uploadProbe != null) uploadProbe.close();
+            if (instanceMatrices != null) instanceMatrices.close();
             targets.close();
+        }
+    }
+
+    private record AsyncOptions(boolean hidden, boolean vsync, int maxFrames) {
+        static AsyncOptions parse(String[] args) {
+            boolean hidden = false;
+            boolean vsync = true;
+            int maxFrames = -1;
+            for (String arg : args) {
+                if ("--deterministic".equals(arg)) {
+                    hidden = true;
+                    vsync = false;
+                } else if ("--hidden".equals(arg)) {
+                    hidden = true;
+                } else if ("--no-vsync".equals(arg)) {
+                    vsync = false;
+                } else if (arg.startsWith("--frames=")) {
+                    maxFrames = Integer.parseInt(arg.substring("--frames=".length()));
+                    if (maxFrames <= 0) {
+                        throw new IllegalArgumentException("--frames must be positive");
+                    }
+                } else {
+                    throw new IllegalArgumentException("Unknown async demo argument: " + arg);
+                }
+            }
+            if (hidden && !vsync && maxFrames < 0) {
+                maxFrames = 8;
+            }
+            return new AsyncOptions(hidden, vsync, maxFrames);
         }
     }
 }

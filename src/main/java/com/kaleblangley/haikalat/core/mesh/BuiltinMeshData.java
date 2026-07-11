@@ -5,6 +5,8 @@ import java.util.Set;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class BuiltinMeshData {
+    /** Builtin vertex layouts occupy attributes 0..2; instance data starts here. */
+    public static final int INSTANCE_ATTRIBUTE_BASE = 3;
     public static final String TRIANGLE = "triangle";
     public static final String QUAD = "quad";
     public static final String TEXTURED_QUAD = "texturedQuad";

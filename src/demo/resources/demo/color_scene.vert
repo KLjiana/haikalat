@@ -3,6 +3,7 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aColor;
 layout (location = 2) in vec3 aNormal;
 out vec3 vColor;
+out vec2 vTexCoord;
 out vec3 vWorldPosition;
 out vec3 vNormal;
 out vec4 vDirectionalLightPosition;
@@ -15,6 +16,7 @@ uniform mat4 uDirectionalLightSpace;
 void main() {
     vec4 worldPosition = uModel * vec4(aPos, 1.0);
     vColor = aColor;
+    vTexCoord = vec2(0.0);
     vWorldPosition = worldPosition.xyz;
     vNormal = mat3(transpose(inverse(uModel))) * aNormal;
     vDirectionalLightPosition = uDirectionalLightSpace * worldPosition;

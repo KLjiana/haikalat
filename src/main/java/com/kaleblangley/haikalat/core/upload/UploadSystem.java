@@ -5,7 +5,9 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -64,15 +66,31 @@ public final class UploadSystem implements AutoCloseable {
      * @param offset 偏移量（字节），必须非负
      */
     public void uploadBuffer(BufferUploadTarget buffer, long offset, ByteBuffer data) {
+        enqueueBufferUpload(buffer, offset, data, null);
+    }
+
+    /** Atomically queues a buffer upload and metadata publication for the same flush batch. */
+    public void uploadBuffer(BufferUploadTarget buffer, long offset, ByteBuffer data,
+                             UploadRequest afterUpload) {
+        enqueueBufferUpload(buffer, offset, data, Objects.requireNonNull(afterUpload, "afterUpload"));
+    }
+
+    private void enqueueBufferUpload(BufferUploadTarget buffer, long offset, ByteBuffer data,
+                                     UploadRequest afterUpload) {
         Objects.requireNonNull(buffer, "buffer");
         Objects.requireNonNull(data, "data");
         if (offset < 0) throw new IllegalArgumentException("offset must be >= 0: " + offset);
         if (!data.hasRemaining()) return;
 
         ByteBuffer copy = copyByteBuffer(data);
+        enqueueCopiedBuffer(buffer, offset, copy, afterUpload);
+    }
+
+    private void enqueueCopiedBuffer(BufferUploadTarget buffer, long offset, ByteBuffer copy,
+                                     UploadRequest afterUpload) {
         synchronized (stateLock) {
             ensureOpen();
-            bufferUploads.add(new BufferUpload(buffer, offset, copy, sequence++));
+            bufferUploads.add(new BufferUpload(buffer, offset, copy, sequence++, afterUpload));
         }
     }
 
@@ -80,12 +98,26 @@ public final class UploadSystem implements AutoCloseable {
      * 提交 FloatBuffer 上传请求。内部转换为 ByteBuffer 后委托给 {@link #uploadBuffer(BufferUploadTarget, long, ByteBuffer)}。
      */
     public void uploadFloats(BufferUploadTarget buffer, long offset, FloatBuffer data) {
+        enqueueFloatUpload(buffer, offset, data, null);
+    }
+
+    /** Atomically queues a float-buffer upload and metadata publication for the same flush batch. */
+    public void uploadFloats(BufferUploadTarget buffer, long offset, FloatBuffer data,
+                             UploadRequest afterUpload) {
+        enqueueFloatUpload(buffer, offset, data, Objects.requireNonNull(afterUpload, "afterUpload"));
+    }
+
+    private void enqueueFloatUpload(BufferUploadTarget buffer, long offset, FloatBuffer data,
+                                    UploadRequest afterUpload) {
+        Objects.requireNonNull(buffer, "buffer");
         Objects.requireNonNull(data, "data");
+        if (offset < 0) throw new IllegalArgumentException("offset must be >= 0: " + offset);
+        if (!data.hasRemaining()) return;
         int bytes = data.remaining() * Float.BYTES;
         ByteBuffer bb = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
         bb.asFloatBuffer().put(data.duplicate());
         bb.position(0).limit(bytes);
-        uploadBuffer(buffer, offset, bb);
+        enqueueCopiedBuffer(buffer, offset, bb, afterUpload);
     }
 
     /** 便捷重载。 */
@@ -139,6 +171,12 @@ public final class UploadSystem implements AutoCloseable {
                 bufferUploads = new ArrayList<>();
             }
 
+            List<UploadRequest> afterUploads = uploads.stream()
+                    .filter(upload -> upload.afterUpload() != null)
+                    .sorted(Comparator.comparingLong(BufferUpload::sequence))
+                    .map(BufferUpload::afterUpload)
+                    .toList();
+
             RuntimeException failure = null;
             for (UploadRequest r : requests) {
                 try {
@@ -148,10 +186,22 @@ public final class UploadSystem implements AutoCloseable {
                     failure = accumulate(failure, e);
                 }
             }
+            boolean uploadsSucceeded = true;
             try {
                 if (!uploads.isEmpty()) flushBuffers(uploads);
             } catch (RuntimeException e) {
+                uploadsSucceeded = false;
                 failure = accumulate(failure, e);
+            }
+            if (uploadsSucceeded) {
+                for (UploadRequest request : afterUploads) {
+                    try {
+                        request.execute();
+                        totalRequestsExecuted++;
+                    } catch (RuntimeException e) {
+                        failure = accumulate(failure, e);
+                    }
+                }
             }
             trimScratch();
             if (failure != null) throw failure;
@@ -163,6 +213,19 @@ public final class UploadSystem implements AutoCloseable {
         synchronized (stateLock) {
             customRequests.clear();
             bufferUploads.clear();
+        }
+    }
+
+    /** Rejects new submissions while preserving already accepted work for a final flush. */
+    public void seal() {
+        synchronized (stateLock) {
+            closed = true;
+        }
+    }
+
+    public boolean isSealed() {
+        synchronized (stateLock) {
+            return closed;
         }
     }
 
@@ -191,8 +254,12 @@ public final class UploadSystem implements AutoCloseable {
             return;
         }
 
+        Map<BufferUploadTarget, Integer> targetOrder = new IdentityHashMap<>();
+        for (BufferUpload upload : uploads) {
+            targetOrder.computeIfAbsent(upload.buffer(), ignored -> targetOrder.size());
+        }
         uploads.sort(Comparator
-                .comparingInt((BufferUpload u) -> u.buffer().id())
+                .comparingInt((BufferUpload u) -> targetOrder.get(u.buffer()))
                 .thenComparingLong(BufferUpload::offset)
                 .thenComparingLong(BufferUpload::sequence));
 
@@ -205,7 +272,7 @@ public final class UploadSystem implements AutoCloseable {
 
             while (j < uploads.size()) {
                 BufferUpload next = uploads.get(j);
-                if (next.buffer().id() != first.buffer().id()) break;
+                if (next.buffer() != first.buffer()) break;
                 if (next.offset() > end) break;
                 long nextEnd = next.offset() + next.data().remaining();
                 if (nextEnd - start > maxMergeBytes) break;
@@ -284,5 +351,6 @@ public final class UploadSystem implements AutoCloseable {
         void execute();
     }
 
-    private record BufferUpload(BufferUploadTarget buffer, long offset, ByteBuffer data, long sequence) {}
+    private record BufferUpload(BufferUploadTarget buffer, long offset, ByteBuffer data,
+                                long sequence, UploadRequest afterUpload) {}
 }

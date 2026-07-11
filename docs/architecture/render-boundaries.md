@@ -45,7 +45,9 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## Package Dependency Guard
 
-当前项目明确保持 OpenGL 专用框架定位，`core` 中允许存在由现有 GL runtime 使用的数据协议。`ArchitectureBoundaryTest` 锁定现有 backend-to-core seam，并禁止 `core`/`runtime` 新增对 `subsystems` 的反向依赖。新增跨层依赖必须先更新本边界说明和测试中的显式允许集合。
+当前项目明确保持 OpenGL 专用框架定位，`core` 中允许存在由现有 GL runtime 使用的数据协议。`ArchitectureBoundaryTest` 锁定现有 backend-to-core seam，禁止 `backend` 依赖 `runtime/subsystems`，并禁止 `core/runtime` 新增对 `subsystems` 的反向依赖。新增跨层依赖必须先更新本边界说明和测试中的显式允许集合。
+
+`CommandBuffer.custom()` 的生产调用只允许用于 `RenderGraph` GPU profiling。出现第二类生产调用前不扩大该逃生口，也不为计时器预先引入新的公共命令抽象。
 
 ## Mesh Data And Runtime Mesh
 
@@ -96,7 +98,7 @@ demo scene 便利字段：
 专项 demo 保留为调试入口：
 
 - `MinimalDemo`：验证最小窗口、命令提交和实例化批处理。
-- `AsyncDemo`：验证异步更新、上传队列和 render thread 交互。
+- `AsyncDemo`：验证异步更新、上传队列和 render thread 交互；详细线程所有权、发布和关闭顺序见 [AsyncDemo 渲染线程契约](async-render-thread.md)。
 
 ## GL Smoke Verification
 

@@ -10,16 +10,19 @@
 | 方向光阴影 | 完整 | `DirectionalShadowMap`、`ForwardPassBuilder`、`RenderPipeline` | `LearnOpenGlDemo` | `ScenePipelineTest`、`GlContextSmokeTest.fullLightingAndShadowPipelineChangesFinalPixels`、`runDemoIntegration` | GL 测试覆盖光照开关、阴影最终像素、移动不可见 caster 和改变光方向；第一版不把独立 instanced batch 作为 shadow caster |
 | Instancing | 完整 | `InstancedMeshBatch`、`InstancedRenderer`、`CommandBuffer.drawInstancedBatch` | 三个 Demo | `CommandBufferTest`、`InstanceDataLayoutTest` | 第一版 shadow pass 不保证实例化 caster |
 | None / MSAA / FXAA / TAA | 完整 | `PostProcessPassBuilder`、`subsystems/postprocess` | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | GL smoke 对每种模式执行一帧并验证非空输出 |
-| 模型加载与场景配置 | 部分完成 | `ObjModelLoader`、`AssimpModelLoader`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest` | 主 Demo 当前只接通固定 builtin mesh 集合 |
-| 异步上传与渲染线程 | 完整 | `UploadSystem`、`GlRenderThread` | `AsyncDemo` | `UploadSystemTest`、`TripleBufferTest` | Demo integration 仍为手动入口 |
+| OBJ 模型与场景配置 | 完整 | `ObjModelLoader`、`ModelAssetManager`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest`、`DemoResourceContractTest`、`runDemoIntegration` | 主 Demo 从 classpath manifest 加载自有 OBJ，并将多 mesh 映射为共享材质/transform 的 renderer |
+| Assimp 模型入口 | 部分完成 | `AssimpModelLoader` | 无 | 无端到端验证 | 仍要求真实文件系统路径，尚未进入打包 Demo 主路径 |
+| 异步上传与渲染线程 | 完整 | `UploadSystem`、`LatestFrameMailbox`、`GlRenderThread` | `AsyncDemo` | `UploadSystemTest`、`LatestFrameMailboxTest`、`GlContextSmokeTest`、`runAsyncIntegration` | 两线程 latest-wins；矩阵 UBO 上传成功后才发布对应不可变帧状态 |
 | CPU/GPU profiling | 完整 | `FrameDriver`、`GpuTimer`、`FrameProfile` | `LearnOpenGlDemo` 标题 | `ObservabilityTest`、`RenderGraphTest`、`runDemoIntegration` | profiling 命令仍是 RenderGraph 中受控的 escape hatch |
 
 ## 构建基线
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 默认测试：81 个测试方法；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
+- 版本：`0.7.0-SNAPSHOT`。
+- 默认测试：99 个测试方法；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
+- 完整本地验收：`localGlVerification`，依次运行 GL smoke、基准 Demo、resize Demo 和 AsyncDemo。
 
 矩阵状态随实现阶段更新；未完成端到端验证的能力不得在 README 中描述为完整效果。

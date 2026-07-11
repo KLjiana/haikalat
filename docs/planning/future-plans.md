@@ -1,28 +1,23 @@
-# Future Plans
+# 后续计划
 
-本文件只记录后续计划。项目目标和非目标记录在 `docs/planning/project-goals.md`，一线反馈转化后的执行任务记录在 `docs/planning/developer-task-plan.md`。已经完成的功能扩展和稳定化工作迁移到 `docs/history/changelog.md`，抽象密度盘点记录在 `docs/architecture/abstraction-audit.md`。
+本文只记录尚未完成的工作。当前实现状态参见
+[`capability-matrix.md`](capability-matrix.md)，已完成工作统一记录在
+[`../history/changelog.md`](../history/changelog.md)。
 
-## Current Focus
+## 当前重点
 
-当前阶段从内容扩展转向稳定现有内容，重点是减少没有行为支撑的抽象，保留能被 demo、测试或明确生命周期职责证明的边界。执行顺序以 `docs/planning/real-capabilities-roadmap.md` 为准。
+保持现有 OpenGL 主路径、基准场景和真实 GL 回归稳定，新增工作必须有明确的运行行为和验证入口。
 
 ### 近期
 
-- [x] 把 `InstancedRenderer`、`MinimalDemo`、`AsyncDemo` 中的实例化 batch upload/draw 收敛为正式 `CommandBuffer` API。
-- [x] 将 `RenderPipeline` 拆成 package-private helper，优先提取 camera uniforms、lighting binder、postprocess builder、TAA history。
-- [x] 为 `PassResources` 增加窄 API，并迁移现有内置 pass 优先使用逻辑 attachment 入口。
-- [x] 处理旧顶层 demo 入口，避免 `Main`、`Light`、`Camera`、`Shader` 与新 demo 体系并列。
-- [x] 建立测试分类约定，区分纯 JVM unit、opt-in `glSmoke`、demo/pipeline integration。
+- [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
+- [ ] 在具备多 GPU/驱动环境后，补充操作系统级 iconify/restore 事件验证；渲染器的 0×0 extent 忽略和正尺寸恢复已有真实 GL 测试。
 
 ### 中期
 
-- [x] 推广纯数据 `MeshData` 到 demo 和资产路径，明确 `Mesh` 只表示 GL 上传后的运行时资源。
-- [x] 明确 `Material` 是当前 OpenGL runtime material；如需配置驱动材质，新增 `MaterialDef` 作为非 GL 定义层。
-- [x] 将 `.properties` 目标收敛为 asset manifest + 简单 scene manifest，不承担动画、脚本或编辑器职责。
-- [x] 建立资源生命周期错误的 GL smoke 验证，覆盖 framebuffer、texture、shader、asset cache。
-- [x] 继续降低 `PassResources` backend-facing 兼容 API 的默认可见度，避免普通 pass 误用具体 OpenGL 类型。
-- [x] 为 demo 选择一组稳定基准场景，避免每个功能都新增长期维护入口。
-- [x] 增加源码包依赖守卫，阻止 backend/core seam 扩张以及 core/runtime 反向依赖 subsystem。
+- [ ] 评估 RenderGraph profiling 的 `cmd.custom()` 是否需要正式命令或 observer 边界。
+- [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
+- [ ] 评估 instanced shadow caster，要求复用现有实例化数据和命令路径，不新增平行实现。
 
 ### 长期
 
@@ -31,12 +26,12 @@
 - [ ] 保持 core 层数据协议稳定，避免为单个 backend 泄漏特殊分支。
 - [ ] 每个长期抽象都必须有 demo、测试、文档三者之一作为最低证明，核心抽象必须三者都有。
 
-## Non-Goals
+## 非目标
 
 以下事项暂不作为优先目标，避免项目过早扩大范围。
 
-- [ ] 暂不追求完整游戏引擎功能，例如物理、音频、脚本、动画状态机。
-- [ ] 暂不引入复杂 ECS，除非当前 `SceneObject` 模型无法支撑后续需求。
-- [ ] 暂不直接重写 Vulkan 后端，先把 `RenderDevice` 和资源边界打稳。
-- [ ] 暂不做大型编辑器，优先保证运行时框架、Demo 和调试信息稳定。
-- [ ] 暂不引入复杂 PBR 管线，保持当前基础光照、阴影、材质和后处理链稳定。
+- 不追求完整游戏引擎功能，例如物理、音频、脚本和动画状态机。
+- 不引入复杂 ECS，除非当前 `SceneObject` 模型出现明确瓶颈。
+- 不直接重写 Vulkan 后端；第二后端只用于验证稳定边界。
+- 不做大型编辑器，优先保证运行时、Demo 和调试信息稳定。
+- 不引入复杂 PBR 管线，先保持基础光照、阴影、材质和后处理链稳定。

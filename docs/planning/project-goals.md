@@ -1,4 +1,4 @@
-# Project Goals
+# 项目目标
 
 本项目已经从 LearnOpenGL 教程练习演进为一个学习导向、工程化约束明确的
 Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、单元测试和少量
@@ -7,7 +7,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 当前阶段的重点不是继续扩张功能面，而是稳定已有 runtime、RenderGraph、资源生命周期、
 材质、场景渲染、后处理和 demo 证明路径。
 
-## Existing Capabilities
+## 已有能力
 
 - 分层结构：`backend` 负责 OpenGL 资源与错误边界，`core` 负责渲染数据协议，
   `subsystems` 提供窗口、3D scene pipeline、postprocess，`runtime` 提供帧驱动、
@@ -15,18 +15,18 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - OpenGL 后端：shader、buffer、texture、sampler、framebuffer、VAO、uniform block、
   GPU fence、state cache、GL debug/error 分类。
 - 核心渲染协议：`CommandBuffer`、`RenderDevice`、`RenderGraph`、mesh/vertex layout、
-  instancing、triple buffer、upload system、material/material instance、typed uniform value。
+  instancing、latest-frame mailbox、upload system、material/material instance、typed uniform value。
 - 3D 管线：forward pipeline、scene/camera/object/light 模型、带输入校验和数量上限的基础光照、
   固定分辨率 directional shadow map、depth-only caster pass、bias/3x3 PCF，以及 FXAA/TAA/MSAA/none 后处理选择。
-- 资产系统：classpath resource locator、shader asset、texture cache、`.properties` 场景配置、
-  OBJ/Assimp 模型加载入口。
+- 资产系统：classpath resource locator、shader asset、texture cache、`.properties` 场景配置，
+  以及由主 Demo 证明的 OBJ 加载链路；Assimp 加载器仍是要求文件系统路径的实验入口。
 - Demo 证明：`LearnOpenGlDemo` 作为综合场景、阴影、后处理证明；`MinimalDemo` 验证最小窗口、
   命令提交和 instancing；`AsyncDemo` 验证异步更新、上传和 render thread 协作。
 - 测试覆盖：render graph、pipeline pass、asset config、vertex packing、instance layout、
-  upload system、triple buffer、material、framebuffer descriptor、observability，以及可选真实
+  upload system、latest-frame mailbox、material、framebuffer descriptor、observability，以及可选真实
   GL context smoke test。
 
-## Target Direction
+## 目标方向
 
 - 优先稳定 OpenGL 后端、RenderGraph、资源生命周期和 Scene Pipeline。
 - 每个长期保留的抽象必须能被 demo、测试或明确生命周期职责证明；核心抽象最好同时具备
@@ -37,7 +37,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
   主渲染路径不再依赖业务侧自定义 GL block。
 - 继续补强资源生命周期错误验证，覆盖 framebuffer、texture、shader、asset cache 等真实 GL 资源边界。
 
-## Non-Goals
+## 非目标
 
 - 暂不做完整游戏引擎：物理、音频、脚本、动画状态机不是当前重点。
 - 暂不引入复杂 ECS，除非现有 `SceneObject` 模型明确撑不住。
@@ -45,7 +45,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 暂不做大型编辑器，运行时框架、demo 和调试信息优先。
 - 暂不引入复杂 PBR 管线，先把基础光照、阴影、材质和后处理链打稳。
 
-## Naming
+## 命名
 
 `learnopengl` 项目名保留历史语义，表示它仍然是学习 OpenGL 和渲染架构的实验场。
 源码包名和文档中的 `haikalat` 则表示当前代码已经具备框架身份，后续架构决策应以

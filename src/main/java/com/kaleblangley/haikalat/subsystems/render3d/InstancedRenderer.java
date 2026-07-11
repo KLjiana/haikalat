@@ -1,7 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
-import com.kaleblangley.haikalat.core.buffer.TripleBuffer;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.InstanceBatchStats;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
@@ -14,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class InstancedRenderer {
     private final InstancedMeshBatch batch;
     private final ShaderProgram shader;
-    private final TripleBuffer<List<Matrix4f>> tripleBuffer;
+    private volatile List<Matrix4f> frameTransforms = List.of();
     private final AtomicInteger frameIndex = new AtomicInteger(0);
     private final AtomicInteger drawnCount = new AtomicInteger(0);
     private final List<InstanceDef> definitions = new ArrayList<>();
@@ -22,7 +21,6 @@ public final class InstancedRenderer {
     public InstancedRenderer(InstancedMeshBatch batch, ShaderProgram shader) {
         this.batch = batch;
         this.shader = shader;
-        this.tripleBuffer = new TripleBuffer<>(ArrayList::new);
     }
 
     public void addInstance(InstanceDef def) {
@@ -51,12 +49,11 @@ public final class InstancedRenderer {
 
     public void beginFrame(int frame) {
         frameIndex.set(frame);
-        List<Matrix4f> writes = tripleBuffer.write();
-        writes.clear();
+        List<Matrix4f> nextFrame = new ArrayList<>(definitions.size());
         for (InstanceDef def : definitions) {
-            writes.add(def.compute(frame));
+            nextFrame.add(new Matrix4f(def.compute(frame)));
         }
-        tripleBuffer.flip();
+        frameTransforms = List.copyOf(nextFrame);
     }
 
     public void render(CommandBuffer cmd, Matrix4f projection, Matrix4f view) {
@@ -72,7 +69,7 @@ public final class InstancedRenderer {
     }
 
     private void submitBatch(CommandBuffer cmd) {
-        cmd.drawInstancedBatch(batch, tripleBuffer.read(), drawnCount::set);
+        cmd.drawInstancedBatch(batch, frameTransforms, drawnCount::set);
     }
 
     public void close() {

@@ -100,11 +100,66 @@ class AssetPipelineTest {
     @Test
     void sceneConfigRejectsUnknownBuiltinMeshNames() {
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                shader.basic.vertex=/basic.vert
+                shader.basic.fragment=/basic.frag
+                material.mat.shader=basic
                 object.bad.model=builtin:customCylinder
                 object.bad.material=mat
                 object.bad.position=0,0,0
                 object.bad.rotation=0,0,0
                 """));
+    }
+
+    @Test
+    void sceneConfigRejectsMissingObjectMaterialReference() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                object.ship.model=builtin:quad
+                object.ship.material=missing
+                object.ship.position=0,0,0
+                object.ship.rotation=0,0,0
+                """));
+
+        assertTrue(error.getMessage().contains("object.ship"));
+        assertTrue(error.getMessage().contains("missing material: missing"));
+    }
+
+    @Test
+    void sceneConfigRejectsMissingObjectModelReference() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                shader.basic.vertex=/basic.vert
+                shader.basic.fragment=/basic.frag
+                material.basic.shader=basic
+                object.ship.model=missing
+                object.ship.material=basic
+                object.ship.position=0,0,0
+                object.ship.rotation=0,0,0
+                """));
+
+        assertTrue(error.getMessage().contains("object.ship"));
+        assertTrue(error.getMessage().contains("missing model: missing"));
+    }
+
+    @Test
+    void sceneConfigRejectsMissingMaterialShaderReference() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                material.ship.shader=missing
+                """));
+
+        assertTrue(error.getMessage().contains("material.ship"));
+        assertTrue(error.getMessage().contains("missing shader: missing"));
+    }
+
+    @Test
+    void sceneConfigRejectsMissingMaterialTextureReference() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                shader.textured.vertex=/textured.vert
+                shader.textured.fragment=/textured.frag
+                material.ship.shader=textured
+                material.ship.texture.uTexture=missing
+                """));
+
+        assertTrue(error.getMessage().contains("material.ship.texture.uTexture"));
+        assertTrue(error.getMessage().contains("missing texture: missing"));
     }
 
     @Test

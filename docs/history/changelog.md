@@ -1,16 +1,23 @@
-# Changelog
+# 变更记录
 
 ## Unreleased
 
 ### Stabilization
 
+- Completed the v0.7 stable-assets vertical slice: validated manifest references, packaged a self-authored OBJ baseline, loaded it through `ModelAssetManager`/`ObjModelLoader`, mapped model meshes into the scene, and centralized demo GL resource ownership.
+- Added deterministic resize and async integrations, GL render-thread failure/timeout/cleanup coverage, stricter architecture/custom-command guards, and the aggregate `localGlVerification` task.
+- Replaced the unsafe bare-reference CPU `TripleBuffer` with immutable latest-frame snapshots; Minimal now uses a plain same-thread list and `InstancedRenderer` publishes copied transform lists.
+- Made AsyncDemo upload the instance matrices consumed by its shader UBO, publish matching immutable metadata only after upload success, pace its producer, and document the two-thread ownership/shutdown contract.
+- Merged duplicate demo fragment shaders into shared lit and vertex-color variants, and centralized the 4x4 demo instance-grid constants/transforms.
+- Kept upload merging scoped to the exact target object, including when two targets expose the same numeric buffer ID.
+- Added the reusable runtime `FrameClock`; camera movement and AsyncDemo animation now use capped elapsed time instead of GLFW/frame-count timing, so input events cannot accelerate animation.
 - Fixed multi-directional-light shadow association with an explicit bounded shader light index, and added final-pixel GL assertions for lighting, shadowing, caster movement, and light-direction changes.
 - Migrated Minimal/Async demo window, render-target, mesh, frame-driver, upload-queue, and cleanup paths onto the retained engine APIs; unified builtin-mesh instancing at attribute 3 and made GL render-thread completion wait for resource cleanup.
 - Completed the real-capabilities closure roadmap: Java 21 toolchains, Windows/Linux CI, lit baseline shaders, bounded light input, fixed-size directional shadow targets, real caster draws, depth sampling with bias/3x3 PCF, deterministic demo integration, GL output checks, and package dependency guards.
 
-- Added `docs/planning/developer-task-plan.md` to convert front-line development feedback into prioritized engineering tasks.
+- Converted front-line development feedback into prioritized stabilization tasks; completed task details were later consolidated into this changelog.
 - Documented the project goal, current capabilities, target direction, and non-goals in `docs/planning/project-goals.md`.
-- Audited abstraction density and documented the current keep/remove decisions in `docs/architecture/abstraction-audit.md`.
+- Audited abstraction density and retained the lasting rules in `docs/architecture/abstraction-density.md` and `docs/architecture/render-boundaries.md`.
 - Removed over-broad resource factory and future-only descriptor abstractions that had no production behavior.
 - Annotated all `cmd.custom()` call sites with replacement direction and whether a formal command API is needed.
 - Added formal `CommandBuffer.drawInstancedBatch(...)` commands and removed instanced batch `cmd.custom()` usage from demo/runtime main paths.

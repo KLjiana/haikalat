@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
@@ -16,7 +17,9 @@ import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
 import com.kaleblangley.haikalat.core.mesh.VertexLayout;
+import com.kaleblangley.haikalat.core.upload.UploadSystem;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.GlRenderThread;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalShadowMap;
@@ -36,8 +39,15 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,6 +71,7 @@ import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_TEST;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glDeleteVertexArrays;
 import static org.lwjgl.opengl.GL30.glGenVertexArrays;
@@ -180,6 +191,69 @@ class GlContextSmokeTest {
             int blue = Byte.toUnsignedInt(pixel.get(2));
             assertTrue(red > 40 && green > 90 && blue > 150,
                     "Expected readback pixel to reflect the clear color");
+        }
+    }
+
+    @Test
+    void renderThreadReportsInitAndFrameFailuresAfterCleanup() {
+        try (GlfwWindow window = hiddenWindow()) {
+            AtomicBoolean initCleanup = new AtomicBoolean();
+            GlRenderThread initFailure = new GlRenderThread(window.handle(),
+                    RenderSettings.builder().vsync(false).build(), commands -> {
+                    })
+                    .onInit(() -> {
+                        throw new IllegalStateException("init failure");
+                    })
+                    .onCleanup(() -> initCleanup.set(true));
+
+            assertThrows(CompletionException.class, () -> initFailure.start().join());
+            assertTrue(initCleanup.get());
+            assertEquals(GlRenderThread.State.FAILED, initFailure.state());
+
+            AtomicBoolean frameCleanup = new AtomicBoolean();
+            GlRenderThread frameFailure = new GlRenderThread(window.handle(),
+                    RenderSettings.builder().vsync(false).build(), commands -> {
+                        throw new IllegalStateException("frame failure");
+                    })
+                    .onCleanup(() -> frameCleanup.set(true));
+
+            assertThrows(CompletionException.class, () -> frameFailure.start().join());
+            assertTrue(frameCleanup.get());
+            assertEquals(GlRenderThread.State.FAILED, frameFailure.state());
+        }
+    }
+
+    @Test
+    void renderThreadShutdownTimesOutThenCompletesAndCloseIsRepeatable() throws Exception {
+        try (GlfwWindow window = hiddenWindow()) {
+            CountDownLatch enteredFrame = new CountDownLatch(1);
+            CountDownLatch releaseFrame = new CountDownLatch(1);
+            AtomicInteger cleanups = new AtomicInteger();
+            GlRenderThread thread = new GlRenderThread(window.handle(),
+                    RenderSettings.builder().vsync(false).build(), commands -> {
+                        enteredFrame.countDown();
+                        boolean released = false;
+                        while (!released) {
+                            try {
+                                released = releaseFrame.await(10, TimeUnit.MILLISECONDS);
+                            } catch (InterruptedException ignored) {
+                                // shutdown interrupts after timing out; keep waiting until the test releases the frame.
+                            }
+                        }
+                    })
+                    .onCleanup(cleanups::incrementAndGet);
+
+            var completion = thread.start();
+            assertTrue(enteredFrame.await(1, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> thread.shutdown(Duration.ofMillis(10)));
+            releaseFrame.countDown();
+            completion.join();
+            thread.close();
+            thread.close();
+
+            assertEquals(1, cleanups.get());
+            assertEquals(GlRenderThread.State.TERMINATED, thread.state());
+            assertFalse(thread.isAlive());
         }
     }
 
@@ -358,6 +432,40 @@ class GlContextSmokeTest {
     }
 
     @Test
+    void pipelineIgnoresZeroSizedMinimizeAndRecoversToPositiveExtent() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("minimize-restore"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, PIPELINE_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera());
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                    RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build());
+            try {
+                pipeline.build();
+                pipeline.resize(0, 0);
+                assertEquals(32, pipeline.graph().width());
+                assertEquals(32, pipeline.graph().height());
+                pipeline.execute(new GlRenderDevice());
+
+                pipeline.resize(48, 40);
+                assertEquals(48, pipeline.graph().width());
+                assertEquals(40, pipeline.graph().height());
+                pipeline.execute(new GlRenderDevice());
+                GlDebug.checkError("pipeline minimize/restore");
+            } finally {
+                pipeline.close();
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
     void shadowPassDrawsOnlyObjectsMarkedAsCasters() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
@@ -401,7 +509,7 @@ class GlContextSmokeTest {
             Path resources = Path.of("src", "demo", "resources", "demo");
             ShaderProgram shader = ShaderProgram.fromSources(
                     Files.readString(resources.resolve("instanced_projview.vert")),
-                    Files.readString(resources.resolve("instanced_projview.frag")));
+                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
             VertexLayout layout = VertexLayout.interleaved(6 * Float.BYTES,
                     VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
                     VertexAttribute.builder().index(1).size(3).type(GL_FLOAT)
@@ -435,6 +543,61 @@ class GlContextSmokeTest {
             } finally {
                 target.close();
                 batch.close();
+                mesh.close();
+                shader.close();
+            }
+        }
+    }
+
+    @Test
+    void asyncUploadBufferDrivesInstancedDrawPixels() throws Exception {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Path resources = Path.of("src", "demo", "resources", "demo");
+            ShaderProgram shader = ShaderProgram.fromSources(
+                    Files.readString(resources.resolve("async_instanced.vert")),
+                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+            shader.bindUniformBlock("AsyncInstances", 1);
+            Mesh mesh = Mesh.from(BuiltinMeshData.named(BuiltinMeshData.QUAD));
+            GlBuffer matrices = GlBuffer.uniformBuffer(GL_DYNAMIC_DRAW).allocate(16L * 16 * Float.BYTES);
+            Framebuffer target = Framebuffer.singleSampled(32, 32);
+            UploadSystem uploads = new UploadSystem();
+            AtomicBoolean published = new AtomicBoolean();
+            try {
+                FloatBuffer matrixData = BufferUtils.createFloatBuffer(16);
+                new org.joml.Matrix4f().get(matrixData);
+                matrixData.position(16).flip();
+                uploads.uploadFloats(matrices, 0, matrixData, () -> published.set(true));
+                uploads.flush();
+
+                GlRenderDevice device = new GlRenderDevice();
+                var commands = device.createCommandBuffer();
+                commands.bindFramebuffer(target)
+                        .viewport(0, 0, 32, 32)
+                        .clearColor(0, 0, 0, 1)
+                        .clear(true, true)
+                        .bindShader(shader)
+                        .setUniformMat4(shader, "uProjView", new org.joml.Matrix4f())
+                        .bindUniformBuffer(1, matrices, 0, 16L * 16 * Float.BYTES)
+                        .bindMesh(mesh)
+                        .drawMeshInstanced(mesh, 1);
+                device.execute(commands);
+
+                ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                assertTrue(published.get(), "Frame metadata must publish after the matrix upload");
+                assertTrue(Byte.toUnsignedInt(pixel.get(0))
+                                + Byte.toUnsignedInt(pixel.get(1))
+                                + Byte.toUnsignedInt(pixel.get(2)) > 0,
+                        "The upload-managed UBO must drive visible instance geometry");
+                GlDebug.checkError("asyncUploadBufferDrivesInstancedDrawPixels");
+            } finally {
+                uploads.close();
+                target.close();
+                matrices.close();
                 mesh.close();
                 shader.close();
             }
@@ -480,7 +643,7 @@ class GlContextSmokeTest {
         Path resources = Path.of("src", "demo", "resources", "demo");
         ShaderProgram receiverShader = ShaderProgram.fromSources(
                 Files.readString(resources.resolve("color_scene.vert")),
-                Files.readString(resources.resolve("color_mvp.frag")));
+                Files.readString(resources.resolve("lit_scene.frag")));
         ShaderProgram casterShader = ShaderProgram.fromSources(
                 INVISIBLE_CASTER_VERTEX_SOURCE, INVISIBLE_CASTER_FRAGMENT_SOURCE);
         Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("shadow-receiver"));

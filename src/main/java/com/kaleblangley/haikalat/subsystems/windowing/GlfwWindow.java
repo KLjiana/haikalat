@@ -139,6 +139,14 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwSetWindowShouldClose(handle, true);
     }
 
+    /** Requests a new window size. The framebuffer callback publishes the actual pixel size. */
+    public void resize(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("window dimensions must be positive");
+        }
+        glfwSetWindowSize(handle, width, height);
+    }
+
     /** Sets swap interval for the context currently bound by this window. */
     public void setVsync(boolean enabled) {
         glfwSwapInterval(enabled ? 1 : 0);
@@ -157,13 +165,23 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     }
 
     public void pollEvents() {
-        mouseDeltaX = 0;
-        mouseDeltaY = 0;
+        resetMouseDelta();
         glfwPollEvents();
+    }
+
+    /** Waits for events with a timeout, useful for pacing a non-render producer thread. */
+    public void waitEvents(double timeoutSeconds) {
+        resetMouseDelta();
+        glfwWaitEventsTimeout(timeoutSeconds);
     }
 
     public void swapBuffers() {
         glfwSwapBuffers(handle);
+    }
+
+    private void resetMouseDelta() {
+        mouseDeltaX = 0;
+        mouseDeltaY = 0;
     }
 
     @Override

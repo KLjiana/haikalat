@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.system.MemoryStack;
@@ -147,6 +148,19 @@ public final class CommandBuffer {
             block.flush();
             glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint, buffer, 0, size);
         });
+        return this;
+    }
+
+    /** Binds an upload-managed buffer range as a uniform block for a later draw command. */
+    public CommandBuffer bindUniformBuffer(int bindingPoint, BufferUploadTarget buffer,
+                                           long offsetBytes, long sizeBytes) {
+        Objects.requireNonNull(buffer, "buffer");
+        if (bindingPoint < 0 || offsetBytes < 0L || sizeBytes <= 0L) {
+            throw new IllegalArgumentException("invalid uniform buffer range");
+        }
+        int bufferId = buffer.id();
+        commands.add(cache -> glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint,
+                bufferId, offsetBytes, sizeBytes));
         return this;
     }
 

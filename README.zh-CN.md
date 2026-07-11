@@ -7,9 +7,8 @@
 
 项目目标是在“教学实验”和“工程约束”之间保持平衡：它需要足够稳定，以验证渲染架构和资源生命周期；
 同时保持规模可控，不扩张成完整游戏引擎。当前目标、能力边界和非目标参见
-[`docs/planning/project-goals.md`](docs/planning/project-goals.md)，当前主执行路线参见
-[`docs/planning/real-capabilities-roadmap.md`](docs/planning/real-capabilities-roadmap.md)。
-核心能力的实现状态和验证入口参见
+[`docs/planning/project-goals.md`](docs/planning/project-goals.md)，后续工作参见
+[`docs/planning/future-plans.md`](docs/planning/future-plans.md)。核心能力的实现状态和验证入口参见
 [`docs/planning/capability-matrix.md`](docs/planning/capability-matrix.md)。
 
 ## 当前能力
@@ -17,11 +16,11 @@
 - OpenGL 后端资源：shader、buffer、texture、sampler、framebuffer、vertex array、uniform block、
   GPU fence、状态缓存和错误报告。
 - 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh layout、instancing、上传流程、
-  triple buffering 和材质系统。
+  不可变帧快照和材质系统。
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、固定分辨率方向光阴影、3x3 PCF，以及
   none、MSAA、FXAA、TAA 后处理路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
-  以及 OBJ/Assimp 模型加载入口。
+  以及已接入主 Demo 的 OBJ 模型链路；Assimp 入口仍为实验能力。
 - 三条 Demo 证明路径：综合场景管线、最小窗口与命令流、异步更新与渲染线程协作。
 
 主 Demo 是稳定基准场景，包含 receiver、投射/不投射阴影的对象、纹理/纯色材质、方向光、点光和实例化对象。
@@ -57,6 +56,14 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 
 ```powershell
 .\gradlew.bat runDemoIntegration
+```
+
+执行 resize、异步渲染线程和全部本地 GL 验收：
+
+```powershell
+.\gradlew.bat runDemoResizeIntegration
+.\gradlew.bat runAsyncIntegration
+.\gradlew.bat localGlVerification
 ```
 
 测试分层和适用范围参见 [`docs/guides/testing.md`](docs/guides/testing.md)。

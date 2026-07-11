@@ -41,6 +41,7 @@ public record SceneAssetConfig(
         models = Map.copyOf(Objects.requireNonNull(models, "models"));
         objects = Map.copyOf(Objects.requireNonNull(objects, "objects"));
         lights = Map.copyOf(Objects.requireNonNull(lights, "lights"));
+        validateReferences(shaders, textures, materials, models, objects);
     }
 
     public static SceneAssetConfig load(ResourceLocator locator, String path) {
@@ -236,6 +237,39 @@ public record SceneAssetConfig(
             throw new GlException("Expected vector property with 3 components: " + key);
         }
         return new Vector3f(Float.parseFloat(parts[0]), Float.parseFloat(parts[1]), Float.parseFloat(parts[2]));
+    }
+
+    private static void validateReferences(Map<String, ShaderAsset> shaders,
+                                           Map<String, TextureDef> textures,
+                                           Map<String, MaterialDef> materials,
+                                           Map<String, ModelDef> models,
+                                           Map<String, ObjectDef> objects) {
+        for (Map.Entry<String, MaterialDef> entry : materials.entrySet()) {
+            String materialName = entry.getKey();
+            MaterialDef material = entry.getValue();
+            if (!shaders.containsKey(material.shader())) {
+                throw new GlException("material." + materialName
+                        + " references missing shader: " + material.shader());
+            }
+            for (MaterialDef.TextureBinding binding : material.textures()) {
+                if (!textures.containsKey(binding.texture())) {
+                    throw new GlException("material." + materialName + ".texture."
+                            + binding.samplerName() + " references missing texture: " + binding.texture());
+                }
+            }
+        }
+        for (Map.Entry<String, ObjectDef> entry : objects.entrySet()) {
+            String objectName = entry.getKey();
+            ObjectDef object = entry.getValue();
+            if (!materials.containsKey(object.material())) {
+                throw new GlException("object." + objectName
+                        + " references missing material: " + object.material());
+            }
+            if (!object.builtinMesh() && !models.containsKey(object.model())) {
+                throw new GlException("object." + objectName
+                        + " references missing model: " + object.model());
+            }
+        }
     }
 
     public record TextureDef(AssetRef path, boolean flipVertically) {

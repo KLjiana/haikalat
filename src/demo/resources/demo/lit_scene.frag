@@ -14,11 +14,15 @@ struct PointLight {
 };
 
 in vec3 vColor;
+in vec2 vTexCoord;
 in vec3 vWorldPosition;
 in vec3 vNormal;
 in vec4 vDirectionalLightPosition;
 out vec4 FragColor;
 
+uniform int uUseTexture;
+uniform sampler2D uTexture;
+uniform vec3 uTint;
 uniform int uDirectionalLightCount;
 uniform int uPointLightCount;
 uniform DirectionalLight uDirectionalLights[2];
@@ -81,5 +85,8 @@ vec3 shade(vec3 baseColor) {
 }
 
 void main() {
-    FragColor = vec4(shade(vColor), 1.0);
+    vec4 base = uUseTexture != 0
+            ? texture(uTexture, vTexCoord) * vec4(uTint, 1.0)
+            : vec4(vColor, 1.0);
+    FragColor = vec4(shade(base.rgb), base.a);
 }

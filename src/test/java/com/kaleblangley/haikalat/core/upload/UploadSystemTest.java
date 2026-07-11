@@ -9,6 +9,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UploadSystemTest {
     @Test
@@ -55,6 +56,22 @@ class UploadSystemTest {
     }
 
     @Test
+    void neverMergesDifferentTargetsThatShareAnId() {
+        UploadSystem uploads = new UploadSystem();
+        FakeTarget first = new FakeTarget(1);
+        FakeTarget second = new FakeTarget(1);
+
+        uploads.uploadBuffer(first, 0, bytes(1));
+        uploads.uploadBuffer(second, 1, bytes(2));
+        uploads.flush();
+
+        assertEquals(1, first.updates.size());
+        assertEquals(1, second.updates.size());
+        assertArrayEquals(new byte[]{1}, first.updates.get(0).data);
+        assertArrayEquals(new byte[]{2}, second.updates.get(0).data);
+    }
+
+    @Test
     void aggregatesCustomRequestFailures() {
         UploadSystem uploads = new UploadSystem();
         uploads.submit(() -> { throw new IllegalStateException("first"); });
@@ -64,6 +81,69 @@ class UploadSystemTest {
         assertEquals("first", failure.getMessage());
         assertEquals(1, failure.getSuppressed().length);
         assertEquals("second", failure.getSuppressed()[0].getMessage());
+    }
+
+    @Test
+    void publishesMetadataOnlyAfterItsUploadCompletes() {
+        UploadSystem uploads = new UploadSystem();
+        FakeTarget target = new FakeTarget(1);
+        List<String> events = new ArrayList<>();
+
+        uploads.uploadBuffer(target, 0, bytes(7, 8), () -> {
+            assertEquals(1, target.updates.size());
+            events.add("published");
+        });
+        uploads.flush();
+
+        assertEquals(List.of("published"), events);
+    }
+
+    @Test
+    void skipsMetadataPublicationWhenGpuUploadFails() {
+        UploadSystem uploads = new UploadSystem();
+        List<String> events = new ArrayList<>();
+        BufferUploadTarget failing = new BufferUploadTarget() {
+            @Override public int id() { return 9; }
+            @Override public BufferUploadTarget update(long offsetBytes, ByteBuffer data) {
+                throw new IllegalStateException("upload failed");
+            }
+        };
+
+        uploads.uploadBuffer(failing, 0, bytes(1), () -> events.add("published"));
+
+        assertThrows(IllegalStateException.class, uploads::flush);
+        assertTrue(events.isEmpty());
+    }
+
+    @Test
+    void discardingUploadAlsoCancelsItsPublicationCallback() {
+        UploadSystem uploads = new UploadSystem();
+        FakeTarget target = new FakeTarget(1);
+        List<String> events = new ArrayList<>();
+        uploads.uploadBuffer(target, 0, bytes(1), () -> events.add("published"));
+
+        assertEquals(1, uploads.discardUploadsFor(target));
+        uploads.flush();
+
+        assertTrue(events.isEmpty());
+        assertTrue(target.updates.isEmpty());
+    }
+
+    @Test
+    void sealRejectsNewWorkButAllowsAcceptedWorkToDrain() {
+        UploadSystem uploads = new UploadSystem();
+        FakeTarget target = new FakeTarget(1);
+        List<String> events = new ArrayList<>();
+        uploads.uploadBuffer(target, 0, bytes(4), () -> events.add("published"));
+
+        uploads.seal();
+
+        assertTrue(uploads.isSealed());
+        assertThrows(IllegalStateException.class,
+                () -> uploads.uploadBuffer(target, 1, bytes(5)));
+        uploads.flush();
+        assertEquals(1, target.updates.size());
+        assertEquals(List.of("published"), events);
     }
 
     private static ByteBuffer bytes(int... values) {

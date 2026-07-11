@@ -2,8 +2,10 @@ package com.kaleblangley.haikalat.runtime;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
 
+import java.nio.FloatBuffer;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -11,6 +13,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.lwjgl.glfw.GLFW.glfwMakeContextCurrent;
@@ -26,6 +29,9 @@ public final class GlRenderThread implements AutoCloseable {
     private Runnable cleanupHook;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicBoolean acceptingUploads = new AtomicBoolean();
+    private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
+    private final Object lifecycleLock = new Object();
     private final CompletableFuture<Void> completion = new CompletableFuture<>();
     private final CountDownLatch initLatch = new CountDownLatch(1);
     private Thread thread;
@@ -36,9 +42,29 @@ public final class GlRenderThread implements AutoCloseable {
         this.frameCallback = Objects.requireNonNull(frameCallback, "frameCallback");
     }
 
-    /** Thread-safe upload queue flushed by the render thread at the start of each frame. */
-    public UploadSystem uploadQueue() {
-        return frameDriver.uploadQueue();
+    /** Queues one copied float upload and its post-upload publication without exposing flush/close. */
+    public boolean enqueueFloatUpload(BufferUploadTarget target, long offsetBytes, FloatBuffer data,
+                                      UploadSystem.UploadRequest afterUpload) {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(data, "data");
+        Objects.requireNonNull(afterUpload, "afterUpload");
+        if (!acceptingUploads.get()) {
+            return false;
+        }
+        try {
+            frameDriver.uploadQueue().uploadFloats(target, offsetBytes, data, afterUpload);
+            return true;
+        } catch (IllegalStateException closedDuringSubmission) {
+            if (!acceptingUploads.get()) {
+                return false;
+            }
+            throw closedDuringSubmission;
+        }
+    }
+
+    public UploadStats uploadStats() {
+        UploadSystem uploads = frameDriver.uploadQueue();
+        return new UploadStats(uploads.totalBytesUploaded(), uploads.totalGpuUpdates(), uploads.pendingCount());
     }
 
     /**
@@ -47,7 +73,10 @@ public final class GlRenderThread implements AutoCloseable {
      * @param init 初始化回调
      */
     public GlRenderThread onInit(Runnable init) {
-        this.initHook = init;
+        synchronized (lifecycleLock) {
+            ensureNotStarted("onInit");
+            this.initHook = init;
+        }
         return this;
     }
 
@@ -57,12 +86,11 @@ public final class GlRenderThread implements AutoCloseable {
      * @param cleanup 清理回调
      */
     public GlRenderThread onCleanup(Runnable cleanup) {
-        this.cleanupHook = cleanup;
+        synchronized (lifecycleLock) {
+            ensureNotStarted("onCleanup");
+            this.cleanupHook = cleanup;
+        }
         return this;
-    }
-
-    public FrameDriver renderLoop() {
-        return frameDriver;
     }
 
     /**
@@ -71,18 +99,31 @@ public final class GlRenderThread implements AutoCloseable {
      * @return 渲染完成的 CompletableFuture
      */
     public CompletableFuture<Void> start() {
-        if (!started.compareAndSet(false, true)) {
-            throw new IllegalStateException("Already started");
+        synchronized (lifecycleLock) {
+            if (closed.get()) {
+                throw new IllegalStateException("Render thread is already closed");
+            }
+            if (!started.compareAndSet(false, true)) {
+                throw new IllegalStateException("Already started");
+            }
+            state.set(State.STARTING);
+            thread = new Thread(this::runLoop, "GL-RenderThread");
+            thread.setDaemon(true);
+            thread.start();
         }
-        thread = new Thread(this::runLoop, "GL-RenderThread");
-        thread.setDaemon(true);
-        thread.start();
-        try {
-            initLatch.await();
-        } catch (InterruptedException e) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                initLatch.await();
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
             Thread.currentThread().interrupt();
         }
-        return completion;
+        return completion.copy();
     }
 
     public boolean isAlive() {
@@ -96,10 +137,27 @@ public final class GlRenderThread implements AutoCloseable {
      * @throws TimeoutException 若等待超时
      */
     public void shutdown(Duration timeout) throws TimeoutException {
-        if (!closed.compareAndSet(false, true)) {
+        boolean neverStarted;
+        synchronized (lifecycleLock) {
+            closed.set(true);
+            acceptingUploads.set(false);
+            neverStarted = !started.get();
+            if (neverStarted) {
+                state.set(State.TERMINATED);
+                frameDriver.close();
+                initLatch.countDown();
+                completion.complete(null);
+            } else {
+                state.updateAndGet(current -> terminal(current) ? current : State.STOPPING);
+                frameDriver.requestStop();
+            }
+        }
+        if (neverStarted) {
             return;
         }
-        frameDriver.requestStop();
+        if (Thread.currentThread() == thread) {
+            return;
+        }
         try {
             if (timeout != null) {
                 completion.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -119,8 +177,13 @@ public final class GlRenderThread implements AutoCloseable {
     public void close() {
         try {
             shutdown(Duration.ofSeconds(3));
-        } catch (TimeoutException ignored) {
+        } catch (TimeoutException timeout) {
+            throw new IllegalStateException("Timed out waiting for GL render thread shutdown", timeout);
         }
+    }
+
+    public State state() {
+        return state.get();
     }
 
     private void runLoop() {
@@ -130,18 +193,22 @@ public final class GlRenderThread implements AutoCloseable {
             createCapabilities();
             GlDebug.enableDebugCallback();
             glfwSwapInterval(frameDriver.settings().vsync() ? 1 : 0);
-            try {
-                if (initHook != null) {
-                    initHook.run();
-                }
-            } finally {
-                initLatch.countDown();
+            if (initHook != null) {
+                initHook.run();
             }
+            synchronized (lifecycleLock) {
+                if (!closed.get() && state.compareAndSet(State.STARTING, State.RUNNING)) {
+                    acceptingUploads.set(true);
+                } else {
+                    frameDriver.requestStop();
+                }
+            }
+            initLatch.countDown();
             while (frameDriver.isRunning() && !closed.get()) {
                 frameDriver.beginFrame();
                 CommandBuffer cmd = frameDriver.device().createCommandBuffer();
                 frameCallback.accept(cmd);
-                frameDriver.device().execute(cmd);
+                frameDriver.submit(cmd);
                 frameDriver.endFrame();
                 glfwSwapBuffers(window);
             }
@@ -149,16 +216,71 @@ public final class GlRenderThread implements AutoCloseable {
             failure = t;
             frameDriver.requestStop();
         } finally {
+            initLatch.countDown();
+            acceptingUploads.set(false);
+            UploadSystem uploads = frameDriver.uploadQueue();
+            try {
+                uploads.seal();
+                if (failure == null) {
+                    uploads.flush();
+                } else {
+                    uploads.clear();
+                }
+            } catch (Throwable drainFailure) {
+                failure = accumulate(failure, drainFailure);
+            }
+            try {
+                frameDriver.close();
+            } catch (Throwable closeFailure) {
+                failure = accumulate(failure, closeFailure);
+            }
             try {
                 if (cleanupHook != null) cleanupHook.run();
-            } catch (Exception ignored) {}
-            frameDriver.close();
-            try { glfwMakeContextCurrent(0); } catch (Exception ignored) {}
+            } catch (Throwable cleanupFailure) {
+                failure = accumulate(failure, cleanupFailure);
+            }
+            try {
+                glfwMakeContextCurrent(0);
+            } catch (Throwable releaseFailure) {
+                failure = accumulate(failure, releaseFailure);
+            }
             if (failure == null) {
+                state.set(State.TERMINATED);
                 completion.complete(null);
             } else {
+                state.set(State.FAILED);
                 completion.completeExceptionally(failure);
             }
         }
+    }
+
+    private void ensureNotStarted(String operation) {
+        if (started.get()) {
+            throw new IllegalStateException(operation + " must be configured before start");
+        }
+    }
+
+    private static boolean terminal(State state) {
+        return state == State.TERMINATED || state == State.FAILED;
+    }
+
+    private static Throwable accumulate(Throwable existing, Throwable next) {
+        if (existing == null) {
+            return next;
+        }
+        existing.addSuppressed(next);
+        return existing;
+    }
+
+    public record UploadStats(long bytesUploaded, long gpuUpdates, int pendingRequests) {
+    }
+
+    public enum State {
+        NEW,
+        STARTING,
+        RUNNING,
+        STOPPING,
+        TERMINATED,
+        FAILED
     }
 }

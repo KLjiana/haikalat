@@ -68,4 +68,19 @@ The deterministic baseline integration uses a hidden 1280x720 window, fixed came
 .\gradlew.bat runDemoIntegration
 ```
 
-The current GL smoke path additionally verifies project shadow shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, and the complete scene-to-shadow-to-lighting pixel chain. The final-pixel assertions cover lighting on/off, shadow on/off, moving an invisible caster, and changing the shadow light direction.
+Deterministic resize and async render-thread integrations:
+
+```powershell
+.\gradlew.bat runDemoResizeIntegration
+.\gradlew.bat runAsyncIntegration
+```
+
+Run every local check that requires a desktop OpenGL environment:
+
+```powershell
+.\gradlew.bat localGlVerification
+```
+
+`localGlVerification` is intentionally not attached to the default `check` task, so headless CI remains safe.
+
+The current GL smoke path additionally verifies project shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, the complete scene-to-shadow-to-lighting pixel chain, and an async UBO upload that drives instanced final pixels. The final-pixel assertions cover lighting on/off, shadow on/off, moving an invisible caster, and changing the shadow light direction.

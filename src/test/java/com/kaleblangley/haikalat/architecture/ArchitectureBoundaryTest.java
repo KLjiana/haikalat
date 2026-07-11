@@ -42,6 +42,30 @@ class ArchitectureBoundaryTest {
         assertTrue(runtimeImports.isEmpty(), "runtime must not depend on subsystem orchestration: " + runtimeImports);
     }
 
+    @Test
+    void backendDoesNotDependOnRuntimeOrSubsystems() throws IOException {
+        Path backend = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "backend"));
+        Set<String> runtimeImports = importsUnder(backend, "com.kaleblangley.haikalat.runtime.");
+        Set<String> subsystemImports = importsUnder(backend, "com.kaleblangley.haikalat.subsystems.");
+
+        assertTrue(runtimeImports.isEmpty(), "backend must not depend on runtime: " + runtimeImports);
+        assertTrue(subsystemImports.isEmpty(), "backend must not depend on subsystems: " + subsystemImports);
+    }
+
+    @Test
+    void customCommandEscapeHatchIsLimitedToRenderGraphProfiling() throws IOException {
+        Set<String> callers;
+        try (var files = Files.walk(MAIN_JAVA)) {
+            callers = files.filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> contains(path, ".custom("))
+                    .map(path -> MAIN_JAVA.relativize(path).toString().replace('\\', '/'))
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        assertEquals(Set.of("com/kaleblangley/haikalat/core/graph/RenderGraph.java"), callers,
+                "CommandBuffer.custom() is reserved for RenderGraph GPU profiling");
+    }
+
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {
         try (var files = Files.walk(root)) {
             return files.filter(path -> path.toString().endsWith(".java"))
@@ -56,6 +80,14 @@ class ArchitectureBoundaryTest {
     private static java.util.stream.Stream<String> lines(Path path) {
         try {
             return Files.readAllLines(path).stream();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to inspect " + path, e);
+        }
+    }
+
+    private static boolean contains(Path path, String fragment) {
+        try {
+            return Files.readString(path).contains(fragment);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to inspect " + path, e);
         }

@@ -15,12 +15,13 @@ current goals, capabilities, and non-goals.
 - OpenGL backend resources for shaders, buffers, textures, samplers, framebuffers,
   vertex arrays, uniform blocks, GPU fences, state caching, and error reporting.
 - Core rendering protocols for command recording, render devices, render graphs,
-  mesh layouts, instancing, upload flow, triple buffering, and materials.
+  mesh layouts, instancing, upload flow, immutable frame snapshots, and materials.
 - A forward 3D scene pipeline with basic Blinn-Phong lighting, a fixed-size
   directional shadow map with 3x3 PCF,
   and selectable none/MSAA/FXAA/TAA postprocess paths.
 - Asset helpers for classpath resources, shader assets, texture caching,
-  `.properties` scene configuration, and OBJ/Assimp model loading entry points.
+  `.properties` scene configuration, and an OBJ path exercised by the main demo;
+  the Assimp loader remains experimental.
 - Demo proof paths for the combined scene pipeline, minimal command/window flow,
   and async update/upload/render-thread interaction.
 
@@ -57,6 +58,14 @@ Run the hidden deterministic baseline scene for eight frames:
 
 ```powershell
 .\gradlew.bat runDemoIntegration
+```
+
+Run deterministic resize/async integrations or the complete local GL verification:
+
+```powershell
+.\gradlew.bat runDemoResizeIntegration
+.\gradlew.bat runAsyncIntegration
+.\gradlew.bat localGlVerification
 ```
 
 The documentation index is available at [`docs/README.md`](docs/README.md).

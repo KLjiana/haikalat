@@ -38,7 +38,7 @@ public final class FrameDriver implements AutoCloseable {
     }
 
     /** @return 上传队列，用于异步提交 GPU 数据上传 */
-    public UploadSystem uploadQueue() {
+    UploadSystem uploadQueue() {
         return uploadQueue;
     }
 
@@ -49,15 +49,6 @@ public final class FrameDriver implements AutoCloseable {
      */
     public void submit(CommandBuffer buffer) {
         Objects.requireNonNull(buffer, "buffer");
-        executeCommandBuffer(buffer);
-    }
-
-    /**
-     * 执行一个命令缓冲区通过渲染设备。
-     *
-     * @param buffer 命令缓冲区
-     */
-    public void executeCommandBuffer(CommandBuffer buffer) {
         device.execute(buffer);
     }
 

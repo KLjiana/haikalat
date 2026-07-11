@@ -2,6 +2,17 @@ package com.kaleblangley.haikalat.demo.async;
 
 import org.joml.Matrix4f;
 
-import java.util.List;
+/** Immutable-at-publication render snapshot. */
+record FrameState(Matrix4f view, int instanceCount) {
+    FrameState {
+        view = new Matrix4f(view);
+        if (instanceCount < 0) {
+            throw new IllegalArgumentException("instanceCount must be non-negative");
+        }
+    }
 
-record FrameState(Matrix4f view, List<Matrix4f> transforms) {}
+    @Override
+    public Matrix4f view() {
+        return new Matrix4f(view);
+    }
+}

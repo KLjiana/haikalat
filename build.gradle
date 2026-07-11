@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '1.0-SNAPSHOT'
+version = '0.7.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -71,6 +71,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation sourceSets.demo.output
 }
 
 test {
@@ -92,6 +93,61 @@ tasks.register('runDemoIntegration', JavaExec) {
         languageVersion = JavaLanguageVersion.of(21)
     }
     args '--deterministic', '--frames=8', '--aa=FXAA'
+}
+
+tasks.register('runDemoResizeIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the hidden baseline scene and verifies a deterministic resize.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    args '--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'
+}
+
+tasks.register('runAsyncIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the async upload/render-thread demo hidden for a finite number of frames.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.async.AsyncDemo'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    args '--deterministic', '--frames=8'
+}
+
+tasks.register('glSmoke', Test) {
+    group = 'verification'
+    description = 'Runs the complete test suite with the opt-in real OpenGL smoke tests enabled.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+}
+
+tasks.register('localGlVerification') {
+    group = 'verification'
+    description = 'Runs GL smoke tests and all deterministic demo integrations.'
+    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration'
+}
+
+tasks.named('runDemoIntegration') {
+    mustRunAfter 'glSmoke'
+}
+tasks.named('runDemoResizeIntegration') {
+    mustRunAfter 'runDemoIntegration'
+}
+tasks.named('runAsyncIntegration') {
+    mustRunAfter 'runDemoResizeIntegration'
+}
+
+tasks.register('runAsyncDemoIntegration') {
+    group = 'verification'
+    description = 'Compatibility alias for runAsyncIntegration.'
+    dependsOn 'runAsyncIntegration'
 }
 
 [

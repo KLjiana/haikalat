@@ -7,7 +7,6 @@ import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
-import com.kaleblangley.haikalat.core.buffer.TripleBuffer;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
@@ -33,9 +32,9 @@ public final class MinimalDemo {
     }
 
     public static void main(String[] args) {
-        RenderSettings settings = RenderSettings.builder().vsync(true).build();
+        RenderSettings settings = RenderSettings.builder().build();
         try (GlfwWindow window = new GlfwWindow.Builder()
-                .dimensions(800, 600)
+                .dimensions(DemoSupport.DEFAULT_WIDTH, DemoSupport.DEFAULT_HEIGHT)
                 .title("MinimalDemo")
                 .build()) {
             window.bindContext();
@@ -51,18 +50,17 @@ public final class MinimalDemo {
         FrameDriver frameDriver = new FrameDriver(settings);
         RenderTargetManager targets = new RenderTargetManager();
 
-        ShaderProgram colorShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/color_mvp.vert", "/demo/color_unlit.frag");
+        ShaderProgram colorShader = DemoSupport.loadColorMvpShader(MinimalDemo.class);
         ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class,
                 "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
-        ShaderProgram instShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/instanced_projview.vert", "/demo/instanced_projview.frag");
+        ShaderProgram instShader = DemoSupport.loadProjectionViewInstancedShader(MinimalDemo.class);
         Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);
 
         Mesh triangle = Mesh.from(BuiltinMeshData.coloredTriangle("minimal-triangle"));
         Mesh quad = Mesh.from(BuiltinMeshData.coloredQuad("minimal-instanced-quad"));
         Mesh texturedQuad = Mesh.from(BuiltinMeshData.texturedQuad("minimal-textured-quad"));
-        InstancedMeshBatch instancedBatch = InstancedMeshBatch.of(quad, 16, 3);
+        InstancedMeshBatch instancedBatch = InstancedMeshBatch.of(quad,
+                DemoGrid.COUNT, BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
 
         Material colorMaterial = Material.builder(colorShader).blendMode(BlendMode.OPAQUE).build();
         Material texturedMaterial = Material.builder(texShader)
@@ -70,7 +68,7 @@ public final class MinimalDemo {
                 .setVec3("uTint", new Vector3f(1.0f))
                 .blendMode(BlendMode.OPAQUE)
                 .build();
-        TripleBuffer<List<Matrix4f>> transforms = new TripleBuffer<>(ArrayList::new);
+        List<Matrix4f> transforms = new ArrayList<>(DemoGrid.COUNT);
 
         targets.create(SCENE_TARGET, FramebufferDescriptor.singleColorDepthRenderbuffer(
                 window.width(), window.height()));
@@ -92,16 +90,12 @@ public final class MinimalDemo {
                 }
                 Framebuffer sceneTarget = targets.get(SCENE_TARGET);
 
-                projection.identity().perspective((float) Math.toRadians(45.0),
-                        window.width() / (float) Math.max(1, window.height()), 0.1f, 100.0f);
+                DemoSupport.perspective(projection, window.width(), window.height());
                 projection.mul(view, projectionView);
                 updateInstances(transforms, frame);
 
                 var commands = frameDriver.device().createCommandBuffer();
-                commands.bindFramebuffer(sceneTarget)
-                        .viewport(0, 0, sceneTarget.width(), sceneTarget.height())
-                        .clearColor(0.08f, 0.10f, 0.14f, 1.0f)
-                        .clear(true, true);
+                DemoSupport.beginScene(commands, sceneTarget);
 
                 colorMaterial.bind(commands);
                 projectionView.mul(model.identity().translation(-1.0f, 0.5f, 0.0f)
@@ -116,8 +110,8 @@ public final class MinimalDemo {
                         .bindMesh(texturedQuad).drawMesh(texturedQuad);
 
                 commands.bindShader(instShader)
-                        .setUniformMat4(instShader, "uProjView", projectionView)
-                        .drawInstancedBatch(instancedBatch, transforms.read())
+                        .setUniformMat4(instShader, DemoSupport.U_PROJECTION_VIEW, projectionView)
+                        .drawInstancedBatch(instancedBatch, transforms)
                         .bindFramebuffer(GL_FRAMEBUFFER, 0)
                         .viewport(0, 0, window.width(), window.height())
                         .blitToDefault(sceneTarget, window.width(), window.height());
@@ -149,17 +143,12 @@ public final class MinimalDemo {
         }
     }
 
-    private static void updateInstances(TripleBuffer<List<Matrix4f>> transforms, int frame) {
-        List<Matrix4f> writes = transforms.write();
-        writes.clear();
-        for (int row = 0; row < 4; row++) {
-            for (int column = 0; column < 4; column++) {
-                writes.add(new Matrix4f()
-                        .translation(-1.4f + column * 0.7f, -1.4f + row * 0.7f, 0.0f)
-                        .rotateZ(frame * 0.04f + (row + column) * 0.3f)
-                        .scale(0.3f));
+    private static void updateInstances(List<Matrix4f> transforms, int frame) {
+        transforms.clear();
+        for (int row = 0; row < DemoGrid.SIDE; row++) {
+            for (int column = 0; column < DemoGrid.SIDE; column++) {
+                transforms.add(DemoGrid.transform(row, column, frame));
             }
         }
-        transforms.flip();
     }
 }
