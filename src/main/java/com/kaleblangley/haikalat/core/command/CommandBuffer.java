@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.UniformBlock;
+import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
@@ -30,6 +31,7 @@ import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
+import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 
 public final class CommandBuffer {
     private final List<Consumer<StateCache>> commands = new ArrayList<>(64);
@@ -214,6 +216,15 @@ public final class CommandBuffer {
         return this;
     }
 
+    /** Records one procedural or vertex-buffer-backed instanced array draw. */
+    public CommandBuffer drawArraysInstanced(int mode, int first, int vertexCount, int instanceCount) {
+        if (first < 0 || vertexCount < 0 || instanceCount < 0) {
+            throw new IllegalArgumentException("draw counts must be non-negative");
+        }
+        commands.add(cache -> glDrawArraysInstanced(mode, first, vertexCount, instanceCount));
+        return this;
+    }
+
     /**
      * 记录实例化绘制 Mesh 的命令。
      *
@@ -346,6 +357,34 @@ public final class CommandBuffer {
      */
     public CommandBuffer blendFunc(int srcRGB, int dstRGB) {
         commands.add(cache -> cache.blendFunc(srcRGB, dstRGB));
+        return this;
+    }
+
+    /**
+     * Records material blend/depth state as one ordered packet. This compacts command recording
+     * without reordering draws or crossing framebuffer/transparency boundaries.
+     */
+    public CommandBuffer materialState(BlendMode blendMode, boolean depthTest) {
+        Objects.requireNonNull(blendMode, "blendMode");
+        commands.add(cache -> {
+            switch (blendMode) {
+                case OPAQUE -> {
+                    cache.enableBlend(false);
+                    cache.depthMask(true);
+                }
+                case ALPHA -> {
+                    cache.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    cache.enableBlend(true);
+                    cache.depthMask(false);
+                }
+                case ADDITIVE -> {
+                    cache.blendFunc(GL_ONE, GL_ONE);
+                    cache.enableBlend(true);
+                    cache.depthMask(false);
+                }
+            }
+            cache.enableDepthTest(depthTest);
+        });
         return this;
     }
 
@@ -602,7 +641,7 @@ public final class CommandBuffer {
             submission.beginFrame();
             submission.submitAll(copiedTransforms);
             submission.drawn(submission.flush());
-            cache.invalidateVertexInput();
+            cache.invalidateVertexArray();
         });
         return this;
     }

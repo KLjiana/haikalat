@@ -18,10 +18,6 @@ import java.util.Objects;
 import java.util.HashSet;
 import java.util.Set;
 
-import static org.lwjgl.opengl.GL11.GL_ONE;
-import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
-import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
-
 /**
  * OpenGL runtime material template.
  *
@@ -60,8 +56,7 @@ public final class Material implements GlResource {
 
     void bindState(CommandBuffer cmd) {
         cmd.bindShader(shader);
-        applyBlendState(cmd);
-        cmd.enableDepthTest(depthTest);
+        cmd.materialState(blendMode, depthTest);
     }
 
     void bindDefaultTextures(CommandBuffer cmd) {
@@ -83,25 +78,6 @@ public final class Material implements GlResource {
     void applyUniform(CommandBuffer cmd, UniformKey<?> key, UniformValue value) {
         key.validate(value);
         Objects.requireNonNull(value, "value").apply(cmd, shader, key.name());
-    }
-
-    private void applyBlendState(CommandBuffer cmd) {
-        switch (blendMode) {
-            case OPAQUE -> {
-                cmd.enableBlend(false);
-                cmd.depthMask(true);
-            }
-            case ALPHA -> {
-                cmd.enableBlend(true);
-                cmd.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                cmd.depthMask(false);
-            }
-            case ADDITIVE -> {
-                cmd.enableBlend(true);
-                cmd.blendFunc(GL_ONE, GL_ONE);
-                cmd.depthMask(false);
-            }
-        }
     }
 
     public ShaderProgram shader() {

@@ -65,5 +65,6 @@ class InstanceDataLayoutTest {
         assertEquals(new InstanceBatchStats(0, 0, 0, 0, 0), InstanceBatchStats.empty());
         assertFalse(InstanceUploadStrategy.TRIPLE_BUFFER_SUB_DATA.persistent());
         assertFalse(InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA.persistent());
+        assertTrue(InstanceUploadStrategy.PERSISTENT_MAPPED.persistent());
     }
 }

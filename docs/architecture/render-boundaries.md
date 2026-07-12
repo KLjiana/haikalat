@@ -49,9 +49,11 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## OpenGL State Ownership
 
-`GlRenderDevice` 持有跨 command buffer、跨 pass 和跨帧复用的 `StateCache`。正常命令提交不会全量失效缓存；只有绕过缓存的代码才允许做最小范围失效，例如 instanced batch 直接绑定 vertex buffer/VAO 后调用 `invalidateVertexInput()`。外部裸 OpenGL 调用如果修改了受缓存管理的状态，必须显式调用 `invalidateState()` 或对应的局部失效入口。
+`GlRenderDevice` 持有跨 command buffer、跨 pass 和跨帧复用的 `StateCache`。正常命令提交不会全量失效缓存；只有绕过缓存的代码才允许做最小范围失效，例如 instanced batch 直接绑定 VAO 后调用 `invalidateVertexArray()`。Buffer 创建、分配、上传和映射使用 OpenGL DSA，不再污染缓存外的全局 buffer binding。外部裸 OpenGL 调用如果修改了受缓存管理的状态，必须显式调用 `invalidateState()`。
 
-缓存覆盖 program、VAO、array/element buffer、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color 和 indexed uniform-buffer range。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
+缓存覆盖 program、VAO、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color 和 indexed uniform-buffer range。普通 buffer 操作使用 DSA，因此已删除无调用方的 array/element buffer 缓存字段。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
+
+`CommandBuffer` 不允许对任意命令全局排序，因为 framebuffer、clear、uniform、透明 draw 和 pass 依赖具有顺序语义。材质 blend/depth 开关被压缩为单个有序 state packet；draw 排序由 scene 层缓存完成：opaque/additive 按 shader/material/mesh 分组，alpha 保留提交顺序并最后绘制，shadow 按 mesh 分组。
 
 ## Runtime Timing
 

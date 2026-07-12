@@ -153,10 +153,7 @@ public final class RenderPipeline {
                     .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
             Matrix4f model = new Matrix4f();
             int casterDraws = 0;
-            for (MeshRenderer renderer : scene.renderers()) {
-                if (!renderer.castShadows()) {
-                    continue;
-                }
+            for (MeshRenderer renderer : scene.shadowDrawOrder()) {
                 renderer.modelMatrix(model, frameIndex);
                 cmd.setUniformMat4(shadowShader, "uModel", model)
                         .bindMesh(renderer.mesh())
@@ -173,7 +170,7 @@ public final class RenderPipeline {
                 settings.antiAliasingMode(), frameIndex);
 
         Matrix4f model = new Matrix4f();
-        for (MeshRenderer renderer : scene.renderers()) {
+        for (MeshRenderer renderer : scene.forwardDrawOrder()) {
             renderer.modelMatrix(model, frameIndex);
             MaterialInstance material = renderer.material();
             material.bind(cmd);

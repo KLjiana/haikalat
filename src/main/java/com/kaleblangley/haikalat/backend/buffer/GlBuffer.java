@@ -13,14 +13,10 @@ import java.util.Objects;
 import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15.glBindBuffer;
-import static org.lwjgl.opengl.GL15.glBufferData;
-import static org.lwjgl.opengl.GL15.glBufferSubData;
 import static org.lwjgl.opengl.GL15.glDeleteBuffers;
-import static org.lwjgl.opengl.GL15.glGenBuffers;
-import static org.lwjgl.opengl.GL15.glUnmapBuffer;
-import static org.lwjgl.opengl.GL30.glMapBufferRange;
 import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
 import static org.lwjgl.opengl.GL43.*;
+import static org.lwjgl.opengl.GL45.*;
 
 public final class GlBuffer implements GlResource, BufferUploadTarget {
     private final int target;
@@ -32,7 +28,8 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     public GlBuffer(int target, int usage) {
         this.target = target;
         this.usage = usage;
-        this.id = glGenBuffers();
+        this.id = glCreateBuffers();
+        labelIfNeeded();
     }
 
     public static GlBuffer arrayBuffer(int usage) {
@@ -69,24 +66,28 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
 
     public GlBuffer allocate(long sizeBytes) {
         ensureOpen();
-        bind();
-        glBufferData(target, sizeBytes, usage);
+        glNamedBufferData(id, sizeBytes, usage);
+        return this;
+    }
+
+    /** Allocates immutable OpenGL 4.4+ storage for persistent or explicitly managed buffers. */
+    public GlBuffer allocateStorage(long sizeBytes, int flags) {
+        ensureOpen();
+        glNamedBufferStorage(id, sizeBytes, flags);
         return this;
     }
 
     public GlBuffer upload(ByteBuffer data) {
         ensureOpen();
         Objects.requireNonNull(data, "data");
-        bind();
-        glBufferData(target, data, usage);
+        glNamedBufferData(id, data, usage);
         return this;
     }
 
     public GlBuffer upload(FloatBuffer data) {
         ensureOpen();
         Objects.requireNonNull(data, "data");
-        bind();
-        glBufferData(target, data, usage);
+        glNamedBufferData(id, data, usage);
         return this;
     }
 
@@ -97,37 +98,32 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     public GlBuffer upload(IntBuffer data) {
         ensureOpen();
         Objects.requireNonNull(data, "data");
-        bind();
-        glBufferData(target, data, usage);
+        glNamedBufferData(id, data, usage);
         return this;
     }
 
     public GlBuffer update(long offsetBytes, ByteBuffer data) {
         ensureOpen();
         Objects.requireNonNull(data, "data");
-        bind();
-        glBufferSubData(target, offsetBytes, data);
+        glNamedBufferSubData(id, offsetBytes, data);
         return this;
     }
 
     public GlBuffer update(long offsetBytes, FloatBuffer data) {
         ensureOpen();
         Objects.requireNonNull(data, "data");
-        bind();
-        glBufferSubData(target, offsetBytes, data);
+        glNamedBufferSubData(id, offsetBytes, data);
         return this;
     }
 
     public ByteBuffer mapRange(long offsetBytes, long lengthBytes, int access) {
         ensureOpen();
-        bind();
-        return glMapBufferRange(target, offsetBytes, lengthBytes, access);
+        return glMapNamedBufferRange(id, offsetBytes, lengthBytes, access);
     }
 
     public boolean unmap() {
         ensureOpen();
-        bind();
-        return glUnmapBuffer(target);
+        return glUnmapNamedBuffer(id);
     }
 
     @Override

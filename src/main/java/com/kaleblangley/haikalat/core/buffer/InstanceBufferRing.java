@@ -15,6 +15,9 @@ import java.util.List;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
+import static org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT;
+import static org.lwjgl.opengl.GL44.GL_MAP_COHERENT_BIT;
+import static org.lwjgl.opengl.GL44.GL_MAP_PERSISTENT_BIT;
 import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL33.glVertexAttribDivisor;
@@ -31,12 +34,13 @@ public final class InstanceBufferRing implements GlResource {
     private final GpuFence[] fences = new GpuFence[FRAME_COUNT];
     private final long frameSize;
     private final int maxInstances;
+    private final ByteBuffer persistentMapping;
     private int writeSlot;
     private int activeCount;
     private boolean closed;
 
     public InstanceBufferRing(int maxInstances) {
-        this(maxInstances, InstanceDataLayout.mat4Transform(0), InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
+        this(maxInstances, InstanceDataLayout.mat4Transform(0), InstanceUploadStrategy.PERSISTENT_MAPPED);
     }
 
     public InstanceBufferRing(int maxInstances, InstanceDataLayout layout, InstanceUploadStrategy uploadStrategy) {
@@ -48,7 +52,19 @@ public final class InstanceBufferRing implements GlResource {
         this.uploadStrategy = Objects.requireNonNull(uploadStrategy, "uploadStrategy");
         this.frameSize = (long) maxInstances * layout.strideBytes();
 
-        buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW).allocate(frameSize * FRAME_COUNT);
+        buffer = GlBuffer.arrayBuffer(GL_DYNAMIC_DRAW);
+        if (uploadStrategy.persistent()) {
+            int flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+            buffer.allocateStorage(frameSize * FRAME_COUNT, flags);
+            persistentMapping = buffer.mapRange(0L, frameSize * FRAME_COUNT, flags);
+            if (persistentMapping == null) {
+                buffer.close();
+                throw new GlException("Failed to persistently map instance buffer");
+            }
+        } else {
+            buffer.allocate(frameSize * FRAME_COUNT);
+            persistentMapping = null;
+        }
     }
 
     public boolean isPersistent() {
@@ -99,7 +115,7 @@ public final class InstanceBufferRing implements GlResource {
             return;
         }
 
-        FloatBuffer data = createMatrixBuffer(count);
+        FloatBuffer data = createMatrixBuffer(count, startInstance);
         int paddingFloats = (layout.strideBytes() - MAT4_BYTES) / Float.BYTES;
         for (Matrix4f transform : transforms) {
             Objects.requireNonNull(transform, "transform").get(data);
@@ -107,7 +123,9 @@ public final class InstanceBufferRing implements GlResource {
         }
         data.flip();
 
-        buffer.update(frameOffset(startInstance), data);
+        if (!uploadStrategy.persistent()) {
+            buffer.update(frameOffset(startInstance), data);
+        }
         activeCount = Math.max(activeCount, startInstance + count);
     }
 
@@ -173,11 +191,21 @@ public final class InstanceBufferRing implements GlResource {
         for (int i = 0; i < fences.length; i++) {
             closeFence(i);
         }
+        if (persistentMapping != null) {
+            buffer.unmap();
+        }
         buffer.close();
         closed = true;
     }
 
-    private FloatBuffer createMatrixBuffer(int matrixCount) {
+    private FloatBuffer createMatrixBuffer(int matrixCount, int startInstance) {
+        if (persistentMapping != null) {
+            int offset = Math.toIntExact(frameOffset(startInstance));
+            int size = Math.multiplyExact(matrixCount, layout.strideBytes());
+            ByteBuffer region = persistentMapping.duplicate().order(ByteOrder.nativeOrder());
+            region.position(offset).limit(offset + size);
+            return region.slice().order(ByteOrder.nativeOrder()).asFloatBuffer();
+        }
         ByteBuffer bytes = ByteBuffer.allocateDirect(matrixCount * layout.strideBytes())
                 .order(ByteOrder.nativeOrder());
         return bytes.asFloatBuffer();
@@ -188,7 +216,7 @@ public final class InstanceBufferRing implements GlResource {
     }
 
     private void waitForWritableSlot() {
-        if (uploadStrategy != InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA || fences[writeSlot] == null) {
+        if (uploadStrategy == InstanceUploadStrategy.TRIPLE_BUFFER_SUB_DATA || fences[writeSlot] == null) {
             return;
         }
         boolean signaled = fences[writeSlot].waitFor(FENCE_TIMEOUT_NANOS);
@@ -199,7 +227,7 @@ public final class InstanceBufferRing implements GlResource {
     }
 
     private void insertFenceForCurrentSlot() {
-        if (uploadStrategy != InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA) {
+        if (uploadStrategy == InstanceUploadStrategy.TRIPLE_BUFFER_SUB_DATA) {
             return;
         }
         closeFence(writeSlot);

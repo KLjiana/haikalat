@@ -8,14 +8,14 @@ import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glDeleteVertexArrays;
-import static org.lwjgl.opengl.GL30.glGenVertexArrays;
+import static org.lwjgl.opengl.GL45.glCreateVertexArrays;
 
 public final class VertexArray implements GlResource {
     private final int id;
     private boolean closed;
 
     public VertexArray() {
-        this.id = glGenVertexArrays();
+        this.id = glCreateVertexArrays();
     }
 
     public VertexArray bind() {

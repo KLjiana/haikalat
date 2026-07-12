@@ -5,7 +5,6 @@ import java.util.Arrays;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
-import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.opengl.GL33.glBindSampler;
@@ -18,8 +17,6 @@ public final class StateCache {
 
     private int currentProgram;
     private int currentVAO;
-    private int currentArrayBuffer;
-    private int currentElementBuffer;
     private int activeTextureUnit;
     private final int[] boundTextures2D = new int[MAX_TEXTURE_UNITS];
     private final int[] boundSamplers = new int[MAX_TEXTURE_UNITS];
@@ -77,31 +74,6 @@ public final class StateCache {
         if (changeRequired(vao != currentVAO)) {
             glBindVertexArray(vao);
             currentVAO = vao;
-            currentElementBuffer = -1;
-        }
-    }
-
-    /**
-     * 若与当前缓存值不同，则绑定 GL_ARRAY_BUFFER 并更新缓存。
-     *
-     * @param buffer 要绑定的缓冲区 ID
-     */
-    public void bindArrayBuffer(int buffer) {
-        if (changeRequired(buffer != currentArrayBuffer)) {
-            glBindBuffer(GL_ARRAY_BUFFER, buffer);
-            currentArrayBuffer = buffer;
-        }
-    }
-
-    /**
-     * 若与当前缓存值不同，则绑定 GL_ELEMENT_ARRAY_BUFFER 并更新缓存。
-     *
-     * @param buffer 要绑定的元素缓冲区 ID
-     */
-    public void bindElementBuffer(int buffer) {
-        if (changeRequired(buffer != currentElementBuffer)) {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
-            currentElementBuffer = buffer;
         }
     }
 
@@ -110,7 +82,7 @@ public final class StateCache {
      *
      * @param unit 纹理单元索引
      */
-    public void activeTexture(int unit) {
+    private void activeTexture(int unit) {
         requireTextureUnit(unit);
         if (changeRequired(unit != activeTextureUnit)) {
             glActiveTexture(GL_TEXTURE0 + unit);
@@ -312,8 +284,6 @@ public final class StateCache {
     public void invalidate() {
         currentProgram = -1;
         currentVAO = -1;
-        currentArrayBuffer = -1;
-        currentElementBuffer = -1;
         activeTextureUnit = -1;
         Arrays.fill(boundTextures2D, -1);
         Arrays.fill(boundSamplers, -1);
@@ -331,27 +301,9 @@ public final class StateCache {
         clearColorCached = false;
     }
 
-    /**
-     * 仅重置帧缓冲相关缓存，使下次绑定时强制同步。
-     */
-    public void invalidateFramebuffer() {
-        currentReadFramebuffer = -1;
-        currentDrawFramebuffer = -1;
-    }
-
-    /** Invalidates the vertex-input state touched by draw paths that bind buffers directly. */
-    public void invalidateVertexInput() {
+    /** Invalidates VAO state after a draw path binds a vertex array directly. */
+    public void invalidateVertexArray() {
         currentVAO = -1;
-        currentArrayBuffer = -1;
-        currentElementBuffer = -1;
-    }
-
-    public int currentProgram() {
-        return currentProgram;
-    }
-
-    public int currentVAO() {
-        return currentVAO;
     }
 
     /** Lifetime counters useful for overlays, profiling and state-cache regression tests. */

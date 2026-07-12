@@ -5,6 +5,6 @@ Run one BAT file, wait for its OpenGL window to appear, then use **Nsight Graphi
 - `01_learnopengl_demo.bat` — combined lighting, shadow, instancing, and postprocess demo.
 - `02_minimal_demo.bat` — minimal rendering and command-flow demo.
 - `03_async_demo.bat` — asynchronous update/upload/render-thread demo.
-- `04_stress_demo.bat [triangle|quad|cube] [count]` — configurable instance throughput and profiling demo.
+- `04_stress_demo.bat [triangle|quad|cube] [count] [gpu|dynamic]` — configurable instance throughput and profiling demo.
 
 The existing `learnopengl.ngfx-proj` file is preserved. Close a demo with Escape or its window close button. A console stays open automatically when launch fails so the error can be inspected.

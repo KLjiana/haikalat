@@ -20,7 +20,13 @@ Demo 的目标不是让每个公开 API 都被每个 Demo 调用，而是用最�
 Gradle 参数可覆盖形状和数量，例如：
 
 ```powershell
-.\gradlew.bat runStressDemo -PstressShape=quad -PstressInstances=250000
+.\gradlew.bat runStressDemo -PstressShape=quad -PstressInstances=250000 -PstressMode=gpu
+```
+
+固定帧数、隐藏窗口 benchmark：
+
+```powershell
+.\gradlew.bat runStressDemo -PstressShape=cube -PstressInstances=100000 -PstressMode=gpu -PstressFrames=300 -PstressHidden=true
 ```
 
 运行 100000 个 cube（约 120 万个三角形）：
@@ -29,7 +35,7 @@ Gradle 参数可覆盖形状和数量，例如：
 .\gradlew.bat runStressCubeDemo
 ```
 
-自动验证两个 100000-instance 场景：
+自动验证三个 100000-instance 场景：
 
 ```powershell
 .\gradlew.bat runStressIntegration
@@ -38,6 +44,7 @@ Gradle 参数可覆盖形状和数量，例如：
 直接运行 main class 时支持：
 
 ```text
+--mode=gpu|dynamic
 --shape=triangle|quad|cube
 --instances=1..1000000
 --vsync
@@ -46,4 +53,9 @@ Gradle 参数可覆盖形状和数量，例如：
 --deterministic
 ```
 
-标题中的 `FPS` 是完成 swap 后的一秒采样值；`CPU` 包含 instance transform 快照、buffer upload 和命令提交；`GPU` 来自 RenderGraph query；`state skip` 是状态缓存跳过比例。StressDemo 当前刻意走动态 instance upload 主路径，因此能够暴露每帧矩阵复制、直接内存分配和 GPU fence 等真实成本，不代表静态场景的理论上限。
+标题中的 `FPS` 是完成 swap 后的一秒采样值；`CPU` 是上传/命令提交时间；`GPU` 来自非阻塞 query ring；`state skip` 是状态缓存跳过比例。
+
+- `gpu`（默认）：不创建 vertex/instance buffer。vertex shader 用 `gl_VertexID` 重建 triangle/quad/cube，用 `gl_InstanceID` 和整数位运算生成位置、旋转和颜色；每帧只有 uniforms + 一次 draw。
+- `dynamic`：保留通用 `Matrix4f` instance API，用于对比 CPU 快照成本；底层使用 persistent coherent mapped 三槽 ring 和 fence，不再每帧分配 direct buffer。
+
+立方体有 8 个唯一角点和 12 个三角形。标准 triangle pipeline 至少执行 36 个索引后的顶点调用；“6 顶点立方体”只能借助 geometry shader 扩展，而 geometry shader 通常会降低大规模实例吞吐，因此这里使用 shader 常量角点+索引查表。

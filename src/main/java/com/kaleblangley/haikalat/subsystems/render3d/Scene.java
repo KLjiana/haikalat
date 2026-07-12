@@ -9,6 +9,8 @@ public final class Scene {
     private final Camera camera;
     private final List<MeshRenderer> renderers = new ArrayList<>();
     private final List<SceneLight> lights = new ArrayList<>();
+    private List<MeshRenderer> forwardDrawOrder;
+    private List<MeshRenderer> shadowDrawOrder;
 
     public Scene(Camera camera) {
         this.camera = Objects.requireNonNull(camera, "camera");
@@ -28,6 +30,8 @@ public final class Scene {
 
     public Scene add(MeshRenderer renderer) {
         renderers.add(Objects.requireNonNull(renderer, "renderer"));
+        forwardDrawOrder = null;
+        shadowDrawOrder = null;
         return this;
     }
 
@@ -44,6 +48,16 @@ public final class Scene {
 
     public List<MeshRenderer> renderers() {
         return List.copyOf(renderers);
+    }
+
+    List<MeshRenderer> forwardDrawOrder() {
+        if (forwardDrawOrder == null) forwardDrawOrder = SceneDrawOrder.forward(renderers);
+        return forwardDrawOrder;
+    }
+
+    List<MeshRenderer> shadowDrawOrder() {
+        if (shadowDrawOrder == null) shadowDrawOrder = SceneDrawOrder.shadow(renderers);
+        return shadowDrawOrder;
     }
 
     public List<SceneLight> lights() {

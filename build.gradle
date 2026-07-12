@@ -139,10 +139,20 @@ tasks.register('runStressCubeIntegration', JavaExec) {
     args '--deterministic', '--frames=2', '--shape=cube', '--instances=100000'
 }
 
+tasks.register('runStressQuadIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Renders 100000 GPU-driven quads in a hidden finite stress run.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    args '--deterministic', '--frames=2', '--shape=quad', '--instances=100000'
+}
+
 tasks.register('runStressIntegration') {
     group = 'verification'
-    description = 'Runs both 100000-instance triangle and cube stress checks.'
-    dependsOn 'runStressTriangleIntegration', 'runStressCubeIntegration'
+    description = 'Runs 100000-instance triangle, quad and cube GPU stress checks.'
+    dependsOn 'runStressTriangleIntegration', 'runStressQuadIntegration', 'runStressCubeIntegration'
 }
 
 tasks.register('glSmoke', Test) {
@@ -159,6 +169,7 @@ tasks.register('localGlVerification') {
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
     dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration'
+    dependsOn 'runStressQuadIntegration'
 }
 
 tasks.named('runDemoIntegration') {
@@ -174,6 +185,9 @@ tasks.named('runStressTriangleIntegration') {
     mustRunAfter 'runAsyncIntegration'
 }
 tasks.named('runStressCubeIntegration') {
+    mustRunAfter 'runStressQuadIntegration'
+}
+tasks.named('runStressQuadIntegration') {
     mustRunAfter 'runStressTriangleIntegration'
 }
 
@@ -204,7 +218,14 @@ tasks.register('runAsyncDemoIntegration') {
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",
-            "--instances=${providers.gradleProperty('stressInstances').getOrElse('100000')}"
+            "--instances=${providers.gradleProperty('stressInstances').getOrElse('100000')}",
+            "--mode=${providers.gradleProperty('stressMode').getOrElse('gpu')}"
+    if (providers.gradleProperty('stressFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('stressFrames').get()}"
+    }
+    if (providers.gradleProperty('stressHidden').getOrElse('false').toBoolean()) {
+        args '--hidden'
+    }
 }
 
 tasks.register('runStressCubeDemo', JavaExec) {

@@ -29,7 +29,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     private InstancedMeshBatch(int maxInstances, int baseAttributeLocation) {
         this(maxInstances, InstanceDataLayout.mat4Transform(baseAttributeLocation),
-                InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
+                InstanceUploadStrategy.PERSISTENT_MAPPED);
     }
 
     private InstancedMeshBatch(int maxInstances, InstanceDataLayout instanceLayout,
@@ -43,7 +43,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
     }
 
     public static InstancedMeshBatch of(Mesh mesh, int maxInstances, InstanceDataLayout layout) {
-        return new InstancedMeshBatch(maxInstances, layout, InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA)
+        return new InstancedMeshBatch(maxInstances, layout, InstanceUploadStrategy.PERSISTENT_MAPPED)
                 .addMesh(mesh);
     }
 
@@ -62,7 +62,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     public static InstancedMeshBatch of(List<Mesh> meshes, int maxInstances, InstanceDataLayout layout) {
         InstancedMeshBatch batch = new InstancedMeshBatch(maxInstances, layout,
-                InstanceUploadStrategy.FENCE_PROTECTED_SUB_DATA);
+                InstanceUploadStrategy.PERSISTENT_MAPPED);
         for (Mesh mesh : meshes) {
             batch.addMesh(mesh);
         }
