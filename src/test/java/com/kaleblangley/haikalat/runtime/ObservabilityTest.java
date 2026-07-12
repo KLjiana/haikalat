@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.runtime;
 
+import com.kaleblangley.haikalat.core.graph.FrameProfile;
+import com.kaleblangley.haikalat.core.graph.PassProfile;
+
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.RenderErrorCategory;
 import com.kaleblangley.haikalat.backend.RenderErrors;
@@ -7,6 +10,7 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,6 +53,39 @@ class ObservabilityTest {
         assertEquals(42, overlay.instanceCount());
         assertEquals(2.5, overlay.gpuMillis(), 0.0);
         assertEquals(AntiAliasingMode.FXAA, overlay.activeAntiAliasingMode());
+    }
+
+    @Test
+    void presentFpsUsesCompletedSwapsInsteadOfCpuSubmissionRate() {
+        AtomicLong nanos = new AtomicLong();
+        RenderStatistics stats = new RenderStatistics(nanos::get);
+
+        stats.beginFrame();
+        nanos.addAndGet(2_000_000L);
+        stats.endFrame();
+        stats.recordPresent();
+        for (int i = 0; i < 100; i++) {
+            nanos.addAndGet(10_000_000L);
+            stats.recordPresent();
+        }
+
+        RenderStatistics.Snapshot snapshot = stats.snapshot();
+        assertEquals(100.0, snapshot.presentFps(), 0.000_001);
+        assertEquals(2.0, snapshot.cpuSubmitMillis(), 0.000_001);
+        assertEquals(101L, snapshot.presentedFrames());
+        assertEquals(1L, snapshot.submittedFrames());
+    }
+
+    @Test
+    void frameDriverRecordsPresentOnlyAfterSwapCompletes() {
+        FrameDriver driver = new FrameDriver(RenderSettings.builder().build());
+        try {
+            driver.present(() -> assertEquals(0L,
+                    driver.statistics().presentedFrameCount()));
+            assertEquals(1L, driver.statistics().presentedFrameCount());
+        } finally {
+            driver.close();
+        }
     }
 
     @Test

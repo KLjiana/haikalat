@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
@@ -8,7 +9,6 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
-import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.system.MemoryStack;
@@ -30,8 +30,6 @@ import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
-import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
-import static org.lwjgl.opengl.GL31.glBindBufferRange;
 
 public final class CommandBuffer {
     private final List<Consumer<StateCache>> commands = new ArrayList<>(64);
@@ -133,10 +131,13 @@ public final class CommandBuffer {
     }
 
     public CommandBuffer bindTexture(int unit, Texture2D texture, Sampler sampler) {
-        bindTexture(unit, texture);
-        if (sampler != null) {
-            bindSampler(unit, sampler);
-        }
+        Objects.requireNonNull(texture, "texture");
+        bindTexture(unit, texture.id());
+        int samplerId = sampler == null ? 0 : sampler.id();
+        commands.add(cache -> {
+            if (sampler != null) sampler.ensureOpen();
+            cache.bindSampler(unit, samplerId);
+        });
         return this;
     }
 
@@ -146,7 +147,7 @@ public final class CommandBuffer {
         int size = block.sizeBytes();
         commands.add(cache -> {
             block.flush();
-            glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint, buffer, 0, size);
+            cache.bindUniformBufferRange(bindingPoint, buffer, 0, size);
         });
         return this;
     }
@@ -159,7 +160,7 @@ public final class CommandBuffer {
             throw new IllegalArgumentException("invalid uniform buffer range");
         }
         int bufferId = buffer.id();
-        commands.add(cache -> glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint,
+        commands.add(cache -> cache.bindUniformBufferRange(bindingPoint,
                 bufferId, offsetBytes, sizeBytes));
         return this;
     }
@@ -397,6 +398,7 @@ public final class CommandBuffer {
             glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
                     0, 0, targetWidth, targetHeight,
                     GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            // Restore the public command postcondition: later readback and drawing target the backbuffer.
             cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
         });
         return this;
@@ -600,6 +602,7 @@ public final class CommandBuffer {
             submission.beginFrame();
             submission.submitAll(copiedTransforms);
             submission.drawn(submission.flush());
+            cache.invalidateVertexInput();
         });
         return this;
     }

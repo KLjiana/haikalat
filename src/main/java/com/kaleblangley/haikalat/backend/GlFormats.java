@@ -1,6 +1,5 @@
 package com.kaleblangley.haikalat.backend;
 
-import com.kaleblangley.haikalat.core.device.RenderFormat;
 
 import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;

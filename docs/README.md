@@ -23,6 +23,7 @@
 开发、运行和验证项目时使用的操作指南。
 
 - [测试指南](guides/testing.md)
+- [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
 
 ## 历史
 

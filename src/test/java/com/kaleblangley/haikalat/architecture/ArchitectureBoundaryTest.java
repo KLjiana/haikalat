@@ -12,21 +12,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArchitectureBoundaryTest {
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
-    private static final Set<String> APPROVED_BACKEND_TO_CORE = Set.of(
-            "com.kaleblangley.haikalat.core.device.RenderFormat",
-            "com.kaleblangley.haikalat.core.upload.BufferUploadTarget",
-            "com.kaleblangley.haikalat.core.mesh.VertexAttribute",
-            "com.kaleblangley.haikalat.core.mesh.VertexLayout"
-    );
-
     @Test
-    void backendDoesNotExpandItsCoreDependencySurface() throws IOException {
+    void backendDoesNotDependOnHigherLayers() throws IOException {
+        Path backend = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "backend"));
         Set<String> imports = importsUnder(MAIN_JAVA.resolve(
                 Path.of("com", "kaleblangley", "haikalat", "backend")),
                 "com.kaleblangley.haikalat.core.");
+        Set<String> runtimeImports = importsUnder(backend, "com.kaleblangley.haikalat.runtime.");
+        Set<String> subsystemImports = importsUnder(backend, "com.kaleblangley.haikalat.subsystems.");
 
-        assertEquals(APPROVED_BACKEND_TO_CORE, imports,
-                "The OpenGL-specialized backend/core seam must be reviewed before adding another dependency");
+        assertTrue(imports.isEmpty(), "backend must not depend on core: " + imports);
+        assertTrue(runtimeImports.isEmpty(), "backend must not depend on runtime: " + runtimeImports);
+        assertTrue(subsystemImports.isEmpty(), "backend must not depend on subsystems: " + subsystemImports);
     }
 
     @Test
@@ -43,13 +40,11 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    void backendDoesNotDependOnRuntimeOrSubsystems() throws IOException {
-        Path backend = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "backend"));
-        Set<String> runtimeImports = importsUnder(backend, "com.kaleblangley.haikalat.runtime.");
-        Set<String> subsystemImports = importsUnder(backend, "com.kaleblangley.haikalat.subsystems.");
+    void coreDoesNotDependOnRuntime() throws IOException {
+        Path core = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "core"));
+        Set<String> imports = importsUnder(core, "com.kaleblangley.haikalat.runtime.");
 
-        assertTrue(runtimeImports.isEmpty(), "backend must not depend on runtime: " + runtimeImports);
-        assertTrue(subsystemImports.isEmpty(), "backend must not depend on subsystems: " + subsystemImports);
+        assertTrue(imports.isEmpty(), "core must not depend on runtime: " + imports);
     }
 
     @Test

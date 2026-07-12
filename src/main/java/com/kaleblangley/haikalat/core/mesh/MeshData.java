@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.core.mesh;
 
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;

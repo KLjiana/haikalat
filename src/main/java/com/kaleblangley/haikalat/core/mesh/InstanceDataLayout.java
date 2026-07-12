@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.core.mesh;
 
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+
 import java.util.List;
 import java.util.Objects;
 

@@ -1,18 +1,13 @@
-package com.kaleblangley.haikalat.runtime;
-
-import com.kaleblangley.haikalat.backend.GlResource;
+package com.kaleblangley.haikalat.backend;
 
 import static org.lwjgl.opengl.GL33.*;
 
+/** OpenGL elapsed-time query owned by the render graph. */
 public final class GpuTimer implements GlResource {
-    private final int queryId;
+    private final int queryId = glGenQueries();
     private boolean begun;
     private long elapsedNanos;
     private boolean closed;
-
-    public GpuTimer() {
-        this.queryId = glGenQueries();
-    }
 
     public void begin() {
         ensureOpen();
@@ -30,25 +25,14 @@ public final class GpuTimer implements GlResource {
 
     public long elapsedNanos() {
         ensureOpen();
-        if (begun) {
-            return elapsedNanos;
-        }
-        int available = glGetQueryObjecti(queryId, GL_QUERY_RESULT_AVAILABLE);
-        if (available == GL_TRUE) {
+        if (!begun && glGetQueryObjecti(queryId, GL_QUERY_RESULT_AVAILABLE) == GL_TRUE) {
             elapsedNanos = glGetQueryObjectui64(queryId, GL_QUERY_RESULT);
         }
         return elapsedNanos;
     }
 
-    @Override
-    public int id() {
-        return queryId;
-    }
-
-    @Override
-    public boolean isClosed() {
-        return closed;
-    }
+    @Override public int id() { return queryId; }
+    @Override public boolean isClosed() { return closed; }
 
     @Override
     public void close() {
@@ -58,6 +42,6 @@ public final class GpuTimer implements GlResource {
     }
 
     private void ensureOpen() {
-        if (closed) throw new com.kaleblangley.haikalat.backend.GlException("Timer closed");
+        if (closed) throw new GlException("Timer closed");
     }
 }

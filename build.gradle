@@ -119,6 +119,32 @@ tasks.register('runAsyncIntegration', JavaExec) {
     args '--deterministic', '--frames=8'
 }
 
+tasks.register('runStressTriangleIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Renders 100000 instanced triangles in a hidden finite stress run.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    args '--deterministic', '--frames=2', '--shape=triangle', '--instances=100000'
+}
+
+tasks.register('runStressCubeIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Renders 100000 instanced cubes in a hidden finite stress run.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    args '--deterministic', '--frames=2', '--shape=cube', '--instances=100000'
+}
+
+tasks.register('runStressIntegration') {
+    group = 'verification'
+    description = 'Runs both 100000-instance triangle and cube stress checks.'
+    dependsOn 'runStressTriangleIntegration', 'runStressCubeIntegration'
+}
+
 tasks.register('glSmoke', Test) {
     group = 'verification'
     description = 'Runs the complete test suite with the opt-in real OpenGL smoke tests enabled.'
@@ -131,7 +157,8 @@ tasks.register('glSmoke', Test) {
 tasks.register('localGlVerification') {
     group = 'verification'
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
-    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration'
+    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration',
+            'runStressTriangleIntegration', 'runStressCubeIntegration'
 }
 
 tasks.named('runDemoIntegration') {
@@ -143,6 +170,12 @@ tasks.named('runDemoResizeIntegration') {
 tasks.named('runAsyncIntegration') {
     mustRunAfter 'runDemoResizeIntegration'
 }
+tasks.named('runStressTriangleIntegration') {
+    mustRunAfter 'runAsyncIntegration'
+}
+tasks.named('runStressCubeIntegration') {
+    mustRunAfter 'runStressTriangleIntegration'
+}
 
 tasks.register('runAsyncDemoIntegration') {
     group = 'verification'
@@ -153,7 +186,8 @@ tasks.register('runAsyncDemoIntegration') {
 [
         runLearnOpenGlDemo: 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo',
         runMinimalDemo    : 'com.kaleblangley.haikalat.demo.MinimalDemo',
-        runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo'
+        runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
+        runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 ].each { taskName, mainClassName ->
     tasks.register(taskName, JavaExec) {
         group = 'application'
@@ -166,4 +200,20 @@ tasks.register('runAsyncDemoIntegration') {
         }
         workingDir = projectDir
     }
+}
+
+tasks.named('runStressDemo', JavaExec) {
+    args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",
+            "--instances=${providers.gradleProperty('stressInstances').getOrElse('100000')}"
+}
+
+tasks.register('runStressCubeDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs StressDemo with 100000 cube instances.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--shape=cube', '--instances=100000'
 }

@@ -4,6 +4,8 @@
 
 Java/LWJGL OpenGL learning renderer with a small layered rendering framework:
 `backend`, `core`, `subsystems`, and `runtime`.
+Dependencies flow from `subsystems/runtime` to `core` to `backend`; lower layers
+do not import higher layers.
 
 The project goal is to keep a learning-oriented but engineering-constrained
 OpenGL renderer: stable enough to validate rendering architecture, small enough
@@ -13,9 +15,10 @@ current goals, capabilities, and non-goals.
 ## Current Capabilities
 
 - OpenGL backend resources for shaders, buffers, textures, samplers, framebuffers,
-  vertex arrays, uniform blocks, GPU fences, state caching, and error reporting.
+  vertex layouts/arrays, render formats, uniform blocks, GPU fences/timers, state caching,
+  and error reporting.
 - Core rendering protocols for command recording, render devices, render graphs,
-  mesh layouts, instancing, upload flow, immutable frame snapshots, and materials.
+  mesh data, instancing, upload flow, immutable frame snapshots, and materials.
 - A forward 3D scene pipeline with basic Blinn-Phong lighting, a fixed-size
   directional shadow map with 3x3 PCF,
   and selectable none/MSAA/FXAA/TAA postprocess paths.
@@ -23,7 +26,7 @@ current goals, capabilities, and non-goals.
   `.properties` scene configuration, and an OBJ path exercised by the main demo;
   the Assimp loader remains experimental.
 - Demo proof paths for the combined scene pipeline, minimal command/window flow,
-  and async update/upload/render-thread interaction.
+  async update/upload/render-thread interaction, and 100000-instance stress profiling.
 
 ## Requirements
 

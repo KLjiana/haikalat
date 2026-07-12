@@ -1,7 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
-import com.kaleblangley.haikalat.core.device.RenderFormat;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.runtime.RenderSettings;

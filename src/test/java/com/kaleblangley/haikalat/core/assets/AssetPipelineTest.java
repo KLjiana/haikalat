@@ -203,6 +203,12 @@ class AssetPipelineTest {
         assertEquals(6, quad.indices().length);
         assertEquals(8 * Float.BYTES, quad.layout().strideBytes());
         assertEquals(3, quad.layout().attributes().size());
+
+        MeshData cube = BuiltinMeshData.coloredCube("cube");
+        assertEquals(24, cube.vertexCount());
+        assertEquals(36, cube.indices().length);
+        assertEquals(12, cube.indices().length / 3);
+        assertTrue(BuiltinMeshData.names().contains(BuiltinMeshData.CUBE));
     }
 
     @Test

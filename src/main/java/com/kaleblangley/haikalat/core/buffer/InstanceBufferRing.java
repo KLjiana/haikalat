@@ -5,7 +5,7 @@ import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.sync.GpuFence;
 import com.kaleblangley.haikalat.core.mesh.InstanceDataLayout;
-import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import org.joml.Matrix4f;
 
 import java.nio.ByteBuffer;

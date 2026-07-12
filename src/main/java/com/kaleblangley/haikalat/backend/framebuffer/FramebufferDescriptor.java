@@ -1,7 +1,7 @@
 package com.kaleblangley.haikalat.backend.framebuffer;
 
 import com.kaleblangley.haikalat.backend.GlFormats;
-import com.kaleblangley.haikalat.core.device.RenderFormat;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 
 import java.util.ArrayList;
 import java.util.List;

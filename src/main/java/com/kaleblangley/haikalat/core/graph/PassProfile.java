@@ -1,4 +1,4 @@
-package com.kaleblangley.haikalat.runtime;
+package com.kaleblangley.haikalat.core.graph;
 
 import java.util.Objects;
 
@@ -10,11 +10,6 @@ public record PassProfile(String passName, long cpuRecordNanos, long gpuNanos) {
         }
     }
 
-    public double gpuMillis() {
-        return gpuNanos / 1_000_000.0;
-    }
-
-    public double cpuRecordMillis() {
-        return cpuRecordNanos / 1_000_000.0;
-    }
+    public double gpuMillis() { return gpuNanos / 1_000_000.0; }
+    public double cpuRecordMillis() { return cpuRecordNanos / 1_000_000.0; }
 }

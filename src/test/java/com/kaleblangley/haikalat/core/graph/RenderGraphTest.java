@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.core.graph;
 
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
-import com.kaleblangley.haikalat.core.device.RenderFormat;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

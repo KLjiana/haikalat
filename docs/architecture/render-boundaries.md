@@ -45,7 +45,17 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## Package Dependency Guard
 
-当前项目明确保持 OpenGL 专用框架定位，`core` 中允许存在由现有 GL runtime 使用的数据协议。`ArchitectureBoundaryTest` 锁定现有 backend-to-core seam，禁止 `backend` 依赖 `runtime/subsystems`，并禁止 `core/runtime` 新增对 `subsystems` 的反向依赖。新增跨层依赖必须先更新本边界说明和测试中的显式允许集合。
+依赖方向固定为 `subsystems/runtime -> core -> backend`。`backend` 不得依赖 `core`、`runtime` 或 `subsystems`，`core` 不得依赖 `runtime` 或 `subsystems`。OpenGL 格式、buffer upload target、vertex attribute/layout 和 GPU query timer 属于 backend；RenderGraph profile 数据属于 core。`ArchitectureBoundaryTest` 对这些规则做零允许列表检查，新增反向依赖必须先修正设计，而不是扩大白名单。
+
+## OpenGL State Ownership
+
+`GlRenderDevice` 持有跨 command buffer、跨 pass 和跨帧复用的 `StateCache`。正常命令提交不会全量失效缓存；只有绕过缓存的代码才允许做最小范围失效，例如 instanced batch 直接绑定 vertex buffer/VAO 后调用 `invalidateVertexInput()`。外部裸 OpenGL 调用如果修改了受缓存管理的状态，必须显式调用 `invalidateState()` 或对应的局部失效入口。
+
+缓存覆盖 program、VAO、array/element buffer、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color 和 indexed uniform-buffer range。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
+
+## Runtime Timing
+
+`FrameClock` 提供模拟/输入使用的限幅 delta 和累计时间；它不计算渲染 FPS。`FrameDriver` 在 `beginFrame -> endFrame` 之间统计上传和 CPU 命令提交耗时，并通过 `present(swapAction)` 在 swap 成功返回后记录呈现帧。`RenderStatistics` 使用一秒采样窗口输出 present FPS，同时通过线程安全 `Snapshot` 暴露 CPU submit、GPU profile 和呈现计数。`PeriodicTimer` 用于限制标题/overlay 等低频工作，禁止再用“每 N 帧”充当墙钟定时器。
 
 `CommandBuffer.custom()` 的生产调用只允许用于 `RenderGraph` GPU profiling。出现第二类生产调用前不扩大该逃生口，也不为计时器预先引入新的公共命令抽象。
 
@@ -87,7 +97,7 @@ demo scene 便利字段：
 
 `CommandBuffer.drawInstancedBatch(...)` 是实例化批处理的正式主路径命令。它在记录命令时复制传入的 `Matrix4f` transform 列表，执行时在渲染线程按 `beginFrame -> submitAll -> flush` 顺序调用 `InstancedMeshBatch`。
 
-该命令的 batch upload/draw 由 `InstancedMeshBatch` 自己完成，当前不会经过 `StateCache` 去重。调用方不得通过 `cmd.custom()` 捕获实例化 batch 的裸 upload/draw 逻辑；如果 transform 来自生产线程，必须在记录命令前或记录时形成稳定快照。
+该命令的 batch upload/draw 由 `InstancedMeshBatch` 自己完成；结束后只失效 VAO/element-buffer 缓存，不再触发全状态失效。调用方不得通过 `cmd.custom()` 捕获实例化 batch 的裸 upload/draw 逻辑；如果 transform 来自生产线程，必须在记录命令前或记录时形成稳定快照。
 
 ## Demo Proof
 

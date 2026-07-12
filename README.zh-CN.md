@@ -4,6 +4,7 @@
 
 这是一个基于 Java、LWJGL 和 OpenGL 的学习型实时渲染项目，内部划分为 `backend`、
 `core`、`subsystems` 和 `runtime` 四个主要区域。
+依赖方向固定为 `subsystems/runtime -> core -> backend`，底层不反向引用上层。
 
 项目目标是在“教学实验”和“工程约束”之间保持平衡：它需要足够稳定，以验证渲染架构和资源生命周期；
 同时保持规模可控，不扩张成完整游戏引擎。当前目标、能力边界和非目标参见
@@ -13,15 +14,15 @@
 
 ## 当前能力
 
-- OpenGL 后端资源：shader、buffer、texture、sampler、framebuffer、vertex array、uniform block、
-  GPU fence、状态缓存和错误报告。
-- 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh layout、instancing、上传流程、
+- OpenGL 后端资源：shader、buffer、texture、sampler、framebuffer、vertex layout/array、render format、uniform block、
+  GPU fence/timer、状态缓存和错误报告。
+- 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh data、instancing、上传流程、
   不可变帧快照和材质系统。
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、固定分辨率方向光阴影、3x3 PCF，以及
   none、MSAA、FXAA、TAA 后处理路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路；Assimp 入口仍为实验能力。
-- 三条 Demo 证明路径：综合场景管线、最小窗口与命令流、异步更新与渲染线程协作。
+- 四条 Demo 证明路径：综合场景管线、最小窗口与命令流、异步更新与渲染线程协作、10 万实例压力分析。
 
 主 Demo 是稳定基准场景，包含 receiver、投射/不投射阴影的对象、纹理/纯色材质、方向光、点光和实例化对象。
 

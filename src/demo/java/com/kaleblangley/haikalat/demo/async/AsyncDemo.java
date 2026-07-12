@@ -1,6 +1,5 @@
 package com.kaleblangley.haikalat.demo.async;
 
-import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
@@ -12,7 +11,9 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.GlRenderThread;
 import com.kaleblangley.haikalat.runtime.LatestFrameMailbox;
+import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.RenderStatistics;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
@@ -22,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.concurrent.CompletableFuture;
+import java.time.Duration;
 
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
@@ -35,7 +37,7 @@ public final class AsyncDemo {
     private static final int MATRIX_FLOATS = 16;
     private static final int INSTANCE_BUFFER_BYTES = INSTANCE_CAPACITY * MATRIX_FLOATS * Float.BYTES;
     private static final int INSTANCE_BLOCK_BINDING = 1;
-    private static final float ROTATION_RADIANS_PER_SECOND = 4.8f;
+    private static final float ROTATION_RADIANS_PER_SECOND = 12.8f;
 
     private AsyncDemo() {
     }
@@ -92,6 +94,7 @@ public final class AsyncDemo {
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
         try {
             FrameClock clock = new FrameClock();
+            PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
             int frame = 0;
             while (!window.shouldClose() && !done.isDone()) {
                 window.waitEvents(1.0 / 120.0);
@@ -109,9 +112,11 @@ public final class AsyncDemo {
                     window.requestClose();
                 }
 
-                if (frame > 0 && (frame % 120) == 0) {
+                if (frame > 0 && titleUpdate.poll()) {
                     GlRenderThread.UploadStats uploadStats = renderThread.uploadStats();
-                    window.setTitle(String.format(TITLE + " | uploaded %.1f KiB | GPU updates %d | dropped %d",
+                    RenderStatistics.Snapshot timing = renderThread.timingStats();
+                    window.setTitle(String.format(TITLE + " | FPS %.1f | CPU %.3f ms | uploaded %.1f KiB | GPU updates %d | dropped %d",
+                            timing.presentFps(), timing.cpuSubmitMillis(),
                             uploadStats.bytesUploaded() / 1024.0,
                             uploadStats.gpuUpdates(), resources.droppedFrames()));
                 }

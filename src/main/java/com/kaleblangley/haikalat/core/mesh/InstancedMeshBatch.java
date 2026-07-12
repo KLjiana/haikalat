@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.core.mesh;
 
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;

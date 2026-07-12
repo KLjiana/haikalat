@@ -13,6 +13,7 @@ import com.kaleblangley.haikalat.core.mesh.VertexPacking;
 import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
@@ -26,6 +27,7 @@ import org.joml.Vector3f;
 import org.lwjgl.opengl.GL;
 
 import java.util.Map;
+import java.time.Duration;
 
 public final class LearnOpenGlDemo {
     private LearnOpenGlDemo() {
@@ -84,6 +86,7 @@ public final class LearnOpenGlDemo {
                                      RenderSettings settings, DemoOptions options) {
         int frame = 0;
         FrameClock clock = new FrameClock();
+        PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
         while (!window.shouldClose()) {
             if (options.resize() != null && frame == options.resize().frame()) {
                 window.resize(options.resize().width(), options.resize().height());
@@ -101,13 +104,13 @@ public final class LearnOpenGlDemo {
                 options.resize().verify(window, pipeline);
             }
 
-            if ((frame % 60) == 0) {
+            if (titleUpdate.poll()) {
                 DebugOverlaySnapshot overlay = DebugOverlaySnapshot.from(
                         renderLoop.statistics(), instanced.statistics().drawCalls(),
                         instanced.drawnCount(), settings.antiAliasingMode());
-                window.setTitle(String.format("LearnOpenGL | FPS %.1f | draw %d | inst %d | GPU %.2f ms | AA %s",
-                        overlay.fps(), overlay.drawCalls(), overlay.instanceCount(),
-                        overlay.gpuMillis(), overlay.activeAntiAliasingMode()));
+                window.setTitle(String.format("LearnOpenGL | FPS %.1f | CPU %.3f ms | GPU %.2f ms | draw %d | inst %d | AA %s",
+                        overlay.fps(), overlay.cpuSubmitMillis(), overlay.gpuMillis(),
+                        overlay.drawCalls(), overlay.instanceCount(), overlay.activeAntiAliasingMode()));
             }
 
             GlDebug.checkError("LearnOpenGlDemo.frame");
@@ -115,7 +118,7 @@ public final class LearnOpenGlDemo {
             if (options.maxFrames() > 0 && frame >= options.maxFrames()) {
                 window.requestClose();
             }
-            window.swapBuffers();
+            renderLoop.present(window::swapBuffers);
             window.pollEvents();
         }
     }

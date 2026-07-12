@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.core.upload;
 
+import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;

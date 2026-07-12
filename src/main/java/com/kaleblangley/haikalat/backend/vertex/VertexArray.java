@@ -3,8 +3,6 @@ package com.kaleblangley.haikalat.backend.vertex;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
-import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
-import com.kaleblangley.haikalat.core.mesh.VertexLayout;
 
 import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;

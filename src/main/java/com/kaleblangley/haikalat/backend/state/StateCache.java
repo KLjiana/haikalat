@@ -9,9 +9,12 @@ import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.opengl.GL33.glBindSampler;
+import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
+import static org.lwjgl.opengl.GL31.glBindBufferRange;
 
 public final class StateCache {
     private static final int MAX_TEXTURE_UNITS = 32;
+    private static final int MAX_UNIFORM_BUFFER_BINDINGS = 32;
 
     private int currentProgram;
     private int currentVAO;
@@ -20,6 +23,9 @@ public final class StateCache {
     private int activeTextureUnit;
     private final int[] boundTextures2D = new int[MAX_TEXTURE_UNITS];
     private final int[] boundSamplers = new int[MAX_TEXTURE_UNITS];
+    private final int[] uniformBuffers = new int[MAX_UNIFORM_BUFFER_BINDINGS];
+    private final long[] uniformBufferOffsets = new long[MAX_UNIFORM_BUFFER_BINDINGS];
+    private final long[] uniformBufferSizes = new long[MAX_UNIFORM_BUFFER_BINDINGS];
     private int currentReadFramebuffer;
     private int currentDrawFramebuffer;
     private int viewportX;
@@ -38,6 +44,13 @@ public final class StateCache {
     private boolean depthTestCached;
     private boolean cullFaceEnabled;
     private boolean cullFaceCached;
+    private float clearRed;
+    private float clearGreen;
+    private float clearBlue;
+    private float clearAlpha;
+    private boolean clearColorCached;
+    private long appliedChanges;
+    private long avoidedChanges;
 
     public StateCache() {
         invalidate();
@@ -49,7 +62,7 @@ public final class StateCache {
      * @param program 要使用的着色器程序 ID
      */
     public void useProgram(int program) {
-        if (program != currentProgram) {
+        if (changeRequired(program != currentProgram)) {
             glUseProgram(program);
             currentProgram = program;
         }
@@ -61,9 +74,10 @@ public final class StateCache {
      * @param vao 要绑定的 VAO ID
      */
     public void bindVertexArray(int vao) {
-        if (vao != currentVAO) {
+        if (changeRequired(vao != currentVAO)) {
             glBindVertexArray(vao);
             currentVAO = vao;
+            currentElementBuffer = -1;
         }
     }
 
@@ -73,7 +87,7 @@ public final class StateCache {
      * @param buffer 要绑定的缓冲区 ID
      */
     public void bindArrayBuffer(int buffer) {
-        if (buffer != currentArrayBuffer) {
+        if (changeRequired(buffer != currentArrayBuffer)) {
             glBindBuffer(GL_ARRAY_BUFFER, buffer);
             currentArrayBuffer = buffer;
         }
@@ -85,7 +99,7 @@ public final class StateCache {
      * @param buffer 要绑定的元素缓冲区 ID
      */
     public void bindElementBuffer(int buffer) {
-        if (buffer != currentElementBuffer) {
+        if (changeRequired(buffer != currentElementBuffer)) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
             currentElementBuffer = buffer;
         }
@@ -97,7 +111,8 @@ public final class StateCache {
      * @param unit 纹理单元索引
      */
     public void activeTexture(int unit) {
-        if (unit != activeTextureUnit) {
+        requireTextureUnit(unit);
+        if (changeRequired(unit != activeTextureUnit)) {
             glActiveTexture(GL_TEXTURE0 + unit);
             activeTextureUnit = unit;
         }
@@ -110,17 +125,33 @@ public final class StateCache {
      * @param texture 纹理 ID
      */
     public void bindTexture2D(int unit, int texture) {
+        requireTextureUnit(unit);
         activeTexture(unit);
-        if (boundTextures2D[unit] != texture) {
+        if (changeRequired(boundTextures2D[unit] != texture)) {
             glBindTexture(GL_TEXTURE_2D, texture);
             boundTextures2D[unit] = texture;
         }
     }
 
     public void bindSampler(int unit, int sampler) {
-        if (boundSamplers[unit] != sampler) {
+        requireTextureUnit(unit);
+        if (changeRequired(boundSamplers[unit] != sampler)) {
             glBindSampler(unit, sampler);
             boundSamplers[unit] = sampler;
+        }
+    }
+
+    public void bindUniformBufferRange(int bindingPoint, int buffer, long offset, long size) {
+        if (bindingPoint < 0 || bindingPoint >= MAX_UNIFORM_BUFFER_BINDINGS) {
+            throw new IllegalArgumentException("uniform buffer binding out of range: " + bindingPoint);
+        }
+        if (changeRequired(uniformBuffers[bindingPoint] != buffer
+                || uniformBufferOffsets[bindingPoint] != offset
+                || uniformBufferSizes[bindingPoint] != size)) {
+            glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint, buffer, offset, size);
+            uniformBuffers[bindingPoint] = buffer;
+            uniformBufferOffsets[bindingPoint] = offset;
+            uniformBufferSizes[bindingPoint] = size;
         }
     }
 
@@ -132,17 +163,17 @@ public final class StateCache {
      */
     public void bindFramebuffer(int target, int fbo) {
         if (target == GL_READ_FRAMEBUFFER) {
-            if (fbo != currentReadFramebuffer) {
+            if (changeRequired(fbo != currentReadFramebuffer)) {
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
                 currentReadFramebuffer = fbo;
             }
         } else if (target == GL_DRAW_FRAMEBUFFER) {
-            if (fbo != currentDrawFramebuffer) {
+            if (changeRequired(fbo != currentDrawFramebuffer)) {
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
                 currentDrawFramebuffer = fbo;
             }
         } else {
-            if (fbo != currentReadFramebuffer || fbo != currentDrawFramebuffer) {
+            if (changeRequired(fbo != currentReadFramebuffer || fbo != currentDrawFramebuffer)) {
                 glBindFramebuffer(GL_FRAMEBUFFER, fbo);
                 currentReadFramebuffer = fbo;
                 currentDrawFramebuffer = fbo;
@@ -159,7 +190,8 @@ public final class StateCache {
      * @param h 视口高度
      */
     public void viewport(int x, int y, int w, int h) {
-        if (!viewportSet || x != viewportX || y != viewportY || w != viewportW || h != viewportH) {
+        if (changeRequired(!viewportSet || x != viewportX || y != viewportY
+                || w != viewportW || h != viewportH)) {
             glViewport(x, y, w, h);
             viewportX = x;
             viewportY = y;
@@ -175,7 +207,7 @@ public final class StateCache {
      * @param enable true 启用混合，false 禁用混合
      */
     public void enableBlend(boolean enable) {
-        if (!blendCached || enable != blendEnabled) {
+        if (changeRequired(!blendCached || enable != blendEnabled)) {
             if (enable) {
                 glEnable(GL_BLEND);
             } else {
@@ -193,7 +225,7 @@ public final class StateCache {
      * @param dstRGB 目标因子
      */
     public void blendFunc(int srcRGB, int dstRGB) {
-        if (!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB) {
+        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB)) {
             glBlendFunc(srcRGB, dstRGB);
             blendSrcRGB = srcRGB;
             blendDstRGB = dstRGB;
@@ -207,7 +239,7 @@ public final class StateCache {
      * @param write true 允许深度写入，false 禁止
      */
     public void depthMask(boolean write) {
-        if (!depthWriteCached || write != depthWriteEnabled) {
+        if (changeRequired(!depthWriteCached || write != depthWriteEnabled)) {
             glDepthMask(write);
             depthWriteEnabled = write;
             depthWriteCached = true;
@@ -220,7 +252,7 @@ public final class StateCache {
      * @param enable true 启用深度测试，false 禁用
      */
     public void enableDepthTest(boolean enable) {
-        if (!depthTestCached || enable != depthTestEnabled) {
+        if (changeRequired(!depthTestCached || enable != depthTestEnabled)) {
             if (enable) {
                 glEnable(GL_DEPTH_TEST);
             } else {
@@ -233,7 +265,7 @@ public final class StateCache {
 
     /** Enables or disables face culling while avoiding redundant GL state changes. */
     public void enableCullFace(boolean enable) {
-        if (!cullFaceCached || enable != cullFaceEnabled) {
+        if (changeRequired(!cullFaceCached || enable != cullFaceEnabled)) {
             if (enable) {
                 glEnable(GL_CULL_FACE);
             } else {
@@ -262,36 +294,56 @@ public final class StateCache {
      * @param a 透明分量
      */
     public void clearColor(float r, float g, float b, float a) {
-        glClearColor(r, g, b, a);
+        if (changeRequired(!clearColorCached || Float.compare(r, clearRed) != 0
+                || Float.compare(g, clearGreen) != 0 || Float.compare(b, clearBlue) != 0
+                || Float.compare(a, clearAlpha) != 0)) {
+            glClearColor(r, g, b, a);
+            clearRed = r;
+            clearGreen = g;
+            clearBlue = b;
+            clearAlpha = a;
+            clearColorCached = true;
+        }
     }
 
     /**
      * 将所有 GL 状态缓存重置为默认值，使其在下一次调用时强制同步。
      */
     public void invalidate() {
-        currentProgram = 0;
-        currentVAO = 0;
-        currentArrayBuffer = 0;
-        currentElementBuffer = 0;
-        activeTextureUnit = 0;
-        Arrays.fill(boundTextures2D, 0);
-        Arrays.fill(boundSamplers, 0);
-        currentReadFramebuffer = 0;
-        currentDrawFramebuffer = 0;
+        currentProgram = -1;
+        currentVAO = -1;
+        currentArrayBuffer = -1;
+        currentElementBuffer = -1;
+        activeTextureUnit = -1;
+        Arrays.fill(boundTextures2D, -1);
+        Arrays.fill(boundSamplers, -1);
+        Arrays.fill(uniformBuffers, -1);
+        Arrays.fill(uniformBufferOffsets, -1L);
+        Arrays.fill(uniformBufferSizes, -1L);
+        currentReadFramebuffer = -1;
+        currentDrawFramebuffer = -1;
         viewportSet = false;
         blendCached = false;
         blendFuncCached = false;
         depthWriteCached = false;
         depthTestCached = false;
         cullFaceCached = false;
+        clearColorCached = false;
     }
 
     /**
      * 仅重置帧缓冲相关缓存，使下次绑定时强制同步。
      */
     public void invalidateFramebuffer() {
-        currentReadFramebuffer = 0;
-        currentDrawFramebuffer = 0;
+        currentReadFramebuffer = -1;
+        currentDrawFramebuffer = -1;
+    }
+
+    /** Invalidates the vertex-input state touched by draw paths that bind buffers directly. */
+    public void invalidateVertexInput() {
+        currentVAO = -1;
+        currentArrayBuffer = -1;
+        currentElementBuffer = -1;
     }
 
     public int currentProgram() {
@@ -300,5 +352,30 @@ public final class StateCache {
 
     public int currentVAO() {
         return currentVAO;
+    }
+
+    /** Lifetime counters useful for overlays, profiling and state-cache regression tests. */
+    public Statistics statistics() {
+        return new Statistics(appliedChanges, avoidedChanges);
+    }
+
+    public void resetStatistics() {
+        appliedChanges = 0L;
+        avoidedChanges = 0L;
+    }
+
+    private boolean changeRequired(boolean required) {
+        if (required) appliedChanges++;
+        else avoidedChanges++;
+        return required;
+    }
+
+    private static void requireTextureUnit(int unit) {
+        if (unit < 0 || unit >= MAX_TEXTURE_UNITS) {
+            throw new IllegalArgumentException("texture unit out of range: " + unit);
+        }
+    }
+
+    public record Statistics(long appliedChanges, long avoidedChanges) {
     }
 }

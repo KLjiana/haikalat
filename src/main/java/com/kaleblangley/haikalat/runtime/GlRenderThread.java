@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.runtime;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
+import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
 
 import java.nio.FloatBuffer;
@@ -65,6 +65,10 @@ public final class GlRenderThread implements AutoCloseable {
     public UploadStats uploadStats() {
         UploadSystem uploads = frameDriver.uploadQueue();
         return new UploadStats(uploads.totalBytesUploaded(), uploads.totalGpuUpdates(), uploads.pendingCount());
+    }
+
+    public RenderStatistics.Snapshot timingStats() {
+        return frameDriver.statistics().snapshot();
     }
 
     /**
@@ -210,7 +214,7 @@ public final class GlRenderThread implements AutoCloseable {
                 frameCallback.accept(cmd);
                 frameDriver.submit(cmd);
                 frameDriver.endFrame();
-                glfwSwapBuffers(window);
+                frameDriver.present(() -> glfwSwapBuffers(window));
             }
         } catch (Throwable t) {
             failure = t;

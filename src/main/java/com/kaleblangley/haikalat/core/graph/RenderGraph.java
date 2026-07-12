@@ -6,11 +6,9 @@ import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.core.device.RenderFormat;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
-import com.kaleblangley.haikalat.runtime.FrameProfile;
-import com.kaleblangley.haikalat.runtime.GpuTimer;
-import com.kaleblangley.haikalat.runtime.PassProfile;
+import com.kaleblangley.haikalat.backend.GpuTimer;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

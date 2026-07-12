@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.core.upload;
 
+import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
+
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;

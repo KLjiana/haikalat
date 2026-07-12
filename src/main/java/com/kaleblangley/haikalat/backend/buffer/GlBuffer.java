@@ -3,7 +3,6 @@ package com.kaleblangley.haikalat.backend.buffer;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
-import com.kaleblangley.haikalat.core.upload.BufferUploadTarget;
 import com.kaleblangley.haikalat.util.DirectBuffers;
 
 import java.nio.ByteBuffer;

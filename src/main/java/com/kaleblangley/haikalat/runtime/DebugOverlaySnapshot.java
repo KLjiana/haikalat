@@ -8,11 +8,13 @@ public record DebugOverlaySnapshot(
         double fps,
         int drawCalls,
         int instanceCount,
+        double cpuSubmitMillis,
         double gpuMillis,
         AntiAliasingMode activeAntiAliasingMode
 ) {
     public DebugOverlaySnapshot {
-        if (fps < 0.0 || drawCalls < 0 || instanceCount < 0 || gpuMillis < 0.0) {
+        if (fps < 0.0 || drawCalls < 0 || instanceCount < 0
+                || cpuSubmitMillis < 0.0 || gpuMillis < 0.0) {
             throw new IllegalArgumentException("overlay values must be non-negative");
         }
         activeAntiAliasingMode = Objects.requireNonNull(activeAntiAliasingMode, "activeAntiAliasingMode");
@@ -25,6 +27,7 @@ public record DebugOverlaySnapshot(
                 statistics.averageFps(),
                 drawCalls,
                 instanceCount,
+                statistics.lastCpuSubmitMillis(),
                 statistics.lastFrameProfile().totalGpuMillis(),
                 mode);
     }

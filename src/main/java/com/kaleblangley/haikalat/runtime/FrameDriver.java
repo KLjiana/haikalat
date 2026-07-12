@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.runtime;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
@@ -14,7 +15,7 @@ public final class FrameDriver implements AutoCloseable {
     private final RenderStatistics statistics = new RenderStatistics();
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final RenderSettings settings;
-    private final RenderDevice device;
+    private final GlRenderDevice device;
     private final UploadSystem uploadQueue = new UploadSystem();
 
     public FrameDriver(RenderSettings settings) {
@@ -35,6 +36,16 @@ public final class FrameDriver implements AutoCloseable {
     /** @return 渲染设备 */
     public RenderDevice device() {
         return device;
+    }
+
+    /** Returns lifetime OpenGL state-cache counters without requiring a backend cast. */
+    public StateCache.Statistics stateStatistics() {
+        return device.stateStatistics();
+    }
+
+    /** Call after external raw GL code changes state managed by the command system. */
+    public void invalidateState() {
+        device.invalidateState();
     }
 
     /** @return 上传队列，用于异步提交 GPU 数据上传 */
@@ -64,16 +75,22 @@ public final class FrameDriver implements AutoCloseable {
         endFrame();
     }
 
-    /** 新帧开始，先执行待处理上传，再开始统计。 */
+    /** Starts CPU submission timing before flushing accepted uploads. */
     public void beginFrame() {
-        uploadQueue.flush();
         statistics.beginFrame();
+        uploadQueue.flush();
     }
 
     /** 帧结束，记录统计信息，可选检查 GL 错误。 */
     public void endFrame() {
         statistics.endFrame();
         GlDebug.checkError("FrameDriver.endFrame");
+    }
+
+    /** Executes the platform swap and records FPS only after the present call completes. */
+    public void present(Runnable swapBuffers) {
+        Objects.requireNonNull(swapBuffers, "swapBuffers").run();
+        statistics.recordPresent();
     }
 
     /** 请求停止渲染循环。 */

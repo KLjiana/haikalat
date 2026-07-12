@@ -12,7 +12,9 @@ import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.RenderStatistics;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -20,6 +22,7 @@ import org.lwjgl.opengl.GL;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Duration;
 
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
@@ -80,6 +83,7 @@ public final class MinimalDemo {
         Matrix4f mvp = new Matrix4f();
 
         int frame = 0;
+        PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
         try {
             while (!window.shouldClose()) {
                 if (window.isKeyDown(GLFW_KEY_ESCAPE)) {
@@ -120,12 +124,13 @@ public final class MinimalDemo {
                 frameDriver.submit(commands);
                 frameDriver.endFrame();
 
-                if ((frame % 60) == 0) {
-                    window.setTitle(String.format("Minimal | FPS %.1f | objs=2+inst",
-                            frameDriver.statistics().averageFps()));
+                if (titleUpdate.poll()) {
+                    RenderStatistics.Snapshot timing = frameDriver.statistics().snapshot();
+                    window.setTitle(String.format("Minimal | FPS %.1f | CPU %.3f ms | objs=2+inst",
+                            timing.presentFps(), timing.cpuSubmitMillis()));
                 }
                 GlDebug.checkError("MinimalDemo");
-                window.swapBuffers();
+                frameDriver.present(window::swapBuffers);
                 window.pollEvents();
                 frame++;
             }

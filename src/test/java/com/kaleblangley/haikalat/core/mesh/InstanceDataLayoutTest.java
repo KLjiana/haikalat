@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.core.mesh;
 
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+
 import com.kaleblangley.haikalat.core.buffer.InstanceUploadStrategy;
 import org.junit.jupiter.api.Test;
 

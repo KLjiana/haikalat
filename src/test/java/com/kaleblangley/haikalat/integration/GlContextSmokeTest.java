@@ -15,8 +15,8 @@ import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
-import com.kaleblangley.haikalat.core.mesh.VertexAttribute;
-import com.kaleblangley.haikalat.core.mesh.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.GlRenderThread;
@@ -191,6 +191,32 @@ class GlContextSmokeTest {
             int blue = Byte.toUnsignedInt(pixel.get(2));
             assertTrue(red > 40 && green > 90 && blue > 150,
                     "Expected readback pixel to reflect the clear color");
+        }
+    }
+
+    @Test
+    void renderDeviceKeepsStateCacheAcrossCommandBuffers() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+
+            GlRenderDevice device = new GlRenderDevice();
+            var commands = device.createCommandBuffer()
+                    .bindDefaultFramebuffer()
+                    .viewport(0, 0, 32, 32)
+                    .clearColor(0.1f, 0.2f, 0.3f, 1.0f)
+                    .enableBlend(false)
+                    .enableDepthTest(true)
+                    .depthMask(true)
+                    .enableCullFace(false);
+
+            device.execute(commands);
+            long firstApplied = device.stateStatistics().appliedChanges();
+            device.execute(commands);
+
+            assertEquals(firstApplied, device.stateStatistics().appliedChanges(),
+                    "Repeated command buffers must not reapply identical GL state");
+            assertTrue(device.stateStatistics().avoidedChanges() >= 7L);
         }
     }
 
