@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -163,6 +164,97 @@ class InstanceUploadGlTest {
                 batch.close();
                 mesh.close();
                 shader.close();
+            }
+        }
+    }
+
+    @Test
+    void instancedBatchFinishesRingFrameWhenALaterMeshFails() throws Exception {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Path resources = Path.of("src", "demo", "resources", "demo");
+            ShaderProgram shader = ShaderProgram.fromSources(
+                    Files.readString(resources.resolve("instanced_projview.vert")),
+                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+            VertexLayout layout = VertexLayout.interleaved(6 * Float.BYTES,
+                    VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
+                    VertexAttribute.builder().index(1).size(3).type(GL_FLOAT)
+                            .offsetBytes(3L * Float.BYTES).build());
+            MeshData data = MeshData.of("batch-recovery", new float[]{
+                    -0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f,
+                    0.8f, -0.8f, 0.0f, 0.0f, 1.0f, 0.0f,
+                    0.0f, 0.8f, 0.0f, 0.0f, 0.0f, 1.0f
+            }, layout);
+            Mesh first = Mesh.from(data);
+            Mesh failing = Mesh.from(data);
+            InstancedMeshBatch batch = InstancedMeshBatch.of(List.of(first, failing), 2, 3);
+            Framebuffer target = Framebuffer.singleSampled(32, 32);
+            try {
+                GlRenderDevice device = new GlRenderDevice();
+                device.execute(device.createCommandBuffer()
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, 32, 32)
+                        .bindShader(shader)
+                        .setUniformMat4(shader, "uProjView", new org.joml.Matrix4f()));
+
+                batch.beginFrame()
+                        .submit(first, new org.joml.Matrix4f())
+                        .submit(failing, new org.joml.Matrix4f());
+                failing.close();
+                assertThrows(GlException.class, batch::flush,
+                        "The closed second mesh must fail after the first draw was submitted");
+
+                batch.beginFrame().submit(first, new org.joml.Matrix4f());
+                assertEquals(1, batch.flush(),
+                        "The ring must be reusable after the failed frame was fenced and cleared");
+                glFinish();
+                GlDebug.checkError("instancedBatchFinishesRingFrameWhenALaterMeshFails");
+            } finally {
+                target.close();
+                batch.close();
+                first.close();
+                failing.close();
+                shader.close();
+            }
+        }
+    }
+
+    @Test
+    void failedCommandBatchInvalidatesCachedVertexArray() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            VertexLayout layout = VertexLayout.interleaved(3 * Float.BYTES,
+                    VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build());
+            Mesh mesh = Mesh.from(MeshData.of("failed-command-batch", new float[]{
+                    -0.8f, -0.8f, 0.0f,
+                    0.8f, -0.8f, 0.0f,
+                    0.0f, 0.8f, 0.0f
+            }, layout));
+            InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, 1, 3);
+            try (VertexArray cachedVao = new VertexArray()) {
+                GlRenderDevice device = new GlRenderDevice();
+                device.execute(device.createCommandBuffer().bindVertexArray(cachedVao.id()));
+
+                mesh.close();
+                assertThrows(GlException.class, () -> device.execute(device.createCommandBuffer()
+                        .drawInstancedBatch(batch, List.of(new org.joml.Matrix4f()))));
+
+                long beforeRebind = device.stateStatistics().appliedChanges();
+                device.execute(device.createCommandBuffer().bindVertexArray(cachedVao.id()));
+                assertEquals(beforeRebind + 1, device.stateStatistics().appliedChanges(),
+                        "The VAO bind after a failed batch must not be skipped by stale cache state");
+                assertEquals(cachedVao.id(),
+                        glGetInteger(org.lwjgl.opengl.GL30.GL_VERTEX_ARRAY_BINDING));
+                GlDebug.checkError("failedCommandBatchInvalidatesCachedVertexArray");
+            } finally {
+                batch.close();
+                mesh.close();
             }
         }
     }

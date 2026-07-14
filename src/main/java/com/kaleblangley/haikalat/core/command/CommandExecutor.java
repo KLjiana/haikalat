@@ -178,10 +178,13 @@ final class CommandExecutor {
                     @SuppressWarnings("unchecked")
                     List<Matrix4f> transforms =
                             (List<Matrix4f>) stream.objectAt(objectCursor++);
-                    submission.beginFrame();
-                    submission.submitAll(transforms);
-                    submission.drawn(submission.flush());
-                    cache.invalidateVertexArray();
+                    try {
+                        submission.beginFrame();
+                        submission.submitAll(transforms);
+                        submission.drawn(submission.flush());
+                    } finally {
+                        cache.invalidateVertexArray();
+                    }
                 }
                 case DRAW_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
@@ -191,11 +194,14 @@ final class CommandExecutor {
                             (List<Matrix4f>) stream.objectAt(objectCursor++);
                     IntConsumer drawnCount =
                             (IntConsumer) stream.objectAt(objectCursor++);
-                    batch.beginFrame();
-                    batch.submitAll(transforms);
-                    int drawn = batch.flush();
-                    if (drawnCount != null) drawnCount.accept(drawn);
-                    cache.invalidateVertexArray();
+                    try {
+                        batch.beginFrame();
+                        batch.submitOwnedSnapshots(transforms);
+                        int drawn = batch.flush();
+                        if (drawnCount != null) drawnCount.accept(drawn);
+                    } finally {
+                        cache.invalidateVertexArray();
+                    }
                 }
                 case BEGIN_GPU_TIMER -> {
                     ((GpuTimer) stream.objectAt(objectCursor++)).begin();

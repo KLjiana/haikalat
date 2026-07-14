@@ -37,6 +37,7 @@ public final class InstanceBufferRing implements GlResource {
     private final ByteBuffer persistentMapping;
     private int writeSlot;
     private int activeCount;
+    private boolean frameBegun;
     private boolean closed;
 
     public InstanceBufferRing(int maxInstances) {
@@ -89,8 +90,12 @@ public final class InstanceBufferRing implements GlResource {
 
     public void beginFrame() {
         ensureOpen();
+        if (frameBegun) {
+            throw new GlException("Instance buffer frame already begun");
+        }
         waitForWritableSlot();
         activeCount = 0;
+        frameBegun = true;
     }
 
     public void upload(List<Matrix4f> transforms) {
@@ -99,6 +104,7 @@ public final class InstanceBufferRing implements GlResource {
 
     public void upload(List<Matrix4f> transforms, int startInstance) {
         ensureOpen();
+        ensureFrameBegun();
         Objects.requireNonNull(transforms, "transforms");
         if (!layout.supportsMatrixTransforms()) {
             throw new GlException("Instance layout does not support Matrix4f uploads: " + layout.name());
@@ -135,6 +141,7 @@ public final class InstanceBufferRing implements GlResource {
 
     public void bindAttributes(InstanceDataLayout layout, int startInstance) {
         ensureOpen();
+        ensureFrameBegun();
         Objects.requireNonNull(layout, "layout");
         if (startInstance < 0) {
             throw new IllegalArgumentException("startInstance must be non-negative");
@@ -160,8 +167,12 @@ public final class InstanceBufferRing implements GlResource {
 
     public void finishFrame() {
         ensureOpen();
-        insertFenceForCurrentSlot();
-        writeSlot = (writeSlot + 1) % FRAME_COUNT;
+        ensureFrameBegun();
+        if (activeCount > 0) {
+            insertFenceForCurrentSlot();
+            writeSlot = (writeSlot + 1) % FRAME_COUNT;
+        }
+        frameBegun = false;
     }
 
     public GlBuffer activeBuffer() {
@@ -195,6 +206,7 @@ public final class InstanceBufferRing implements GlResource {
             buffer.unmap();
         }
         buffer.close();
+        frameBegun = false;
         closed = true;
     }
 
@@ -244,6 +256,12 @@ public final class InstanceBufferRing implements GlResource {
     private void ensureOpen() {
         if (closed) {
             throw new GlException("InstanceBufferRing is closed");
+        }
+    }
+
+    private void ensureFrameBegun() {
+        if (!frameBegun) {
+            throw new GlException("Call beginFrame before using the instance buffer ring");
         }
     }
 }

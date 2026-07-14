@@ -25,6 +25,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
     private final InstanceDataLayout instanceLayout;
     private MeshEntry defaultMesh;
     private InstanceBatchStats lastStats = InstanceBatchStats.empty();
+    private boolean frameBegun;
     private boolean closed;
 
     private InstancedMeshBatch(int maxInstances, int baseAttributeLocation) {
@@ -94,11 +95,15 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     public InstancedMeshBatch beginFrame() {
         ensureOpen();
+        if (frameBegun) {
+            throw new GlException("Instanced mesh batch frame already begun");
+        }
+        instanceBuffers.beginFrame();
         for (MeshEntry entry : meshes) {
             entry.transforms.clear();
         }
         lastStats = InstanceBatchStats.empty();
-        instanceBuffers.beginFrame();
+        frameBegun = true;
         return this;
     }
 
@@ -109,6 +114,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     public InstancedMeshBatch submit(Mesh mesh, Matrix4f transform) {
         ensureOpen();
+        ensureFrameBegun();
         MeshEntry entry = requireMesh(mesh);
         entry.transforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
         return this;
@@ -124,14 +130,56 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     public InstancedMeshBatch submitAll(Mesh mesh, Iterable<Matrix4f> batch) {
         ensureOpen();
+        ensureFrameBegun();
         for (Matrix4f transform : batch) {
             submit(mesh, transform);
         }
         return this;
     }
 
+    /**
+     * 接收已经由命令缓冲区复制并独占到本次执行结束的矩阵快照。
+     *
+     * <p>普通调用方应继续使用 {@link #submit(Matrix4f)} 或 {@link #submitAll(Iterable)}；
+     * 该入口避免命令执行器对同一批稳定快照再次创建 {@code Matrix4f} 对象。</p>
+     */
+    public InstancedMeshBatch submitOwnedSnapshots(List<Matrix4f> snapshots) {
+        ensureDefaultMesh();
+        ensureFrameBegun();
+        Objects.requireNonNull(snapshots, "snapshots");
+        for (Matrix4f snapshot : snapshots) {
+            defaultMesh.transforms.add(Objects.requireNonNull(snapshot, "snapshot"));
+        }
+        return this;
+    }
+
     public int flush() {
         ensureOpen();
+        ensureFrameBegun();
+        Throwable primaryFailure = null;
+        try {
+            return flushDraws();
+        } catch (RuntimeException | Error error) {
+            primaryFailure = error;
+            throw error;
+        } finally {
+            finishFrame(primaryFailure);
+        }
+    }
+
+    private void finishFrame(Throwable primaryFailure) {
+        try {
+            instanceBuffers.finishFrame();
+        } catch (RuntimeException | Error finishFailure) {
+            if (primaryFailure == null) throw finishFailure;
+            primaryFailure.addSuppressed(finishFailure);
+        } finally {
+            frameBegun = false;
+            clearTransforms();
+        }
+    }
+
+    private int flushDraws() {
         int submitted = pendingInstances();
         if (submitted == 0) {
             lastStats = InstanceBatchStats.empty();
@@ -165,11 +213,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
             startInstance += count;
         }
 
-        instanceBuffers.finishFrame();
         lastStats = new InstanceBatchStats(submitted, drawn, drawCalls, bufferUpdates, meshGroups);
-        for (MeshEntry entry : meshes) {
-            entry.transforms.clear();
-        }
         return drawn;
     }
 
@@ -206,6 +250,7 @@ public final class InstancedMeshBatch implements AutoCloseable {
         for (MeshEntry entry : meshes) {
             entry.vao.close();
         }
+        frameBegun = false;
         closed = true;
     }
 
@@ -219,6 +264,18 @@ public final class InstancedMeshBatch implements AutoCloseable {
         ensureOpen();
         if (defaultMesh == null) {
             throw new GlException("No mesh registered in InstancedMeshBatch");
+        }
+    }
+
+    private void ensureFrameBegun() {
+        if (!frameBegun) {
+            throw new GlException("Call beginFrame before submitting or flushing instances");
+        }
+    }
+
+    private void clearTransforms() {
+        for (MeshEntry entry : meshes) {
+            entry.transforms.clear();
         }
     }
 
