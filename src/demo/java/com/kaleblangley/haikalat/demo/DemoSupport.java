@@ -20,7 +20,7 @@ public final class DemoSupport {
     private static final String VERTEX_COLOR_FRAGMENT_SHADER = "/demo/vertex_color_unlit.frag";
     private static final float CAMERA_FOV_RADIANS = (float) Math.toRadians(45.0);
     private static final float CAMERA_NEAR = 0.1f;
-    private static final float CAMERA_FAR = 100.0f;
+    private static final float CAMERA_FAR = 1000.0f;
 
     private DemoSupport() {
     }
