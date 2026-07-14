@@ -13,14 +13,28 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class InstancedRenderer {
     private final InstancedMeshBatch batch;
     private final ShaderProgram shader;
+    private final boolean castShadows;
     private volatile List<Matrix4f> frameTransforms = List.of();
     private final AtomicInteger frameIndex = new AtomicInteger(0);
     private final AtomicInteger drawnCount = new AtomicInteger(0);
+    private final AtomicInteger shadowDrawnCount = new AtomicInteger(0);
     private final List<InstanceDef> definitions = new ArrayList<>();
 
     public InstancedRenderer(InstancedMeshBatch batch, ShaderProgram shader) {
+        this(batch, shader, false);
+    }
+
+    /**
+     * 创建实例渲染器。
+     *
+     * @param batch       geometry 与 shadow pass 复用的实例批次
+     * @param shader      geometry pass 使用的着色器
+     * @param castShadows 是否把当前实例作为阴影投射物提交
+     */
+    public InstancedRenderer(InstancedMeshBatch batch, ShaderProgram shader, boolean castShadows) {
         this.batch = batch;
         this.shader = shader;
+        this.castShadows = castShadows;
     }
 
     public void addInstance(InstanceDef def) {
@@ -33,6 +47,16 @@ public final class InstancedRenderer {
 
     public int drawnCount() {
         return drawnCount.get();
+    }
+
+    /** @return 是否在 shadow pass 提交当前帧实例 */
+    public boolean castShadows() {
+        return castShadows;
+    }
+
+    /** @return 最近一次 shadow pass 实际绘制的实例数量 */
+    public int shadowDrawnCount() {
+        return shadowDrawnCount.get();
     }
 
     public boolean supportsPersistent() {
@@ -66,6 +90,18 @@ public final class InstancedRenderer {
     public void render(CommandBuffer cmd) {
         cmd.bindShader(shader);
         submitBatch(cmd);
+    }
+
+    /**
+     * 使用 shadow pass 已经绑定的 depth-only shader 提交同一帧实例快照。
+     * 未显式开启实例阴影时不记录绘制命令。
+     */
+    public void renderShadow(CommandBuffer cmd) {
+        if (!castShadows) {
+            shadowDrawnCount.set(0);
+            return;
+        }
+        cmd.drawInstancedBatch(batch, frameTransforms, shadowDrawnCount::set);
     }
 
     private void submitBatch(CommandBuffer cmd) {

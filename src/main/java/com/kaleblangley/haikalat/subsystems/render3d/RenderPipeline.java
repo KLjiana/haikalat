@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import org.joml.Matrix4f;
 
@@ -26,6 +27,7 @@ public final class RenderPipeline {
     private LightingBinder lightingBinder;
     private PostProcessPassBuilder postProcess;
     private ShaderProgram shadowShader;
+    private ShaderProgram instancedShadowShader;
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
     private int lastShadowCasterDrawCount;
 
@@ -56,6 +58,15 @@ public final class RenderPipeline {
         return PostProcessPassBuilder.passNamesFor(mode, directionalShadow);
     }
 
+    public static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode) {
+        return PostProcessPassBuilder.passNamesFor(mode, toneMappingMode);
+    }
+
+    public static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode,
+                                            boolean directionalShadow) {
+        return PostProcessPassBuilder.passNamesFor(mode, toneMappingMode, directionalShadow);
+    }
+
     public RenderPipelineKind kind() {
         return RenderPipelineKind.FORWARD;
     }
@@ -72,6 +83,11 @@ public final class RenderPipeline {
         if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
             shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                     "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
+            if (instanced != null && instanced.castShadows()) {
+                instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                        "/shadows/instanced_directional_depth.vert",
+                        "/shadows/directional_depth.frag");
+            }
         }
 
         ForwardPassBuilder.addForwardPasses(graph, settings, scene, directionalShadowMap,
@@ -93,6 +109,11 @@ public final class RenderPipeline {
 
     public int lastShadowCasterDrawCount() {
         return lastShadowCasterDrawCount;
+    }
+
+    /** @return 最近一次 shadow pass 绘制的实例 caster 数量 */
+    public int lastInstancedShadowCasterCount() {
+        return instanced == null ? 0 : instanced.shadowDrawnCount();
     }
 
     public void execute(RenderDevice device) {
@@ -129,6 +150,10 @@ public final class RenderPipeline {
             shadowShader.close();
             shadowShader = null;
         }
+        if (instancedShadowShader != null) {
+            instancedShadowShader.close();
+            instancedShadowShader = null;
+        }
         lightingBinder = null;
     }
 
@@ -148,7 +173,7 @@ public final class RenderPipeline {
                     .enableBlend(false)
                     .enableDepthTest(true)
                     .depthMask(true)
-                    // The baseline scene uses two-sided planes, so culling is deliberately disabled.
+                    // 基准场景包含双面平面，因此阴影 pass 显式关闭剔除。
                     .enableCullFace(false)
                     .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
             Matrix4f model = new Matrix4f();
@@ -161,6 +186,12 @@ public final class RenderPipeline {
                 casterDraws++;
             }
             lastShadowCasterDrawCount = casterDraws;
+            if (instanced != null && instanced.castShadows()) {
+                cmd.bindShader(instancedShadowShader)
+                        .setUniformMat4(instancedShadowShader, "uLightSpace",
+                                lastDirectionalLightSpaceMatrix);
+                instanced.renderShadow(cmd);
+            }
         });
     }
 

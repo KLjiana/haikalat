@@ -8,6 +8,7 @@
 
 - [项目目标](planning/project-goals.md)
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
+- [实例化阴影与 HDR/ACES 实施计划](planning/instanced-shadow-hdr-roadmap.md) — v0.8 已完成里程碑
 - [后续计划](planning/future-plans.md)
 
 ## 架构

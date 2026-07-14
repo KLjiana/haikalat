@@ -24,11 +24,12 @@ final class ForwardPassBuilder {
         }
 
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
+        RenderFormat sceneFormat = sceneColorFormat(settings);
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
-            geometry.createColorMS(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA8,
+            geometry.createColorMS(PostProcessTargets.SCENE_COLOR, sceneFormat,
                     Math.max(2, settings.msaaSamples()));
         } else {
-            geometry.createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA8);
+            geometry.createColor(PostProcessTargets.SCENE_COLOR, sceneFormat);
         }
         geometry
                 .createDepth()
@@ -37,5 +38,9 @@ final class ForwardPassBuilder {
             geometry.dependsOn(DirectionalShadowMap.PASS_NAME);
         }
         geometry.execute(geometryExecutor);
+    }
+
+    static RenderFormat sceneColorFormat(RenderSettings settings) {
+        return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.RGBA8;
     }
 }

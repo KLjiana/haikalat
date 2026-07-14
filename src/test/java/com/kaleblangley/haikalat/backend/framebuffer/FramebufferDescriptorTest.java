@@ -11,8 +11,35 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL11.GL_RGBA;
 
 class FramebufferDescriptorTest {
+    @Test
+    void rgba16fTextureUsesFloatUploadMetadata() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.builder(64, 64)
+                .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F)
+                .build();
+        FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().getFirst();
+
+        assertEquals(GL_RGBA16F, color.internalFormat());
+        assertEquals(GL_RGBA, color.externalFormat());
+        assertEquals(GL_FLOAT, color.dataType());
+    }
+
+    @Test
+    void rgba16fMultisampleRenderbufferKeepsFloatMetadata() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.builder(64, 64)
+                .samples(4)
+                .colorRenderbuffer(com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F)
+                .build();
+        FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().getFirst();
+
+        assertEquals(GL_RGBA16F, color.internalFormat());
+        assertEquals(GL_FLOAT, color.dataType());
+        assertEquals(FramebufferDescriptor.AttachmentStorage.RENDERBUFFER, color.storage());
+    }
+
     @Test
     void singleColorDepthRenderbufferDescribesDefaultTarget() {
         FramebufferDescriptor descriptor = FramebufferDescriptor.singleColorDepthRenderbuffer(800, 600);

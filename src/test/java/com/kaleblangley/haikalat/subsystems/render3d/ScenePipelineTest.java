@@ -7,12 +7,27 @@ import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScenePipelineTest {
+    @Test
+    void instancedShadowShaderUsesBatchMatrixAttributeLocations() throws IOException {
+        String source;
+        try (var stream = ScenePipelineTest.class.getResourceAsStream(
+                "/shadows/instanced_directional_depth.vert")) {
+            assertTrue(stream != null);
+            source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        assertTrue(source.contains("layout (location = 3) in mat4 aInstanceMatrix"));
+        assertTrue(source.contains("uLightSpace * aInstanceMatrix"));
+    }
+
     @Test
     void sceneTracksLightsAndShadowCastingDirectionalLight() {
         Scene scene = new Scene(new Camera());

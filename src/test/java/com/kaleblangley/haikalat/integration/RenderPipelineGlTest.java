@@ -2,6 +2,8 @@ package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
@@ -9,10 +11,13 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
+import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.*;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
+import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.BufferUtils;
@@ -92,6 +97,14 @@ class RenderPipelineGlTest {
             }
             """;
 
+    private static final String HDR_FRAGMENT_SOURCE = """
+            #version 330 core
+            out vec4 FragColor;
+            void main() {
+                FragColor = vec4(4.0, 1.0, 0.25, 1.0);
+            }
+            """;
+
     private static final String INVISIBLE_CASTER_VERTEX_SOURCE = PIPELINE_VERTEX_SOURCE;
 
     private static final String INVISIBLE_CASTER_FRAGMENT_SOURCE = """
@@ -168,23 +181,131 @@ class RenderPipelineGlTest {
             Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("aa-smoke"));
             ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, PIPELINE_FRAGMENT_SOURCE);
             Material material = Material.builder(shader).build();
-            Scene scene = new Scene(new Camera());
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
             scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
             try {
-                for (AntiAliasingMode mode : AntiAliasingMode.values()) {
-                    RenderSettings settings = RenderSettings.builder()
-                            .antiAliasingMode(mode)
-                            .vsync(false)
-                            .build();
-                    RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings);
+                for (ToneMappingMode toneMapping : ToneMappingMode.values()) {
+                    for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                        RenderSettings settings = RenderSettings.builder()
+                                .antiAliasingMode(mode)
+                                .toneMappingMode(toneMapping)
+                                .vsync(false)
+                                .build();
+                        RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings);
+                        try {
+                            pipeline.build();
+                            pipeline.execute(new GlRenderDevice());
+                            ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                            assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
+                                    "Expected geometry output for " + toneMapping + "/" + mode);
+                            GlDebug.checkError(toneMapping + "/" + mode);
+                        } finally {
+                            pipeline.close();
+                        }
+                    }
+                }
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void rgba16fTargetPreservesLinearValuesAboveOne() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Framebuffer target = Framebuffer.fromDescriptor(FramebufferDescriptor.builder(32, 32)
+                    .colorTexture(RenderFormat.RGBA16F)
+                    .build());
+            ShaderProgram writer = ShaderProgram.fromSources(DEPTH_WRITE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            int vao = glGenVertexArrays();
+            try {
+                target.bind();
+                glViewport(0, 0, 32, 32);
+                glBindVertexArray(vao);
+                writer.use();
+                glDrawArrays(GL_TRIANGLES, 0, 3);
+
+                FloatBuffer pixel = BufferUtils.createFloatBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_FLOAT, pixel);
+                assertTrue(pixel.get(0) > 3.5f,
+                        "RGBA16F target must preserve unclamped linear HDR red");
+                assertTrue(pixel.get(1) > 0.9f);
+                GlDebug.checkError("rgba16fTargetPreservesLinearValuesAboveOne");
+            } finally {
+                glBindVertexArray(0);
+                glDeleteVertexArrays(vao);
+                writer.close();
+                target.close();
+            }
+        }
+    }
+
+    @Test
+    void acesExposureChangesFinalLdrPixels() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("hdr-exposure"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            try {
+                int low = renderExposurePixel(window, scene, 0.25f);
+                int high = renderExposurePixel(window, scene, 2.0f);
+
+                assertTrue(low >= 0 && low <= 255);
+                assertTrue(high >= 0 && high <= 255);
+                assertTrue(high - low > 10,
+                        "Changing exposure must produce a visible LDR pixel difference");
+                GlDebug.checkError("acesExposureChangesFinalLdrPixels");
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void hdrMsaaAndTaaResourcesSurviveResize() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("hdr-resize"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            try {
+                for (AntiAliasingMode mode : List.of(AntiAliasingMode.MSAA, AntiAliasingMode.TAA)) {
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            RenderSettings.builder()
+                                    .antiAliasingMode(mode)
+                                    .toneMappingMode(ToneMappingMode.ACES)
+                                    .vsync(false)
+                                    .build());
                     try {
                         pipeline.build();
                         pipeline.execute(new GlRenderDevice());
+                        pipeline.resize(48, 40);
+                        pipeline.execute(new GlRenderDevice());
                         ByteBuffer pixel = BufferUtils.createByteBuffer(4);
                         glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
-                        assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 0,
-                                "Expected non-empty output for AA mode " + mode);
-                        GlDebug.checkError("AA mode " + mode);
+                        assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
+                                "HDR resize must retain final output for " + mode);
+                        GlDebug.checkError("HDR resize " + mode);
                     } finally {
                         pipeline.close();
                     }
@@ -295,6 +416,32 @@ class RenderPipelineGlTest {
     }
 
     @Test
+    void instancedShadowOptInChangesPixelsAndBatchRemainsReusableNextFrame() throws Exception {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(128, 128)
+                .title("Instanced Shadow Integration")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            InstancedShadowResult disabled = renderInstancedShadowScene(window, false);
+            InstancedShadowResult enabled = renderInstancedShadowScene(window, true);
+
+            assertEquals(1, disabled.geometryInstances());
+            assertEquals(1, enabled.geometryInstances());
+            assertEquals(0, disabled.shadowInstances());
+            assertEquals(1, enabled.shadowInstances());
+            assertEquals(0, disabled.ordinaryCasterDraws());
+            assertEquals(0, enabled.ordinaryCasterDraws());
+            assertTrue(pixelDifference(disabled.pixels(), enabled.pixels()) > 1_000,
+                    "Enabling the instanced caster must change final shadowed receiver pixels");
+            GlDebug.checkError("instancedShadowOptInChangesPixelsAndBatchRemainsReusableNextFrame");
+        }
+    }
+
+    @Test
     void fullLightingAndShadowPipelineChangesFinalPixels() throws Exception {
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(128, 128)
@@ -373,6 +520,58 @@ class RenderPipelineGlTest {
         }
     }
 
+    private static InstancedShadowResult renderInstancedShadowScene(GlfwWindow window,
+                                                                    boolean castShadows) throws Exception {
+        Path resources = Path.of("src", "demo", "resources", "demo");
+        ShaderProgram receiverShader = ShaderProgram.fromSources(
+                Files.readString(resources.resolve("color_scene.vert")),
+                Files.readString(resources.resolve("lit_scene.frag")));
+        ShaderProgram instancedShader = ShaderProgram.fromSources(
+                Files.readString(resources.resolve("instanced_scene.vert")),
+                Files.readString(resources.resolve("vertex_color_unlit.frag")));
+        Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-receiver"));
+        Mesh instancedMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-caster"));
+        Material receiverMaterial = Material.builder(receiverShader).build();
+        InstancedMeshBatch batch = InstancedMeshBatch.of(instancedMesh, 1,
+                BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
+        InstancedRenderer instanced = new InstancedRenderer(batch, instancedShader, castShadows);
+        instanced.addInstance(frame -> new Matrix4f()
+                .translation(-0.8f, 0.0f, -1.0f)
+                .scale(0.7f));
+
+        Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+        scene.add(new SceneObject(receiverMesh, receiverMaterial,
+                (model, frame) -> model.identity().translation(0.0f, 0.0f, -3.0f).scale(4.0f), false));
+        scene.addLight(SceneLight.shadowedDirectional(
+                new Vector3f(0.5f, 0.0f, -1.0f), new Vector3f(1.0f), 1.0f));
+
+        RenderPipeline pipeline = new RenderPipeline(window, scene, instanced,
+                RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build());
+        try {
+            pipeline.build();
+            GlRenderDevice device = new GlRenderDevice();
+            instanced.beginFrame(0);
+            pipeline.execute(device);
+            instanced.beginFrame(1);
+            pipeline.execute(device);
+
+            ByteBuffer pixels = BufferUtils.createByteBuffer(window.width() * window.height() * 4);
+            glReadPixels(0, 0, window.width(), window.height(), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            byte[] image = new byte[pixels.remaining()];
+            pixels.get(image);
+            return new InstancedShadowResult(image, instanced.drawnCount(),
+                    pipeline.lastInstancedShadowCasterCount(), pipeline.lastShadowCasterDrawCount());
+        } finally {
+            pipeline.close();
+            instanced.close();
+            receiverMaterial.close();
+            instancedMesh.close();
+            receiverMesh.close();
+            instancedShader.close();
+            receiverShader.close();
+        }
+    }
+
     private static long pixelDifference(byte[] left, byte[] right) {
         long difference = 0L;
         for (int i = 0; i < left.length; i += 4) {
@@ -381,5 +580,28 @@ class RenderPipelineGlTest {
             difference += Math.abs(Byte.toUnsignedInt(left[i + 2]) - Byte.toUnsignedInt(right[i + 2]));
         }
         return difference;
+    }
+
+    private static int renderExposurePixel(GlfwWindow window, Scene scene, float exposure) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderSettings.builder()
+                        .antiAliasingMode(AntiAliasingMode.NONE)
+                        .toneMappingMode(ToneMappingMode.ACES)
+                        .exposure(exposure)
+                        .vsync(false)
+                        .build());
+        try {
+            pipeline.build();
+            pipeline.execute(new GlRenderDevice());
+            ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            return Byte.toUnsignedInt(pixel.get(0));
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    private record InstancedShadowResult(byte[] pixels, int geometryInstances,
+                                         int shadowInstances, int ordinaryCasterDraws) {
     }
 }

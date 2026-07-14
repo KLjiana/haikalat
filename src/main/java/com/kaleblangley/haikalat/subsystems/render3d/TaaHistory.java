@@ -1,13 +1,21 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 
 final class TaaHistory implements AutoCloseable {
+    private final RenderFormat format;
     private Framebuffer framebuffer;
     private boolean valid;
 
     TaaHistory(int width, int height) {
-        this.framebuffer = Framebuffer.singleSampled(width, height);
+        this(width, height, RenderFormat.RGBA8);
+    }
+
+    TaaHistory(int width, int height, RenderFormat format) {
+        this.format = format;
+        this.framebuffer = createFramebuffer(width, height);
     }
 
     Framebuffer framebuffer() {
@@ -33,7 +41,7 @@ final class TaaHistory implements AutoCloseable {
         if (framebuffer != null) {
             framebuffer.close();
         }
-        framebuffer = Framebuffer.singleSampled(width, height);
+        framebuffer = createFramebuffer(width, height);
         valid = false;
     }
 
@@ -44,5 +52,11 @@ final class TaaHistory implements AutoCloseable {
             framebuffer = null;
         }
         valid = false;
+    }
+
+    private Framebuffer createFramebuffer(int width, int height) {
+        return Framebuffer.fromDescriptor(FramebufferDescriptor.builder(width, height)
+                .colorTexture(format)
+                .build());
     }
 }

@@ -13,7 +13,7 @@ public class Camera {
 
     public static final float YAW = -90.0f;
     public static final float PITCH = 0.0f;
-    public static final float SPEED = 25f;
+    public static final float SPEED = 2.5f;
     public static final float SENSITIVITY = 0.1f;
     public static final float ZOOM = 45.0f;
 

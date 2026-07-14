@@ -15,6 +15,7 @@ import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
@@ -39,6 +40,8 @@ public final class LearnOpenGlDemo {
 
         RenderSettings settings = RenderSettings.builder()
                 .antiAliasingMode(options.antiAliasingMode())
+                .toneMappingMode(ToneMappingMode.ACES)
+                .exposure(1.0f)
                 .vsync(!options.deterministic())
                 .build();
         try (GlfwWindow window = new GlfwWindow.Builder()
@@ -67,7 +70,7 @@ public final class LearnOpenGlDemo {
             ShaderProgram instancedShader = resources.shader("instanced");
             InstancedMeshBatch batch = InstancedMeshBatch.of(instancedMesh,
                     DemoGrid.COUNT, BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
-            InstancedRenderer instanced = new InstancedRenderer(batch, instancedShader);
+            InstancedRenderer instanced = new InstancedRenderer(batch, instancedShader, true);
             addInstances(instanced);
 
             RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings);

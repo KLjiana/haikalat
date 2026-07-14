@@ -41,6 +41,9 @@ Naming/package convention: `*SmokeTest` under `com.kaleblangley.haikalat.integra
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 ```
 
+需要访问 package-private 渲染内部状态的真实 GL 回归可以与被测类同包放置，但仍必须使用相同的
+`EnabledIfSystemProperty` 守卫，保证默认 CI 不创建窗口或 OpenGL context。
+
 Command:
 
 ```powershell
@@ -85,4 +88,4 @@ Run every local check that requires a desktop OpenGL environment:
 
 `localGlVerification` also runs the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
 
-The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, the complete scene-to-shadow-to-lighting pixel chain, and an async UBO upload that drives instanced final pixels. Unit tests verify primitive-only state packets, boundary separation, packed-instance quantization, uint8 topology/winding, and synchronization between generated GLSL and the Java catalog.
+The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, LDR/HDR output for none/MSAA/FXAA/TAA, RGBA16F values above 1.0, ACES exposure changes, HDR resize, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with two-pass ring reuse, and an async UBO upload that drives instanced final pixels. Unit tests verify primitive-only state packets, boundary separation, packed-instance quantization, uint8 topology/winding, HDR pass order, exposure validation, ACES reference behavior, float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.

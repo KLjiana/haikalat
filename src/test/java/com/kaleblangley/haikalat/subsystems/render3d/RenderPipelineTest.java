@@ -2,6 +2,9 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderPipelineTest {
+    @Test
+    void instancedRendererRequiresExplicitShadowOptIn() {
+        InstancedRenderer defaults = new InstancedRenderer(null, null);
+        InstancedRenderer enabled = new InstancedRenderer(null, null, true);
+
+        assertTrue(!defaults.castShadows());
+        assertTrue(enabled.castShadows());
+    }
+
     @Test
     void passPlanUsesPresentPassForNoneAndMsaa() {
         List<String> expected = List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.PRESENT_PASS);
@@ -28,6 +40,42 @@ class RenderPipelineTest {
                 RenderPipeline.passNamesFor(AntiAliasingMode.FXAA));
         assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA));
+    }
+
+    @Test
+    void hdrPassPlansKeepAaInTheRequiredColorSpace() {
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.NONE, ToneMappingMode.ACES));
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.HDR_RESOLVE_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.MSAA, ToneMappingMode.ACES));
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.FXAA_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.FXAA, ToneMappingMode.ACES));
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES));
+    }
+
+    @Test
+    void hdrPassPlanCanPrefixDirectionalShadowWithoutReordering() {
+        assertEquals(List.of(DirectionalShadowMap.PASS_NAME,
+                        PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES, true));
+    }
+
+    @Test
+    void hdrUsesFloatSceneAndTaaHistoryFormatsWhileLdrRemainsRgba8() {
+        RenderSettings ldr = RenderSettings.builder().build();
+        RenderSettings hdr = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES).build();
+
+        assertEquals(RenderFormat.RGBA8, ForwardPassBuilder.sceneColorFormat(ldr));
+        assertEquals(RenderFormat.RGBA8, PostProcessPassBuilder.taaHistoryFormat(ldr));
+        assertEquals(RenderFormat.RGBA16F, ForwardPassBuilder.sceneColorFormat(hdr));
+        assertEquals(RenderFormat.RGBA16F, PostProcessPassBuilder.taaHistoryFormat(hdr));
     }
 
     @Test

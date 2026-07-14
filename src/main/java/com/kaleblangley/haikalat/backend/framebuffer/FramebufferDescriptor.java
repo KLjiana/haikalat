@@ -8,12 +8,14 @@ import java.util.List;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
+import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 
 public record FramebufferDescriptor(
         int width,
@@ -104,11 +106,17 @@ public record FramebufferDescriptor(
         }
 
         public static ColorAttachment texture(int internalFormat) {
-            return new ColorAttachment(internalFormat, GL_RGBA, GL_UNSIGNED_BYTE, AttachmentStorage.TEXTURE_2D);
+            return new ColorAttachment(internalFormat, GL_RGBA, colorDataType(internalFormat),
+                    AttachmentStorage.TEXTURE_2D);
         }
 
         public static ColorAttachment renderbuffer(int internalFormat) {
-            return new ColorAttachment(internalFormat, GL_RGBA, GL_UNSIGNED_BYTE, AttachmentStorage.RENDERBUFFER);
+            return new ColorAttachment(internalFormat, GL_RGBA, colorDataType(internalFormat),
+                    AttachmentStorage.RENDERBUFFER);
+        }
+
+        private static int colorDataType(int internalFormat) {
+            return internalFormat == GL_RGBA16F ? GL_FLOAT : GL_UNSIGNED_BYTE;
         }
     }
 

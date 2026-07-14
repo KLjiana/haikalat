@@ -43,7 +43,17 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## Directional Shadow Boundary
 
-`RenderPipeline` 拥有 depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 只遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer；独立的 instanced batch 暂不投射阴影。基准场景由双面平面组成，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
+`RenderPipeline` 拥有普通与 instanced depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 先遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer，再在 `InstancedRenderer.castShadows=true` 时提交同一帧实例快照。实例阴影默认关闭，避免旧调用方无意增加一次实例上传和绘制。
+
+Shadow 与 geometry 各记录一次正式 `drawInstancedBatch`，执行时分别完成 `beginFrame -> upload -> draw -> finishFrame`，因此每次提交拥有独立 ring slot、GPU fence 和异常清理。本阶段允许重复上传，但不创建 shadow 专用 batch、不重新计算 transform，也不改变命令缓冲区的快照语义。单次上传、多 pass 复用只有在基准证明双提交是实际瓶颈后才允许设计。
+
+基准场景包含双面平面，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
+
+## HDR And Tone Mapping Boundary
+
+`RenderSettings.toneMappingMode=NONE` 保持原有 RGBA8 LDR pass 和画面；只有显式选择 `ACES` 才启用 HDR。HDR geometry、MSAA resolve 和 TAA history/accumulation 使用 `RGBA16F`，tone-mapping target 使用 `RGBA8`。ACES pass 按 exposure、fitted curve、clamp、gamma 编码的顺序工作，复用 graph 管理的 attachment、`ScreenQuad` 和 typed `CommandBuffer`，不自行创建 framebuffer。
+
+HDR pass 顺序固定为：NONE 是 `Geometry -> ToneMapping -> Present`；MSAA 是 `Geometry MSAA -> HdrResolve -> ToneMapping -> Present`；FXAA 是 `Geometry -> ToneMapping -> FXAA`；TAA 是 `Geometry -> TAA HDR -> ToneMapping -> Present`。因此 TAA 始终在线性 HDR 空间积累，FXAA 始终处理显示空间 LDR 图像。窗口 resize 重建所有窗口相关 HDR/LDR target 和 TAA history，并使 history 下一帧权重归零；固定 2048×2048 shadow target 不参与窗口 resize。
 
 ## Package Dependency Guard
 
@@ -109,7 +119,7 @@ demo scene 便利字段：
 
 ## CommandBuffer Instanced Batch
 
-`CommandBuffer.drawInstancedBatch(...)` 是实例化批处理的正式主路径命令。它在记录命令时复制传入的 `Matrix4f` transform 列表，执行时在渲染线程按 `beginFrame -> submitAll -> flush` 顺序调用 `InstancedMeshBatch`。
+`CommandBuffer.drawInstancedBatch(...)` 是实例化批处理的正式主路径命令。它在记录命令时复制传入的 `Matrix4f` transform 列表，执行时在渲染线程按 `beginFrame -> submitAll -> flush` 顺序调用 `InstancedMeshBatch`。实例阴影复用同一个命令和 batch，在 shadow/geometry 两个可观察 pass 边界各提交一次，不跨 pass 合并生命周期。
 
 该命令的 batch upload/draw 由 `InstancedMeshBatch` 自己完成；结束后只失效 VAO/element-buffer 缓存，不再触发全状态失效。调用方不得通过 `cmd.custom()` 捕获实例化 batch 的裸 upload/draw 逻辑；如果 transform 来自生产线程，必须在记录命令前或记录时形成稳定快照。
 
@@ -117,7 +127,7 @@ demo scene 便利字段：
 
 当前保留一个综合 demo 作为能力证明：
 
-- `LearnOpenGlDemo`：读取标准 `.properties` 场景配置，运行 scene pipeline，默认启用 FXAA postprocess，并通过配置中的 shadow-casting directional light 创建 shadow pass。
+- `LearnOpenGlDemo`：读取标准 `.properties` 场景配置，运行 scene pipeline，默认启用 ACES HDR、FXAA 和实例阴影，并通过配置中的 shadow-casting directional light 创建 shadow pass。
 
 专项 demo 保留为调试入口：
 

@@ -1,0 +1,45 @@
+package com.kaleblangley.haikalat.runtime;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** 验证 HDR 配置默认值和 exposure 输入边界。 */
+class RenderSettingsTest {
+    @Test
+    void defaultsPreserveLdrRendering() {
+        RenderSettings settings = RenderSettings.builder().build();
+
+        assertEquals(ToneMappingMode.NONE, settings.toneMappingMode());
+        assertEquals(1.0f, settings.exposure());
+        assertFalse(settings.hdrEnabled());
+    }
+
+    @Test
+    void acesEnablesHdrRendering() {
+        RenderSettings settings = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES)
+                .exposure(1.25f)
+                .build();
+
+        assertTrue(settings.hdrEnabled());
+        assertEquals(1.25f, settings.exposure());
+    }
+
+    @Test
+    void exposureRejectsNonPositiveAndNonFiniteValues() {
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderSettings.builder().exposure(0.0f).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderSettings.builder().exposure(-1.0f).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderSettings.builder().exposure(Float.NaN).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderSettings.builder().exposure(Float.POSITIVE_INFINITY).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderSettings.builder().exposure(Float.NEGATIVE_INFINITY).build());
+    }
+}
