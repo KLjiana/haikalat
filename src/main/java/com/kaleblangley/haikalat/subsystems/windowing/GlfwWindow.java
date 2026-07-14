@@ -6,8 +6,8 @@ import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 /**
- * GLFW window wrapper. The renderer targets OpenGL 4.6 core profile, so the GL
- * context version/profile/debug hints are fixed instead of exposed as builder switches.
+ * GLFW 窗口封装。渲染器固定面向 OpenGL 4.6 core profile，
+ * 因此 context 版本、profile 和 debug hint 不作为 builder 开关暴露。
  */
 public final class GlfwWindow implements AutoCloseable, RenderWindow {
 
@@ -139,7 +139,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwSetWindowShouldClose(handle, true);
     }
 
-    /** Requests a new window size. The framebuffer callback publishes the actual pixel size. */
+    /** 请求新的窗口尺寸；framebuffer 回调负责发布实际像素尺寸。 */
     public void resize(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("window dimensions must be positive");
@@ -147,7 +147,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwSetWindowSize(handle, width, height);
     }
 
-    /** Sets swap interval for the context currently bound by this window. */
+    /** 为当前窗口已经绑定的 context 设置 swap interval。 */
     public void setVsync(boolean enabled) {
         glfwSwapInterval(enabled ? 1 : 0);
     }
@@ -169,7 +169,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwPollEvents();
     }
 
-    /** Waits for events with a timeout, useful for pacing a non-render producer thread. */
+    /** 在超时限制内等待事件，适合控制非渲染生产线程的节奏。 */
     public void waitEvents(double timeoutSeconds) {
         resetMouseDelta();
         glfwWaitEventsTimeout(timeoutSeconds);

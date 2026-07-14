@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
-/** Monotonic, non-blocking interval gate for overlays and other low-frequency runtime work. */
+/** 为 overlay 和其他低频 runtime 工作提供单调、非阻塞的时间间隔门。 */
 public final class PeriodicTimer {
     private final LongSupplier nanoTime;
     private final long intervalNanos;
@@ -24,7 +24,7 @@ public final class PeriodicTimer {
         nextNanos = nanoTime.getAsLong();
     }
 
-    /** Returns immediately; the first call and then at most one call per interval return true. */
+    /** @return 立即返回；首次调用以及之后每个 interval 最多一次返回 {@code true} */
     public boolean poll() {
         long now = nanoTime.getAsLong();
         if (now < nextNanos) return false;

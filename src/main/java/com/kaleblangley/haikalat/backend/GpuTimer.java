@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.backend;
 
 import static org.lwjgl.opengl.GL33.*;
 
-/** OpenGL elapsed-time query owned by the render graph. */
+/** 由渲染图持有的 OpenGL elapsed-time 查询。 */
 public final class GpuTimer implements GlResource {
     private static final int QUERY_RING_SIZE = 8;
 

@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** Owns the GL resources assembled from the demo manifest. */
+/** 持有并管理由 Demo manifest 组装出的 OpenGL 资源。 */
 final class DemoSceneResources implements AutoCloseable {
     private final Map<String, ShaderProgram> shaders = new LinkedHashMap<>();
     private final Map<String, Material> materials = new LinkedHashMap<>();

@@ -60,7 +60,7 @@ public final class PackedInstanceLayout {
         return new float[]{unpackSnorm16((short) packed), unpackSnorm16((short) (packed >>> 16))};
     }
 
-    /** Packs RGBA in OpenGL unpackUnorm4x8 order: R occupies the least-significant byte. */
+    /** 按 OpenGL unpackUnorm4x8 顺序打包 RGBA；R 占最低有效字节。 */
     public static int packRgba8(float red, float green, float blue, float alpha) {
         return packUnorm8(red)
                 | (packUnorm8(green) << 8)

@@ -9,7 +9,7 @@ import com.kaleblangley.haikalat.util.DirectBuffers;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
 
-/** Empty VAO plus an optional generated uint8 EBO. This path deliberately owns no VBO. */
+/** 管理空 VAO 和可选的自动生成 uint8 EBO；该路径刻意不持有 VBO。 */
 final class StressIndexedGeometry implements GlResource {
     private final VertexArray vertexArray = new VertexArray();
     private final GlBuffer elementBuffer;

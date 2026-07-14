@@ -8,8 +8,8 @@ import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 
 /**
- * Last-writer-wins pipeline state collected between observable GPU command boundaries.
- * It intentionally has no knowledge of OpenGL or the persistent backend cache.
+ * 收集两个可观察 GPU 命令边界之间“最后写入生效”的管线状态。
+ * 该类刻意不感知 OpenGL，也不感知 backend 的持久状态缓存。
  */
 final class PendingPipelineState {
     private static final int VIEWPORT = 1;
@@ -98,7 +98,7 @@ final class PendingPipelineState {
         enableDepthTest(depthTest);
     }
 
-    /** Applies each final dirty value exactly once in a stable dependency-friendly order. */
+    /** 按稳定且便于维护依赖的顺序，将每个最终脏值应用一次。 */
     void flush(PipelineStateSink target) {
         int changes = dirty;
         if (changes == 0) return;
@@ -118,7 +118,7 @@ final class PendingPipelineState {
         dirty = 0;
     }
 
-    /** Encodes one primitive-only state packet and consumes the pending values. */
+    /** 将 pending 值编码为一个只含基础类型的状态包，并消费这些值。 */
     void writeTo(CommandStream stream, byte opcode) {
         int changes = dirty;
         if (changes == 0) return;
@@ -147,7 +147,7 @@ final class PendingPipelineState {
         dirty = 0;
     }
 
-    /** Decodes one state packet, applies it to the persistent cache, and returns the new cursor. */
+    /** 解码一个状态包、应用到持久缓存，并返回新的整数游标。 */
     static int applyEncoded(CommandStream stream, int cursor, PipelineStateSink target) {
         int changes = stream.integerAt(cursor++);
         if ((changes & VIEWPORT) != 0) {

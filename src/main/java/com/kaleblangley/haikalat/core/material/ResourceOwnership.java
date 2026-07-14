@@ -1,11 +1,10 @@
 package com.kaleblangley.haikalat.core.material;
 
 /**
- * Describes whether a runtime material closes the GL resources it references.
+ * 描述 runtime material 是否负责关闭其引用的 OpenGL 资源。
  *
- * <p>Use {@link #BORROWED} when shaders, textures, and samplers are owned by an asset manager/cache or by
- * surrounding demo setup code. Use {@link #OWNED} only for convenience runtime materials that exclusively
- * own their referenced GL resources and should close them together.</p>
+ * <p>shader、texture 和 sampler 由 asset manager/cache 或外围 Demo 管理时使用 {@link #BORROWED}；
+ * 只有 runtime material 独占这些资源并应一并关闭时才使用 {@link #OWNED}。</p>
  */
 public enum ResourceOwnership {
     BORROWED,

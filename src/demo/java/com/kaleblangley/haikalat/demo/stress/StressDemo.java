@@ -11,9 +11,9 @@ import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.demo.DemoSupport;
+import com.kaleblangley.haikalat.runtime.FrameBenchmarkSession;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
-import com.kaleblangley.haikalat.runtime.FrameTimingAccumulator;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
@@ -31,7 +31,7 @@ import java.util.function.IntSupplier;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11.glFinish;
 
-/** Large single-draw workload for same-machine procedural/instance-layout comparisons. */
+/** 用于同机比较 procedural 与实例布局的大规模单 draw 压力测试。 */
 public final class StressDemo {
     private static final String PASS_NAME = "StressInstances";
     private static final String FRAGMENT_SHADER = "/demo/vertex_color_unlit.frag";
@@ -131,12 +131,8 @@ public final class StressDemo {
                                 Runnable beforeFrame) {
         FrameClock clock = new FrameClock();
         PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
-        FrameTimingAccumulator timings = new FrameTimingAccumulator(
-                options.maxFrames() > 0 ? options.maxFrames() : 4096);
-        int warmupRemaining = options.warmupFrames();
-        int measuredFrames = 0;
-        long measurementStart = warmupRemaining == 0 ? System.nanoTime() : 0L;
-        long measurementEnd = measurementStart;
+        FrameBenchmarkSession benchmark = new FrameBenchmarkSession(
+                options.maxFrames(), options.warmupFrames());
         long vertexInvocations;
 
         try (PipelineStatisticsQuery pipelineQuery = PipelineStatisticsQuery.vertexShaderInvocations()) {
@@ -154,37 +150,21 @@ public final class StressDemo {
                 driver.present(window::swapBuffers);
                 window.pollEvents();
 
-                if (warmupRemaining > 0) {
-                    warmupRemaining--;
-                    if (warmupRemaining == 0) {
-                        driver.resetStatistics();
-                        timings.reset();
-                        measurementStart = System.nanoTime();
-                    }
-                } else {
-                    measuredFrames++;
-                    timings.add(driver.statistics().lastFrameDurationNanos(),
-                            graph.lastFrameProfile().totalGpuNanos());
-                    measurementEnd = System.nanoTime();
-                }
+                benchmark.recordFrame(driver, graph.lastFrameProfile().totalGpuNanos());
                 if (titleUpdate.poll()) {
-                    double fps = measuredFps(measuredFrames, measurementStart, measurementEnd);
-                    window.setTitle(formatStatistics(driver, timings.summary(), fps,
+                    window.setTitle(formatStatistics(driver, benchmark.snapshot(),
                             pipelineQuery.latestValue(), drawCalls.getAsInt(), options));
                 }
-                if (options.maxFrames() > 0 && measuredFrames >= options.maxFrames()) {
-                    window.requestClose();
-                }
+                if (benchmark.isComplete()) window.requestClose();
             }
-            // Resolve the last asynchronous pipeline counter outside the measured interval.
+            // 在正式测量区间之外解析最后一个异步管线统计结果。
             glFinish();
             vertexInvocations = pipelineQuery.latestValue();
         }
 
         GlDebug.checkError(debugLabel);
         if (options.maxFrames() > 0) {
-            double fps = measuredFps(measuredFrames, measurementStart, measurementEnd);
-            System.out.println(formatStatistics(driver, timings.summary(), fps,
+            System.out.println(formatStatistics(driver, benchmark.snapshot(),
                     vertexInvocations, drawCalls.getAsInt(), options));
         }
     }
@@ -312,14 +292,9 @@ public final class StressDemo {
         return List.copyOf(transforms);
     }
 
-    private static double measuredFps(int frames, long startNanos, long endNanos) {
-        long duration = endNanos - startNanos;
-        return frames == 0 || duration <= 0L ? 0.0 : frames * 1_000_000_000.0 / duration;
-    }
-
     private static String formatStatistics(FrameDriver driver,
-                                           FrameTimingAccumulator.Summary timings,
-                                           double measuredPresentFps, long vertexInvocations,
+                                           FrameBenchmarkSession.Snapshot benchmark,
+                                           long vertexInvocations,
                                            int drawCalls, Options options) {
         StateCache.Statistics state = driver.stateStatistics();
         long stateChecks = state.appliedChanges() + state.avoidedChanges();
@@ -327,12 +302,13 @@ public final class StressDemo {
                 ? 0.0 : state.avoidedChanges() * 100.0 / stateChecks;
         long triangles = (long) options.instances() * options.primitive().trianglesPerInstance();
         String vs = vertexInvocations < 0L ? "N/A" : String.format("%,d", vertexInvocations);
+        var timings = benchmark.timings();
         return String.format(
                 "Stress %s/%s | instances %,d | triangles %,d | present FPS %.1f | "
                         + "CPU avg/median %.3f/%.3f ms | GPU avg/median %.3f/%.3f ms | "
                         + "draws %d | state skip %.1f%% | VS invocations %s",
                 options.mode().displayName(), options.primitive(), options.instances(), triangles,
-                measuredPresentFps, timings.averageCpuMillis(), timings.medianCpuMillis(),
+                benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
                 timings.averageGpuMillis(), timings.medianGpuMillis(), drawCalls,
                 stateSkipPercent, vs);
     }

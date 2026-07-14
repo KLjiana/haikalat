@@ -8,7 +8,7 @@ import java.util.Set;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class BuiltinMeshData {
-    /** Builtin vertex layouts occupy attributes 0..2; instance data starts here. */
+    /** 内建顶点布局占用 attribute 0..2；实例数据从该位置开始。 */
     public static final int INSTANCE_ATTRIBUTE_BASE = 3;
     public static final String TRIANGLE = "triangle";
     public static final String QUAD = "quad";
@@ -79,7 +79,12 @@ public final class BuiltinMeshData {
         }, new int[]{0, 1, 2, 0, 2, 3}, POSITION_UV);
     }
 
-    /** Indexed 12-triangle cube with per-face colors and normals. */
+    /**
+     * 创建带逐面颜色和法线、由 12 个三角形组成的索引立方体。
+     *
+     * @param name 网格名称
+     * @return 立方体网格数据
+     */
     public static MeshData coloredCube(String name) {
         float[][][] faces = {
                 {{-.5f, -.5f, .5f}, {.5f, -.5f, .5f}, {.5f, .5f, .5f}, {-.5f, .5f, .5f}},

@@ -4,11 +4,12 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Non-blocking latest-value handoff for a producer thread and a render thread.
+ * 在生产线程和渲染线程之间非阻塞地交接最新值。
  *
- * <p>Publishing replaces any frame the consumer has not observed yet. Values must be immutable
- * snapshots: the mailbox provides atomic publication and visibility, but intentionally does not
- * lock or copy application objects.</p>
+ * <p>发布新值会替换消费者尚未观察到的旧帧。值必须是不可变快照：mailbox 提供原子发布和可见性，
+ * 但刻意不加锁，也不复制应用对象。</p>
+ *
+ * @param <T> 不可变帧快照类型
  */
 public final class LatestFrameMailbox<T> {
     private final AtomicReference<Snapshot<T>> latest;

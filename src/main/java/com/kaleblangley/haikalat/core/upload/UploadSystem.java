@@ -71,7 +71,7 @@ public final class UploadSystem implements AutoCloseable {
         enqueueBufferUpload(buffer, offset, data, null);
     }
 
-    /** Atomically queues a buffer upload and metadata publication for the same flush batch. */
+    /** 将 buffer 上传与元数据发布原子地加入同一个 flush 批次。 */
     public void uploadBuffer(BufferUploadTarget buffer, long offset, ByteBuffer data,
                              UploadRequest afterUpload) {
         enqueueBufferUpload(buffer, offset, data, Objects.requireNonNull(afterUpload, "afterUpload"));
@@ -103,7 +103,7 @@ public final class UploadSystem implements AutoCloseable {
         enqueueFloatUpload(buffer, offset, data, null);
     }
 
-    /** Atomically queues a float-buffer upload and metadata publication for the same flush batch. */
+    /** 将 FloatBuffer 上传与元数据发布原子地加入同一个 flush 批次。 */
     public void uploadFloats(BufferUploadTarget buffer, long offset, FloatBuffer data,
                              UploadRequest afterUpload) {
         enqueueFloatUpload(buffer, offset, data, Objects.requireNonNull(afterUpload, "afterUpload"));
@@ -218,7 +218,7 @@ public final class UploadSystem implements AutoCloseable {
         }
     }
 
-    /** Rejects new submissions while preserving already accepted work for a final flush. */
+    /** 拒绝新提交，同时保留已接受的任务供最后一次 flush 执行。 */
     public void seal() {
         synchronized (stateLock) {
             closed = true;

@@ -8,7 +8,7 @@ import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
-/** Shared constants and small mechanics used by more than one supported demo. */
+/** 存放多个正式 Demo 共用的常量和小型辅助逻辑。 */
 public final class DemoSupport {
     public static final int DEFAULT_WIDTH = 800;
     public static final int DEFAULT_HEIGHT = 600;

@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.runtime;
 
 import java.util.Arrays;
 
-/** Collects measured CPU/GPU frame times and reports average and median without GL coupling. */
+/** 收集 CPU/GPU 帧时间，并在不依赖 OpenGL 的情况下计算平均值和中位数。 */
 public final class FrameTimingAccumulator {
     private long[] cpuNanos;
     private long[] gpuNanos;
@@ -22,7 +22,7 @@ public final class FrameTimingAccumulator {
         }
         cpuNanos = append(cpuNanos, cpuCount, cpuSubmitNanos);
         cpuCount++;
-        // Zero means that the asynchronous timer has not produced its first result yet.
+        // 0 表示异步 GPU 计时器尚未返回首个有效结果。
         if (gpuFrameNanos > 0L) {
             gpuNanos = append(gpuNanos, gpuCount, gpuFrameNanos);
             gpuCount++;
@@ -68,6 +68,16 @@ public final class FrameTimingAccumulator {
         return median / 1_000_000.0;
     }
 
+    /**
+     * 帧时间统计汇总。
+     *
+     * @param cpuSamples       CPU 样本数
+     * @param gpuSamples       GPU 样本数
+     * @param averageCpuMillis CPU 平均耗时（毫秒）
+     * @param medianCpuMillis  CPU 中位耗时（毫秒）
+     * @param averageGpuMillis GPU 平均耗时（毫秒）
+     * @param medianGpuMillis  GPU 中位耗时（毫秒）
+     */
     public record Summary(int cpuSamples, int gpuSamples,
                           double averageCpuMillis, double medianCpuMillis,
                           double averageGpuMillis, double medianGpuMillis) {

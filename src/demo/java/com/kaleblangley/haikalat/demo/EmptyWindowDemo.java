@@ -3,8 +3,8 @@ package com.kaleblangley.haikalat.demo;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.runtime.FrameBenchmarkSession;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
-import com.kaleblangley.haikalat.runtime.FrameTimingAccumulator;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
@@ -14,7 +14,7 @@ import java.time.Duration;
 
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE;
 
-/** Clear/present baseline with no shader, VAO, buffer, texture, or draw command. */
+/** 不创建 shader、VAO、buffer、texture，也不发出 draw 命令的 clear/present 基线。 */
 public final class EmptyWindowDemo {
     private EmptyWindowDemo() {
     }
@@ -58,12 +58,8 @@ public final class EmptyWindowDemo {
     private static void runLoop(GlfwWindow window, FrameDriver driver,
                                 RenderGraph graph, Options options) {
         PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
-        FrameTimingAccumulator timings = new FrameTimingAccumulator(
-                options.maxFrames() > 0 ? options.maxFrames() : 4096);
-        int warmupRemaining = options.warmupFrames();
-        int measuredFrames = 0;
-        long measurementStart = warmupRemaining == 0 ? System.nanoTime() : 0L;
-        long measurementEnd = measurementStart;
+        FrameBenchmarkSession benchmark = new FrameBenchmarkSession(
+                options.maxFrames(), options.warmupFrames());
         while (!window.shouldClose()) {
             if (window.consumeResize()) graph.resize(window.width(), window.height());
             driver.frame(graph);
@@ -71,49 +67,28 @@ public final class EmptyWindowDemo {
             window.pollEvents();
             if (window.isKeyDown(GLFW_KEY_ESCAPE)) window.requestClose();
 
-            if (warmupRemaining > 0) {
-                warmupRemaining--;
-                if (warmupRemaining == 0) {
-                    driver.resetStatistics();
-                    timings.reset();
-                    measurementStart = System.nanoTime();
-                }
-            } else {
-                measuredFrames++;
-                timings.add(driver.statistics().lastFrameDurationNanos(),
-                        graph.lastFrameProfile().totalGpuNanos());
-                measurementEnd = System.nanoTime();
-            }
+            benchmark.recordFrame(driver, graph.lastFrameProfile().totalGpuNanos());
             if (titleUpdate.poll()) {
-                window.setTitle(formatStatistics(driver, timings.summary(),
-                        measuredFps(measuredFrames, measurementStart, measurementEnd)));
+                window.setTitle(formatStatistics(driver, benchmark.snapshot()));
             }
-            if (options.maxFrames() > 0 && measuredFrames >= options.maxFrames()) {
-                window.requestClose();
-            }
+            if (benchmark.isComplete()) window.requestClose();
         }
         if (options.maxFrames() > 0) {
-            System.out.println(formatStatistics(driver, timings.summary(),
-                    measuredFps(measuredFrames, measurementStart, measurementEnd)));
+            System.out.println(formatStatistics(driver, benchmark.snapshot()));
         }
     }
 
     private static String formatStatistics(FrameDriver driver,
-                                           FrameTimingAccumulator.Summary timings,
-                                           double presentFps) {
+                                           FrameBenchmarkSession.Snapshot benchmark) {
         StateCache.Statistics state = driver.stateStatistics();
         long checks = state.appliedChanges() + state.avoidedChanges();
         double skip = checks == 0L ? 0.0 : state.avoidedChanges() * 100.0 / checks;
+        var timings = benchmark.timings();
         return String.format("EmptyWindow | present FPS %.1f | "
                         + "CPU avg/median %.3f/%.3f ms | GPU avg/median %.3f/%.3f ms | "
                         + "draws 0 | state skip %.1f%% | VS invocations N/A",
-                presentFps, timings.averageCpuMillis(), timings.medianCpuMillis(),
+                benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
                 timings.averageGpuMillis(), timings.medianGpuMillis(), skip);
-    }
-
-    private static double measuredFps(int frames, long startNanos, long endNanos) {
-        long duration = endNanos - startNanos;
-        return frames == 0 || duration <= 0L ? 0.0 : frames * 1_000_000_000.0 / duration;
     }
 
     private record Options(boolean hidden, boolean vsync, int maxFrames, int warmupFrames) {

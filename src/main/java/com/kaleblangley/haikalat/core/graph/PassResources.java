@@ -13,36 +13,36 @@ public final class PassResources {
     }
 
     /**
-     * Returns the OpenGL texture id for a logical color attachment name declared by a pass.
-     * Prefer this over pulling a framebuffer only to read its color attachment id.
+     * 返回 pass 声明的逻辑颜色附件所对应的 OpenGL texture id。
+     * 仅需附件 id 时，应优先使用该方法，而不是先取得 framebuffer。
      */
     public int colorAttachment(String textureName) {
         return graph.getTextureAttachmentId(Objects.requireNonNull(textureName, "textureName"));
     }
 
-    /** Returns the OpenGL texture id for a logical depth texture declared by a pass. */
+    /** @return pass 声明的逻辑深度纹理所对应的 OpenGL texture id */
     public int depthAttachment(String textureName) {
         return graph.getTextureAttachmentId(Objects.requireNonNull(textureName, "textureName"));
     }
 
     /**
-     * Returns the framebuffer owned by a named pass.
-     * This is intended for internal OpenGL passes that need backend framebuffer state such as blits or dimensions.
+     * 返回指定 pass 持有的 framebuffer。
+     * 该方法供需要 blit、尺寸等 backend framebuffer 状态的内部 OpenGL pass 使用。
      */
     public Framebuffer framebufferOfPass(String passName) {
         return graph.getPassFramebuffer(Objects.requireNonNull(passName, "passName"));
     }
 
     /**
-     * Returns the framebuffer currently bound for the executing pass.
-     * Ordinary passes should usually render through commands and logical resource names instead.
+     * 返回当前执行 pass 绑定的 framebuffer。
+     * 普通 pass 通常应通过命令和逻辑资源名完成渲染。
      */
     public Framebuffer currentTarget() {
         return graph.currentPassFramebuffer();
     }
 
     /**
-     * Backend-facing compatibility API. Prefer {@link #framebufferOfPass(String)} for new code.
+     * 面向 backend 的兼容 API；新代码优先使用 {@link #framebufferOfPass(String)}。
      */
     @Deprecated(since = "0.6", forRemoval = false)
     Framebuffer getFramebuffer(String passName) {
@@ -50,15 +50,15 @@ public final class PassResources {
     }
 
     /**
-     * Backend-facing compatibility API for internal passes that need a concrete texture object.
-     * Ordinary passes should use logical resource names and {@link #colorAttachment(String)} when only the id is needed.
+     * 面向需要具体 texture 对象的内部 pass 的 backend 兼容 API。
+     * 仅需要 id 的普通 pass 应使用逻辑资源名和 {@link #colorAttachment(String)}。
      */
     Texture2D getTexture(String textureName) {
         return graph.getTexture(Objects.requireNonNull(textureName, "textureName"));
     }
 
     /**
-     * Backend-facing compatibility API. Prefer {@link #colorAttachment(String)} for new code.
+     * 面向 backend 的兼容 API；新代码优先使用 {@link #colorAttachment(String)}。
      */
     @Deprecated(since = "0.6", forRemoval = false)
     int getTextureAttachmentId(String textureName) {
@@ -66,7 +66,7 @@ public final class PassResources {
     }
 
     /**
-     * Backend-facing compatibility API. Prefer {@link #currentTarget()} for new code.
+     * 面向 backend 的兼容 API；新代码优先使用 {@link #currentTarget()}。
      */
     @Deprecated(since = "0.6", forRemoval = false)
     Framebuffer getFramebuffer() {

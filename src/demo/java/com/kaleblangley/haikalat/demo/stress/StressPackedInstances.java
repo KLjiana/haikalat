@@ -4,7 +4,7 @@ import com.kaleblangley.haikalat.core.mesh.PackedInstanceLayout;
 
 import java.nio.ByteBuffer;
 
-/** CPU-side creation of static compact instance data; never runs in the render loop. */
+/** 在 CPU 侧创建静态 compact instance 数据；不会在渲染循环中执行。 */
 final class StressPackedInstances {
     private static final float SPACING = 0.14f;
 

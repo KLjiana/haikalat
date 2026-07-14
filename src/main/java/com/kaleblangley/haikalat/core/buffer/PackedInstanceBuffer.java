@@ -21,10 +21,10 @@ import static org.lwjgl.opengl.GL44.GL_MAP_COHERENT_BIT;
 import static org.lwjgl.opengl.GL44.GL_MAP_PERSISTENT_BIT;
 
 /**
- * Storage for the 16-byte packed instance layout.
+ * 存储 16 字节 packed instance 布局。
  *
- * <p>Immutable data is uploaded exactly once. Dynamic data uses three persistently mapped,
- * offset-aligned slots; a change journal copies only ranges that a reused slot has not seen.</p>
+ * <p>不可变数据只上传一次。动态数据使用三个持久映射且 offset 对齐的槽位；
+ * change journal 只复制复用槽位尚未同步的范围。</p>
  */
 public final class PackedInstanceBuffer implements GlResource {
     private static final int SLOT_COUNT = 3;
@@ -85,19 +85,18 @@ public final class PackedInstanceBuffer implements GlResource {
         changes.add(new Change(0, Math.toIntExact(payloadBytes), ++version));
     }
 
-    /** Creates an SSBO whose contents will never be uploaded again. */
+    /** 创建内容只上传一次的 SSBO。 */
     public static PackedInstanceBuffer immutable(ByteBuffer data, int instanceCount) {
         return new PackedInstanceBuffer(Objects.requireNonNull(data, "data"), instanceCount, false);
     }
 
-    /** Creates a persistently mapped SSBO ring initialized from packed data. */
+    /** 使用 packed 数据创建并初始化持久映射 SSBO ring。 */
     public static PackedInstanceBuffer dynamic(ByteBuffer initialData, int instanceCount) {
         return new PackedInstanceBuffer(Objects.requireNonNull(initialData, "initialData"), instanceCount, true);
     }
 
     /**
-     * Updates the CPU shadow copy. Only this byte range is copied into each ring slot before that
-     * slot is next used by a draw.
+     * 更新 CPU shadow copy。每个 ring slot 下次参与 draw 前，只复制这一字节范围。
      */
     public void updateRange(int startInstance, ByteBuffer packedInstances, int updateCount) {
         ensureOpen();
@@ -114,7 +113,7 @@ public final class PackedInstanceBuffer implements GlResource {
         changes.add(new Change(byteOffset, byteCount, ++version));
     }
 
-    /** Waits for the active slot and synchronizes only changes that slot has not seen. */
+    /** 等待活动槽位，并只同步该槽位尚未看到的变更。 */
     public void beginFrame() {
         ensureOpen();
         if (!dynamic) return;
@@ -134,7 +133,7 @@ public final class PackedInstanceBuffer implements GlResource {
         frameBegun = true;
     }
 
-    /** Inserts the fence protecting this slot and advances to the next aligned slot. */
+    /** 插入保护当前槽位的 fence，并前进到下一个对齐槽位。 */
     public void finishFrame() {
         ensureOpen();
         if (!dynamic) return;
@@ -175,7 +174,7 @@ public final class PackedInstanceBuffer implements GlResource {
         return offsetAlignment;
     }
 
-    /** Bytes copied from the CPU shadow into the slot by the most recent {@link #beginFrame()}. */
+    /** @return 最近一次 {@link #beginFrame()} 从 CPU shadow 复制到槽位的字节数 */
     public long lastSynchronizedBytes() {
         return lastSynchronizedBytes;
     }

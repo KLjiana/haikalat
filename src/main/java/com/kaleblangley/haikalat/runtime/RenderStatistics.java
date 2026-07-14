@@ -45,7 +45,7 @@ public final class RenderStatistics {
         lastFrameProfile = new FrameProfile(lastFrameDurationNanos, profile.passes());
     }
 
-    /** Records one completed buffer swap/present. */
+    /** 记录一次已经完成的 buffer swap/present。 */
     public synchronized void recordPresent() {
         long now = nanoTime.getAsLong();
         presentedFrameCount++;
@@ -83,7 +83,7 @@ public final class RenderStatistics {
         return lastFrameProfile;
     }
 
-    /** FPS measured at completed buffer swaps, comparable to external overlays. */
+    /** @return 以完成的 buffer swap 计算、可与外部 overlay 对比的 FPS */
     public synchronized double presentFps() {
         if (sampledPresentFps > 0.0) {
             return sampledPresentFps;
@@ -93,7 +93,7 @@ public final class RenderStatistics {
                 Math.max(0L, lastPresentNanos - presentSampleStartNanos));
     }
 
-    /** Compatibility alias; this now means presented FPS rather than CPU submission throughput. */
+    /** @return 兼容别名；现在表示 present FPS，而不是 CPU submit 吞吐率 */
     public synchronized double averageFps() {
         return presentFps();
     }

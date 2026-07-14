@@ -12,7 +12,7 @@ import static org.lwjgl.opengl.GL15.glGenQueries;
 import static org.lwjgl.opengl.GL15.glGetQueryObjecti;
 import static org.lwjgl.opengl.GL33.glGetQueryObjectui64;
 
-/** Non-blocking ring for ARB pipeline-statistics counters. */
+/** 用于 ARB 管线统计计数器的非阻塞查询环。 */
 public final class PipelineStatisticsQuery implements GlResource {
     private static final int QUERY_RING_SIZE = 8;
 

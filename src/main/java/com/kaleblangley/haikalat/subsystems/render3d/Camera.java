@@ -95,7 +95,12 @@ public class Camera {
         return getViewMatrix(new Matrix4f());
     }
 
-    /** Writes the view matrix into caller-owned storage to avoid per-frame allocations. */
+    /**
+     * 将视图矩阵写入调用方持有的存储，避免逐帧分配。
+     *
+     * @param destination 接收结果的矩阵
+     * @return {@code destination}
+     */
     public Matrix4f getViewMatrix(Matrix4f destination) {
         return destination.identity().lookAt(
                 position.x, position.y, position.z,

@@ -19,14 +19,14 @@ import java.util.TreeSet;
 import java.util.EnumMap;
 
 /**
- * Asset manifest plus small demo-scene manifest.
+ * 资产 manifest 与小型 Demo 场景 manifest。
  *
- * <p>Stable asset-manifest fields are {@code shader.*}, {@code texture.*}, {@code model.*}, and
- * {@code material.*}. They describe named assets and bindings without owning GL objects.</p>
+ * <p>稳定的资产字段包括 {@code shader.*}、{@code texture.*}、{@code model.*} 和
+ * {@code material.*}，用于描述命名资产与绑定关系，但不持有 OpenGL 对象。</p>
  *
- * <p>Demo-scene convenience fields are {@code object.*} and {@code light.*}. They are intentionally
- * limited to simple object/material/light binding and static transforms. Animation updaters, procedural
- * geometry, complex builtin mesh variants, scripts, and editor data stay in Java code.</p>
+ * <p>Demo 场景便捷字段包括 {@code object.*} 和 {@code light.*}，刻意限制为简单的
+ * object/material/light 绑定与静态变换。动画 updater、procedural geometry、复杂内建网格变体、
+ * 脚本和编辑器数据继续保留在 Java 代码中。</p>
  */
 public record SceneAssetConfig(
         Map<String, ShaderAsset> shaders,

@@ -42,7 +42,7 @@ public final class GlRenderThread implements AutoCloseable {
         this.frameCallback = Objects.requireNonNull(frameCallback, "frameCallback");
     }
 
-    /** Queues one copied float upload and its post-upload publication without exposing flush/close. */
+    /** 将一次已复制的 float 上传及其上传后发布操作入队，不向调用方暴露 flush/close。 */
     public boolean enqueueFloatUpload(BufferUploadTarget target, long offsetBytes, FloatBuffer data,
                                       UploadSystem.UploadRequest afterUpload) {
         Objects.requireNonNull(target, "target");

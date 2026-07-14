@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Safe draw ordering lives above CommandBuffer so pass and transparency semantics remain intact. */
+/** 在 CommandBuffer 上层执行安全 draw 排序，以保持 pass 和透明物体语义。 */
 final class SceneDrawOrder {
     private SceneDrawOrder() {
     }

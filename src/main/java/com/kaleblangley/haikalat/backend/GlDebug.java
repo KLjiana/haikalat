@@ -22,12 +22,12 @@ public final class GlDebug {
     }
 
     /**
-     * Enables OpenGL 4.6 debug output for the current context.
+     * 为当前 context 启用 OpenGL 4.6 debug output。
      *
-     * <p>The callback is installed at most once per LWJGL capabilities object and
-     * retained for the process lifetime so native GL does not call a collected callback.
+     * <p>每个 LWJGL capabilities 对象最多安装一次 callback，并在进程生命周期内持有，
+     * 防止原生 OpenGL 调用已经被回收的 callback。
      *
-     * @return true when the current context has a callback installed or already active.
+     * @return 当前 context 已安装或已经启用 callback 时返回 {@code true}
      */
     public static synchronized boolean enableDebugCallback() {
         GLCapabilities capabilities = currentCapabilitiesOrNull();

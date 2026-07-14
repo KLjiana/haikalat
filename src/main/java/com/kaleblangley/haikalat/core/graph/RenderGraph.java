@@ -456,8 +456,8 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         /**
-         * Keeps this pass target independent from the window-sized graph target.
-         * Fixed-size targets are recreated with the same dimensions after a graph resize.
+         * 使当前 pass target 独立于窗口尺寸的 graph target。
+         * 渲染图 resize 后，固定尺寸 target 仍以原尺寸重建。
          */
         public PassBuilder fixedSize(int width, int height) {
             if (width <= 0 || height <= 0) {

@@ -74,7 +74,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         return this;
     }
 
-    /** Allocates immutable OpenGL 4.4+ storage for persistent or explicitly managed buffers. */
+    /** 为持久映射或显式管理的 buffer 分配 OpenGL 4.4+ 不可变存储。 */
     public GlBuffer allocateStorage(long sizeBytes, int flags) {
         ensureOpen();
         glNamedBufferStorage(id, sizeBytes, flags);
@@ -120,7 +120,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         return this;
     }
 
-    /** Copies a buffer range back to caller-owned direct storage without rebinding the target. */
+    /** 在不重新绑定 target 的情况下，将 buffer range 读回调用方持有的 direct storage。 */
     public GlBuffer read(long offsetBytes, ByteBuffer destination) {
         ensureOpen();
         Objects.requireNonNull(destination, "destination");

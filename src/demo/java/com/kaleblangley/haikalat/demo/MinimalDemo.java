@@ -27,7 +27,7 @@ import java.time.Duration;
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
-/** Minimal proof of the engine window, command, material, mesh, target, and instancing APIs. */
+/** 对引擎窗口、命令、材质、网格、渲染目标和实例化 API 的最小验证。 */
 public final class MinimalDemo {
     private static final String SCENE_TARGET = "MinimalScene";
 

@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable stage-to-resource description independent of a linked GL program. */
+/** 与已链接 OpenGL program 无关的不可变 shader stage 资源描述。 */
 public final class ShaderAsset {
     private final Map<ShaderStage, AssetRef> stages;
 

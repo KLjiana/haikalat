@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.demo.async;
 
 import org.joml.Matrix4f;
 
-/** Immutable-at-publication render snapshot. */
+/** 发布后保持不可变的渲染帧快照。 */
 record FrameState(Matrix4f view, int instanceCount) {
     FrameState {
         view = new Matrix4f(view);

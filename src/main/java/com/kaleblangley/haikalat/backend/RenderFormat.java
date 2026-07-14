@@ -1,6 +1,6 @@
 package com.kaleblangley.haikalat.backend;
 
-/** Formats supported by the current OpenGL render-target backend. */
+/** 当前 OpenGL 渲染目标 backend 支持的格式。 */
 public enum RenderFormat {
     RGBA8,
     RGBA16F,

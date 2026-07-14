@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.core.command;
 
 import java.util.Arrays;
 
-/** Reusable structure-of-arrays command storage; recording a primitive command allocates no object. */
+/** 可复用的 SoA 命令存储；记录纯基础类型命令时不分配对象。 */
 final class CommandStream {
     private byte[] opcodes = new byte[64];
     private int[] integers = new int[256];

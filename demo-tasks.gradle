@@ -1,0 +1,181 @@
+def registerDemoJavaExec = { taskName, taskGroup, descriptionText, mainClassName, launchArgs ->
+    tasks.register(taskName, JavaExec) {
+        group = taskGroup
+        description = descriptionText
+        dependsOn demoClasses
+        classpath = sourceSets.demo.runtimeClasspath
+        mainClass = mainClassName
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+        workingDir = projectDir
+        args launchArgs
+    }
+}
+
+def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+[
+        runDemoIntegration                 : [learnMain,
+                ['--deterministic', '--frames=8', '--aa=FXAA'],
+                'Runs the hidden deterministic baseline scene for a finite number of frames.'],
+        runDemoResizeIntegration           : [learnMain,
+                ['--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'],
+                'Runs the hidden baseline scene and verifies a deterministic resize.'],
+        runAsyncIntegration                : ['com.kaleblangley.haikalat.demo.async.AsyncDemo',
+                ['--deterministic', '--frames=8'],
+                'Runs the async upload/render-thread demo hidden for a finite number of frames.'],
+        runEmptyWindowIntegration          : ['com.kaleblangley.haikalat.demo.EmptyWindowDemo',
+                ['--deterministic', '--frames=3'],
+                'Creates a hidden OpenGL window, presents three frames, and issues no draw commands.'],
+        runStressTriangleIntegration       : [stressMain,
+                ['--deterministic', '--frames=2', '--shape=triangle', '--instances=100000'],
+                'Renders 100000 instanced triangles in a hidden finite stress run.'],
+        runStressQuadIntegration           : [stressMain,
+                ['--deterministic', '--frames=2', '--shape=quad', '--instances=100000'],
+                'Renders 100000 GPU-driven quads in a hidden finite stress run.'],
+        runStressCubeIntegration           : [stressMain,
+                ['--deterministic', '--frames=2', '--shape=cube', '--instances=100000'],
+                'Renders 100000 instanced cubes in a hidden finite stress run.'],
+        runStressIndexedCubeIntegration    : [stressMain,
+                ['--deterministic', '--frames=2', '--shape=cube', '--instances=100000', '--mode=indexed'],
+                'Renders 100000 indexed procedural cubes with the generated uint8 EBO.'],
+        runStressIndexedSsboCubeIntegration: [stressMain,
+                ['--deterministic', '--frames=2', '--shape=cube', '--instances=100000', '--mode=indexed-ssbo'],
+                'Renders 100000 indexed cubes from the compact 16-byte instance SSBO.']
+].each { taskName, preset ->
+    registerDemoJavaExec(taskName, 'verification', preset[2], preset[0], preset[1])
+}
+
+tasks.register('runStressIntegration') {
+    group = 'verification'
+    description = 'Runs 100000-instance triangle, quad and cube GPU stress checks.'
+    dependsOn 'runStressTriangleIntegration', 'runStressQuadIntegration', 'runStressCubeIntegration'
+}
+
+tasks.register('glSmoke', Test) {
+    group = 'verification'
+    description = 'Runs the complete test suite with the opt-in real OpenGL smoke tests enabled.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+}
+
+tasks.register('localGlVerification') {
+    group = 'verification'
+    description = 'Runs GL smoke tests and all deterministic demo integrations.'
+    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration',
+            'runEmptyWindowIntegration',
+            'runStressTriangleIntegration', 'runStressCubeIntegration',
+            'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
+    dependsOn 'runStressQuadIntegration'
+}
+
+tasks.named('runDemoIntegration') {
+    mustRunAfter 'glSmoke'
+}
+tasks.named('runDemoResizeIntegration') {
+    mustRunAfter 'runDemoIntegration'
+}
+tasks.named('runAsyncIntegration') {
+    mustRunAfter 'runDemoResizeIntegration'
+}
+tasks.named('runStressTriangleIntegration') {
+    mustRunAfter 'runEmptyWindowIntegration'
+}
+tasks.named('runEmptyWindowIntegration') {
+    mustRunAfter 'runAsyncIntegration'
+}
+tasks.named('runStressCubeIntegration') {
+    mustRunAfter 'runStressIndexedSsboCubeIntegration'
+}
+tasks.named('runStressQuadIntegration') {
+    mustRunAfter 'runStressTriangleIntegration'
+}
+tasks.named('runStressIndexedCubeIntegration') {
+    mustRunAfter 'runStressQuadIntegration'
+}
+tasks.named('runStressIndexedSsboCubeIntegration') {
+    mustRunAfter 'runStressIndexedCubeIntegration'
+}
+
+tasks.register('runAsyncDemoIntegration') {
+    group = 'verification'
+    description = 'Compatibility alias for runAsyncIntegration.'
+    dependsOn 'runAsyncIntegration'
+}
+
+def registerDemoApplication = { taskName, descriptionText, mainClassName, launchArgs ->
+    registerDemoJavaExec(taskName, 'application', descriptionText, mainClassName, launchArgs)
+}
+
+[
+        runLearnOpenGlDemo: 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo',
+        runEmptyWindowDemo: 'com.kaleblangley.haikalat.demo.EmptyWindowDemo',
+        runMinimalDemo    : 'com.kaleblangley.haikalat.demo.MinimalDemo',
+        runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
+        runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+].each { taskName, mainClassName ->
+    registerDemoApplication(taskName,
+            "Runs ${mainClassName} for interactive graphics debugging.",
+            mainClassName, [])
+}
+
+tasks.named('runStressDemo', JavaExec) {
+    args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",
+            "--instances=${providers.gradleProperty('stressInstances').getOrElse('100000')}",
+            "--mode=${providers.gradleProperty('stressMode').getOrElse('gpu')}"
+    if (providers.gradleProperty('stressFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('stressFrames').get()}"
+    }
+    if (providers.gradleProperty('stressWarmup').isPresent()) {
+        args "--warmup=${providers.gradleProperty('stressWarmup').get()}"
+    }
+    if (providers.gradleProperty('stressHidden').getOrElse('false').toBoolean()) {
+        args '--hidden'
+    }
+}
+
+tasks.named('runEmptyWindowDemo', JavaExec) {
+    if (providers.gradleProperty('emptyFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('emptyFrames').get()}"
+    }
+    if (providers.gradleProperty('emptyHidden').getOrElse('false').toBoolean()) {
+        args '--hidden'
+    }
+    if (providers.gradleProperty('emptyWarmup').isPresent()) {
+        args "--warmup=${providers.gradleProperty('emptyWarmup').get()}"
+    }
+    if (providers.gradleProperty('emptyVsync').getOrElse('false').toBoolean()) {
+        args '--vsync'
+    }
+}
+
+def stressMainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+[
+        runStressTriangleDemo          : ['triangle', 'gpu',
+                'Runs the 100000-triangle expanded procedural baseline.'],
+        runStressQuadDemo              : ['quad', 'gpu',
+                'Runs the 100000-quad expanded procedural baseline.'],
+        runStressCubeDemo              : ['cube', 'gpu',
+                'Runs the 100000-cube expanded procedural baseline.'],
+        runStressIndexedQuadDemo       : ['quad', 'indexed',
+                'Runs 100000 indexed quads with a uint8 EBO.'],
+        runStressIndexedCubeDemo       : ['cube', 'indexed',
+                'Runs 100000 indexed procedural cubes with a uint8 EBO.'],
+        runStressIndexedSsboTriangleDemo: ['triangle', 'indexed-ssbo',
+                'Runs 100000 triangles with compact 16-byte SSBO instances.'],
+        runStressIndexedSsboQuadDemo   : ['quad', 'indexed-ssbo',
+                'Runs 100000 indexed quads with compact 16-byte SSBO instances.'],
+        runStressIndexedSsboCubeDemo   : ['cube', 'indexed-ssbo',
+                'Runs 100000 indexed cubes with compact 16-byte SSBO instances.'],
+        runStressDynamicTriangleDemo   : ['triangle', 'dynamic',
+                'Runs the 100000-triangle Matrix4f upload compatibility path.'],
+        runStressDynamicCubeDemo       : ['cube', 'dynamic',
+                'Runs the 100000-cube Matrix4f upload compatibility path.']
+].each { taskName, preset ->
+    registerDemoApplication(taskName, preset[2], stressMainClass,
+            ["--shape=${preset[0]}", '--instances=100000', "--mode=${preset[1]}"])
+}
+

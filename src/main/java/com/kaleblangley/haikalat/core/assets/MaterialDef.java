@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Non-GL material definition for asset and scene configuration.
- * Runtime {@code Material} objects are built later from these shader/texture references.
+ * 用于资产和场景配置的非 OpenGL 材质定义。
+ * runtime {@code Material} 会在之后根据这些 shader/texture 引用构建。
  */
 public record MaterialDef(
         String shader,

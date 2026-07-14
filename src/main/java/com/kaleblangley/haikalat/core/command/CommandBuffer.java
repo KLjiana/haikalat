@@ -19,55 +19,48 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.IntConsumer;
 
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
-import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
-import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
-import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
-import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
-import static org.lwjgl.opengl.GL42.glMemoryBarrier;
-import static org.lwjgl.opengl.GL43.glDispatchCompute;
 
 /**
- * Reusable typed OpenGL command stream.
+ * 可复用的强类型 OpenGL 命令流。
  *
- * <p>Pipeline setters are last-writer-wins pending state. They are flushed before every
- * observable GPU boundary and at command-buffer completion. Resource bindings and DSA uniforms
- * keep their recorded order, while {@link StateCache} remains the cross-command/frame GL cache.</p>
+ * <p>管线状态采用“最后写入生效”的 pending state，并在每个可观察 GPU 边界及命令结束时提交。
+ * 资源绑定和 DSA uniform 保持记录顺序，{@link StateCache} 继续负责跨命令、跨帧的 OpenGL 去重。</p>
  */
 public final class CommandBuffer {
-    private static final byte USE_PROGRAM = 1;
-    private static final byte BIND_VERTEX_ARRAY = 2;
-    private static final byte BIND_TEXTURE_2D = 3;
-    private static final byte BIND_FRAMEBUFFER = 4;
-    private static final byte BIND_SAMPLER = 5;
-    private static final byte BIND_CHECKED_SAMPLER = 6;
-    private static final byte BIND_UNIFORM_BLOCK = 7;
-    private static final byte BIND_UNIFORM_BUFFER = 8;
-    private static final byte BIND_STORAGE_BUFFER = 9;
-    private static final byte BIND_IMAGE = 10;
-    private static final byte DISPATCH_COMPUTE = 11;
-    private static final byte MEMORY_BARRIER = 12;
-    private static final byte DRAW_MESH = 13;
-    private static final byte DRAW_ELEMENTS = 14;
-    private static final byte DRAW_ARRAYS = 15;
-    private static final byte DRAW_ARRAYS_INSTANCED = 16;
-    private static final byte DRAW_ELEMENTS_INSTANCED = 17;
-    private static final byte DRAW_MESH_INSTANCED = 18;
-    private static final byte APPLY_PIPELINE_STATE = 19;
-    private static final byte CLEAR = 26;
-    private static final byte BLIT_FRAMEBUFFER = 28;
-    private static final byte UNIFORM_MAT4 = 29;
-    private static final byte UNIFORM_VEC3 = 30;
-    private static final byte UNIFORM_VEC2 = 31;
-    private static final byte UNIFORM_INT = 32;
-    private static final byte UNIFORM_FLOAT = 33;
-    private static final byte CUSTOM = 34;
-    private static final byte INSTANCED_BATCH = 35;
-    private static final byte BEGIN_GPU_TIMER = 36;
-    private static final byte END_GPU_TIMER = 37;
-    private static final byte DRAW_INSTANCED_BATCH = 38;
+    static final byte USE_PROGRAM = 1;
+    static final byte BIND_VERTEX_ARRAY = 2;
+    static final byte BIND_TEXTURE_2D = 3;
+    static final byte BIND_FRAMEBUFFER = 4;
+    static final byte BIND_SAMPLER = 5;
+    static final byte BIND_CHECKED_SAMPLER = 6;
+    static final byte BIND_UNIFORM_BLOCK = 7;
+    static final byte BIND_UNIFORM_BUFFER = 8;
+    static final byte BIND_STORAGE_BUFFER = 9;
+    static final byte BIND_IMAGE = 10;
+    static final byte DISPATCH_COMPUTE = 11;
+    static final byte MEMORY_BARRIER = 12;
+    static final byte DRAW_MESH = 13;
+    static final byte DRAW_ELEMENTS = 14;
+    static final byte DRAW_ARRAYS = 15;
+    static final byte DRAW_ARRAYS_INSTANCED = 16;
+    static final byte DRAW_ELEMENTS_INSTANCED = 17;
+    static final byte DRAW_MESH_INSTANCED = 18;
+    static final byte APPLY_PIPELINE_STATE = 19;
+    static final byte CLEAR = 26;
+    static final byte BLIT_FRAMEBUFFER = 28;
+    static final byte UNIFORM_MAT4 = 29;
+    static final byte UNIFORM_VEC3 = 30;
+    static final byte UNIFORM_VEC2 = 31;
+    static final byte UNIFORM_INT = 32;
+    static final byte UNIFORM_FLOAT = 33;
+    static final byte CUSTOM = 34;
+    static final byte INSTANCED_BATCH = 35;
+    static final byte BEGIN_GPU_TIMER = 36;
+    static final byte END_GPU_TIMER = 37;
+    static final byte DRAW_INSTANCED_BATCH = 38;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -190,7 +183,14 @@ public final class CommandBuffer {
         return this;
     }
 
-    /** Observable compute boundary: final pending graphics state is submitted first. */
+    /**
+     * 记录 compute 边界；提交 dispatch 前先提交最终 pending state。
+     *
+     * @param groupsX X 方向工作组数量
+     * @param groupsY Y 方向工作组数量
+     * @param groupsZ Z 方向工作组数量
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer dispatchCompute(int groupsX, int groupsY, int groupsZ) {
         if (groupsX <= 0 || groupsY <= 0 || groupsZ <= 0) {
             throw new IllegalArgumentException("compute group counts must be positive");
@@ -203,7 +203,12 @@ public final class CommandBuffer {
         return this;
     }
 
-    /** GPU ordering boundary; pending state is flushed before the barrier is issued. */
+    /**
+     * 记录 GPU 内存顺序边界；发出 barrier 前先提交 pending state。
+     *
+     * @param barriers OpenGL memory barrier 位集合
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer memoryBarrier(int barriers) {
         if (barriers == 0) throw new IllegalArgumentException("memory barrier bits must be non-zero");
         flushPendingState();
@@ -329,14 +334,26 @@ public final class CommandBuffer {
         return this;
     }
 
-    /** One pending packet; it never reorders or crosses an observable command boundary. */
+    /**
+     * 合并一组 pending state，但不会重排或跨越可观察命令边界。
+     *
+     * @param blendMode 材质混合模式
+     * @param depthTest 是否启用深度测试
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer materialState(BlendMode blendMode, boolean depthTest) {
         Objects.requireNonNull(blendMode, "blendMode");
         pendingState.materialState(blendMode, depthTest);
         return this;
     }
 
-    /** Clear is an observable boundary; depthMask is therefore applied before a depth clear. */
+    /**
+     * 记录 clear 边界，确保 depthMask 在深度清除之前生效。
+     *
+     * @param color 是否清除颜色附件
+     * @param depth 是否清除深度附件
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer clear(boolean color, boolean depth) {
         flushPendingState();
         opcode(CLEAR);
@@ -443,7 +460,12 @@ public final class CommandBuffer {
         return location < 0 ? this : uniformFloat(shader, location, value);
     }
 
-    /** Formal query boundary used by RenderGraph profiling. */
+    /**
+     * 记录 RenderGraph profile 使用的正式 query 开始边界。
+     *
+     * @param timer GPU 计时器
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer beginGpuTimer(GpuTimer timer) {
         Objects.requireNonNull(timer, "timer");
         flushPendingState();
@@ -452,7 +474,12 @@ public final class CommandBuffer {
         return this;
     }
 
-    /** Formal query boundary used by RenderGraph profiling. */
+    /**
+     * 记录 RenderGraph profile 使用的正式 query 结束边界。
+     *
+     * @param timer GPU 计时器
+     * @return 当前命令缓冲区
+     */
     public CommandBuffer endGpuTimer(GpuTimer timer) {
         Objects.requireNonNull(timer, "timer");
         flushPendingState();
@@ -462,8 +489,11 @@ public final class CommandBuffer {
     }
 
     /**
-     * Full escape-hatch barrier: flushes pending state before the callback and invalidates the
-     * persistent cache afterwards because arbitrary GL state may have changed.
+     * 记录完整的逃生口屏障：回调前提交 pending state，回调后使持久状态缓存失效，
+     * 因为任意 OpenGL 状态都可能已经被外部代码修改。
+     *
+     * @param action 持有当前 OpenGL context 时执行的外部操作
+     * @return 当前命令缓冲区
      */
     public CommandBuffer custom(Runnable action) {
         Objects.requireNonNull(action, "action");
@@ -486,180 +516,14 @@ public final class CommandBuffer {
         return stream.objectCount();
     }
 
-    /** Executes typed commands in order and folds pipeline setters up to each boundary. */
+    /**
+     * 按记录顺序执行命令，并在执行前提交最后一组 pending pipeline state。
+     *
+     * @param cache 跨命令、跨帧复用的 OpenGL 状态缓存
+     */
     public void execute(StateCache cache) {
-        Objects.requireNonNull(cache, "cache");
         flushPendingState();
-        int integerCursor = 0;
-        int longCursor = 0;
-        int objectCursor = 0;
-        for (int command = 0; command < stream.commandCount(); command++) {
-                byte opcode = stream.opcodeAt(command);
-                switch (opcode) {
-                    case USE_PROGRAM -> cache.useProgram(stream.integerAt(integerCursor++));
-                    case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
-                    case BIND_TEXTURE_2D -> cache.bindTexture2D(
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    case BIND_FRAMEBUFFER -> cache.bindFramebuffer(
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    case BIND_SAMPLER -> cache.bindSampler(
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    case BIND_CHECKED_SAMPLER -> {
-                        int unit = stream.integerAt(integerCursor++);
-                        int samplerId = stream.integerAt(integerCursor++);
-                        Sampler sampler = (Sampler) stream.objectAt(objectCursor++);
-                        sampler.ensureOpen();
-                        cache.bindSampler(unit, samplerId);
-                    }
-                    case BIND_UNIFORM_BLOCK -> {
-                        int bindingPoint = stream.integerAt(integerCursor++);
-                        int buffer = stream.integerAt(integerCursor++);
-                        int size = stream.integerAt(integerCursor++);
-                        UniformBlock block = (UniformBlock) stream.objectAt(objectCursor++);
-                        block.flush();
-                        cache.bindUniformBufferRange(bindingPoint, buffer, 0L, size);
-                    }
-                    case BIND_UNIFORM_BUFFER -> {
-                        int bindingPoint = stream.integerAt(integerCursor++);
-                        int buffer = stream.integerAt(integerCursor++);
-                        long offset = stream.longAt(longCursor++);
-                        long size = stream.longAt(longCursor++);
-                        cache.bindUniformBufferRange(bindingPoint, buffer, offset, size);
-                    }
-                    case BIND_STORAGE_BUFFER -> {
-                        int bindingPoint = stream.integerAt(integerCursor++);
-                        int buffer = stream.integerAt(integerCursor++);
-                        long offset = stream.longAt(longCursor++);
-                        long size = stream.longAt(longCursor++);
-                        cache.bindStorageBufferRange(bindingPoint, buffer, offset, size);
-                    }
-                    case BIND_IMAGE -> cache.bindImageTexture(
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
-                            stream.integerAt(integerCursor++), false, 0,
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    case DISPATCH_COMPUTE -> {
-                        glDispatchCompute(stream.integerAt(integerCursor++),
-                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    }
-                    case MEMORY_BARRIER -> {
-                        glMemoryBarrier(stream.integerAt(integerCursor++));
-                    }
-                    case DRAW_MESH -> {
-                        ((Mesh) stream.objectAt(objectCursor++)).drawBound();
-                    }
-                    case DRAW_ELEMENTS -> {
-                        glDrawElements(stream.integerAt(integerCursor++),
-                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++), 0L);
-                    }
-                    case DRAW_ARRAYS -> {
-                        glDrawArrays(stream.integerAt(integerCursor++),
-                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
-                    }
-                    case DRAW_ARRAYS_INSTANCED -> {
-                        glDrawArraysInstanced(stream.integerAt(integerCursor++),
-                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
-                                stream.integerAt(integerCursor++));
-                    }
-                    case DRAW_ELEMENTS_INSTANCED -> {
-                        int mode = stream.integerAt(integerCursor++);
-                        int count = stream.integerAt(integerCursor++);
-                        int type = stream.integerAt(integerCursor++);
-                        int instances = stream.integerAt(integerCursor++);
-                        glDrawElementsInstanced(mode, count, type,
-                                stream.longAt(longCursor++), instances);
-                    }
-                    case DRAW_MESH_INSTANCED -> {
-                        int instances = stream.integerAt(integerCursor++);
-                        ((Mesh) stream.objectAt(objectCursor++)).drawInstancedBound(instances);
-                    }
-                    case APPLY_PIPELINE_STATE -> integerCursor = PendingPipelineState.applyEncoded(
-                            stream, integerCursor, cache);
-                    case CLEAR -> {
-                        cache.clear(stream.integerAt(integerCursor++));
-                    }
-                    case BLIT_FRAMEBUFFER -> {
-                        int sourceFbo = stream.integerAt(integerCursor++);
-                        int targetFbo = stream.integerAt(integerCursor++);
-                        int sourceWidth = stream.integerAt(integerCursor++);
-                        int sourceHeight = stream.integerAt(integerCursor++);
-                        int targetWidth = stream.integerAt(integerCursor++);
-                        int targetHeight = stream.integerAt(integerCursor++);
-                        cache.bindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
-                        cache.bindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFbo);
-                        glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
-                                0, 0, targetWidth, targetHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-                        cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
-                    }
-                    case UNIFORM_MAT4 -> {
-                        int location = stream.integerAt(integerCursor++);
-                        ShaderProgram shader = (ShaderProgram) stream.objectAt(objectCursor++);
-                        Matrix4f matrix = (Matrix4f) stream.objectAt(objectCursor++);
-                        shader.setMat4(location, matrix);
-                    }
-                    case UNIFORM_VEC3 -> {
-                        int location = stream.integerAt(integerCursor++);
-                        float x = floatAt(stream.integerAt(integerCursor++));
-                        float y = floatAt(stream.integerAt(integerCursor++));
-                        float z = floatAt(stream.integerAt(integerCursor++));
-                        ((ShaderProgram) stream.objectAt(objectCursor++)).setVec3(location, x, y, z);
-                    }
-                    case UNIFORM_VEC2 -> {
-                        int location = stream.integerAt(integerCursor++);
-                        float x = floatAt(stream.integerAt(integerCursor++));
-                        float y = floatAt(stream.integerAt(integerCursor++));
-                        ((ShaderProgram) stream.objectAt(objectCursor++)).setVec2(location, x, y);
-                    }
-                    case UNIFORM_INT -> {
-                        int location = stream.integerAt(integerCursor++);
-                        int value = stream.integerAt(integerCursor++);
-                        ((ShaderProgram) stream.objectAt(objectCursor++)).setInt(location, value);
-                    }
-                    case UNIFORM_FLOAT -> {
-                        int location = stream.integerAt(integerCursor++);
-                        float value = floatAt(stream.integerAt(integerCursor++));
-                        ((ShaderProgram) stream.objectAt(objectCursor++)).setFloat(location, value);
-                    }
-                    case CUSTOM -> {
-                        try {
-                            ((Runnable) stream.objectAt(objectCursor++)).run();
-                        } finally {
-                            cache.invalidate();
-                        }
-                    }
-                    case INSTANCED_BATCH -> {
-                        InstancedBatchSubmission submission =
-                                (InstancedBatchSubmission) stream.objectAt(objectCursor++);
-                        @SuppressWarnings("unchecked")
-                        List<Matrix4f> transforms =
-                                (List<Matrix4f>) stream.objectAt(objectCursor++);
-                        submission.beginFrame();
-                        submission.submitAll(transforms);
-                        submission.drawn(submission.flush());
-                        cache.invalidateVertexArray();
-                    }
-                    case DRAW_INSTANCED_BATCH -> {
-                        InstancedMeshBatch batch =
-                                (InstancedMeshBatch) stream.objectAt(objectCursor++);
-                        @SuppressWarnings("unchecked")
-                        List<Matrix4f> transforms =
-                                (List<Matrix4f>) stream.objectAt(objectCursor++);
-                        IntConsumer drawnCount =
-                                (IntConsumer) stream.objectAt(objectCursor++);
-                        batch.beginFrame();
-                        batch.submitAll(transforms);
-                        int drawn = batch.flush();
-                        if (drawnCount != null) drawnCount.accept(drawn);
-                        cache.invalidateVertexArray();
-                    }
-                    case BEGIN_GPU_TIMER -> {
-                        ((GpuTimer) stream.objectAt(objectCursor++)).begin();
-                    }
-                    case END_GPU_TIMER -> {
-                        ((GpuTimer) stream.objectAt(objectCursor++)).end();
-                    }
-                    default -> throw new IllegalStateException("Unknown command opcode " + opcode);
-                }
-        }
+        CommandExecutor.execute(stream, cache);
     }
 
     CommandBuffer recordInstancedBatch(InstancedBatchSubmission submission,
@@ -737,10 +601,6 @@ public final class CommandBuffer {
 
     private static int floatBits(float value) {
         return Float.floatToRawIntBits(value);
-    }
-
-    private static float floatAt(int bits) {
-        return Float.intBitsToFloat(bits);
     }
 
     private static List<Matrix4f> copyTransforms(Iterable<Matrix4f> transforms) {

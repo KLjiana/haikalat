@@ -19,15 +19,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * OpenGL runtime material template.
+ * OpenGL runtime material 模板。
  *
- * <p>This class directly references {@link ShaderProgram}, {@link Texture2D}, and optional {@link Sampler}
- * objects, so it belongs to the GL runtime layer rather than the asset/configuration layer. Use a
- * non-GL definition object such as {@code MaterialDef} while parsing manifests or preparing assets, then
- * build a {@code Material} after the required GL resources have been loaded.</p>
+ * <p>该类直接引用 {@link ShaderProgram}、{@link Texture2D} 和可选的 {@link Sampler}，
+ * 因此属于 OpenGL runtime 层，而不是 asset/configuration 层。解析 manifest 或准备资产时使用
+ * {@code MaterialDef} 等非 OpenGL 定义对象，所需资源加载后再构建 {@code Material}。</p>
  *
- * <p>Per-object mutable values belong in {@link MaterialInstance}. A Material closes referenced GPU
- * resources only when explicitly configured with {@link ResourceOwnership#OWNED}.</p>
+ * <p>逐对象可变值属于 {@link MaterialInstance}。只有显式配置为
+ * {@link ResourceOwnership#OWNED} 时，Material 才关闭其引用的 GPU 资源。</p>
  */
 public final class Material implements GlResource {
     private final ShaderProgram shader;

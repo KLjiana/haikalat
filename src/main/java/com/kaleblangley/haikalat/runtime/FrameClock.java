@@ -5,10 +5,10 @@ import java.util.Objects;
 import java.util.function.LongSupplier;
 
 /**
- * Monotonic runtime clock for frame-driven updates.
+ * 用于逐帧更新的单调 runtime 时钟。
  *
- * <p>Each tick reports a capped delta and advances simulation time by that capped value, so a
- * debugger pause or suspended window cannot cause a single oversized movement or animation step.</p>
+ * <p>每次 tick 返回有限制的 delta，并以该值推进模拟时间，避免 debugger 暂停或窗口挂起后
+ * 出现一次过大的移动或动画步长。</p>
  */
 public final class FrameClock {
     public static final Duration DEFAULT_MAX_DELTA = Duration.ofMillis(100);

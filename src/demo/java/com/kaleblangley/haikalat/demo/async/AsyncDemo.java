@@ -28,7 +28,7 @@ import java.time.Duration;
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
-/** Demonstrates producer-thread frame state and uploads consumed by the engine GL render thread. */
+/** 演示生产线程发布帧状态和上传请求，并由引擎 OpenGL 渲染线程消费。 */
 public final class AsyncDemo {
     private static final String TITLE = "Async Demo";
     private static final String SCENE_TARGET = "AsyncScene";
