@@ -8,8 +8,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 
 class CommandBufferTest {
+    @Test
+    void indexedInstancedDrawIsAFormalValidatedCommand() {
+        CommandBuffer cmd = new CommandBuffer()
+                .drawElementsInstanced(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, 0L, 100_000);
+
+        assertEquals(1, cmd.commandCount());
+        assertThrows(IllegalArgumentException.class,
+                () -> cmd.drawElementsInstanced(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, -1L, 1));
+    }
+
     @Test
     void instancedBatchCommandExecutesInRecordedOrder() {
         List<String> events = new ArrayList<>();

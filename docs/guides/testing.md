@@ -73,6 +73,7 @@ Deterministic resize and async render-thread integrations:
 ```powershell
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAsyncIntegration
+.\gradlew.bat runEmptyWindowIntegration
 .\gradlew.bat runStressIntegration
 ```
 
@@ -82,6 +83,6 @@ Run every local check that requires a desktop OpenGL environment:
 .\gradlew.bat localGlVerification
 ```
 
-`localGlVerification` also runs the 100000-instance triangle, quad and cube stress integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
+`localGlVerification` also runs the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
 
-The current GL smoke path additionally verifies project shader compilation, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, the complete scene-to-shadow-to-lighting pixel chain, and an async UBO upload that drives instanced final pixels. The final-pixel assertions cover lighting on/off, shadow on/off, moving an invisible caster, and changing the shadow light direction.
+The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, one-frame output for none/MSAA/FXAA/TAA, the complete scene-to-shadow-to-lighting pixel chain, and an async UBO upload that drives instanced final pixels. Unit tests verify primitive-only state packets, boundary separation, packed-instance quantization, uint8 topology/winding, and synchronization between generated GLSL and the Java catalog.

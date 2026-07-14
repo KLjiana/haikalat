@@ -17,6 +17,8 @@
 - [渲染边界约定](architecture/render-boundaries.md)
 - [AsyncDemo 渲染线程契约](architecture/async-render-thread.md)
 - [抽象密度控制](architecture/abstraction-density.md)
+- [代码职责与重设计评估](architecture/code-design-review.md)
+- [Stress indexed / compact SSBO 渲染路径](architecture/stress-render-path.md)
 
 ## 指南
 
@@ -30,3 +32,4 @@
 已完成工作和版本演进记录。
 
 - [变更记录](history/changelog.md)
+- [2026-07-14 Stress indexed / compact SSBO 基准](performance/stress-indexed-ssbo-2026-07-14.md)

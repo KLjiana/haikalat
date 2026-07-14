@@ -4,6 +4,12 @@
 
 ### Stabilization
 
+- Replaced opaque per-command `Consumer<StateCache>` captures with a reusable typed opcode stream and recording-time pending pipeline state. Final blend/depth/cull/viewport/clear-color values are emitted only at observable boundaries, while draw/pass/transparency ordering and cross-frame `StateCache` dedup remain intact.
+- Added formal RenderGraph GPU timer query commands, made `custom()` a flush+invalidate full barrier, and added unit/real-GL regressions for state collapse, depth-mask-controlled clear, and opaque/transparent ordering across draws and passes.
+- Added formal indexed-instanced command recording and a no-VBO procedural topology path: Cube uses 8 bit-decoded corners/36 cache-ordered uint8 indices, Quad uses 4/6, and back-face culling remains enabled.
+- Added a 16-byte `std430 uvec4` packed instance codec, immutable one-upload SSBOs, offset-aligned persistent mapped dynamic rings with per-slot fences and dirty-range propagation, plus generated indexed/compact shaders and real-pixel GL coverage.
+- Expanded StressDemo into `gpu`, `indexed`, `indexed-ssbo`, and `dynamic` A/B modes with average/median CPU/GPU timing and ARB vertex-shader invocation counters; normalized EmptyWindowDemo to the same 1280x720 clear/present benchmark conditions.
+- Added `EmptyWindowDemo` and an Nsight launcher as a 1280x720 clear/present baseline; it intentionally issues no shader, VAO, buffer, texture, or draw commands and has a deterministic hidden integration.
 - Completed the v0.7 stable-assets vertical slice: validated manifest references, packaged a self-authored OBJ baseline, loaded it through `ModelAssetManager`/`ObjModelLoader`, mapped model meshes into the scene, and centralized demo GL resource ownership.
 - Added deterministic resize and async integrations, GL render-thread failure/timeout/cleanup coverage, stricter architecture/custom-command guards, and the aggregate `localGlVerification` task.
 - Replaced the unsafe bare-reference CPU `TripleBuffer` with immutable latest-frame snapshots; Minimal now uses a plain same-thread list and `InstancedRenderer` publishes copied transform lists.
@@ -16,6 +22,8 @@
 - Unified runtime timing: `FrameDriver.present` measures completed swaps, `RenderStatistics` separates one-second present FPS from CPU submit/GPU time, async readers use immutable snapshots, and `PeriodicTimer` limits all demo title updates to 250 ms.
 - Defined non-overlapping responsibilities for Minimal/LearnOpenGL/Async demos and added StressDemo with configurable triangle/quad/cube workloads, a reusable indexed cube, three 100000-instance integrations, Nsight launcher, and CPU/GPU/present/state-cache metrics.
 - Added a GPU-driven StressDemo path with procedural `gl_VertexID` geometry and `gl_InstanceID` transforms/colors, DSA buffer/VAO creation, persistent coherent instance mapping, non-blocking GPU query rings, compact material state packets, and safe cached scene draw ordering.
+- Generalized shaders to all OpenGL 4.6 core stages with DSA uniforms, UBO/SSBO/image bindings and compute dispatch commands; generalized shader assets/hot reload by stage and added a real compute-to-SSBO readback test.
+- Replaced the hand-written multi-shape stress shader with a build-time generator sourced from `BuiltinMeshData`; generated shape-specialized flattened GLSL removes shape branches, integer division and repeated trigonometry, while RenderGraph reuses immediate command/timing storage.
 - Fixed multi-directional-light shadow association with an explicit bounded shader light index, and added final-pixel GL assertions for lighting, shadowing, caster movement, and light-direction changes.
 - Migrated Minimal/Async demo window, render-target, mesh, frame-driver, upload-queue, and cleanup paths onto the retained engine APIs; unified builtin-mesh instancing at attribute 3 and made GL render-thread completion wait for resource cleanup.
 - Completed the real-capabilities closure roadmap: Java 21 toolchains, Windows/Linux CI, lit baseline shaders, bounded light input, fixed-size directional shadow targets, real caster draws, depth sampling with bias/3x3 PCF, deterministic demo integration, GL output checks, and package dependency guards.

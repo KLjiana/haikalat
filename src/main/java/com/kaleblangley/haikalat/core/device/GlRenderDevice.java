@@ -44,6 +44,10 @@ public final class GlRenderDevice implements RenderDevice {
         return stateCache.statistics();
     }
 
+    public void resetStateStatistics() {
+        stateCache.resetStatistics();
+    }
+
     public void invalidateState() {
         stateCache.invalidate();
     }

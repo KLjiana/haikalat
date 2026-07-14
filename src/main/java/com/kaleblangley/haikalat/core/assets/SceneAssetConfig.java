@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import org.joml.Vector3f;
@@ -15,6 +16,7 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.EnumMap;
 
 /**
  * Asset manifest plus small demo-scene manifest.
@@ -68,8 +70,7 @@ public record SceneAssetConfig(
         Map<String, LightDef> lights = new LinkedHashMap<>();
 
         for (String name : names(properties, "shader.")) {
-            shaders.put(name, ShaderAsset.of(required(properties, "shader." + name + ".vertex"),
-                    required(properties, "shader." + name + ".fragment")));
+            shaders.put(name, shaderAsset(properties, name));
         }
         for (String name : names(properties, "texture.")) {
             textures.put(name, new TextureDef(AssetRef.of(required(properties, "texture." + name + ".path")),
@@ -205,6 +206,25 @@ public record SceneAssetConfig(
             bindings.add(new MaterialDef.TextureBinding(unit, samplerName, texture, sampler));
         }
         return new MaterialDef(shader, bindings, blendMode, depthTest);
+    }
+
+    private static ShaderAsset shaderAsset(Properties properties, String name) {
+        String prefix = "shader." + name + ".";
+        EnumMap<ShaderStage, AssetRef> stages = new EnumMap<>(ShaderStage.class);
+        addStage(properties, prefix, "vertex", ShaderStage.VERTEX, stages);
+        addStage(properties, prefix, "tessControl", ShaderStage.TESS_CONTROL, stages);
+        addStage(properties, prefix, "tessEvaluation", ShaderStage.TESS_EVALUATION, stages);
+        addStage(properties, prefix, "geometry", ShaderStage.GEOMETRY, stages);
+        addStage(properties, prefix, "fragment", ShaderStage.FRAGMENT, stages);
+        addStage(properties, prefix, "compute", ShaderStage.COMPUTE, stages);
+        if (stages.isEmpty()) throw new GlException("Shader has no recognized stages: " + name);
+        return new ShaderAsset(stages);
+    }
+
+    private static void addStage(Properties properties, String prefix, String suffix,
+                                 ShaderStage stage, Map<ShaderStage, AssetRef> stages) {
+        String path = properties.getProperty(prefix + suffix);
+        if (path != null && !path.isBlank()) stages.put(stage, AssetRef.of(path.strip()));
     }
 
     private static Set<String> textureBindingNames(Properties properties, String prefix) {

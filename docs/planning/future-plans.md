@@ -18,7 +18,6 @@
 - [ ] 评估 RenderGraph profiling 的 `cmd.custom()` 是否需要正式命令或 observer 边界。
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
 - [ ] 评估 instanced shadow caster，要求复用现有实例化数据和命令路径，不新增平行实现。
-- [ ] 为任意（非规则网格）实例增加 compact SSBO layout：translation/scale 使用 half 或定点字段、rotation 使用 packed quaternion，并保留 `Matrix4f` 兼容入口；以 StressDemo `gpu`/`dynamic` 对照验证带宽与精度。
 - [ ] 当场景出现多个 mesh/material 的真实压力数据后，评估 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`；单 mesh 单 draw 场景不提前引入 indirect command 复杂度。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。
 

@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
@@ -95,6 +96,21 @@ class AssetPipelineTest {
         assertEquals("/models/cube.obj", config.models().get("cube").path().path());
         assertEquals(1.0f, config.objects().get("cube01").position().x, 1.0e-6f);
         assertEquals(true, config.lights().get("sun").castShadows());
+    }
+
+    @Test
+    void sceneConfigSupportsComputeAndAdditionalGraphicsStages() {
+        SceneAssetConfig config = SceneAssetConfig.parseProperties("""
+                shader.particles.compute=/shaders/particles.comp
+                shader.wire.vertex=/shaders/wire.vert
+                shader.wire.geometry=/shaders/wire.geom
+                shader.wire.fragment=/shaders/wire.frag
+                """);
+
+        assertEquals("/shaders/particles.comp",
+                config.shaders().get("particles").stage(ShaderStage.COMPUTE).orElseThrow().path());
+        assertEquals("/shaders/wire.geom",
+                config.shaders().get("wire").stage(ShaderStage.GEOMETRY).orElseThrow().path());
     }
 
     @Test

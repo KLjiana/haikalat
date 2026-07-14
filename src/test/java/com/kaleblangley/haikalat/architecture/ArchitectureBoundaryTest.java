@@ -48,7 +48,7 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    void customCommandEscapeHatchIsLimitedToRenderGraphProfiling() throws IOException {
+    void productionCodeDoesNotUseCustomCommandEscapeHatch() throws IOException {
         Set<String> callers;
         try (var files = Files.walk(MAIN_JAVA)) {
             callers = files.filter(path -> path.toString().endsWith(".java"))
@@ -57,8 +57,8 @@ class ArchitectureBoundaryTest {
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
         }
 
-        assertEquals(Set.of("com/kaleblangley/haikalat/core/graph/RenderGraph.java"), callers,
-                "CommandBuffer.custom() is reserved for RenderGraph GPU profiling");
+        assertEquals(Set.of(), callers,
+                "Production GL work must use typed CommandBuffer operations");
     }
 
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {

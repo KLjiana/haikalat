@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.demo;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.LoadedModel;
@@ -94,8 +95,11 @@ final class DemoSceneResources implements AutoCloseable {
     private void loadShaders(SceneAssetConfig config) {
         for (Map.Entry<String, ShaderAsset> entry : config.shaders().entrySet()) {
             ShaderAsset asset = entry.getValue();
-            shaders.put(entry.getKey(), ShaderProgram.fromResource(DemoSceneResources.class,
-                    asset.vertexShader().path(), asset.fragmentShader().path()));
+            ShaderProgram.Builder builder = ShaderProgram.builder();
+            for (Map.Entry<ShaderStage, AssetRef> stage : asset.stages().entrySet()) {
+                builder.resource(DemoSceneResources.class, stage.getKey(), stage.getValue().path());
+            }
+            shaders.put(entry.getKey(), builder.link());
         }
     }
 

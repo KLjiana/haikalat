@@ -44,6 +44,10 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         return new GlBuffer(GL_UNIFORM_BUFFER, usage);
     }
 
+    public static GlBuffer shaderStorageBuffer(int usage) {
+        return new GlBuffer(GL_SHADER_STORAGE_BUFFER, usage);
+    }
+
     public static GlBuffer arrayBuffer(float[] data, int usage) {
         return arrayBuffer(usage).upload(DirectBuffers.copyOf(data));
     }
@@ -113,6 +117,14 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         ensureOpen();
         Objects.requireNonNull(data, "data");
         glNamedBufferSubData(id, offsetBytes, data);
+        return this;
+    }
+
+    /** Copies a buffer range back to caller-owned direct storage without rebinding the target. */
+    public GlBuffer read(long offsetBytes, ByteBuffer destination) {
+        ensureOpen();
+        Objects.requireNonNull(destination, "destination");
+        glGetNamedBufferSubData(id, offsetBytes, destination);
         return this;
     }
 

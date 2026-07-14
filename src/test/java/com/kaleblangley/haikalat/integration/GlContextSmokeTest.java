@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.assets.TextureAssetCache;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -17,7 +18,11 @@ import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexArray;
+import com.kaleblangley.haikalat.core.buffer.PackedInstanceBuffer;
+import com.kaleblangley.haikalat.core.mesh.PackedInstanceLayout;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
+import com.kaleblangley.haikalat.demo.stress.GeneratedStressPrimitive;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.GlRenderThread;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
@@ -28,6 +33,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings;
+import com.kaleblangley.haikalat.util.DirectBuffers;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -54,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_BLEND;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
@@ -64,17 +71,25 @@ import static org.lwjgl.opengl.GL11.glBindTexture;
 import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glClearDepth;
+import static org.lwjgl.opengl.GL11.glDisable;
 import static org.lwjgl.opengl.GL11.glDrawArrays;
 import static org.lwjgl.opengl.GL11.glEnable;
+import static org.lwjgl.opengl.GL11.glFinish;
 import static org.lwjgl.opengl.GL11.glGenTextures;
+import static org.lwjgl.opengl.GL11.glIsEnabled;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_TEST;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
+import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
+import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glDeleteVertexArrays;
 import static org.lwjgl.opengl.GL30.glGenVertexArrays;
+import static org.lwjgl.opengl.GL42.GL_BUFFER_UPDATE_BARRIER_BIT;
+import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
 
 /**
  * Opt-in GL smoke test. Runs only with -Dhaikalat.glSmoke=true because it creates a hidden GLFW window.
@@ -94,6 +109,18 @@ class GlContextSmokeTest {
             out vec4 FragColor;
             void main() {
                 FragColor = vec4(1.0);
+            }
+            """;
+
+    private static final String COMPUTE_SOURCE = """
+            #version 460 core
+            layout(local_size_x = 1) in;
+            layout(std430, binding = 0) buffer Result {
+                uint value;
+            };
+            uniform uint uInput;
+            void main() {
+                value = uInput + 1u;
             }
             """;
 
@@ -195,6 +222,109 @@ class GlContextSmokeTest {
     }
 
     @Test
+    void computeProgramWritesThroughNamedStorageBlock() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (ShaderProgram shader = ShaderProgram.fromComputeSource(COMPUTE_SOURCE);
+                 GlBuffer result = GlBuffer.shaderStorageBuffer(GL_DYNAMIC_DRAW).allocate(Integer.BYTES)) {
+                shader.bindStorageBlock("Result", 0).setUInt("uInput", 41);
+                GlRenderDevice device = new GlRenderDevice();
+                device.execute(device.createCommandBuffer()
+                        .bindShader(shader)
+                        .bindStorageBuffer(0, result, 0, Integer.BYTES)
+                        .dispatchCompute(1, 1, 1)
+                        .memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT));
+
+                ByteBuffer readback = BufferUtils.createByteBuffer(Integer.BYTES);
+                result.read(0, readback);
+                assertTrue(shader.isCompute());
+                assertTrue(shader.hasStage(ShaderStage.COMPUTE));
+                assertEquals(42, readback.getInt(0));
+                GlDebug.checkError("computeProgramWritesThroughNamedStorageBlock");
+            }
+        }
+    }
+
+    @Test
+    void indexedProceduralCubeWithCompactSsboProducesPixelsWithoutVbo() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            GeneratedStressPrimitive cube = GeneratedStressPrimitive.CUBE;
+            ByteBuffer packedData = PackedInstanceLayout.allocate(1);
+            PackedInstanceLayout.pack(packedData, 0,
+                    0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
+                    PackedInstanceLayout.packRgba8(1.0f, 0.25f, 0.1f, 1.0f));
+            try (ShaderProgram shader = ShaderProgram.fromResource(GlContextSmokeTest.class,
+                    cube.indexedSsboShaderResource(), "/demo/vertex_color_unlit.frag");
+                 GlBuffer elementBuffer = GlBuffer.elementArrayBuffer(GL_STATIC_DRAW)
+                         .upload(DirectBuffers.copyOf(cube.indices()));
+                 VertexArray vao = new VertexArray();
+                 PackedInstanceBuffer instances = PackedInstanceBuffer.immutable(packedData, 1);
+                 Framebuffer target = Framebuffer.singleSampled(32, 32)) {
+                vao.bindElementBuffer(elementBuffer);
+                shader.bindStorageBlock("PackedInstances", 0);
+
+                GlRenderDevice device = new GlRenderDevice();
+                device.execute(device.createCommandBuffer()
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, 32, 32)
+                        .clearColor(0, 0, 0, 1)
+                        .clear(true, true)
+                        .enableDepthTest(true)
+                        .enableCullFace(true)
+                        .bindShader(shader)
+                        .setUniformMat4(shader, "uProjView", new org.joml.Matrix4f())
+                        .setUniformVec2(shader, "uTimeRotation", 1.0f, 0.0f)
+                        .bindStorageBuffer(0, instances.buffer(), 0, instances.bindingSizeBytes())
+                        .bindVertexArray(vao.id())
+                        .drawElementsInstanced(GL_TRIANGLES, cube.indexCount(),
+                                cube.indexType(), 0L, 1));
+
+                ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 100,
+                        "Indexed compact cube must produce a non-empty center pixel");
+                GlDebug.checkError("indexedProceduralCubeWithCompactSsboProducesPixelsWithoutVbo");
+            }
+        }
+    }
+
+    @Test
+    void dynamicCompactSsboRingSlotsMeetDriverOffsetAlignment() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            ByteBuffer packedData = PackedInstanceLayout.allocate(7);
+            try (PackedInstanceBuffer instances = PackedInstanceBuffer.dynamic(packedData, 7)) {
+                assertEquals(0L, instances.slotStrideBytes() % instances.offsetAlignment());
+                for (int slot = 0; slot < 3; slot++) {
+                    instances.beginFrame();
+                    assertEquals(0L, instances.bindingOffsetBytes() % instances.offsetAlignment());
+                    assertEquals(7L * PackedInstanceLayout.STRIDE_BYTES,
+                            instances.lastSynchronizedBytes());
+                    instances.finishFrame();
+                    glFinish();
+                }
+
+                ByteBuffer oneChangedInstance = PackedInstanceLayout.allocate(1);
+                PackedInstanceLayout.pack(oneChangedInstance, 0,
+                        1, 2, 3, 0.5f, 1, 0,
+                        PackedInstanceLayout.packRgba8(1, 1, 1, 1));
+                instances.updateRange(4, oneChangedInstance, 1);
+                instances.beginFrame();
+                assertEquals(PackedInstanceLayout.STRIDE_BYTES, instances.lastSynchronizedBytes(),
+                        "A one-instance change must not rewrite the complete ring slot");
+                instances.finishFrame();
+                glFinish();
+            }
+        }
+    }
+
+    @Test
     void renderDeviceKeepsStateCacheAcrossCommandBuffers() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
@@ -217,6 +347,125 @@ class GlContextSmokeTest {
             assertEquals(firstApplied, device.stateStatistics().appliedChanges(),
                     "Repeated command buffers must not reapply identical GL state");
             assertTrue(device.stateStatistics().avoidedChanges() >= 7L);
+        }
+    }
+
+    @Test
+    void pendingPipelineStateCollapsesAndCustomIsAFullBarrier() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+
+            GlRenderDevice device = new GlRenderDevice();
+            device.execute(device.createCommandBuffer()
+                    .enableBlend(false)
+                    .enableBlend(true)
+                    .enableBlend(false)
+                    .enableDepthTest(false)
+                    .enableDepthTest(true)
+                    .custom(() -> {
+                        assertFalse(glIsEnabled(GL_BLEND));
+                        assertTrue(glIsEnabled(GL_DEPTH_TEST));
+                    }));
+
+            assertEquals(2L, device.stateStatistics().appliedChanges(),
+                    "Only final blend/depth values may reach StateCache before the barrier");
+
+            device.execute(device.createCommandBuffer()
+                    .enableBlend(true)
+                    .custom(() -> glDisable(GL_BLEND))
+                    .enableBlend(true)
+                    .custom(() -> assertTrue(glIsEnabled(GL_BLEND),
+                            "Explicit state after custom must be re-applied")));
+            GlDebug.checkError("pendingPipelineStateCollapsesAndCustomIsAFullBarrier");
+        }
+    }
+
+    @Test
+    void depthMaskIsFlushedBeforeDepthClear() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (Framebuffer target = Framebuffer.singleSampled(32, 32)) {
+                GlRenderDevice device = new GlRenderDevice();
+                glClearDepth(0.25);
+                device.execute(device.createCommandBuffer()
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, 32, 32)
+                        .depthMask(true)
+                        .clear(false, true));
+                assertEquals(0.25f, readCenterDepth(), 0.01f);
+
+                glClearDepth(0.75);
+                device.execute(device.createCommandBuffer()
+                        .bindFramebuffer(target)
+                        .depthMask(true)
+                        .depthMask(false)
+                        .clear(false, true));
+                assertEquals(0.25f, readCenterDepth(), 0.01f,
+                        "Final depthMask=false must take effect before glClear");
+
+                device.execute(device.createCommandBuffer().depthMask(true));
+                GlDebug.checkError("depthMaskIsFlushedBeforeDepthClear");
+            }
+        }
+    }
+
+    @Test
+    void transparentStateDoesNotFoldAcrossDrawOrRenderGraphPass() {
+        String halfRed = """
+                #version 330 core
+                out vec4 FragColor;
+                void main() { FragColor = vec4(1.0, 0.0, 0.0, 0.5); }
+                """;
+        String halfBlue = """
+                #version 330 core
+                out vec4 FragColor;
+                void main() { FragColor = vec4(0.0, 0.0, 1.0, 0.5); }
+                """;
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (ShaderProgram red = ShaderProgram.fromSources(DEPTH_WRITE_VERTEX_SOURCE, halfRed);
+                 ShaderProgram blue = ShaderProgram.fromSources(DEPTH_WRITE_VERTEX_SOURCE, halfBlue);
+                 VertexArray vao = new VertexArray();
+                 RenderGraph graph = new RenderGraph(32, 32)) {
+                graph.addPass("Opaque")
+                        .writeToBackbuffer()
+                        .noClear()
+                        .execute((resources, commands) -> commands
+                                .clearColor(0, 0, 0, 1)
+                                .clear(true, true)
+                                .enableDepthTest(false)
+                                .enableCullFace(false)
+                                .enableBlend(true)
+                                .enableBlend(false)
+                                .bindShader(red)
+                                .bindVertexArray(vao.id())
+                                .drawArrays(GL_TRIANGLES, 0, 3));
+                graph.addPass("Transparent")
+                        .dependsOn("Opaque")
+                        .writeToBackbuffer()
+                        .noClear()
+                        .execute((resources, commands) -> commands
+                                .blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+                                .enableBlend(true)
+                                .bindShader(blue)
+                                .bindVertexArray(vao.id())
+                                .drawArrays(GL_TRIANGLES, 0, 3));
+                graph.compile();
+                graph.execute(new GlRenderDevice());
+
+                ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                int redChannel = Byte.toUnsignedInt(pixel.get(0));
+                int blueChannel = Byte.toUnsignedInt(pixel.get(2));
+                assertTrue(redChannel > 105 && redChannel < 150,
+                        "Opaque pass must write full red before transparent blending");
+                assertTrue(blueChannel > 105 && blueChannel < 150,
+                        "Transparent pass must blend blue after the opaque draw");
+                GlDebug.checkError("transparentStateDoesNotFoldAcrossDrawOrRenderGraphPass");
+            }
         }
     }
 
@@ -717,6 +966,12 @@ class GlContextSmokeTest {
             difference += Math.abs(Byte.toUnsignedInt(left[i + 2]) - Byte.toUnsignedInt(right[i + 2]));
         }
         return difference;
+    }
+
+    private static float readCenterDepth() {
+        FloatBuffer depth = BufferUtils.createFloatBuffer(1);
+        glReadPixels(16, 16, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+        return depth.get(0);
     }
 
     private static GlfwWindow hiddenWindow() {

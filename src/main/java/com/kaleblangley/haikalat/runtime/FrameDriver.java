@@ -43,6 +43,11 @@ public final class FrameDriver implements AutoCloseable {
         return device.stateStatistics();
     }
 
+    public void resetStatistics() {
+        statistics.reset();
+        device.resetStateStatistics();
+    }
+
     /** Call after external raw GL code changes state managed by the command system. */
     public void invalidateState() {
         device.invalidateState();

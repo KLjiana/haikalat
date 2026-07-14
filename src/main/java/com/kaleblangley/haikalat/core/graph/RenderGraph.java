@@ -24,13 +24,15 @@ public final class RenderGraph implements AutoCloseable {
     private final Map<String, Pass> passByName = new HashMap<>();
     private final Map<String, Texture2D> importedTextures = new HashMap<>();
     private final Map<String, Integer> textureAttachmentIds = new HashMap<>();
-    private final Map<String, GpuTimer> passTimers = new HashMap<>();
     private final RenderTargetManager renderTargets;
     private final boolean allocateResources;
+    private final PassResources passResources;
+    private final CommandBuffer immediateCommands = new CommandBuffer();
     private List<Pass> sortedPasses;
     private int width;
     private int height;
     private Framebuffer currentFbo;
+    private long[] cpuRecordNanos = new long[0];
     private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
     private boolean closed;
 
@@ -46,6 +48,7 @@ public final class RenderGraph implements AutoCloseable {
         this.height = height;
         this.allocateResources = allocateResources;
         this.renderTargets = allocateResources ? new RenderTargetManager() : null;
+        this.passResources = new PassResources(this);
     }
 
     public int width() {
@@ -159,18 +162,25 @@ public final class RenderGraph implements AutoCloseable {
         if (sortedPasses == null) {
             compile();
         }
-        CommandBuffer cmd = device.createCommandBuffer();
-        PassResources resources = new PassResources(this);
-        Map<String, Long> cpuRecordNanos = new HashMap<>();
+        CommandBuffer cmd;
+        if (device.executionModel() == com.kaleblangley.haikalat.core.device.ExecutionModel.IMMEDIATE) {
+            immediateCommands.reset();
+            cmd = immediateCommands;
+        } else {
+            cmd = device.createCommandBuffer();
+        }
+        if (cpuRecordNanos.length != sortedPasses.size()) {
+            cpuRecordNanos = new long[sortedPasses.size()];
+        }
 
-        for (Pass pass : sortedPasses) {
+        for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
+            Pass pass = sortedPasses.get(passIndex);
             long passCpuStart = System.nanoTime();
             Framebuffer framebuffer = getPassFramebuffer(pass.name);
             currentFbo = framebuffer;
-            GpuTimer timer = passTimers.computeIfAbsent(pass.name, ignored -> new GpuTimer());
-            // TODO(command-api): keep as custom unless timer commands need StateCache or command-level tests.
-            // Debug profiling begin/end is an allowed temporary CommandBuffer escape hatch.
-            cmd.custom(timer::begin);
+            if (pass.timer == null) pass.timer = new GpuTimer();
+            GpuTimer timer = pass.timer;
+            cmd.beginGpuTimer(timer);
 
             if (pass.useBackbuffer) {
                 cmd.enableBlend(false);
@@ -187,19 +197,18 @@ public final class RenderGraph implements AutoCloseable {
                 cmd.clear(pass.clearColor, pass.clearDepth);
             }
 
-            pass.executor.execute(resources, cmd);
-            // TODO(command-api): keep as custom unless timer commands need StateCache or command-level tests.
-            // Debug profiling begin/end is an allowed temporary CommandBuffer escape hatch.
-            cmd.custom(timer::end);
-            cpuRecordNanos.put(pass.name, System.nanoTime() - passCpuStart);
+            pass.executor.execute(passResources, cmd);
+            cmd.endGpuTimer(timer);
+            cpuRecordNanos[passIndex] = System.nanoTime() - passCpuStart;
         }
 
         device.execute(cmd);
         List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
-        for (Pass pass : sortedPasses) {
-            GpuTimer timer = passTimers.get(pass.name);
+        for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
+            Pass pass = sortedPasses.get(passIndex);
+            GpuTimer timer = pass.timer;
             long gpuNanos = timer == null ? 0L : timer.elapsedNanos();
-            passProfiles.add(new PassProfile(pass.name, cpuRecordNanos.getOrDefault(pass.name, 0L), gpuNanos));
+            passProfiles.add(new PassProfile(pass.name, cpuRecordNanos[passIndex], gpuNanos));
         }
         lastFrameProfile = new FrameProfile(0L, passProfiles);
     }
@@ -233,10 +242,9 @@ public final class RenderGraph implements AutoCloseable {
         if (renderTargets != null) {
             renderTargets.close();
         }
-        for (GpuTimer timer : passTimers.values()) {
-            timer.close();
+        for (Pass pass : passes) {
+            if (pass.timer != null) pass.timer.close();
         }
-        passTimers.clear();
         textureAttachmentIds.clear();
         closed = true;
     }
@@ -319,6 +327,7 @@ public final class RenderGraph implements AutoCloseable {
         final boolean useBackbuffer;
         final List<String> dependencies;
         final PassExecutor executor;
+        GpuTimer timer;
 
         Pass(String name, List<String> colorTextureNames, List<RenderFormat> colorFormats, int samples,
              int fixedWidth, int fixedHeight,

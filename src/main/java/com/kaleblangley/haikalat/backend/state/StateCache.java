@@ -5,24 +5,36 @@ import java.util.Arrays;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
+import static org.lwjgl.opengl.GL20.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.opengl.GL33.glBindSampler;
+import static org.lwjgl.opengl.GL31.GL_MAX_UNIFORM_BUFFER_BINDINGS;
 import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
 import static org.lwjgl.opengl.GL31.glBindBufferRange;
+import static org.lwjgl.opengl.GL42.GL_MAX_IMAGE_UNITS;
+import static org.lwjgl.opengl.GL42.glBindImageTexture;
+import static org.lwjgl.opengl.GL43.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS;
+import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
 
-public final class StateCache {
-    private static final int MAX_TEXTURE_UNITS = 32;
-    private static final int MAX_UNIFORM_BUFFER_BINDINGS = 32;
-
+public final class StateCache implements PipelineStateSink {
     private int currentProgram;
     private int currentVAO;
     private int activeTextureUnit;
-    private final int[] boundTextures2D = new int[MAX_TEXTURE_UNITS];
-    private final int[] boundSamplers = new int[MAX_TEXTURE_UNITS];
-    private final int[] uniformBuffers = new int[MAX_UNIFORM_BUFFER_BINDINGS];
-    private final long[] uniformBufferOffsets = new long[MAX_UNIFORM_BUFFER_BINDINGS];
-    private final long[] uniformBufferSizes = new long[MAX_UNIFORM_BUFFER_BINDINGS];
+    private int[] boundTextures2D = new int[0];
+    private int[] boundSamplers = new int[0];
+    private int[] uniformBuffers = new int[0];
+    private long[] uniformBufferOffsets = new long[0];
+    private long[] uniformBufferSizes = new long[0];
+    private int[] storageBuffers = new int[0];
+    private long[] storageBufferOffsets = new long[0];
+    private long[] storageBufferSizes = new long[0];
+    private int[] imageTextures = new int[0];
+    private int[] imageLevels = new int[0];
+    private boolean[] imageLayered = new boolean[0];
+    private int[] imageLayers = new int[0];
+    private int[] imageAccess = new int[0];
+    private int[] imageFormats = new int[0];
     private int currentReadFramebuffer;
     private int currentDrawFramebuffer;
     private int viewportX;
@@ -114,9 +126,7 @@ public final class StateCache {
     }
 
     public void bindUniformBufferRange(int bindingPoint, int buffer, long offset, long size) {
-        if (bindingPoint < 0 || bindingPoint >= MAX_UNIFORM_BUFFER_BINDINGS) {
-            throw new IllegalArgumentException("uniform buffer binding out of range: " + bindingPoint);
-        }
+        ensureUniformBufferBinding(bindingPoint);
         if (changeRequired(uniformBuffers[bindingPoint] != buffer
                 || uniformBufferOffsets[bindingPoint] != offset
                 || uniformBufferSizes[bindingPoint] != size)) {
@@ -124,6 +134,34 @@ public final class StateCache {
             uniformBuffers[bindingPoint] = buffer;
             uniformBufferOffsets[bindingPoint] = offset;
             uniformBufferSizes[bindingPoint] = size;
+        }
+    }
+
+    public void bindStorageBufferRange(int bindingPoint, int buffer, long offset, long size) {
+        ensureStorageBufferBinding(bindingPoint);
+        if (changeRequired(storageBuffers[bindingPoint] != buffer
+                || storageBufferOffsets[bindingPoint] != offset
+                || storageBufferSizes[bindingPoint] != size)) {
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, bindingPoint, buffer, offset, size);
+            storageBuffers[bindingPoint] = buffer;
+            storageBufferOffsets[bindingPoint] = offset;
+            storageBufferSizes[bindingPoint] = size;
+        }
+    }
+
+    public void bindImageTexture(int unit, int texture, int level, boolean layered,
+                                 int layer, int access, int format) {
+        ensureImageUnit(unit);
+        if (changeRequired(imageTextures[unit] != texture || imageLevels[unit] != level
+                || imageLayered[unit] != layered || imageLayers[unit] != layer
+                || imageAccess[unit] != access || imageFormats[unit] != format)) {
+            glBindImageTexture(unit, texture, level, layered, layer, access, format);
+            imageTextures[unit] = texture;
+            imageLevels[unit] = level;
+            imageLayered[unit] = layered;
+            imageLayers[unit] = layer;
+            imageAccess[unit] = access;
+            imageFormats[unit] = format;
         }
     }
 
@@ -290,6 +328,14 @@ public final class StateCache {
         Arrays.fill(uniformBuffers, -1);
         Arrays.fill(uniformBufferOffsets, -1L);
         Arrays.fill(uniformBufferSizes, -1L);
+        Arrays.fill(storageBuffers, -1);
+        Arrays.fill(storageBufferOffsets, -1L);
+        Arrays.fill(storageBufferSizes, -1L);
+        Arrays.fill(imageTextures, -1);
+        Arrays.fill(imageLevels, -1);
+        Arrays.fill(imageLayers, -1);
+        Arrays.fill(imageAccess, -1);
+        Arrays.fill(imageFormats, -1);
         currentReadFramebuffer = -1;
         currentDrawFramebuffer = -1;
         viewportSet = false;
@@ -322,10 +368,71 @@ public final class StateCache {
         return required;
     }
 
-    private static void requireTextureUnit(int unit) {
-        if (unit < 0 || unit >= MAX_TEXTURE_UNITS) {
+    private void requireTextureUnit(int unit) {
+        if (boundTextures2D.length == 0) {
+            int count = positiveLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, "texture units");
+            boundTextures2D = initializedInts(count);
+            boundSamplers = initializedInts(count);
+        }
+        if (unit < 0 || unit >= boundTextures2D.length) {
             throw new IllegalArgumentException("texture unit out of range: " + unit);
         }
+    }
+
+    private void ensureUniformBufferBinding(int bindingPoint) {
+        if (uniformBuffers.length == 0) {
+            int count = positiveLimit(GL_MAX_UNIFORM_BUFFER_BINDINGS, "uniform buffer bindings");
+            uniformBuffers = initializedInts(count);
+            uniformBufferOffsets = initializedLongs(count);
+            uniformBufferSizes = initializedLongs(count);
+        }
+        requireIndex(bindingPoint, uniformBuffers.length, "uniform buffer");
+    }
+
+    private void ensureStorageBufferBinding(int bindingPoint) {
+        if (storageBuffers.length == 0) {
+            int count = positiveLimit(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, "storage buffer bindings");
+            storageBuffers = initializedInts(count);
+            storageBufferOffsets = initializedLongs(count);
+            storageBufferSizes = initializedLongs(count);
+        }
+        requireIndex(bindingPoint, storageBuffers.length, "storage buffer");
+    }
+
+    private void ensureImageUnit(int unit) {
+        if (imageTextures.length == 0) {
+            int count = positiveLimit(GL_MAX_IMAGE_UNITS, "image units");
+            imageTextures = initializedInts(count);
+            imageLevels = initializedInts(count);
+            imageLayered = new boolean[count];
+            imageLayers = initializedInts(count);
+            imageAccess = initializedInts(count);
+            imageFormats = initializedInts(count);
+        }
+        requireIndex(unit, imageTextures.length, "image unit");
+    }
+
+    private static int positiveLimit(int query, String kind) {
+        int count = glGetInteger(query);
+        if (count <= 0) throw new IllegalStateException("OpenGL reported no " + kind);
+        return count;
+    }
+
+    private static int[] initializedInts(int count) {
+        int[] values = new int[count];
+        Arrays.fill(values, -1);
+        return values;
+    }
+
+    private static long[] initializedLongs(int count) {
+        long[] values = new long[count];
+        Arrays.fill(values, -1L);
+        return values;
+    }
+
+    private static void requireIndex(int index, int limit, String kind) {
+        if (index < 0 || index >= limit) throw new IllegalArgumentException(
+                kind + " binding out of range: " + index + " (limit " + limit + ")");
     }
 
     public record Statistics(long appliedChanges, long avoidedChanges) {

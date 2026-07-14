@@ -13,7 +13,7 @@ public class Camera {
 
     public static final float YAW = -90.0f;
     public static final float PITCH = 0.0f;
-    public static final float SPEED = 2.5f;
+    public static final float SPEED = 25f;
     public static final float SENSITIVITY = 0.1f;
     public static final float ZOOM = 45.0f;
 
@@ -92,7 +92,15 @@ public class Camera {
 
     /** @return 基于当前姿态的 lookAt 视图矩阵 */
     public Matrix4f getViewMatrix() {
-        return new Matrix4f().lookAt(position, new Vector3f(position).add(front), up);
+        return getViewMatrix(new Matrix4f());
+    }
+
+    /** Writes the view matrix into caller-owned storage to avoid per-frame allocations. */
+    public Matrix4f getViewMatrix(Matrix4f destination) {
+        return destination.identity().lookAt(
+                position.x, position.y, position.z,
+                position.x + front.x, position.y + front.y, position.z + front.z,
+                up.x, up.y, up.z);
     }
 
     /**
@@ -155,12 +163,10 @@ public class Camera {
     }
 
     private void updateCameraVectors() {
-        Vector3f newFront = new Vector3f();
-        newFront.x = (float) (Math.cos(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)));
-        newFront.y = (float) Math.sin(Math.toRadians(pitch));
-        newFront.z = (float) (Math.sin(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)));
-
-        front.set(newFront.normalize());
+        front.x = (float) (Math.cos(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)));
+        front.y = (float) Math.sin(Math.toRadians(pitch));
+        front.z = (float) (Math.sin(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)));
+        front.normalize();
         right.set(front).cross(worldUp).normalize();
         up.set(right).cross(front).normalize();
     }

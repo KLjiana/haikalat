@@ -14,7 +14,7 @@ current goals, capabilities, and non-goals.
 
 ## Current Capabilities
 
-- OpenGL backend resources for shaders, buffers, textures, samplers, framebuffers,
+- OpenGL backend resources for stage-aware graphics/compute shaders, buffers, textures, samplers, framebuffers,
   vertex layouts/arrays, render formats, uniform blocks, GPU fences/timers, state caching,
   and error reporting.
 - Core rendering protocols for command recording, render devices, render graphs,
@@ -25,8 +25,8 @@ current goals, capabilities, and non-goals.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, and an OBJ path exercised by the main demo;
   the Assimp loader remains experimental.
-- Demo proof paths for the combined scene pipeline, minimal command/window flow,
-  async update/upload/render-thread interaction, and 100000-instance stress profiling.
+- Demo proof paths for an empty present baseline, the combined scene pipeline, minimal command/window flow,
+  async update/upload/render-thread interaction, and generated GPU-procedural 100000-instance stress profiling.
 
 ## Requirements
 
@@ -79,6 +79,7 @@ Import the Gradle project in your IDE, then run the demo `main` method directly 
 the `learnopengl.demo` module.
 
 - Main demo: `com.kaleblangley.haikalat.demo.LearnOpenGlDemo`
+- Empty no-draw window: `com.kaleblangley.haikalat.demo.EmptyWindowDemo`
 - Minimal smoke demo: `com.kaleblangley.haikalat.demo.MinimalDemo`
 - Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
 

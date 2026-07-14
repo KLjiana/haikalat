@@ -12,7 +12,7 @@ if not "%~2"=="" set "INSTANCES=%~2"
 if not "%~3"=="" set "MODE=%~3"
 
 echo Starting StressDemo %MODE% mode with %INSTANCES% %SHAPE% instances...
-echo Usage: 04_stress_demo.bat [triangle^|quad^|cube] [instance-count] [gpu^|dynamic]
+echo Usage: 04_stress_demo.bat [triangle^|quad^|cube] [instance-count] [gpu^|indexed^|indexed-ssbo^|dynamic]
 echo In Nsight Graphics, attach to the java.exe process whose window title starts with Stress.
 call gradlew.bat runStressDemo -PstressShape=%SHAPE% -PstressInstances=%INSTANCES% -PstressMode=%MODE% --no-daemon --console=plain
 set "EXIT_CODE=%ERRORLEVEL%"

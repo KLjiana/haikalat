@@ -24,6 +24,8 @@
 
 `RenderGraph` 不负责场景遍历、材质绑定、光照模型、shader variant、asset loading 或 demo 输入逻辑。
 
+对于 `ExecutionModel.IMMEDIATE`，graph 会在前一帧命令已执行完成后复用内部 `CommandBuffer`、`PassResources` 和 pass timing 数组；deferred backend 仍必须从 `RenderDevice` 获取独立 command buffer，不能复用尚未消费的数据。
+
 ## Pass Resource Access
 
 普通 pass 应按逻辑资源工作，优先使用 `PassResources` 的窄 API：
@@ -51,15 +53,25 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 `GlRenderDevice` 持有跨 command buffer、跨 pass 和跨帧复用的 `StateCache`。正常命令提交不会全量失效缓存；只有绕过缓存的代码才允许做最小范围失效，例如 instanced batch 直接绑定 VAO 后调用 `invalidateVertexArray()`。Buffer 创建、分配、上传和映射使用 OpenGL DSA，不再污染缓存外的全局 buffer binding。外部裸 OpenGL 调用如果修改了受缓存管理的状态，必须显式调用 `invalidateState()`。
 
-缓存覆盖 program、VAO、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color 和 indexed uniform-buffer range。普通 buffer 操作使用 DSA，因此已删除无调用方的 array/element buffer 缓存字段。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
+缓存覆盖 program、VAO、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color、indexed uniform/storage-buffer range 和 image unit。binding 数量在首次使用时读取真实 OpenGL capability，不再写死 32。普通 buffer 操作使用 DSA，因此不缓存 array/element buffer binding。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
 
-`CommandBuffer` 不允许对任意命令全局排序，因为 framebuffer、clear、uniform、透明 draw 和 pass 依赖具有顺序语义。材质 blend/depth 开关被压缩为单个有序 state packet；draw 排序由 scene 层缓存完成：opaque/additive 按 shader/material/mesh 分组，alpha 保留提交顺序并最后绘制，shadow 按 mesh 分组。
+`CommandBuffer` 使用可复用的 opcode/int/long/object structure-of-arrays，不再为每条命令分配捕获 `Consumer`。viewport、clear color、blend function、blend/depth/cull 开关只更新录制期 `PendingPipelineState`；遇到 draw、clear、blit、dispatch、memory barrier、GPU query、custom 或 command-buffer 结束时，编码一个只含最终 dirty values 的 primitive state packet。执行时 packet 仍通过长期存活的 `StateCache`，因此跨 command buffer、pass 和帧的 GL 去重继续有效。
+
+状态折叠不得跨 observable boundary：depth mask 在 depth clear 前提交；每个 draw 保留独立材质状态；RenderGraph pass 的正式 timer-query begin/end 构成 pass 屏障；`custom()` 前提交全部 pending state，执行后全量失效 `StateCache`。资源绑定和 DSA uniform 可以位于状态 setter 与边界之间，因为它们不观察 raster pipeline state，但其彼此顺序不改变。
+
+`CommandBuffer` 不允许对任意 draw 全局排序，因为 framebuffer、clear、uniform、透明 draw 和 pass 依赖具有顺序语义。draw 排序仍由 scene 层缓存完成：opaque/additive 按 shader/material/mesh 分组，alpha 保留提交顺序并最后绘制，shadow 按 mesh 分组。
 
 ## Runtime Timing
 
 `FrameClock` 提供模拟/输入使用的限幅 delta 和累计时间；它不计算渲染 FPS。`FrameDriver` 在 `beginFrame -> endFrame` 之间统计上传和 CPU 命令提交耗时，并通过 `present(swapAction)` 在 swap 成功返回后记录呈现帧。`RenderStatistics` 使用一秒采样窗口输出 present FPS，同时通过线程安全 `Snapshot` 暴露 CPU submit、GPU profile 和呈现计数。`PeriodicTimer` 用于限制标题/overlay 等低频工作，禁止再用“每 N 帧”充当墙钟定时器。
 
-`CommandBuffer.custom()` 的生产调用只允许用于 `RenderGraph` GPU profiling。出现第二类生产调用前不扩大该逃生口，也不为计时器预先引入新的公共命令抽象。
+`RenderGraph` profiling 使用正式 `beginGpuTimer/endGpuTimer` query opcode，生产代码不再调用 `CommandBuffer.custom()`。该逃生口仅用于诊断或迁移，必须按“前 flush、后 invalidate”的完整屏障处理。
+
+## Shader Program And Bindings
+
+`ShaderProgram` 负责 OpenGL stage 编译/链接、uniform 与 block 反射缓存，以及 program 级 DSA 更新。builder 支持 vertex、tessellation control/evaluation、geometry、fragment 和 compute；compute program 不可混入 graphics stage。`ShaderAsset` 仅描述 `ShaderStage -> AssetRef`，`HotReloadableShader` 负责在 GL 线程构建新 program 后原子替换旧 program。
+
+普通材质仍使用 graphics program；compute 工作通过 `CommandBuffer.bindStorageBuffer/bindImage/dispatchCompute/memoryBarrier` 明确记录。SSBO block 和 UBO block 的 program binding 由 `ShaderProgram` 完成，实际 buffer range/image unit 由 `StateCache` 去重。直接调用 `ShaderProgram.set*` 使用 DSA，不要求先 `use()`。
 
 ## Mesh Data And Runtime Mesh
 
@@ -83,7 +95,7 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 稳定 asset manifest 字段：
 
-- `shader.*`：命名 shader 资源。
+- `shader.*`：命名 shader 资源；properties 格式支持 `vertex`、`tessControl`、`tessEvaluation`、`geometry`、`fragment` 和 `compute` stage。
 - `texture.*`：命名 texture 资源和加载选项。
 - `model.*`：命名外部模型资源。
 - `material.*`：命名材质定义，引用 shader/texture/sampler 名称。

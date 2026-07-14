@@ -1,9 +1,11 @@
 package com.kaleblangley.haikalat.demo.stress;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.PipelineStatisticsQuery;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
+import com.kaleblangley.haikalat.core.buffer.PackedInstanceBuffer;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
@@ -11,25 +13,30 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.demo.DemoSupport;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.FrameTimingAccumulator;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
-import com.kaleblangley.haikalat.runtime.RenderStatistics;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL;
 
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntSupplier;
 
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.glFinish;
 
-/** Large instanced-draw workload for CPU submission, upload, GPU and state-cache profiling. */
+/** Large single-draw workload for same-machine procedural/instance-layout comparisons. */
 public final class StressDemo {
     private static final String PASS_NAME = "StressInstances";
+    private static final String FRAGMENT_SHADER = "/demo/vertex_color_unlit.frag";
     private static final int DEFAULT_INSTANCES = 100_000;
+    private static final int PACKED_STORAGE_BINDING = 0;
 
     private StressDemo() {
     }
@@ -37,8 +44,9 @@ public final class StressDemo {
     public static void main(String[] args) {
         Options options = Options.parse(args);
         RenderSettings settings = RenderSettings.builder().vsync(options.vsync()).build();
-        int gridSide = (int) Math.ceil(Math.sqrt(options.instances()));
-        Camera camera = new Camera(new Vector3f(0.0f, 0.0f, Math.max(5.0f, gridSide * 0.19f)));
+        StressGrid grid = StressGrid.forInstances(options.instances());
+        Camera camera = new Camera(new Vector3f(
+                0.0f, 0.0f, Math.max(5.0f, grid.columns() * 0.19f)));
 
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(1280, 720)
@@ -49,211 +57,323 @@ public final class StressDemo {
             GlDebug.enableDebugCallback();
             window.setVsync(settings.vsync());
             if (!options.hidden()) window.show();
-            if (options.mode() == Mode.GPU) runGpu(window, camera, settings, options);
-            else runDynamic(window, camera, settings, options);
+            switch (options.mode()) {
+                case GPU -> runGpu(window, camera, settings, options, grid);
+                case INDEXED -> runIndexed(window, camera, settings, options, grid);
+                case INDEXED_SSBO -> runIndexedSsbo(window, camera, settings, options, grid);
+                case DYNAMIC -> runDynamic(window, camera, settings, options, grid);
+            }
         }
     }
 
-    private static void runDynamic(GlfwWindow window, Camera camera,
-                                   RenderSettings settings, Options options) {
-        List<Matrix4f> transforms = createTransforms(options.shape(), options.instances());
+    private static void runGpu(GlfwWindow window, Camera camera, RenderSettings settings,
+                               Options options, StressGrid grid) {
+        try (FrameDriver driver = new FrameDriver(settings);
+             ShaderProgram shader = ShaderProgram.fromResource(StressDemo.class,
+                     options.primitive().gpuShaderResource(), FRAGMENT_SHADER);
+             VertexArray emptyVao = new VertexArray();
+             RenderGraph graph = createProceduralGraph(window, camera, shader, emptyVao.id(),
+                     options, grid, options.primitive().gpuVertexCount())) {
+            runLoop(window, camera, driver, graph, options, () -> 1,
+                    "StressDemo.gpuFrame", null, null);
+        }
+    }
+
+    private static void runIndexed(GlfwWindow window, Camera camera, RenderSettings settings,
+                                   Options options, StressGrid grid) {
+        try (FrameDriver driver = new FrameDriver(settings);
+             ShaderProgram shader = ShaderProgram.fromResource(StressDemo.class,
+                     options.primitive().indexedShaderResource(), FRAGMENT_SHADER);
+             StressIndexedGeometry geometry = new StressIndexedGeometry(options.primitive());
+             RenderGraph graph = createIndexedGraph(window, camera, shader, geometry,
+                     options, grid, null)) {
+            runLoop(window, camera, driver, graph, options, () -> 1,
+                    "StressDemo.indexedFrame", null, null);
+        }
+    }
+
+    private static void runIndexedSsbo(GlfwWindow window, Camera camera, RenderSettings settings,
+                                       Options options, StressGrid grid) {
+        ByteBuffer instanceData = StressPackedInstances.create(
+                options.primitive(), options.instances(), grid);
+        try (FrameDriver driver = new FrameDriver(settings);
+             ShaderProgram shader = ShaderProgram.fromResource(StressDemo.class,
+                     options.primitive().indexedSsboShaderResource(), FRAGMENT_SHADER);
+             StressIndexedGeometry geometry = new StressIndexedGeometry(options.primitive());
+             PackedInstanceBuffer instances = PackedInstanceBuffer.immutable(
+                     instanceData, options.instances());
+             RenderGraph graph = createIndexedGraph(window, camera, shader, geometry,
+                     options, grid, instances)) {
+            shader.bindStorageBlock("PackedInstances", PACKED_STORAGE_BINDING);
+            runLoop(window, camera, driver, graph, options, () -> 1,
+                    "StressDemo.indexedSsboFrame", instances, null);
+        }
+    }
+
+    private static void runDynamic(GlfwWindow window, Camera camera, RenderSettings settings,
+                                   Options options, StressGrid grid) {
+        List<Matrix4f> transforms = createTransforms(
+                options.primitive(), options.instances(), grid);
         try (FrameDriver driver = new FrameDriver(settings);
              ShaderProgram shader = DemoSupport.loadProjectionViewInstancedShader(StressDemo.class);
-             Mesh mesh = Mesh.from(BuiltinMeshData.named(options.shape().builtinName));
+             Mesh mesh = Mesh.from(BuiltinMeshData.named(options.primitive().builtinName()));
              InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, options.instances(),
                      BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
              RenderGraph graph = createDynamicGraph(window, camera, shader, batch, transforms)) {
-            FrameClock clock = new FrameClock();
-            PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
-            int frame = 0;
-            while (!window.shouldClose()) {
-                FrameClock.Tick time = clock.tick();
-                DemoSupport.updateFreeCamera(window, camera, time.deltaSeconds());
-                if (window.consumeResize()) graph.resize(window.width(), window.height());
-
-                driver.frame(graph);
-                driver.present(window::swapBuffers);
-                window.pollEvents();
-
-                if (titleUpdate.poll()) {
-                    updateTitle(window, driver, batch.statistics().drawCalls(), options);
-                }
-                GlDebug.checkError("StressDemo.frame");
-                frame++;
-                if (options.maxFrames() > 0 && frame >= options.maxFrames()) window.requestClose();
-            }
-            if (options.maxFrames() > 0) {
-                System.out.println(formatStatistics(driver, batch.statistics().drawCalls(), options));
-            }
+            runLoop(window, camera, driver, graph, options,
+                    () -> batch.statistics().drawCalls(), "StressDemo.dynamicFrame", null, null);
         }
     }
 
-    private static void runGpu(GlfwWindow window, Camera camera,
-                               RenderSettings settings, Options options) {
-        try (FrameDriver driver = new FrameDriver(settings);
-             ShaderProgram shader = ShaderProgram.fromResource(StressDemo.class,
-                     "/demo/stress_procedural.vert", "/demo/vertex_color_unlit.frag");
-            VertexArray emptyVao = new VertexArray();
-            RenderGraph graph = createGpuGraph(window, camera, shader, emptyVao, options)) {
-            FrameClock clock = new FrameClock();
-            PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
-            int frame = 0;
+    private static void runLoop(GlfwWindow window, Camera camera, FrameDriver driver,
+                                RenderGraph graph, Options options, IntSupplier drawCalls,
+                                String debugLabel, PackedInstanceBuffer packedInstances,
+                                Runnable beforeFrame) {
+        FrameClock clock = new FrameClock();
+        PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
+        FrameTimingAccumulator timings = new FrameTimingAccumulator(
+                options.maxFrames() > 0 ? options.maxFrames() : 4096);
+        int warmupRemaining = options.warmupFrames();
+        int measuredFrames = 0;
+        long measurementStart = warmupRemaining == 0 ? System.nanoTime() : 0L;
+        long measurementEnd = measurementStart;
+        long vertexInvocations;
+
+        try (PipelineStatisticsQuery pipelineQuery = PipelineStatisticsQuery.vertexShaderInvocations()) {
             while (!window.shouldClose()) {
                 FrameClock.Tick time = clock.tick();
                 DemoSupport.updateFreeCamera(window, camera, time.deltaSeconds());
                 if (window.consumeResize()) graph.resize(window.width(), window.height());
+                if (beforeFrame != null) beforeFrame.run();
+                if (packedInstances != null && packedInstances.dynamic()) packedInstances.beginFrame();
 
+                pipelineQuery.begin();
                 driver.frame(graph);
+                pipelineQuery.end();
+                if (packedInstances != null && packedInstances.dynamic()) packedInstances.finishFrame();
                 driver.present(window::swapBuffers);
                 window.pollEvents();
-                if (titleUpdate.poll()) updateTitle(window, driver, 1, options);
-                GlDebug.checkError("StressDemo.gpuFrame");
-                frame++;
-                if (options.maxFrames() > 0 && frame >= options.maxFrames()) window.requestClose();
+
+                if (warmupRemaining > 0) {
+                    warmupRemaining--;
+                    if (warmupRemaining == 0) {
+                        driver.resetStatistics();
+                        timings.reset();
+                        measurementStart = System.nanoTime();
+                    }
+                } else {
+                    measuredFrames++;
+                    timings.add(driver.statistics().lastFrameDurationNanos(),
+                            graph.lastFrameProfile().totalGpuNanos());
+                    measurementEnd = System.nanoTime();
+                }
+                if (titleUpdate.poll()) {
+                    double fps = measuredFps(measuredFrames, measurementStart, measurementEnd);
+                    window.setTitle(formatStatistics(driver, timings.summary(), fps,
+                            pipelineQuery.latestValue(), drawCalls.getAsInt(), options));
+                }
+                if (options.maxFrames() > 0 && measuredFrames >= options.maxFrames()) {
+                    window.requestClose();
+                }
             }
-            if (options.maxFrames() > 0) {
-                System.out.println(formatStatistics(driver, 1, options));
-            }
+            // Resolve the last asynchronous pipeline counter outside the measured interval.
+            glFinish();
+            vertexInvocations = pipelineQuery.latestValue();
+        }
+
+        GlDebug.checkError(debugLabel);
+        if (options.maxFrames() > 0) {
+            double fps = measuredFps(measuredFrames, measurementStart, measurementEnd);
+            System.out.println(formatStatistics(driver, timings.summary(), fps,
+                    vertexInvocations, drawCalls.getAsInt(), options));
         }
     }
 
     private static RenderGraph createDynamicGraph(GlfwWindow window, Camera camera,
-                                                  ShaderProgram shader, InstancedMeshBatch batch,
-                                                  List<Matrix4f> transforms) {
+                                                   ShaderProgram shader, InstancedMeshBatch batch,
+                                                   List<Matrix4f> transforms) {
+        Matrix4f projectionView = new Matrix4f();
+        Matrix4f view = new Matrix4f();
         RenderGraph graph = new RenderGraph(window.width(), window.height());
         graph.addPass(PASS_NAME)
                 .writeToBackbuffer()
                 .noClear()
                 .execute((resources, commands) -> {
-                    Matrix4f projectionView = DemoSupport.perspective(
-                            new Matrix4f(), window.width(), window.height())
-                            .mul(camera.getViewMatrix());
-                    commands.clearColor(0.025f, 0.03f, 0.045f, 1.0f)
-                            .clear(true, true)
-                            .enableDepthTest(true)
-                            .depthMask(true)
-                            .enableCullFace(false)
-                            .bindShader(shader)
-                            .setUniformMat4(shader, DemoSupport.U_PROJECTION_VIEW, projectionView)
+                    updateProjectionView(window, camera, projectionView, view);
+                    recordCommonDrawState(commands, shader, projectionView)
                             .drawInstancedBatch(batch, transforms);
                 });
         graph.compile();
         return graph;
     }
 
-    private static RenderGraph createGpuGraph(GlfwWindow window, Camera camera,
-                                              ShaderProgram shader, VertexArray emptyVao,
-                                              Options options) {
-        int columns = (int) Math.ceil(Math.sqrt(options.instances()));
-        int rows = (options.instances() + columns - 1) / columns;
-        float scale = options.shape() == Shape.CUBE ? 0.105f : 0.115f;
+    private static RenderGraph createProceduralGraph(GlfwWindow window, Camera camera,
+                                                      ShaderProgram shader, int vao,
+                                                      Options options, StressGrid grid,
+                                                      int vertexCount) {
+        configureGrid(shader, options.primitive(), grid);
         long startNanos = System.nanoTime();
+        Matrix4f projectionView = new Matrix4f();
+        Matrix4f view = new Matrix4f();
         RenderGraph graph = new RenderGraph(window.width(), window.height());
         graph.addPass(PASS_NAME)
                 .writeToBackbuffer()
                 .noClear()
                 .execute((resources, commands) -> {
-                    Matrix4f projectionView = DemoSupport.perspective(
-                            new Matrix4f(), window.width(), window.height())
-                            .mul(camera.getViewMatrix());
-                    float elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000.0f;
-                    commands.clearColor(0.025f, 0.03f, 0.045f, 1.0f)
-                            .clear(true, true)
-                            .enableDepthTest(true)
-                            .depthMask(true)
-                            .enableCullFace(false)
-                            .bindShader(shader)
-                            .setUniformMat4(shader, DemoSupport.U_PROJECTION_VIEW, projectionView)
-                            .setUniformInt(shader, "uShape", options.shape().shaderId)
-                            .setUniformInt(shader, "uColumns", columns)
-                            .setUniformInt(shader, "uRows", rows)
-                            .setUniformFloat(shader, "uSpacing", 0.14f)
-                            .setUniformFloat(shader, "uScale", scale)
-                            .setUniformFloat(shader, "uTime", elapsedSeconds)
-                            .bindVertexArray(emptyVao.id())
-                            .drawArraysInstanced(GL_TRIANGLES, 0, options.shape().verticesPerInstance,
-                                    options.instances());
+                    updateProjectionView(window, camera, projectionView, view);
+                    recordCommonDrawState(commands, shader, projectionView);
+                    recordTimeRotation(commands, shader, options.primitive(), startNanos);
+                    commands.bindVertexArray(vao)
+                            .drawArraysInstanced(GL_TRIANGLES, 0, vertexCount, options.instances());
                 });
         graph.compile();
         return graph;
     }
 
-    private static List<Matrix4f> createTransforms(Shape shape, int count) {
-        int columns = (int) Math.ceil(Math.sqrt(count));
-        int rows = (count + columns - 1) / columns;
+    private static RenderGraph createIndexedGraph(GlfwWindow window, Camera camera,
+                                                   ShaderProgram shader,
+                                                   StressIndexedGeometry geometry,
+                                                   Options options, StressGrid grid,
+                                                   PackedInstanceBuffer instances) {
+        if (instances == null) configureGrid(shader, options.primitive(), grid);
+        long startNanos = System.nanoTime();
+        Matrix4f projectionView = new Matrix4f();
+        Matrix4f view = new Matrix4f();
+        RenderGraph graph = new RenderGraph(window.width(), window.height());
+        graph.addPass(PASS_NAME)
+                .writeToBackbuffer()
+                .noClear()
+                .execute((resources, commands) -> {
+                    updateProjectionView(window, camera, projectionView, view);
+                    recordCommonDrawState(commands, shader, projectionView);
+                    recordTimeRotation(commands, shader, options.primitive(), startNanos);
+                    if (instances != null) {
+                        commands.bindStorageBuffer(PACKED_STORAGE_BINDING, instances.buffer(),
+                                instances.bindingOffsetBytes(), instances.bindingSizeBytes());
+                    }
+                    geometry.recordDraw(commands, options.primitive(), options.instances());
+                });
+        graph.compile();
+        return graph;
+    }
+
+    private static com.kaleblangley.haikalat.core.command.CommandBuffer recordCommonDrawState(
+            com.kaleblangley.haikalat.core.command.CommandBuffer commands,
+            ShaderProgram shader, Matrix4f projectionView) {
+        return commands.clearColor(0.025f, 0.03f, 0.045f, 1.0f)
+                .clear(true, true)
+                .enableDepthTest(true)
+                .depthMask(true)
+                .enableCullFace(true)
+                .bindShader(shader)
+                .setUniformMat4(shader, DemoSupport.U_PROJECTION_VIEW, projectionView);
+    }
+
+    private static void updateProjectionView(GlfwWindow window, Camera camera,
+                                             Matrix4f projectionView, Matrix4f view) {
+        DemoSupport.perspective(projectionView, window.width(), window.height())
+                .mul(camera.getViewMatrix(view));
+    }
+
+    private static void configureGrid(ShaderProgram shader,
+                                      GeneratedStressPrimitive primitive, StressGrid grid) {
+        float scale = primitive == GeneratedStressPrimitive.CUBE ? 0.105f : 0.115f;
+        shader.setInt("uColumnShift", grid.columnShift())
+                .setInt("uColumnMask", grid.columnMask())
+                .setVec4("uGrid", (grid.columns() - 1) * 0.5f,
+                        (grid.rows() - 1) * 0.5f, 0.14f, scale);
+    }
+
+    private static void recordTimeRotation(
+            com.kaleblangley.haikalat.core.command.CommandBuffer commands,
+            ShaderProgram shader, GeneratedStressPrimitive primitive, long startNanos) {
+        if (primitive != GeneratedStressPrimitive.CUBE) return;
+        double angle = (System.nanoTime() - startNanos) * 0.000_000_001 * 0.15;
+        commands.setUniformVec2(shader, "uTimeRotation",
+                (float) Math.cos(angle), (float) Math.sin(angle));
+    }
+
+    private static List<Matrix4f> createTransforms(GeneratedStressPrimitive primitive,
+                                                   int count, StressGrid grid) {
         float spacing = 0.14f;
-        float scale = shape == Shape.CUBE ? 0.105f : 0.115f;
-        float startX = -(columns - 1) * spacing * 0.5f;
-        float startY = -(rows - 1) * spacing * 0.5f;
+        float scale = primitive == GeneratedStressPrimitive.CUBE ? 0.105f : 0.115f;
+        float startX = -(grid.columns() - 1) * spacing * 0.5f;
+        float startY = -(grid.rows() - 1) * spacing * 0.5f;
         List<Matrix4f> transforms = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            int row = i / columns;
-            int column = i % columns;
-            float z = shape == Shape.CUBE ? ((i % 17) - 8) * 0.008f : 0.0f;
+        for (int instance = 0; instance < count; instance++) {
+            int row = instance >> grid.columnShift();
+            int column = instance & grid.columnMask();
+            float z = primitive.depthLayers() ? ((instance & 15) - 8) * 0.008f : 0.0f;
             transforms.add(new Matrix4f()
                     .translation(startX + column * spacing, startY + row * spacing, z)
-                    .rotateZ((i % 31) * 0.017f)
+                    .rotateZ((instance & 15) * ((float) Math.PI / 8.0f))
                     .scale(scale));
         }
         return List.copyOf(transforms);
     }
 
-    private static void updateTitle(GlfwWindow window, FrameDriver driver,
-                                    int drawCalls, Options options) {
-        window.setTitle(formatStatistics(driver, drawCalls, options));
+    private static double measuredFps(int frames, long startNanos, long endNanos) {
+        long duration = endNanos - startNanos;
+        return frames == 0 || duration <= 0L ? 0.0 : frames * 1_000_000_000.0 / duration;
     }
 
-    private static String formatStatistics(FrameDriver driver, int drawCalls, Options options) {
-        RenderStatistics.Snapshot timing = driver.statistics().snapshot();
+    private static String formatStatistics(FrameDriver driver,
+                                           FrameTimingAccumulator.Summary timings,
+                                           double measuredPresentFps, long vertexInvocations,
+                                           int drawCalls, Options options) {
         StateCache.Statistics state = driver.stateStatistics();
         long stateChecks = state.appliedChanges() + state.avoidedChanges();
-        double stateSkipPercent = stateChecks == 0L ? 0.0 : state.avoidedChanges() * 100.0 / stateChecks;
-        long triangles = (long) options.instances() * options.shape().trianglesPerInstance;
+        double stateSkipPercent = stateChecks == 0L
+                ? 0.0 : state.avoidedChanges() * 100.0 / stateChecks;
+        long triangles = (long) options.instances() * options.primitive().trianglesPerInstance();
+        String vs = vertexInvocations < 0L ? "N/A" : String.format("%,d", vertexInvocations);
         return String.format(
-                "Stress %s/%s | instances %,d | triangles %,d | FPS %.1f | CPU %.2f ms | GPU %.2f ms | draws %d | state skip %.1f%%",
-                options.mode(), options.shape(), options.instances(), triangles, timing.presentFps(),
-                timing.cpuSubmitMillis(), timing.gpuMillis(), drawCalls,
-                stateSkipPercent);
+                "Stress %s/%s | instances %,d | triangles %,d | present FPS %.1f | "
+                        + "CPU avg/median %.3f/%.3f ms | GPU avg/median %.3f/%.3f ms | "
+                        + "draws %d | state skip %.1f%% | VS invocations %s",
+                options.mode().displayName(), options.primitive(), options.instances(), triangles,
+                measuredPresentFps, timings.averageCpuMillis(), timings.medianCpuMillis(),
+                timings.averageGpuMillis(), timings.medianGpuMillis(), drawCalls,
+                stateSkipPercent, vs);
     }
 
-    private enum Shape {
-        TRIANGLE(BuiltinMeshData.TRIANGLE, 0, 3, 1),
-        QUAD(BuiltinMeshData.QUAD, 1, 6, 2),
-        CUBE(BuiltinMeshData.CUBE, 2, 36, 12);
+    private enum Mode {
+        GPU("gpu"), INDEXED("indexed"), INDEXED_SSBO("indexed-ssbo"), DYNAMIC("dynamic");
 
-        private final String builtinName;
-        private final int shaderId;
-        private final int verticesPerInstance;
-        private final int trianglesPerInstance;
+        private final String displayName;
 
-        Shape(String builtinName, int shaderId, int verticesPerInstance, int trianglesPerInstance) {
-            this.builtinName = builtinName;
-            this.shaderId = shaderId;
-            this.verticesPerInstance = verticesPerInstance;
-            this.trianglesPerInstance = trianglesPerInstance;
+        Mode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        String displayName() {
+            return displayName;
         }
     }
 
-    private enum Mode { GPU, DYNAMIC }
-
-    private record Options(Mode mode, Shape shape, int instances,
-                           boolean hidden, boolean vsync, int maxFrames) {
+    private record Options(Mode mode, GeneratedStressPrimitive primitive, int instances,
+                           boolean hidden, boolean vsync, int maxFrames, int warmupFrames) {
         static Options parse(String[] args) {
             Mode mode = Mode.GPU;
-            Shape shape = Shape.TRIANGLE;
+            GeneratedStressPrimitive primitive = GeneratedStressPrimitive.TRIANGLE;
             int instances = DEFAULT_INSTANCES;
             boolean hidden = false;
             boolean vsync = false;
             int maxFrames = -1;
+            int warmupFrames = -1;
             for (String arg : args) {
                 if (arg.startsWith("--shape=")) {
-                    shape = Shape.valueOf(arg.substring("--shape=".length()).toUpperCase());
+                    primitive = GeneratedStressPrimitive.valueOf(
+                            arg.substring("--shape=".length()).toUpperCase());
                 } else if (arg.startsWith("--mode=")) {
-//                    mode = Mode.valueOf(arg.substring("--mode=".length()).toUpperCase());
+                    mode = Mode.valueOf(arg.substring("--mode=".length())
+                            .toUpperCase().replace('-', '_'));
                 } else if (arg.startsWith("--instances=")) {
                     instances = Integer.parseInt(arg.substring("--instances=".length()));
                 } else if (arg.startsWith("--frames=")) {
                     maxFrames = Integer.parseInt(arg.substring("--frames=".length()));
+                } else if (arg.startsWith("--warmup=")) {
+                    warmupFrames = Integer.parseInt(arg.substring("--warmup=".length()));
                 } else if ("--hidden".equals(arg)) {
                     hidden = true;
                 } else if ("--vsync".equals(arg)) {
@@ -272,7 +392,9 @@ public final class StressDemo {
             if (maxFrames == 0 || maxFrames < -1) {
                 throw new IllegalArgumentException("--frames must be positive");
             }
-            return new Options(mode, shape, instances, hidden, vsync, maxFrames);
+            if (warmupFrames < -1) throw new IllegalArgumentException("--warmup must be non-negative");
+            if (warmupFrames < 0) warmupFrames = maxFrames >= 120 ? 100 : 0;
+            return new Options(mode, primitive, instances, hidden, vsync, maxFrames, warmupFrames);
         }
     }
 }

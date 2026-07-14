@@ -1,84 +1,100 @@
 package com.kaleblangley.haikalat.core.command;
 
-import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.GpuTimer;
+import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
-import com.kaleblangley.haikalat.backend.state.StateCache;
-import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.lwjgl.system.MemoryStack;
 
-import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL20.glUniform1f;
-import static org.lwjgl.opengl.GL20.glUniform1i;
-import static org.lwjgl.opengl.GL20.glUniform2f;
-import static org.lwjgl.opengl.GL20.glUniform3f;
-import static org.lwjgl.opengl.GL20.glUniformMatrix4fv;
 import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
 import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
+import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
+import static org.lwjgl.opengl.GL42.glMemoryBarrier;
+import static org.lwjgl.opengl.GL43.glDispatchCompute;
 
+/**
+ * Reusable typed OpenGL command stream.
+ *
+ * <p>Pipeline setters are last-writer-wins pending state. They are flushed before every
+ * observable GPU boundary and at command-buffer completion. Resource bindings and DSA uniforms
+ * keep their recorded order, while {@link StateCache} remains the cross-command/frame GL cache.</p>
+ */
 public final class CommandBuffer {
-    private final List<Consumer<StateCache>> commands = new ArrayList<>(64);
+    private static final byte USE_PROGRAM = 1;
+    private static final byte BIND_VERTEX_ARRAY = 2;
+    private static final byte BIND_TEXTURE_2D = 3;
+    private static final byte BIND_FRAMEBUFFER = 4;
+    private static final byte BIND_SAMPLER = 5;
+    private static final byte BIND_CHECKED_SAMPLER = 6;
+    private static final byte BIND_UNIFORM_BLOCK = 7;
+    private static final byte BIND_UNIFORM_BUFFER = 8;
+    private static final byte BIND_STORAGE_BUFFER = 9;
+    private static final byte BIND_IMAGE = 10;
+    private static final byte DISPATCH_COMPUTE = 11;
+    private static final byte MEMORY_BARRIER = 12;
+    private static final byte DRAW_MESH = 13;
+    private static final byte DRAW_ELEMENTS = 14;
+    private static final byte DRAW_ARRAYS = 15;
+    private static final byte DRAW_ARRAYS_INSTANCED = 16;
+    private static final byte DRAW_ELEMENTS_INSTANCED = 17;
+    private static final byte DRAW_MESH_INSTANCED = 18;
+    private static final byte APPLY_PIPELINE_STATE = 19;
+    private static final byte CLEAR = 26;
+    private static final byte BLIT_FRAMEBUFFER = 28;
+    private static final byte UNIFORM_MAT4 = 29;
+    private static final byte UNIFORM_VEC3 = 30;
+    private static final byte UNIFORM_VEC2 = 31;
+    private static final byte UNIFORM_INT = 32;
+    private static final byte UNIFORM_FLOAT = 33;
+    private static final byte CUSTOM = 34;
+    private static final byte INSTANCED_BATCH = 35;
+    private static final byte BEGIN_GPU_TIMER = 36;
+    private static final byte END_GPU_TIMER = 37;
+    private static final byte DRAW_INSTANCED_BATCH = 38;
 
-    /**
-     * 记录一条使用着色器程序的命令。
-     *
-     * @param program OpenGL 程序 ID
-     * @return 自身，支持链式调用
-     */
+    private final CommandStream stream = new CommandStream();
+    private final PendingPipelineState pendingState = new PendingPipelineState();
+
     public CommandBuffer useProgram(int program) {
-        commands.add(cache -> cache.useProgram(program));
+        opcode(USE_PROGRAM);
+        integer(program);
         return this;
     }
 
-    /**
-     * 记录一条绑定 VAO 的命令。
-     *
-     * @param vao VAO ID
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindVertexArray(int vao) {
-        commands.add(cache -> cache.bindVertexArray(vao));
+        opcode(BIND_VERTEX_ARRAY);
+        integer(vao);
         return this;
     }
 
-    /**
-     * 记录一条在指定纹理单元上绑定 2D 纹理的命令。
-     *
-     * @param unit    纹理单元索引
-     * @param texture 纹理 ID
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindTexture(int unit, int texture) {
-        commands.add(cache -> cache.bindTexture2D(unit, texture));
+        opcode(BIND_TEXTURE_2D);
+        integer(unit);
+        integer(texture);
         return this;
     }
 
-    /**
-     * 记录一条按目标绑定帧缓冲的命令。
-     *
-     * @param target 帧缓冲目标
-     * @param fbo    FBO ID
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindFramebuffer(int target, int fbo) {
-        commands.add(cache -> cache.bindFramebuffer(target, fbo));
+        opcode(BIND_FRAMEBUFFER);
+        integer(target);
+        integer(fbo);
         return this;
     }
 
@@ -86,332 +102,250 @@ public final class CommandBuffer {
         return bindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    /**
-     * 记录绑定 ShaderProgram 的命令（通过 useProgram 实现）。
-     *
-     * @param shader 着色器程序
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindShader(ShaderProgram shader) {
         Objects.requireNonNull(shader, "shader");
         return useProgram(shader.id());
     }
 
-    /**
-     * 记录绑定 Mesh 的 VAO 的命令。
-     *
-     * @param mesh 网格数据
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindMesh(Mesh mesh) {
         Objects.requireNonNull(mesh, "mesh");
         return bindVertexArray(mesh.vertexArray().id());
     }
 
-    /**
-     * 记录在指定单元上绑定 Texture2D 的命令。
-     *
-     * @param unit    纹理单元
-     * @param texture 纹理对象
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer bindTexture(int unit, Texture2D texture) {
         Objects.requireNonNull(texture, "texture");
         bindTexture(unit, texture.id());
-        commands.add(cache -> cache.bindSampler(unit, 0));
+        opcode(BIND_SAMPLER);
+        integer(unit);
+        integer(0);
         return this;
     }
 
     public CommandBuffer bindSampler(int unit, Sampler sampler) {
         Objects.requireNonNull(sampler, "sampler");
-        int samplerId = sampler.id();
-        commands.add(cache -> {
-            sampler.ensureOpen();
-            cache.bindSampler(unit, samplerId);
-        });
+        opcode(BIND_CHECKED_SAMPLER);
+        integer(unit);
+        integer(sampler.id());
+        object(sampler);
         return this;
     }
 
     public CommandBuffer bindTexture(int unit, Texture2D texture, Sampler sampler) {
         Objects.requireNonNull(texture, "texture");
         bindTexture(unit, texture.id());
-        int samplerId = sampler == null ? 0 : sampler.id();
-        commands.add(cache -> {
-            if (sampler != null) sampler.ensureOpen();
-            cache.bindSampler(unit, samplerId);
-        });
+        if (sampler == null) {
+            opcode(BIND_SAMPLER);
+            integer(unit);
+            integer(0);
+        } else {
+            bindSampler(unit, sampler);
+        }
         return this;
     }
 
     public CommandBuffer bindUniformBlock(int bindingPoint, UniformBlock block) {
         Objects.requireNonNull(block, "block");
-        int buffer = block.id();
-        int size = block.sizeBytes();
-        commands.add(cache -> {
-            block.flush();
-            cache.bindUniformBufferRange(bindingPoint, buffer, 0, size);
-        });
+        opcode(BIND_UNIFORM_BLOCK);
+        integer(bindingPoint);
+        integer(block.id());
+        integer(block.sizeBytes());
+        object(block);
         return this;
     }
 
-    /** Binds an upload-managed buffer range as a uniform block for a later draw command. */
     public CommandBuffer bindUniformBuffer(int bindingPoint, BufferUploadTarget buffer,
                                            long offsetBytes, long sizeBytes) {
         Objects.requireNonNull(buffer, "buffer");
-        if (bindingPoint < 0 || offsetBytes < 0L || sizeBytes <= 0L) {
-            throw new IllegalArgumentException("invalid uniform buffer range");
-        }
-        int bufferId = buffer.id();
-        commands.add(cache -> cache.bindUniformBufferRange(bindingPoint,
-                bufferId, offsetBytes, sizeBytes));
+        validateBufferRange(bindingPoint, offsetBytes, sizeBytes, "uniform");
+        opcode(BIND_UNIFORM_BUFFER);
+        integer(bindingPoint);
+        integer(buffer.id());
+        longValue(offsetBytes);
+        longValue(sizeBytes);
         return this;
     }
 
-    /**
-     * 记录绑定 Framebuffer 的命令。
-     *
-     * @param fb 帧缓冲对象
-     * @return 自身，支持链式调用
-     */
-    public CommandBuffer bindFramebuffer(Framebuffer fb) {
-        Objects.requireNonNull(fb, "fb");
-        return bindFramebuffer(GL_FRAMEBUFFER, fb.id());
+    public CommandBuffer bindStorageBuffer(int bindingPoint, BufferUploadTarget buffer,
+                                           long offsetBytes, long sizeBytes) {
+        Objects.requireNonNull(buffer, "buffer");
+        validateBufferRange(bindingPoint, offsetBytes, sizeBytes, "shader storage");
+        opcode(BIND_STORAGE_BUFFER);
+        integer(bindingPoint);
+        integer(buffer.id());
+        longValue(offsetBytes);
+        longValue(sizeBytes);
+        return this;
     }
 
-    /**
-     * 记录绘制 Mesh 的命令（假设 VAO 已被绑定）。
-     *
-     * @param mesh 要绘制的网格
-     * @return 自身，支持链式调用
-     */
+    public CommandBuffer bindImage(int unit, Texture2D texture, int level,
+                                   int access, int format) {
+        Objects.requireNonNull(texture, "texture");
+        if (unit < 0 || level < 0) throw new IllegalArgumentException("invalid image binding");
+        opcode(BIND_IMAGE);
+        integer(unit);
+        integer(texture.id());
+        integer(level);
+        integer(access);
+        integer(format);
+        return this;
+    }
+
+    /** Observable compute boundary: final pending graphics state is submitted first. */
+    public CommandBuffer dispatchCompute(int groupsX, int groupsY, int groupsZ) {
+        if (groupsX <= 0 || groupsY <= 0 || groupsZ <= 0) {
+            throw new IllegalArgumentException("compute group counts must be positive");
+        }
+        flushPendingState();
+        opcode(DISPATCH_COMPUTE);
+        integer(groupsX);
+        integer(groupsY);
+        integer(groupsZ);
+        return this;
+    }
+
+    /** GPU ordering boundary; pending state is flushed before the barrier is issued. */
+    public CommandBuffer memoryBarrier(int barriers) {
+        if (barriers == 0) throw new IllegalArgumentException("memory barrier bits must be non-zero");
+        flushPendingState();
+        opcode(MEMORY_BARRIER);
+        integer(barriers);
+        return this;
+    }
+
+    public CommandBuffer bindFramebuffer(Framebuffer framebuffer) {
+        Objects.requireNonNull(framebuffer, "framebuffer");
+        return bindFramebuffer(GL_FRAMEBUFFER, framebuffer.id());
+    }
+
     public CommandBuffer drawMesh(Mesh mesh) {
         Objects.requireNonNull(mesh, "mesh");
-        commands.add(cache -> mesh.drawBound());
+        flushPendingState();
+        opcode(DRAW_MESH);
+        object(mesh);
         return this;
     }
 
-    /**
-     * 记录一条索引绘制命令。
-     *
-     * @param mode  绘制图元类型
-     * @param count 索引数量
-     * @param type  索引数据类型
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer drawElements(int mode, int count, int type) {
-        commands.add(cache -> glDrawElements(mode, count, type, 0L));
+        flushPendingState();
+        opcode(DRAW_ELEMENTS);
+        integer(mode);
+        integer(count);
+        integer(type);
         return this;
     }
 
-    /**
-     * 记录一条顶点数组绘制命令。
-     *
-     * @param mode  绘制图元类型
-     * @param first 起始顶点索引
-     * @param count 顶点数量
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer drawArrays(int mode, int first, int count) {
-        commands.add(cache -> glDrawArrays(mode, first, count));
+        flushPendingState();
+        opcode(DRAW_ARRAYS);
+        integer(mode);
+        integer(first);
+        integer(count);
         return this;
     }
 
-    /** Records one procedural or vertex-buffer-backed instanced array draw. */
-    public CommandBuffer drawArraysInstanced(int mode, int first, int vertexCount, int instanceCount) {
+    public CommandBuffer drawArraysInstanced(int mode, int first,
+                                             int vertexCount, int instanceCount) {
         if (first < 0 || vertexCount < 0 || instanceCount < 0) {
             throw new IllegalArgumentException("draw counts must be non-negative");
         }
-        commands.add(cache -> glDrawArraysInstanced(mode, first, vertexCount, instanceCount));
+        flushPendingState();
+        opcode(DRAW_ARRAYS_INSTANCED);
+        integer(mode);
+        integer(first);
+        integer(vertexCount);
+        integer(instanceCount);
         return this;
     }
 
-    /**
-     * 记录实例化绘制 Mesh 的命令。
-     *
-     * @param mesh          网格
-     * @param instanceCount 实例数量
-     * @return 自身，支持链式调用
-     */
+    public CommandBuffer drawElementsInstanced(int mode, int indexCount, int indexType,
+                                               long indexOffsetBytes, int instanceCount) {
+        if (indexCount < 0 || indexOffsetBytes < 0L || instanceCount < 0) {
+            throw new IllegalArgumentException("indexed draw counts and offset must be non-negative");
+        }
+        flushPendingState();
+        opcode(DRAW_ELEMENTS_INSTANCED);
+        integer(mode);
+        integer(indexCount);
+        integer(indexType);
+        integer(instanceCount);
+        longValue(indexOffsetBytes);
+        return this;
+    }
+
     public CommandBuffer drawMeshInstanced(Mesh mesh, int instanceCount) {
         Objects.requireNonNull(mesh, "mesh");
-        commands.add(cache -> mesh.drawInstancedBound(instanceCount));
+        flushPendingState();
+        opcode(DRAW_MESH_INSTANCED);
+        integer(instanceCount);
+        object(mesh);
         return this;
     }
 
-    /**
-     * Records the standard instanced batch upload/draw path.
-     *
-     * <p>The transform iterable is copied immediately during recording, so callers may
-     * pass data from a producer thread as long as each {@link Matrix4f} represents the
-     * intended value at record time. The command executes on the render thread and runs
-     * {@code beginFrame -> submitAll -> flush}. The underlying batch upload and draw
-     * calls own their GL state setup; they do not currently go through {@link StateCache}.</p>
-     *
-     * @param batch instanced batch to upload and draw
-     * @param transforms transforms to submit to the batch
-     * @return this command buffer
-     */
-    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch, Iterable<Matrix4f> transforms) {
+    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch,
+                                            Iterable<Matrix4f> transforms) {
         return drawInstancedBatch(batch, transforms, null);
     }
 
-    /**
-     * Records the standard instanced batch upload/draw path and reports the drawn
-     * instance count after execution.
-     *
-     * <p>See {@link #drawInstancedBatch(InstancedMeshBatch, Iterable)} for StateCache
-     * and cross-thread capture rules.</p>
-     *
-     * @param batch instanced batch to upload and draw
-     * @param transforms transforms to submit to the batch
-     * @param drawnCount receives the result of {@link InstancedMeshBatch#flush()}, may be null
-     * @return this command buffer
-     */
-    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch, Iterable<Matrix4f> transforms,
+    public CommandBuffer drawInstancedBatch(InstancedMeshBatch batch,
+                                            Iterable<Matrix4f> transforms,
                                             IntConsumer drawnCount) {
         Objects.requireNonNull(batch, "batch");
         Objects.requireNonNull(transforms, "transforms");
-        return recordInstancedBatch(new InstancedBatchSubmission() {
-            @Override
-            public void beginFrame() {
-                batch.beginFrame();
-            }
-
-            @Override
-            public void submitAll(Iterable<Matrix4f> submittedTransforms) {
-                batch.submitAll(submittedTransforms);
-            }
-
-            @Override
-            public int flush() {
-                return batch.flush();
-            }
-
-            @Override
-            public void drawn(int count) {
-                if (drawnCount != null) {
-                    drawnCount.accept(count);
-                }
-            }
-        }, transforms);
-    }
-
-    /**
-     * 记录设置视口的命令。
-     *
-     * @param x 左下角 x
-     * @param y 左下角 y
-     * @param w 宽度
-     * @param h 高度
-     * @return 自身，支持链式调用
-     */
-    public CommandBuffer viewport(int x, int y, int w, int h) {
-        commands.add(cache -> cache.viewport(x, y, w, h));
+        flushPendingState();
+        opcode(DRAW_INSTANCED_BATCH);
+        object(batch);
+        object(copyTransforms(transforms));
+        object(drawnCount);
         return this;
     }
 
-    /**
-     * 记录启用/禁用混合的命令。
-     *
-     * @param enable true 启用
-     * @return 自身，支持链式调用
-     */
+    public CommandBuffer viewport(int x, int y, int width, int height) {
+        pendingState.viewport(x, y, width, height);
+        return this;
+    }
+
     public CommandBuffer enableBlend(boolean enable) {
-        commands.add(cache -> cache.enableBlend(enable));
+        pendingState.enableBlend(enable);
         return this;
     }
 
-    /**
-     * 记录深度掩码的命令。
-     *
-     * @param write true 允许深度写入
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer depthMask(boolean write) {
-        commands.add(cache -> cache.depthMask(write));
+        pendingState.depthMask(write);
         return this;
     }
 
-    /**
-     * 记录启用/禁用深度测试的命令。
-     *
-     * @param enable true 启用
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer enableDepthTest(boolean enable) {
-        commands.add(cache -> cache.enableDepthTest(enable));
+        pendingState.enableDepthTest(enable);
         return this;
     }
 
     public CommandBuffer enableCullFace(boolean enable) {
-        commands.add(cache -> cache.enableCullFace(enable));
+        pendingState.enableCullFace(enable);
         return this;
     }
 
-    /**
-     * 记录设置混合函数的命令。
-     *
-     * @param srcRGB 源因子
-     * @param dstRGB 目标因子
-     * @return 自身，支持链式调用
-     */
-    public CommandBuffer blendFunc(int srcRGB, int dstRGB) {
-        commands.add(cache -> cache.blendFunc(srcRGB, dstRGB));
+    public CommandBuffer blendFunc(int sourceRgb, int destinationRgb) {
+        pendingState.blendFunc(sourceRgb, destinationRgb);
         return this;
     }
 
-    /**
-     * Records material blend/depth state as one ordered packet. This compacts command recording
-     * without reordering draws or crossing framebuffer/transparency boundaries.
-     */
+    /** One pending packet; it never reorders or crosses an observable command boundary. */
     public CommandBuffer materialState(BlendMode blendMode, boolean depthTest) {
         Objects.requireNonNull(blendMode, "blendMode");
-        commands.add(cache -> {
-            switch (blendMode) {
-                case OPAQUE -> {
-                    cache.enableBlend(false);
-                    cache.depthMask(true);
-                }
-                case ALPHA -> {
-                    cache.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    cache.enableBlend(true);
-                    cache.depthMask(false);
-                }
-                case ADDITIVE -> {
-                    cache.blendFunc(GL_ONE, GL_ONE);
-                    cache.enableBlend(true);
-                    cache.depthMask(false);
-                }
-            }
-            cache.enableDepthTest(depthTest);
-        });
+        pendingState.materialState(blendMode, depthTest);
         return this;
     }
 
-    /**
-     * 记录清除缓冲区的命令。
-     *
-     * @param color true 清除颜色缓冲区
-     * @param depth true 清除深度缓冲区
-     * @return 自身，支持链式调用
-     */
+    /** Clear is an observable boundary; depthMask is therefore applied before a depth clear. */
     public CommandBuffer clear(boolean color, boolean depth) {
-        int mask = (color ? GL_COLOR_BUFFER_BIT : 0) | (depth ? GL_DEPTH_BUFFER_BIT : 0);
-        commands.add(cache -> cache.clear(mask));
+        flushPendingState();
+        opcode(CLEAR);
+        integer((color ? GL_COLOR_BUFFER_BIT : 0) | (depth ? GL_DEPTH_BUFFER_BIT : 0));
         return this;
     }
 
-    /**
-     * 记录设置清除颜色的命令。
-     *
-     * @param r 红色分量
-     * @param g 绿色分量
-     * @param b 蓝色分量
-     * @param a 透明分量
-     * @return 自身，支持链式调用
-     */
-    public CommandBuffer clearColor(float r, float g, float b, float a) {
-        commands.add(cache -> cache.clearColor(r, g, b, a));
+    public CommandBuffer clearColor(float red, float green, float blue, float alpha) {
+        pendingState.clearColor(red, green, blue, alpha);
         return this;
     }
 
@@ -431,40 +365,22 @@ public final class CommandBuffer {
     public CommandBuffer blitFramebuffer(int sourceFbo, int targetFbo,
                                          int sourceWidth, int sourceHeight,
                                          int targetWidth, int targetHeight) {
-        commands.add(cache -> {
-            cache.bindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
-            cache.bindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFbo);
-            glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
-                    0, 0, targetWidth, targetHeight,
-                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
-            // Restore the public command postcondition: later readback and drawing target the backbuffer.
-            cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
-        });
+        flushPendingState();
+        opcode(BLIT_FRAMEBUFFER);
+        integer(sourceFbo);
+        integer(targetFbo);
+        integer(sourceWidth);
+        integer(sourceHeight);
+        integer(targetWidth);
+        integer(targetHeight);
         return this;
     }
 
-    /**
-     * 记录设置 mat4 uniform 的命令（捕获副本以避免外部修改）。
-     *
-     * @param shader 目标着色器程序
-     * @param name   uniform 名称
-     * @param value  矩阵值
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer setUniformMat4(ShaderProgram shader, String name, Matrix4f value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
-        int location = shader.uniformLocation(name);
-        Matrix4f copy = new Matrix4f(value);
-        commands.add(cache -> {
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                FloatBuffer buf = stack.mallocFloat(16);
-                copy.get(buf);
-                glUniformMatrix4fv(location, false, buf);
-            }
-        });
-        return this;
+        return uniformMat4(shader, shader.uniformLocation(name), value);
     }
 
     public CommandBuffer trySetUniformMat4(ShaderProgram shader, String name, Matrix4f value) {
@@ -472,38 +388,14 @@ public final class CommandBuffer {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         int location = shader.uniformLocationOrMinusOne(name);
-        if (location < 0) {
-            return this;
-        }
-        Matrix4f copy = new Matrix4f(value);
-        commands.add(cache -> {
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                FloatBuffer buf = stack.mallocFloat(16);
-                copy.get(buf);
-                glUniformMatrix4fv(location, false, buf);
-            }
-        });
-        return this;
+        return location < 0 ? this : uniformMat4(shader, location, value);
     }
 
-    /**
-     * 记录设置 vec3 uniform 的命令。
-     *
-     * @param shader 着色器程序
-     * @param name   uniform 名称
-     * @param value  向量值
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer setUniformVec3(ShaderProgram shader, String name, Vector3f value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
-        int location = shader.uniformLocation(name);
-        float x = value.x;
-        float y = value.y;
-        float z = value.z;
-        commands.add(cache -> glUniform3f(location, x, y, z));
-        return this;
+        return uniformVec3(shader, shader.uniformLocation(name), value.x, value.y, value.z);
     }
 
     public CommandBuffer trySetUniformVec3(ShaderProgram shader, String name, Vector3f value) {
@@ -511,139 +403,352 @@ public final class CommandBuffer {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         int location = shader.uniformLocationOrMinusOne(name);
-        if (location < 0) {
-            return this;
-        }
-        float x = value.x;
-        float y = value.y;
-        float z = value.z;
-        commands.add(cache -> glUniform3f(location, x, y, z));
-        return this;
+        return location < 0 ? this : uniformVec3(shader, location, value.x, value.y, value.z);
     }
 
-    /**
-     * 记录设置 vec2 uniform 的命令。
-     *
-     * @param shader 着色器程序
-     * @param name   uniform 名称
-     * @param x      x 分量
-     * @param y      y 分量
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer setUniformVec2(ShaderProgram shader, String name, float x, float y) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
-        int location = shader.uniformLocation(name);
-        commands.add(cache -> glUniform2f(location, x, y));
+        opcode(UNIFORM_VEC2);
+        integer(shader.uniformLocation(name));
+        integer(floatBits(x));
+        integer(floatBits(y));
+        object(shader);
         return this;
     }
 
-    /**
-     * 记录设置 int uniform 的命令。
-     *
-     * @param shader 着色器程序
-     * @param name   uniform 名称
-     * @param value  整数值
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer setUniformInt(ShaderProgram shader, String name, int value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
-        int location = shader.uniformLocation(name);
-        commands.add(cache -> glUniform1i(location, value));
-        return this;
+        return uniformInt(shader, shader.uniformLocation(name), value);
     }
 
     public CommandBuffer trySetUniformInt(ShaderProgram shader, String name, int value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
         int location = shader.uniformLocationOrMinusOne(name);
-        if (location < 0) {
-            return this;
-        }
-        commands.add(cache -> glUniform1i(location, value));
-        return this;
+        return location < 0 ? this : uniformInt(shader, location, value);
     }
 
-    /**
-     * 记录设置 float uniform 的命令。
-     *
-     * @param shader 着色器程序
-     * @param name   uniform 名称
-     * @param value  浮点值
-     * @return 自身，支持链式调用
-     */
     public CommandBuffer setUniformFloat(ShaderProgram shader, String name, float value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
-        int location = shader.uniformLocation(name);
-        commands.add(cache -> glUniform1f(location, value));
-        return this;
+        return uniformFloat(shader, shader.uniformLocation(name), value);
     }
 
     public CommandBuffer trySetUniformFloat(ShaderProgram shader, String name, float value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
         int location = shader.uniformLocationOrMinusOne(name);
-        if (location < 0) {
-            return this;
-        }
-        commands.add(cache -> glUniform1f(location, value));
+        return location < 0 ? this : uniformFloat(shader, location, value);
+    }
+
+    /** Formal query boundary used by RenderGraph profiling. */
+    public CommandBuffer beginGpuTimer(GpuTimer timer) {
+        Objects.requireNonNull(timer, "timer");
+        flushPendingState();
+        opcode(BEGIN_GPU_TIMER);
+        object(timer);
+        return this;
+    }
+
+    /** Formal query boundary used by RenderGraph profiling. */
+    public CommandBuffer endGpuTimer(GpuTimer timer) {
+        Objects.requireNonNull(timer, "timer");
+        flushPendingState();
+        opcode(END_GPU_TIMER);
+        object(timer);
         return this;
     }
 
     /**
-     * 记录一条自定义 GL 命令。
-     *
-     * <p>Use this only as a temporary escape hatch. Captured data must be immutable,
-     * copied before recording, or owned by the render thread until execution. Do not
-     * capture mutable producer-thread objects whose contents can change before the
-     * command buffer is executed.</p>
-     *
-     * @param action 要执行的 Runnable
-     * @return 自身，支持链式调用
+     * Full escape-hatch barrier: flushes pending state before the callback and invalidates the
+     * persistent cache afterwards because arbitrary GL state may have changed.
      */
     public CommandBuffer custom(Runnable action) {
         Objects.requireNonNull(action, "action");
-        commands.add(cache -> action.run());
+        flushPendingState();
+        opcode(CUSTOM);
+        object(action);
         return this;
     }
 
-    /** 清空所有已记录的命令。 */
     public void reset() {
-        commands.clear();
+        stream.reset();
+        pendingState.reset();
     }
 
-    /**
-     * 依次执行所有已记录的命令，使用给定的状态缓存。
-     *
-     * @param cache 用于去重的状态缓存
-     */
+    public int commandCount() {
+        return stream.commandCount() + (pendingState.isDirty() ? 1 : 0);
+    }
+
+    int objectPayloadCount() {
+        return stream.objectCount();
+    }
+
+    /** Executes typed commands in order and folds pipeline setters up to each boundary. */
     public void execute(StateCache cache) {
-        for (Consumer<StateCache> cmd : commands) {
-            cmd.accept(cache);
+        Objects.requireNonNull(cache, "cache");
+        flushPendingState();
+        int integerCursor = 0;
+        int longCursor = 0;
+        int objectCursor = 0;
+        for (int command = 0; command < stream.commandCount(); command++) {
+                byte opcode = stream.opcodeAt(command);
+                switch (opcode) {
+                    case USE_PROGRAM -> cache.useProgram(stream.integerAt(integerCursor++));
+                    case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
+                    case BIND_TEXTURE_2D -> cache.bindTexture2D(
+                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    case BIND_FRAMEBUFFER -> cache.bindFramebuffer(
+                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    case BIND_SAMPLER -> cache.bindSampler(
+                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    case BIND_CHECKED_SAMPLER -> {
+                        int unit = stream.integerAt(integerCursor++);
+                        int samplerId = stream.integerAt(integerCursor++);
+                        Sampler sampler = (Sampler) stream.objectAt(objectCursor++);
+                        sampler.ensureOpen();
+                        cache.bindSampler(unit, samplerId);
+                    }
+                    case BIND_UNIFORM_BLOCK -> {
+                        int bindingPoint = stream.integerAt(integerCursor++);
+                        int buffer = stream.integerAt(integerCursor++);
+                        int size = stream.integerAt(integerCursor++);
+                        UniformBlock block = (UniformBlock) stream.objectAt(objectCursor++);
+                        block.flush();
+                        cache.bindUniformBufferRange(bindingPoint, buffer, 0L, size);
+                    }
+                    case BIND_UNIFORM_BUFFER -> {
+                        int bindingPoint = stream.integerAt(integerCursor++);
+                        int buffer = stream.integerAt(integerCursor++);
+                        long offset = stream.longAt(longCursor++);
+                        long size = stream.longAt(longCursor++);
+                        cache.bindUniformBufferRange(bindingPoint, buffer, offset, size);
+                    }
+                    case BIND_STORAGE_BUFFER -> {
+                        int bindingPoint = stream.integerAt(integerCursor++);
+                        int buffer = stream.integerAt(integerCursor++);
+                        long offset = stream.longAt(longCursor++);
+                        long size = stream.longAt(longCursor++);
+                        cache.bindStorageBufferRange(bindingPoint, buffer, offset, size);
+                    }
+                    case BIND_IMAGE -> cache.bindImageTexture(
+                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
+                            stream.integerAt(integerCursor++), false, 0,
+                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    case DISPATCH_COMPUTE -> {
+                        glDispatchCompute(stream.integerAt(integerCursor++),
+                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    }
+                    case MEMORY_BARRIER -> {
+                        glMemoryBarrier(stream.integerAt(integerCursor++));
+                    }
+                    case DRAW_MESH -> {
+                        ((Mesh) stream.objectAt(objectCursor++)).drawBound();
+                    }
+                    case DRAW_ELEMENTS -> {
+                        glDrawElements(stream.integerAt(integerCursor++),
+                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++), 0L);
+                    }
+                    case DRAW_ARRAYS -> {
+                        glDrawArrays(stream.integerAt(integerCursor++),
+                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    }
+                    case DRAW_ARRAYS_INSTANCED -> {
+                        glDrawArraysInstanced(stream.integerAt(integerCursor++),
+                                stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
+                                stream.integerAt(integerCursor++));
+                    }
+                    case DRAW_ELEMENTS_INSTANCED -> {
+                        int mode = stream.integerAt(integerCursor++);
+                        int count = stream.integerAt(integerCursor++);
+                        int type = stream.integerAt(integerCursor++);
+                        int instances = stream.integerAt(integerCursor++);
+                        glDrawElementsInstanced(mode, count, type,
+                                stream.longAt(longCursor++), instances);
+                    }
+                    case DRAW_MESH_INSTANCED -> {
+                        int instances = stream.integerAt(integerCursor++);
+                        ((Mesh) stream.objectAt(objectCursor++)).drawInstancedBound(instances);
+                    }
+                    case APPLY_PIPELINE_STATE -> integerCursor = PendingPipelineState.applyEncoded(
+                            stream, integerCursor, cache);
+                    case CLEAR -> {
+                        cache.clear(stream.integerAt(integerCursor++));
+                    }
+                    case BLIT_FRAMEBUFFER -> {
+                        int sourceFbo = stream.integerAt(integerCursor++);
+                        int targetFbo = stream.integerAt(integerCursor++);
+                        int sourceWidth = stream.integerAt(integerCursor++);
+                        int sourceHeight = stream.integerAt(integerCursor++);
+                        int targetWidth = stream.integerAt(integerCursor++);
+                        int targetHeight = stream.integerAt(integerCursor++);
+                        cache.bindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+                        cache.bindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFbo);
+                        glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
+                                0, 0, targetWidth, targetHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                        cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
+                    }
+                    case UNIFORM_MAT4 -> {
+                        int location = stream.integerAt(integerCursor++);
+                        ShaderProgram shader = (ShaderProgram) stream.objectAt(objectCursor++);
+                        Matrix4f matrix = (Matrix4f) stream.objectAt(objectCursor++);
+                        shader.setMat4(location, matrix);
+                    }
+                    case UNIFORM_VEC3 -> {
+                        int location = stream.integerAt(integerCursor++);
+                        float x = floatAt(stream.integerAt(integerCursor++));
+                        float y = floatAt(stream.integerAt(integerCursor++));
+                        float z = floatAt(stream.integerAt(integerCursor++));
+                        ((ShaderProgram) stream.objectAt(objectCursor++)).setVec3(location, x, y, z);
+                    }
+                    case UNIFORM_VEC2 -> {
+                        int location = stream.integerAt(integerCursor++);
+                        float x = floatAt(stream.integerAt(integerCursor++));
+                        float y = floatAt(stream.integerAt(integerCursor++));
+                        ((ShaderProgram) stream.objectAt(objectCursor++)).setVec2(location, x, y);
+                    }
+                    case UNIFORM_INT -> {
+                        int location = stream.integerAt(integerCursor++);
+                        int value = stream.integerAt(integerCursor++);
+                        ((ShaderProgram) stream.objectAt(objectCursor++)).setInt(location, value);
+                    }
+                    case UNIFORM_FLOAT -> {
+                        int location = stream.integerAt(integerCursor++);
+                        float value = floatAt(stream.integerAt(integerCursor++));
+                        ((ShaderProgram) stream.objectAt(objectCursor++)).setFloat(location, value);
+                    }
+                    case CUSTOM -> {
+                        try {
+                            ((Runnable) stream.objectAt(objectCursor++)).run();
+                        } finally {
+                            cache.invalidate();
+                        }
+                    }
+                    case INSTANCED_BATCH -> {
+                        InstancedBatchSubmission submission =
+                                (InstancedBatchSubmission) stream.objectAt(objectCursor++);
+                        @SuppressWarnings("unchecked")
+                        List<Matrix4f> transforms =
+                                (List<Matrix4f>) stream.objectAt(objectCursor++);
+                        submission.beginFrame();
+                        submission.submitAll(transforms);
+                        submission.drawn(submission.flush());
+                        cache.invalidateVertexArray();
+                    }
+                    case DRAW_INSTANCED_BATCH -> {
+                        InstancedMeshBatch batch =
+                                (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                        @SuppressWarnings("unchecked")
+                        List<Matrix4f> transforms =
+                                (List<Matrix4f>) stream.objectAt(objectCursor++);
+                        IntConsumer drawnCount =
+                                (IntConsumer) stream.objectAt(objectCursor++);
+                        batch.beginFrame();
+                        batch.submitAll(transforms);
+                        int drawn = batch.flush();
+                        if (drawnCount != null) drawnCount.accept(drawn);
+                        cache.invalidateVertexArray();
+                    }
+                    case BEGIN_GPU_TIMER -> {
+                        ((GpuTimer) stream.objectAt(objectCursor++)).begin();
+                    }
+                    case END_GPU_TIMER -> {
+                        ((GpuTimer) stream.objectAt(objectCursor++)).end();
+                    }
+                    default -> throw new IllegalStateException("Unknown command opcode " + opcode);
+                }
         }
     }
 
-    /** @return 当前已记录的命令数量 */
-    public int commandCount() {
-        return commands.size();
-    }
-
-    CommandBuffer recordInstancedBatch(InstancedBatchSubmission submission, Iterable<Matrix4f> transforms) {
+    CommandBuffer recordInstancedBatch(InstancedBatchSubmission submission,
+                                       Iterable<Matrix4f> transforms) {
         Objects.requireNonNull(submission, "submission");
         Objects.requireNonNull(transforms, "transforms");
-        List<Matrix4f> copiedTransforms = new ArrayList<>();
-        for (Matrix4f transform : transforms) {
-            copiedTransforms.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
-        }
-        commands.add(cache -> {
-            submission.beginFrame();
-            submission.submitAll(copiedTransforms);
-            submission.drawn(submission.flush());
-            cache.invalidateVertexArray();
-        });
+        flushPendingState();
+        opcode(INSTANCED_BATCH);
+        object(submission);
+        object(copyTransforms(transforms));
         return this;
+    }
+
+    private CommandBuffer uniformMat4(ShaderProgram shader, int location, Matrix4f value) {
+        opcode(UNIFORM_MAT4);
+        integer(location);
+        object(shader);
+        object(new Matrix4f(value));
+        return this;
+    }
+
+    private CommandBuffer uniformVec3(ShaderProgram shader, int location,
+                                      float x, float y, float z) {
+        opcode(UNIFORM_VEC3);
+        integer(location);
+        integer(floatBits(x));
+        integer(floatBits(y));
+        integer(floatBits(z));
+        object(shader);
+        return this;
+    }
+
+    private CommandBuffer uniformInt(ShaderProgram shader, int location, int value) {
+        opcode(UNIFORM_INT);
+        integer(location);
+        integer(value);
+        object(shader);
+        return this;
+    }
+
+    private CommandBuffer uniformFloat(ShaderProgram shader, int location, float value) {
+        opcode(UNIFORM_FLOAT);
+        integer(location);
+        integer(floatBits(value));
+        object(shader);
+        return this;
+    }
+
+    private void flushPendingState() {
+        pendingState.writeTo(stream, APPLY_PIPELINE_STATE);
+    }
+
+    private void opcode(byte opcode) {
+        stream.opcode(opcode);
+    }
+
+    private void integer(int value) {
+        stream.integer(value);
+    }
+
+    private void longValue(long value) {
+        stream.longValue(value);
+    }
+
+    private void object(Object value) {
+        stream.object(value);
+    }
+
+    private static void validateBufferRange(int bindingPoint, long offsetBytes,
+                                            long sizeBytes, String kind) {
+        if (bindingPoint < 0 || offsetBytes < 0L || sizeBytes <= 0L) {
+            throw new IllegalArgumentException("invalid " + kind + " buffer range");
+        }
+    }
+
+    private static int floatBits(float value) {
+        return Float.floatToRawIntBits(value);
+    }
+
+    private static float floatAt(int bits) {
+        return Float.intBitsToFloat(bits);
+    }
+
+    private static List<Matrix4f> copyTransforms(Iterable<Matrix4f> transforms) {
+        List<Matrix4f> copied = new ArrayList<>();
+        for (Matrix4f transform : transforms) {
+            copied.add(new Matrix4f(Objects.requireNonNull(transform, "transform")));
+        }
+        return copied;
     }
 }
 

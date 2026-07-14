@@ -14,7 +14,7 @@
 
 ## 当前能力
 
-- OpenGL 后端资源：shader、buffer、texture、sampler、framebuffer、vertex layout/array、render format、uniform block、
+- OpenGL 后端资源：支持图形/计算各 stage 的 shader、buffer、texture、sampler、framebuffer、vertex layout/array、render format、uniform/SSBO block、
   GPU fence/timer、状态缓存和错误报告。
 - 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh data、instancing、上传流程、
   不可变帧快照和材质系统。
@@ -22,7 +22,7 @@
   none、MSAA、FXAA、TAA 后处理路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路；Assimp 入口仍为实验能力。
-- 四条 Demo 证明路径：综合场景管线、最小窗口与命令流、异步更新与渲染线程协作、10 万实例压力分析。
+- 五条 Demo 证明路径：空窗口/present 基线、综合场景管线、最小命令流、异步更新与渲染线程协作、自动生成 GPU procedural shader 的 10 万实例压力分析。
 
 主 Demo 是稳定基准场景，包含 receiver、投射/不投射阴影的对象、纹理/纯色材质、方向光、点光和实例化对象。
 
@@ -74,6 +74,7 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 在 IDE 中导入 Gradle 项目，然后直接运行对应的 `main` 方法：
 
 - 综合场景：`com.kaleblangley.haikalat.demo.LearnOpenGlDemo`
+- 不执行 clear/draw 的空窗口：`com.kaleblangley.haikalat.demo.EmptyWindowDemo`
 - 最小渲染检查：`com.kaleblangley.haikalat.demo.MinimalDemo`
 - 异步上传与渲染线程：`com.kaleblangley.haikalat.demo.async.AsyncDemo`
 

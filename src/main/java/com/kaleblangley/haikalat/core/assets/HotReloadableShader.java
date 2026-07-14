@@ -1,18 +1,20 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.EnumMap;
+import java.util.Map;
 
 public final class HotReloadableShader implements AutoCloseable {
     private final ResourceLocator locator;
     private final ShaderAsset asset;
     private ShaderProgram program;
-    private long vertexStamp = Long.MIN_VALUE;
-    private long fragmentStamp = Long.MIN_VALUE;
+    private final EnumMap<ShaderStage, Long> stamps = new EnumMap<>(ShaderStage.class);
     private boolean closed;
 
     public HotReloadableShader(ResourceLocator locator, ShaderAsset asset) {
@@ -30,9 +32,7 @@ public final class HotReloadableShader implements AutoCloseable {
 
     public boolean reloadIfChanged() {
         ensureOpen();
-        long newVertexStamp = timestamp(asset.vertexShader());
-        long newFragmentStamp = timestamp(asset.fragmentShader());
-        if (program == null || newVertexStamp != vertexStamp || newFragmentStamp != fragmentStamp) {
+        if (program == null || changed()) {
             reload();
             return true;
         }
@@ -41,13 +41,14 @@ public final class HotReloadableShader implements AutoCloseable {
 
     public ShaderProgram reload() {
         ensureOpen();
-        ShaderProgram next = ShaderProgram.fromSources(
-                locator.readString(asset.vertexShader()),
-                locator.readString(asset.fragmentShader()));
+        ShaderProgram.Builder builder = ShaderProgram.builder();
+        for (Map.Entry<ShaderStage, AssetRef> entry : asset.stages().entrySet()) {
+            builder.stage(entry.getKey(), locator.readString(entry.getValue()), entry.getValue().path());
+        }
+        ShaderProgram next = builder.link();
         ShaderProgram old = program;
         program = next;
-        vertexStamp = timestamp(asset.vertexShader());
-        fragmentStamp = timestamp(asset.fragmentShader());
+        asset.stages().forEach((stage, ref) -> stamps.put(stage, timestamp(ref)));
         if (old != null) {
             old.close();
         }
@@ -75,6 +76,15 @@ public final class HotReloadableShader implements AutoCloseable {
         } catch (java.io.IOException e) {
             return 0L;
         }
+    }
+
+    private boolean changed() {
+        for (Map.Entry<ShaderStage, AssetRef> entry : asset.stages().entrySet()) {
+            if (timestamp(entry.getValue()) != stamps.getOrDefault(entry.getKey(), Long.MIN_VALUE)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void ensureOpen() {

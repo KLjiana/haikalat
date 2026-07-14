@@ -9,6 +9,7 @@ import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glDeleteVertexArrays;
 import static org.lwjgl.opengl.GL45.glCreateVertexArrays;
+import static org.lwjgl.opengl.GL45.glVertexArrayElementBuffer;
 
 public final class VertexArray implements GlResource {
     private final int id;
@@ -39,8 +40,7 @@ public final class VertexArray implements GlResource {
 
     public VertexArray bindElementBuffer(GlBuffer buffer) {
         ensureOpen();
-        bind();
-        buffer.bind();
+        glVertexArrayElementBuffer(id, buffer.id());
         return this;
     }
 
