@@ -32,4 +32,6 @@
 已完成工作和版本演进记录。
 
 - [变更记录](history/changelog.md)
+- [2026-07-15 Stress 百万实例三轮基准](performance/stress-one-million-2026-07-15.md)
+- [2026-07-15 Stress 矩阵快照修复后五轮基准](performance/stress-matrix-copy-fix-2026-07-15.md)
 - [2026-07-14 Stress indexed / compact SSBO 基准](performance/stress-indexed-ssbo-2026-07-14.md)

@@ -35,7 +35,7 @@ import static org.lwjgl.opengl.GL11.glFinish;
 public final class StressDemo {
     private static final String PASS_NAME = "StressInstances";
     private static final String FRAGMENT_SHADER = "/demo/vertex_color_unlit.frag";
-    private static final int DEFAULT_INSTANCES = 100_000;
+    private static final int DEFAULT_INSTANCES = 1_000_000;
     private static final int PACKED_STORAGE_BINDING = 0;
 
     private StressDemo() {

@@ -12,11 +12,15 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 
 ## StressDemo 模式
 
-默认运行 10 万个 GPU procedural triangle：
+默认运行 100 万个 GPU procedural triangle：
 
 ```powershell
 .\gradlew.bat runStressDemo
 ```
+
+`runStressDemo` 和各 `runStress*Demo` 性能快捷入口默认使用 100 万实例；仍可通过
+`-PstressInstances=N` 覆盖。`localGlVerification` 中的 2 帧功能回归固定使用 10 万实例，
+避免日常正确性验证承担性能基准的显存与时间成本。
 
 四种模式保持相同窗口、clear、present、VSync 和 debug 设置：
 

@@ -124,7 +124,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",
-            "--instances=${providers.gradleProperty('stressInstances').getOrElse('100000')}",
+            "--instances=${providers.gradleProperty('stressInstances').getOrElse('1000000')}",
             "--mode=${providers.gradleProperty('stressMode').getOrElse('gpu')}"
     if (providers.gradleProperty('stressFrames').isPresent()) {
         args "--frames=${providers.gradleProperty('stressFrames').get()}"
@@ -155,27 +155,26 @@ tasks.named('runEmptyWindowDemo', JavaExec) {
 def stressMainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 [
         runStressTriangleDemo          : ['triangle', 'gpu',
-                'Runs the 100000-triangle expanded procedural baseline.'],
+                'Runs the 1000000-triangle expanded procedural baseline.'],
         runStressQuadDemo              : ['quad', 'gpu',
-                'Runs the 100000-quad expanded procedural baseline.'],
+                'Runs the 1000000-quad expanded procedural baseline.'],
         runStressCubeDemo              : ['cube', 'gpu',
-                'Runs the 100000-cube expanded procedural baseline.'],
+                'Runs the 1000000-cube expanded procedural baseline.'],
         runStressIndexedQuadDemo       : ['quad', 'indexed',
-                'Runs 100000 indexed quads with a uint8 EBO.'],
+                'Runs 1000000 indexed quads with a uint8 EBO.'],
         runStressIndexedCubeDemo       : ['cube', 'indexed',
-                'Runs 100000 indexed procedural cubes with a uint8 EBO.'],
+                'Runs 1000000 indexed procedural cubes with a uint8 EBO.'],
         runStressIndexedSsboTriangleDemo: ['triangle', 'indexed-ssbo',
-                'Runs 100000 triangles with compact 16-byte SSBO instances.'],
+                'Runs 1000000 triangles with compact 16-byte SSBO instances.'],
         runStressIndexedSsboQuadDemo   : ['quad', 'indexed-ssbo',
-                'Runs 100000 indexed quads with compact 16-byte SSBO instances.'],
+                'Runs 1000000 indexed quads with compact 16-byte SSBO instances.'],
         runStressIndexedSsboCubeDemo   : ['cube', 'indexed-ssbo',
-                'Runs 100000 indexed cubes with compact 16-byte SSBO instances.'],
+                'Runs 1000000 indexed cubes with compact 16-byte SSBO instances.'],
         runStressDynamicTriangleDemo   : ['triangle', 'dynamic',
-                'Runs the 100000-triangle Matrix4f upload compatibility path.'],
+                'Runs the 1000000-triangle Matrix4f upload compatibility path.'],
         runStressDynamicCubeDemo       : ['cube', 'dynamic',
-                'Runs the 100000-cube Matrix4f upload compatibility path.']
+                'Runs the 1000000-cube Matrix4f upload compatibility path.']
 ].each { taskName, preset ->
     registerDemoApplication(taskName, preset[2], stressMainClass,
-            ["--shape=${preset[0]}", '--instances=100000', "--mode=${preset[1]}"])
+            ["--shape=${preset[0]}", '--instances=1000000', "--mode=${preset[1]}"])
 }
-
