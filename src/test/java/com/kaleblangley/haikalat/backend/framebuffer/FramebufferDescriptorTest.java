@@ -11,10 +11,23 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
+import static org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 
 class FramebufferDescriptorTest {
+    @Test
+    void srgbRenderFormatUsesSrgbEightBitStorage() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.builder(64, 64)
+                .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.SRGB8_ALPHA8)
+                .build();
+
+        FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().getFirst();
+        assertEquals(GL_SRGB8_ALPHA8, color.internalFormat());
+        assertEquals(GL_RGBA, color.externalFormat());
+        assertEquals(org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, color.dataType());
+    }
+
     @Test
     void rgba16fTextureUsesFloatUploadMetadata() {
         FramebufferDescriptor descriptor = FramebufferDescriptor.builder(64, 64)

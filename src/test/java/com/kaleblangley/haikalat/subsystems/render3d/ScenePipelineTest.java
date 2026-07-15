@@ -56,7 +56,8 @@ class ScenePipelineTest {
                         PostProcessTargets.GEOMETRY_PASS,
                         PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.NONE, true));
-        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS),
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS,
+                        PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.FXAA, false));
     }
 

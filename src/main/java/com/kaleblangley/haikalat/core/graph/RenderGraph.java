@@ -185,9 +185,11 @@ public final class RenderGraph implements AutoCloseable {
             if (pass.useBackbuffer) {
                 cmd.enableBlend(false);
                 cmd.depthMask(true);
+                cmd.enableFramebufferSrgb(false);
                 cmd.bindDefaultFramebuffer()
                         .viewport(0, 0, width, height);
             } else if (framebuffer != null) {
+                cmd.enableFramebufferSrgb(pass.colorFormats.contains(RenderFormat.SRGB8_ALPHA8));
                 cmd.bindFramebuffer(framebuffer)
                         .viewport(0, 0, framebuffer.width(), framebuffer.height());
             }
@@ -572,6 +574,7 @@ public final class RenderGraph implements AutoCloseable {
         private static RenderFormat legacyFormat(int value) {
             return switch (value) {
                 case 32856 -> RenderFormat.RGBA8;
+                case 35907 -> RenderFormat.SRGB8_ALPHA8;
                 case 34842 -> RenderFormat.RGBA16F;
                 default -> throw new IllegalArgumentException("Unsupported legacy GL render format: " + value);
             };

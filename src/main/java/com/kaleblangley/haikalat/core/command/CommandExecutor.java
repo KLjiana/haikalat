@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.IntConsumer;
@@ -39,9 +40,12 @@ final class CommandExecutor {
         int integerCursor = 0;
         int longCursor = 0;
         int objectCursor = 0;
-        for (int command = 0; command < stream.commandCount(); command++) {
-            byte opcode = stream.opcodeAt(command);
-            switch (opcode) {
+        ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
+        Throwable commandFailure = null;
+        try {
+            for (int command = 0; command < stream.commandCount(); command++) {
+                byte opcode = stream.opcodeAt(command);
+                switch (opcode) {
                 case USE_PROGRAM -> cache.useProgram(stream.integerAt(integerCursor++));
                 case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
                 case BIND_TEXTURE_2D -> cache.bindTexture2D(
@@ -211,6 +215,7 @@ final class CommandExecutor {
                             (List<Matrix4f>) stream.objectAt(objectCursor++);
                     try {
                         batch.prepareOwnedSnapshots(transforms);
+                        preparedBatches.addLast(batch);
                     } finally {
                         cache.invalidateVertexArray();
                     }
@@ -228,7 +233,10 @@ final class CommandExecutor {
                     }
                 }
                 case FINISH_PREPARED_INSTANCED_BATCH -> {
-                    ((InstancedMeshBatch) stream.objectAt(objectCursor++)).finishPrepared();
+                    InstancedMeshBatch batch =
+                            (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                    preparedBatches.removeLastOccurrence(batch);
+                    batch.finishPrepared();
                 }
                 case BEGIN_GPU_TIMER -> {
                     ((GpuTimer) stream.objectAt(objectCursor++)).begin();
@@ -237,7 +245,49 @@ final class CommandExecutor {
                     ((GpuTimer) stream.objectAt(objectCursor++)).end();
                 }
                 default -> throw new IllegalStateException("Unknown command opcode " + opcode);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            commandFailure = failure;
+            throw failure;
+        } finally {
+            finishPreparedBatches(preparedBatches, cache, commandFailure);
+        }
+    }
+
+    /**
+     * 逆序结束命令流中尚未完成的多 pass 实例批次，保证异常路径也会插入 fence 并释放快照。
+     */
+    private static void finishPreparedBatches(ArrayDeque<InstancedMeshBatch> preparedBatches,
+                                              StateCache cache, Throwable commandFailure) {
+        Throwable cleanupFailure = null;
+        boolean cleaned = false;
+        while (!preparedBatches.isEmpty()) {
+            cleaned = true;
+            InstancedMeshBatch batch = preparedBatches.removeLast();
+            try {
+                batch.finishPrepared();
+            } catch (RuntimeException | Error failure) {
+                if (cleanupFailure == null) {
+                    cleanupFailure = failure;
+                } else {
+                    cleanupFailure.addSuppressed(failure);
+                }
             }
         }
+        if (cleaned) {
+            cache.invalidateVertexArray();
+        }
+        if (cleanupFailure == null) {
+            return;
+        }
+        if (commandFailure != null) {
+            commandFailure.addSuppressed(cleanupFailure);
+            return;
+        }
+        if (cleanupFailure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        throw (Error) cleanupFailure;
     }
 }

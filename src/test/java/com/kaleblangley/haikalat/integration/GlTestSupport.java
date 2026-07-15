@@ -1,10 +1,12 @@
 package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.lwjgl.BufferUtils;
 
 import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 
 import static org.lwjgl.opengl.GL11.*;
@@ -37,6 +39,28 @@ final class GlTestSupport {
         return texture(id);
     }
 
+    /** @return 以 sRGB 8-bit 存储的 1×1 中性灰测试纹理 */
+    static Texture2D generatedSrgbTexture(int encodedValue) throws ReflectiveOperationException {
+        if (encodedValue < 0 || encodedValue > 255) {
+            throw new IllegalArgumentException("encodedValue must be within [0, 255]");
+        }
+        int id = glGenTextures();
+        glBindTexture(GL_TEXTURE_2D, id);
+        ByteBuffer pixel = BufferUtils.createByteBuffer(4)
+                .put((byte) encodedValue)
+                .put((byte) encodedValue)
+                .put((byte) encodedValue)
+                .put((byte) 0xFF)
+                .flip();
+        glTexImage2D(GL_TEXTURE_2D, 0, org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8,
+                1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        Constructor<Texture2D> constructor = Texture2D.class.getDeclaredConstructor(
+                int.class, int.class, int.class, int.class, TextureColorSpace.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(id, 1, 1,
+                org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8, TextureColorSpace.SRGB);
+    }
+
     private static Texture2D texture(int id) throws ReflectiveOperationException {
         Constructor<Texture2D> constructor =
                 Texture2D.class.getDeclaredConstructor(int.class, int.class, int.class, int.class);
@@ -44,4 +68,3 @@ final class GlTestSupport {
         return constructor.newInstance(id, 1, 1, GL_RGBA);
     }
 }
-

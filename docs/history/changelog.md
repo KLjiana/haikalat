@@ -4,6 +4,8 @@
 
 ### Stabilization
 
+- Closed the v0.9 release-candidate hardening items: `CommandExecutor` now tracks prepared multi-pass instance batches and reverse-finishes them on failure, including fence insertion, snapshot cleanup, suppressed cleanup failures, and next-frame ring reuse.
+- Closed the LDR color-output loop with `SRGB8_ALPHA8` scene/final/TAA-history targets and RenderGraph-owned framebuffer-sRGB state. LDR NONE/MSAA/FXAA/TAA now blit already encoded bytes to either linear or sRGB default backbuffers, while HDR/ACES keeps explicit gamma with framebuffer sRGB disabled; MinimalDemo has a deterministic sRGB integration.
 - Completed the post-v0.8 color/Bloom roadmap: explicit linear/sRGB texture semantics and cache keys, framebuffer-sRGB ownership, relative RenderGraph targets, optional multi-level HDR Bloom, four-path GL regressions, and formal pass-level benchmarks.
 - Added typed single-upload/multi-pass instance commands after the 100K shadow benchmark triggered the optimization threshold; shadow and geometry now reuse one persistent-ring upload and insert one fence after the final draw.
 - Completed the v0.8 instanced-shadow/HDR milestone: opt-in instanced casters reuse the existing batch through independent shadow/geometry ring lifecycles, expose separate caster statistics, and have final-pixel plus next-frame fence regressions.

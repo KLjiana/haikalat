@@ -37,9 +37,11 @@ class RenderPipelineTest {
 
     @Test
     void passPlanUsesDedicatedPostprocessPassesForFxaaAndTaa() {
-        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS),
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS,
+                        PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.FXAA));
-        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS),
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
+                        PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA));
     }
 
@@ -87,12 +89,12 @@ class RenderPipelineTest {
     }
 
     @Test
-    void hdrUsesFloatSceneAndTaaHistoryFormatsWhileLdrRemainsRgba8() {
+    void hdrUsesFloatTargetsWhileLdrUsesSrgbSceneAndHistoryFormats() {
         RenderSettings ldr = RenderSettings.builder().build();
         RenderSettings hdr = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES).build();
 
-        assertEquals(RenderFormat.RGBA8, ForwardPassBuilder.sceneColorFormat(ldr));
-        assertEquals(RenderFormat.RGBA8, PostProcessPassBuilder.taaHistoryFormat(ldr));
+        assertEquals(RenderFormat.SRGB8_ALPHA8, ForwardPassBuilder.sceneColorFormat(ldr));
+        assertEquals(RenderFormat.SRGB8_ALPHA8, PostProcessPassBuilder.taaHistoryFormat(ldr));
         assertEquals(RenderFormat.RGBA16F, ForwardPassBuilder.sceneColorFormat(hdr));
         assertEquals(RenderFormat.RGBA16F, PostProcessPassBuilder.taaHistoryFormat(hdr));
     }
@@ -101,7 +103,8 @@ class RenderPipelineTest {
     void postProcessPassBuilderCanPrefixShadowPass() {
         assertEquals(List.of(DirectionalShadowMap.PASS_NAME,
                         PostProcessTargets.GEOMETRY_PASS,
-                        PostProcessTargets.TAA_PASS),
+                        PostProcessTargets.TAA_PASS,
+                        PostProcessTargets.PRESENT_PASS),
                 PostProcessPassBuilder.passNamesFor(AntiAliasingMode.TAA, true));
     }
 

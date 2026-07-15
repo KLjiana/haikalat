@@ -107,11 +107,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
     }
 
     private void addLdrFinalPass(RenderGraph graph) {
-        List<String> passNames = passNamesFor(settings.antiAliasingMode());
-        String finalPassName = passNames.get(passNames.size() - 1);
-        switch (finalPassName) {
-            case PostProcessTargets.FXAA_PASS -> graph.addPass(PostProcessTargets.FXAA_PASS)
-                    .writeToBackbuffer()
+        switch (settings.antiAliasingMode()) {
+            case FXAA -> {
+                graph.addPass(PostProcessTargets.FXAA_PASS)
+                    .createColor(PostProcessTargets.FXAA_COLOR, RenderFormat.SRGB8_ALPHA8)
                     .noClear()
                     .dependsOn(PostProcessTargets.GEOMETRY_PASS)
                     .execute((res, cmd) -> {
@@ -121,33 +120,43 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                     geoFb.width(), geoFb.height());
                         }
                     });
-            case PostProcessTargets.TAA_PASS -> graph.addPass(PostProcessTargets.TAA_PASS)
-                    .writeToBackbuffer()
+                addLdrPresentPass(graph, PostProcessTargets.FXAA_PASS);
+            }
+            case TAA -> {
+                graph.addPass(PostProcessTargets.TAA_PASS)
+                    .createColor(PostProcessTargets.TAA_COLOR, RenderFormat.SRGB8_ALPHA8)
                     .noClear()
                     .dependsOn(PostProcessTargets.GEOMETRY_PASS)
                     .execute((res, cmd) -> {
                         Framebuffer geoFb = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+                        Framebuffer target = res.currentTarget();
                         if (geoFb != null && taaHistory != null) {
                             Framebuffer history = taaHistory.framebuffer();
                             taa.recordIntoCurrentTarget(cmd, res.colorAttachment(PostProcessTargets.SCENE_COLOR),
                                     history.colorAttachment(), taaHistory.historyWeight());
-                            cmd.blitFramebuffer(0, history.id(), window.width(), window.height(),
-                                    history.width(), history.height());
+                            if (target != null) {
+                                cmd.blitColor(target, history);
+                            }
                             taaHistory.markValid();
                         }
                     });
-            case PostProcessTargets.PRESENT_PASS -> graph.addPass(PostProcessTargets.PRESENT_PASS)
-                    .writeToBackbuffer()
-                    .noClear()
-                    .dependsOn(PostProcessTargets.GEOMETRY_PASS)
-                    .execute((res, cmd) -> {
-                        Framebuffer geoFb = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-                        if (geoFb != null) {
-                            cmd.blitToDefault(geoFb, geoFb.width(), geoFb.height());
-                        }
-                    });
-            default -> throw new IllegalStateException("Unknown final postprocess pass: " + finalPassName);
+                addLdrPresentPass(graph, PostProcessTargets.TAA_PASS);
+            }
+            case NONE, MSAA -> addLdrPresentPass(graph, PostProcessTargets.GEOMETRY_PASS);
         }
+    }
+
+    private void addLdrPresentPass(RenderGraph graph, String sourcePass) {
+        graph.addPass(PostProcessTargets.PRESENT_PASS)
+                .writeToBackbuffer()
+                .noClear()
+                .dependsOn(sourcePass)
+                .execute((res, cmd) -> {
+                    Framebuffer source = res.framebufferOfPass(sourcePass);
+                    if (source != null) {
+                        cmd.blitToDefault(source, window.width(), window.height());
+                    }
+                });
     }
 
     private void addHdrFinalPasses(RenderGraph graph) {
@@ -321,8 +330,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
         return switch (mode) {
             case NONE, MSAA -> List.of(PostProcessTargets.GEOMETRY_PASS,
                     PostProcessTargets.PRESENT_PASS);
-            case FXAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS);
-            case TAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS);
+            case FXAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.FXAA_PASS,
+                    PostProcessTargets.PRESENT_PASS);
+            case TAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
+                    PostProcessTargets.PRESENT_PASS);
         };
     }
 
@@ -360,6 +371,6 @@ final class PostProcessPassBuilder implements AutoCloseable {
     }
 
     static RenderFormat taaHistoryFormat(RenderSettings settings) {
-        return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.RGBA8;
+        return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.SRGB8_ALPHA8;
     }
 }

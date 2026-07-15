@@ -51,9 +51,9 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## HDR And Tone Mapping Boundary
 
-`RenderSettings.toneMappingMode=NONE` 保持原有 RGBA8 LDR pass 和画面；只有显式选择 `ACES` 才启用 HDR。HDR geometry、MSAA resolve 和 TAA history/accumulation 使用 `RGBA16F`，tone-mapping target 使用 `RGBA8`。ACES pass 按 exposure、fitted curve、clamp、gamma 编码的顺序工作，复用 graph 管理的 attachment、`ScreenQuad` 和 typed `CommandBuffer`，不自行创建 framebuffer。
+`RenderSettings.toneMappingMode=NONE` 使用 `SRGB8_ALPHA8` scene、最终后处理和 TAA history target。RenderGraph 根据附件格式在 clear/draw 前提交 framebuffer sRGB；最终 Present 只复制已经编码的字节，因此默认 backbuffer 被驱动标记为 linear 或 sRGB 都不会造成漏编码或重复编码。只有显式选择 `ACES` 才启用 HDR；HDR geometry、MSAA resolve 和 TAA history/accumulation 使用 `RGBA16F`，tone-mapping target 使用普通 `RGBA8`。ACES pass 按 exposure、fitted curve、clamp、gamma 编码的顺序工作，并显式关闭 framebuffer sRGB。
 
-HDR pass 顺序固定为：NONE 是 `Geometry -> ToneMapping -> Present`；MSAA 是 `Geometry MSAA -> HdrResolve -> ToneMapping -> Present`；FXAA 是 `Geometry -> ToneMapping -> FXAA`；TAA 是 `Geometry -> TAA HDR -> ToneMapping -> Present`。因此 TAA 始终在线性 HDR 空间积累，FXAA 始终处理显示空间 LDR 图像。窗口 resize 重建所有窗口相关 HDR/LDR target 和 TAA history，并使 history 下一帧权重归零；固定 2048×2048 shadow target 不参与窗口 resize。
+LDR pass 顺序固定为：NONE/MSAA 是 `Geometry -> Present`，FXAA 是 `Geometry -> FXAA sRGB -> Present`，TAA 是 `Geometry -> TAA sRGB -> Present`。HDR pass 顺序固定为：NONE 是 `Geometry -> ToneMapping -> Present`；MSAA 是 `Geometry MSAA -> HdrResolve -> ToneMapping -> Present`；FXAA 是 `Geometry -> ToneMapping -> FXAA`；TAA 是 `Geometry -> TAA HDR -> ToneMapping -> Present`。因此 HDR TAA 始终在线性空间积累，HDR FXAA 处理已经由 ACES 编码的显示空间图像。窗口 resize 重建所有窗口相关 HDR/LDR target 和 TAA history，并使 history 下一帧权重归零；固定 2048×2048 shadow target 不参与窗口 resize。
 
 Bloom 默认关闭；启用后从上述 MSAA resolve/TAA accumulation 之后的线性 HDR 纹理提取高亮，逐级降采样和上采样，并把最终半分辨率纹理直接传给 ToneMapping。Bloom pass 只声明 RenderGraph attachment，不拥有 framebuffer。ACES shader 负责最终 gamma，ToneMapping 显式提交 `framebufferSrgb=false`，避免重复编码。
 
@@ -72,6 +72,8 @@ Bloom 默认关闭；启用后从上述 MSAA resolve/TAA accumulation 之后的�
 状态折叠不得跨 observable boundary：depth mask 在 depth clear 前提交；每个 draw 保留独立材质状态；RenderGraph pass 的正式 timer-query begin/end 构成 pass 屏障；`custom()` 前提交全部 pending state，执行后全量失效 `StateCache`。资源绑定和 DSA uniform 可以位于状态 setter 与边界之间，因为它们不观察 raster pipeline state，但其彼此顺序不改变。
 
 `CommandBuffer` 不允许对任意 draw 全局排序，因为 framebuffer、clear、uniform、透明 draw 和 pass 依赖具有顺序语义。draw 排序仍由 scene 层缓存完成：opaque/additive 按 shader/material/mesh 分组，alpha 保留提交顺序并最后绘制，shadow 按 mesh 分组。
+
+多 pass 实例命令由同一 `CommandExecutor` 执行周期维护身份栈。每个成功的 `prepareInstancedBatch` 入栈，显式 `finishPreparedInstancedBatch` 移除并完成；命令流异常或遗漏 finish 时，执行器在 `finally` 中逆序结束剩余批次，插入 fence、释放矩阵快照并失效 VAO cache。清理失败不会覆盖主异常，而是作为 suppressed exception 保留。
 
 ## Runtime Timing
 

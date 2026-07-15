@@ -39,6 +39,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_CONTEXT_DEBUG, GLFW_TRUE);
+        glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
 
         glfwWindowHint(GLFW_RESIZABLE, b.resizable ? GLFW_TRUE : GLFW_FALSE);
         glfwWindowHint(GLFW_VISIBLE, b.visible ? GLFW_TRUE : GLFW_FALSE);

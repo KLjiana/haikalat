@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.kaleblangley.haikalat.integration.GlTestSupport.hiddenWindow;
+import static com.kaleblangley.haikalat.integration.GlTestSupport.generatedSrgbTexture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
@@ -104,6 +106,32 @@ class RenderPipelineGlTest {
             out vec4 FragColor;
             void main() {
                 FragColor = vec4(4.0, 1.0, 0.25, 1.0);
+            }
+            """;
+
+    private static final String TEXTURED_PIPELINE_VERTEX_SOURCE = """
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (location = 1) in vec2 aTexCoord;
+            layout (std140) uniform CameraBlock {
+                mat4 uProjection;
+                mat4 uView;
+            };
+            uniform mat4 uModel;
+            out vec2 vUv;
+            void main() {
+                vUv = aTexCoord;
+                gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+            }
+            """;
+
+    private static final String TEXTURED_PIPELINE_FRAGMENT_SOURCE = """
+            #version 330 core
+            in vec2 vUv;
+            out vec4 FragColor;
+            uniform sampler2D uTexture;
+            void main() {
+                FragColor = texture(uTexture, vUv);
             }
             """;
 
@@ -211,6 +239,47 @@ class RenderPipelineGlTest {
                 material.close();
                 shader.close();
                 mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void midGraySrgbTextureIsEncodedExactlyOnceInLdrAndHdrOutput() throws Exception {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Texture2D midGray = generatedSrgbTexture(128);
+            ShaderProgram shader = ShaderProgram.fromSources(
+                    TEXTURED_PIPELINE_VERTEX_SOURCE, TEXTURED_PIPELINE_FRAGMENT_SOURCE);
+            Mesh mesh = Mesh.from(BuiltinMeshData.texturedQuad("srgb-output-roundtrip"));
+            Material material = Material.builder(shader).texture("uTexture", midGray).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material,
+                    (model, frame) -> model.identity().scale(4.0f)));
+            try {
+                for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                    int ldr = renderSrgbCenterPixel(window, scene, mode, ToneMappingMode.NONE);
+                    assertEquals(128, ldr, 3,
+                            "LDR " + mode + " must decode and re-encode sRGB exactly once");
+                }
+
+                int hdr = renderSrgbCenterPixel(
+                        window, scene, AntiAliasingMode.NONE, ToneMappingMode.ACES);
+                float encoded = 128.0f / 255.0f;
+                float linear = (float) Math.pow((encoded + 0.055f) / 1.055f, 2.4f);
+                float mapped = com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass
+                        .acesChannel(linear, 1.0f);
+                int expectedHdr = Math.round((float) Math.pow(mapped, 1.0 / 2.2) * 255.0f);
+                assertEquals(expectedHdr, hdr, 4,
+                        "HDR must use only the explicit ACES gamma encoding");
+                GlDebug.checkError("midGraySrgbTextureIsEncodedExactlyOnceInLdrAndHdrOutput");
+            } finally {
+                material.close();
+                mesh.close();
+                shader.close();
+                midGray.close();
             }
         }
     }
@@ -799,6 +868,26 @@ class RenderPipelineGlTest {
                         .antiAliasingMode(AntiAliasingMode.NONE)
                         .toneMappingMode(ToneMappingMode.ACES)
                         .exposure(exposure)
+                        .vsync(false)
+                        .build());
+        try {
+            pipeline.build();
+            pipeline.execute(new GlRenderDevice());
+            ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            return Byte.toUnsignedInt(pixel.get(0));
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    private static int renderSrgbCenterPixel(GlfwWindow window, Scene scene,
+                                             AntiAliasingMode antiAliasingMode,
+                                             ToneMappingMode toneMappingMode) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderSettings.builder()
+                        .antiAliasingMode(antiAliasingMode)
+                        .toneMappingMode(toneMappingMode)
                         .vsync(false)
                         .build());
         try {

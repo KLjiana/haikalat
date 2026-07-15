@@ -12,6 +12,7 @@ public final class PostProcessTargets {
     public static final String PRESENT_PASS = "PresentPass";
 
     public static final String SCENE_COLOR = "sceneColor";
+    public static final String FXAA_COLOR = "fxaaColor";
     public static final String TAA_HISTORY = "taaHistory";
     public static final String TAA_COLOR = "taaColor";
     public static final String HDR_RESOLVED_COLOR = "hdrResolvedColor";

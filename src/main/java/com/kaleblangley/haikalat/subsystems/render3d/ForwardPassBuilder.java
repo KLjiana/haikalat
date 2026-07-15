@@ -41,6 +41,6 @@ final class ForwardPassBuilder {
     }
 
     static RenderFormat sceneColorFormat(RenderSettings settings) {
-        return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.RGBA8;
+        return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.SRGB8_ALPHA8;
     }
 }

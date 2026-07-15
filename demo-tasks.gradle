@@ -25,6 +25,9 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         runBloomIntegration                : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom'],
                 'Runs the hidden HDR Bloom scene for a finite number of frames.'],
+        runMinimalIntegration              : ['com.kaleblangley.haikalat.demo.MinimalDemo',
+                ['--deterministic', '--frames=8'],
+                'Runs MinimalDemo with its sRGB LDR target for a finite number of frames.'],
         runAsyncIntegration                : ['com.kaleblangley.haikalat.demo.async.AsyncDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs the async upload/render-thread demo hidden for a finite number of frames.'],
@@ -69,7 +72,7 @@ tasks.register('localGlVerification') {
     group = 'verification'
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
     dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runBloomIntegration', 'runAsyncIntegration',
-            'runEmptyWindowIntegration',
+            'runMinimalIntegration', 'runEmptyWindowIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
@@ -82,6 +85,9 @@ tasks.named('runDemoResizeIntegration') {
     mustRunAfter 'runDemoIntegration'
 }
 tasks.named('runAsyncIntegration') {
+    mustRunAfter 'runMinimalIntegration'
+}
+tasks.named('runMinimalIntegration') {
     mustRunAfter 'runBloomIntegration'
 }
 tasks.named('runBloomIntegration') {

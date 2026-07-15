@@ -223,6 +223,62 @@ class InstanceUploadGlTest {
     }
 
     @Test
+    void preparedMultiPassBatchIsFencedWhenGeometryStageFailsAndNextFrameReusesRing() throws Exception {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Path resources = Path.of("src", "demo", "resources", "demo");
+            ShaderProgram shader = ShaderProgram.fromSources(
+                    Files.readString(resources.resolve("instanced_projview.vert")),
+                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("multi-pass-failure-recovery"));
+            InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, 1, 3);
+            Framebuffer target = Framebuffer.singleSampled(32, 32);
+            try {
+                GlRenderDevice device = new GlRenderDevice();
+                List<org.joml.Matrix4f> transforms = List.of(new org.joml.Matrix4f());
+                AtomicBoolean shadowDrawn = new AtomicBoolean();
+
+                IllegalStateException failure = assertThrows(IllegalStateException.class,
+                        () -> device.execute(device.createCommandBuffer()
+                                .bindFramebuffer(target)
+                                .viewport(0, 0, 32, 32)
+                                .clearColor(0, 0, 0, 1)
+                                .clear(true, true)
+                                .bindShader(shader)
+                                .setUniformMat4(shader, "uProjView", new org.joml.Matrix4f())
+                                .prepareInstancedBatch(batch, transforms)
+                                .drawPreparedInstancedBatch(batch, count -> shadowDrawn.set(count == 1))
+                                .drawPreparedInstancedBatch(batch, count -> {
+                                    throw new IllegalStateException("geometry stage failed");
+                                })
+                                .finishPreparedInstancedBatch(batch)));
+
+                assertEquals("geometry stage failed", failure.getMessage());
+                assertTrue(shadowDrawn.get(), "Shadow draw must complete before geometry fails");
+
+                device.execute(device.createCommandBuffer()
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, 32, 32)
+                        .bindShader(shader)
+                        .setUniformMat4(shader, "uProjView", new org.joml.Matrix4f())
+                        .drawInstancedBatch(batch, transforms));
+                assertEquals(2L * 16L * Float.BYTES, batch.bufferStatistics().uploadedBytes(),
+                        "The recovered frame must upload exactly one additional matrix");
+                glFinish();
+                GlDebug.checkError("preparedMultiPassBatchIsFencedWhenGeometryStageFailsAndNextFrameReusesRing");
+            } finally {
+                target.close();
+                batch.close();
+                mesh.close();
+                shader.close();
+            }
+        }
+    }
+
+    @Test
     void failedCommandBatchInvalidatesCachedVertexArray() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
