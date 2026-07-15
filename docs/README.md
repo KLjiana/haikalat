@@ -11,7 +11,7 @@
 - [实例化阴影与 HDR/ACES 实施计划](planning/instanced-shadow-hdr-roadmap.md) — v0.8 已完成里程碑
 - [post-v0.8 色彩与 Bloom 路线图](planning/post-v0.8-roadmap.md) — v0.9 已完成主线与条件基准
 - [v0.9 收尾计划](planning/v0.9-closeout.md) — 发布候选异常生命周期与 LDR sRGB 闭环
-- [v0.10 全 GPU 自动曝光实施计划](planning/v0.10-gpu-auto-exposure.md) — GPU 测光、时间适应与发布门槛
+- [v0.10 全 GPU 自动曝光实施计划](planning/v0.10-gpu-auto-exposure.md) — 已完成 GPU 测光、时间适应与发布验收
 - [后续计划](planning/future-plans.md)
 
 ## 架构
@@ -38,5 +38,6 @@
 - [变更记录](history/changelog.md)
 - [2026-07-15 Stress 百万实例三轮基准](performance/stress-one-million-2026-07-15.md)
 - [2026-07-15 post-v0.8 色彩、Bloom 与实例阴影基准](performance/post-v0.8-bloom-2026-07-15.md)
+- [2026-07-15 v0.10 自动曝光 1080p/4K 五轮基准](performance/v0.10-auto-exposure-2026-07-15.md)
 - [2026-07-15 Stress 矩阵快照修复后五轮基准](performance/stress-matrix-copy-fix-2026-07-15.md)
 - [2026-07-14 Stress indexed / compact SSBO 基准](performance/stress-indexed-ssbo-2026-07-14.md)

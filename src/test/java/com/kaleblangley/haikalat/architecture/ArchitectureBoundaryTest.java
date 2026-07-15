@@ -61,6 +61,18 @@ class ArchitectureBoundaryTest {
                 "Production GL work must use typed CommandBuffer operations");
     }
 
+    @Test
+    void automaticExposureProductionPathDoesNotReadBackGpuData() throws IOException {
+        Path source = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "subsystems",
+                "postprocess", "AutoExposurePass.java"));
+        String code = Files.readString(source);
+
+        for (String forbidden : Set.of("glReadPixels", "glGetTexImage", "glMapBuffer", ".custom(")) {
+            assertTrue(!code.contains(forbidden),
+                    "Automatic exposure must remain GPU-only; found " + forbidden);
+        }
+    }
+
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {
         try (var files = Files.walk(root)) {
             return files.filter(path -> path.toString().endsWith(".java"))

@@ -83,23 +83,32 @@ public final class RenderPipeline {
         int h = window.height();
         closeGraphResources();
 
-        graph = new RenderGraph(w, h);
-        cameraUniforms = new CameraUniforms();
-        lightingBinder = new LightingBinder(scene);
-        postProcess = PostProcessPassBuilder.create(settings, window, w, h);
-        if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
-            shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
-                    "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
-            if (instanced != null && instanced.castShadows()) {
-                instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
-                        "/shadows/instanced_directional_depth.vert",
-                        "/shadows/directional_depth.frag");
+        try {
+            graph = new RenderGraph(w, h);
+            cameraUniforms = new CameraUniforms();
+            lightingBinder = new LightingBinder(scene);
+            postProcess = PostProcessPassBuilder.create(settings, window, w, h);
+            if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
+                shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                        "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
+                if (instanced != null && instanced.castShadows()) {
+                    instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                            "/shadows/instanced_directional_depth.vert",
+                            "/shadows/directional_depth.frag");
+                }
             }
-        }
 
-        ForwardPassBuilder.addForwardPasses(graph, settings, scene, directionalShadowMap,
-                shadowExecutor(), geometryExecutor());
-        postProcess.addFinalPass(graph);
+            ForwardPassBuilder.addForwardPasses(graph, settings, scene, directionalShadowMap,
+                    shadowExecutor(), geometryExecutor());
+            postProcess.addFinalPass(graph);
+        } catch (RuntimeException failure) {
+            try {
+                closeGraphResources();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
     }
 
     public RenderGraph graph() {
@@ -124,7 +133,27 @@ public final class RenderPipeline {
     }
 
     public void execute(RenderDevice device) {
-        graph.execute(device);
+        execute(device, 1.0f / 60.0f);
+    }
+
+    /**
+     * 执行一帧，并把受上限保护的真实帧间隔交给跨帧后处理。
+     *
+     * @param device       渲染设备
+     * @param deltaSeconds 本帧秒数，必须有限且非负
+     */
+    public void execute(RenderDevice device, float deltaSeconds) {
+        if (graph == null || postProcess == null) {
+            throw new IllegalStateException("RenderPipeline must be built before execute");
+        }
+        postProcess.beginFrame(deltaSeconds);
+        try {
+            graph.execute(device);
+            postProcess.frameSucceeded();
+        } catch (RuntimeException failure) {
+            postProcess.frameFailed();
+            throw failure;
+        }
     }
 
     public void resize(int w, int h) {
@@ -141,27 +170,43 @@ public final class RenderPipeline {
     }
 
     private void closeGraphResources() {
-        if (graph != null) {
-            graph.close();
-            graph = null;
-        }
-        if (cameraUniforms != null) {
-            cameraUniforms.close();
-            cameraUniforms = null;
-        }
-        if (postProcess != null) {
-            postProcess.close();
-            postProcess = null;
-        }
-        if (shadowShader != null) {
-            shadowShader.close();
-            shadowShader = null;
-        }
-        if (instancedShadowShader != null) {
-            instancedShadowShader.close();
-            instancedShadowShader = null;
-        }
+        ShaderProgram localInstancedShadow = instancedShadowShader;
+        ShaderProgram localShadow = shadowShader;
+        PostProcessPassBuilder localPostProcess = postProcess;
+        CameraUniforms localCameraUniforms = cameraUniforms;
+        RenderGraph localGraph = graph;
+        instancedShadowShader = null;
+        shadowShader = null;
+        postProcess = null;
+        cameraUniforms = null;
+        graph = null;
         lightingBinder = null;
+
+        RuntimeException failure = null;
+        failure = closeCollecting(localInstancedShadow, failure);
+        failure = closeCollecting(localShadow, failure);
+        failure = closeCollecting(localPostProcess, failure);
+        failure = closeCollecting(localCameraUniforms, failure);
+        failure = closeCollecting(localGraph, failure);
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private static RuntimeException closeCollecting(AutoCloseable resource, RuntimeException failure) {
+        if (resource == null) {
+            return failure;
+        }
+        try {
+            resource.close();
+        } catch (Exception cleanupFailure) {
+            if (failure == null) {
+                return cleanupFailure instanceof RuntimeException runtime
+                        ? runtime : new IllegalStateException("Failed to close render resource", cleanupFailure);
+            }
+            failure.addSuppressed(cleanupFailure);
+        }
+        return failure;
     }
 
     private PassExecutor geometryExecutor() {

@@ -78,6 +78,7 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runMinimalIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat runEmptyWindowIntegration
+.\gradlew.bat runAutoExposureIntegration
 .\gradlew.bat runStressIntegration
 ```
 
@@ -87,6 +88,14 @@ Run every local check that requires a desktop OpenGL environment:
 .\gradlew.bat localGlVerification
 ```
 
-`localGlVerification` also runs MinimalDemo's sRGB LDR target, the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
+`localGlVerification` also runs MinimalDemo's sRGB LDR target, the deterministic full-GPU automatic-exposure transition, the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
 
-The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, linear/sRGB texture sampling, single-encoded mid-gray output across all LDR AA modes and HDR/ACES, RGBA16F values above 1.0, ACES exposure changes, fullscreen state ownership, HDR resize, disabled/enabled Bloom pixels across all four AA paths, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with one upload reused by two passes, reverse cleanup after a geometry-stage failure, next-frame ring reuse, and an async UBO upload that drives instanced final pixels. Unit tests verify primitive-only state packets, boundary separation, relative target sizing, packed-instance quantization, uint8 topology/winding, HDR/Bloom/LDR-present pass order, exposure/Bloom validation, ACES reference behavior, sRGB/float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.
+The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, linear/sRGB texture sampling, single-encoded mid-gray output across all LDR AA modes and HDR/ACES, RGBA16F values above 1.0, ACES exposure changes, R16F log-luminance plus RG32F sum/weight reduction/history, 9×1 and 1280×1 edge weighting, a 1×1-to-47×33 resize topology regression, fullscreen state ownership, HDR resize, disabled/enabled Bloom pixels across all four AA paths, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with one upload reused by two passes, reverse cleanup after a geometry-stage failure, next-frame ring reuse, and an async UBO upload that drives instanced final pixels. Unit tests verify primitive-only state packets, boundary separation, relative target sizing, packed-instance quantization, uint8 topology/winding, HDR/Bloom/LDR-present pass order, exposure/Bloom validation, frame-rate-independent adaptation, topology-preserving dynamic light replacement, ACES reference behavior, sRGB/float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.
+
+正式自动曝光性能复现：
+
+```powershell
+.\gradlew.bat runAutoExposureBenchmarks
+```
+
+该任务在 1080p 与 4K 下分别测试 MANUAL/AUTO，每项执行 5 轮，每轮预热 100 帧并统计 1000 帧。

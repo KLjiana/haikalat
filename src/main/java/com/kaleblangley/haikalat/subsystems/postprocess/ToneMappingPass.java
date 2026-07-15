@@ -36,6 +36,17 @@ public final class ToneMappingPass implements GlResource {
      */
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int hdrTexture, int bloomTexture,
                                                  float exposure, float bloomIntensity) {
+        return recordIntoCurrentTarget(cmd, hdrTexture, bloomTexture, exposure, 0, bloomIntensity);
+    }
+
+    /**
+     * 把 HDR 场景映射到 LDR，并可直接从 1×1 GPU texture 读取自动曝光。
+     *
+     * @param exposureTexture 1×1 自动曝光纹理；0 表示使用手动 exposure
+     */
+    public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int hdrTexture, int bloomTexture,
+                                                 float exposure, int exposureTexture,
+                                                 float bloomIntensity) {
         ensureOpen();
         cmd.enableBlend(false)
                 .enableDepthTest(false)
@@ -46,10 +57,15 @@ public final class ToneMappingPass implements GlResource {
                 .setUniformInt(program, "uHdrScene", 0)
                 .setUniformInt(program, "uBloomEnabled", bloomTexture != 0 ? 1 : 0)
                 .setUniformFloat(program, "uExposure", exposure)
+                .setUniformInt(program, "uAutoExposure", exposureTexture != 0 ? 1 : 0)
                 .setUniformFloat(program, "uBloomIntensity", bloomIntensity);
         if (bloomTexture != 0) {
             cmd.bindTexture(1, bloomTexture)
                     .setUniformInt(program, "uBloom", 1);
+        }
+        if (exposureTexture != 0) {
+            cmd.bindTexture(2, exposureTexture)
+                    .setUniformInt(program, "uExposureTexture", 2);
         }
         cmd
                 .bindVertexArray(quad.id())

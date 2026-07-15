@@ -86,7 +86,7 @@ public final class RenderGraph implements AutoCloseable {
 
     FramebufferDescriptor passFramebufferDescriptor(String passName) {
         Pass pass = passByName.get(passName);
-        if (pass == null || pass.useBackbuffer) {
+        if (pass == null || pass.useBackbuffer || pass.externalTarget) {
             return null;
         }
         return descriptorFor(pass);
@@ -100,7 +100,7 @@ public final class RenderGraph implements AutoCloseable {
         passes.add(pass);
         passByName.put(pass.name, pass);
         sortedPasses = null;
-        if (allocateResources && !pass.useBackbuffer) {
+        if (allocateResources && !pass.useBackbuffer && !pass.externalTarget) {
             allocatePassFramebuffer(pass);
         }
     }
@@ -188,7 +188,7 @@ public final class RenderGraph implements AutoCloseable {
                 cmd.enableFramebufferSrgb(false);
                 cmd.bindDefaultFramebuffer()
                         .viewport(0, 0, width, height);
-            } else if (framebuffer != null) {
+            } else if (!pass.externalTarget && framebuffer != null) {
                 cmd.enableFramebufferSrgb(pass.colorFormats.contains(RenderFormat.SRGB8_ALPHA8));
                 cmd.bindFramebuffer(framebuffer)
                         .viewport(0, 0, framebuffer.width(), framebuffer.height());
@@ -232,7 +232,7 @@ public final class RenderGraph implements AutoCloseable {
             return;
         }
         for (Pass pass : passes) {
-            if (!pass.useBackbuffer && pass.fixedWidth == 0) {
+            if (!pass.useBackbuffer && !pass.externalTarget && pass.fixedWidth == 0) {
                 allocatePassFramebuffer(pass);
             }
         }
@@ -293,7 +293,7 @@ public final class RenderGraph implements AutoCloseable {
     private void refreshAttachmentLookup() {
         textureAttachmentIds.clear();
         for (Pass pass : passes) {
-            if (!pass.useBackbuffer) {
+            if (!pass.useBackbuffer && !pass.externalTarget) {
                 Framebuffer framebuffer = getPassFramebuffer(pass.name);
                 if (framebuffer != null) {
                     registerPassAttachments(pass, framebuffer);
@@ -342,6 +342,7 @@ public final class RenderGraph implements AutoCloseable {
         final float clearB;
         final float clearA;
         final boolean useBackbuffer;
+        final boolean externalTarget;
         final List<String> dependencies;
         final PassExecutor executor;
         GpuTimer timer;
@@ -350,6 +351,7 @@ public final class RenderGraph implements AutoCloseable {
              int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
              boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
+             boolean externalTarget,
              List<String> dependencies, PassExecutor executor) {
             this.name = name;
             this.colorTextureNames = colorTextureNames;
@@ -368,6 +370,7 @@ public final class RenderGraph implements AutoCloseable {
             this.clearB = clearB;
             this.clearA = clearA;
             this.useBackbuffer = useBackbuffer;
+            this.externalTarget = externalTarget;
             this.dependencies = dependencies;
             this.executor = executor;
         }
@@ -392,6 +395,7 @@ public final class RenderGraph implements AutoCloseable {
         private float clearB = 0.14f;
         private float clearA = 1.0f;
         private boolean useBackbuffer;
+        private boolean externalTarget;
         private final List<String> dependencies = new ArrayList<>();
         private PassExecutor executor;
 
@@ -524,7 +528,22 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder writeToBackbuffer() {
+            if (externalTarget) {
+                throw new IllegalStateException("backbuffer and external target are mutually exclusive");
+            }
             useBackbuffer = true;
+            return this;
+        }
+
+        /**
+         * 声明该 pass 由 executor 通过正式命令绑定自有的持久目标。
+         * 适用于跨帧 history；RenderGraph 不为该 pass 分配 framebuffer。
+         */
+        public PassBuilder writeToExternalTarget() {
+            if (useBackbuffer) {
+                throw new IllegalStateException("external target and backbuffer are mutually exclusive");
+            }
+            externalTarget = true;
             return this;
         }
 
@@ -555,10 +574,13 @@ public final class RenderGraph implements AutoCloseable {
 
         public RenderGraph execute(PassExecutor executor) {
             this.executor = Objects.requireNonNull(executor, "executor");
+            if (externalTarget && (clearColor || clearDepth)) {
+                throw new IllegalStateException("external-target pass must declare noClear()");
+            }
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
                     fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
                     createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
-                    useBackbuffer, List.copyOf(dependencies), executor);
+                    useBackbuffer, externalTarget, List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
             return graph;
         }
@@ -576,6 +598,8 @@ public final class RenderGraph implements AutoCloseable {
                 case 32856 -> RenderFormat.RGBA8;
                 case 35907 -> RenderFormat.SRGB8_ALPHA8;
                 case 34842 -> RenderFormat.RGBA16F;
+                case 33325 -> RenderFormat.R16F;
+                case 33328 -> RenderFormat.RG32F;
                 default -> throw new IllegalArgumentException("Unsupported legacy GL render format: " + value);
             };
         }

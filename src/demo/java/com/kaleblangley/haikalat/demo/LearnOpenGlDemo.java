@@ -19,6 +19,7 @@ import com.kaleblangley.haikalat.runtime.FrameTimingAccumulator;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
+import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
@@ -48,11 +49,12 @@ public final class LearnOpenGlDemo {
                 .antiAliasingMode(options.antiAliasingMode())
                 .toneMappingMode(options.toneMappingMode())
                 .exposure(1.0f)
+                .exposureMode(options.autoExposure() ? ExposureMode.AUTO : ExposureMode.MANUAL)
                 .bloomSettings(BloomSettings.builder().enabled(options.bloom()).build())
                 .vsync(!options.deterministic())
                 .build();
         try (GlfwWindow window = new GlfwWindow.Builder()
-                .dimensions(DemoSupport.DEFAULT_WIDTH, DemoSupport.DEFAULT_HEIGHT)
+                .dimensions(options.size().width(), options.size().height())
                 .title("LearnOpenGL Demo")
                 .build()) {
             window.bindContext();
@@ -114,8 +116,9 @@ public final class LearnOpenGlDemo {
             }
 
             renderLoop.beginFrame();
+            updateAutoExposureIntegrationScene(pipeline.scene(), options, frame);
             instanced.beginFrame(frame);
-            pipeline.execute(renderLoop.device());
+            pipeline.execute(renderLoop.device(), time.deltaSeconds());
             renderLoop.statistics().recordGraphProfile(pipeline.graph().lastFrameProfile());
             renderLoop.endFrame();
             if (options.resize() != null && frame > options.resize().frame()) {
@@ -141,9 +144,10 @@ public final class LearnOpenGlDemo {
                 DebugOverlaySnapshot overlay = DebugOverlaySnapshot.from(
                         renderLoop.statistics(), instanced.statistics().drawCalls(),
                         instanced.drawnCount(), settings.antiAliasingMode());
-                window.setTitle(String.format("LearnOpenGL | FPS %.1f | CPU %.3f ms | GPU %.2f ms | draw %d | inst %d | AA %s",
+                window.setTitle(String.format("LearnOpenGL | FPS %.1f | CPU %.3f ms | GPU %.2f ms | draw %d | inst %d | AA %s | exposure %s",
                         overlay.fps(), overlay.cpuSubmitMillis(), overlay.gpuMillis(),
-                        overlay.drawCalls(), overlay.instanceCount(), overlay.activeAntiAliasingMode()));
+                        overlay.drawCalls(), overlay.instanceCount(), overlay.activeAntiAliasingMode(),
+                        settings.exposureMode()));
             }
 
             GlDebug.checkError("LearnOpenGlDemo.frame");
@@ -209,6 +213,7 @@ public final class LearnOpenGlDemo {
         Map<String, FrameTimingAccumulator.Summary> passTimings = passBenchmark.snapshot();
         lastBenchmarkResult = new BenchmarkResult(
                 settings.toneMappingMode() + "/" + settings.antiAliasingMode()
+                        + " exposure=" + settings.exposureMode()
                         + " bloom=" + settings.bloomSettings().enabled()
                         + " instances=" + options.instances()
                         + " shadows=" + options.instanceShadows(),
@@ -221,11 +226,11 @@ public final class LearnOpenGlDemo {
         }
         String scope = options.warmupFrames() >= 100 && benchmark.measuredFrames() >= 1000
                 ? "FORMAL" : "INTEGRATION-ONLY";
-        System.out.printf("LearnOpenGL [%s] %s/%s bloom=%s | instances %,d | shadows=%s | "
+        System.out.printf("LearnOpenGL [%s] %s/%s exposure=%s bloom=%s | instances %,d | shadows=%s | "
                         + "present FPS %.1f | CPU avg/median %.3f/%.3f ms | "
                         + "GPU avg/median %.3f/%.3f ms | upload %.3f MB/frame | "
                         + "ring wait %.3f ms/%d | state skip %.1f%%%n",
-                scope, settings.toneMappingMode(), settings.antiAliasingMode(),
+                scope, settings.toneMappingMode(), settings.antiAliasingMode(), settings.exposureMode(),
                 settings.bloomSettings().enabled(), options.instances(), options.instanceShadows(),
                 benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
                 timings.averageGpuMillis(), timings.medianGpuMillis(), uploadPerFrameMb,
@@ -284,10 +289,25 @@ public final class LearnOpenGlDemo {
                 packed, unpacked[0], unpacked[1], unpacked[2]);
     }
 
+    private static void updateAutoExposureIntegrationScene(Scene scene, DemoOptions options, int frame) {
+        if (!options.autoExposureCycle() || (frame != 3 && frame != 7)) {
+            return;
+        }
+        float scale = frame == 3 ? 8.0f : 0.01f;
+        java.util.List<SceneLight> lights = scene.lights();
+        for (int index = 0; index < lights.size(); index++) {
+            SceneLight light = lights.get(index);
+            scene.setLight(index, new SceneLight(light.type(), light.color(), light.intensity() * scale,
+                    light.direction(), light.position(), light.range(), light.innerConeRadians(),
+                    light.outerConeRadians(), light.castShadows()));
+        }
+    }
+
     private record DemoOptions(boolean deterministic, int maxFrames,
                                AntiAliasingMode antiAliasingMode, ResizeSpec resize, boolean bloom,
                                ToneMappingMode toneMappingMode, int instances,
-                               boolean instanceShadows, int warmupFrames, boolean quiet) {
+                               boolean instanceShadows, int warmupFrames, boolean quiet,
+                               boolean autoExposure, boolean autoExposureCycle, SizeSpec size) {
         static DemoOptions parse(String[] args) {
             boolean deterministic = false;
             int maxFrames = -1;
@@ -299,6 +319,9 @@ public final class LearnOpenGlDemo {
             boolean instanceShadows = true;
             int warmupFrames = -1;
             boolean quiet = false;
+            boolean autoExposure = false;
+            boolean autoExposureCycle = false;
+            SizeSpec size = new SizeSpec(DemoSupport.DEFAULT_WIDTH, DemoSupport.DEFAULT_HEIGHT);
             for (String arg : args) {
                 if ("--deterministic".equals(arg)) {
                     deterministic = true;
@@ -327,6 +350,13 @@ public final class LearnOpenGlDemo {
                     warmupFrames = Integer.parseInt(arg.substring("--warmup=".length()));
                 } else if ("--quiet".equals(arg)) {
                     quiet = true;
+                } else if ("--auto-exposure".equals(arg)) {
+                    autoExposure = true;
+                } else if ("--auto-exposure-cycle".equals(arg)) {
+                    autoExposure = true;
+                    autoExposureCycle = true;
+                } else if (arg.startsWith("--size=")) {
+                    size = SizeSpec.parse(arg.substring("--size=".length()));
                 } else {
                     throw new IllegalArgumentException("Unknown demo argument: " + arg);
                 }
@@ -349,8 +379,12 @@ public final class LearnOpenGlDemo {
             if (bloom && toneMappingMode == ToneMappingMode.NONE) {
                 throw new IllegalArgumentException("--bloom requires --tone=ACES");
             }
+            if (autoExposure && toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalArgumentException("--auto-exposure requires --tone=ACES");
+            }
             return new DemoOptions(deterministic, maxFrames, mode, resize, bloom,
-                    toneMappingMode, instances, instanceShadows, warmupFrames, quiet);
+                    toneMappingMode, instances, instanceShadows, warmupFrames, quiet,
+                    autoExposure, autoExposureCycle, size);
         }
     }
 
@@ -395,6 +429,25 @@ public final class LearnOpenGlDemo {
             if (window.width() != width || window.height() != height
                     || pipeline.graph().width() != width || pipeline.graph().height() != height) {
                 throw new IllegalStateException("Deterministic resize did not reach " + width + "x" + height);
+            }
+        }
+    }
+
+    private record SizeSpec(int width, int height) {
+        static SizeSpec parse(String value) {
+            try {
+                String[] dimensions = value.toLowerCase().split("x", -1);
+                if (dimensions.length != 2) {
+                    throw new IllegalArgumentException();
+                }
+                int width = Integer.parseInt(dimensions[0]);
+                int height = Integer.parseInt(dimensions[1]);
+                if (width <= 0 || height <= 0 || width > 7680 || height > 4320) {
+                    throw new IllegalArgumentException();
+                }
+                return new SizeSpec(width, height);
+            } catch (RuntimeException invalid) {
+                throw new IllegalArgumentException("--size must use positive WIDTHxHEIGHT up to 7680x4320", invalid);
             }
         }
     }

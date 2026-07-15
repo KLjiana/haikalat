@@ -6,7 +6,9 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
+import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.AutoExposurePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor;
 import com.kaleblangley.haikalat.subsystems.postprocess.BloomPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
@@ -20,6 +22,8 @@ import java.util.Objects;
 import java.util.stream.Stream;
 
 final class PostProcessPassBuilder implements AutoCloseable {
+    static final int AUTO_EXPOSURE_RELATIVE_PASS_COUNT = 13;
+    static final int AUTO_EXPOSURE_REDUCTION_PASS_COUNT = AUTO_EXPOSURE_RELATIVE_PASS_COUNT + 1;
     private final RenderSettings settings;
     private final RenderWindow window;
     private final FxaaPostProcessor fxaa;
@@ -27,13 +31,16 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final TaaHistory taaHistory;
     private final ToneMappingPass toneMapping;
     private final BloomPass bloom;
+    private final AutoExposurePass autoExposure;
+    private float deltaSeconds = 1.0f / 60.0f;
 
     private PostProcessPassBuilder(RenderSettings settings, RenderWindow window,
                                    FxaaPostProcessor fxaa,
                                    TemporalAccumulationPass taa,
                                    TaaHistory taaHistory,
                                    ToneMappingPass toneMapping,
-                                   BloomPass bloom) {
+                                   BloomPass bloom,
+                                   AutoExposurePass autoExposure) {
         this.settings = settings;
         this.window = window;
         this.fxaa = fxaa;
@@ -41,22 +48,40 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.taaHistory = taaHistory;
         this.toneMapping = toneMapping;
         this.bloom = bloom;
+        this.autoExposure = autoExposure;
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, RenderWindow window, int width, int height) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(window, "window");
-        boolean hdr = settings.hdrEnabled();
-        FxaaPostProcessor fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
-                ? new FxaaPostProcessor() : null;
-        TemporalAccumulationPass taa = settings.antiAliasingMode() == AntiAliasingMode.TAA
-                ? new TemporalAccumulationPass() : null;
-        TaaHistory history = settings.antiAliasingMode() == AntiAliasingMode.TAA
-                ? new TaaHistory(width, height, taaHistoryFormat(settings))
-                : null;
-        ToneMappingPass toneMapping = hdr ? new ToneMappingPass() : null;
-        BloomPass bloom = settings.bloomSettings().enabled() ? new BloomPass() : null;
-        return new PostProcessPassBuilder(settings, window, fxaa, taa, history, toneMapping, bloom);
+        FxaaPostProcessor fxaa = null;
+        TemporalAccumulationPass taa = null;
+        TaaHistory history = null;
+        ToneMappingPass toneMapping = null;
+        BloomPass bloom = null;
+        AutoExposurePass autoExposure = null;
+        try {
+            fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
+                    ? new FxaaPostProcessor() : null;
+            taa = settings.antiAliasingMode() == AntiAliasingMode.TAA
+                    ? new TemporalAccumulationPass() : null;
+            history = settings.antiAliasingMode() == AntiAliasingMode.TAA
+                    ? new TaaHistory(width, height, taaHistoryFormat(settings)) : null;
+            toneMapping = settings.hdrEnabled() ? new ToneMappingPass() : null;
+            bloom = settings.bloomSettings().enabled() ? new BloomPass() : null;
+            autoExposure = settings.exposureMode() == ExposureMode.AUTO
+                    ? new AutoExposurePass() : null;
+            return new PostProcessPassBuilder(settings, window, fxaa, taa, history, toneMapping,
+                    bloom, autoExposure);
+        } catch (RuntimeException failure) {
+            closeAfterFailure(autoExposure, failure);
+            closeAfterFailure(bloom, failure);
+            closeAfterFailure(toneMapping, failure);
+            closeAfterFailure(history, failure);
+            closeAfterFailure(taa, failure);
+            closeAfterFailure(fxaa, failure);
+            throw failure;
+        }
     }
 
     static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -199,19 +224,28 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
 
         final String toneInput = hdrTexture;
+        ExposureOutput exposureOutput = settings.exposureMode() == ExposureMode.AUTO
+                ? addAutoExposurePasses(graph, hdrTexture, hdrProducer)
+                : ExposureOutput.MANUAL;
         BloomOutput bloomOutput = settings.bloomSettings().enabled()
                 ? addBloomPasses(graph, hdrTexture, hdrProducer)
                 : BloomOutput.DISABLED;
         String toneDependency = bloomOutput.enabled() ? bloomOutput.producerPass() : hdrProducer;
-        graph.addPass(PostProcessTargets.TONE_MAPPING_PASS)
+        RenderGraph.PassBuilder tonePass = graph.addPass(PostProcessTargets.TONE_MAPPING_PASS)
                 .createColor(PostProcessTargets.TONE_MAPPED_COLOR, RenderFormat.RGBA8)
                 .noClear()
-                .dependsOn(toneDependency)
+                .dependsOn(toneDependency);
+        if (exposureOutput.enabled()) {
+            tonePass.dependsOn(exposureOutput.producerPass());
+        }
+        tonePass
                 .execute((res, cmd) -> {
                     int bloomTexture = bloomOutput.enabled()
                             ? res.colorAttachment(bloomOutput.textureName()) : 0;
+                    int exposureTexture = exposureOutput.enabled()
+                            ? autoExposure.frameExposureTexture() : 0;
                     toneMapping.recordIntoCurrentTarget(cmd, res.colorAttachment(toneInput), bloomTexture,
-                            settings.exposure(), settings.bloomSettings().intensity());
+                            settings.exposure(), exposureTexture, settings.bloomSettings().intensity());
                 });
 
         if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
@@ -301,6 +335,80 @@ final class PostProcessPassBuilder implements AutoCloseable {
         return new BloomOutput(previousTexture, previousPass);
     }
 
+    private ExposureOutput addAutoExposurePasses(RenderGraph graph, String sourceTexture, String sourcePass) {
+        graph.addPass(PostProcessTargets.AUTO_EXPOSURE_LUMINANCE_PASS)
+                .createColor(PostProcessTargets.AUTO_EXPOSURE_LUMINANCE, RenderFormat.R16F)
+                .noClear()
+                .dependsOn(sourcePass)
+                .execute((res, cmd) -> {
+                    Framebuffer source = res.framebufferOfPass(sourcePass);
+                    if (source != null) {
+                        autoExposure.recordLuminance(cmd, res.colorAttachment(sourceTexture),
+                                source.width(), source.height());
+                    }
+                });
+
+        String previousTexture = PostProcessTargets.AUTO_EXPOSURE_LUMINANCE;
+        String previousPass = PostProcessTargets.AUTO_EXPOSURE_LUMINANCE_PASS;
+        for (int level = 0; level < AUTO_EXPOSURE_REDUCTION_PASS_COUNT; level++) {
+            final String inputTexture = previousTexture;
+            final String inputPass = previousPass;
+            final boolean inputHasWeights = level > 0;
+            String passName = PostProcessTargets.autoExposureReducePass(level);
+            String outputTexture = PostProcessTargets.autoExposureReduceColor(level);
+            RenderGraph.PassBuilder reduction = graph.addPass(passName)
+                    .createColor(outputTexture, RenderFormat.RG32F)
+                    .noClear()
+                    .dependsOn(inputPass);
+            if (level < AUTO_EXPOSURE_RELATIVE_PASS_COUNT) {
+                reduction.relativeSize(autoExposureRelativeScale(level));
+            } else {
+                reduction.fixedSize(1, 1);
+            }
+            reduction.execute((res, cmd) -> {
+                Framebuffer input = res.framebufferOfPass(inputPass);
+                Framebuffer output = res.currentTarget();
+                if (input != null && output != null) {
+                    autoExposure.recordReduction(cmd, res.colorAttachment(inputTexture),
+                            input.width(), input.height(), output.width(), output.height(),
+                            inputHasWeights);
+                }
+            });
+            previousTexture = outputTexture;
+            previousPass = passName;
+        }
+
+        final String averageTexture = previousTexture;
+        final String averagePass = previousPass;
+        graph.addPass(PostProcessTargets.AUTO_EXPOSURE_ADAPT_PASS)
+                .writeToExternalTarget()
+                .noClear()
+                .dependsOn(averagePass)
+                .execute((res, cmd) -> autoExposure.recordAdaptation(cmd,
+                        res.colorAttachment(averageTexture), settings.exposure(),
+                        settings.autoExposureSettings(), deltaSeconds));
+        return new ExposureOutput(PostProcessTargets.AUTO_EXPOSURE_ADAPT_PASS);
+    }
+
+    void beginFrame(float frameDeltaSeconds) {
+        if (!Float.isFinite(frameDeltaSeconds) || frameDeltaSeconds < 0.0f) {
+            throw new IllegalArgumentException("deltaSeconds must be finite and non-negative");
+        }
+        deltaSeconds = Math.min(frameDeltaSeconds, 0.1f);
+    }
+
+    void frameSucceeded() {
+        if (autoExposure != null) {
+            autoExposure.commitFrame();
+        }
+    }
+
+    void frameFailed() {
+        if (autoExposure != null) {
+            autoExposure.discardFrame();
+        }
+    }
+
     void resize(int width, int height) {
         if (taaHistory != null) {
             taaHistory.resize(width, height);
@@ -309,20 +417,15 @@ final class PostProcessPassBuilder implements AutoCloseable {
 
     @Override
     public void close() {
-        if (fxaa != null) {
-            fxaa.close();
-        }
-        if (taa != null) {
-            taa.close();
-        }
-        if (taaHistory != null) {
-            taaHistory.close();
-        }
-        if (toneMapping != null) {
-            toneMapping.close();
-        }
-        if (bloom != null) {
-            bloom.close();
+        RuntimeException failure = null;
+        failure = closeCollecting(autoExposure, failure);
+        failure = closeCollecting(bloom, failure);
+        failure = closeCollecting(toneMapping, failure);
+        failure = closeCollecting(taaHistory, failure);
+        failure = closeCollecting(taa, failure);
+        failure = closeCollecting(fxaa, failure);
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -370,7 +473,49 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
     }
 
+    private record ExposureOutput(String producerPass) {
+        private static final ExposureOutput MANUAL = new ExposureOutput(null);
+
+        boolean enabled() {
+            return producerPass != null;
+        }
+    }
+
+    static float autoExposureRelativeScale(int level) {
+        if (level < 0 || level >= AUTO_EXPOSURE_RELATIVE_PASS_COUNT) {
+            throw new IllegalArgumentException("relative reduction level must be in [0, 12]");
+        }
+        return (float) Math.scalb(1.0, -(level + 1));
+    }
+
     static RenderFormat taaHistoryFormat(RenderSettings settings) {
         return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.SRGB8_ALPHA8;
+    }
+
+    private static void closeAfterFailure(AutoCloseable resource, RuntimeException failure) {
+        if (resource == null) {
+            return;
+        }
+        try {
+            resource.close();
+        } catch (Exception cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    private static RuntimeException closeCollecting(AutoCloseable resource, RuntimeException failure) {
+        if (resource == null) {
+            return failure;
+        }
+        try {
+            resource.close();
+        } catch (Exception cleanupFailure) {
+            if (failure == null) {
+                return cleanupFailure instanceof RuntimeException runtime
+                        ? runtime : new IllegalStateException("Failed to close postprocess resource", cleanupFailure);
+            }
+            failure.addSuppressed(cleanupFailure);
+        }
+        return failure;
     }
 }

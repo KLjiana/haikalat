@@ -8,6 +8,8 @@ public final class RenderSettings {
     private final int msaaSamples;
     private final ToneMappingMode toneMappingMode;
     private final float exposure;
+    private final ExposureMode exposureMode;
+    private final AutoExposureSettings autoExposureSettings;
     private final BloomSettings bloomSettings;
 
     private RenderSettings(Builder builder) {
@@ -16,6 +18,8 @@ public final class RenderSettings {
         this.msaaSamples = builder.msaaSamples;
         this.toneMappingMode = builder.toneMappingMode;
         this.exposure = builder.exposure;
+        this.exposureMode = builder.exposureMode;
+        this.autoExposureSettings = builder.autoExposureSettings;
         this.bloomSettings = builder.bloomSettings;
     }
 
@@ -43,6 +47,14 @@ public final class RenderSettings {
         return exposure;
     }
 
+    public ExposureMode exposureMode() {
+        return exposureMode;
+    }
+
+    public AutoExposureSettings autoExposureSettings() {
+        return autoExposureSettings;
+    }
+
     public BloomSettings bloomSettings() {
         return bloomSettings;
     }
@@ -58,6 +70,8 @@ public final class RenderSettings {
         private int msaaSamples = 4;
         private ToneMappingMode toneMappingMode = ToneMappingMode.NONE;
         private float exposure = 1.0f;
+        private ExposureMode exposureMode = ExposureMode.MANUAL;
+        private AutoExposureSettings autoExposureSettings = AutoExposureSettings.defaults();
         private BloomSettings bloomSettings = BloomSettings.defaults();
 
         private Builder() {
@@ -88,6 +102,16 @@ public final class RenderSettings {
             return this;
         }
 
+        public Builder exposureMode(ExposureMode value) {
+            exposureMode = value;
+            return this;
+        }
+
+        public Builder autoExposureSettings(AutoExposureSettings value) {
+            autoExposureSettings = value;
+            return this;
+        }
+
         public Builder bloomSettings(BloomSettings value) {
             bloomSettings = value;
             return this;
@@ -102,6 +126,15 @@ public final class RenderSettings {
             }
             if (!Float.isFinite(exposure) || exposure <= 0.0f) {
                 throw new IllegalArgumentException("exposure must be finite and positive");
+            }
+            if (exposureMode == null) {
+                throw new NullPointerException("exposureMode");
+            }
+            if (autoExposureSettings == null) {
+                throw new NullPointerException("autoExposureSettings");
+            }
+            if (exposureMode == ExposureMode.AUTO && toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalStateException("Automatic exposure requires HDR tone mapping");
             }
             if (bloomSettings == null) {
                 throw new NullPointerException("bloomSettings");

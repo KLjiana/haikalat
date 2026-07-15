@@ -15,8 +15,42 @@ class RenderSettingsTest {
 
         assertEquals(ToneMappingMode.NONE, settings.toneMappingMode());
         assertEquals(1.0f, settings.exposure());
+        assertEquals(ExposureMode.MANUAL, settings.exposureMode());
         assertFalse(settings.hdrEnabled());
         assertFalse(settings.bloomSettings().enabled());
+    }
+
+    @Test
+    void automaticExposureRequiresHdrAndKeepsManualExposureAsInitialValue() {
+        AutoExposureSettings automatic = AutoExposureSettings.builder()
+                .minExposure(0.5f)
+                .maxExposure(3.0f)
+                .build();
+        RenderSettings settings = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES)
+                .exposure(1.25f)
+                .exposureMode(ExposureMode.AUTO)
+                .autoExposureSettings(automatic)
+                .build();
+
+        assertEquals(ExposureMode.AUTO, settings.exposureMode());
+        assertEquals(1.25f, settings.exposure());
+        assertEquals(automatic, settings.autoExposureSettings());
+        assertThrows(IllegalStateException.class, () -> RenderSettings.builder()
+                .exposureMode(ExposureMode.AUTO)
+                .build());
+    }
+
+    @Test
+    void autoExposureSettingsRejectInvalidRangesAndSpeeds() {
+        assertThrows(IllegalArgumentException.class, () -> AutoExposureSettings.builder()
+                .minExposure(2.0f).maxExposure(1.0f).build());
+        assertThrows(IllegalArgumentException.class, () -> AutoExposureSettings.builder()
+                .keyValue(Float.NaN).build());
+        assertThrows(IllegalArgumentException.class, () -> AutoExposureSettings.builder()
+                .brightenSpeed(0.0f).build());
+        assertThrows(IllegalArgumentException.class, () -> AutoExposureSettings.builder()
+                .darkenSpeed(Float.POSITIVE_INFINITY).build());
     }
 
     @Test

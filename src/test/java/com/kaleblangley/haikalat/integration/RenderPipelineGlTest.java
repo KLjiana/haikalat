@@ -17,6 +17,7 @@ import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
+import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.subsystems.render3d.*;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
@@ -531,6 +532,63 @@ class RenderPipelineGlTest {
                         GlDebug.checkError("Bloom HDR path " + mode);
                     } finally {
                         pipeline.close();
+                    }
+                }
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void automaticExposureRendersAcrossAllHdrAaAndBloomPaths() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("auto-exposure-paths"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            try {
+                for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                    for (boolean bloomEnabled : List.of(false, true)) {
+                        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                                RenderSettings.builder()
+                                        .antiAliasingMode(mode)
+                                        .toneMappingMode(ToneMappingMode.ACES)
+                                        .exposureMode(ExposureMode.AUTO)
+                                        .bloomSettings(BloomSettings.builder()
+                                                .enabled(bloomEnabled)
+                                                .maxLevels(2)
+                                                .build())
+                                        .vsync(false)
+                                        .build());
+                        try {
+                            pipeline.build();
+                            GlRenderDevice device = new GlRenderDevice();
+                            for (int frame = 0; frame < 4; frame++) {
+                                pipeline.execute(device, 1.0f / 60.0f);
+                            }
+                            pipeline.resize(47, 33);
+                            pipeline.execute(device, 1.0f / 60.0f);
+                            pipeline.resize(0, 0);
+                            pipeline.execute(device, 1.0f / 60.0f);
+                            ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                            assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 0,
+                                    "Automatic exposure must render for " + mode
+                                            + " bloom=" + bloomEnabled);
+                            GlDebug.checkError("automatic exposure " + mode + " bloom=" + bloomEnabled);
+                            pipeline.close();
+                            pipeline.close();
+                        } finally {
+                            pipeline.close();
+                        }
                     }
                 }
             } finally {

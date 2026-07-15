@@ -16,7 +16,6 @@
 ### 中期
 
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
-- [ ] Bloom 稳定后评估 GPU reduction 自动曝光；保留手动 exposure 默认路径，禁止逐帧 CPU readback。
 - [ ] 当场景出现多个 mesh/material 的真实压力数据后，评估 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`；单 mesh 单 draw 场景不提前引入 indirect command 复杂度。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。
 

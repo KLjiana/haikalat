@@ -10,7 +10,8 @@
 | 方向光阴影 | 完整 | `DirectionalShadowMap`、`ForwardPassBuilder`、`RenderPipeline` | `LearnOpenGlDemo` | `ScenePipelineTest`、`RenderPipelineGlTest.fullLightingAndShadowPipelineChangesFinalPixels`、`runDemoIntegration` | 普通与显式 opt-in 的实例 caster 均使用固定 2048×2048 depth target；GL 测试覆盖开关、移动 caster、改变光方向和最终像素 |
 | Instancing | 完整 | `InstancedMeshBatch`、`InstancedRenderer`、`CommandBuffer.drawInstancedBatch/prepareInstancedBatch` | 三个 Demo | `CommandBufferTest`、`InstanceDataLayoutTest`、`InstanceUploadGlTest.preparedMultiPassBatchIsFencedWhenGeometryStageFailsAndNextFrameReusesRing`、`RenderPipelineGlTest` | 实例阴影显式 opt-in；shadow/geometry 复用一次快照与 ring 上传，最后一次 draw 后统一插入 fence；命令失败时执行器逆序清理所有未完成批次 |
 | None / MSAA / FXAA / TAA | 完整 | `PostProcessPassBuilder`、`subsystems/postprocess` | `LearnOpenGlDemo`、`MinimalDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`RenderPipelineGlTest`、`runMinimalIntegration` | LDR 使用 `SRGB8_ALPHA8` scene/final/history target 并复制编码结果到 backbuffer；HDR 中 MSAA 先 resolve，TAA 在线性空间累积，FXAA 在 tone mapping 后执行 |
-| HDR / ACES tone mapping | 完整 | `RenderSettings`、`ToneMappingMode`、`ToneMappingPass`、`RGBA16F` framebuffer | `LearnOpenGlDemo` | `RenderSettingsTest`、`ToneMappingPassTest`、`FramebufferDescriptorTest`、`RenderPipelineGlTest` | 默认保持 LDR；ACES 显式 gamma 并关闭 framebuffer sRGB；暂不包含自动曝光 |
+| HDR / ACES tone mapping | 完整 | `RenderSettings`、`ToneMappingMode`、`ToneMappingPass`、`RGBA16F` framebuffer | `LearnOpenGlDemo` | `RenderSettingsTest`、`ToneMappingPassTest`、`FramebufferDescriptorTest`、`RenderPipelineGlTest` | 默认保持 LDR；ACES 显式 gamma 并关闭 framebuffer sRGB |
+| 全 GPU 自动曝光 | 完整 | `ExposureMode`、`AutoExposureSettings`、`AutoExposurePass`、`R16F/RG32F` framebuffer | `runAutoExposureDemo`、`runAutoExposureIntegration` | `AutoExposurePassTest`、`AutoExposureGlTest`、`RenderPipelineGlTest` | 默认 MANUAL；AUTO 只用于 HDR；固定 14 级 sum/weight reduction，最大正式边长 16384；全程留在 GPU，不向标题回读曝光数值 |
 | Bloom | 完整 | `BloomSettings`、`BloomPass`、RenderGraph relative target | `runBloomDemo` | `RenderGraphTest`、`RenderPipelineTest`、`RenderPipelineGlTest`、`runBloomIntegration` | 默认关闭；1～8 层 HDR downsample/upsample，最终半分辨率纹理直接由 ToneMapping 合成 |
 | OBJ 模型与场景配置 | 完整 | `ObjModelLoader`、`ModelAssetManager`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest`、`DemoResourceContractTest`、`runDemoIntegration` | 主 Demo 从 classpath manifest 加载自有 OBJ，并将多 mesh 映射为共享材质/transform 的 renderer |
 | Assimp 模型入口 | 部分完成 | `AssimpModelLoader` | 无 | 无端到端验证 | 仍要求真实文件系统路径，尚未进入打包 Demo 主路径 |
@@ -21,10 +22,10 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 版本：`0.9.0-rc.1`。
+- 版本：`0.10.0-rc.1`，稳定基线为 `0.9.0`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
-- 完整本地验收：`localGlVerification`，依次运行 GL smoke、基准/resize/Bloom/Minimal/Async/空窗口 Demo 和压力入口。
+- 完整本地验收：`localGlVerification`，依次运行 GL smoke、基准/resize/Bloom/自动曝光/Minimal/Async/空窗口 Demo 和压力入口。
 
 矩阵状态随实现阶段更新；未完成端到端验证的能力不得在 README 中描述为完整效果。

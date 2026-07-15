@@ -73,7 +73,7 @@
 - StressDemo 增加 `gpu`、`indexed`、`indexed-ssbo`、`dynamic` 路径以及 Triangle/Quad/Cube 旋转控制；输出 present FPS、CPU/GPU 平均值与中位数、draw call、状态跳过率和 VS invocation。
 - 增加 EmptyWindowDemo 与 Nsight 启动脚本，作为同分辨率、clear、present、VSync 和 debug 条件下的无绘制基线。
 
-### v0.9-color-bloom-closeout
+### v0.9-color-bloom-closeout（0.9.0，2026-07-15）
 
 #### 色彩空间与 LDR/HDR 输出
 
@@ -116,8 +116,26 @@
 
 #### 发布验证
 
-- Gradle 版本更新为 `0.9.0-rc.1`，Java Toolchain 保持 21。
+- Gradle 稳定版本更新为 `0.9.0`，Java Toolchain 保持 21。
 - 完整执行 `compileJava demoClasses test localGlVerification --rerun-tasks`，21 个任务全部执行并通过。
 - 验收覆盖纯 JVM 测试、真实 GL smoke、LDR/HDR 四种 AA、Bloom、阴影最终像素、resize、Minimal、LearnOpenGL、Async、空窗口以及压力测试入口。
 - 验收未发现 GL error、线程悬挂、漏 fence、prepared batch 泄漏、ring 次帧复用失败或 resize 资源错误。
 - `git diff --check` 通过；当前能力与限制同步记录在 `docs/planning/capability-matrix.md`。
+
+### v0.10-gpu-auto-exposure（0.10.0-rc.1，2026-07-15）
+
+- 新增 `ExposureMode.MANUAL/AUTO` 和不可变 `AutoExposureSettings`；手动 exposure 继续作为默认值和自动 history 初始值。
+- backend 增加 `R16F` 单通道与 `RG32F` 双通道浮点 render target，descriptor 分别使用正确的 `GL_RED`、`GL_RG` 和 `GL_FLOAT` 元数据。
+- 新增全 GPU `AutoExposurePass`：按 Rec.709 提取对数亮度，逐级归约到 1×1，再以帧率无关指数公式适应目标曝光。
+- reduction target 使用 RG32F 显式携带 `logLuminance sum` 与像素 weight；第一级把 R16F texel 视为 `(value, 1)`，后续级直接累加 RG，彻底移除从尺寸反推权重的逻辑。
+- 自动曝光固定 14 级拓扑：前 13 级为 `1/2`～`1/8192` 相对尺寸，末级固定 1×1；resize 只重建 graph target，两个 exposure history 保留，正式支持最大 16384 像素边长。
+- 两个持久 1×1 `R16F` history 逐帧 ping-pong；只有整张 RenderGraph 成功执行后才交换，失败帧保留上一张有效 history。
+- Tone Mapping 在 AUTO 模式直接采样本帧 exposure texture，生产路径没有 `glReadPixels`、`glGetTexImage`、同步 map 或 `CommandBuffer.custom()`。
+- 自动曝光与 Bloom 从同一个 resolve/TAA 后的线性 HDR source 分支，测光不受 Bloom 扩散反向影响；Tone Mapping 同时依赖两条分支。
+- `RenderPipeline.execute(RenderDevice, deltaSeconds)` 接入 `FrameClock`，同时限制调试暂停产生的异常大 delta；旧重载保持确定性 1/60 秒。
+- Main Demo 增加 `--auto-exposure`、确定性明暗切换集成和模式标题；不为了 UI 显示逐帧回读曝光值。
+- RenderGraph 增加窄用途 external-target pass，用正式 framebuffer 命令支持跨帧 history，同时保留 pass 排序和 GPU timer profiling。
+- `Scene.setLight()` 只接受保持 `LightType` 与 `castShadows` 的动态更新；结构变化报告 index/字段并要求重新 build pipeline。
+- 增加 R16F/RG32F、9×1 完整归约、1280×1 边缘对称、1×1 构建后 resize 到 47×33、灯光结构边界、失败帧 history、四种 AA、Bloom 开关和重复关闭的纯 JVM/真实 GL 回归。
+- 1080p/4K 五轮正式基准显示 AUTO GPU median 增量分别为 `0.215 ms` 和 `0.435 ms`；详细数据见 `docs/performance/v0.10-auto-exposure-2026-07-15.md`。
+- `clean compileJava demoClasses test localGlVerification --rerun-tasks` 的 23 个任务全部通过，版本进入 `0.10.0-rc.1`。

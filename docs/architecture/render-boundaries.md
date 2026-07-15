@@ -57,6 +57,12 @@ LDR pass 顺序固定为：NONE/MSAA 是 `Geometry -> Present`，FXAA 是 `Geome
 
 Bloom 默认关闭；启用后从上述 MSAA resolve/TAA accumulation 之后的线性 HDR 纹理提取高亮，逐级降采样和上采样，并把最终半分辨率纹理直接传给 ToneMapping。Bloom pass 只声明 RenderGraph attachment，不拥有 framebuffer。ACES shader 负责最终 gamma，ToneMapping 显式提交 `framebufferSrgb=false`，避免重复编码。
 
+自动曝光默认关闭且只允许与 HDR/ACES 组合。启用后，`AutoExposurePass` 从 resolve/TAA 后、Bloom 前的同一个线性 HDR producer 分支：全分辨率 `R16F` pass 写对数亮度，固定 14 级 RenderGraph `RG32F` target 分别累计总和与像素权重，adaptation 读取 `sum / max(weight, 1)` 后写入后处理子系统持有的双 1×1 history。前 13 级使用 `1/2`～`1/8192` 相对尺寸，末级固定 1×1，因此 graph 以小窗口构建后再放大也不会丢失归约 pass。resize 只重建 graph 管理的 target，history 不重建，并且只在整张 graph 成功执行后交换；失败帧继续保留上一张有效 history。ToneMapping 直接采样本帧 exposure texture，生产路径不得通过 CPU readback 获取曝光值。
+
+自动曝光 adaptation 使用 `1 - exp(-speed * deltaSeconds)`，主 Demo 从 `FrameClock` 传入 delta，pipeline 再限制异常大的暂停间隔。`writeToExternalTarget()` 仅用于 executor 通过正式 framebuffer 命令写跨帧持久目标；它不允许隐式 clear，也不改变 RenderGraph 的依赖排序、timer query 或状态边界。
+
+`Scene.setLight()` 是拓扑保持型动态更新接口：replacement 的 `LightType` 和 `castShadows` 必须与原灯光一致。颜色、强度、方向、位置、范围和锥角可逐帧更新；改变类型或阴影投射拓扑必须重新 build pipeline。
+
 ## Package Dependency Guard
 
 依赖方向固定为 `subsystems/runtime -> core -> backend`。`backend` 不得依赖 `core`、`runtime` 或 `subsystems`，`core` 不得依赖 `runtime` 或 `subsystems`。OpenGL 格式、buffer upload target、vertex attribute/layout 和 GPU query timer 属于 backend；RenderGraph profile 数据属于 core。`ArchitectureBoundaryTest` 对这些规则做零允许列表检查，新增反向依赖必须先修正设计，而不是扩大白名单。

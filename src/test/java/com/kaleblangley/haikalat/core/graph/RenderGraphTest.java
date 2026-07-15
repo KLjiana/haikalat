@@ -132,6 +132,23 @@ class RenderGraphTest {
     }
 
     @Test
+    void externalTargetPassKeepsOrderingWithoutAllocatingGraphFramebuffer() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Luminance").execute((res, cmd) -> {});
+        graph.addPass("Adaptation")
+                .writeToExternalTarget()
+                .noClear()
+                .dependsOn("Luminance")
+                .execute((res, cmd) -> {});
+
+        assertEquals(List.of("Luminance", "Adaptation"), graph.passExecutionOrder());
+        assertNull(graph.passFramebufferDescriptor("Adaptation"));
+        assertThrows(IllegalStateException.class, () -> graph.addPass("Invalid")
+                .writeToExternalTarget()
+                .execute((res, cmd) -> {}));
+    }
+
+    @Test
     @SuppressWarnings("deprecation")
     void passResourcesExposeNarrowAliasesWithoutOwningLifecycle() {
         RenderGraph graph = new RenderGraph(800, 600, false);

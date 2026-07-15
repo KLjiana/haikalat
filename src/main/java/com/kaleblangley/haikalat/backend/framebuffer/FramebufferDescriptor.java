@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.GL_RED;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
@@ -16,6 +17,9 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
+import static org.lwjgl.opengl.GL30.GL_R16F;
+import static org.lwjgl.opengl.GL30.GL_RG;
+import static org.lwjgl.opengl.GL30.GL_RG32F;
 
 public record FramebufferDescriptor(
         int width,
@@ -106,17 +110,25 @@ public record FramebufferDescriptor(
         }
 
         public static ColorAttachment texture(int internalFormat) {
-            return new ColorAttachment(internalFormat, GL_RGBA, colorDataType(internalFormat),
+            return new ColorAttachment(internalFormat, colorExternalFormat(internalFormat), colorDataType(internalFormat),
                     AttachmentStorage.TEXTURE_2D);
         }
 
         public static ColorAttachment renderbuffer(int internalFormat) {
-            return new ColorAttachment(internalFormat, GL_RGBA, colorDataType(internalFormat),
+            return new ColorAttachment(internalFormat, colorExternalFormat(internalFormat), colorDataType(internalFormat),
                     AttachmentStorage.RENDERBUFFER);
         }
 
         private static int colorDataType(int internalFormat) {
-            return internalFormat == GL_RGBA16F ? GL_FLOAT : GL_UNSIGNED_BYTE;
+            return internalFormat == GL_RGBA16F || internalFormat == GL_R16F || internalFormat == GL_RG32F
+                    ? GL_FLOAT : GL_UNSIGNED_BYTE;
+        }
+
+        private static int colorExternalFormat(int internalFormat) {
+            if (internalFormat == GL_R16F) {
+                return GL_RED;
+            }
+            return internalFormat == GL_RG32F ? GL_RG : GL_RGBA;
         }
     }
 

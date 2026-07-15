@@ -25,6 +25,9 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         runBloomIntegration                : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom'],
                 'Runs the hidden HDR Bloom scene for a finite number of frames.'],
+        runAutoExposureIntegration         : [learnMain,
+                ['--deterministic', '--frames=12', '--aa=FXAA', '--bloom', '--auto-exposure-cycle'],
+                'Runs deterministic bright/dark transitions through full-GPU automatic exposure.'],
         runMinimalIntegration              : ['com.kaleblangley.haikalat.demo.MinimalDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs MinimalDemo with its sRGB LDR target for a finite number of frames.'],
@@ -71,7 +74,8 @@ tasks.register('glSmoke', Test) {
 tasks.register('localGlVerification') {
     group = 'verification'
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
-    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runBloomIntegration', 'runAsyncIntegration',
+    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runBloomIntegration',
+            'runAutoExposureIntegration', 'runAsyncIntegration',
             'runMinimalIntegration', 'runEmptyWindowIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
@@ -88,6 +92,9 @@ tasks.named('runAsyncIntegration') {
     mustRunAfter 'runMinimalIntegration'
 }
 tasks.named('runMinimalIntegration') {
+    mustRunAfter 'runAutoExposureIntegration'
+}
+tasks.named('runAutoExposureIntegration') {
     mustRunAfter 'runBloomIntegration'
 }
 tasks.named('runBloomIntegration') {
@@ -136,6 +143,13 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
 
 registerDemoApplication('runBloomDemo',
         'Runs LearnOpenGlDemo with HDR Bloom enabled.', learnMain, ['--bloom'])
+
+registerDemoApplication('runAutoExposureDemo',
+        'Runs LearnOpenGlDemo with full-GPU automatic exposure.', learnMain, ['--auto-exposure'])
+
+registerDemoApplication('runAutoExposureBenchmarks',
+        'Runs five formal 1080p/4K rounds with automatic exposure disabled and enabled.',
+        'com.kaleblangley.haikalat.demo.AutoExposureBenchmarkSuite', [])
 
 registerDemoApplication('runPostV08Benchmarks',
         'Runs five formal rounds for LDR/ACES, Bloom and 100K instance shadows.',

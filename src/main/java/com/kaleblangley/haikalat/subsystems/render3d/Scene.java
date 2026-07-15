@@ -46,6 +46,26 @@ public final class Scene {
         return this;
     }
 
+    /**
+     * 更新不会改变渲染管线拓扑的灯光属性。
+     * 灯光类型或阴影投射状态变化时必须重新构建渲染管线。
+     */
+    public Scene setLight(int index, SceneLight light) {
+        SceneLight replacement = Objects.requireNonNull(light, "light");
+        SceneLight existing = lights.get(index);
+        if (existing.type() != replacement.type()) {
+            throw new IllegalArgumentException("light[" + index + "].type cannot change from "
+                    + existing.type() + " to " + replacement.type() + "; rebuild the pipeline");
+        }
+        if (existing.castShadows() != replacement.castShadows()) {
+            throw new IllegalArgumentException("light[" + index + "].castShadows cannot change from "
+                    + existing.castShadows() + " to " + replacement.castShadows()
+                    + "; rebuild the pipeline");
+        }
+        lights.set(index, replacement);
+        return this;
+    }
+
     public List<MeshRenderer> renderers() {
         return List.copyOf(renderers);
     }

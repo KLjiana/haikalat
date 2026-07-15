@@ -4,7 +4,7 @@
 
 实现进度：2026-07-15 已完成 v0.8 fullscreen 状态加固、里程碑 6 色彩空间契约与五轮正式基准、
 里程碑 7 Bloom 及四条 HDR 路径回归。10 万实例基准触发并完成了单次上传、多 pass 复用；结果记录在
-`docs/performance/post-v0.8-bloom-2026-07-15.md`。自动曝光与 PBR 仍按本文保持为后续条件方向。
+`docs/performance/post-v0.8-bloom-2026-07-15.md`。自动曝光已在 v0.10 完成，PBR 仍按本文保持为后续条件方向。
 
 ## 里程碑 4、5 验收结论
 
@@ -108,6 +108,9 @@ fullscreen 状态隔离加固。
 ## 条件方向
 
 ### 自动曝光
+
+完成状态：已在 v0.10 以全 GPU reduction 和双 1×1 history 实现，验收与性能数据见
+`v0.10-gpu-auto-exposure.md` 和 `docs/performance/v0.10-auto-exposure-2026-07-15.md`。
 
 Bloom 稳定后再评估自动曝光。实现前必须先解决帧 delta 输入、`R16F` luminance target、GPU reduction
 和跨帧 1×1 exposure history；不得通过每帧 CPU readback 实现。自动曝光应作为独立设置，手动 exposure

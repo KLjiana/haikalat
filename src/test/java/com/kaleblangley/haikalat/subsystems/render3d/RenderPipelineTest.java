@@ -19,6 +19,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderPipelineTest {
     @Test
+    void autoExposureAlwaysBuildsResizeStableReductionTopology() {
+        assertEquals(14, PostProcessPassBuilder.AUTO_EXPOSURE_REDUCTION_PASS_COUNT);
+        assertEquals(13, PostProcessPassBuilder.AUTO_EXPOSURE_RELATIVE_PASS_COUNT);
+        assertEquals(0.5f, PostProcessPassBuilder.autoExposureRelativeScale(0));
+        assertEquals(1.0f / 8192.0f, PostProcessPassBuilder.autoExposureRelativeScale(12));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPassBuilder.autoExposureRelativeScale(13));
+    }
+    @Test
     void instancedRendererRequiresExplicitShadowOptIn() {
         InstancedRenderer defaults = new InstancedRenderer(null, null);
         InstancedRenderer enabled = new InstancedRenderer(null, null, true);

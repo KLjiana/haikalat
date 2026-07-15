@@ -43,6 +43,44 @@ class ScenePipelineTest {
     }
 
     @Test
+    void sceneLightReplacementAllowsOnlyTopologyPreservingChanges() {
+        Scene scene = new Scene(new Camera());
+        SceneLight original = SceneLight.directional(new Vector3f(-1, -2, -1),
+                new Vector3f(1), 1.0f);
+        SceneLight updated = SceneLight.directional(new Vector3f(1, -1, 0),
+                new Vector3f(0.5f, 0.7f, 1.0f), 3.0f);
+        scene.addLight(original);
+
+        scene.setLight(0, updated);
+
+        assertEquals(updated, scene.lights().getFirst());
+    }
+
+    @Test
+    void sceneLightReplacementRejectsTypeChanges() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.directional(
+                new Vector3f(0, -1, 0), new Vector3f(1), 1.0f));
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> scene.setLight(0, SceneLight.point(
+                        new Vector3f(), new Vector3f(1), 1.0f, 4.0f)));
+
+        assertTrue(failure.getMessage().contains("light[0].type"));
+    }
+
+    @Test
+    void sceneLightReplacementRejectsShadowTopologyChanges() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.directional(
+                new Vector3f(0, -1, 0), new Vector3f(1), 1.0f));
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> scene.setLight(0, SceneLight.shadowedDirectional(
+                        new Vector3f(0, -1, 0), new Vector3f(1), 1.0f)));
+
+        assertTrue(failure.getMessage().contains("light[0].castShadows"));
+    }
+
+    @Test
     void transformBuildsModelMatrix() {
         Transform transform = Transform.at(1.0f, 2.0f, 3.0f).scale(2.0f);
         Vector3f transformedOrigin = transform.matrix().transformPosition(new Vector3f(0, 0, 0));
