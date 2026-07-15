@@ -39,13 +39,13 @@
 
 Pass 只查询 graph 已声明的资源，不自行创建、resize 或释放 render target。资源生命周期仍由 `RenderGraph` 和 `RenderTargetManager` 统一管理。
 
-Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder.fixedSize(...)` 声明。窗口 resize 会重建窗口相关 target，但固定 pass 保持声明尺寸。方向光 shadow target 使用该机制维持 2048x2048。
+Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder.fixedSize(...)` 声明，窗口比例资源通过互斥的 `relativeSize(...)` 声明。窗口 resize 会按 `max(1, round(windowSize * scale))` 重建相对 target，但固定 pass 保持声明尺寸。方向光 shadow target 使用固定尺寸机制维持 2048x2048，Bloom 使用相对尺寸机制构建 1/2、1/4、1/8 等层级。
 
 ## Directional Shadow Boundary
 
 `RenderPipeline` 拥有普通与 instanced depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 先遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer，再在 `InstancedRenderer.castShadows=true` 时提交同一帧实例快照。实例阴影默认关闭，避免旧调用方无意增加一次实例上传和绘制。
 
-Shadow 与 geometry 各记录一次正式 `drawInstancedBatch`，执行时分别完成 `beginFrame -> upload -> draw -> finishFrame`，因此每次提交拥有独立 ring slot、GPU fence 和异常清理。本阶段允许重复上传，但不创建 shadow 专用 batch、不重新计算 transform，也不改变命令缓冲区的快照语义。单次上传、多 pass 复用只有在基准证明双提交是实际瓶颈后才允许设计。
+10 万实例五轮基准证明双提交稳定增加超过 0.5 ms CPU median 后，生产路径改为正式的 `prepareInstancedBatch -> drawPreparedInstancedBatch -> finishPreparedInstancedBatch` 协议。命令记录时只复制一次稳定快照，执行时只占用并上传一个 ring slot；shadow 与 geometry 分别 draw，最后一个 pass 后才插入 fence。普通单 pass 调用方继续使用 `drawInstancedBatch`，两条路径都不创建 shadow 专用 batch，也不通过 `custom()` 绕过命令系统。
 
 基准场景包含双面平面，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
 
@@ -55,6 +55,8 @@ Shadow 与 geometry 各记录一次正式 `drawInstancedBatch`，执行时分别
 
 HDR pass 顺序固定为：NONE 是 `Geometry -> ToneMapping -> Present`；MSAA 是 `Geometry MSAA -> HdrResolve -> ToneMapping -> Present`；FXAA 是 `Geometry -> ToneMapping -> FXAA`；TAA 是 `Geometry -> TAA HDR -> ToneMapping -> Present`。因此 TAA 始终在线性 HDR 空间积累，FXAA 始终处理显示空间 LDR 图像。窗口 resize 重建所有窗口相关 HDR/LDR target 和 TAA history，并使 history 下一帧权重归零；固定 2048×2048 shadow target 不参与窗口 resize。
 
+Bloom 默认关闭；启用后从上述 MSAA resolve/TAA accumulation 之后的线性 HDR 纹理提取高亮，逐级降采样和上采样，并把最终半分辨率纹理直接传给 ToneMapping。Bloom pass 只声明 RenderGraph attachment，不拥有 framebuffer。ACES shader 负责最终 gamma，ToneMapping 显式提交 `framebufferSrgb=false`，避免重复编码。
+
 ## Package Dependency Guard
 
 依赖方向固定为 `subsystems/runtime -> core -> backend`。`backend` 不得依赖 `core`、`runtime` 或 `subsystems`，`core` 不得依赖 `runtime` 或 `subsystems`。OpenGL 格式、buffer upload target、vertex attribute/layout 和 GPU query timer 属于 backend；RenderGraph profile 数据属于 core。`ArchitectureBoundaryTest` 对这些规则做零允许列表检查，新增反向依赖必须先修正设计，而不是扩大白名单。
@@ -63,7 +65,7 @@ HDR pass 顺序固定为：NONE 是 `Geometry -> ToneMapping -> Present`；MSAA 
 
 `GlRenderDevice` 持有跨 command buffer、跨 pass 和跨帧复用的 `StateCache`。正常命令提交不会全量失效缓存；只有绕过缓存的代码才允许做最小范围失效，例如 instanced batch 直接绑定 VAO 后调用 `invalidateVertexArray()`。Buffer 创建、分配、上传和映射使用 OpenGL DSA，不再污染缓存外的全局 buffer binding。外部裸 OpenGL 调用如果修改了受缓存管理的状态，必须显式调用 `invalidateState()`。
 
-缓存覆盖 program、VAO、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、clear color、indexed uniform/storage-buffer range 和 image unit。binding 数量在首次使用时读取真实 OpenGL capability，不再写死 32。普通 buffer 操作使用 DSA，因此不缓存 array/element buffer binding。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
+缓存覆盖 program、VAO、texture unit/2D texture/sampler、read/draw framebuffer、viewport、blend/depth/cull、framebuffer sRGB、clear color、indexed uniform/storage-buffer range 和 image unit。binding 数量在首次使用时读取真实 OpenGL capability，不再写死 32。普通 buffer 操作使用 DSA，因此不缓存 array/element buffer binding。`StateCache.Statistics` 记录实际应用与被跳过的状态变化，供 profiling 和回归测试使用。
 
 `CommandBuffer` 使用可复用的 opcode/int/long/object structure-of-arrays，不再为每条命令分配捕获 `Consumer`。viewport、clear color、blend function、blend/depth/cull 开关只更新录制期 `PendingPipelineState`；遇到 draw、clear、blit、dispatch、memory barrier、GPU query、custom 或 command-buffer 结束时，编码一个只含最终 dirty values 的 primitive state packet。执行时 packet 仍通过长期存活的 `StateCache`，因此跨 command buffer、pass 和帧的 GL 去重继续有效。
 
@@ -119,7 +121,9 @@ demo scene 便利字段：
 
 ## CommandBuffer Instanced Batch
 
-`CommandBuffer.drawInstancedBatch(...)` 是实例化批处理的正式主路径命令。它在记录命令时复制传入的 `Matrix4f` transform 列表，执行时在渲染线程按 `beginFrame -> submitAll -> flush` 顺序调用 `InstancedMeshBatch`。实例阴影复用同一个命令和 batch，在 shadow/geometry 两个可观察 pass 边界各提交一次，不跨 pass 合并生命周期。
+`CommandBuffer.drawInstancedBatch(...)` 是单 pass 实例化批处理的正式主路径命令。它在记录命令时复制传入的 `Matrix4f` transform 列表，执行时在渲染线程按 `beginFrame -> submitAll -> flush` 顺序调用 `InstancedMeshBatch`。
+
+需要在多个 pass 使用同一份实例数据时，调用方按顺序记录 `prepareInstancedBatch(...)`、一个或多个 `drawPreparedInstancedBatch(...)`，最后记录 `finishPreparedInstancedBatch(...)`。该协议不跨 draw 或 RenderGraph pass 改变 raster state 语义，只复用已上传 vertex-input range；每个 draw 仍保留自己的 shader、uniform、framebuffer 和 pending pipeline state 边界。
 
 该命令的 batch upload/draw 由 `InstancedMeshBatch` 自己完成；结束后只失效 VAO/element-buffer 缓存，不再触发全状态失效。调用方不得通过 `cmd.custom()` 捕获实例化 batch 的裸 upload/draw 逻辑；如果 transform 来自生产线程，必须在记录命令前或记录时形成稳定快照。
 

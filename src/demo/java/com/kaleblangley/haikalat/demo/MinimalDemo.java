@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
@@ -57,7 +58,8 @@ public final class MinimalDemo {
         ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class,
                 "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
         ShaderProgram instShader = DemoSupport.loadProjectionViewInstancedShader(MinimalDemo.class);
-        Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false);
+        Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false,
+                TextureColorSpace.SRGB);
 
         Mesh triangle = Mesh.from(BuiltinMeshData.coloredTriangle("minimal-triangle"));
         Mesh quad = Mesh.from(BuiltinMeshData.coloredQuad("minimal-instanced-quad"));

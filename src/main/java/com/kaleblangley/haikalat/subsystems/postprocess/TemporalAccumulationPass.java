@@ -35,7 +35,9 @@ public final class TemporalAccumulationPass implements GlResource {
 
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int currentTexId, int historyTexId,
                                                  float historyWeight) {
+        cmd.enableBlend(false);
         cmd.enableDepthTest(false);
+        cmd.enableCullFace(false);
         cmd.clear(true, false);
         cmd.bindShader(program);
         cmd.bindTexture(0, currentTexId);

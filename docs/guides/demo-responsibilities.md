@@ -6,7 +6,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 |---|---|---|---|
 | `EmptyWindowDemo` | 统一分辨率下的 clear/present 基线 | `GlfwWindow`、空 `RenderGraph`、present/CPU/GPU timing、state skip | shader、VAO、buffer、draw |
 | `MinimalDemo` | 最小同步渲染入口和 API 教学 | command buffer、material、texture、framebuffer、mesh、instanced batch、resize | 阴影、异步线程、极限性能 |
-| `LearnOpenGlDemo` | 完整功能正确性基准 | asset、model、scene、lighting、directional shadow、AA、camera | 极端实例吞吐 |
+| `LearnOpenGlDemo` | 完整功能正确性与正式场景基准 | asset、model、sRGB texture、lighting、directional shadow、HDR/AA/Bloom、camera、pass timing | GPU procedural 极端吞吐 |
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
 
@@ -60,3 +60,21 @@ main class 参数：
 ```
 
 它使用与 StressDemo 相同的 1280×720 clear/present 基准，但不创建 shader、VAO、VBO/EBO/SSBO，也不调用 draw；用于分离窗口、swap、驱动与 overlay 的固定成本。
+
+## LearnOpenGlDemo 与 post-v0.8 基准
+
+`LearnOpenGlDemo` 默认保持 Bloom 关闭；交互查看使用：
+
+```powershell
+.\gradlew.bat runBloomDemo
+```
+
+有限帧入口把 8 帧输出标记为 `[INTEGRATION-ONLY]`。正式性能结论必须使用五轮、预热 100 帧、
+采样 1000 帧的任务：
+
+```powershell
+.\gradlew.bat runPostV08Benchmarks
+.\gradlew.bat runInstanceShadowBenchmarks
+```
+
+详细数据见 `docs/performance/post-v0.8-bloom-2026-07-15.md`。

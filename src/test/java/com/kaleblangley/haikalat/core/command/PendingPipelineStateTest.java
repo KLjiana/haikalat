@@ -64,12 +64,13 @@ class PendingPipelineStateTest {
                 .depthMask(true)
                 .enableDepthTest(true)
                 .enableCullFace(true)
+                .enableFramebufferSrgb(false)
                 .blendFunc(GL_ONE, GL_ONE)
                 .clearColor(0, 0, 0, 1)
                 .materialState(BlendMode.OPAQUE, true);
 
         assertEquals(1, commands.commandCount(),
-                "Nine state setters must collapse into one pending state packet");
+                "Pipeline state setters must collapse into one pending state packet");
         assertEquals(0, commands.objectPayloadCount());
         commands.reset();
         assertEquals(0, commands.commandCount());
@@ -112,6 +113,10 @@ class PendingPipelineStateTest {
         }
 
         @Override public void enableCullFace(boolean enable) { events.add("cull:" + enable); }
+
+        @Override public void enableFramebufferSrgb(boolean enable) {
+            events.add("framebufferSrgb:" + enable);
+        }
 
         @Override public void clearColor(float red, float green, float blue, float alpha) {
             events.add("clearColor:" + red + ":" + green + ":" + blue + ":" + alpha);

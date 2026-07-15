@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import org.joml.Matrix4f;
@@ -65,6 +66,12 @@ public final class RenderPipeline {
     public static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode,
                                             boolean directionalShadow) {
         return PostProcessPassBuilder.passNamesFor(mode, toneMappingMode, directionalShadow);
+    }
+
+    public static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode,
+                                            BloomSettings bloomSettings, boolean directionalShadow) {
+        return PostProcessPassBuilder.passNamesFor(
+                mode, toneMappingMode, bloomSettings, directionalShadow);
     }
 
     public RenderPipelineKind kind() {

@@ -22,6 +22,9 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         runDemoResizeIntegration           : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'],
                 'Runs the hidden baseline scene and verifies a deterministic resize.'],
+        runBloomIntegration                : [learnMain,
+                ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom'],
+                'Runs the hidden HDR Bloom scene for a finite number of frames.'],
         runAsyncIntegration                : ['com.kaleblangley.haikalat.demo.async.AsyncDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs the async upload/render-thread demo hidden for a finite number of frames.'],
@@ -65,7 +68,7 @@ tasks.register('glSmoke', Test) {
 tasks.register('localGlVerification') {
     group = 'verification'
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
-    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runAsyncIntegration',
+    dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runBloomIntegration', 'runAsyncIntegration',
             'runEmptyWindowIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
@@ -79,6 +82,9 @@ tasks.named('runDemoResizeIntegration') {
     mustRunAfter 'runDemoIntegration'
 }
 tasks.named('runAsyncIntegration') {
+    mustRunAfter 'runBloomIntegration'
+}
+tasks.named('runBloomIntegration') {
     mustRunAfter 'runDemoResizeIntegration'
 }
 tasks.named('runStressTriangleIntegration') {
@@ -121,6 +127,17 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
             "Runs ${mainClassName} for interactive graphics debugging.",
             mainClassName, [])
 }
+
+registerDemoApplication('runBloomDemo',
+        'Runs LearnOpenGlDemo with HDR Bloom enabled.', learnMain, ['--bloom'])
+
+registerDemoApplication('runPostV08Benchmarks',
+        'Runs five formal rounds for LDR/ACES, Bloom and 100K instance shadows.',
+        'com.kaleblangley.haikalat.demo.PostV08BenchmarkSuite', [])
+
+registerDemoApplication('runInstanceShadowBenchmarks',
+        'Runs five formal 100K-instance shadow rounds.',
+        'com.kaleblangley.haikalat.demo.PostV08BenchmarkSuite', ['--shadow-only'])
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",

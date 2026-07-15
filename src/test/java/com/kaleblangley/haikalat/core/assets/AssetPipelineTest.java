@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.core.assets;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ class AssetPipelineTest {
 
         assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
         assertEquals(false, config.textures().get("wall").flipVertically());
+        assertEquals(TextureColorSpace.LINEAR, config.textures().get("wall").colorSpace());
         assertEquals("color", config.materials().get("wallMat").shader());
         assertEquals(false, config.materials().get("wallMat").depthTest());
         assertEquals("cube", config.objects().get("cube01").model());
@@ -64,6 +66,7 @@ class AssetPipelineTest {
                 shader.textured.fragment=/demo/textured.frag
                 texture.wall.path=/wall.png
                 texture.wall.flipVertically=false
+                texture.wall.colorSpace=srgb
                 material.wall.shader=textured
                 material.wall.blend=alpha
                 material.wall.depthTest=false
@@ -86,6 +89,7 @@ class AssetPipelineTest {
 
         assertEquals("/demo/color.vert", config.shaders().get("color").vertexShader().path());
         assertEquals(false, config.textures().get("wall").flipVertically());
+        assertEquals(TextureColorSpace.SRGB, config.textures().get("wall").colorSpace());
         MaterialDef wall = config.materials().get("wall");
         assertEquals("textured", wall.shader());
         assertEquals(com.kaleblangley.haikalat.core.BlendMode.ALPHA, wall.blendMode());
@@ -240,6 +244,32 @@ class AssetPipelineTest {
         assertSame(texture, cache.get("wall.png"));
         assertEquals(1, loads.get());
         assertEquals(1, cache.size());
+    }
+
+    @Test
+    void textureCacheSeparatesFlipAndColorSpaceVariants() throws Exception {
+        Texture2D linear = texture(51);
+        Texture2D flipped = texture(52);
+        Texture2D srgb = texture(53);
+        Texture2D[] loaded = {linear, flipped, srgb};
+        AtomicInteger loads = new AtomicInteger();
+        TextureAssetCache cache = new TextureAssetCache((path, flipVertically, colorSpace) ->
+                loaded[loads.getAndIncrement()]);
+
+        assertSame(linear, cache.get("wall.png", false, TextureColorSpace.LINEAR));
+        assertSame(linear, cache.get("wall.png", false, TextureColorSpace.LINEAR));
+        assertSame(flipped, cache.get("wall.png", true, TextureColorSpace.LINEAR));
+        assertSame(srgb, cache.get("wall.png", false, TextureColorSpace.SRGB));
+        assertEquals(3, loads.get());
+        assertEquals(3, cache.size());
+    }
+
+    @Test
+    void sceneConfigRejectsUnknownTextureColorSpace() {
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                texture.wall.path=/wall.png
+                texture.wall.colorSpace=display-p3
+                """));
     }
 
     private static Texture2D texture(int id) throws Exception {

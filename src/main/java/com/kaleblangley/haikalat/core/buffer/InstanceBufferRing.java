@@ -39,6 +39,9 @@ public final class InstanceBufferRing implements GlResource {
     private int activeCount;
     private boolean frameBegun;
     private boolean closed;
+    private long uploadedBytes;
+    private long fenceWaitNanos;
+    private long fenceWaitCount;
 
     public InstanceBufferRing(int maxInstances) {
         this(maxInstances, InstanceDataLayout.mat4Transform(0), InstanceUploadStrategy.PERSISTENT_MAPPED);
@@ -132,6 +135,7 @@ public final class InstanceBufferRing implements GlResource {
         if (!uploadStrategy.persistent()) {
             buffer.update(frameOffset(startInstance), data);
         }
+        uploadedBytes += (long) count * layout.strideBytes();
         activeCount = Math.max(activeCount, startInstance + count);
     }
 
@@ -184,6 +188,18 @@ public final class InstanceBufferRing implements GlResource {
         return activeCount;
     }
 
+    /** @return 当前累计上传与 fence 等待统计 */
+    public InstanceBufferStatistics statistics() {
+        return new InstanceBufferStatistics(uploadedBytes, fenceWaitNanos, fenceWaitCount);
+    }
+
+    /** 重置累计统计，但不改变 ring slot、buffer 或 fence 的生命周期。 */
+    public void resetStatistics() {
+        uploadedBytes = 0L;
+        fenceWaitNanos = 0L;
+        fenceWaitCount = 0L;
+    }
+
     @Override
     public int id() {
         return buffer.id();
@@ -231,7 +247,10 @@ public final class InstanceBufferRing implements GlResource {
         if (uploadStrategy == InstanceUploadStrategy.TRIPLE_BUFFER_SUB_DATA || fences[writeSlot] == null) {
             return;
         }
+        long waitStart = System.nanoTime();
         boolean signaled = fences[writeSlot].waitFor(FENCE_TIMEOUT_NANOS);
+        fenceWaitNanos += System.nanoTime() - waitStart;
+        fenceWaitCount++;
         if (!signaled) {
             throw new GlException("Timed out waiting for instance buffer slot " + writeSlot);
         }

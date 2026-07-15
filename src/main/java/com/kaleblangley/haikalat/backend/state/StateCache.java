@@ -53,6 +53,8 @@ public final class StateCache implements PipelineStateSink {
     private boolean depthTestCached;
     private boolean cullFaceEnabled;
     private boolean cullFaceCached;
+    private boolean framebufferSrgbEnabled;
+    private boolean framebufferSrgbCached;
     private float clearRed;
     private float clearGreen;
     private float clearBlue;
@@ -286,6 +288,19 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
+    /** 启用或禁用 framebuffer sRGB 编码，并跳过重复提交。 */
+    public void enableFramebufferSrgb(boolean enable) {
+        if (changeRequired(!framebufferSrgbCached || enable != framebufferSrgbEnabled)) {
+            if (enable) {
+                glEnable(GL_FRAMEBUFFER_SRGB);
+            } else {
+                glDisable(GL_FRAMEBUFFER_SRGB);
+            }
+            framebufferSrgbEnabled = enable;
+            framebufferSrgbCached = true;
+        }
+    }
+
     /**
      * 直接调用 glClear，不做状态缓存。
      *
@@ -344,6 +359,7 @@ public final class StateCache implements PipelineStateSink {
         depthWriteCached = false;
         depthTestCached = false;
         cullFaceCached = false;
+        framebufferSrgbCached = false;
         clearColorCached = false;
     }
 

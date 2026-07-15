@@ -19,6 +19,7 @@ final class PendingPipelineState {
     private static final int DEPTH_TEST = 1 << 4;
     private static final int CULL_FACE = 1 << 5;
     private static final int CLEAR_COLOR = 1 << 6;
+    private static final int FRAMEBUFFER_SRGB = 1 << 7;
 
     private int dirty;
     private int viewportX;
@@ -31,6 +32,7 @@ final class PendingPipelineState {
     private boolean depthWriteEnabled;
     private boolean depthTestEnabled;
     private boolean cullFaceEnabled;
+    private boolean framebufferSrgbEnabled;
     private float clearRed;
     private float clearGreen;
     private float clearBlue;
@@ -68,6 +70,11 @@ final class PendingPipelineState {
     void enableCullFace(boolean enable) {
         cullFaceEnabled = enable;
         dirty |= CULL_FACE;
+    }
+
+    void enableFramebufferSrgb(boolean enable) {
+        framebufferSrgbEnabled = enable;
+        dirty |= FRAMEBUFFER_SRGB;
     }
 
     void clearColor(float red, float green, float blue, float alpha) {
@@ -115,6 +122,7 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(depthWriteEnabled);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(depthTestEnabled);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(cullFaceEnabled);
+        if ((changes & FRAMEBUFFER_SRGB) != 0) target.enableFramebufferSrgb(framebufferSrgbEnabled);
         dirty = 0;
     }
 
@@ -144,6 +152,7 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) stream.integer(depthWriteEnabled ? 1 : 0);
         if ((changes & DEPTH_TEST) != 0) stream.integer(depthTestEnabled ? 1 : 0);
         if ((changes & CULL_FACE) != 0) stream.integer(cullFaceEnabled ? 1 : 0);
+        if ((changes & FRAMEBUFFER_SRGB) != 0) stream.integer(framebufferSrgbEnabled ? 1 : 0);
         dirty = 0;
     }
 
@@ -167,6 +176,9 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(stream.integerAt(cursor++) != 0);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(stream.integerAt(cursor++) != 0);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(stream.integerAt(cursor++) != 0);
+        if ((changes & FRAMEBUFFER_SRGB) != 0) {
+            target.enableFramebufferSrgb(stream.integerAt(cursor++) != 0);
+        }
         return cursor;
     }
 

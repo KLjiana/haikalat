@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -65,6 +66,24 @@ class RenderPipelineTest {
                         PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                         PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES, true));
+    }
+
+    @Test
+    void bloomPassPlanRunsAfterHdrAaAndBeforeToneMapping() {
+        BloomSettings bloom = BloomSettings.builder().enabled(true).maxLevels(3).build();
+
+        assertEquals(List.of(
+                        PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.TAA_PASS,
+                        PostProcessTargets.BLOOM_EXTRACT_PASS,
+                        PostProcessTargets.BLOOM_DOWN_PASS_PREFIX + "1",
+                        PostProcessTargets.BLOOM_DOWN_PASS_PREFIX + "2",
+                        PostProcessTargets.BLOOM_UP_PASS_PREFIX + "1",
+                        PostProcessTargets.BLOOM_UP_PASS_PREFIX + "0",
+                        PostProcessTargets.TONE_MAPPING_PASS,
+                        PostProcessTargets.PRESENT_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES,
+                        bloom, false));
     }
 
     @Test

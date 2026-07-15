@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.InstanceBatchStats;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
+import com.kaleblangley.haikalat.core.buffer.InstanceBufferStatistics;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ public final class InstancedRenderer {
     private final AtomicInteger drawnCount = new AtomicInteger(0);
     private final AtomicInteger shadowDrawnCount = new AtomicInteger(0);
     private final List<InstanceDef> definitions = new ArrayList<>();
+    private boolean sharedBatchPrepared;
 
     public InstancedRenderer(InstancedMeshBatch batch, ShaderProgram shader) {
         this(batch, shader, false);
@@ -67,12 +69,21 @@ public final class InstancedRenderer {
         return batch.statistics();
     }
 
+    public InstanceBufferStatistics bufferStatistics() {
+        return batch.bufferStatistics();
+    }
+
+    public void resetBufferStatistics() {
+        batch.resetBufferStatistics();
+    }
+
     public ShaderProgram shader() {
         return shader;
     }
 
     public void beginFrame(int frame) {
         frameIndex.set(frame);
+        sharedBatchPrepared = false;
         List<Matrix4f> nextFrame = new ArrayList<>(definitions.size());
         for (InstanceDef def : definitions) {
             nextFrame.add(new Matrix4f(def.compute(frame)));
@@ -101,11 +112,19 @@ public final class InstancedRenderer {
             shadowDrawnCount.set(0);
             return;
         }
-        cmd.drawInstancedBatch(batch, frameTransforms, shadowDrawnCount::set);
+        cmd.prepareInstancedBatch(batch, frameTransforms)
+                .drawPreparedInstancedBatch(batch, shadowDrawnCount::set);
+        sharedBatchPrepared = true;
     }
 
     private void submitBatch(CommandBuffer cmd) {
-        cmd.drawInstancedBatch(batch, frameTransforms, drawnCount::set);
+        if (sharedBatchPrepared) {
+            cmd.drawPreparedInstancedBatch(batch, drawnCount::set)
+                    .finishPreparedInstancedBatch(batch);
+            sharedBatchPrepared = false;
+        } else {
+            cmd.drawInstancedBatch(batch, frameTransforms, drawnCount::set);
+        }
     }
 
     public void close() {

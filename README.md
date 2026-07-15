@@ -21,7 +21,8 @@ current goals, capabilities, and non-goals.
   mesh data, instancing, upload flow, immutable frame snapshots, and materials.
 - A forward 3D scene pipeline with basic Blinn-Phong lighting, fixed-size
   directional shadows for ordinary and opt-in instanced casters, 3x3 PCF,
-  linear HDR/ACES tone mapping, and selectable none/MSAA/FXAA/TAA paths.
+  linear HDR/ACES tone mapping, optional multi-level Bloom, explicit linear/sRGB textures,
+  and selectable none/MSAA/FXAA/TAA paths.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, and an OBJ path exercised by the main demo;
   the Assimp loader remains experimental.
@@ -69,6 +70,13 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localGlVerification
+```
+
+Run the interactive Bloom scene or the formal five-round post-v0.8 benchmark suite:
+
+```powershell
+.\gradlew.bat runBloomDemo
+.\gradlew.bat runPostV08Benchmarks
 ```
 
 The documentation index is available at [`docs/README.md`](docs/README.md).

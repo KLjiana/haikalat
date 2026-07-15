@@ -4,6 +4,8 @@
 
 ### Stabilization
 
+- Completed the post-v0.8 color/Bloom roadmap: explicit linear/sRGB texture semantics and cache keys, framebuffer-sRGB ownership, relative RenderGraph targets, optional multi-level HDR Bloom, four-path GL regressions, and formal pass-level benchmarks.
+- Added typed single-upload/multi-pass instance commands after the 100K shadow benchmark triggered the optimization threshold; shadow and geometry now reuse one persistent-ring upload and insert one fence after the final draw.
 - Completed the v0.8 instanced-shadow/HDR milestone: opt-in instanced casters reuse the existing batch through independent shadow/geometry ring lifecycles, expose separate caster statistics, and have final-pixel plus next-frame fence regressions.
 - Added compatibility-preserving HDR settings and ACES tone mapping: RGBA16F geometry/MSAA resolve/TAA history, RGBA8 tone output, linear-space TAA, display-space FXAA, exposure validation, resize rebuilds, and LDR/HDR coverage for all four AA modes.
 - Replaced opaque per-command `Consumer<StateCache>` captures with a reusable typed opcode stream and recording-time pending pipeline state. Final blend/depth/cull/viewport/clear-color values are emitted only at observable boundaries, while draw/pass/transparency ordering and cross-frame `StateCache` dedup remain intact.

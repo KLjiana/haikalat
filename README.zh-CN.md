@@ -19,7 +19,7 @@
 - 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh data、instancing、上传流程、
   不可变帧快照和材质系统。
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化方向光阴影、3x3 PCF、
-  线性 HDR/ACES 色调映射，以及 none、MSAA、FXAA、TAA 路径。
+  显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom，以及 none、MSAA、FXAA、TAA 路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路；Assimp 入口仍为实验能力。
 - 五条 Demo 证明路径：空窗口/present 基线、综合场景管线、最小命令流、异步更新与渲染线程协作、自动生成 GPU procedural shader 的 100 万实例压力分析。
@@ -65,6 +65,13 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localGlVerification
+```
+
+交互查看 Bloom 或执行五轮正式性能基准：
+
+```powershell
+.\gradlew.bat runBloomDemo
+.\gradlew.bat runPostV08Benchmarks
 ```
 
 测试分层和适用范围参见 [`docs/guides/testing.md`](docs/guides/testing.md)。

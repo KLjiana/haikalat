@@ -34,7 +34,8 @@ final class DemoSceneResources implements AutoCloseable {
     private boolean closed;
 
     private DemoSceneResources(SceneAssetConfig config) {
-        textureCache = new TextureAssetCache(ref -> loadTexture(ref, config));
+        textureCache = new TextureAssetCache((path, flipVertically, colorSpace) ->
+                Texture2D.fromResource(DemoSceneResources.class, path.path(), flipVertically, colorSpace));
     }
 
     static DemoSceneResources load(ResourceLocator locator, SceneAssetConfig config) {
@@ -116,7 +117,8 @@ final class DemoSceneResources implements AutoCloseable {
                     throw new IllegalStateException("Sampler definitions are not wired yet: " + binding.sampler());
                 }
                 SceneAssetConfig.TextureDef texture = config.textures().get(binding.texture());
-                builder.texture(binding.unit(), binding.samplerName(), textureCache.get(texture.path().path()));
+                builder.texture(binding.unit(), binding.samplerName(), textureCache.get(
+                        texture.path(), texture.flipVertically(), texture.colorSpace()));
             }
             if (!def.textures().isEmpty()) {
                 builder.setVec3("uTint", new Vector3f(1.0f));
@@ -156,15 +158,6 @@ final class DemoSceneResources implements AutoCloseable {
             }
             throw failure;
         }
-    }
-
-    private static Texture2D loadTexture(AssetRef ref, SceneAssetConfig config) {
-        boolean flip = config.textures().values().stream()
-                .filter(texture -> texture.path().equals(ref))
-                .findFirst()
-                .map(SceneAssetConfig.TextureDef::flipVertically)
-                .orElse(true);
-        return Texture2D.fromResource(DemoSceneResources.class, ref.path(), flip);
     }
 
     @Override

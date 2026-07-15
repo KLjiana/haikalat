@@ -193,6 +193,9 @@ public final class RenderGraph implements AutoCloseable {
             }
 
             if ((pass.clearColor || pass.clearDepth) && !pass.useBackbuffer && framebuffer != null) {
+                if (pass.clearDepth) {
+                    cmd.depthMask(true);
+                }
                 cmd.clearColor(pass.clearR, pass.clearG, pass.clearB, pass.clearA);
                 cmd.clear(pass.clearColor, pass.clearDepth);
             }
@@ -255,8 +258,8 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     private FramebufferDescriptor descriptorFor(Pass pass) {
-        int targetWidth = pass.fixedWidth > 0 ? pass.fixedWidth : width;
-        int targetHeight = pass.fixedHeight > 0 ? pass.fixedHeight : height;
+        int targetWidth = targetDimension(width, pass.fixedWidth, pass.relativeWidthScale);
+        int targetHeight = targetDimension(height, pass.fixedHeight, pass.relativeHeightScale);
         FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(targetWidth, targetHeight)
                 .samples(pass.samples);
         boolean multisampled = pass.samples > 1;
@@ -273,6 +276,16 @@ public final class RenderGraph implements AutoCloseable {
             builder.depthStencilRenderbuffer();
         }
         return builder.build();
+    }
+
+    private static int targetDimension(int windowDimension, int fixedDimension, float relativeScale) {
+        if (fixedDimension > 0) {
+            return fixedDimension;
+        }
+        if (relativeScale > 0.0f) {
+            return Math.max(1, Math.round(windowDimension * relativeScale));
+        }
+        return windowDimension;
     }
 
     private void refreshAttachmentLookup() {
@@ -316,6 +329,8 @@ public final class RenderGraph implements AutoCloseable {
         final int samples;
         final int fixedWidth;
         final int fixedHeight;
+        final float relativeWidthScale;
+        final float relativeHeightScale;
         final boolean createDepth;
         final String depthTextureName;
         final boolean clearColor;
@@ -330,7 +345,7 @@ public final class RenderGraph implements AutoCloseable {
         GpuTimer timer;
 
         Pass(String name, List<String> colorTextureNames, List<RenderFormat> colorFormats, int samples,
-             int fixedWidth, int fixedHeight,
+             int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
              boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
              List<String> dependencies, PassExecutor executor) {
@@ -340,6 +355,8 @@ public final class RenderGraph implements AutoCloseable {
             this.samples = samples;
             this.fixedWidth = fixedWidth;
             this.fixedHeight = fixedHeight;
+            this.relativeWidthScale = relativeWidthScale;
+            this.relativeHeightScale = relativeHeightScale;
             this.createDepth = createDepth;
             this.depthTextureName = depthTextureName;
             this.clearColor = clearColor;
@@ -362,6 +379,8 @@ public final class RenderGraph implements AutoCloseable {
         private int samples = 1;
         private int fixedWidth;
         private int fixedHeight;
+        private float relativeWidthScale;
+        private float relativeHeightScale;
         private boolean createDepth;
         private String depthTextureName;
         private boolean clearColor = true;
@@ -460,11 +479,45 @@ public final class RenderGraph implements AutoCloseable {
          * 渲染图 resize 后，固定尺寸 target 仍以原尺寸重建。
          */
         public PassBuilder fixedSize(int width, int height) {
+            if (relativeWidthScale > 0.0f || relativeHeightScale > 0.0f) {
+                throw new IllegalStateException("fixedSize and relativeSize are mutually exclusive");
+            }
             if (width <= 0 || height <= 0) {
                 throw new IllegalArgumentException("fixed pass dimensions must be positive");
             }
             fixedWidth = width;
             fixedHeight = height;
+            return this;
+        }
+
+        /**
+         * 让当前 target 按窗口尺寸的同一比例分配，并在 resize 时自动重建。
+         *
+         * @param scale 宽高共同使用的正比例
+         * @return 当前 pass builder
+         */
+        public PassBuilder relativeSize(float scale) {
+            return relativeSize(scale, scale);
+        }
+
+        /**
+         * 让当前 target 分别按窗口宽高比例分配。最终尺寸采用
+         * {@code max(1, round(windowSize * scale))}。
+         *
+         * @param widthScale  宽度正比例
+         * @param heightScale 高度正比例
+         * @return 当前 pass builder
+         */
+        public PassBuilder relativeSize(float widthScale, float heightScale) {
+            if (fixedWidth > 0 || fixedHeight > 0) {
+                throw new IllegalStateException("relativeSize and fixedSize are mutually exclusive");
+            }
+            if (!Float.isFinite(widthScale) || widthScale <= 0.0f
+                    || !Float.isFinite(heightScale) || heightScale <= 0.0f) {
+                throw new IllegalArgumentException("relative target scales must be finite and positive");
+            }
+            relativeWidthScale = widthScale;
+            relativeHeightScale = heightScale;
             return this;
         }
 
@@ -501,7 +554,7 @@ public final class RenderGraph implements AutoCloseable {
         public RenderGraph execute(PassExecutor executor) {
             this.executor = Objects.requireNonNull(executor, "executor");
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
-                    fixedWidth, fixedHeight,
+                    fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
                     createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
                     useBackbuffer, List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);

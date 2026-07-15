@@ -14,5 +14,7 @@ public interface PipelineStateSink {
 
     void enableCullFace(boolean enable);
 
+    void enableFramebufferSrgb(boolean enable);
+
     void clearColor(float red, float green, float blue, float alpha);
 }

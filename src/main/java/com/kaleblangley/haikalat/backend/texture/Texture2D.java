@@ -30,20 +30,30 @@ import static org.lwjgl.opengl.GL11.glTexParameteri;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL30.GL_RG;
+import static org.lwjgl.opengl.GL30.GL_R8;
+import static org.lwjgl.opengl.GL30.GL_RG8;
 import static org.lwjgl.opengl.GL30.glGenerateMipmap;
+import static org.lwjgl.opengl.GL21.GL_SRGB8;
+import static org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8;
 
 public final class Texture2D implements GlResource {
     private final int id;
     private final int width;
     private final int height;
     private final int format;
+    private final TextureColorSpace colorSpace;
     private boolean closed;
 
     private Texture2D(int id, int width, int height, int format) {
+        this(id, width, height, format, TextureColorSpace.LINEAR);
+    }
+
+    private Texture2D(int id, int width, int height, int format, TextureColorSpace colorSpace) {
         this.id = id;
         this.width = width;
         this.height = height;
         this.format = format;
+        this.colorSpace = Objects.requireNonNull(colorSpace, "colorSpace");
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_TEXTURE, id, "Texture2D " + width + "x" + height);
     }
 
@@ -55,7 +65,7 @@ public final class Texture2D implements GlResource {
      * @return 加载的 Texture2D 实例
      */
     public static Texture2D fromResource(Class<?> anchor, String resourcePath) {
-        return fromResource(anchor, resourcePath, true);
+        return fromResource(anchor, resourcePath, true, TextureColorSpace.LINEAR);
     }
 
     /**
@@ -67,8 +77,36 @@ public final class Texture2D implements GlResource {
      * @return 加载的 Texture2D 实例
      */
     public static Texture2D fromResource(Class<?> anchor, String resourcePath, boolean flipVertically) {
+        return fromResource(anchor, resourcePath, flipVertically, TextureColorSpace.LINEAR);
+    }
+
+    /**
+     * 从类路径资源加载纹理，并显式指定采样颜色空间。
+     *
+     * @param anchor         用于定位资源的类
+     * @param resourcePath   资源文件路径
+     * @param colorSpace     纹理采样颜色空间
+     * @return 加载完成的纹理
+     */
+    public static Texture2D fromResource(Class<?> anchor, String resourcePath,
+                                         TextureColorSpace colorSpace) {
+        return fromResource(anchor, resourcePath, true, colorSpace);
+    }
+
+    /**
+     * 从类路径资源加载纹理，并显式指定翻转方式与采样颜色空间。
+     *
+     * @param anchor         用于定位资源的类
+     * @param resourcePath   资源文件路径
+     * @param flipVertically 是否垂直翻转
+     * @param colorSpace     纹理采样颜色空间
+     * @return 加载完成的纹理
+     */
+    public static Texture2D fromResource(Class<?> anchor, String resourcePath, boolean flipVertically,
+                                         TextureColorSpace colorSpace) {
         Objects.requireNonNull(anchor, "anchor");
         Objects.requireNonNull(resourcePath, "resourcePath");
+        Objects.requireNonNull(colorSpace, "colorSpace");
 
         STBImage.stbi_set_flip_vertically_on_load(flipVertically);
         byte[] bytes = DirectBuffers.readResourceBytes(anchor, resourcePath);
@@ -82,22 +120,32 @@ public final class Texture2D implements GlResource {
             if (image == null) {
                 throw new GlException("Failed to load image: " + STBImage.stbi_failure_reason());
             }
+            int textureId = 0;
+            try {
+                int width = widthBuffer.get(0);
+                int height = heightBuffer.get(0);
+                int channels = channelsBuffer.get(0);
+                int externalFormat = formatFromChannels(channels);
+                int internalFormat = internalFormat(channels, colorSpace);
 
-            int width = widthBuffer.get(0);
-            int height = heightBuffer.get(0);
-            int channels = channelsBuffer.get(0);
-            int format = formatFromChannels(channels);
-
-            int textureId = glGenTextures();
-            glBindTexture(GL_TEXTURE_2D, textureId);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, image);
-            glGenerateMipmap(GL_TEXTURE_2D);
-            STBImage.stbi_image_free(image);
-            return new Texture2D(textureId, width, height, format);
+                textureId = glGenTextures();
+                glBindTexture(GL_TEXTURE_2D, textureId);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, externalFormat,
+                        org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, image);
+                glGenerateMipmap(GL_TEXTURE_2D);
+                Texture2D texture = new Texture2D(textureId, width, height, internalFormat, colorSpace);
+                textureId = 0;
+                return texture;
+            } finally {
+                STBImage.stbi_image_free(image);
+                if (textureId != 0) {
+                    glDeleteTextures(textureId);
+                }
+            }
         }
     }
 
@@ -172,6 +220,11 @@ public final class Texture2D implements GlResource {
         return format;
     }
 
+    /** @return 纹理在采样时使用的颜色空间 */
+    public TextureColorSpace colorSpace() {
+        return colorSpace;
+    }
+
     @Override
     public boolean isClosed() {
         return closed;
@@ -198,6 +251,16 @@ public final class Texture2D implements GlResource {
             case 2 -> GL_RG;
             case 3 -> GL_RGB;
             case 4 -> GL_RGBA;
+            default -> throw new GlException("Unsupported channel count: " + channels);
+        };
+    }
+
+    private static int internalFormat(int channels, TextureColorSpace colorSpace) {
+        return switch (channels) {
+            case 1 -> GL_R8;
+            case 2 -> GL_RG8;
+            case 3 -> colorSpace == TextureColorSpace.SRGB ? GL_SRGB8 : org.lwjgl.opengl.GL11.GL_RGB8;
+            case 4 -> colorSpace == TextureColorSpace.SRGB ? GL_SRGB8_ALPHA8 : org.lwjgl.opengl.GL11.GL_RGBA8;
             default -> throw new GlException("Unsupported channel count: " + channels);
         };
     }

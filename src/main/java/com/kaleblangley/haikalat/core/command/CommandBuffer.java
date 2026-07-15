@@ -61,6 +61,9 @@ public final class CommandBuffer {
     static final byte BEGIN_GPU_TIMER = 36;
     static final byte END_GPU_TIMER = 37;
     static final byte DRAW_INSTANCED_BATCH = 38;
+    static final byte PREPARE_INSTANCED_BATCH = 39;
+    static final byte DRAW_PREPARED_INSTANCED_BATCH = 40;
+    static final byte FINISH_PREPARED_INSTANCED_BATCH = 41;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -304,6 +307,59 @@ public final class CommandBuffer {
         return this;
     }
 
+    /**
+     * 上传一次实例快照，供后续多个 RenderGraph pass 复用。
+     *
+     * @param batch      实例批次
+     * @param transforms 当前帧稳定变换
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer prepareInstancedBatch(InstancedMeshBatch batch,
+                                               Iterable<Matrix4f> transforms) {
+        Objects.requireNonNull(batch, "batch");
+        Objects.requireNonNull(transforms, "transforms");
+        flushPendingState();
+        opcode(PREPARE_INSTANCED_BATCH);
+        object(batch);
+        object(copyTransforms(transforms));
+        return this;
+    }
+
+    /**
+     * 使用最近准备的实例数据绘制一次，不重复上传或推进 ring slot。
+     *
+     * @param batch      已准备的实例批次
+     * @param drawnCount 可选的绘制数量回调
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer drawPreparedInstancedBatch(InstancedMeshBatch batch,
+                                                     IntConsumer drawnCount) {
+        Objects.requireNonNull(batch, "batch");
+        flushPendingState();
+        opcode(DRAW_PREPARED_INSTANCED_BATCH);
+        object(batch);
+        object(drawnCount);
+        return this;
+    }
+
+    public CommandBuffer drawPreparedInstancedBatch(InstancedMeshBatch batch) {
+        return drawPreparedInstancedBatch(batch, null);
+    }
+
+    /**
+     * 结束多 pass 实例复用，在最后一次 draw 后插入当前 ring slot 的 GPU fence。
+     *
+     * @param batch 已准备的实例批次
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer finishPreparedInstancedBatch(InstancedMeshBatch batch) {
+        Objects.requireNonNull(batch, "batch");
+        flushPendingState();
+        opcode(FINISH_PREPARED_INSTANCED_BATCH);
+        object(batch);
+        return this;
+    }
+
     public CommandBuffer viewport(int x, int y, int width, int height) {
         pendingState.viewport(x, y, width, height);
         return this;
@@ -326,6 +382,17 @@ public final class CommandBuffer {
 
     public CommandBuffer enableCullFace(boolean enable) {
         pendingState.enableCullFace(enable);
+        return this;
+    }
+
+    /**
+     * 设置 framebuffer sRGB 编码状态；该状态会与其他 pending pipeline state 一起折叠。
+     *
+     * @param enable 是否让 OpenGL 对目标 framebuffer 执行 sRGB 编码
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer enableFramebufferSrgb(boolean enable) {
+        pendingState.enableFramebufferSrgb(enable);
         return this;
     }
 

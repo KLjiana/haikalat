@@ -21,12 +21,37 @@ public final class ToneMappingPass implements GlResource {
     }
 
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int hdrTexture, float exposure) {
+        return recordIntoCurrentTarget(cmd, hdrTexture, 0, exposure, 0.0f);
+    }
+
+    /**
+     * 把线性 HDR 场景与半分辨率 Bloom 纹理直接合成并映射到 LDR。
+     *
+     * @param cmd              命令缓冲区
+     * @param hdrTexture       HDR 场景纹理
+     * @param bloomTexture     Bloom 纹理；0 表示关闭
+     * @param exposure         曝光值
+     * @param bloomIntensity   Bloom 合成强度
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int hdrTexture, int bloomTexture,
+                                                 float exposure, float bloomIntensity) {
         ensureOpen();
-        cmd.enableDepthTest(false)
+        cmd.enableBlend(false)
+                .enableDepthTest(false)
+                .enableCullFace(false)
+                .enableFramebufferSrgb(false)
                 .bindShader(program)
                 .bindTexture(0, hdrTexture)
                 .setUniformInt(program, "uHdrScene", 0)
+                .setUniformInt(program, "uBloomEnabled", bloomTexture != 0 ? 1 : 0)
                 .setUniformFloat(program, "uExposure", exposure)
+                .setUniformFloat(program, "uBloomIntensity", bloomIntensity);
+        if (bloomTexture != 0) {
+            cmd.bindTexture(1, bloomTexture)
+                    .setUniformInt(program, "uBloom", 1);
+        }
+        cmd
                 .bindVertexArray(quad.id())
                 .drawArrays(GL_TRIANGLES, 0, 6)
                 .enableDepthTest(true);

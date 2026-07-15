@@ -16,6 +16,7 @@ class RenderSettingsTest {
         assertEquals(ToneMappingMode.NONE, settings.toneMappingMode());
         assertEquals(1.0f, settings.exposure());
         assertFalse(settings.hdrEnabled());
+        assertFalse(settings.bloomSettings().enabled());
     }
 
     @Test
@@ -41,5 +42,29 @@ class RenderSettingsTest {
                 () -> RenderSettings.builder().exposure(Float.POSITIVE_INFINITY).build());
         assertThrows(IllegalArgumentException.class,
                 () -> RenderSettings.builder().exposure(Float.NEGATIVE_INFINITY).build());
+    }
+
+    @Test
+    void bloomIsImmutableValidatedAndRequiresHdr() {
+        BloomSettings bloom = BloomSettings.builder()
+                .enabled(true)
+                .threshold(1.5f)
+                .softKnee(0.25f)
+                .intensity(0.1f)
+                .maxLevels(4)
+                .build();
+        RenderSettings settings = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES)
+                .bloomSettings(bloom)
+                .build();
+
+        assertEquals(bloom, settings.bloomSettings());
+        assertThrows(IllegalStateException.class, () -> RenderSettings.builder()
+                .bloomSettings(bloom)
+                .build());
+        assertThrows(IllegalArgumentException.class,
+                () -> BloomSettings.builder().softKnee(1.1f).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> BloomSettings.builder().maxLevels(0).build());
     }
 }

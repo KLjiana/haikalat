@@ -98,6 +98,40 @@ class RenderGraphTest {
     }
 
     @Test
+    void relativeSizeRoundsOddDimensionsAndTracksResize() {
+        RenderGraph graph = new RenderGraph(5, 3, false);
+        graph.addPass("Half")
+                .createColor("HalfColor")
+                .relativeSize(0.5f)
+                .execute((res, cmd) -> {});
+
+        FramebufferDescriptor initial = graph.passFramebufferDescriptor("Half");
+        assertEquals(3, initial.width());
+        assertEquals(2, initial.height());
+
+        graph.resize(1, 1);
+        FramebufferDescriptor minimum = graph.passFramebufferDescriptor("Half");
+        assertEquals(1, minimum.width());
+        assertEquals(1, minimum.height());
+
+        graph.resize(0, 0);
+        assertEquals(1, graph.passFramebufferDescriptor("Half").width());
+    }
+
+    @Test
+    void fixedAndRelativeSizesAreMutuallyExclusive() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+
+        assertThrows(IllegalStateException.class, () -> graph.addPass("A")
+                .fixedSize(64, 64)
+                .relativeSize(0.5f));
+        assertThrows(IllegalStateException.class, () -> graph.addPass("B")
+                .relativeSize(0.5f)
+                .fixedSize(64, 64));
+        assertThrows(IllegalArgumentException.class, () -> graph.addPass("C").relativeSize(0.0f));
+    }
+
+    @Test
     @SuppressWarnings("deprecation")
     void passResourcesExposeNarrowAliasesWithoutOwningLifecycle() {
         RenderGraph graph = new RenderGraph(800, 600, false);

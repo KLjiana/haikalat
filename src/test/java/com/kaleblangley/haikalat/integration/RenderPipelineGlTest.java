@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.material.Material;
@@ -14,6 +15,7 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.*;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
@@ -214,6 +216,107 @@ class RenderPipelineGlTest {
     }
 
     @Test
+    void hdrFullscreenPassesOwnBlendDepthAndCullState() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("fullscreen-state"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material alphaMaterial = Material.builder(shader).blendMode(BlendMode.ALPHA).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, alphaMaterial, (model, frame) -> model.identity()));
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                    RenderSettings.builder()
+                            .antiAliasingMode(AntiAliasingMode.TAA)
+                            .toneMappingMode(ToneMappingMode.ACES)
+                            .vsync(false)
+                            .build());
+            try {
+                pipeline.build();
+                GlRenderDevice device = new GlRenderDevice();
+                device.execute(device.createCommandBuffer()
+                        .enableBlend(true)
+                        .enableCullFace(true)
+                        .enableFramebufferSrgb(true));
+
+                pipeline.execute(device);
+                ByteBuffer dirtyStatePixel = BufferUtils.createByteBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, dirtyStatePixel);
+
+                assertFalse(glIsEnabled(GL_BLEND), "Tone mapping must disable inherited material blending");
+                assertFalse(glIsEnabled(GL_CULL_FACE), "Fullscreen passes must disable inherited face culling");
+                assertFalse(glIsEnabled(GL_FRAMEBUFFER_SRGB),
+                        "ACES already performs gamma encoding and must disable framebuffer sRGB");
+                assertTrue(Byte.toUnsignedInt(dirtyStatePixel.get(0)) > 80);
+
+                device.execute(device.createCommandBuffer()
+                        .enableBlend(false)
+                        .enableCullFace(false));
+                pipeline.execute(device);
+                ByteBuffer cleanStatePixel = BufferUtils.createByteBuffer(4);
+                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, cleanStatePixel);
+                for (int channel = 0; channel < 4; channel++) {
+                    assertEquals(Byte.toUnsignedInt(dirtyStatePixel.get(channel)),
+                            Byte.toUnsignedInt(cleanStatePixel.get(channel)), 1,
+                            "Dirty and clean fullscreen state must produce the same output");
+                }
+                GlDebug.checkError("hdrFullscreenPassesOwnBlendDepthAndCullState");
+            } finally {
+                pipeline.close();
+                alphaMaterial.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void renderGraphRestoresDepthWritesBeforeNextFrameClear() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            ShaderProgram shader = ShaderProgram.fromSources(DEPTH_WRITE_VERTEX_SOURCE, WHITE_FRAGMENT_SOURCE);
+            int vao = glGenVertexArrays();
+            Framebuffer[] target = new Framebuffer[1];
+            RenderGraph graph = new RenderGraph(32, 32);
+            graph.addPass("DepthClear")
+                    .createColor("DepthClearColor")
+                    .createDepth()
+                    .execute((resources, commands) -> {
+                        target[0] = resources.currentTarget();
+                        commands.enableDepthTest(true)
+                                .bindShader(shader)
+                                .bindVertexArray(vao)
+                                .drawArrays(GL_TRIANGLES, 0, 3);
+                    });
+            try {
+                GlRenderDevice device = new GlRenderDevice();
+                glClearDepth(0.25);
+                graph.execute(device);
+
+                device.execute(device.createCommandBuffer().depthMask(false));
+                glClearDepth(1.0);
+                graph.execute(device);
+
+                target[0].bind();
+                FloatBuffer depth = BufferUtils.createFloatBuffer(1);
+                glReadPixels(16, 16, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+                assertEquals(0.5f, depth.get(0), 0.02f,
+                        "Depth clear must restore writes before the next frame draws");
+                GlDebug.checkError("renderGraphRestoresDepthWritesBeforeNextFrameClear");
+            } finally {
+                graph.close();
+                glDeleteVertexArrays(vao);
+                shader.close();
+            }
+        }
+    }
+
+    @Test
     void rgba16fTargetPreservesLinearValuesAboveOne() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
@@ -310,6 +413,110 @@ class RenderPipelineGlTest {
                         pipeline.close();
                     }
                 }
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void bloomRendersAcrossAllHdrAaPathsAndSurvivesOddResize() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("bloom-paths"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            BloomSettings bloom = BloomSettings.builder()
+                    .enabled(true)
+                    .intensity(0.15f)
+                    .maxLevels(3)
+                    .build();
+            try {
+                for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            RenderSettings.builder()
+                                    .antiAliasingMode(mode)
+                                    .toneMappingMode(ToneMappingMode.ACES)
+                                    .bloomSettings(bloom)
+                                    .vsync(false)
+                                    .build());
+                    try {
+                        pipeline.build();
+                        pipeline.execute(new GlRenderDevice());
+                        pipeline.resize(47, 33);
+                        pipeline.execute(new GlRenderDevice());
+                        pipeline.resize(0, 0);
+                        pipeline.execute(new GlRenderDevice());
+
+                        ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                        glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
+                                "Bloom HDR path must render for " + mode);
+                        GlDebug.checkError("Bloom HDR path " + mode);
+                    } finally {
+                        pipeline.close();
+                    }
+                }
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void bloomDisabledIsPixelExactAndEnabledSpreadsOnlyBrightPixels() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("bloom-spread"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE, HDR_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material,
+                    (model, frame) -> model.identity().scale(0.25f)));
+            try {
+                byte[] baseline = renderBloomPixels(window, scene, BloomSettings.defaults());
+                byte[] disabled = renderBloomPixels(window, scene, BloomSettings.builder()
+                        .enabled(false)
+                        .threshold(8.0f)
+                        .softKnee(0.0f)
+                        .intensity(2.0f)
+                        .maxLevels(1)
+                        .build());
+                assertArrayEquals(baseline, disabled,
+                        "Disabled Bloom must not add passes or alter final pixels");
+
+                byte[] enabled = renderBloomPixels(window, scene, BloomSettings.builder()
+                        .enabled(true)
+                        .threshold(1.0f)
+                        .softKnee(0.5f)
+                        .intensity(0.5f)
+                        .maxLevels(2)
+                        .build());
+                int background = rgbSum(baseline, 0);
+                int largestSpread = 0;
+                for (int offset = 0; offset < baseline.length; offset += 4) {
+                    if (Math.abs(rgbSum(baseline, offset) - background) <= 3) {
+                        largestSpread = Math.max(largestSpread,
+                                rgbSum(enabled, offset) - rgbSum(baseline, offset));
+                    }
+                }
+                assertTrue(largestSpread > 3,
+                        "Bloom must spread bright energy into neighboring background pixels");
+                assertTrue(Math.abs(rgbSum(enabled, 0) - background) <= 3,
+                        "Bloom must not lift a distant dark background pixel");
+                GlDebug.checkError("bloomDisabledIsPixelExactAndEnabledSpreadsOnlyBrightPixels");
             } finally {
                 material.close();
                 shader.close();
@@ -435,6 +642,9 @@ class RenderPipelineGlTest {
             assertEquals(1, enabled.shadowInstances());
             assertEquals(0, disabled.ordinaryCasterDraws());
             assertEquals(0, enabled.ordinaryCasterDraws());
+            assertEquals(2L * 16L * Float.BYTES, disabled.uploadedBytes());
+            assertEquals(disabled.uploadedBytes(), enabled.uploadedBytes(),
+                    "Shadow and geometry passes must reuse one instance upload per frame");
             assertTrue(pixelDifference(disabled.pixels(), enabled.pixels()) > 1_000,
                     "Enabling the instanced caster must change final shadowed receiver pixels");
             GlDebug.checkError("instancedShadowOptInChangesPixelsAndBatchRemainsReusableNextFrame");
@@ -560,7 +770,8 @@ class RenderPipelineGlTest {
             byte[] image = new byte[pixels.remaining()];
             pixels.get(image);
             return new InstancedShadowResult(image, instanced.drawnCount(),
-                    pipeline.lastInstancedShadowCasterCount(), pipeline.lastShadowCasterDrawCount());
+                    pipeline.lastInstancedShadowCasterCount(), pipeline.lastShadowCasterDrawCount(),
+                    instanced.bufferStatistics().uploadedBytes());
         } finally {
             pipeline.close();
             instanced.close();
@@ -601,7 +812,35 @@ class RenderPipelineGlTest {
         }
     }
 
+    private static byte[] renderBloomPixels(GlfwWindow window, Scene scene, BloomSettings bloomSettings) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderSettings.builder()
+                        .antiAliasingMode(AntiAliasingMode.NONE)
+                        .toneMappingMode(ToneMappingMode.ACES)
+                        .bloomSettings(bloomSettings)
+                        .vsync(false)
+                        .build());
+        try {
+            pipeline.build();
+            pipeline.execute(new GlRenderDevice());
+            ByteBuffer pixels = BufferUtils.createByteBuffer(window.width() * window.height() * 4);
+            glReadPixels(0, 0, window.width(), window.height(), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            byte[] image = new byte[pixels.capacity()];
+            pixels.get(image);
+            return image;
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    private static int rgbSum(byte[] pixels, int offset) {
+        return Byte.toUnsignedInt(pixels[offset])
+                + Byte.toUnsignedInt(pixels[offset + 1])
+                + Byte.toUnsignedInt(pixels[offset + 2]);
+    }
+
     private record InstancedShadowResult(byte[] pixels, int geometryInstances,
-                                         int shadowInstances, int ordinaryCasterDraws) {
+                                         int shadowInstances, int ordinaryCasterDraws,
+                                         long uploadedBytes) {
     }
 }

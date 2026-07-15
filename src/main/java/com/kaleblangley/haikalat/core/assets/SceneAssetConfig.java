@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
+import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import org.joml.Vector3f;
@@ -74,7 +75,8 @@ public record SceneAssetConfig(
         }
         for (String name : names(properties, "texture.")) {
             textures.put(name, new TextureDef(AssetRef.of(required(properties, "texture." + name + ".path")),
-                    Boolean.parseBoolean(properties.getProperty("texture." + name + ".flipVertically", "true"))));
+                    Boolean.parseBoolean(properties.getProperty("texture." + name + ".flipVertically", "true")),
+                    parseColorSpace(properties.getProperty("texture." + name + ".colorSpace", "linear"))));
         }
         for (String name : names(properties, "material.")) {
             materials.put(name, material(properties, name));
@@ -123,7 +125,8 @@ public record SceneAssetConfig(
                 switch (parts[0]) {
                     case "shader" -> shaders.put(parts[1], ShaderAsset.of(parts[2], parts[3]));
                     case "texture" -> textures.put(parts[1], new TextureDef(AssetRef.of(parts[2]),
-                            parts.length < 4 || Boolean.parseBoolean(parts[3])));
+                            parts.length < 4 || Boolean.parseBoolean(parts[3]),
+                            parts.length < 5 ? TextureColorSpace.LINEAR : parseColorSpace(parts[4])));
                     case "material" -> materials.put(parts[1], parseMaterial(parts));
                     case "model" -> models.put(parts[1], new ModelDef(AssetRef.of(parts[2])));
                     case "object" -> objects.put(parts[1], parseObject(parts));
@@ -169,6 +172,15 @@ public record SceneAssetConfig(
     private static void requireLength(String[] parts, int length) {
         if (parts.length < length) {
             throw new GlException("Expected at least " + length + " tokens");
+        }
+    }
+
+    private static TextureColorSpace parseColorSpace(String value) {
+        try {
+            return TextureColorSpace.valueOf(value.strip().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            throw new GlException("Unsupported texture color space: " + value
+                    + ". Supported values: linear, srgb", error);
         }
     }
 
@@ -292,7 +304,15 @@ public record SceneAssetConfig(
         }
     }
 
-    public record TextureDef(AssetRef path, boolean flipVertically) {
+    public record TextureDef(AssetRef path, boolean flipVertically, TextureColorSpace colorSpace) {
+        public TextureDef {
+            path = Objects.requireNonNull(path, "path");
+            colorSpace = Objects.requireNonNull(colorSpace, "colorSpace");
+        }
+
+        public TextureDef(AssetRef path, boolean flipVertically) {
+            this(path, flipVertically, TextureColorSpace.LINEAR);
+        }
     }
 
     public record ModelDef(AssetRef path) {

@@ -203,6 +203,33 @@ final class CommandExecutor {
                         cache.invalidateVertexArray();
                     }
                 }
+                case PREPARE_INSTANCED_BATCH -> {
+                    InstancedMeshBatch batch =
+                            (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                    @SuppressWarnings("unchecked")
+                    List<Matrix4f> transforms =
+                            (List<Matrix4f>) stream.objectAt(objectCursor++);
+                    try {
+                        batch.prepareOwnedSnapshots(transforms);
+                    } finally {
+                        cache.invalidateVertexArray();
+                    }
+                }
+                case DRAW_PREPARED_INSTANCED_BATCH -> {
+                    InstancedMeshBatch batch =
+                            (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                    IntConsumer drawnCount =
+                            (IntConsumer) stream.objectAt(objectCursor++);
+                    try {
+                        int drawn = batch.drawPrepared();
+                        if (drawnCount != null) drawnCount.accept(drawn);
+                    } finally {
+                        cache.invalidateVertexArray();
+                    }
+                }
+                case FINISH_PREPARED_INSTANCED_BATCH -> {
+                    ((InstancedMeshBatch) stream.objectAt(objectCursor++)).finishPrepared();
+                }
                 case BEGIN_GPU_TIMER -> {
                     ((GpuTimer) stream.objectAt(objectCursor++)).begin();
                 }

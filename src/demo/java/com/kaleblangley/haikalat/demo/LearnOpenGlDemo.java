@@ -13,8 +13,12 @@ import com.kaleblangley.haikalat.core.mesh.VertexPacking;
 import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
+import com.kaleblangley.haikalat.runtime.FrameBenchmarkSession;
+import com.kaleblangley.haikalat.runtime.PassBenchmarkAccumulator;
+import com.kaleblangley.haikalat.runtime.FrameTimingAccumulator;
 import com.kaleblangley.haikalat.runtime.PeriodicTimer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
@@ -31,6 +35,8 @@ import java.util.Map;
 import java.time.Duration;
 
 public final class LearnOpenGlDemo {
+    private static volatile BenchmarkResult lastBenchmarkResult;
+
     private LearnOpenGlDemo() {
     }
 
@@ -40,8 +46,9 @@ public final class LearnOpenGlDemo {
 
         RenderSettings settings = RenderSettings.builder()
                 .antiAliasingMode(options.antiAliasingMode())
-                .toneMappingMode(ToneMappingMode.ACES)
+                .toneMappingMode(options.toneMappingMode())
                 .exposure(1.0f)
+                .bloomSettings(BloomSettings.builder().enabled(options.bloom()).build())
                 .vsync(!options.deterministic())
                 .build();
         try (GlfwWindow window = new GlfwWindow.Builder()
@@ -69,9 +76,10 @@ public final class LearnOpenGlDemo {
             Mesh instancedMesh = resources.meshes("builtin:" + BuiltinMeshData.QUAD).getFirst();
             ShaderProgram instancedShader = resources.shader("instanced");
             InstancedMeshBatch batch = InstancedMeshBatch.of(instancedMesh,
-                    DemoGrid.COUNT, BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
-            InstancedRenderer instanced = new InstancedRenderer(batch, instancedShader, true);
-            addInstances(instanced);
+                    options.instances(), BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
+            InstancedRenderer instanced = new InstancedRenderer(
+                    batch, instancedShader, options.instanceShadows());
+            addInstances(instanced, options.instances());
 
             RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings);
             try {
@@ -90,6 +98,10 @@ public final class LearnOpenGlDemo {
         int frame = 0;
         FrameClock clock = new FrameClock();
         PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
+        FrameBenchmarkSession benchmark = new FrameBenchmarkSession(
+                options.maxFrames(), options.warmupFrames());
+        PassBenchmarkAccumulator passBenchmark = new PassBenchmarkAccumulator(
+                Math.max(0, options.maxFrames()));
         while (!window.shouldClose()) {
             if (options.resize() != null && frame == options.resize().frame()) {
                 window.resize(options.resize().width(), options.resize().height());
@@ -101,10 +113,28 @@ public final class LearnOpenGlDemo {
                 pipeline.resize(window.width(), window.height());
             }
 
+            renderLoop.beginFrame();
             instanced.beginFrame(frame);
-            renderLoop.frame(pipeline.graph());
+            pipeline.execute(renderLoop.device());
+            renderLoop.statistics().recordGraphProfile(pipeline.graph().lastFrameProfile());
+            renderLoop.endFrame();
             if (options.resize() != null && frame > options.resize().frame()) {
                 options.resize().verify(window, pipeline);
+            }
+
+            renderLoop.present(window::swapBuffers);
+            window.pollEvents();
+
+            int warmupBefore = benchmark.snapshot().warmupRemaining();
+            int measuredBefore = benchmark.snapshot().measuredFrames();
+            benchmark.recordFrame(renderLoop, pipeline.graph().lastFrameProfile().totalGpuNanos());
+            FrameBenchmarkSession.Snapshot benchmarkSnapshot = benchmark.snapshot();
+            if (warmupBefore > 0 && benchmarkSnapshot.warmupRemaining() == 0) {
+                instanced.resetBufferStatistics();
+                passBenchmark.reset();
+            }
+            if (benchmarkSnapshot.measuredFrames() > measuredBefore) {
+                passBenchmark.add(pipeline.graph().lastFrameProfile());
             }
 
             if (titleUpdate.poll()) {
@@ -118,11 +148,13 @@ public final class LearnOpenGlDemo {
 
             GlDebug.checkError("LearnOpenGlDemo.frame");
             frame++;
-            if (options.maxFrames() > 0 && frame >= options.maxFrames()) {
+            if (benchmark.isComplete()) {
                 window.requestClose();
             }
-            renderLoop.present(window::swapBuffers);
-            window.pollEvents();
+        }
+        if (options.maxFrames() > 0) {
+            printBenchmark(renderLoop, pipeline, instanced, settings, options,
+                    benchmark.snapshot(), passBenchmark);
         }
     }
 
@@ -148,13 +180,71 @@ public final class LearnOpenGlDemo {
         return meshes.size();
     }
 
-    private static void addInstances(InstancedRenderer instanced) {
-        for (int r = 0; r < DemoGrid.SIDE; r++) {
-            for (int c = 0; c < DemoGrid.SIDE; c++) {
-                final int row = r, col = c;
-                instanced.addInstance(frame -> DemoGrid.transform(row, col, frame));
-            }
+    private static void addInstances(InstancedRenderer instanced, int count) {
+        int columns = (int) Math.ceil(Math.sqrt(count));
+        float center = (columns - 1) * 0.5f;
+        for (int index = 0; index < count; index++) {
+            final int instanceIndex = index;
+            final int row = index / columns;
+            final int column = index % columns;
+            instanced.addInstance(frame -> new Matrix4f()
+                    .translation((column - center) * 0.22f, (row - center) * 0.22f, -4.0f)
+                    .rotateZ(frame * 0.01f + (instanceIndex & 15) * 0.1f)
+                    .scale(0.08f));
         }
+    }
+
+    private static void printBenchmark(FrameDriver driver, RenderPipeline pipeline,
+                                       InstancedRenderer instanced, RenderSettings settings,
+                                       DemoOptions options, FrameBenchmarkSession.Snapshot benchmark,
+                                       PassBenchmarkAccumulator passBenchmark) {
+        var timings = benchmark.timings();
+        var buffer = instanced.bufferStatistics();
+        var state = driver.stateStatistics();
+        long stateChecks = state.appliedChanges() + state.avoidedChanges();
+        double stateSkip = stateChecks == 0L ? 0.0
+                : state.avoidedChanges() * 100.0 / stateChecks;
+        double uploadPerFrameMb = benchmark.measuredFrames() == 0 ? 0.0
+                : buffer.uploadedBytes() / (double) benchmark.measuredFrames() / (1024.0 * 1024.0);
+        Map<String, FrameTimingAccumulator.Summary> passTimings = passBenchmark.snapshot();
+        lastBenchmarkResult = new BenchmarkResult(
+                settings.toneMappingMode() + "/" + settings.antiAliasingMode()
+                        + " bloom=" + settings.bloomSettings().enabled()
+                        + " instances=" + options.instances()
+                        + " shadows=" + options.instanceShadows(),
+                benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
+                timings.averageGpuMillis(), timings.medianGpuMillis(), uploadPerFrameMb,
+                buffer.fenceWaitMillis(), buffer.fenceWaitCount(), benchmark.measuredFrames(),
+                stateSkip, passTimings);
+        if (options.quiet()) {
+            return;
+        }
+        String scope = options.warmupFrames() >= 100 && benchmark.measuredFrames() >= 1000
+                ? "FORMAL" : "INTEGRATION-ONLY";
+        System.out.printf("LearnOpenGL [%s] %s/%s bloom=%s | instances %,d | shadows=%s | "
+                        + "present FPS %.1f | CPU avg/median %.3f/%.3f ms | "
+                        + "GPU avg/median %.3f/%.3f ms | upload %.3f MB/frame | "
+                        + "ring wait %.3f ms/%d | state skip %.1f%%%n",
+                scope, settings.toneMappingMode(), settings.antiAliasingMode(),
+                settings.bloomSettings().enabled(), options.instances(), options.instanceShadows(),
+                benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
+                timings.averageGpuMillis(), timings.medianGpuMillis(), uploadPerFrameMb,
+                buffer.fenceWaitMillis(), buffer.fenceWaitCount(), stateSkip);
+        passTimings.forEach((name, pass) -> System.out.printf(
+                "  pass %-22s CPU avg/median %.4f/%.4f ms | GPU avg/median %.4f/%.4f ms%n",
+                name, pass.averageCpuMillis(), pass.medianCpuMillis(),
+                pass.averageGpuMillis(), pass.medianGpuMillis()));
+        System.out.printf("  shadow ordinary draws %d | shadow instances %,d | geometry instances %,d%n",
+                pipeline.lastShadowCasterDrawCount(), pipeline.lastInstancedShadowCasterCount(),
+                instanced.drawnCount());
+    }
+
+    static BenchmarkResult lastBenchmarkResult() {
+        BenchmarkResult result = lastBenchmarkResult;
+        if (result == null) {
+            throw new IllegalStateException("LearnOpenGlDemo has not completed a finite benchmark run");
+        }
+        return result;
     }
 
     private static SceneObject.ModelUpdater updaterFor(String objectName, SceneAssetConfig.ObjectDef def) {
@@ -195,12 +285,20 @@ public final class LearnOpenGlDemo {
     }
 
     private record DemoOptions(boolean deterministic, int maxFrames,
-                               AntiAliasingMode antiAliasingMode, ResizeSpec resize) {
+                               AntiAliasingMode antiAliasingMode, ResizeSpec resize, boolean bloom,
+                               ToneMappingMode toneMappingMode, int instances,
+                               boolean instanceShadows, int warmupFrames, boolean quiet) {
         static DemoOptions parse(String[] args) {
             boolean deterministic = false;
             int maxFrames = -1;
             AntiAliasingMode mode = AntiAliasingMode.FXAA;
             ResizeSpec resize = null;
+            boolean bloom = false;
+            ToneMappingMode toneMappingMode = ToneMappingMode.ACES;
+            int instances = DemoGrid.COUNT;
+            boolean instanceShadows = true;
+            int warmupFrames = -1;
+            boolean quiet = false;
             for (String arg : args) {
                 if ("--deterministic".equals(arg)) {
                     deterministic = true;
@@ -215,6 +313,20 @@ public final class LearnOpenGlDemo {
                 } else if (arg.startsWith("--resize=")) {
                     resize = ResizeSpec.parse(arg.substring("--resize=".length()));
                     deterministic = true;
+                } else if ("--bloom".equals(arg)) {
+                    bloom = true;
+                } else if (arg.startsWith("--tone=")) {
+                    toneMappingMode = ToneMappingMode.valueOf(
+                            arg.substring("--tone=".length()).toUpperCase());
+                } else if (arg.startsWith("--instances=")) {
+                    instances = Integer.parseInt(arg.substring("--instances=".length()));
+                } else if (arg.startsWith("--instance-shadows=")) {
+                    instanceShadows = Boolean.parseBoolean(
+                            arg.substring("--instance-shadows=".length()));
+                } else if (arg.startsWith("--warmup=")) {
+                    warmupFrames = Integer.parseInt(arg.substring("--warmup=".length()));
+                } else if ("--quiet".equals(arg)) {
+                    quiet = true;
                 } else {
                     throw new IllegalArgumentException("Unknown demo argument: " + arg);
                 }
@@ -225,8 +337,37 @@ public final class LearnOpenGlDemo {
             if (resize != null && maxFrames <= resize.frame() + 1) {
                 throw new IllegalArgumentException("--frames must include one frame after --resize");
             }
-            return new DemoOptions(deterministic, maxFrames, mode, resize);
+            if (instances <= 0 || instances > 100_000) {
+                throw new IllegalArgumentException("--instances must be between 1 and 100000");
+            }
+            if (warmupFrames < -1) {
+                throw new IllegalArgumentException("--warmup must be non-negative");
+            }
+            if (warmupFrames < 0) {
+                warmupFrames = maxFrames >= 120 ? 100 : 0;
+            }
+            if (bloom && toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalArgumentException("--bloom requires --tone=ACES");
+            }
+            return new DemoOptions(deterministic, maxFrames, mode, resize, bloom,
+                    toneMappingMode, instances, instanceShadows, warmupFrames, quiet);
         }
+    }
+
+    record BenchmarkResult(
+            String scenario,
+            double presentFps,
+            double averageCpuMillis,
+            double medianCpuMillis,
+            double averageGpuMillis,
+            double medianGpuMillis,
+            double uploadMegabytesPerFrame,
+            double ringWaitMillis,
+            long ringWaitCount,
+            int measuredFrames,
+            double stateSkipPercent,
+            Map<String, FrameTimingAccumulator.Summary> passTimings
+    ) {
     }
 
     private record ResizeSpec(int frame, int width, int height) {

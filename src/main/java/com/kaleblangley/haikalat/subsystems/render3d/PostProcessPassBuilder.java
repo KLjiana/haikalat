@@ -5,14 +5,17 @@ import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor;
+import com.kaleblangley.haikalat.subsystems.postprocess.BloomPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.stream.Stream;
 
@@ -23,18 +26,21 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final TemporalAccumulationPass taa;
     private final TaaHistory taaHistory;
     private final ToneMappingPass toneMapping;
+    private final BloomPass bloom;
 
     private PostProcessPassBuilder(RenderSettings settings, RenderWindow window,
                                    FxaaPostProcessor fxaa,
                                    TemporalAccumulationPass taa,
                                    TaaHistory taaHistory,
-                                   ToneMappingPass toneMapping) {
+                                   ToneMappingPass toneMapping,
+                                   BloomPass bloom) {
         this.settings = settings;
         this.window = window;
         this.fxaa = fxaa;
         this.taa = taa;
         this.taaHistory = taaHistory;
         this.toneMapping = toneMapping;
+        this.bloom = bloom;
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, RenderWindow window, int width, int height) {
@@ -49,7 +55,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
                 ? new TaaHistory(width, height, taaHistoryFormat(settings))
                 : null;
         ToneMappingPass toneMapping = hdr ? new ToneMappingPass() : null;
-        return new PostProcessPassBuilder(settings, window, fxaa, taa, history, toneMapping);
+        BloomPass bloom = settings.bloomSettings().enabled() ? new BloomPass() : null;
+        return new PostProcessPassBuilder(settings, window, fxaa, taa, history, toneMapping, bloom);
     }
 
     static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -74,6 +81,21 @@ final class PostProcessPassBuilder implements AutoCloseable {
             return forwardPasses;
         }
         return Stream.concat(Stream.of(DirectionalShadowMap.PASS_NAME), forwardPasses.stream()).toList();
+    }
+
+    static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode,
+                                     BloomSettings bloomSettings, boolean directionalShadow) {
+        Objects.requireNonNull(bloomSettings, "bloomSettings");
+        List<String> passes = new ArrayList<>(passNamesFor(mode, toneMappingMode, directionalShadow));
+        if (!bloomSettings.enabled()) {
+            return List.copyOf(passes);
+        }
+        if (toneMappingMode == ToneMappingMode.NONE) {
+            throw new IllegalArgumentException("Bloom requires HDR tone mapping");
+        }
+        int toneIndex = passes.indexOf(PostProcessTargets.TONE_MAPPING_PASS);
+        passes.addAll(toneIndex, bloomPassNames(bloomSettings.maxLevels()));
+        return List.copyOf(passes);
     }
 
     void addFinalPass(RenderGraph graph) {
@@ -168,12 +190,20 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
 
         final String toneInput = hdrTexture;
+        BloomOutput bloomOutput = settings.bloomSettings().enabled()
+                ? addBloomPasses(graph, hdrTexture, hdrProducer)
+                : BloomOutput.DISABLED;
+        String toneDependency = bloomOutput.enabled() ? bloomOutput.producerPass() : hdrProducer;
         graph.addPass(PostProcessTargets.TONE_MAPPING_PASS)
                 .createColor(PostProcessTargets.TONE_MAPPED_COLOR, RenderFormat.RGBA8)
                 .noClear()
-                .dependsOn(hdrProducer)
-                .execute((res, cmd) -> toneMapping.recordIntoCurrentTarget(cmd,
-                        res.colorAttachment(toneInput), settings.exposure()));
+                .dependsOn(toneDependency)
+                .execute((res, cmd) -> {
+                    int bloomTexture = bloomOutput.enabled()
+                            ? res.colorAttachment(bloomOutput.textureName()) : 0;
+                    toneMapping.recordIntoCurrentTarget(cmd, res.colorAttachment(toneInput), bloomTexture,
+                            settings.exposure(), settings.bloomSettings().intensity());
+                });
 
         if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
             graph.addPass(PostProcessTargets.FXAA_PASS)
@@ -202,6 +232,66 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
     }
 
+    private BloomOutput addBloomPasses(RenderGraph graph, String sourceTexture, String sourcePass) {
+        int levels = settings.bloomSettings().maxLevels();
+        String previousTexture = sourceTexture;
+        String previousPass = sourcePass;
+        for (int level = 0; level < levels; level++) {
+            final int currentLevel = level;
+            final String inputTexture = previousTexture;
+            final String inputPass = previousPass;
+            String passName = PostProcessTargets.bloomDownPass(level);
+            String outputTexture = PostProcessTargets.bloomDownColor(level);
+            float scale = 0.5f / (1 << level);
+            graph.addPass(passName)
+                    .createColor(outputTexture, RenderFormat.RGBA16F)
+                    .relativeSize(scale)
+                    .noClear()
+                    .dependsOn(inputPass)
+                    .execute((res, cmd) -> {
+                        Framebuffer source = res.framebufferOfPass(inputPass);
+                        if (source == null) {
+                            return;
+                        }
+                        if (currentLevel == 0) {
+                            bloom.recordExtract(cmd, res.colorAttachment(inputTexture),
+                                    source.width(), source.height(),
+                                    settings.bloomSettings().threshold(),
+                                    settings.bloomSettings().softKnee());
+                        } else {
+                            bloom.recordDownsample(cmd, res.colorAttachment(inputTexture),
+                                    source.width(), source.height());
+                        }
+                    });
+            previousTexture = outputTexture;
+            previousPass = passName;
+        }
+
+        for (int level = levels - 2; level >= 0; level--) {
+            final String highTexture = PostProcessTargets.bloomDownColor(level);
+            final String lowTexture = previousTexture;
+            final String lowPass = previousPass;
+            String passName = PostProcessTargets.bloomUpPass(level);
+            String outputTexture = PostProcessTargets.bloomUpColor(level);
+            float scale = 0.5f / (1 << level);
+            graph.addPass(passName)
+                    .createColor(outputTexture, RenderFormat.RGBA16F)
+                    .relativeSize(scale)
+                    .noClear()
+                    .dependsOn(lowPass)
+                    .execute((res, cmd) -> {
+                        Framebuffer low = res.framebufferOfPass(lowPass);
+                        if (low != null) {
+                            bloom.recordUpsample(cmd, res.colorAttachment(highTexture),
+                                    res.colorAttachment(lowTexture), low.width(), low.height());
+                        }
+                    });
+            previousTexture = outputTexture;
+            previousPass = passName;
+        }
+        return new BloomOutput(previousTexture, previousPass);
+    }
+
     void resize(int width, int height) {
         if (taaHistory != null) {
             taaHistory.resize(width, height);
@@ -221,6 +311,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
         if (toneMapping != null) {
             toneMapping.close();
+        }
+        if (bloom != null) {
+            bloom.close();
         }
     }
 
@@ -245,6 +338,25 @@ final class PostProcessPassBuilder implements AutoCloseable {
             case TAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                     PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS);
         };
+    }
+
+    private static List<String> bloomPassNames(int levels) {
+        List<String> names = new ArrayList<>(levels * 2 - 1);
+        for (int level = 0; level < levels; level++) {
+            names.add(PostProcessTargets.bloomDownPass(level));
+        }
+        for (int level = levels - 2; level >= 0; level--) {
+            names.add(PostProcessTargets.bloomUpPass(level));
+        }
+        return names;
+    }
+
+    private record BloomOutput(String textureName, String producerPass) {
+        private static final BloomOutput DISABLED = new BloomOutput(null, null);
+
+        boolean enabled() {
+            return textureName != null;
+        }
     }
 
     static RenderFormat taaHistoryFormat(RenderSettings settings) {

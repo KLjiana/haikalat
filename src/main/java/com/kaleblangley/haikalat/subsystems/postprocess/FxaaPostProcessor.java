@@ -32,7 +32,9 @@ public final class FxaaPostProcessor implements GlResource {
     }
 
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int sourceTexture, int sourceWidth, int sourceHeight) {
+        cmd.enableBlend(false);
         cmd.enableDepthTest(false);
+        cmd.enableCullFace(false);
         cmd.clear(true, false);
         cmd.bindShader(program);
         cmd.bindTexture(0, sourceTexture);

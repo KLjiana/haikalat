@@ -8,6 +8,7 @@ public final class RenderSettings {
     private final int msaaSamples;
     private final ToneMappingMode toneMappingMode;
     private final float exposure;
+    private final BloomSettings bloomSettings;
 
     private RenderSettings(Builder builder) {
         this.vsync = builder.vsync;
@@ -15,6 +16,7 @@ public final class RenderSettings {
         this.msaaSamples = builder.msaaSamples;
         this.toneMappingMode = builder.toneMappingMode;
         this.exposure = builder.exposure;
+        this.bloomSettings = builder.bloomSettings;
     }
 
     public static Builder builder() {
@@ -41,6 +43,10 @@ public final class RenderSettings {
         return exposure;
     }
 
+    public BloomSettings bloomSettings() {
+        return bloomSettings;
+    }
+
     /** @return 当前设置是否需要线性 HDR 中间目标 */
     public boolean hdrEnabled() {
         return toneMappingMode != ToneMappingMode.NONE;
@@ -52,6 +58,7 @@ public final class RenderSettings {
         private int msaaSamples = 4;
         private ToneMappingMode toneMappingMode = ToneMappingMode.NONE;
         private float exposure = 1.0f;
+        private BloomSettings bloomSettings = BloomSettings.defaults();
 
         private Builder() {
         }
@@ -81,6 +88,11 @@ public final class RenderSettings {
             return this;
         }
 
+        public Builder bloomSettings(BloomSettings value) {
+            bloomSettings = value;
+            return this;
+        }
+
         public RenderSettings build() {
             if (antiAliasingMode == null) {
                 throw new NullPointerException("antiAliasingMode");
@@ -90,6 +102,12 @@ public final class RenderSettings {
             }
             if (!Float.isFinite(exposure) || exposure <= 0.0f) {
                 throw new IllegalArgumentException("exposure must be finite and positive");
+            }
+            if (bloomSettings == null) {
+                throw new NullPointerException("bloomSettings");
+            }
+            if (bloomSettings.enabled() && toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalStateException("Bloom requires HDR tone mapping");
             }
             return new RenderSettings(this);
         }

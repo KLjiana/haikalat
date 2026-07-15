@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.buffer.InstanceBufferRing;
+import com.kaleblangley.haikalat.core.buffer.InstanceBufferStatistics;
 import com.kaleblangley.haikalat.core.buffer.InstanceUploadStrategy;
 import org.joml.Matrix4f;
 
@@ -26,6 +27,10 @@ public final class InstancedMeshBatch implements AutoCloseable {
     private MeshEntry defaultMesh;
     private InstanceBatchStats lastStats = InstanceBatchStats.empty();
     private boolean frameBegun;
+    private boolean prepared;
+    private int preparedInstances;
+    private int preparedBufferUpdates;
+    private int preparedMeshGroups;
     private boolean closed;
 
     private InstancedMeshBatch(int maxInstances, int baseAttributeLocation) {
@@ -103,6 +108,10 @@ public final class InstancedMeshBatch implements AutoCloseable {
             entry.transforms.clear();
         }
         lastStats = InstanceBatchStats.empty();
+        prepared = false;
+        preparedInstances = 0;
+        preparedBufferUpdates = 0;
+        preparedMeshGroups = 0;
         frameBegun = true;
         return this;
     }
@@ -167,6 +176,59 @@ public final class InstancedMeshBatch implements AutoCloseable {
         }
     }
 
+    /**
+     * 为同一帧的多个 pass 上传一次稳定快照，但暂不结束 ring slot 生命周期。
+     * 后续可以多次调用 {@link #drawPrepared()}，并最终调用 {@link #finishPrepared()}。
+     *
+     * @param snapshots 当前帧不可变矩阵快照
+     * @return 已准备的实例数量
+     */
+    public int prepareOwnedSnapshots(List<Matrix4f> snapshots) {
+        ensureOpen();
+        beginFrame();
+        try {
+            submitOwnedSnapshots(snapshots);
+            return prepareDraws();
+        } catch (RuntimeException | Error failure) {
+            finishFrame(failure);
+            throw failure;
+        }
+    }
+
+    /** @return 使用当前已上传实例数据完成的绘制实例数 */
+    public int drawPrepared() {
+        ensureOpen();
+        ensureFrameBegun();
+        if (!prepared) {
+            throw new GlException("Call prepareOwnedSnapshots before drawPrepared");
+        }
+        int drawn = 0;
+        int drawCalls = 0;
+        for (MeshEntry entry : meshes) {
+            int count = entry.transforms.size();
+            if (count == 0) {
+                continue;
+            }
+            entry.vao.bind();
+            entry.mesh.drawInstancedBound(count);
+            drawn += count;
+            drawCalls++;
+        }
+        lastStats = new InstanceBatchStats(preparedInstances, drawn, drawCalls,
+                preparedBufferUpdates, preparedMeshGroups);
+        return drawn;
+    }
+
+    /** 在全部复用 pass 绘制完成后插入 fence，并释放当前帧快照。 */
+    public void finishPrepared() {
+        ensureOpen();
+        ensureFrameBegun();
+        if (!prepared) {
+            throw new GlException("Call prepareOwnedSnapshots before finishPrepared");
+        }
+        finishFrame(null);
+    }
+
     private void finishFrame(Throwable primaryFailure) {
         try {
             instanceBuffers.finishFrame();
@@ -175,14 +237,22 @@ public final class InstancedMeshBatch implements AutoCloseable {
             primaryFailure.addSuppressed(finishFailure);
         } finally {
             frameBegun = false;
+            prepared = false;
             clearTransforms();
         }
     }
 
     private int flushDraws() {
+        prepareDraws();
+        return drawPrepared();
+    }
+
+    private int prepareDraws() {
         int submitted = pendingInstances();
         if (submitted == 0) {
             lastStats = InstanceBatchStats.empty();
+            prepared = true;
+            preparedInstances = 0;
             return 0;
         }
         if (submitted > instanceBuffers.maxInstances()) {
@@ -190,8 +260,6 @@ public final class InstancedMeshBatch implements AutoCloseable {
                     + submitted + " > " + instanceBuffers.maxInstances());
         }
 
-        int drawn = 0;
-        int drawCalls = 0;
         int bufferUpdates = 0;
         int meshGroups = 0;
         int startInstance = 0;
@@ -205,16 +273,15 @@ public final class InstancedMeshBatch implements AutoCloseable {
             bufferUpdates++;
             entry.vao.bind();
             instanceBuffers.bindAttributes(instanceLayout, startInstance);
-            entry.mesh.drawInstancedBound(count);
-
-            drawn += count;
-            drawCalls++;
             meshGroups++;
             startInstance += count;
         }
 
-        lastStats = new InstanceBatchStats(submitted, drawn, drawCalls, bufferUpdates, meshGroups);
-        return drawn;
+        prepared = true;
+        preparedInstances = submitted;
+        preparedBufferUpdates = bufferUpdates;
+        preparedMeshGroups = meshGroups;
+        return submitted;
     }
 
     public boolean isPersistent() {
@@ -231,6 +298,14 @@ public final class InstancedMeshBatch implements AutoCloseable {
 
     public InstanceBatchStats statistics() {
         return lastStats;
+    }
+
+    public InstanceBufferStatistics bufferStatistics() {
+        return instanceBuffers.statistics();
+    }
+
+    public void resetBufferStatistics() {
+        instanceBuffers.resetStatistics();
     }
 
     public int pendingInstances() {
