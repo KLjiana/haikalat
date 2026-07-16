@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.11.0（2026-07-17）
+
 - 清理 v0.11 RC 发布资产：忽略 HotSpot 崩溃产物，并将 Unifont 与 Noto Sans SC 统一归档到内建字体目录和许可清单。
 - 更新项目目标与后续计划，记录 UI subsystem 已完成首轮实现；调试器和编辑工具改为允许基于稳定公共 API 渐进演进。
 - 将 native/IME soak、Windows 人工矩阵、公共 API 收口和 UI 分配/批处理优化列为 `0.11.0` 正式版门槛。
@@ -10,8 +12,9 @@
 - 建立穷尽的 UI public type allowlist，将 109 个顶层类型分为 stable、advanced 和 internal；架构测试阻止未分类扩面、重复分类、陈旧条目以及 renderer 协议被隐式提升。
 - 完成六个 UI 大类的职责审计，后续只围绕 native ownership、text-input coordinator、frame snapshot builder 和 atlas upload transaction 等真实边界提取。
 - UI snapshot 改为交换槽拥有的可复用 primitive arena；renderer 保留最后快照 lease 到替换/关闭，既消除每帧 frozen 数组分配，又不允许 producer 覆写仍可能重放的内容。
-- 去掉 glyph/box 热路径临时 bounds/UV/lookup 对象并缓存 glyph key；相邻同 atlas page、父 clip 和 shader 的 Label glyph run 可跨节点合并，保持 paint order。
-- 增加 batch-break 原因统计。五轮复测中 virtual list 从 51～65 draws 降到 3，2,000 glyph 从约 506 KiB/frame 降到约 5 KiB/frame；10,000 quad 从约 1.57 MiB 降到约 600 KiB，仍未达到 256 KiB 目标。
+- 去掉 glyph/box 热路径临时 bounds/UV/lookup 对象并缓存 glyph key；所有 Label 和 TextField 文本默认按自身边界裁剪，避免 bearing 或长文本越出控件。
+- 增加 batch-break 原因统计。2,000 glyph 从约 506 KiB/frame 降到约 37 KiB，10,000 quad 从约 1.57 MiB 降到约 600 KiB；文本节点裁剪优先于跨 Label 合批，virtual list 保留 clip 导致的 draw break。
+- Microsoft Pinyin 的候选、DPI、多显示器、Alt+Tab、commit/cancel 和去重人工矩阵通过；Emoji committed text 可进入控件，但内建字体缺少相应字形且 v0.11 不支持彩色 Emoji。
 
 ## 已完成路线图
 
@@ -149,7 +152,7 @@
 - 1080p/4K 五轮正式基准显示 AUTO GPU median 增量分别为 `0.215 ms` 和 `0.435 ms`；详细数据见 `docs/performance/v0.10-auto-exposure-2026-07-15.md`。
 - `clean compileJava demoClasses test localGlVerification --rerun-tasks` 的 23 个任务全部通过，版本进入 `0.10.0-rc.1`。
 
-### v0.11-retained-ui（0.11.0-rc.1，2026-07-16）
+### v0.11-retained-ui（0.11.0，2026-07-17）
 
 #### Tree、layout、控件与输入
 
@@ -215,5 +218,5 @@
   hit 为 100%，layout/shape/upload 归零；详细数据见 `docs/performance/v0.11-ui-2026-07-16.md`。
 - 性能记录同时暴露两个后续优化点：10,000 quads 仍约分配 1.57 MiB/frame，virtual list 的
   相邻 Label 尚未跨节点合并 glyph batch。它们是优化项，不通过跳过 fence 或改变 paint order 掩盖。
-- Gradle 版本进入 `0.11.0-rc.1`。Microsoft Pinyin 的候选翻页、DPI、多显示器和 Alt+Tab
-  仍按 `docs/guides/windows-ime.md` 在发布稳定版前人工记录。
+- Gradle 版本进入 `0.11.0`。Microsoft Pinyin 的候选翻页、DPI、多显示器、Alt+Tab、composition
+  commit/cancel 和 committed character 去重矩阵已于 2026-07-17 人工通过；Emoji 显示列为字体覆盖限制。

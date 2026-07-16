@@ -15,7 +15,7 @@
 | Bloom | 完整 | `BloomSettings`、`BloomPass`、RenderGraph relative target | `runBloomDemo` | `RenderGraphTest`、`RenderPipelineTest`、`RenderPipelineGlTest`、`runBloomIntegration` | 默认关闭；1～8 层 HDR downsample/upsample，最终半分辨率纹理直接由 ToneMapping 合成 |
 | Retained-mode 游戏 UI | 完整 | `subsystems/ui/UiSystem`、`UiDocument`、Yoga layout、widget/event/style、`UiRenderer` | `UiDemo`、`LearnOpenGlDemo` overlay | `UiSystemTest`、widget/layout/event tests、`UiRendererGlTest`、`UiDemoGlTest`、四项 UI integration | 每窗口一棵单线程 mutable tree；同步双槽或异步三槽 immutable snapshot；editor docking、CSS parser 和 OS accessibility bridge 不在 v0.11 |
 | Latin/CJK 文本与 glyph atlas | 完整 | `FontManager`、`TextShaper`、`TextLayouter`、`GlyphAtlas`、`UiGlyphAtlasGpu` | `UiDemo`、`runUiTextIntegration` | native shaping/font/atlas tests、`UiGlyphAtlasGpuGlTest`、`UiDemoGlTest` | 内建 Sans2.004 Noto Sans SC VF；正式承诺 Latin/CJK，暂不承诺完整 BiDi、彩色 emoji 或 variable-axis UI |
-| UI 输入、焦点、clipboard 与 Windows IME | 完整 | `WindowInputSnapshot`、`UiInputRouter`、`TextField`、`TextInputAdapter`、`Win32TextInputAdapter` | `UiDemo`、`runUiInteractiveSoak` | input/focus/TextField tests、可注入 IME integration、`runUiSyntheticImeSoak`、`runUiNativeSoak` | committed char 与 composition 分离；非 Windows 平台降级为 committed-char，Microsoft Pinyin 的候选/DPI/多显示器矩阵仍需逐 RC 人工执行 |
+| UI 输入、焦点、clipboard 与 Windows IME | 完整 | `WindowInputSnapshot`、`UiInputRouter`、`TextField`、`TextInputAdapter`、`Win32TextInputAdapter` | `UiDemo`、`runUiInteractiveSoak` | input/focus/TextField tests、可注入 IME integration、`runUiSyntheticImeSoak`、`runUiNativeSoak`、2026-07-17 Microsoft Pinyin 人工矩阵 | committed char 与 composition 分离；非 Windows 平台降级为 committed-char；Emoji 输入可提交，但内建字体不保证对应字形且不支持彩色 Emoji |
 | OBJ 模型与场景配置 | 完整 | `ObjModelLoader`、`ModelAssetManager`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest`、`DemoResourceContractTest`、`runDemoIntegration` | 主 Demo 从 classpath manifest 加载自有 OBJ，并将多 mesh 映射为共享材质/transform 的 renderer |
 | Assimp 模型入口 | 部分完成 | `AssimpModelLoader` | 无 | 无端到端验证 | 仍要求真实文件系统路径，尚未进入打包 Demo 主路径 |
 | 异步上传与渲染线程 | 完整 | `UploadSystem`、`LatestFrameMailbox`、`GlRenderThread` | `AsyncDemo` | `UploadSystemTest`、`LatestFrameMailboxTest`、`GlContextSmokeTest`、`runAsyncIntegration` | 两线程 latest-wins；矩阵 UBO 上传成功后才发布对应不可变帧状态 |
@@ -25,7 +25,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 版本：`0.11.0-rc.1`，稳定基线为 `0.9.0`。
+- 版本与稳定基线：`0.11.0`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。

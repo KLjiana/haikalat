@@ -24,7 +24,6 @@ import java.util.Objects;
  */
 public final class UiPainter {
     private static final int DEBUG_BOUNDS_COLOR = 0x00ff00a0;
-    private static final double TEXT_CLIP_MARGIN = 1.0;
     private static final float FOCUSED_SELECTION_OPACITY = 0.55f;
     private static final float UNFOCUSED_SELECTION_OPACITY = 0.30f;
 
@@ -242,8 +241,7 @@ public final class UiPainter {
 
     private void paintText(UiNode node, String text, Label.Alignment alignment,
                            UiScreenRect bounds, boolean placeholder, UiDisplayList output) {
-        boolean clipText = node.style().overflow() != UiStyle.Overflow.VISIBLE;
-        paintText(node, text, alignment, bounds, bounds, placeholder, clipText, output);
+        paintText(node, text, alignment, bounds, bounds, placeholder, true, output);
     }
 
     private void paintText(UiNode node, String text, Label.Alignment alignment,
@@ -324,15 +322,8 @@ public final class UiPainter {
                 width, height), region.uv());
     }
 
-    /**
-     * 为字体 bearing、hinting 和线性覆盖率采样保留一个逻辑像素的四边保护带。
-     * 外层控件或滚动视图的裁剪仍会与该区域求交。
-     */
     private static UiScreenRect textClip(UiScreenRect bounds) {
-        return new UiScreenRect(bounds.x() - TEXT_CLIP_MARGIN,
-                bounds.y() - TEXT_CLIP_MARGIN,
-                bounds.width() + TEXT_CLIP_MARGIN * 2.0,
-                bounds.height() + TEXT_CLIP_MARGIN * 2.0);
+        return bounds;
     }
 
     private static boolean clipsChildren(UiNode node) {

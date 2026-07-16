@@ -78,8 +78,8 @@ class UiPainterTest {
             assertSame(UiPrimitiveKind.PUSH_CLIP, list.primitiveKind(0));
             assertEquals(new UiScreenRect(10.5, 11.25, 20.5, 21.75), list.primitiveClip(0));
             assertSame(UiPrimitiveKind.PUSH_CLIP, list.primitiveKind(1));
-            assertEquals(22.25, list.primitiveClip(1).y(), EPSILON,
-                    "child logical Y 应减去 7.25 scroll offset，且保留小数");
+            assertEquals(23.25, list.primitiveClip(1).y(), EPSILON,
+                    "child text clip 应按滚动后的节点边界裁剪且保留小数");
             assertSame(UiPrimitiveKind.SOLID_QUAD, list.primitiveKind(2));
             assertTrue(list.quadY(0) >= 23.25 && list.quadY(0) < 35.25);
             assertTrue(list.freeze().isFrozen(), "嵌套 clip 必须保持 push/pop 平衡");
@@ -134,7 +134,7 @@ class UiPainterTest {
     }
 
     @Test
-    void visibleOverflowLabelsAvoidPerNodeClipAndKeepAdjacentGlyphRunsMergeable() {
+    void labelsClipGlyphsToTheirOwnBoundsByDefault() {
         UiGlyphPainter glyphs = (list, node, text, bounds, color) -> {
             list.beginGlyphRun(9, 2, UiBlendMode.PREMULTIPLIED_ALPHA);
             list.addGlyph(new UiScreenRect(bounds.x(), bounds.y(), 4, 6), UiUvRect.FULL, color);
@@ -150,10 +150,13 @@ class UiPainterTest {
             UiDisplayList list = new UiPainter(UiImageResolver.empty(), glyphs,
                     UiDebugOptions.NONE).paint(document);
 
-            assertSame(UiPrimitiveKind.GLYPH_RUN, list.primitiveKind(0));
-            assertEquals(9, list.primitiveTexture(0));
-            assertEquals(1, list.primitiveQuadCount(0));
-            assertSame(UiShaderVariant.GLYPH, list.primitiveShader(0));
+            assertSame(UiPrimitiveKind.PUSH_CLIP, list.primitiveKind(0));
+            assertEquals(new UiScreenRect(2, 3, 20, 20), list.primitiveClip(0));
+            assertSame(UiPrimitiveKind.GLYPH_RUN, list.primitiveKind(1));
+            assertEquals(9, list.primitiveTexture(1));
+            assertEquals(1, list.primitiveQuadCount(1));
+            assertSame(UiShaderVariant.GLYPH, list.primitiveShader(1));
+            assertSame(UiPrimitiveKind.POP_CLIP, list.primitiveKind(2));
         }
     }
 

@@ -68,16 +68,17 @@ TextField 删除和 popup TextField 生命周期；可用 `-PuiImeSoakCycles=<�
 .\gradlew.bat runUiInteractiveSoak -PuiSoakSeconds=60
 ```
 
-在 Microsoft Pinyin 下逐项记录结果。自动 smoke 不能替代这些检查，全部完成前版本保持
-`0.11.0-rc.1`。
+以下矩阵已于 2026-07-17 使用 Microsoft Pinyin 完成人工验收。Emoji 可以作为 committed text
+进入控件，但内建 Latin/CJK 字体不包含对应字形，v0.11 也不支持彩色 Emoji；这属于已知的
+字体覆盖限制，不是 IME commit 丢失。
 
 | 项目 | 状态 | 环境/证据 |
 | --- | --- | --- |
-| 拼音多次 preedit 更新、候选翻页、选择、commit 与 Escape cancel | 待人工验证 | — |
-| 中英文切换、Latin/CJK 混排 selection 替换、emoji 与组合字符 | 待人工验证 | — |
-| ScrollView 与 Popup 内 TextField 的 caret/候选框跟随 | 待人工验证 | — |
-| resize 与 100%/125%/150%/200% DPI | 待人工验证 | — |
-| 窗口跨多显示器移动 | 待人工验证 | — |
-| Alt+Tab 失焦/恢复、焦点切换与删除 active TextField | 待人工验证 | — |
-| 关闭窗口时 adapter 先恢复 hook，无 callback use-after-free | 待人工验证 | — |
-| 每次 committed character 只出现一次，无 GLFW/`GCS_RESULTSTR` 重复 | 待人工验证 | — |
+| 拼音多次 preedit 更新、候选翻页、选择、commit 与 Escape cancel | 通过 | 2026-07-17 人工验收 |
+| 中英文切换、Latin/CJK 混排 selection 替换、emoji 与组合字符 | 通过；Emoji 缺少可显示字形 | committed text 正常，渲染限制见上文 |
+| ScrollView 与 Popup 内 TextField 的 caret/候选框跟随 | 通过 | 2026-07-17 人工验收 |
+| resize 与 100%/125%/150%/200% DPI | 通过 | 2026-07-17 人工验收 |
+| 窗口跨多显示器移动 | 通过 | 2026-07-17 人工验收 |
+| Alt+Tab 失焦/恢复、焦点切换与删除 active TextField | 通过 | 2026-07-17 人工验收 |
+| 关闭窗口时 adapter 先恢复 hook，无 callback use-after-free | 通过 | 2026-07-17 人工验收 |
+| 每次 committed character 只出现一次，无 GLFW/`GCS_RESULTSTR` 重复 | 通过 | 2026-07-17 人工验收 |
