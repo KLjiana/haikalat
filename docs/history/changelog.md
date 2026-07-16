@@ -7,6 +7,8 @@
 - 将 native/IME soak、Windows 人工矩阵、公共 API 收口和 UI 分配/批处理优化列为 `0.11.0` 正式版门槛。
 - 增加 `runUiSyntheticImeSoak`、`runUiNativeSoak` 和按真实时间退出的 `runUiInteractiveSoak`；当前候选已通过 100 轮 synthetic IME 与 50 轮 Win32 窗口/hook/GC 生命周期。
 - 修复活动 `TextField` 已关闭后文本输入同步仍尝试取消其 composition 的失效节点访问，并把内建 Unifont 回归改为 classpath 资源验证。
+- 建立穷尽的 UI public type allowlist，将 109 个顶层类型分为 stable、advanced 和 internal；架构测试阻止未分类扩面、重复分类、陈旧条目以及 renderer 协议被隐式提升。
+- 完成六个 UI 大类的职责审计，后续只围绕 native ownership、text-input coordinator、frame snapshot builder 和 atlas upload transaction 等真实边界提取。
 
 ## 已完成路线图
 
