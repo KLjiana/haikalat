@@ -48,14 +48,36 @@ Windows 本机 WndProc smoke 与其他真实窗口测试共用开关：
 该 smoke 创建隐藏 GLFW 窗口、安装 hook、同步发送 start/end 消息、验证 FIFO 事件，然后恢复
 WndProc 并再次发送消息证明 callback 已断开。它不自动弹出或操纵用户输入法。
 
+发布门槛额外提供两项不可缓存的压力任务：
+
+```powershell
+.\gradlew.bat runUiSyntheticImeSoak
+.\gradlew.bat runUiNativeSoak
+```
+
+`runUiSyntheticImeSoak` 默认执行 100 轮 composition、失焦、resize/content-scale、活动
+TextField 删除和 popup TextField 生命周期；可用 `-PuiImeSoakCycles=<次数>` 增加轮数。
+`runUiNativeSoak` 默认执行 50 轮真实隐藏窗口、WndProc 安装、GC 压力、poll、hook 恢复和窗口
+销毁；低于 50 轮会直接失败，可用 `-PuiNativeSoakRounds=<次数>` 增加轮数。
+
 ## 发布前手工矩阵
 
-在 Microsoft Pinyin 下记录下列项目，自动 smoke 不能替代这些检查：
+先启动 60 秒可交互窗口；可将时长设为 60～300 秒：
 
-1. 拼音多次 preedit 更新、翻页、候选选择、commit 和 Escape cancel；
-2. 中英文切换、Latin/CJK 混排 selection 替换、emoji 与组合字符；
-3. TextField 位于 ScrollView 和 Popup 内时，caret 移动后候选框跟随；
-4. 窗口 resize、100%/125%/150%/200% DPI、多显示器移动；
-5. Alt+Tab 失焦/恢复、焦点切换和删除 active TextField；
-6. 关闭窗口时先关闭 adapter，无 WndProc callback use-after-free；
-7. 每次 commit 只出现一次，确认 GLFW char 与 `GCS_RESULTSTR` 没有重复写入。
+```powershell
+.\gradlew.bat runUiInteractiveSoak -PuiSoakSeconds=60
+```
+
+在 Microsoft Pinyin 下逐项记录结果。自动 smoke 不能替代这些检查，全部完成前版本保持
+`0.11.0-rc.1`。
+
+| 项目 | 状态 | 环境/证据 |
+| --- | --- | --- |
+| 拼音多次 preedit 更新、候选翻页、选择、commit 与 Escape cancel | 待人工验证 | — |
+| 中英文切换、Latin/CJK 混排 selection 替换、emoji 与组合字符 | 待人工验证 | — |
+| ScrollView 与 Popup 内 TextField 的 caret/候选框跟随 | 待人工验证 | — |
+| resize 与 100%/125%/150%/200% DPI | 待人工验证 | — |
+| 窗口跨多显示器移动 | 待人工验证 | — |
+| Alt+Tab 失焦/恢复、焦点切换与删除 active TextField | 待人工验证 | — |
+| 关闭窗口时 adapter 先恢复 hook，无 callback use-after-free | 待人工验证 | — |
+| 每次 committed character 只出现一次，无 GLFW/`GCS_RESULTSTR` 重复 | 待人工验证 | — |

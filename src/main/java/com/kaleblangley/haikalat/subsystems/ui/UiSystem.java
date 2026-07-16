@@ -493,7 +493,9 @@ public final class UiSystem implements AutoCloseable {
         if (focused != activeTextField) {
             if (activeTextField != null) {
                 textInputAdapter.deactivate(textInputClient);
-                activeTextField.cancelComposition();
+                if (!activeTextField.isClosed()) {
+                    activeTextField.cancelComposition();
+                }
             }
             activeTextField = focused;
             textInputClient.clear();

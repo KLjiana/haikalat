@@ -11,8 +11,7 @@ v0.11 UI subsystem 已完成首轮功能实现，当前处于 RC 稳定阶段。
 
 ### 近期
 
-- [ ] 完成至少 50 轮窗口、WndProc hook、事件轮询、hook 恢复和窗口销毁的 native 生命周期 soak，并在轮次间施加 GC 压力。
-- [ ] 完成 synthetic IME soak，覆盖 composition start/update/end、焦点丢失、resize/content-scale、活动输入框删除和 popup 内输入框。
+- [ ] 在每个正式版候选上重新运行 `runUiNativeSoak` 与 `runUiSyntheticImeSoak`，保留失败日志；当前候选已分别通过 50 轮真实 native 生命周期和 100 轮 synthetic IME 生命周期。
 - [ ] 完成 60～300 秒交互 UiDemo soak，并记录 Windows IME 人工矩阵；人工结果完成前保持 `0.11.0-rc.1`。
 - [ ] 建立 UI 公共 API allowlist 或内部 API 标记与架构测试，避免 RC 后继续无意扩大兼容面。
 - [ ] 增加 UI batch-break 原因和每帧分配统计，优先消除逐 glyph/quad 临时对象与 display-list 快照复制。

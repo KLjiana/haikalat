@@ -38,11 +38,14 @@ class UiDemoSceneTest {
 
     @Test
     void optionalOtfAppearsInRuntimeFontSelector() throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                java.nio.file.Files.isRegularFile(UiDemo.OPTIONAL_UNIFONT));
+        byte[] unifont;
+        try (var input = UiDemoSceneTest.class.getResourceAsStream(UiDemo.OPTIONAL_UNIFONT)) {
+            unifont = java.util.Objects.requireNonNull(input,
+                    "bundled Unifont resource").readAllBytes();
+        }
         try (UiSystem ui = UiSystem.create(new FixedWindow(720, 480), UiConfig.defaults(),
                 new UnavailableTextInputAdapter("font selector regression"))) {
-            ui.registerFont("Unifont", UiDemo.OPTIONAL_UNIFONT);
+            ui.registerFont("Unifont", unifont);
             try (UiDemoScene scene = UiDemoScene.install(ui.document(), null, ui)) {
                 Button selector = descendants(ui.document().root()).stream()
                         .filter(node -> "UiDemoFontSelector".equals(node.debugName()))

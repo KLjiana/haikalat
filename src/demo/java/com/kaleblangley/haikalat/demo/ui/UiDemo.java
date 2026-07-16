@@ -116,6 +116,10 @@ public final class UiDemo {
         long totalDispatchedEvents = 0L;
         int frame = 0;
         int nonClearSamples = -1;
+        long startedNanos = System.nanoTime();
+        long durationNanos = options.maximumSeconds() > 0
+                ? Math.multiplyExact((long) options.maximumSeconds(), 1_000_000_000L)
+                : Long.MAX_VALUE;
 
         while (!window.shouldClose()) {
             applyScheduledResize(window, options, frame);
@@ -143,7 +147,9 @@ public final class UiDemo {
             totalInputEvents += lastStatistics.inputEvents();
             totalDispatchedEvents += lastStatistics.dispatchedEvents();
             boolean finalFiniteFrame = options.maximumFrames() > 0
-                    && frame + 1 >= options.maximumFrames();
+                    && frame + 1 >= options.maximumFrames()
+                    || options.maximumSeconds() > 0
+                    && System.nanoTime() - startedNanos >= durationNanos;
             if (options.verifyPixels() && finalFiniteFrame) {
                 nonClearSamples = countNonClearSamples(window.width(), window.height());
             }

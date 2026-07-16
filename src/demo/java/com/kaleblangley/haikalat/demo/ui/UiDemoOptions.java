@@ -15,7 +15,7 @@ import java.util.Set;
  * resize 的 frame 从 0 开始，与其他引擎 Demo 的确定性参数保持一致。</p>
  */
 public record UiDemoOptions(boolean deterministic, boolean hidden, boolean vsync,
-                            int maximumFrames, List<ResizeStep> resizeSteps,
+                            int maximumFrames, int maximumSeconds, List<ResizeStep> resizeSteps,
                             ContentScale contentScale, ScriptMode scriptMode,
                             boolean verifyPixels) {
     public static final int DEFAULT_DETERMINISTIC_FRAMES = 12;
@@ -23,6 +23,12 @@ public record UiDemoOptions(boolean deterministic, boolean hidden, boolean vsync
     public UiDemoOptions {
         if (maximumFrames == 0 || maximumFrames < -1) {
             throw new IllegalArgumentException("maximumFrames must be positive or -1");
+        }
+        if (maximumSeconds == 0 || maximumSeconds < -1) {
+            throw new IllegalArgumentException("maximumSeconds must be positive or -1");
+        }
+        if (maximumFrames > 0 && maximumSeconds > 0) {
+            throw new IllegalArgumentException("--frames and --seconds are mutually exclusive");
         }
         resizeSteps = List.copyOf(Objects.requireNonNull(resizeSteps, "resizeSteps"));
         Objects.requireNonNull(scriptMode, "scriptMode");
@@ -51,6 +57,7 @@ public record UiDemoOptions(boolean deterministic, boolean hidden, boolean vsync
         boolean verifyPixels = false;
         boolean scriptExplicit = false;
         int maximumFrames = -1;
+        int maximumSeconds = -1;
         ContentScale contentScale = null;
         ScriptMode scriptMode = ScriptMode.NONE;
         List<ResizeStep> resizeSteps = new ArrayList<>();
@@ -69,6 +76,9 @@ public record UiDemoOptions(boolean deterministic, boolean hidden, boolean vsync
             } else if (argument.startsWith("--frames=")) {
                 maximumFrames = positiveInteger(argument.substring("--frames=".length()),
                         "--frames");
+            } else if (argument.startsWith("--seconds=")) {
+                maximumSeconds = positiveInteger(argument.substring("--seconds=".length()),
+                        "--seconds");
             } else if (argument.startsWith("--resize=")) {
                 resizeSteps.add(ResizeStep.parse(argument.substring("--resize=".length())));
             } else if (argument.startsWith("--content-scale=")) {
@@ -97,12 +107,16 @@ public record UiDemoOptions(boolean deterministic, boolean hidden, boolean vsync
             }
         }
         if (deterministic) {
+            if (maximumSeconds > 0) {
+                throw new IllegalArgumentException(
+                        "--deterministic requires frame-based termination, not --seconds");
+            }
             hidden = true;
             vsync = false;
             if (maximumFrames < 0) maximumFrames = DEFAULT_DETERMINISTIC_FRAMES;
             if (!scriptExplicit) scriptMode = ScriptMode.BUILTIN;
         }
-        return new UiDemoOptions(deterministic, hidden, vsync, maximumFrames,
+        return new UiDemoOptions(deterministic, hidden, vsync, maximumFrames, maximumSeconds,
                 resizeSteps, contentScale, scriptMode, verifyPixels);
     }
 

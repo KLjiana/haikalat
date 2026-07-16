@@ -235,11 +235,59 @@ tasks.register('runUiBenchmarks', JavaExec) {
     }
 }
 
+tasks.register('runUiInteractiveSoak', JavaExec) {
+    group = 'verification'
+    description = 'Runs a visible, time-bounded UiDemo for the manual Windows IME matrix.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args "--seconds=${providers.gradleProperty('uiSoakSeconds').getOrElse('60')}",
+            '--script=none', '--vsync'
+}
+
+tasks.register('runUiSyntheticImeSoak', Test) {
+    group = 'verification'
+    description = 'Runs repeated synthetic IME, focus, resize, deletion and popup lifecycles.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.ui.UiImeSyntheticSoakTest'
+    }
+    systemProperty 'haikalat.uiImeSoak', 'true'
+    systemProperty 'haikalat.uiImeSoakCycles',
+            providers.gradleProperty('uiImeSoakCycles').getOrElse('100')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runUiNativeSoak', Test) {
+    group = 'verification'
+    description = 'Runs at least 50 real Windows GLFW/WndProc hook lifecycles with GC pressure.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.windowing.input.win32.Win32TextInputAdapterNativeSoakTest'
+    }
+    systemProperty 'haikalat.uiNativeSoak', 'true'
+    systemProperty 'haikalat.uiNativeSoakRounds',
+            providers.gradleProperty('uiNativeSoakRounds').getOrElse('50')
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runUiSyntheticImeSoak'
+}
+
 tasks.register('localUiVerification') {
     group = 'verification'
     description = 'Runs real-GL UI smoke, deterministic, resize, async and text integrations.'
     dependsOn 'glSmoke', 'runUiIntegration', 'runUiResizeIntegration',
-            'runUiAsyncIntegration', 'runUiTextIntegration'
+            'runUiAsyncIntegration', 'runUiTextIntegration',
+            'runUiSyntheticImeSoak', 'runUiNativeSoak'
 }
 
 tasks.named('localGlVerification') {

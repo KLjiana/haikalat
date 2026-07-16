@@ -17,7 +17,20 @@ class UiDemoOptionsTest {
         assertTrue(options.hidden());
         assertFalse(options.vsync());
         assertEquals(UiDemoOptions.DEFAULT_DETERMINISTIC_FRAMES, options.maximumFrames());
+        assertEquals(-1, options.maximumSeconds());
         assertEquals(UiDemoOptions.ScriptMode.BUILTIN, options.scriptMode());
+    }
+
+    @Test
+    void parsesRealTimeInteractiveSoakDuration() {
+        UiDemoOptions options = UiDemoOptions.parse("--seconds=60", "--script=none");
+
+        assertEquals(-1, options.maximumFrames());
+        assertEquals(60, options.maximumSeconds());
+        assertThrows(IllegalArgumentException.class,
+                () -> UiDemoOptions.parse("--frames=10", "--seconds=1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> UiDemoOptions.parse("--deterministic", "--seconds=1"));
     }
 
     @Test

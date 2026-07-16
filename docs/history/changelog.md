@@ -5,6 +5,8 @@
 - 清理 v0.11 RC 发布资产：忽略 HotSpot 崩溃产物，并将 Unifont 与 Noto Sans SC 统一归档到内建字体目录和许可清单。
 - 更新项目目标与后续计划，记录 UI subsystem 已完成首轮实现；调试器和编辑工具改为允许基于稳定公共 API 渐进演进。
 - 将 native/IME soak、Windows 人工矩阵、公共 API 收口和 UI 分配/批处理优化列为 `0.11.0` 正式版门槛。
+- 增加 `runUiSyntheticImeSoak`、`runUiNativeSoak` 和按真实时间退出的 `runUiInteractiveSoak`；当前候选已通过 100 轮 synthetic IME 与 50 轮 Win32 窗口/hook/GC 生命周期。
+- 修复活动 `TextField` 已关闭后文本输入同步仍尝试取消其 composition 的失效节点访问，并把内建 Unifont 回归改为 classpath 资源验证。
 
 ## 已完成路线图
 
