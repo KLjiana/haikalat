@@ -53,6 +53,13 @@ public final class StateCache implements PipelineStateSink {
     private boolean depthTestCached;
     private boolean cullFaceEnabled;
     private boolean cullFaceCached;
+    private boolean scissorEnabled;
+    private boolean scissorEnableCached;
+    private int scissorX;
+    private int scissorY;
+    private int scissorWidth;
+    private int scissorHeight;
+    private boolean scissorRectangleCached;
     private boolean framebufferSrgbEnabled;
     private boolean framebufferSrgbCached;
     private float clearRed;
@@ -288,6 +295,34 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
+    /** 启用或禁用 scissor test，并跳过重复的 OpenGL 状态提交。 */
+    @Override
+    public void enableScissor(boolean enable) {
+        if (changeRequired(!scissorEnableCached || enable != scissorEnabled)) {
+            if (enable) {
+                glEnable(GL_SCISSOR_TEST);
+            } else {
+                glDisable(GL_SCISSOR_TEST);
+            }
+            scissorEnabled = enable;
+            scissorEnableCached = true;
+        }
+    }
+
+    /** 设置左下角原点的 framebuffer scissor rectangle。 */
+    @Override
+    public void scissor(int x, int y, int width, int height) {
+        if (changeRequired(!scissorRectangleCached || x != scissorX || y != scissorY
+                || width != scissorWidth || height != scissorHeight)) {
+            glScissor(x, y, width, height);
+            scissorX = x;
+            scissorY = y;
+            scissorWidth = width;
+            scissorHeight = height;
+            scissorRectangleCached = true;
+        }
+    }
+
     /** 启用或禁用 framebuffer sRGB 编码，并跳过重复提交。 */
     public void enableFramebufferSrgb(boolean enable) {
         if (changeRequired(!framebufferSrgbCached || enable != framebufferSrgbEnabled)) {
@@ -359,6 +394,8 @@ public final class StateCache implements PipelineStateSink {
         depthWriteCached = false;
         depthTestCached = false;
         cullFaceCached = false;
+        scissorEnableCached = false;
+        scissorRectangleCached = false;
         framebufferSrgbCached = false;
         clearColorCached = false;
     }

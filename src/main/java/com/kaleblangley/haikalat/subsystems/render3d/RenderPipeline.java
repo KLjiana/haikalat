@@ -29,6 +29,7 @@ public final class RenderPipeline {
     private PostProcessPassBuilder postProcess;
     private ShaderProgram shadowShader;
     private ShaderProgram instancedShadowShader;
+    private String finalPassName;
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
     private int lastShadowCasterDrawCount;
 
@@ -101,6 +102,7 @@ public final class RenderPipeline {
             ForwardPassBuilder.addForwardPasses(graph, settings, scene, directionalShadowMap,
                     shadowExecutor(), geometryExecutor());
             postProcess.addFinalPass(graph);
+            finalPassName = postProcess.finalPassName();
         } catch (RuntimeException failure) {
             try {
                 closeGraphResources();
@@ -113,6 +115,21 @@ public final class RenderPipeline {
 
     public RenderGraph graph() {
         return graph;
+    }
+
+    /**
+     * 返回当前已构建管线最终写入 backbuffer 的 pass 名称。
+     *
+     * @return 可供兄弟 subsystem 追加 overlay 的稳定组合锚点
+     * @throws IllegalStateException 管线尚未成功 build 或已经 close 时抛出
+     */
+    public String finalPassName() {
+        String passName = finalPassName;
+        if (passName == null) {
+            throw new IllegalStateException(
+                    "RenderPipeline must be built and open before querying finalPassName");
+        }
+        return passName;
     }
 
     public Scene scene() {
@@ -181,6 +198,7 @@ public final class RenderPipeline {
         cameraUniforms = null;
         graph = null;
         lightingBinder = null;
+        finalPassName = null;
 
         RuntimeException failure = null;
         failure = closeCollecting(localInstancedShadow, failure);

@@ -139,3 +139,72 @@
 - 增加 R16F/RG32F、9×1 完整归约、1280×1 边缘对称、1×1 构建后 resize 到 47×33、灯光结构边界、失败帧 history、四种 AA、Bloom 开关和重复关闭的纯 JVM/真实 GL 回归。
 - 1080p/4K 五轮正式基准显示 AUTO GPU median 增量分别为 `0.215 ms` 和 `0.435 ms`；详细数据见 `docs/performance/v0.10-auto-exposure-2026-07-15.md`。
 - `clean compileJava demoClasses test localGlVerification --rerun-tasks` 的 23 个任务全部通过，版本进入 `0.10.0-rc.1`。
+
+### v0.11-retained-ui（0.11.0-rc.1，2026-07-16）
+
+#### Tree、layout、控件与输入
+
+- 新增每窗口 `UiSystem/UiDocument/UiNode` retained tree，定义稳定 ID、parent/child invariant、
+  dirty propagation、关闭后拒绝使用和单 update-thread 所有权。
+- 通过 LWJGL Yoga 实现 row/column、grow/shrink、min/max、percent、padding/margin、gap 和
+  intrinsic text measure；Yoga symbol 被架构测试限制在 `subsystems.ui.layout`。
+- 增加 typed theme/style、capture-target-bubble event、pointer capture、焦点与 focus scope，
+  并提供 Panel、Label、Image、Button、Toggle、Slider、ScrollView、virtualized ListView、
+  TextField、Popup 和 Menu。
+- GLFW callback 汇总为严格递增的不可变 `WindowInputSnapshot`，明确 logical window、framebuffer、
+  content scale、按键边沿、鼠标、滚轮、Unicode commit 和 composition；失焦会合成 release。
+- TextField 完成 selection、grapheme deletion、clipboard、undo 和 composition/preedit；Windows
+  `Win32TextInputAdapter` 使用 JNA 可链式 WndProc hook，并保持 GLFW char 为唯一 commit 来源。
+
+#### 文本与 GPU 渲染
+
+- 接入 FreeType 2.13.2、HarfBuzz 8.2.0 和 Sans2.004 Noto Sans SC variable TTF；字体来源、
+  SHA-256 与 OFL-1.1 完整归档，Demo 与自动测试不依赖开发机字体。
+- 新增 Latin/CJK fallback shaping cache、word/CJK/grapheme wrap、cluster-safe ellipsis、DPI ppem、
+  glyph rasterization 与有 generation/in-flight guard 的多页 CPU atlas。
+- GPU atlas 使用 R8 texture page 和 typed texture-region upload；整批命令成功后才发布 placement，
+  失败批次保留并重试，没有 CPU readback 或生产 `CommandBuffer.custom()`。
+- UI display list 只合并相邻兼容 primitive，保持透明 paint order；renderer 使用 premultiplied
+  alpha、framebuffer sRGB、typed scissor、uint16 EBO、VAO 高水位池和三槽 persistent-mapped ring。
+- `GpuFenceTarget.executionFailed` 与命令执行器补齐未到达 fence 的失败通知，确保 draw/upload
+  命令中途失败后 ring 和 atlas completion 不停留在 active 状态。
+
+#### RenderGraph、线程与 Demo
+
+- `RenderPipeline.finalPassName()` 成为 UI 与 3D/postprocess 的唯一 composition 锚点；UI 始终在
+  最终 backbuffer pass 后绘制，不进入 Bloom、自动曝光、TAA 或 FXAA。
+- 新增真实 GL pipeline 矩阵，执行 40 个合法运行项，覆盖 LDR/HDR、四种 AA、Bloom 开关、
+  manual/auto exposure 和 UI 开关；每个 UI 组合均产生正式 draw 且无 GL error。
+- RenderGraph 可查询 backbuffer pass 并冻结拓扑；每个 pass 基线显式关闭 scissor，避免 UI
+  状态泄漏到下一 pass/帧。`StateCache` 增加 scissor 跨命令/跨帧去重。
+- snapshot exchange 支持同步双槽和异步三槽 latest-wins。正式异步集成在 12 个 render frame
+  发布 36 张 snapshot、丢弃 24 张旧 snapshot，并按 render GL resource → update/native resource
+  顺序完成双阶段关闭。
+- 新增 `UiDemo`、LearnOpenGlDemo overlay、Nsight 启动脚本以及 deterministic、resize、async、
+  text 四条 integration；`localUiVerification` 聚合真实 GL smoke，`localGlVerification` 纳入该任务。
+- 修复 ScrollView 内容被 viewport 的 flex shrink 压扁、ListView 只移动 cell 外框却遗漏 Label
+  子树，以及 Popup 默认占据左上角的问题；虚拟 cell 现在通过 materialized host 偏移保持完整
+  子树坐标，Popup 按 owner 下边缘锚定，UiDemo 启动时不再强制打开菜单。
+- 修复组合控件事件只在最深命中节点执行默认行为的问题：默认行为现在沿 bubble 路径执行，
+  焦点与 pointer capture 归属于实际请求节点，因此 Button 内文字可点击，ScrollView 和 ListView
+  内子节点可响应滚轮，内层消费滚轮后不会再驱动外层滚动。
+- 修复全屏 `UiOverlayRoot` 在没有弹窗时仍拦截普通树 hit-test 的问题；overlay 根节点自身不再
+  命中，但其 Popup/Menu 子节点仍保持最高命中优先级。UiDemo 标题增加窗口、光标、hit 和 focus
+  诊断，便于区分 GLFW 输入、坐标命中和控件焦点。
+
+#### 验证、性能与当前限制
+
+- 默认测试为 349 项，其中无桌面运行通过 289 项并按条件跳过 60 项真实 GL；`glSmoke`
+  通过 348 项，仅跳过专用于非 Windows 的 1 项平台测试。`localUiVerification --rerun-tasks`
+  的 13 个任务和完整 `localGlVerification --rerun-tasks` 的 25 个任务全部通过。
+- 修正高 DPI 隐藏窗口回归：pipeline 像素断言按实际 framebuffer extent 读取中心，不再把
+  32×32 logical window 错当为 32×32 framebuffer。
+- 修正 Windows monitor content scale 与实际 framebuffer 比例不同导致的 scissor 偏移；GL 裁剪
+  现在由 framebuffer/window 尺寸比换算。Demo properties 与 Gradle resource processing 固定 UTF-8，
+  文本垂直裁剪增加 1 个逻辑像素的 hinting 保护带，避免字形上下覆盖率边缘被截断。
+- 新增 `runUiBenchmarks`，完成 1080p/4K 五轮容量记录。10,000 quads 保持 1 draw，warm atlas
+  hit 为 100%，layout/shape/upload 归零；详细数据见 `docs/performance/v0.11-ui-2026-07-16.md`。
+- 性能记录同时暴露两个后续优化点：10,000 quads 仍约分配 1.57 MiB/frame，virtual list 的
+  相邻 Label 尚未跨节点合并 glyph batch。它们是优化项，不通过跳过 fence 或改变 paint order 掩盖。
+- Gradle 版本进入 `0.11.0-rc.1`。Microsoft Pinyin 的候选翻页、DPI、多显示器和 Alt+Tab
+  仍按 `docs/guides/windows-ime.md` 在发布稳定版前人工记录。

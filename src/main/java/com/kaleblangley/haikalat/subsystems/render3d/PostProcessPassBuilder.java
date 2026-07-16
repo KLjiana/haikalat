@@ -33,6 +33,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final BloomPass bloom;
     private final AutoExposurePass autoExposure;
     private float deltaSeconds = 1.0f / 60.0f;
+    private String finalPassName;
 
     private PostProcessPassBuilder(RenderSettings settings, RenderWindow window,
                                    FxaaPostProcessor fxaa,
@@ -124,6 +125,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
     }
 
     void addFinalPass(RenderGraph graph) {
+        if (finalPassName != null) {
+            throw new IllegalStateException("Final backbuffer pass has already been added: "
+                    + finalPassName);
+        }
         if (settings.hdrEnabled()) {
             addHdrFinalPasses(graph);
             return;
@@ -182,6 +187,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                         cmd.blitToDefault(source, window.width(), window.height());
                     }
                 });
+        recordFinalPass(PostProcessTargets.PRESENT_PASS);
     }
 
     private void addHdrFinalPasses(RenderGraph graph) {
@@ -261,6 +267,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                     source.width(), source.height());
                         }
                     });
+            recordFinalPass(PostProcessTargets.FXAA_PASS);
         } else {
             graph.addPass(PostProcessTargets.PRESENT_PASS)
                     .writeToBackbuffer()
@@ -272,7 +279,30 @@ final class PostProcessPassBuilder implements AutoCloseable {
                             cmd.blitToDefault(source, window.width(), window.height());
                         }
                     });
+            recordFinalPass(PostProcessTargets.PRESENT_PASS);
         }
+    }
+
+    String finalPassName() {
+        if (finalPassName == null) {
+            throw new IllegalStateException("Final backbuffer pass has not been added");
+        }
+        return finalPassName;
+    }
+
+    static String finalPassNameFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode) {
+        Objects.requireNonNull(mode, "mode");
+        Objects.requireNonNull(toneMappingMode, "toneMappingMode");
+        return toneMappingMode != ToneMappingMode.NONE && mode == AntiAliasingMode.FXAA
+                ? PostProcessTargets.FXAA_PASS : PostProcessTargets.PRESENT_PASS;
+    }
+
+    private void recordFinalPass(String passName) {
+        if (finalPassName != null) {
+            throw new IllegalStateException("Final backbuffer pass has already been recorded: "
+                    + finalPassName);
+        }
+        finalPassName = Objects.requireNonNull(passName, "passName");
     }
 
     private BloomOutput addBloomPasses(RenderGraph graph, String sourceTexture, String sourcePass) {

@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -69,6 +70,47 @@ class RenderPipelineTest {
         assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                         PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES));
+    }
+
+    @Test
+    void finalBackbufferAnchorCoversEveryLdrAndHdrAaCombination() {
+        for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+            assertEquals(PostProcessTargets.PRESENT_PASS,
+                    PostProcessPassBuilder.finalPassNameFor(mode, ToneMappingMode.NONE),
+                    "LDR final pass for " + mode);
+            assertEquals(mode == AntiAliasingMode.FXAA
+                            ? PostProcessTargets.FXAA_PASS : PostProcessTargets.PRESENT_PASS,
+                    PostProcessPassBuilder.finalPassNameFor(mode, ToneMappingMode.ACES),
+                    "HDR final pass for " + mode);
+        }
+    }
+
+    @Test
+    void finalPassNameRejectsQueriesBeforeBuildAndAfterClose() {
+        RenderWindowStub window = new RenderWindowStub();
+        RenderPipeline pipeline = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().build());
+
+        assertThrows(IllegalStateException.class, pipeline::finalPassName);
+        pipeline.close();
+        assertThrows(IllegalStateException.class, pipeline::finalPassName);
+    }
+
+    @Test
+    void postProcessBuilderPublishesOnlyTheRegisteredBackbufferPass() {
+        RenderWindowStub window = new RenderWindowStub();
+        try (PostProcessPassBuilder builder = PostProcessPassBuilder.create(
+                RenderSettings.builder().build(), window, window.width(), window.height());
+             RenderGraph graph = new RenderGraph(window.width(), window.height())) {
+            assertThrows(IllegalStateException.class, builder::finalPassName);
+
+            builder.addFinalPass(graph);
+
+            assertEquals(PostProcessTargets.PRESENT_PASS, builder.finalPassName());
+            assertTrue(graph.hasPass(builder.finalPassName()));
+            assertTrue(graph.passWritesToBackbuffer(builder.finalPassName()));
+            assertThrows(IllegalStateException.class, () -> builder.addFinalPass(graph));
+        }
     }
 
     @Test
@@ -198,5 +240,18 @@ class RenderPipelineTest {
         assertEquals(0.0f, none.m21(), 1.0e-6f);
         assertNotEquals(0.0f, taa.m20(), 1.0e-6f);
         assertNotEquals(0.0f, taa.m21(), 1.0e-6f);
+    }
+
+    private static final class RenderWindowStub
+            implements com.kaleblangley.haikalat.subsystems.windowing.RenderWindow {
+        @Override
+        public int width() {
+            return 800;
+        }
+
+        @Override
+        public int height() {
+            return 600;
+        }
     }
 }

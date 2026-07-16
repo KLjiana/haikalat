@@ -26,8 +26,12 @@ current goals, capabilities, and non-goals.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, and an OBJ path exercised by the main demo;
   the Assimp loader remains experimental.
+- A retained-mode game UI subsystem with Yoga layout, typed theme/widgets/events,
+  virtualized lists, popup/focus/clipboard support, bundled Noto Sans SC shaping through
+  FreeType/HarfBuzz, a GPU glyph atlas, typed scissor/texture uploads, and Windows IME composition.
 - Demo proof paths for an empty present baseline, the combined scene pipeline, minimal command/window flow,
-  async update/upload/render-thread interaction, and generated GPU-procedural 1000000-instance stress profiling.
+  async update/upload/render-thread interaction, a dedicated UiDemo, and generated GPU-procedural
+  1000000-instance stress profiling.
 
 ## Requirements
 
@@ -69,6 +73,7 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 ```powershell
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAsyncIntegration
+.\gradlew.bat localUiVerification
 .\gradlew.bat localGlVerification
 ```
 
@@ -90,5 +95,6 @@ the `learnopengl.demo` module.
 - Empty no-draw window: `com.kaleblangley.haikalat.demo.EmptyWindowDemo`
 - Minimal smoke demo: `com.kaleblangley.haikalat.demo.MinimalDemo`
 - Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
+- Retained UI demo: `com.kaleblangley.haikalat.demo.ui.UiDemo`
 
 The demo source set lives in `src/demo/java` and uses resources from `src/demo/resources`.

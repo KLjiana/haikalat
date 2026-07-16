@@ -20,6 +20,8 @@ final class PendingPipelineState {
     private static final int CULL_FACE = 1 << 5;
     private static final int CLEAR_COLOR = 1 << 6;
     private static final int FRAMEBUFFER_SRGB = 1 << 7;
+    private static final int SCISSOR_ENABLE = 1 << 8;
+    private static final int SCISSOR_RECTANGLE = 1 << 9;
 
     private int dirty;
     private int viewportX;
@@ -33,6 +35,11 @@ final class PendingPipelineState {
     private boolean depthTestEnabled;
     private boolean cullFaceEnabled;
     private boolean framebufferSrgbEnabled;
+    private boolean scissorEnabled;
+    private int scissorX;
+    private int scissorY;
+    private int scissorWidth;
+    private int scissorHeight;
     private float clearRed;
     private float clearGreen;
     private float clearBlue;
@@ -75,6 +82,22 @@ final class PendingPipelineState {
     void enableFramebufferSrgb(boolean enable) {
         framebufferSrgbEnabled = enable;
         dirty |= FRAMEBUFFER_SRGB;
+    }
+
+    void enableScissor(boolean enable) {
+        scissorEnabled = enable;
+        dirty |= SCISSOR_ENABLE;
+    }
+
+    void scissor(int x, int y, int width, int height) {
+        if (x < 0 || y < 0 || width < 0 || height < 0) {
+            throw new IllegalArgumentException("scissor rectangle must be non-negative");
+        }
+        scissorX = x;
+        scissorY = y;
+        scissorWidth = width;
+        scissorHeight = height;
+        dirty |= SCISSOR_RECTANGLE;
     }
 
     void clearColor(float red, float green, float blue, float alpha) {
@@ -122,6 +145,10 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(depthWriteEnabled);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(depthTestEnabled);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(cullFaceEnabled);
+        if ((changes & SCISSOR_RECTANGLE) != 0) {
+            target.scissor(scissorX, scissorY, scissorWidth, scissorHeight);
+        }
+        if ((changes & SCISSOR_ENABLE) != 0) target.enableScissor(scissorEnabled);
         if ((changes & FRAMEBUFFER_SRGB) != 0) target.enableFramebufferSrgb(framebufferSrgbEnabled);
         dirty = 0;
     }
@@ -152,6 +179,13 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) stream.integer(depthWriteEnabled ? 1 : 0);
         if ((changes & DEPTH_TEST) != 0) stream.integer(depthTestEnabled ? 1 : 0);
         if ((changes & CULL_FACE) != 0) stream.integer(cullFaceEnabled ? 1 : 0);
+        if ((changes & SCISSOR_RECTANGLE) != 0) {
+            stream.integer(scissorX);
+            stream.integer(scissorY);
+            stream.integer(scissorWidth);
+            stream.integer(scissorHeight);
+        }
+        if ((changes & SCISSOR_ENABLE) != 0) stream.integer(scissorEnabled ? 1 : 0);
         if ((changes & FRAMEBUFFER_SRGB) != 0) stream.integer(framebufferSrgbEnabled ? 1 : 0);
         dirty = 0;
     }
@@ -176,6 +210,13 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(stream.integerAt(cursor++) != 0);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(stream.integerAt(cursor++) != 0);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(stream.integerAt(cursor++) != 0);
+        if ((changes & SCISSOR_RECTANGLE) != 0) {
+            target.scissor(stream.integerAt(cursor++), stream.integerAt(cursor++),
+                    stream.integerAt(cursor++), stream.integerAt(cursor++));
+        }
+        if ((changes & SCISSOR_ENABLE) != 0) {
+            target.enableScissor(stream.integerAt(cursor++) != 0);
+        }
         if ((changes & FRAMEBUFFER_SRGB) != 0) {
             target.enableFramebufferSrgb(stream.integerAt(cursor++) != 0);
         }

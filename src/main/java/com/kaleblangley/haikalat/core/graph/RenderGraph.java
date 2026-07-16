@@ -34,6 +34,7 @@ public final class RenderGraph implements AutoCloseable {
     private Framebuffer currentFbo;
     private long[] cpuRecordNanos = new long[0];
     private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
+    private boolean topologySealed;
     private boolean closed;
 
     public RenderGraph(int width, int height) {
@@ -60,7 +61,45 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     public PassBuilder addPass(String name) {
+        ensureOpen();
+        ensureTopologyMutable();
         return new PassBuilder(this, Objects.requireNonNull(name, "name"));
+    }
+
+    /**
+     * 查询渲染图是否已经注册指定 pass。
+     *
+     * @param passName pass 名称
+     * @return 已注册时返回 {@code true}
+     */
+    public boolean hasPass(String passName) {
+        ensureOpen();
+        return passByName.containsKey(Objects.requireNonNull(passName, "passName"));
+    }
+
+    /**
+     * 查询指定 pass 是否直接写入默认 framebuffer。
+     *
+     * @param passName pass 名称
+     * @return pass 存在且声明了 backbuffer target 时返回 {@code true}
+     */
+    public boolean passWritesToBackbuffer(String passName) {
+        ensureOpen();
+        Pass pass = passByName.get(Objects.requireNonNull(passName, "passName"));
+        return pass != null && pass.useBackbuffer;
+    }
+
+    /**
+     * 冻结 pass 拓扑。该操作幂等，不影响后续 compile、resize 或 execute。
+     */
+    public void sealTopology() {
+        ensureOpen();
+        topologySealed = true;
+    }
+
+    /** @return pass 拓扑是否已经冻结 */
+    public boolean isTopologySealed() {
+        return topologySealed;
     }
 
     public void importTexture(String name, Texture2D texture) {
@@ -94,6 +133,7 @@ public final class RenderGraph implements AutoCloseable {
 
     void addPassInternal(Pass pass) {
         ensureOpen();
+        ensureTopologyMutable();
         if (passByName.containsKey(pass.name)) {
             throw new GlException("Duplicate RenderGraph pass: " + pass.name);
         }
@@ -180,6 +220,7 @@ public final class RenderGraph implements AutoCloseable {
             currentFbo = framebuffer;
             if (pass.timer == null) pass.timer = new GpuTimer();
             GpuTimer timer = pass.timer;
+            cmd.enableScissor(false);
             cmd.beginGpuTimer(timer);
 
             if (pass.useBackbuffer) {
@@ -316,6 +357,12 @@ public final class RenderGraph implements AutoCloseable {
     private void ensureOpen() {
         if (closed) {
             throw new GlException("RenderGraph is closed");
+        }
+    }
+
+    private void ensureTopologyMutable() {
+        if (topologySealed) {
+            throw new IllegalStateException("RenderGraph pass topology is sealed");
         }
     }
 

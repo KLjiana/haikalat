@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.lwjgl.opengl.GL11.GL_ONE;
 import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
@@ -64,6 +65,8 @@ class PendingPipelineStateTest {
                 .depthMask(true)
                 .enableDepthTest(true)
                 .enableCullFace(true)
+                .scissor(2, 3, 1276, 714)
+                .enableScissor(true)
                 .enableFramebufferSrgb(false)
                 .blendFunc(GL_ONE, GL_ONE)
                 .clearColor(0, 0, 0, 1)
@@ -82,14 +85,51 @@ class PendingPipelineStateTest {
         CommandBuffer commands = new CommandBuffer()
                 .enableBlend(false)
                 .enableBlend(true)
+                .scissor(0, 0, 16, 16)
+                .enableScissor(true)
                 .drawArrays(GL_TRIANGLES, 0, 3)
                 .enableBlend(false)
+                .enableScissor(false)
                 .drawArrays(GL_TRIANGLES, 0, 3)
                 .depthMask(false)
                 .clear(false, true);
 
         assertEquals(6, commands.commandCount(),
                 "Three state packets must remain separated from two draws and one clear");
+        assertEquals(0, commands.objectPayloadCount());
+    }
+
+    @Test
+    void scissorUsesTheLastRectangleAndEnableValueAtEachBoundary() {
+        PendingPipelineState pending = new PendingPipelineState();
+        RecordingSink sink = new RecordingSink();
+
+        pending.scissor(0, 0, 100, 100);
+        pending.scissor(3, 4, 20, 30);
+        pending.enableScissor(false);
+        pending.enableScissor(true);
+        pending.flush(sink);
+
+        assertEquals(List.of("scissor:3:4:20:30", "scissorEnable:true"), sink.events);
+        assertThrows(IllegalArgumentException.class, () -> pending.scissor(-1, 0, 1, 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CommandBuffer().scissor(0, 0, 1, -1));
+        new CommandBuffer().scissor(0, 0, 0, 0);
+    }
+
+    @Test
+    void customBoundarySeparatesScissorPacketsAndResetDropsPendingState() {
+        CommandBuffer commands = new CommandBuffer()
+                .scissor(1, 2, 3, 4)
+                .enableScissor(true)
+                .custom(() -> { })
+                .enableScissor(false);
+
+        assertEquals(3, commands.commandCount(),
+                "state packet, custom barrier and following pending packet remain ordered");
+        assertEquals(1, commands.objectPayloadCount());
+        commands.reset();
+        assertEquals(0, commands.commandCount());
         assertEquals(0, commands.objectPayloadCount());
     }
 
@@ -113,6 +153,14 @@ class PendingPipelineStateTest {
         }
 
         @Override public void enableCullFace(boolean enable) { events.add("cull:" + enable); }
+
+        @Override public void enableScissor(boolean enable) {
+            events.add("scissorEnable:" + enable);
+        }
+
+        @Override public void scissor(int x, int y, int width, int height) {
+            events.add("scissor:" + x + ":" + y + ":" + width + ":" + height);
+        }
 
         @Override public void enableFramebufferSrgb(boolean enable) {
             events.add("framebufferSrgb:" + enable);

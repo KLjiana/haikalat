@@ -135,6 +135,26 @@ demo scene 便利字段：
 
 该命令的 batch upload/draw 由 `InstancedMeshBatch` 自己完成；结束后只失效 VAO/element-buffer 缓存，不再触发全状态失效。调用方不得通过 `cmd.custom()` 捕获实例化 batch 的裸 upload/draw 逻辑；如果 transform 来自生产线程，必须在记录命令前或记录时形成稳定快照。
 
+## Retained UI Boundary
+
+`subsystems.ui` 与 `render3d/postprocess` 是兄弟 subsystem。3D pipeline 只通过
+`RenderPipeline.finalPassName()` 暴露最终 backbuffer composition 锚点；`UiSystem.attachTo(...)`
+在该 pass 后追加 `UiOverlayPass`，不会让场景、Bloom、TAA/FXAA 或自动曝光反向依赖 UI。
+
+UI tree、事件、style、Yoga layout、FreeType/HarfBuzz shaping 和 CPU glyph atlas 由单一
+UI/update 线程拥有。跨 render thread 只发布不可变 `UiRenderSnapshot`：同步模式可配置双槽，
+异步模式使用三槽 latest-wins；已 acquire 的 slot 在 lease 关闭前不会被复用。异步退出先在拥有
+GL context 的线程调用 `UiSystem.closeRenderResources()`，再回 update owner 调用 `close()`。
+
+`UiRenderer` 使用 persistent-mapped 三槽 vertex ring、正式 GPU fence、uint16 quad EBO 和 VAO
+高水位池。scissor、atlas region upload、纹理/sampler、draw 和 fence 全部走 typed
+`CommandBuffer`；UI 生产代码不得使用 `custom()`。glyph rasterization 发生在 update 线程，
+render 线程只创建 R8 page、提交 region upload，并在命令执行完成后发布整批成功结果。
+
+窗口层只发布 `WindowInputSnapshot`、`TextInputAdapter` 和 `TextInputRect` 等 subsystem-neutral
+类型，不引用 UI tree。Windows adapter 使用可恢复的 WndProc hook 观察 composition；GLFW char
+callback 仍是 committed Unicode 的唯一来源，避免 `GCS_RESULTSTR` 重复提交。
+
 ## Demo Proof
 
 当前保留一个综合 demo 作为能力证明：

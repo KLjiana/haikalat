@@ -4,11 +4,14 @@ import com.kaleblangley.haikalat.backend.GpuTimer;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;
+import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
@@ -40,6 +43,7 @@ final class CommandExecutor {
         int integerCursor = 0;
         int longCursor = 0;
         int objectCursor = 0;
+        int gpuFenceTargetCursor = 0;
         ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
         Throwable commandFailure = null;
         try {
@@ -60,6 +64,20 @@ final class CommandExecutor {
                     Sampler sampler = (Sampler) stream.objectAt(objectCursor++);
                     sampler.ensureOpen();
                     cache.bindSampler(unit, samplerId);
+                }
+                case UPLOAD_TEXTURE_REGION -> {
+                    int x = stream.integerAt(integerCursor++);
+                    int y = stream.integerAt(integerCursor++);
+                    int width = stream.integerAt(integerCursor++);
+                    int height = stream.integerAt(integerCursor++);
+                    Texture2D texture = (Texture2D) stream.objectAt(objectCursor++);
+                    ByteBuffer pixels = (ByteBuffer) stream.objectAt(objectCursor++);
+                    texture.uploadRegion(x, y, width, height, pixels);
+                }
+                case INSERT_GPU_FENCE -> {
+                    GpuFenceTarget target = (GpuFenceTarget) stream.objectAt(objectCursor++);
+                    target.insertGpuFence();
+                    gpuFenceTargetCursor++;
                 }
                 case BIND_UNIFORM_BLOCK -> {
                     int bindingPoint = stream.integerAt(integerCursor++);
@@ -249,9 +267,21 @@ final class CommandExecutor {
             }
         } catch (RuntimeException | Error failure) {
             commandFailure = failure;
+            failPendingGpuFenceTargets(stream, gpuFenceTargetCursor, failure);
             throw failure;
         } finally {
             finishPreparedBatches(preparedBatches, cache, commandFailure);
+        }
+    }
+
+    private static void failPendingGpuFenceTargets(CommandStream stream, int firstPending,
+                                                   Throwable commandFailure) {
+        for (int index = firstPending; index < stream.gpuFenceTargetCount(); index++) {
+            try {
+                stream.gpuFenceTargetAt(index).executionFailed(commandFailure);
+            } catch (RuntimeException | Error cleanupFailure) {
+                commandFailure.addSuppressed(cleanupFailure);
+            }
         }
     }
 

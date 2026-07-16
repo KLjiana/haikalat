@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderGraphTest {
     @Test
@@ -146,6 +148,44 @@ class RenderGraphTest {
         assertThrows(IllegalStateException.class, () -> graph.addPass("Invalid")
                 .writeToExternalTarget()
                 .execute((res, cmd) -> {}));
+    }
+
+    @Test
+    void passQueriesDistinguishBackbufferOffscreenAndMissingPasses() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Geometry").createColor("SceneColor").execute((res, cmd) -> {});
+        graph.addPass("Present")
+                .writeToBackbuffer()
+                .noClear()
+                .dependsOn("Geometry")
+                .execute((res, cmd) -> {});
+
+        assertTrue(graph.hasPass("Geometry"));
+        assertTrue(graph.hasPass("Present"));
+        assertFalse(graph.hasPass("Missing"));
+        assertFalse(graph.passWritesToBackbuffer("Geometry"));
+        assertTrue(graph.passWritesToBackbuffer("Present"));
+        assertFalse(graph.passWritesToBackbuffer("Missing"));
+    }
+
+    @Test
+    void sealedTopologyRejectsNewAndPreviouslyStartedPassBuilders() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        RenderGraph.PassBuilder pending = graph.addPass("Pending");
+        graph.addPass("Present").writeToBackbuffer().noClear().execute((res, cmd) -> {});
+
+        graph.sealTopology();
+        graph.sealTopology();
+
+        assertTrue(graph.isTopologySealed());
+        assertThrows(IllegalStateException.class, () -> graph.addPass("Late"));
+        assertThrows(IllegalStateException.class, () -> pending.execute((res, cmd) -> {}));
+        assertEquals(List.of("Present"), graph.passExecutionOrder(),
+                "Sealing must still allow graph compilation");
+
+        graph.resize(1024, 768);
+        assertEquals(1024, graph.width());
+        assertEquals(768, graph.height());
     }
 
     @Test

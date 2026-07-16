@@ -28,6 +28,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
+import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
+import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL;
@@ -37,11 +39,14 @@ import java.time.Duration;
 
 public final class LearnOpenGlDemo {
     private static volatile BenchmarkResult lastBenchmarkResult;
+    private static volatile LearnOpenGlOverlay.Result lastOverlayResult;
 
     private LearnOpenGlDemo() {
     }
 
     public static void main(String[] args) {
+        lastBenchmarkResult = null;
+        lastOverlayResult = null;
         DemoOptions options = DemoOptions.parse(args);
         demoVertexPacking();
 
@@ -86,7 +91,11 @@ public final class LearnOpenGlDemo {
             RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings);
             try {
                 pipeline.build();
-                renderFrames(window, camera, renderLoop, pipeline, instanced, settings, options);
+                try (LearnOpenGlOverlay overlay = LearnOpenGlOverlay.attach(
+                        window, pipeline, settings)) {
+                    renderFrames(window, camera, renderLoop, pipeline, instanced,
+                            settings, options, overlay);
+                }
             } finally {
                 pipeline.close();
                 instanced.close();
@@ -96,7 +105,8 @@ public final class LearnOpenGlDemo {
 
     private static void renderFrames(GlfwWindow window, Camera camera, FrameDriver renderLoop,
                                      RenderPipeline pipeline, InstancedRenderer instanced,
-                                     RenderSettings settings, DemoOptions options) {
+                                     RenderSettings settings, DemoOptions options,
+                                     LearnOpenGlOverlay uiOverlay) {
         int frame = 0;
         FrameClock clock = new FrameClock();
         PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
@@ -110,7 +120,16 @@ public final class LearnOpenGlDemo {
             }
 
             FrameClock.Tick time = clock.tick();
-            DemoSupport.updateFreeCamera(window, camera, time.deltaSeconds());
+            WindowInputSnapshot input = window.inputSnapshot();
+            DebugOverlaySnapshot previousFrame = DebugOverlaySnapshot.from(
+                    renderLoop.statistics(), instanced.statistics().drawCalls(),
+                    instanced.drawnCount(), settings.antiAliasingMode());
+            uiOverlay.update(input, time.deltaSeconds(), previousFrame, frame,
+                    options.deterministic());
+            if (input.keyPressed(Key.ESCAPE)) window.requestClose();
+            if (uiOverlay.consumeCameraInputPermission()) {
+                DemoSupport.updateFreeCamera(window, camera, time.deltaSeconds());
+            }
             if (window.consumeResize()) {
                 pipeline.resize(window.width(), window.height());
             }
@@ -144,10 +163,10 @@ public final class LearnOpenGlDemo {
                 DebugOverlaySnapshot overlay = DebugOverlaySnapshot.from(
                         renderLoop.statistics(), instanced.statistics().drawCalls(),
                         instanced.drawnCount(), settings.antiAliasingMode());
-                window.setTitle(String.format("LearnOpenGL | FPS %.1f | CPU %.3f ms | GPU %.2f ms | draw %d | inst %d | AA %s | exposure %s",
+                window.setTitle(String.format("LearnOpenGL | FPS %.1f | CPU %.3f ms | GPU %.2f ms | draw %d | inst %d | AA %s | exposure %s | input %s",
                         overlay.fps(), overlay.cpuSubmitMillis(), overlay.gpuMillis(),
                         overlay.drawCalls(), overlay.instanceCount(), overlay.activeAntiAliasingMode(),
-                        settings.exposureMode()));
+                        settings.exposureMode(), uiOverlay.inputModeName()));
             }
 
             GlDebug.checkError("LearnOpenGlDemo.frame");
@@ -156,6 +175,7 @@ public final class LearnOpenGlDemo {
                 window.requestClose();
             }
         }
+        lastOverlayResult = uiOverlay.result(pipeline.graph().lastFrameProfile());
         if (options.maxFrames() > 0) {
             printBenchmark(renderLoop, pipeline, instanced, settings, options,
                     benchmark.snapshot(), passBenchmark);
@@ -248,6 +268,14 @@ public final class LearnOpenGlDemo {
         BenchmarkResult result = lastBenchmarkResult;
         if (result == null) {
             throw new IllegalStateException("LearnOpenGlDemo has not completed a finite benchmark run");
+        }
+        return result;
+    }
+
+    static LearnOpenGlOverlay.Result lastOverlayResult() {
+        LearnOpenGlOverlay.Result result = lastOverlayResult;
+        if (result == null) {
+            throw new IllegalStateException("LearnOpenGlDemo UI overlay has not completed a frame");
         }
         return result;
     }

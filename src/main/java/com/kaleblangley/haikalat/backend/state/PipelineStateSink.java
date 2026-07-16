@@ -14,6 +14,10 @@ public interface PipelineStateSink {
 
     void enableCullFace(boolean enable);
 
+    void enableScissor(boolean enable);
+
+    void scissor(int x, int y, int width, int height);
+
     void enableFramebufferSrgb(boolean enable);
 
     void clearColor(float red, float green, float blue, float alpha);

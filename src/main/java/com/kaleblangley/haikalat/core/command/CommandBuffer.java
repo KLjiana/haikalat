@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;
+import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
@@ -14,6 +15,7 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -64,6 +66,8 @@ public final class CommandBuffer {
     static final byte PREPARE_INSTANCED_BATCH = 39;
     static final byte DRAW_PREPARED_INSTANCED_BATCH = 40;
     static final byte FINISH_PREPARED_INSTANCED_BATCH = 41;
+    static final byte UPLOAD_TEXTURE_REGION = 42;
+    static final byte INSERT_GPU_FENCE = 43;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -136,6 +140,62 @@ public final class CommandBuffer {
         } else {
             bindSampler(unit, sampler);
         }
+        return this;
+    }
+
+    /**
+     * 记录正式的动态纹理 region upload 边界。
+     *
+     * <p>payload 在记录时复制为 command-owned direct buffer，因此调用方随后修改
+     * position、limit 或底层字节不会改变执行结果。上传前先提交最终 pending pipeline state，
+     * 且执行路径不使用 {@link #custom(Runnable)}。</p>
+     *
+     * @param texture 目标纹理
+     * @param x 左边界
+     * @param y 下边界
+     * @param width 区域宽度，允许为零
+     * @param height 区域高度，允许为零
+     * @param pixels 紧密排列的像素 payload；可以是 heap 或 direct buffer
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer uploadTextureRegion(Texture2D texture,
+                                              int x, int y, int width, int height,
+                                              ByteBuffer pixels) {
+        Objects.requireNonNull(texture, "texture");
+        Objects.requireNonNull(pixels, "pixels");
+        int requiredBytes = texture.requiredRegionBytes(x, y, width, height);
+        if (pixels.remaining() < requiredBytes) {
+            throw new IllegalArgumentException("texture upload payload is too small: required "
+                    + requiredBytes + ", remaining " + pixels.remaining());
+        }
+
+        ByteBuffer source = pixels.duplicate();
+        source.limit(source.position() + requiredBytes);
+        ByteBuffer copied = ByteBuffer.allocateDirect(requiredBytes).order(pixels.order());
+        copied.put(source).flip();
+        ByteBuffer stablePayload = copied.asReadOnlyBuffer().order(copied.order());
+
+        flushPendingState();
+        opcode(UPLOAD_TEXTURE_REGION);
+        integer(x);
+        integer(y);
+        integer(width);
+        integer(height);
+        object(texture);
+        object(stablePayload);
+        return this;
+    }
+
+    /**
+     * 在此前录制的 GPU 工作之后插入资源生命周期 fence。
+     * 这是 ring buffer 提交的正式边界，不允许执行任意渲染逻辑。
+     */
+    public CommandBuffer insertGpuFence(GpuFenceTarget target) {
+        flushPendingState();
+        GpuFenceTarget requiredTarget = Objects.requireNonNull(target, "target");
+        opcode(INSERT_GPU_FENCE);
+        object(requiredTarget);
+        stream.gpuFenceTarget(requiredTarget);
         return this;
     }
 
@@ -386,6 +446,31 @@ public final class CommandBuffer {
     }
 
     /**
+     * 设置 scissor test；状态在下一个可观察 GPU 边界前与其他 pending state 一起提交。
+     *
+     * @param enable 是否启用 scissor test
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer enableScissor(boolean enable) {
+        pendingState.enableScissor(enable);
+        return this;
+    }
+
+    /**
+     * 设置左下角原点、framebuffer 像素单位的 scissor rectangle。
+     *
+     * @param x      非负左边界
+     * @param y      非负下边界
+     * @param width  非负宽度，允许为零
+     * @param height 非负高度，允许为零
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer scissor(int x, int y, int width, int height) {
+        pendingState.scissor(x, y, width, height);
+        return this;
+    }
+
+    /**
      * 设置 framebuffer sRGB 编码状态；该状态会与其他 pending pipeline state 一起折叠。
      *
      * @param enable 是否让 OpenGL 对目标 framebuffer 执行 sRGB 编码
@@ -581,6 +666,14 @@ public final class CommandBuffer {
 
     int objectPayloadCount() {
         return stream.objectCount();
+    }
+
+    byte recordedOpcodeAt(int commandIndex) {
+        return stream.opcodeAt(commandIndex);
+    }
+
+    Object objectPayloadAt(int payloadIndex) {
+        return stream.objectAt(payloadIndex);
     }
 
     /**

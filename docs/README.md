@@ -12,6 +12,7 @@
 - [post-v0.8 色彩与 Bloom 路线图](planning/post-v0.8-roadmap.md) — v0.9 已完成主线与条件基准
 - [v0.9 收尾计划](planning/v0.9-closeout.md) — 发布候选异常生命周期与 LDR sRGB 闭环
 - [v0.10 全 GPU 自动曝光实施计划](planning/v0.10-gpu-auto-exposure.md) — 已完成 GPU 测光、时间适应与发布验收
+- [v0.11 Retained-mode UI Subsystem 实施计划](planning/v0.11-ui-subsystem.md) — 已完成游戏 UI、Yoga、FreeType/HarfBuzz、GPU atlas 与 Windows IME RC 主线
 - [后续计划](planning/future-plans.md)
 
 ## 架构
@@ -30,6 +31,7 @@
 
 - [测试指南](guides/testing.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
+- [Windows IME 适配与人工验收矩阵](guides/windows-ime.md)
 
 ## 历史
 
@@ -39,5 +41,6 @@
 - [2026-07-15 Stress 百万实例三轮基准](performance/stress-one-million-2026-07-15.md)
 - [2026-07-15 post-v0.8 色彩、Bloom 与实例阴影基准](performance/post-v0.8-bloom-2026-07-15.md)
 - [2026-07-15 v0.10 自动曝光 1080p/4K 五轮基准](performance/v0.10-auto-exposure-2026-07-15.md)
+- [2026-07-16 v0.11 UI 1080p/4K 五轮容量基准](performance/v0.11-ui-2026-07-16.md)
 - [2026-07-15 Stress 矩阵快照修复后五轮基准](performance/stress-matrix-copy-fix-2026-07-15.md)
 - [2026-07-14 Stress indexed / compact SSBO 基准](performance/stress-indexed-ssbo-2026-07-14.md)

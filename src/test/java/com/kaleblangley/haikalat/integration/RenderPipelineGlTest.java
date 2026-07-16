@@ -227,7 +227,7 @@ class RenderPipelineGlTest {
                             pipeline.build();
                             pipeline.execute(new GlRenderDevice());
                             ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-                            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                            readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
                             assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
                                     "Expected geometry output for " + toneMapping + "/" + mode);
                             GlDebug.checkError(toneMapping + "/" + mode);
@@ -313,7 +313,7 @@ class RenderPipelineGlTest {
 
                 pipeline.execute(device);
                 ByteBuffer dirtyStatePixel = BufferUtils.createByteBuffer(4);
-                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, dirtyStatePixel);
+                readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, dirtyStatePixel);
 
                 assertFalse(glIsEnabled(GL_BLEND), "Tone mapping must disable inherited material blending");
                 assertFalse(glIsEnabled(GL_CULL_FACE), "Fullscreen passes must disable inherited face culling");
@@ -326,7 +326,7 @@ class RenderPipelineGlTest {
                         .enableCullFace(false));
                 pipeline.execute(device);
                 ByteBuffer cleanStatePixel = BufferUtils.createByteBuffer(4);
-                glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, cleanStatePixel);
+                readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, cleanStatePixel);
                 for (int channel = 0; channel < 4; channel++) {
                     assertEquals(Byte.toUnsignedInt(dirtyStatePixel.get(channel)),
                             Byte.toUnsignedInt(cleanStatePixel.get(channel)), 1,
@@ -475,7 +475,7 @@ class RenderPipelineGlTest {
                         pipeline.resize(48, 40);
                         pipeline.execute(new GlRenderDevice());
                         ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-                        glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
                         assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
                                 "HDR resize must retain final output for " + mode);
                         GlDebug.checkError("HDR resize " + mode);
@@ -526,7 +526,7 @@ class RenderPipelineGlTest {
                         pipeline.execute(new GlRenderDevice());
 
                         ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-                        glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
                         assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
                                 "Bloom HDR path must render for " + mode);
                         GlDebug.checkError("Bloom HDR path " + mode);
@@ -579,7 +579,7 @@ class RenderPipelineGlTest {
                             pipeline.resize(0, 0);
                             pipeline.execute(device, 1.0f / 60.0f);
                             ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-                            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                            readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
                             assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 0,
                                     "Automatic exposure must render for " + mode
                                             + " bloom=" + bloomEnabled);
@@ -696,9 +696,11 @@ class RenderPipelineGlTest {
                     RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build());
             try {
                 pipeline.build();
+                int initialWidth = pipeline.graph().width();
+                int initialHeight = pipeline.graph().height();
                 pipeline.resize(0, 0);
-                assertEquals(32, pipeline.graph().width());
-                assertEquals(32, pipeline.graph().height());
+                assertEquals(initialWidth, pipeline.graph().width());
+                assertEquals(initialHeight, pipeline.graph().height());
                 pipeline.execute(new GlRenderDevice());
 
                 pipeline.resize(48, 40);
@@ -932,7 +934,7 @@ class RenderPipelineGlTest {
             pipeline.build();
             pipeline.execute(new GlRenderDevice());
             ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
             return Byte.toUnsignedInt(pixel.get(0));
         } finally {
             pipeline.close();
@@ -952,7 +954,7 @@ class RenderPipelineGlTest {
             pipeline.build();
             pipeline.execute(new GlRenderDevice());
             ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
             return Byte.toUnsignedInt(pixel.get(0));
         } finally {
             pipeline.close();
@@ -984,6 +986,20 @@ class RenderPipelineGlTest {
         return Byte.toUnsignedInt(pixels[offset])
                 + Byte.toUnsignedInt(pixels[offset + 1])
                 + Byte.toUnsignedInt(pixels[offset + 2]);
+    }
+
+    private static void readPipelineCenterPixel(RenderPipeline pipeline, int type,
+                                                java.nio.Buffer destination) {
+        int centerX = pipeline.graph().width() / 2;
+        int centerY = pipeline.graph().height() / 2;
+        if (destination instanceof ByteBuffer bytes) {
+            glReadPixels(centerX, centerY, 1, 1, GL_RGBA, type, bytes);
+        } else if (destination instanceof FloatBuffer floats) {
+            glReadPixels(centerX, centerY, 1, 1, GL_RGBA, type, floats);
+        } else {
+            throw new IllegalArgumentException("Unsupported pixel buffer: "
+                    + destination.getClass().getName());
+        }
     }
 
     private record InstancedShadowResult(byte[] pixels, int geometryInstances,
