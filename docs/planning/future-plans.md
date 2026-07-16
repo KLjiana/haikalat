@@ -6,15 +6,21 @@
 
 ## 当前重点
 
-保持现有 OpenGL 主路径、基准场景和真实 GL 回归稳定，新增工作必须有明确的运行行为和验证入口。
+v0.11 UI subsystem 已完成首轮功能实现，当前处于 RC 稳定阶段。发布重点是证明 native/IME
+生命周期可靠、收口公共 API，并在不改变绘制顺序与同步语义的前提下降低 UI 帧分配和 batch break。
 
 ### 近期
 
+- [ ] 完成至少 50 轮窗口、WndProc hook、事件轮询、hook 恢复和窗口销毁的 native 生命周期 soak，并在轮次间施加 GC 压力。
+- [ ] 完成 synthetic IME soak，覆盖 composition start/update/end、焦点丢失、resize/content-scale、活动输入框删除和 popup 内输入框。
+- [ ] 完成 60～300 秒交互 UiDemo soak，并记录 Windows IME 人工矩阵；人工结果完成前保持 `0.11.0-rc.1`。
+- [ ] 建立 UI 公共 API allowlist 或内部 API 标记与架构测试，避免 RC 后继续无意扩大兼容面。
+- [ ] 增加 UI batch-break 原因和每帧分配统计，优先消除逐 glyph/quad 临时对象与 display-list 快照复制。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
-- [ ] 在具备多 GPU/驱动环境后，补充操作系统级 iconify/restore 事件验证；渲染器的 0×0 extent 忽略和正尺寸恢复已有真实 GL 测试。
 
 ### 中期
 
+- [ ] 以 UI subsystem 为基础逐步建设调试面板、资源检查器和编辑工具；工具需求应反向验证稳定 API，而不是绕过生命周期边界。
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
 - [ ] 当场景出现多个 mesh/material 的真实压力数据后，评估 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`；单 mesh 单 draw 场景不提前引入 indirect command 复杂度。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。
@@ -33,5 +39,5 @@
 - 不追求完整游戏引擎功能，例如物理、音频、脚本和动画状态机。
 - 不引入复杂 ECS，除非当前 `SceneObject` 模型出现明确瓶颈。
 - 不直接重写 Vulkan 后端；第二后端只用于验证稳定边界。
-- 不做大型编辑器，优先保证运行时、Demo 和调试信息稳定。
+- 不在稳定公共组件之前一次性建设封闭、单体的生产级编辑器；允许调试器和编辑工具作为 UI/runtime API 的真实使用者逐步演进。
 - 不引入复杂 PBR 管线，先保持基础光照、阴影、材质和后处理链稳定。

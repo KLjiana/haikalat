@@ -22,8 +22,10 @@ Windows IME 里程碑将 JNA/JNA Platform 固定为 5.18.1。`imm32.dll` 使用�
 
 ## 确定性字体资产
 
-仓库内建 `src/main/resources/ui/fonts/NotoSansSC-VF.ttf`，来自官方
-`notofonts/noto-cjk` 的 Sans2.004 Noto Sans CJK Simplified Chinese variable TTF：
+仓库内建字体统一放在 `src/main/resources/ui/fonts`，不从项目根目录或开发机字体目录加载。
+
+`NotoSansSC-VF.ttf` 来自官方 `notofonts/noto-cjk` 的 Sans2.004 Noto Sans CJK
+Simplified Chinese variable TTF：
 
 - 文件大小：17,773,244 bytes；
 - SHA-256：`763146584CF0710223441356B4395E279021B0806C196614377A7A0174AE074A`；
@@ -31,6 +33,15 @@ Windows IME 里程碑将 JNA/JNA Platform 固定为 5.18.1。`imm32.dll` 使用�
 - 完整来源、版本和 hash：`src/main/resources/ui/fonts/FONT-MANIFEST.md`；
 - 完整许可证副本：`src/main/resources/ui/fonts/OFL-1.1.txt`。
 
-该字体未经裁剪，UiDemo、纯 JVM FreeType/HarfBuzz 测试和真实 GL glyph pixel proof
+`unifont-17.0.05.otf` 来自 Unifoundry 的 Unifont 17.0.05：
+
+- 文件大小：5,321,628 bytes；
+- SHA-256：`85701AB9B1E251EE16F4DF00B13F22EAC311D72B7DAB427A7D975FE7F5064702`；
+- 上游提供 OFL-1.1 与 GPL-2.0-or-later 加 Font Embedding Exception 双重许可；
+- 本项目明确选择 OFL-1.1 发布路径，共用 `src/main/resources/ui/fonts/OFL-1.1.txt`；
+- 上游来源：https://unifoundry.com/unifont/；
+- 完整版本、版权声明和 hash：`src/main/resources/ui/fonts/FONT-MANIFEST.md`。
+
+这些字体未经裁剪，UiDemo、纯 JVM FreeType/HarfBuzz 测试和真实 GL glyph pixel proof
 使用同一 classpath 资源，不依赖开发机字体目录或在线服务。若后续生成子集，必须更新 manifest，
 保存工具版本、命令、Unicode 范围和新 hash，并重新检查 OFL Reserved Font Name 条款。

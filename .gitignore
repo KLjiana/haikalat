@@ -41,3 +41,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### JVM crash artifacts ###
+hs_err_pid*.log
+replay_pid*.log

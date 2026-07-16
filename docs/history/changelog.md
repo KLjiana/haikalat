@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-当前暂无未发布变更。
+- 清理 v0.11 RC 发布资产：忽略 HotSpot 崩溃产物，并将 Unifont 与 Noto Sans SC 统一归档到内建字体目录和许可清单。
+- 更新项目目标与后续计划，记录 UI subsystem 已完成首轮实现；调试器和编辑工具改为允许基于稳定公共 API 渐进演进。
+- 将 native/IME soak、Windows 人工矩阵、公共 API 收口和 UI 分配/批处理优化列为 `0.11.0` 正式版门槛。
 
 ## 已完成路线图
 
