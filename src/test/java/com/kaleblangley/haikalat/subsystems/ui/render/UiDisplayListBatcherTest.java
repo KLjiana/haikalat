@@ -37,6 +37,9 @@ class UiDisplayListBatcherTest {
         assertEquals(8, batches.texture(2));
         assertEquals(5, batches.firstPrimitive(3));
         assertEquals(UiShaderVariant.SOLID, batches.shader(3));
+        assertEquals(3, batches.breakStatistics().total());
+        assertEquals(2, batches.breakStatistics().shaderChanges());
+        assertEquals(1, batches.breakStatistics().textureChanges());
     }
 
     @Test
@@ -69,6 +72,8 @@ class UiDisplayListBatcherTest {
         assertFalse(batches.hasClip(5));
         assertEquals(9, batches.firstPrimitive(4));
         assertEquals(11, batches.firstPrimitive(5));
+        assertEquals(5, batches.breakStatistics().orderBarriers());
+        assertEquals(5, batches.breakStatistics().total());
         assertThrows(IllegalStateException.class, () -> batches.clip(0));
     }
 

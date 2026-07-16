@@ -30,6 +30,7 @@ stable com.kaleblangley.haikalat.subsystems.ui.widget.TextField
 stable com.kaleblangley.haikalat.subsystems.ui.widget.Toggle
 
 advanced com.kaleblangley.haikalat.subsystems.ui.UiDebugOptions
+advanced com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats
 advanced com.kaleblangley.haikalat.subsystems.ui.UiDirtyFlag
 advanced com.kaleblangley.haikalat.subsystems.ui.UiFrameStats
 advanced com.kaleblangley.haikalat.subsystems.ui.UiImageId

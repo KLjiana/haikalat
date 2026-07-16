@@ -183,7 +183,8 @@ class UiDemoSceneTest {
             for (int frame = 0; frame <= 8; frame++) scene.applyBuiltinScript(frame);
             scene.updateStatistics(new UiFrameStats(10, 8, 1, 0, 0, 0, 0, 0, 0,
                     0, 12, 11, 0, 3, 2, 880, 132, 0, 0, 0,
-                    1_000_000, 400_000, 100_000, 300_000, 200_000, 0));
+                    1_000_000, 400_000, 100_000, 300_000, 200_000, 0,
+                    com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats.EMPTY));
 
             assertTrue(scene.toggle().value());
             assertEquals(1.35, scene.slider().value(), 0.0001);

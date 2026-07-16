@@ -30,7 +30,7 @@ Javadoc、生命周期约束和至少一个非实现包调用测试。
 | `UiGlyphAtlasGpu`（583 行） | atlas page 纹理所有权、dirty upload、generation lease、上传结果 | 与 slot-owned primitive arena 一起设计 `AtlasUploadTransaction`；事务必须保留异常收尾和 generation 一致性。 |
 | `YogaLayoutEngine`（571 行） | Yoga node 映射、style 翻译、measure callback、布局回写 | 优先提取 native node ownership/registry；style 翻译仍留在 engine，避免把每个 Yoga 调用拆成薄包装。 |
 | `UiSystem`（565 行） | 公共 facade、update 阶段编排、IME 协调、snapshot 发布、renderer 生命周期 | 最优先候选是 text-input coordinator，其边界已由 synthetic IME soak 证明；frame snapshot builder 在 primitive arena 方案确定后再提取。 |
-| `UiDisplayList`（559 行） | primitive 存储、相邻 batch、文本 caret 信息、snapshot 复制 | 不先按行数拆；下一步改为 slot-owned primitive arena，并把只读 snapshot 构建收进明确 builder。 |
+| `UiDisplayList`（审计时 559 行） | primitive 存储、相邻 batch、文本 caret 信息、snapshot 复制 | 已接入 slot-owned primitive arena；下一步只在 allocation profile 证明有收益时提取 primitive writer，不拆薄包装。 |
 | `TextField`（449 行） | value/selection、composition、undo/redo、键盘编辑和水平视口 | 仅在编辑行为测试完整后提取纯 JVM text-edit model；节点事件与绘制状态仍归 widget。 |
 
 该审计优先围绕 ownership、事务和协调边界，不以缩短文件为目标。

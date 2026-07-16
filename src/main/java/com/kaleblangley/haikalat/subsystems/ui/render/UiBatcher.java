@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
+import com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats;
+
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -43,6 +45,12 @@ public final class UiBatcher {
         int batchCount = 0;
         int clipDepth = 0;
         boolean mayMergePrevious = false;
+        long orderBarriers = 0;
+        long shaderChanges = 0;
+        long textureChanges = 0;
+        long samplerChanges = 0;
+        long blendChanges = 0;
+        long clipChanges = 0;
 
         for (int primitive = 0; primitive < displayList.primitiveCount(); primitive++) {
             UiPrimitiveKind kind = displayList.primitiveKind(primitive);
@@ -97,6 +105,14 @@ public final class UiBatcher {
                 primitiveCounts[batchCount - 1]++;
                 quadCounts[batchCount - 1] += displayList.primitiveQuadCount(primitive);
             } else {
+                if (batchCount != 0) {
+                    if (!mayMergePrevious) orderBarriers++;
+                    else if (shaders[batchCount - 1] != (byte) shader.ordinal()) shaderChanges++;
+                    else if (textures[batchCount - 1] != texture) textureChanges++;
+                    else if (samplers[batchCount - 1] != sampler) samplerChanges++;
+                    else if (blends[batchCount - 1] != (byte) blend.ordinal()) blendChanges++;
+                    else clipChanges++;
+                }
                 ensureBatchCapacity(batchCount + 1);
                 firstPrimitives[batchCount] = primitive;
                 primitiveCounts[batchCount] = 1;
@@ -121,7 +137,9 @@ public final class UiBatcher {
         if (clipDepth != 0) {
             throw new IllegalStateException("clip stack is not balanced after batching");
         }
-        return batchCount == 0 ? Result.EMPTY : new Result(this, batchCount);
+        UiBatchBreakStats breakStats = new UiBatchBreakStats(orderBarriers, shaderChanges,
+                textureChanges, samplerChanges, blendChanges, clipChanges);
+        return batchCount == 0 ? Result.EMPTY : new Result(this, batchCount, breakStats);
     }
 
     private boolean keyEquals(int batch, UiShaderVariant shader, int texture, int sampler,
@@ -194,6 +212,7 @@ public final class UiBatcher {
         private final double[] clipY;
         private final double[] clipWidth;
         private final double[] clipHeight;
+        private final UiBatchBreakStats breakStatistics;
 
         private Result() {
             firstPrimitives = new int[0];
@@ -209,9 +228,10 @@ public final class UiBatcher {
             clipY = new double[0];
             clipWidth = new double[0];
             clipHeight = new double[0];
+            breakStatistics = UiBatchBreakStats.EMPTY;
         }
 
-        private Result(UiBatcher source, int count) {
+        private Result(UiBatcher source, int count, UiBatchBreakStats breakStatistics) {
             firstPrimitives = Arrays.copyOf(source.firstPrimitives, count);
             primitiveCounts = Arrays.copyOf(source.primitiveCounts, count);
             firstQuads = Arrays.copyOf(source.firstQuads, count);
@@ -225,11 +245,17 @@ public final class UiBatcher {
             clipY = Arrays.copyOf(source.clipY, count);
             clipWidth = Arrays.copyOf(source.clipWidth, count);
             clipHeight = Arrays.copyOf(source.clipHeight, count);
+            this.breakStatistics = Objects.requireNonNull(breakStatistics, "breakStatistics");
         }
 
         /** 返回 batch 数量。 */
         public int size() {
             return firstPrimitives.length;
+        }
+
+        /** 返回形成新 batch 的互斥原因统计；首个 batch 不计为 break。 */
+        public UiBatchBreakStats breakStatistics() {
+            return breakStatistics;
         }
 
         /** 返回 batch 首个 display-list primitive。 */

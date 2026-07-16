@@ -9,6 +9,9 @@
 - 修复活动 `TextField` 已关闭后文本输入同步仍尝试取消其 composition 的失效节点访问，并把内建 Unifont 回归改为 classpath 资源验证。
 - 建立穷尽的 UI public type allowlist，将 109 个顶层类型分为 stable、advanced 和 internal；架构测试阻止未分类扩面、重复分类、陈旧条目以及 renderer 协议被隐式提升。
 - 完成六个 UI 大类的职责审计，后续只围绕 native ownership、text-input coordinator、frame snapshot builder 和 atlas upload transaction 等真实边界提取。
+- UI snapshot 改为交换槽拥有的可复用 primitive arena；renderer 保留最后快照 lease 到替换/关闭，既消除每帧 frozen 数组分配，又不允许 producer 覆写仍可能重放的内容。
+- 去掉 glyph/box 热路径临时 bounds/UV/lookup 对象并缓存 glyph key；相邻同 atlas page、父 clip 和 shader 的 Label glyph run 可跨节点合并，保持 paint order。
+- 增加 batch-break 原因统计。五轮复测中 virtual list 从 51～65 draws 降到 3，2,000 glyph 从约 506 KiB/frame 降到约 5 KiB/frame；10,000 quad 从约 1.57 MiB 降到约 600 KiB，仍未达到 256 KiB 目标。
 
 ## 已完成路线图
 

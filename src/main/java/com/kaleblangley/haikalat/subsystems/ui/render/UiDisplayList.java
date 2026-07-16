@@ -60,10 +60,14 @@ public final class UiDisplayList {
      * @param quadCapacity 初始 quad 容量
      */
     public UiDisplayList(int primitiveCapacity, int quadCapacity) {
+        this(false, primitiveCapacity, quadCapacity);
+    }
+
+    private UiDisplayList(boolean frozen, int primitiveCapacity, int quadCapacity) {
         if (primitiveCapacity < 0 || quadCapacity < 0) {
             throw new IllegalArgumentException("display-list capacities must be non-negative");
         }
-        frozen = false;
+        this.frozen = frozen;
         allocatePrimitives(primitiveCapacity);
         allocateQuads(quadCapacity);
     }
@@ -114,9 +118,18 @@ public final class UiDisplayList {
      */
     public UiDisplayList addSolidQuad(UiScreenRect bounds, int premultipliedRgba8,
                                       UiBlendMode blendMode) {
+        Objects.requireNonNull(bounds, "bounds");
+        return addSolidQuad(bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                premultipliedRgba8, blendMode);
+    }
+
+    /** 以标量直接追加单色四边形，避免热路径创建临时矩形。 */
+    public UiDisplayList addSolidQuad(double x, double y, double width, double height,
+                                      int premultipliedRgba8, UiBlendMode blendMode) {
         ensureRecordable();
         Objects.requireNonNull(blendMode, "blendMode");
-        int firstQuad = appendQuad(bounds, UiUvRect.FULL, premultipliedRgba8);
+        int firstQuad = appendQuad(x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f,
+                premultipliedRgba8);
         appendPrimitive(UiPrimitiveKind.SOLID_QUAD, UiShaderVariant.SOLID,
                 -1, -1, blendMode, firstQuad, 1);
         return this;
@@ -136,11 +149,24 @@ public final class UiDisplayList {
     public UiDisplayList addTexturedQuad(UiScreenRect bounds, UiUvRect uv,
                                          int textureId, int samplerId,
                                          int premultipliedRgba8, UiBlendMode blendMode) {
+        Objects.requireNonNull(bounds, "bounds");
+        Objects.requireNonNull(uv, "uv");
+        return addTexturedQuad(bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                uv.u0(), uv.v0(), uv.u1(), uv.v1(), textureId, samplerId,
+                premultipliedRgba8, blendMode);
+    }
+
+    /** 以标量直接追加纹理四边形，避免热路径创建 bounds/UV 对象。 */
+    public UiDisplayList addTexturedQuad(double x, double y, double width, double height,
+                                         float u0, float v0, float u1, float v1,
+                                         int textureId, int samplerId,
+                                         int premultipliedRgba8, UiBlendMode blendMode) {
         ensureRecordable();
         requireResource(textureId, "textureId");
         requireResource(samplerId, "samplerId");
         Objects.requireNonNull(blendMode, "blendMode");
-        int firstQuad = appendQuad(bounds, uv, premultipliedRgba8);
+        int firstQuad = appendQuad(x, y, width, height, u0, v0, u1, v1,
+                premultipliedRgba8);
         appendPrimitive(UiPrimitiveKind.TEXTURED_QUAD, UiShaderVariant.TEXTURED,
                 textureId, samplerId, blendMode, firstQuad, 1);
         return this;
@@ -175,11 +201,21 @@ public final class UiDisplayList {
      * @param premultipliedRgba8 0xRRGGBBAA 预乘颜色
      */
     public void addGlyph(UiScreenRect bounds, UiUvRect uv, int premultipliedRgba8) {
+        Objects.requireNonNull(bounds, "bounds");
+        Objects.requireNonNull(uv, "uv");
+        addGlyph(bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                uv.u0(), uv.v0(), uv.u1(), uv.v1(), premultipliedRgba8);
+    }
+
+    /** 以标量直接写入当前 glyph run。 */
+    public void addGlyph(double x, double y, double width, double height,
+                         float u0, float v0, float u1, float v1,
+                         int premultipliedRgba8) {
         ensureMutable();
         if (!glyphRunOpen) {
             throw new IllegalStateException("no glyph run is active");
         }
-        appendQuad(bounds, uv, premultipliedRgba8);
+        appendQuad(x, y, width, height, u0, v0, u1, v1, premultipliedRgba8);
     }
 
     /** 完成当前 glyph run；空 run 不产生 primitive。 */
@@ -281,6 +317,46 @@ public final class UiDisplayList {
         }
         validateComplete();
         return new UiDisplayList(this);
+    }
+
+    /** 创建只能由 snapshot exchange 覆写、对消费方始终只读的槽 arena。 */
+    static UiDisplayList snapshotArena() {
+        return new UiDisplayList(true, 0, 0);
+    }
+
+    /** 在槽尚未被 acquire 时以数组复制覆写只读 arena，不产生新的 primitive 数组。 */
+    void replaceSnapshotFrom(UiDisplayList source) {
+        if (!frozen) {
+            throw new IllegalStateException("snapshot target must be a frozen slot arena");
+        }
+        Objects.requireNonNull(source, "source").validateComplete();
+        ensurePrimitiveCapacity(source.primitiveCount);
+        ensureQuadCapacity(source.quadCount);
+        primitiveCount = source.primitiveCount;
+        quadCount = source.quadCount;
+        copy(source.primitiveKinds, primitiveKinds, primitiveCount);
+        copy(source.primitiveShaders, primitiveShaders, primitiveCount);
+        copy(source.primitiveBlends, primitiveBlends, primitiveCount);
+        copy(source.primitiveTextures, primitiveTextures, primitiveCount);
+        copy(source.primitiveSamplers, primitiveSamplers, primitiveCount);
+        copy(source.primitiveFirstQuads, primitiveFirstQuads, primitiveCount);
+        copy(source.primitiveQuadCounts, primitiveQuadCounts, primitiveCount);
+        copy(source.primitiveClipX, primitiveClipX, primitiveCount);
+        copy(source.primitiveClipY, primitiveClipY, primitiveCount);
+        copy(source.primitiveClipWidth, primitiveClipWidth, primitiveCount);
+        copy(source.primitiveClipHeight, primitiveClipHeight, primitiveCount);
+        copy(source.quadX, quadX, quadCount);
+        copy(source.quadY, quadY, quadCount);
+        copy(source.quadWidth, quadWidth, quadCount);
+        copy(source.quadHeight, quadHeight, quadCount);
+        copy(source.quadU0, quadU0, quadCount);
+        copy(source.quadV0, quadV0, quadCount);
+        copy(source.quadU1, quadU1, quadCount);
+        copy(source.quadV1, quadV1, quadCount);
+        copy(source.quadColors, quadColors, quadCount);
+        clipDepth = 0;
+        glyphRunOpen = false;
+        glyphBlend = null;
     }
 
     /** 返回对象是否为只读快照。 */
@@ -432,16 +508,22 @@ public final class UiDisplayList {
     private int appendQuad(UiScreenRect bounds, UiUvRect uv, int color) {
         Objects.requireNonNull(bounds, "bounds");
         Objects.requireNonNull(uv, "uv");
+        return appendQuad(bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                uv.u0(), uv.v0(), uv.u1(), uv.v1(), color);
+    }
+
+    private int appendQuad(double x, double y, double width, double height,
+                           float u0, float v0, float u1, float v1, int color) {
         ensureQuadCapacity(quadCount + 1);
         int index = quadCount++;
-        quadX[index] = bounds.x();
-        quadY[index] = bounds.y();
-        quadWidth[index] = bounds.width();
-        quadHeight[index] = bounds.height();
-        quadU0[index] = uv.u0();
-        quadV0[index] = uv.v0();
-        quadU1[index] = uv.u1();
-        quadV1[index] = uv.v1();
+        quadX[index] = x;
+        quadY[index] = y;
+        quadWidth[index] = width;
+        quadHeight[index] = height;
+        quadU0[index] = u0;
+        quadV0[index] = v0;
+        quadU1[index] = u1;
+        quadV1[index] = v1;
         quadColors[index] = color;
         return index;
     }
@@ -571,5 +653,21 @@ public final class UiDisplayList {
             grown = Integer.MAX_VALUE - 8;
         }
         return grown;
+    }
+
+    private static void copy(byte[] source, byte[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
+    }
+
+    private static void copy(int[] source, int[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
+    }
+
+    private static void copy(float[] source, float[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
+    }
+
+    private static void copy(double[] source, double[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
     }
 }

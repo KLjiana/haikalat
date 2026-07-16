@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
+import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,6 +76,39 @@ public final class UiSnapshotExchange implements AutoCloseable {
                 ensureOpen();
             }
             publishInto(slot, snapshot);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 等待可复用槽，把 display list 复制进该槽拥有的 primitive arena 后原子发布。
+     * ACQUIRED 槽永远不会被选择，因此消费方持有 lease 期间数组内容保持不变。
+     *
+     * @return 已发布快照，供 update 线程生成同帧统计
+     */
+    public UiRenderSnapshot captureAndPublish(long sequence,
+                                              int windowWidth, int windowHeight,
+                                              int framebufferWidth, int framebufferHeight,
+                                              double contentScaleX, double contentScaleY,
+                                              UiDisplayList displayList,
+                                              List<GlyphUploadRequest> glyphUploads)
+            throws InterruptedException {
+        lock.lockInterruptibly();
+        try {
+            ensureOpen();
+            int slotIndex;
+            while ((slotIndex = reusableSlot()) < 0) {
+                stateChanged.await();
+                ensureOpen();
+            }
+            Slot slot = slots[slotIndex];
+            UiRenderSnapshot snapshot = UiRenderSnapshot.captureInto(sequence,
+                    windowWidth, windowHeight, framebufferWidth, framebufferHeight,
+                    contentScaleX, contentScaleY, displayList, slot.displayListArena,
+                    slot.batcher, glyphUploads);
+            publishInto(slotIndex, snapshot);
+            return snapshot;
         } finally {
             lock.unlock();
         }
@@ -299,6 +335,8 @@ public final class UiSnapshotExchange implements AutoCloseable {
     }
 
     private static final class Slot {
+        private final UiDisplayList displayListArena = UiDisplayList.snapshotArena();
+        private final UiBatcher batcher = new UiBatcher();
         private byte state = FREE;
         private long generation;
         private long publication;

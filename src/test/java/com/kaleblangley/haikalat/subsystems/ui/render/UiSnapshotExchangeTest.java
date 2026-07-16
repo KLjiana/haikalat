@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -52,6 +53,34 @@ class UiSnapshotExchangeTest {
             second.close();
             assertEquals(0, exchange.acquiredCount());
             assertEquals(5, exchange.publishedCount());
+        }
+    }
+
+    @Test
+    void slotOwnedArenaIsReusedOnlyAfterItsLeaseIsReleased() throws InterruptedException {
+        try (UiSnapshotExchange exchange = new UiSnapshotExchange(2)) {
+            UiDisplayList builder = new UiDisplayList()
+                    .addSolidQuad(0.0, 0.0, 2.0, 2.0, 0x01020304,
+                            UiBlendMode.PREMULTIPLIED_ALPHA);
+            exchange.captureAndPublish(1, 32, 32, 32, 32, 1.0, 1.0,
+                    builder, List.of());
+            UiSnapshotExchange.Lease first = exchange.acquire();
+
+            builder.clear();
+            builder.addSolidQuad(4.0, 4.0, 3.0, 3.0, 0xaabbccdd,
+                    UiBlendMode.PREMULTIPLIED_ALPHA);
+            exchange.captureAndPublish(2, 32, 32, 32, 32, 1.0, 1.0,
+                    builder, List.of());
+            UiSnapshotExchange.Lease second = exchange.acquire();
+
+            assertEquals(0x01020304, first.snapshot().displayList().quadColor(0),
+                    "acquired slot arena must not be overwritten");
+            assertEquals(0xaabbccdd, second.snapshot().displayList().quadColor(0));
+            assertTrue(first.snapshot().displayList().isFrozen());
+            assertThrows(IllegalStateException.class,
+                    first.snapshot().displayList()::clear);
+            first.close();
+            second.close();
         }
     }
 

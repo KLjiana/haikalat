@@ -9,9 +9,9 @@ public record UiFrameStats(long visibleNodes, long layoutNodes, long layoutPasse
                            long indexBytes, long atlasUploadBytes, long inputEvents,
                            long dispatchedEvents, long uiUpdateNanos, long layoutNanos,
                            long shapingNanos, long paintNanos, long renderRecordNanos,
-                           long ringWaitNanos) {
+                           long ringWaitNanos, UiBatchBreakStats batchBreaks) {
     public static final UiFrameStats EMPTY = new UiFrameStats(0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, UiBatchBreakStats.EMPTY);
 
     public UiFrameStats {
         long[] values = {visibleNodes, layoutNodes, layoutPasses, shapedRuns, shapingCacheHits,
@@ -23,5 +23,6 @@ public record UiFrameStats(long visibleNodes, long layoutNodes, long layoutPasse
         for (long value : values) {
             if (value < 0L) throw new IllegalArgumentException("UI statistics cannot be negative");
         }
+        java.util.Objects.requireNonNull(batchBreaks, "batchBreaks");
     }
 }

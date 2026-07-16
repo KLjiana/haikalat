@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +52,7 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
     private long layoutCacheMisses;
     private FontFallbackChain fallback;
     private String activeFontFamily;
+    private GlyphAtlasGlyph[] resolvedGlyphs = new GlyphAtlasGlyph[64];
     private boolean closed;
 
     private UiTextEngine(FontManager fonts, LinkedHashMap<String, FontFace> fontFaces,
@@ -204,24 +206,30 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         if (text.isEmpty()) return true;
 
         TextLayout layout = layout(node, text, (float) bounds.width());
-        List<ResolvedGlyph> resolved = new ArrayList<>(layout.glyphCount());
+        ensureResolvedGlyphCapacity(layout.glyphCount());
+        int resolvedCount = 0;
         boolean allReady = true;
         for (TextLine line : layout.lines()) {
             for (PositionedGlyph positioned : line.glyphs()) {
                 FontFace face = fonts.face(positioned.faceId()).orElseThrow(() ->
                         new IllegalStateException("Text layout references missing face "
                                 + positioned.faceId().value()));
-                GlyphKey key = new GlyphKey(positioned.faceId(), positioned.glyphId(),
-                        positioned.ppem(), GlyphHinting.NORMAL, GlyphRasterMode.GRAYSCALE);
-                GlyphAtlasLookup lookup = atlas.lookup(face, key);
-                if (lookup.ready()) {
-                    resolved.add(new ResolvedGlyph(positioned, lookup.glyph().orElseThrow()));
-                } else {
+                GlyphKey key = positioned.glyphKey();
+                GlyphAtlasGlyph glyph = atlas.readyGlyph(key);
+                if (glyph == null) {
+                    GlyphAtlasLookup lookup = atlas.lookup(face, key);
+                    glyph = lookup.ready() ? lookup.glyph().orElseThrow() : null;
+                }
+                resolvedGlyphs[resolvedCount++] = glyph;
+                if (glyph == null) {
                     allReady = false;
                 }
             }
         }
-        if (!allReady) return false;
+        if (!allReady) {
+            Arrays.fill(resolvedGlyphs, 0, resolvedCount, null);
+            return false;
+        }
 
         double logicalLayoutHeight = layout.height() / contentScale;
         double originY = bounds.y() + Math.max(0.0,
@@ -229,8 +237,10 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         int activePage = -1;
         boolean runOpen = false;
         try {
-            for (ResolvedGlyph item : resolved) {
-                GlyphAtlasGlyph glyph = item.glyph();
+            int glyphIndex = 0;
+            for (TextLine line : layout.lines()) {
+                for (PositionedGlyph positioned : line.glyphs()) {
+                GlyphAtlasGlyph glyph = resolvedGlyphs[glyphIndex++];
                 if (!glyph.drawable()) continue;
                 GlyphAtlasPlacement placement = glyph.placement().orElseThrow();
                 if (placement.pageIndex() != activePage) {
@@ -240,22 +250,30 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
                             UiBlendMode.PREMULTIPLIED_ALPHA);
                     runOpen = true;
                 }
-                PositionedGlyph positioned = item.positioned();
                 double x = bounds.x() + (positioned.x() + glyph.bearingX()) / contentScale;
                 double y = originY + (positioned.y() - glyph.bearingY()) / contentScale;
-                displayList.addGlyph(new UiScreenRect(x, y,
-                                (double) placement.width() / contentScale,
-                                (double) placement.height() / contentScale),
-                        new UiUvRect(placement.u0(), placement.v0(),
-                                placement.u1(), placement.v1()), premultipliedRgba8);
+                displayList.addGlyph(x, y,
+                        (double) placement.width() / contentScale,
+                        (double) placement.height() / contentScale,
+                        placement.u0(), placement.v0(), placement.u1(), placement.v1(),
+                        premultipliedRgba8);
                 frameGlyphs++;
+                }
             }
             if (runOpen) displayList.endGlyphRun();
             return true;
         } catch (RuntimeException | Error failure) {
             if (runOpen) displayList.abortGlyphRun();
             throw failure;
+        } finally {
+            Arrays.fill(resolvedGlyphs, 0, resolvedCount, null);
         }
+    }
+
+    private void ensureResolvedGlyphCapacity(int required) {
+        if (required <= resolvedGlyphs.length) return;
+        int capacity = Math.max(required, resolvedGlyphs.length + (resolvedGlyphs.length >> 1));
+        resolvedGlyphs = Arrays.copyOf(resolvedGlyphs, capacity);
     }
 
     @Override
@@ -500,6 +518,4 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
                              int maximumLines, boolean ellipsis, TextWrapMode wrapMode) {
     }
 
-    private record ResolvedGlyph(PositionedGlyph positioned, GlyphAtlasGlyph glyph) {
-    }
 }

@@ -14,7 +14,7 @@ v0.11 UI subsystem 已完成首轮功能实现，当前处于 RC 稳定阶段。
 - [ ] 在每个正式版候选上重新运行 `runUiNativeSoak` 与 `runUiSyntheticImeSoak`，保留失败日志；当前候选已分别通过 50 轮真实 native 生命周期和 100 轮 synthetic IME 生命周期。
 - [ ] 完成 60～300 秒交互 UiDemo soak，并记录 Windows IME 人工矩阵；人工结果完成前保持 `0.11.0-rc.1`。
 - [ ] 在正式版前复核 advanced 列表；新增 UI public 类型必须通过 allowlist 架构测试，不得无意扩大 stable 兼容面。
-- [ ] 增加 UI batch-break 原因和每帧分配统计，优先消除逐 glyph/quad 临时对象与 display-list 快照复制。
+- [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 
 ### 中期

@@ -112,6 +112,19 @@ public final class GlyphAtlas implements AutoCloseable {
     }
 
     /**
+     * 返回已经发布的 glyph；steady-state 命中不创建 {@link GlyphAtlasLookup}。
+     * 未命中不计 miss，调用方应继续走 {@link #lookup(FontFace, GlyphKey)} 完成光栅化协议。
+     */
+    GlyphAtlasGlyph readyGlyph(GlyphKey key) {
+        checkUsable("GlyphAtlas.readyGlyph");
+        Entry cached = ready.get(Objects.requireNonNull(key, "key"));
+        if (cached == null) return null;
+        hits = Math.addExact(hits, 1L);
+        cached.lastAccess = nextAccessSequence();
+        return cached.glyph;
+    }
+
+    /**
      * 标记 render upload 成功并发布 placement；重复或过期 request 会明确失败。
      */
     public GlyphAtlasGlyph publishUpload(GlyphUploadRequest request) {

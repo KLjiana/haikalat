@@ -137,14 +137,14 @@ public final class UiPainter {
         int borderColor = premultipliedRgba8(style.borderColor(), style.opacity());
         if (border <= 0.0 || alpha(borderColor) == 0 || bounds.isEmpty()) return;
 
-        addSolid(output, new UiScreenRect(bounds.x(), bounds.y(), bounds.width(), border), borderColor);
-        addSolid(output, new UiScreenRect(bounds.x(), bounds.bottom() - border,
-                bounds.width(), border), borderColor);
+        addSolid(output, bounds.x(), bounds.y(), bounds.width(), border, borderColor);
+        addSolid(output, bounds.x(), bounds.bottom() - border,
+                bounds.width(), border, borderColor);
         double sideHeight = Math.max(0.0, bounds.height() - border * 2.0);
-        addSolid(output, new UiScreenRect(bounds.x(), bounds.y() + border,
-                border, sideHeight), borderColor);
-        addSolid(output, new UiScreenRect(bounds.right() - border, bounds.y() + border,
-                border, sideHeight), borderColor);
+        addSolid(output, bounds.x(), bounds.y() + border,
+                border, sideHeight, borderColor);
+        addSolid(output, bounds.right() - border, bounds.y() + border,
+                border, sideHeight, borderColor);
     }
 
     private void paintImage(Image image, UiScreenRect bounds, UiDisplayList output) {
@@ -206,7 +206,7 @@ public final class UiPainter {
             double requestedHeight = field.computedStyle().fontSize() * 1.1;
             double caretHeight = Math.min(requestedHeight, contentBounds.height());
             double caretY = contentBounds.y() + (contentBounds.height() - caretHeight) * 0.5;
-            addSolid(output, new UiScreenRect(x, caretY, 1.0, caretHeight), color);
+            addSolid(output, x, caretY, 1.0, caretHeight, color);
         }
     }
 
@@ -234,7 +234,7 @@ public final class UiPainter {
         int color = premultipliedRgba8(field.computedStyle().borderColor(), selectionOpacity);
         output.pushClip(contentBounds);
         try {
-            addSolid(output, new UiScreenRect(left, y, right - left, height), color);
+            addSolid(output, left, y, right - left, height, color);
         } finally {
             output.popClip();
         }
@@ -242,24 +242,31 @@ public final class UiPainter {
 
     private void paintText(UiNode node, String text, Label.Alignment alignment,
                            UiScreenRect bounds, boolean placeholder, UiDisplayList output) {
-        paintText(node, text, alignment, bounds, bounds, placeholder, output);
+        boolean clipText = node.style().overflow() != UiStyle.Overflow.VISIBLE;
+        paintText(node, text, alignment, bounds, bounds, placeholder, clipText, output);
     }
 
     private void paintText(UiNode node, String text, Label.Alignment alignment,
                            UiScreenRect bounds, UiScreenRect clipBounds,
                            boolean placeholder, UiDisplayList output) {
+        paintText(node, text, alignment, bounds, clipBounds, placeholder, true, output);
+    }
+
+    private void paintText(UiNode node, String text, Label.Alignment alignment,
+                           UiScreenRect bounds, UiScreenRect clipBounds,
+                           boolean placeholder, boolean clipText, UiDisplayList output) {
         if (text.isEmpty() || bounds.isEmpty()) return;
         float opacity = node.computedStyle().opacity() * (placeholder ? 0.55f : 1.0f);
         int color = premultipliedRgba8(node.computedStyle().foreground(), opacity);
         if (alpha(color) == 0) return;
 
-        output.pushClip(textClip(clipBounds));
+        if (clipText) output.pushClip(textClip(clipBounds));
         try {
             if (!glyphPainter.paint(output, node, text, bounds, color)) {
                 paintPlaceholderGlyphs(node, text, alignment, bounds, color, output);
             }
         } finally {
-            output.popClip();
+            if (clipText) output.popClip();
         }
     }
 
@@ -280,7 +287,7 @@ public final class UiPainter {
         for (int offset = 0; offset < text.length();) {
             int codePoint = text.codePointAt(offset);
             if (!Character.isWhitespace(codePoint)) {
-                addSolid(output, new UiScreenRect(x, y, fontSize * 0.45, height), color);
+                addSolid(output, x, y, fontSize * 0.45, height, color);
             }
             x += advance;
             if (x >= bounds.right()) break;
@@ -341,6 +348,14 @@ public final class UiPainter {
     private static void addSolid(UiDisplayList output, UiScreenRect rect, int color) {
         if (!rect.isEmpty() && alpha(color) != 0) {
             output.addSolidQuad(rect, color, UiBlendMode.PREMULTIPLIED_ALPHA);
+        }
+    }
+
+    private static void addSolid(UiDisplayList output, double x, double y,
+                                 double width, double height, int color) {
+        if (width > 0.0 && height > 0.0 && alpha(color) != 0) {
+            output.addSolidQuad(x, y, width, height, color,
+                    UiBlendMode.PREMULTIPLIED_ALPHA);
         }
     }
 

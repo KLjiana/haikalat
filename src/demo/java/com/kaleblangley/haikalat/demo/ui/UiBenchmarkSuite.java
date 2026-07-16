@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
+import com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
@@ -120,7 +121,7 @@ public final class UiBenchmarkSuite {
                     cold.statistics().uiUpdateNanos() / 1_000_000.0,
                     cold.statistics().shapingNanos() / 1_000_000.0,
                     baseline.atlasUploadBytes(), end.visibleNodes(), end.quads(),
-                    end.glyphs());
+                    end.glyphs(), formatBreaks(end.batchBreaks()));
         }
     }
 
@@ -158,9 +159,9 @@ public final class UiBenchmarkSuite {
     private static void printSummary(List<RoundResult> results) {
         System.out.println("\n| resolution | scenario | FPS | update ms | layout ms | shape ms | "
                 + "paint ms | render ms | GPU ms | draws | upload B/frame | atlas hit | "
-                + "ring wait ms | allocation KiB/frame |");
+                + "ring wait ms | allocation KiB/frame | breaks O/S/T/Sm/B/C |");
         System.out.println("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-                + "---: | ---: | ---: | ---: | ---: |");
+                + "---: | ---: | ---: | ---: | ---: | --- |");
         for (Resolution resolution : RESOLUTIONS) {
             for (Scenario scenario : Scenario.values()) {
                 List<RoundResult> group = results.stream()
@@ -169,14 +170,15 @@ public final class UiBenchmarkSuite {
                         .toList();
                 System.out.printf(Locale.ROOT,
                         "| %s | %s | %.1f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | "
-                                + "%.0f | %.0f | %.2f%% | %.4f | %.1f |%n",
+                                + "%.0f | %.0f | %.2f%% | %.4f | %.1f | %s |%n",
                         resolution.name(), scenario.label(), median(group, Metric.FPS),
                         median(group, Metric.UPDATE), median(group, Metric.LAYOUT),
                         median(group, Metric.SHAPE), median(group, Metric.PAINT),
                         median(group, Metric.RENDER), median(group, Metric.GPU),
                         median(group, Metric.DRAWS), median(group, Metric.UPLOAD),
                         median(group, Metric.HIT_RATE) * 100.0,
-                        median(group, Metric.RING_WAIT), median(group, Metric.ALLOCATION));
+                        median(group, Metric.RING_WAIT), median(group, Metric.ALLOCATION),
+                        group.get(0).batchBreaks());
             }
         }
         System.out.println("\n| resolution | scenario | cold update ms | cold shape ms | "
@@ -205,6 +207,12 @@ public final class UiBenchmarkSuite {
         int middle = sorted.length >>> 1;
         return (sorted.length & 1) == 0
                 ? (sorted[middle - 1] + sorted[middle]) * 0.5 : sorted[middle];
+    }
+
+    private static String formatBreaks(UiBatchBreakStats value) {
+        return String.format(Locale.ROOT, "%d/%d/%d/%d/%d/%d",
+                value.orderBarriers(), value.shaderChanges(), value.textureChanges(),
+                value.samplerChanges(), value.blendChanges(), value.clipChanges());
     }
 
     private enum Scenario {
@@ -317,13 +325,14 @@ public final class UiBenchmarkSuite {
                                double atlasHitRate, double ringWaitMillisPerFrame,
                                double allocationKibPerFrame, double coldUpdateMillis,
                                double coldShapeMillis, double coldUploadBytes,
-                               double visibleNodes, double quads, double glyphs) {
+                               double visibleNodes, double quads, double glyphs,
+                               String batchBreaks) {
         private String line() {
             return String.format(Locale.ROOT,
                     "UI bench %s | %s | round %d | FPS %.1f | update %.3f ms | "
-                            + "GPU %.3f ms | draws %.0f | alloc %.1f KiB/frame",
+                            + "GPU %.3f ms | draws %.0f | alloc %.1f KiB/frame | breaks %s",
                     resolution.name(), scenario.label(), round, fps, updateMillis,
-                    gpuMillis, draws, allocationKibPerFrame);
+                    gpuMillis, draws, allocationKibPerFrame, batchBreaks);
         }
     }
 

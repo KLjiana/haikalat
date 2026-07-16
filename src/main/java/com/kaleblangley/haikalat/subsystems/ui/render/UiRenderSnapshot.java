@@ -72,6 +72,49 @@ public final class UiRenderSnapshot {
                                            double contentScaleX, double contentScaleY,
                                            UiDisplayList displayList, UiBatcher batcher,
                                            List<GlyphUploadRequest> glyphUploads) {
+        validateMetadata(sequence, windowWidth, windowHeight, framebufferWidth,
+                framebufferHeight, contentScaleX, contentScaleY);
+        UiDisplayList frozenList = Objects.requireNonNull(displayList, "displayList").freeze();
+        return assemble(sequence, windowWidth, windowHeight, framebufferWidth,
+                framebufferHeight, contentScaleX, contentScaleY, frozenList,
+                Objects.requireNonNull(batcher, "batcher"), glyphUploads);
+    }
+
+    /** 把 builder 复制进交换槽拥有的只读 arena，并创建该槽的新快照 header。 */
+    static UiRenderSnapshot captureInto(long sequence,
+                                        int windowWidth, int windowHeight,
+                                        int framebufferWidth, int framebufferHeight,
+                                        double contentScaleX, double contentScaleY,
+                                        UiDisplayList displayList, UiDisplayList slotArena,
+                                        UiBatcher slotBatcher,
+                                        List<GlyphUploadRequest> glyphUploads) {
+        validateMetadata(sequence, windowWidth, windowHeight, framebufferWidth,
+                framebufferHeight, contentScaleX, contentScaleY);
+        Objects.requireNonNull(slotArena, "slotArena").replaceSnapshotFrom(
+                Objects.requireNonNull(displayList, "displayList"));
+        return assemble(sequence, windowWidth, windowHeight, framebufferWidth,
+                framebufferHeight, contentScaleX, contentScaleY, slotArena,
+                Objects.requireNonNull(slotBatcher, "slotBatcher"), glyphUploads);
+    }
+
+    private static UiRenderSnapshot assemble(long sequence,
+                                             int windowWidth, int windowHeight,
+                                             int framebufferWidth, int framebufferHeight,
+                                             double contentScaleX, double contentScaleY,
+                                             UiDisplayList frozenList, UiBatcher batcher,
+                                             List<GlyphUploadRequest> glyphUploads) {
+        UiBatcher.Result frozenBatches = batcher.batch(frozenList);
+        List<GlyphUploadRequest> frozenUploads = List.copyOf(
+                Objects.requireNonNull(glyphUploads, "glyphUploads"));
+        return new UiRenderSnapshot(sequence, windowWidth, windowHeight,
+                framebufferWidth, framebufferHeight, contentScaleX, contentScaleY,
+                frozenList, frozenBatches, frozenUploads);
+    }
+
+    private static void validateMetadata(long sequence,
+                                         int windowWidth, int windowHeight,
+                                         int framebufferWidth, int framebufferHeight,
+                                         double contentScaleX, double contentScaleY) {
         if (sequence < 0) {
             throw new IllegalArgumentException("snapshot sequence must be non-negative");
         }
@@ -83,13 +126,6 @@ public final class UiRenderSnapshot {
                 || contentScaleX <= 0.0 || contentScaleY <= 0.0) {
             throw new IllegalArgumentException("content scale must be finite and positive");
         }
-        UiDisplayList frozenList = Objects.requireNonNull(displayList, "displayList").freeze();
-        UiBatcher.Result frozenBatches = Objects.requireNonNull(batcher, "batcher").batch(frozenList);
-        List<GlyphUploadRequest> frozenUploads = List.copyOf(
-                Objects.requireNonNull(glyphUploads, "glyphUploads"));
-        return new UiRenderSnapshot(sequence, windowWidth, windowHeight,
-                framebufferWidth, framebufferHeight, contentScaleX, contentScaleY,
-                frozenList, frozenBatches, frozenUploads);
     }
 
     /**

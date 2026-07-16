@@ -12,10 +12,10 @@ class UiDemoGlTest {
     @Test
     void hiddenDeterministicRunProducesUiPixelsAndFiniteStatistics() {
         UiDemo.RunSummary summary = UiDemo.run(UiDemoOptions.parse(
-                "--deterministic", "--frames=8", "--resize=3:720x480",
+                "--deterministic", "--frames=12", "--resize=3:720x480",
                 "--content-scale=1.25x1.5", "--verify-pixels"));
 
-        assertEquals(8, summary.renderedFrames());
+        assertEquals(12, summary.renderedFrames());
         assertTrue(summary.nonClearSamples() > 0);
         assertTrue(summary.statistics().visibleNodes() > 20);
         assertTrue(summary.statistics().quads() > 0);

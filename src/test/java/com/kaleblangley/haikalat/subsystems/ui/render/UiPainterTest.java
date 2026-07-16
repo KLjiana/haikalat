@@ -67,6 +67,7 @@ class UiPainterTest {
             scroll.scrollTo(0.0, 7.25);
             layout(scroll, 10.5f, 11.25f, 20.5f, 21.75f);
             Label label = new Label("A");
+            label.style(UiStyle.builder().overflow(UiStyle.Overflow.HIDDEN).build());
             label.computedStyle(style(UiColor.TRANSPARENT, UiColor.WHITE, 0.0f, 1.0f));
             layout(label, 12.25f, 30.5f, 12.0f, 12.0f);
             scroll.content(label);
@@ -133,7 +134,7 @@ class UiPainterTest {
     }
 
     @Test
-    void glyphProviderCanEmitAtlasRunInsteadOfFallbackQuads() {
+    void visibleOverflowLabelsAvoidPerNodeClipAndKeepAdjacentGlyphRunsMergeable() {
         UiGlyphPainter glyphs = (list, node, text, bounds, color) -> {
             list.beginGlyphRun(9, 2, UiBlendMode.PREMULTIPLIED_ALPHA);
             list.addGlyph(new UiScreenRect(bounds.x(), bounds.y(), 4, 6), UiUvRect.FULL, color);
@@ -149,12 +150,10 @@ class UiPainterTest {
             UiDisplayList list = new UiPainter(UiImageResolver.empty(), glyphs,
                     UiDebugOptions.NONE).paint(document);
 
-            assertSame(UiPrimitiveKind.PUSH_CLIP, list.primitiveKind(0));
-            assertEquals(new UiScreenRect(1.0, 2.0, 22.0, 22.0), list.primitiveClip(0));
-            assertSame(UiPrimitiveKind.GLYPH_RUN, list.primitiveKind(1));
-            assertEquals(9, list.primitiveTexture(1));
-            assertEquals(1, list.primitiveQuadCount(1));
-            assertSame(UiShaderVariant.GLYPH, list.primitiveShader(1));
+            assertSame(UiPrimitiveKind.GLYPH_RUN, list.primitiveKind(0));
+            assertEquals(9, list.primitiveTexture(0));
+            assertEquals(1, list.primitiveQuadCount(0));
+            assertSame(UiShaderVariant.GLYPH, list.primitiveShader(0));
         }
     }
 

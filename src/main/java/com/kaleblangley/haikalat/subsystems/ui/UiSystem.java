@@ -57,8 +57,8 @@ public final class UiSystem implements AutoCloseable {
     private final LayoutEngine layoutEngine;
     private final UiTextEngine textEngine;
     private final UiPainter painter;
-    private final UiBatcher batcher = new UiBatcher();
     private final UiDisplayList displayList;
+    private final UiBatcher emptySnapshotBatcher = new UiBatcher();
     private final UiSnapshotExchange snapshots;
     private final UiRenderer renderer;
     private final TextInputAdapter textInputAdapter;
@@ -67,6 +67,7 @@ public final class UiSystem implements AutoCloseable {
     private final Set<Long> submittedGlyphUploads = ConcurrentHashMap.newKeySet();
     private RenderGraph attachedGraph;
     private UiRenderSnapshot lastRenderedSnapshot;
+    private UiSnapshotExchange.Lease lastRenderedLease;
     private volatile UiFrameStats updateStatistics = UiFrameStats.EMPTY;
     private long snapshotSequence;
     private TextField activeTextField;
@@ -221,13 +222,12 @@ public final class UiSystem implements AutoCloseable {
         painter.paint(document, displayList);
         long paintNanos = System.nanoTime() - paintStart;
         if (activeTextField != null) updateCandidateRect(activeTextField, input);
-        complete = UiRenderSnapshot.capture(++snapshotSequence,
-                input.windowWidth(), input.windowHeight(),
-                input.framebufferWidth(), input.framebufferHeight(),
-                input.contentScaleX(), input.contentScaleY(), displayList, batcher,
-                textEngine.pendingUploads());
         try {
-            snapshots.publish(complete);
+            complete = snapshots.captureAndPublish(++snapshotSequence,
+                    input.windowWidth(), input.windowHeight(),
+                    input.framebufferWidth(), input.framebufferHeight(),
+                    input.contentScaleX(), input.contentScaleY(), displayList,
+                    textEngine.pendingUploads());
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("UiSnapshotExchange publication was interrupted", interrupted);
@@ -245,7 +245,8 @@ public final class UiSystem implements AutoCloseable {
                 (long) displayList.quadCount() * 4L * 20L,
                 (long) displayList.quadCount() * 6L * Short.BYTES,
                 atlas.uploadBytes(), inputEvents, dispatched, updateNanos, layoutNanos,
-                textEngine.frameShapingNanos(), paintNanos, renderRecordNanos, 0);
+                textEngine.frameShapingNanos(), paintNanos, renderRecordNanos, 0,
+                complete.batches().breakStatistics());
         // 后续动画/惯性组件只能接收 boundedDelta，不能重新读取未经裁剪的参数。
         animationDeltaSeconds = boundedDelta;
     }
@@ -290,7 +291,7 @@ public final class UiSystem implements AutoCloseable {
                 value.batches(), renderedDrawCalls, value.vertexBytes(), value.indexBytes(),
                 value.atlasUploadBytes(), value.inputEvents(), value.dispatchedEvents(),
                 value.uiUpdateNanos(), value.layoutNanos(), value.shapingNanos(), value.paintNanos(),
-                renderRecordNanos, renderer.ringWaitNanos());
+                renderRecordNanos, renderer.ringWaitNanos(), value.batchBreaks());
     }
 
     public boolean isAttached() { return attachedGraph != null; }
@@ -322,6 +323,7 @@ public final class UiSystem implements AutoCloseable {
     public void closeRenderResources() {
         synchronized (renderLifecycle) {
             if (renderer.isClosed()) return;
+            releaseLastRenderedLease();
             renderer.close();
             lastRenderedSnapshot = null;
         }
@@ -335,6 +337,7 @@ public final class UiSystem implements AutoCloseable {
         RuntimeException failure = null;
         snapshots.close();
         synchronized (renderLifecycle) {
+            releaseLastRenderedLease();
             if (!renderer.isClosed()) failure = closeCollect(renderer, failure);
             lastRenderedSnapshot = null;
         }
@@ -358,35 +361,42 @@ public final class UiSystem implements AutoCloseable {
     private void recordOverlay(com.kaleblangley.haikalat.core.command.CommandBuffer commands) {
         ensureOpen("UiRenderer");
         synchronized (renderLifecycle) {
-            UiSnapshotExchange.Lease lease = snapshots.tryAcquire();
-            try {
-                if (lease != null) lastRenderedSnapshot = lease.snapshot();
-                if (lastRenderedSnapshot == null) {
-                    int width = Math.max(0, window.width());
-                    int height = Math.max(0, window.height());
-                    lastRenderedSnapshot = UiRenderSnapshot.capture(0, width, height, width, height,
-                            1.0, 1.0, new UiDisplayList(), batcher);
-                }
-                long start = System.nanoTime();
-                List<GlyphUploadRequest> claimedUploads = claimGlyphUploads(
-                        lease == null ? List.of() : lastRenderedSnapshot.glyphUploads());
-                UiGlyphAtlasGpu.UploadSubmission uploadSubmission = null;
-                try {
-                    if (!claimedUploads.isEmpty()) {
-                        uploadSubmission = renderer.recordGlyphUploads(claimedUploads, commands);
-                    }
-                    renderer.record(lastRenderedSnapshot, commands);
-                } catch (RuntimeException | Error failure) {
-                    if (uploadSubmission != null) uploadSubmission.executionFailed(failure);
-                    releaseGlyphUploadClaims(claimedUploads);
-                    throw failure;
-                }
-                renderRecordNanos = System.nanoTime() - start;
-                renderedDrawCalls = renderer.lastDrawCalls();
-            } finally {
-                if (lease != null) lease.close();
+            UiSnapshotExchange.Lease acquired = snapshots.tryAcquire();
+            if (acquired != null) {
+                UiSnapshotExchange.Lease replaced = lastRenderedLease;
+                lastRenderedLease = acquired;
+                lastRenderedSnapshot = acquired.snapshot();
+                if (replaced != null) replaced.close();
             }
+            if (lastRenderedSnapshot == null) {
+                int width = Math.max(0, window.width());
+                int height = Math.max(0, window.height());
+                lastRenderedSnapshot = UiRenderSnapshot.capture(0, width, height, width, height,
+                        1.0, 1.0, new UiDisplayList(), emptySnapshotBatcher);
+            }
+            long start = System.nanoTime();
+            List<GlyphUploadRequest> claimedUploads = claimGlyphUploads(
+                    acquired == null ? List.of() : lastRenderedSnapshot.glyphUploads());
+            UiGlyphAtlasGpu.UploadSubmission uploadSubmission = null;
+            try {
+                if (!claimedUploads.isEmpty()) {
+                    uploadSubmission = renderer.recordGlyphUploads(claimedUploads, commands);
+                }
+                renderer.record(lastRenderedSnapshot, commands);
+            } catch (RuntimeException | Error failure) {
+                if (uploadSubmission != null) uploadSubmission.executionFailed(failure);
+                releaseGlyphUploadClaims(claimedUploads);
+                throw failure;
+            }
+            renderRecordNanos = System.nanoTime() - start;
+            renderedDrawCalls = renderer.lastDrawCalls();
         }
+    }
+
+    private void releaseLastRenderedLease() {
+        UiSnapshotExchange.Lease lease = lastRenderedLease;
+        lastRenderedLease = null;
+        if (lease != null) lease.close();
     }
 
     private void ensureOpen(String resource) {
