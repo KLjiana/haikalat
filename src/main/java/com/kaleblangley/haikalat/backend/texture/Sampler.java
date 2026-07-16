@@ -11,6 +11,7 @@ import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T;
+import static org.lwjgl.opengl.GL12.GL_TEXTURE_WRAP_R;
 import static org.lwjgl.opengl.GL33.glDeleteSamplers;
 import static org.lwjgl.opengl.GL33.glGenSamplers;
 import static org.lwjgl.opengl.GL33.glSamplerParameteri;
@@ -29,6 +30,7 @@ public final class Sampler implements GlResource {
         glSamplerParameteri(id, GL_TEXTURE_MAG_FILTER, descriptor.magFilter);
         glSamplerParameteri(id, GL_TEXTURE_WRAP_S, descriptor.wrapS);
         glSamplerParameteri(id, GL_TEXTURE_WRAP_T, descriptor.wrapT);
+        glSamplerParameteri(id, GL_TEXTURE_WRAP_R, descriptor.wrapR);
     }
 
     public static Sampler create(Descriptor descriptor) {
@@ -68,13 +70,17 @@ public final class Sampler implements GlResource {
         }
     }
 
-    public record Descriptor(int minFilter, int magFilter, int wrapS, int wrapT) {
+    public record Descriptor(int minFilter, int magFilter, int wrapS, int wrapT, int wrapR) {
+        public Descriptor(int minFilter, int magFilter, int wrapS, int wrapT) {
+            this(minFilter, magFilter, wrapS, wrapT, wrapT);
+        }
+
         public static Descriptor linearRepeat() {
-            return new Descriptor(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR, GL_REPEAT, GL_REPEAT);
+            return new Descriptor(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR, GL_REPEAT, GL_REPEAT, GL_REPEAT);
         }
 
         public static Descriptor nearestRepeat() {
-            return new Descriptor(GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT);
+            return new Descriptor(GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT, GL_REPEAT);
         }
     }
 }

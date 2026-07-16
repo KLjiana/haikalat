@@ -6,6 +6,8 @@ import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.LoadedModel;
 import com.kaleblangley.haikalat.core.assets.MaterialDef;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
+import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.assets.ModelAssetManager;
 import com.kaleblangley.haikalat.core.assets.ObjModelLoader;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
@@ -16,12 +18,16 @@ import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.EnumMap;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -31,6 +37,7 @@ final class DemoSceneResources implements AutoCloseable {
     private final Map<String, Material> materials = new LinkedHashMap<>();
     private final Map<String, List<Mesh>> meshes = new LinkedHashMap<>();
     private final TextureAssetCache textureCache;
+    private PbrFallbackTextures pbrFallbacks;
     private boolean closed;
 
     private DemoSceneResources(SceneAssetConfig config) {
@@ -108,7 +115,20 @@ final class DemoSceneResources implements AutoCloseable {
         for (Map.Entry<String, MaterialDef> entry : config.materials().entrySet()) {
             String name = entry.getKey();
             MaterialDef def = entry.getValue();
+            if (def.model() == MaterialModel.METALLIC_ROUGHNESS) {
+                if (pbrFallbacks == null) pbrFallbacks = new PbrFallbackTextures();
+                EnumMap<PbrTextureRole, Texture2D> supplied = new EnumMap<>(PbrTextureRole.class);
+                for (Map.Entry<PbrTextureRole, String> role : def.pbr().textures().entrySet()) {
+                    SceneAssetConfig.TextureDef texture = config.textures().get(role.getValue());
+                    supplied.put(role.getKey(), textureCache.get(texture.path(),
+                            texture.flipVertically(), texture.colorSpace()));
+                }
+                materials.put(name, PbrMaterials.create(shader(def.shader()), def.pbr(), supplied,
+                        pbrFallbacks));
+                continue;
+            }
             Material.Builder builder = Material.builder(shader(def.shader()))
+                    .model(def.model())
                     .blendMode(def.blendMode())
                     .depthTest(def.depthTest())
                     .setInt("uUseTexture", def.textures().isEmpty() ? 0 : 1);
@@ -131,15 +151,27 @@ final class DemoSceneResources implements AutoCloseable {
         for (SceneAssetConfig.ObjectDef object : config.objects().values()) {
             if (object.builtinMesh()) {
                 String reference = object.model();
-                meshes.computeIfAbsent(reference, ignored -> List.of(
-                        Mesh.from(BuiltinMeshData.named(object.builtinMeshName()))));
+                meshes.computeIfAbsent(reference, ignored -> {
+                    MeshData data = BuiltinMeshData.named(object.builtinMeshName());
+                    if (config.materials().get(object.material()).model()
+                            == MaterialModel.METALLIC_ROUGHNESS) {
+                        data = TangentGenerator.generate(data).mesh();
+                    }
+                    return List.of(Mesh.from(data));
+                });
             }
         }
 
         ModelAssetManager modelAssets = new ModelAssetManager()
                 .register("obj", new ObjModelLoader(locator));
         for (Map.Entry<String, SceneAssetConfig.ModelDef> entry : config.models().entrySet()) {
-            LoadedModel loaded = modelAssets.load(entry.getValue().path());
+            boolean pbr = config.objects().values().stream().anyMatch(object ->
+                    object.model().equals(entry.getKey())
+                            && config.materials().get(object.material()).model()
+                            == MaterialModel.METALLIC_ROUGHNESS);
+            LoadedModel loaded = pbr && entry.getValue().path().extension().equals("obj")
+                    ? new ObjModelLoader(locator).load(entry.getValue().path(), ObjModelLoader.Options.PBR)
+                    : modelAssets.load(entry.getValue().path());
             meshes.put(entry.getKey(), uploadMeshes(loaded));
         }
     }
@@ -178,6 +210,12 @@ final class DemoSceneResources implements AutoCloseable {
         } catch (RuntimeException closeFailure) {
             failure = accumulate(failure, closeFailure);
         }
+        try {
+            if (pbrFallbacks != null) pbrFallbacks.close();
+        } catch (RuntimeException closeFailure) {
+            failure = accumulate(failure, closeFailure);
+        }
+        pbrFallbacks = null;
         failure = closeReverse(new ArrayList<>(shaders.values()), failure);
         shaders.clear();
         closed = true;

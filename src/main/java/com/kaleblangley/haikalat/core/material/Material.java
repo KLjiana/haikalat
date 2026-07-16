@@ -5,9 +5,11 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,6 +37,7 @@ public final class Material implements GlResource {
     private final BlendMode blendMode;
     private final boolean depthTest;
     private final ResourceOwnership resourceOwnership;
+    private final MaterialModel model;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -44,6 +47,7 @@ public final class Material implements GlResource {
         this.blendMode = builder.blendMode;
         this.depthTest = builder.depthTest;
         this.resourceOwnership = builder.resourceOwnership;
+        this.model = builder.model;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -93,6 +97,10 @@ public final class Material implements GlResource {
 
     public ResourceOwnership resourceOwnership() {
         return resourceOwnership;
+    }
+
+    public MaterialModel model() {
+        return model;
     }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
@@ -161,6 +169,7 @@ public final class Material implements GlResource {
         private BlendMode blendMode = BlendMode.OPAQUE;
         private boolean depthTest = true;
         private ResourceOwnership resourceOwnership = ResourceOwnership.BORROWED;
+        private MaterialModel model = MaterialModel.LEGACY;
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;
@@ -231,6 +240,15 @@ public final class Material implements GlResource {
             return this;
         }
 
+        public Builder setVec4(String name, Vector4f value) {
+            return set(UniformKey.vec4(name), new UniformValue.Vec4Val(value));
+        }
+
+        public Builder set(UniformKey<UniformValue.Vec4Val> key, UniformValue.Vec4Val value) {
+            put(key, value);
+            return this;
+        }
+
         public Builder setMat4(String name, Matrix4f value) {
             return set(UniformKey.mat4(name), new UniformValue.Mat4Val(value));
         }
@@ -247,6 +265,11 @@ public final class Material implements GlResource {
 
         public Builder depthTest(boolean enable) {
             this.depthTest = enable;
+            return this;
+        }
+
+        public Builder model(MaterialModel model) {
+            this.model = Objects.requireNonNull(model, "model");
             return this;
         }
 

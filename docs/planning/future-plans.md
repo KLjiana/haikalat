@@ -6,8 +6,9 @@
 
 ## 当前重点
 
-v0.11 UI subsystem 已完成正式版验收。后续重点是在不改变裁剪、绘制顺序与同步语义的前提下，
-继续降低 UI 帧分配和安全的 batch break，并以稳定公共 API 支撑调试器和编辑工具。
+v0.11 UI subsystem 已完成正式版验收。v0.12 Minimal PBR / IBL 主链已实现，当前重点是完成
+[`v0.12-minimal-pbr-ibl.md`](v0.12-minimal-pbr-ibl.md) 的发布证据：完整性能矩阵、远端 CI 与
+人工视觉清单。UI 分配优化继续作为维护项推进，不扩大 v0.12 材质范围。
 
 ### 近期
 
@@ -15,6 +16,8 @@ v0.11 UI subsystem 已完成正式版验收。后续重点是在不改变裁剪�
 - [ ] 在正式版前复核 advanced 列表；新增 UI public 类型必须通过 allowlist 架构测试，不得无意扩大 stable 兼容面。
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
+- [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。
+- [ ] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
 
 ### 中期
 
@@ -38,4 +41,4 @@ v0.11 UI subsystem 已完成正式版验收。后续重点是在不改变裁剪�
 - 不引入复杂 ECS，除非当前 `SceneObject` 模型出现明确瓶颈。
 - 不直接重写 Vulkan 后端；第二后端只用于验证稳定边界。
 - 不在稳定公共组件之前一次性建设封闭、单体的生产级编辑器；允许调试器和编辑工具作为 UI/runtime API 的真实使用者逐步演进。
-- 不引入复杂 PBR 管线，先保持基础光照、阴影、材质和后处理链稳定。
+- 不将 v0.12 的最小 metallic-roughness 主路径扩大为 glTF、透明/折射、高级材质扩展或完整材质编辑器。

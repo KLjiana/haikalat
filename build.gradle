@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.11.0'
+version = '0.12.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -291,5 +291,5 @@ tasks.register('localUiVerification') {
 }
 
 tasks.named('localGlVerification') {
-    dependsOn 'localUiVerification'
+    dependsOn 'localUiVerification', 'localPbrVerification'
 }

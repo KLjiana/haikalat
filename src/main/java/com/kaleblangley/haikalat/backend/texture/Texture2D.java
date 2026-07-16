@@ -8,10 +8,12 @@ import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_LINEAR_MIPMAP_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_RED;
 import static org.lwjgl.opengl.GL11.GL_RGB;
@@ -39,8 +41,11 @@ import static org.lwjgl.opengl.GL11.glTexParameteri;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL30.GL_RG;
+import static org.lwjgl.opengl.GL30.GL_HALF_FLOAT;
 import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.GL_RG8;
+import static org.lwjgl.opengl.GL30.GL_RG16F;
+import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.glGenerateMipmap;
 import static org.lwjgl.opengl.GL21.GL_SRGB8;
 import static org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8;
@@ -62,6 +67,10 @@ public final class Texture2D implements GlResource {
             GL_RGB, GL_UNSIGNED_BYTE, 3, TextureColorSpace.SRGB);
     private static final UploadFormat SRGBA8_UPLOAD = new UploadFormat(
             GL_RGBA, GL_UNSIGNED_BYTE, 4, TextureColorSpace.SRGB);
+    private static final UploadFormat RG16F_UPLOAD = new UploadFormat(
+            GL_RG, GL_HALF_FLOAT, 2 * Short.BYTES, TextureColorSpace.LINEAR);
+    private static final UploadFormat RGBA16F_UPLOAD = new UploadFormat(
+            GL_RGBA, GL_HALF_FLOAT, 4 * Short.BYTES, TextureColorSpace.LINEAR);
 
     private final int id;
     private final int width;
@@ -219,6 +228,54 @@ public final class Texture2D implements GlResource {
                     glDeleteTextures(textureId);
                 }
             }
+        }
+    }
+
+    /**
+     * 从 classpath 以 float 精度解码线性 HDR image，并上传为 RGBA16F。
+     * flip 状态使用 STB 的线程局部入口并在异常路径恢复，不污染其他 loader。
+     */
+    public static Texture2D fromHdrResource(Class<?> anchor, String resourcePath,
+                                            boolean flipVertically) {
+        Objects.requireNonNull(anchor, "anchor");
+        Objects.requireNonNull(resourcePath, "resourcePath");
+        byte[] bytes = DirectBuffers.readResourceBytes(anchor, resourcePath);
+        ByteBuffer data = DirectBuffers.copyOf(bytes);
+        STBImage.stbi_set_flip_vertically_on_load_thread(flipVertically ? 1 : 0);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer widthBuffer = stack.mallocInt(1);
+            IntBuffer heightBuffer = stack.mallocInt(1);
+            IntBuffer channelsBuffer = stack.mallocInt(1);
+            FloatBuffer image = STBImage.stbi_loadf_from_memory(
+                    data, widthBuffer, heightBuffer, channelsBuffer, 4);
+            if (image == null) {
+                throw new GlException("Failed to load HDR image " + resourcePath + ": "
+                        + STBImage.stbi_failure_reason());
+            }
+            int textureId = 0;
+            try {
+                int width = widthBuffer.get(0);
+                int height = heightBuffer.get(0);
+                textureId = glCreateTextures(GL_TEXTURE_2D);
+                glTextureStorage2D(textureId, 1, GL_RGBA16F, width, height);
+                glTextureSubImage2D(textureId, 0, 0, 0, width, height,
+                        GL_RGBA, GL_FLOAT, image);
+                glTextureParameteri(textureId, GL_TEXTURE_WRAP_S,
+                        org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+                glTextureParameteri(textureId, GL_TEXTURE_WRAP_T,
+                        org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+                glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                Texture2D texture = new Texture2D(textureId, width, height, GL_RGBA16F,
+                        TextureColorSpace.LINEAR);
+                textureId = 0;
+                return texture;
+            } finally {
+                STBImage.stbi_image_free(image);
+                if (textureId != 0) glDeleteTextures(textureId);
+            }
+        } finally {
+            STBImage.stbi_set_flip_vertically_on_load_thread(0);
         }
     }
 
@@ -437,6 +494,8 @@ public final class Texture2D implements GlResource {
             case GL_RGBA8, GL_RGBA -> RGBA8_UPLOAD;
             case GL_SRGB8 -> SRGB8_UPLOAD;
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
+            case GL_RG16F -> RG16F_UPLOAD;
+            case GL_RGBA16F -> RGBA16F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported dynamic texture internal format: " + internalFormat);
         };
@@ -450,6 +509,8 @@ public final class Texture2D implements GlResource {
             case GL_RGBA8 -> RGBA8_UPLOAD;
             case GL_SRGB8 -> SRGB8_UPLOAD;
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
+            case GL_RG16F -> RG16F_UPLOAD;
+            case GL_RGBA16F -> RGBA16F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported empty texture sized internal format: " + internalFormat);
         };

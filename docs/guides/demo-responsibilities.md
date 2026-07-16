@@ -9,6 +9,21 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 | `LearnOpenGlDemo` | 完整功能正确性与正式场景基准 | asset、model、sRGB texture、lighting、directional shadow、HDR/AA/Bloom、camera、pass timing | GPU procedural 极端吞吐 |
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
+| `PbrDemo` | v0.12 现代材质纵向闭环与参数观察 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、retained UI | glTF、PBR instancing、高级材质扩展 |
+
+## PbrDemo
+
+```powershell
+.\gradlew.bat runPbrDemo
+.\gradlew.bat runPbrIntegration
+.\gradlew.bat localPbrVerification
+```
+
+专用场景固定包含 5×5 metallic/roughness sphere、五纹理 OBJ、legacy 对照、方向光阴影、
+两个点光、HDR environment 和 UI 参数面板。确定性参数包括
+`--frames=N --hidden --environment-quality=test|default --auto-exposure=on|off`
+` --bloom=on|off --aa=none|fxaa|msaa|msaa-fxaa|taa`；性能入口另支持
+`--warmup=N --size=WIDTHxHEIGHT`。
 
 ## StressDemo 模式
 

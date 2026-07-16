@@ -121,6 +121,18 @@ class ArchitectureBoundaryTest {
         }
     }
 
+    @Test
+    void pbrSubsystemKeepsOwnershipAndTypedCommandBoundaries() throws IOException {
+        Path pbr = HAIKALAT.resolve(Path.of("subsystems", "render3d", "pbr"));
+        if (Files.isDirectory(pbr)) {
+            assertTrue(filesContaining(pbr, ".custom(").isEmpty(),
+                    "PBR production code must use typed CommandBuffer operations");
+        }
+        Path renderSettings = HAIKALAT.resolve(Path.of("runtime", "RenderSettings.java"));
+        assertTrue(!Files.readString(renderSettings).contains("PbrEnvironment"),
+                "RenderSettings must not own PBR GL resources");
+    }
+
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {
         try (var files = Files.walk(root)) {
             return files.filter(path -> path.toString().endsWith(".java"))

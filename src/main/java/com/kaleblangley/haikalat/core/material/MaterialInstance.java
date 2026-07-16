@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -60,6 +61,15 @@ public final class MaterialInstance {
     }
 
     public MaterialInstance set(UniformKey<UniformValue.Vec3Val> key, UniformValue.Vec3Val value) {
+        put(key, value);
+        return this;
+    }
+
+    public MaterialInstance setVec4(String name, Vector4f value) {
+        return set(UniformKey.vec4(name), new UniformValue.Vec4Val(value));
+    }
+
+    public MaterialInstance set(UniformKey<UniformValue.Vec4Val> key, UniformValue.Vec4Val value) {
         put(key, value);
         return this;
     }

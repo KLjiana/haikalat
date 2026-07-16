@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
@@ -29,8 +30,10 @@ public final class ScreenQuad implements GlResource {
         vbo.bind();
         VertexLayout.interleaved(
                 4 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(2).type(GL_FLOAT).offsetBytes(0).build(),
-                VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(2L * Float.BYTES).build()
+                VertexAttribute.builder().index(0).size(2).type(GL_FLOAT).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build(),
+                VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(2L * Float.BYTES)
+                        .semantic(VertexSemantic.TEXCOORD_0).build()
         ).apply();
         vao.unbind();
     }

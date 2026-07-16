@@ -81,6 +81,8 @@ public final class InstancedMeshBatch implements AutoCloseable {
         if (meshesBySource.containsKey(mesh)) {
             return this;
         }
+        mesh.vertexLayout().validateNoLocationOverlap(instanceLayout.vertexLayout(),
+                "mesh/instance");
 
         VertexArray vao = new VertexArray();
         vao.bind();

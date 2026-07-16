@@ -80,6 +80,11 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runEmptyWindowIntegration
 .\gradlew.bat runAutoExposureIntegration
 .\gradlew.bat runStressIntegration
+.\gradlew.bat runPbrIntegration
+.\gradlew.bat runPbrResizeIntegration
+.\gradlew.bat runPbrCompatibilityIntegration
+.\gradlew.bat runPbrFailureIntegration
+.\gradlew.bat localPbrVerification
 ```
 
 v0.11 UI 的四条有限帧、隐藏窗口验证和聚合入口：
@@ -128,3 +133,13 @@ WndProc hook 安装、消息链和恢复，不会自动打开真实输入法。M
 10,000 quads 和 2,000 visible CJK/Latin glyphs。每项执行 5 轮，每轮记录 cold frame、
 预热 30 帧并统计 120 帧；当前基准见
 [`docs/performance/v0.11-ui-2026-07-16.md`](../performance/v0.11-ui-2026-07-16.md)。
+
+正式 PBR 1080p/4K 五轮性能矩阵：
+
+```powershell
+.\gradlew.bat runPbrBenchmarks
+```
+
+每个场景预热 100 帧并统计 1000 帧，覆盖 NONE/FXAA/MSAA/TAA 及 manual/auto exposure、
+Bloom off/on 的代表组合。当前代表性 FXAA+AUTO+Bloom 五轮记录见
+[`docs/performance/v0.12-pbr-2026-07-17.md`](../performance/v0.12-pbr-2026-07-17.md)。

@@ -1,6 +1,8 @@
 package com.kaleblangley.haikalat.core.assets;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 
@@ -9,8 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.logging.Logger;
 
 public final class ObjModelLoader implements ModelAssetLoader {
+    private static final Logger LOGGER = Logger.getLogger(ObjModelLoader.class.getName());
     private final ResourceLocator locator;
 
     public ObjModelLoader(ResourceLocator locator) {
@@ -19,13 +23,23 @@ public final class ObjModelLoader implements ModelAssetLoader {
 
     @Override
     public LoadedModel load(AssetRef ref) {
+        return load(ref, Options.LEGACY);
+    }
+
+    /** 以显式选项加载 OBJ；PBR 模式生成 canonical tangent frame。 */
+    public LoadedModel load(AssetRef ref, Options options) {
         if (!"obj".equals(ref.extension())) {
             throw new GlException("ObjModelLoader supports .obj assets only: " + ref.path());
         }
-        return parse(locator.readString(ref), ref.path());
+        return parse(locator.readString(ref), ref.path(), options);
     }
 
     public static LoadedModel parse(String source, String name) {
+        return parse(source, name, Options.LEGACY);
+    }
+
+    public static LoadedModel parse(String source, String name, Options options) {
+        Objects.requireNonNull(options, "options");
         List<Vector3f> positions = new ArrayList<>();
         List<Vector3f> normals = new ArrayList<>();
         List<Vector2f> texCoords = new ArrayList<>();
@@ -67,10 +81,20 @@ public final class ObjModelLoader implements ModelAssetLoader {
             vertexArray[i] = vertices.get(i);
         }
         int[] indexArray = indices.stream().mapToInt(Integer::intValue).toArray();
-        return new LoadedModel(List.of(LoadedModel.VertexFormat.POSITION_NORMAL_UV.meshData(
+        MeshData mesh = LoadedModel.VertexFormat.POSITION_NORMAL_UV.meshData(
                 name,
                 vertexArray,
-                indexArray)));
+                indexArray);
+        if (options.generateTangents()) {
+            TangentGenerator.Result generated = TangentGenerator.generate(mesh);
+            if (generated.fallbackTriangleCount() > 0 || generated.fallbackVertexCount() > 0) {
+                LOGGER.info(() -> "OBJ tangent fallback mesh=" + name
+                        + " triangles=" + generated.fallbackTriangleCount()
+                        + " vertices=" + generated.fallbackVertexCount());
+            }
+            mesh = generated.mesh();
+        }
+        return new LoadedModel(List.of(mesh));
     }
 
     private static void appendFace(String[] parts, List<Vector3f> positions, List<Vector3f> normals,
@@ -126,5 +150,11 @@ public final class ObjModelLoader implements ModelAssetLoader {
             throw new GlException("Malformed OBJ line: " + line);
         }
         return Float.parseFloat(parts[index]);
+    }
+
+    /** OBJ 顶点装配策略；legacy 是默认行为。 */
+    public record Options(boolean generateTangents) {
+        public static final Options LEGACY = new Options(false);
+        public static final Options PBR = new Options(true);
     }
 }

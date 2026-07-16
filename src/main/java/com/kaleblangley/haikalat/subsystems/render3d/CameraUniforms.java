@@ -20,7 +20,7 @@ final class CameraUniforms implements AutoCloseable {
     void update(CommandBuffer cmd, Camera camera, int width, int height,
                 AntiAliasingMode mode, int frameIndex) {
         Matrix4f projection = new Matrix4f().perspective(
-                (float) Math.toRadians(45.0),
+                (float) Math.toRadians(camera.zoom()),
                 width / (float) Math.max(1, height), 0.1f, 100.0f);
         applyTemporalJitter(projection, width, height, mode, frameIndex);
 

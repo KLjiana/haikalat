@@ -120,7 +120,8 @@ public record FramebufferDescriptor(
         }
 
         private static int colorDataType(int internalFormat) {
-            return internalFormat == GL_RGBA16F || internalFormat == GL_R16F || internalFormat == GL_RG32F
+            return internalFormat == GL_RGBA16F || internalFormat == GL_R16F
+                    || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F || internalFormat == GL_RG32F
                     ? GL_FLOAT : GL_UNSIGNED_BYTE;
         }
 
@@ -128,7 +129,8 @@ public record FramebufferDescriptor(
             if (internalFormat == GL_R16F) {
                 return GL_RED;
             }
-            return internalFormat == GL_RG32F ? GL_RG : GL_RGBA;
+            return internalFormat == GL_RG32F || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F
+                    ? GL_RG : GL_RGBA;
         }
     }
 

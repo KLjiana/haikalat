@@ -646,6 +646,7 @@ public final class RenderGraph implements AutoCloseable {
                 case 35907 -> RenderFormat.SRGB8_ALPHA8;
                 case 34842 -> RenderFormat.RGBA16F;
                 case 33325 -> RenderFormat.R16F;
+                case 33327 -> RenderFormat.RG16F;
                 case 33328 -> RenderFormat.RG32F;
                 default -> throw new IllegalArgumentException("Unsupported legacy GL render format: " + value);
             };

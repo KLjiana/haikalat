@@ -6,5 +6,6 @@ public enum UniformType {
     INT,
     VEC2,
     VEC3,
+    VEC4,
     MAT4
 }

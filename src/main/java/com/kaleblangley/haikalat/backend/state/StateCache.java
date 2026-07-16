@@ -4,6 +4,7 @@ import java.util.Arrays;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
+import static org.lwjgl.opengl.GL13.GL_TEXTURE_CUBE_MAP;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL20.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL20.glUseProgram;
@@ -22,6 +23,8 @@ public final class StateCache implements PipelineStateSink {
     private int currentVAO;
     private int activeTextureUnit;
     private int[] boundTextures2D = new int[0];
+    private int[] boundTexturesCube = new int[0];
+    private int[] lastTextureTargets = new int[0];
     private int[] boundSamplers = new int[0];
     private int[] uniformBuffers = new int[0];
     private long[] uniformBufferOffsets = new long[0];
@@ -120,9 +123,23 @@ public final class StateCache implements PipelineStateSink {
     public void bindTexture2D(int unit, int texture) {
         requireTextureUnit(unit);
         activeTexture(unit);
-        if (changeRequired(boundTextures2D[unit] != texture)) {
+        if (changeRequired(boundTextures2D[unit] != texture
+                || lastTextureTargets[unit] != GL_TEXTURE_2D)) {
             glBindTexture(GL_TEXTURE_2D, texture);
             boundTextures2D[unit] = texture;
+            lastTextureTargets[unit] = GL_TEXTURE_2D;
+        }
+    }
+
+    /** 在指定纹理单元绑定 cubemap，并把 target 计入缓存键。 */
+    public void bindTextureCube(int unit, int texture) {
+        requireTextureUnit(unit);
+        activeTexture(unit);
+        if (changeRequired(boundTexturesCube[unit] != texture
+                || lastTextureTargets[unit] != GL_TEXTURE_CUBE_MAP)) {
+            glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
+            boundTexturesCube[unit] = texture;
+            lastTextureTargets[unit] = GL_TEXTURE_CUBE_MAP;
         }
     }
 
@@ -374,6 +391,8 @@ public final class StateCache implements PipelineStateSink {
         currentVAO = -1;
         activeTextureUnit = -1;
         Arrays.fill(boundTextures2D, -1);
+        Arrays.fill(boundTexturesCube, -1);
+        Arrays.fill(lastTextureTargets, -1);
         Arrays.fill(boundSamplers, -1);
         Arrays.fill(uniformBuffers, -1);
         Arrays.fill(uniformBufferOffsets, -1L);
@@ -425,6 +444,8 @@ public final class StateCache implements PipelineStateSink {
         if (boundTextures2D.length == 0) {
             int count = positiveLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, "texture units");
             boundTextures2D = initializedInts(count);
+            boundTexturesCube = initializedInts(count);
+            lastTextureTargets = initializedInts(count);
             boundSamplers = initializedInts(count);
         }
         if (unit < 0 || unit >= boundTextures2D.length) {

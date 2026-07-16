@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.core.mesh;
 
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 
 import java.util.Set;
 
@@ -17,14 +18,20 @@ public final class BuiltinMeshData {
     private static final Set<String> NAMES = Set.of(TRIANGLE, QUAD, CUBE, TEXTURED_QUAD);
 
     private static final VertexLayout POSITION_COLOR = VertexLayout.interleaved(9 * Float.BYTES,
-            VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-            VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build(),
-            VertexAttribute.builder().index(2).size(3).type(GL_FLOAT).offsetBytes(6L * Float.BYTES).build());
+            VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                    .semantic(VertexSemantic.POSITION).build(),
+            VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES)
+                    .semantic(VertexSemantic.COLOR_0).build(),
+            VertexAttribute.builder().index(2).size(3).type(GL_FLOAT).offsetBytes(6L * Float.BYTES)
+                    .semantic(VertexSemantic.NORMAL).build());
 
     private static final VertexLayout POSITION_UV = VertexLayout.interleaved(8 * Float.BYTES,
-            VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-            VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build(),
-            VertexAttribute.builder().index(2).size(3).type(GL_FLOAT).offsetBytes(5L * Float.BYTES).build());
+            VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                    .semantic(VertexSemantic.POSITION).build(),
+            VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES)
+                    .semantic(VertexSemantic.TEXCOORD_0).build(),
+            VertexAttribute.builder().index(2).size(3).type(GL_FLOAT).offsetBytes(5L * Float.BYTES)
+                    .semantic(VertexSemantic.NORMAL).build());
 
     private BuiltinMeshData() {
     }
@@ -39,6 +46,11 @@ public final class BuiltinMeshData {
 
     public static Set<String> names() {
         return NAMES;
+    }
+
+    /** 返回不会与 mesh attribute 冲突的默认 mat4 instance 起始 location。 */
+    public static int instanceAttributeBase(VertexLayout meshLayout) {
+        return meshLayout.attribute(VertexSemantic.TANGENT).isPresent() ? 4 : INSTANCE_ATTRIBUTE_BASE;
     }
 
     public static MeshData named(String name) {

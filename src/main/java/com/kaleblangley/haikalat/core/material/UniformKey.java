@@ -31,6 +31,10 @@ public record UniformKey<T extends UniformValue>(String name, UniformType type) 
         return new UniformKey<>(name, UniformType.VEC3);
     }
 
+    public static UniformKey<UniformValue.Vec4Val> vec4(String name) {
+        return new UniformKey<>(name, UniformType.VEC4);
+    }
+
     public static UniformKey<UniformValue.Mat4Val> mat4(String name) {
         return new UniformKey<>(name, UniformType.MAT4);
     }

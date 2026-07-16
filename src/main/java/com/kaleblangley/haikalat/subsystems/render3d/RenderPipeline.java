@@ -7,10 +7,14 @@ import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
 import org.joml.Matrix4f;
 
 import java.util.List;
@@ -32,24 +36,40 @@ public final class RenderPipeline {
     private String finalPassName;
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
     private int lastShadowCasterDrawCount;
+    private final PbrEnvironment pbrEnvironment;
+    private PbrMaterialBinder pbrMaterialBinder;
+    private EnvironmentBackgroundRenderer environmentBackground;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
-        this(window, camera, sceneObjects, instanced, RenderSettings.builder().build());
+        this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
     }
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects,
                           InstancedRenderer instanced, RenderSettings settings) {
+        this(window, camera, sceneObjects, instanced, settings, null);
+    }
+
+    public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects,
+                          InstancedRenderer instanced, RenderSettings settings,
+                          PbrEnvironment pbrEnvironment) {
         this.window = window;
         this.scene = Scene.of(camera, sceneObjects);
         this.instanced = instanced;
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.pbrEnvironment = pbrEnvironment;
     }
 
     public RenderPipeline(RenderWindow window, Scene scene, InstancedRenderer instanced, RenderSettings settings) {
+        this(window, scene, instanced, settings, null);
+    }
+
+    public RenderPipeline(RenderWindow window, Scene scene, InstancedRenderer instanced,
+                          RenderSettings settings, PbrEnvironment pbrEnvironment) {
         this.window = Objects.requireNonNull(window, "window");
         this.scene = Objects.requireNonNull(scene, "scene");
         this.instanced = instanced;
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.pbrEnvironment = pbrEnvironment;
     }
 
     public static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -88,6 +108,16 @@ public final class RenderPipeline {
             graph = new RenderGraph(w, h);
             cameraUniforms = new CameraUniforms();
             lightingBinder = new LightingBinder(scene);
+            if (hasPbrMaterials()) {
+                if (!settings.hdrEnabled()) {
+                    throw new IllegalStateException("metallic-roughness PBR requires HDR/ACES output");
+                }
+                if (pbrEnvironment == null) {
+                    throw new IllegalStateException("PBR scene requires an explicit borrowed PbrEnvironment");
+                }
+                pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
+                environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
+            }
             postProcess = PostProcessPassBuilder.create(settings, window, w, h);
             if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
                 shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
@@ -192,12 +222,16 @@ public final class RenderPipeline {
         PostProcessPassBuilder localPostProcess = postProcess;
         CameraUniforms localCameraUniforms = cameraUniforms;
         RenderGraph localGraph = graph;
+        PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
+        EnvironmentBackgroundRenderer localBackground = environmentBackground;
         instancedShadowShader = null;
         shadowShader = null;
         postProcess = null;
         cameraUniforms = null;
         graph = null;
         lightingBinder = null;
+        pbrMaterialBinder = null;
+        environmentBackground = null;
         finalPassName = null;
 
         RuntimeException failure = null;
@@ -205,6 +239,8 @@ public final class RenderPipeline {
         failure = closeCollecting(localShadow, failure);
         failure = closeCollecting(localPostProcess, failure);
         failure = closeCollecting(localCameraUniforms, failure);
+        failure = closeCollecting(localPbrBinder, failure);
+        failure = closeCollecting(localBackground, failure);
         failure = closeCollecting(localGraph, failure);
         if (failure != null) {
             throw failure;
@@ -269,6 +305,9 @@ public final class RenderPipeline {
         int frameIndex = instanced == null ? 0 : instanced.frameIndex();
         cameraUniforms.update(cmd, scene.camera(), window.width(), window.height(),
                 settings.antiAliasingMode(), frameIndex);
+        if (environmentBackground != null) {
+            environmentBackground.render(cmd, scene.camera(), window.width(), window.height());
+        }
 
         Matrix4f model = new Matrix4f();
         for (MeshRenderer renderer : scene.forwardDrawOrder()) {
@@ -277,6 +316,9 @@ public final class RenderPipeline {
             material.bind(cmd);
             ShaderProgram shader = material.material().shader();
             bindFrameState(shader, cmd, shadowTexture);
+            if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
+                pbrMaterialBinder.bind(shader, cmd);
+            }
             cmd.setUniformMat4(shader, "uModel", model)
                     .bindMesh(renderer.mesh())
                     .drawMesh(renderer.mesh());
@@ -300,5 +342,12 @@ public final class RenderPipeline {
         if (hasShadow) {
             cmd.bindTexture(SHADOW_TEXTURE_UNIT, shadowTexture);
         }
+    }
+
+    private boolean hasPbrMaterials() {
+        for (MeshRenderer renderer : scene.forwardDrawOrder()) {
+            if (renderer.material().material().model() == MaterialModel.METALLIC_ROUGHNESS) return true;
+        }
+        return false;
     }
 }

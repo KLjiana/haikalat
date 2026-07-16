@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### v0.12.0-SNAPSHOT — Minimal PBR / IBL
+
+- 为 `VertexAttribute`/`VertexLayout` 增加 position、UV、normal、tangent 等显式语义、范围与唯一性校验；OBJ 可按 PBR option 生成 Gram–Schmidt 正交化的 tangent vec4，退化 UV 使用 finite 确定性 fallback，legacy 输出保持不变。
+- 增加 `MaterialModel.METALLIC_ROUGHNESS`、六类 factor 和五种固定纹理角色；manifest 在纯 JVM 阶段拒绝越界/NaN、未知 PBR key、缺失引用、错误颜色空间、非 opaque blend 与通用 sampler 覆盖。
+- backend 增加 HDR float decode、`TextureCube`、`RG16F`、cube sampler/image typed opcode、layered image binding、mip 生成与 unit+target state cache；生产 PBR 路径不使用 `CommandBuffer.custom()`。
+- 在 GPU 上完成 equirectangular→cubemap、diffuse irradiance、逐 mip GGX prefilter 与 split-sum BRDF LUT；各阶段使用 image/texture-fetch barrier，环境资源显式拥有且 resize 不重建。
+- 增加 opaque Cook–Torrance GGX forward shader，覆盖 directional/point/spot light、方向光阴影、tangent-space normal、AO、emissive、diffuse/specular IBL 与同步旋转的 HDR environment background。
+- `RenderPipeline` 只借用 `PbrEnvironment`，legacy 与 PBR 材质可同 scene 共存；PBR 输出继续穿过 RGBA16F、自动曝光、Bloom、ACES、四种现有 AA 和最终 UI overlay。
+- 新增 `PbrDemo`：5×5 metallic/roughness 球阵、五纹理外部 OBJ、legacy 对照、方向/点光、阴影、HDR environment 和 retained-mode 参数面板；主 `LearnOpenGlDemo` 也加入 manifest 驱动的 PBR 证明对象。
+- 新增 `runPbrIntegration`、resize/compatibility/failure integration、`localPbrVerification` 与 `runPbrBenchmarks`。真实 GL smoke 回读 cubemap face/mip、BRDF LUT 和最终 PBR/背景像素，并覆盖 2D↔cube cache 与环境 resize identity。
+- 版本进入 `0.12.0-SNAPSHOT`。正式 RC 仍需完成完整四 AA 性能矩阵、远端 Windows/Linux headless CI 与人工视觉清单。
+
 ## v0.11.0（2026-07-17）
 
 - 清理 v0.11 RC 发布资产：忽略 HotSpot 崩溃产物，并将 Unifont 与 Noto Sans SC 统一归档到内建字体目录和许可清单。

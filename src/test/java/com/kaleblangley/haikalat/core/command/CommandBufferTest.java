@@ -1,6 +1,10 @@
 package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.state.StateCache;
+import com.kaleblangley.haikalat.backend.RenderFormat;
+import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.texture.ImageAccess;
+import com.kaleblangley.haikalat.backend.texture.TextureCube;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +57,38 @@ class CommandBufferTest {
         cmd.execute(new StateCache());
 
         assertEquals(List.of(1.0f), submittedX);
+    }
+
+    @Test
+    void typedCubeCommandsRetainResourcesAndResetDropsReferences() throws Exception {
+        TextureCube cube = fakeCube();
+        CommandBuffer cmd = new CommandBuffer()
+                .bindTextureCube(3, cube)
+                .bindImage(cube, 1, 0, ImageAccess.WRITE_ONLY, RenderFormat.RGBA16F)
+                .generateMipmaps(cube);
+
+        assertEquals(4, cmd.commandCount());
+        assertEquals(3, cmd.objectPayloadCount());
+        cmd.reset();
+        assertEquals(0, cmd.commandCount());
+        assertEquals(0, cmd.objectPayloadCount());
+    }
+
+    @Test
+    void cubeUseAfterRecordIsCheckedAtExecutionBoundary() throws Exception {
+        TextureCube cube = fakeCube();
+        CommandBuffer cmd = new CommandBuffer().bindTextureCube(0, cube);
+        java.lang.reflect.Field closed = TextureCube.class.getDeclaredField("closed");
+        closed.setAccessible(true);
+        closed.setBoolean(cube, true);
+        assertThrows(GlException.class, () -> cmd.execute(new StateCache()));
+    }
+
+    private static TextureCube fakeCube() throws Exception {
+        var constructor = TextureCube.class.getDeclaredConstructor(
+                int.class, int.class, int.class, RenderFormat.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(99, 4, 3, RenderFormat.RGBA16F);
     }
 
     private static final class FakeInstancedBatch implements InstancedBatchSubmission {

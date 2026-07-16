@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.core.assets;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 
 import java.util.List;
 import java.util.Objects;
@@ -23,17 +24,25 @@ public record LoadedModel(List<MeshData> meshes) {
 
     public enum VertexFormat {
         POSITION(VertexLayout.interleaved(3 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build())),
+                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build())),
         POSITION_UV(VertexLayout.interleaved(5 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())),
+                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build(),
+                VertexAttribute.builder().index(1).size(2).type(GL_FLOAT).offsetBytes(3L * Float.BYTES)
+                        .semantic(VertexSemantic.TEXCOORD_0).build())),
         POSITION_NORMAL(VertexLayout.interleaved(6 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build())),
+                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build(),
+                VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES)
+                        .semantic(VertexSemantic.NORMAL).build())),
         POSITION_NORMAL_UV(VertexLayout.interleaved(8 * Float.BYTES,
-                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
-                VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES).build(),
-                VertexAttribute.builder().index(2).size(2).type(GL_FLOAT).offsetBytes(6L * Float.BYTES).build()));
+                VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build(),
+                VertexAttribute.builder().index(1).size(3).type(GL_FLOAT).offsetBytes(3L * Float.BYTES)
+                        .semantic(VertexSemantic.NORMAL).build(),
+                VertexAttribute.builder().index(2).size(2).type(GL_FLOAT).offsetBytes(6L * Float.BYTES)
+                        .semantic(VertexSemantic.TEXCOORD_0).build()));
 
         private final VertexLayout layout;
 

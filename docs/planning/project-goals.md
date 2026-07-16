@@ -26,6 +26,8 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - Demo 证明：`LearnOpenGlDemo` 作为综合场景、阴影、后处理证明；`MinimalDemo` 验证最小窗口、
   命令提交和 instancing；`AsyncDemo` 验证异步更新、上传和 render thread 协作；`UiDemo`
   验证布局、输入、文本、弹窗、滚动、虚拟化和 UI 渲染链路。
+- 现代材质闭环：opaque metallic-roughness、OBJ tangent、HDR cubemap、GPU irradiance/GGX
+  prefilter/BRDF LUT、Cook–Torrance 直接光、IBL、环境背景，以及与阴影、ACES、Bloom、自动曝光和 UI 的协同。
 - 测试覆盖：render graph、pipeline pass、asset config、vertex packing、instance layout、
   upload system、latest-frame mailbox、material、framebuffer descriptor、observability，以及可选真实
   GL context smoke test。
@@ -50,7 +52,8 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 暂不直接重写 Vulkan 或第二后端；第二后端只能在 OpenGL 边界稳定后用于验证 `RenderDevice`。
 - 暂不一次性建设与框架紧耦合的单体生产级编辑器；允许基于 UI subsystem 逐步增加调试面板、
   资源检查器和编辑工作流。
-- 暂不引入复杂 PBR 管线，先把基础光照、阴影、材质和后处理链打稳。
+- 暂不把 v0.12 最小 PBR 扩张为完整材质平台；glTF、transmission、clearcoat、local probe、
+  clustered lighting 与 shader graph 必须由后续真实内容需求和性能数据驱动。
 
 ## 命名
 

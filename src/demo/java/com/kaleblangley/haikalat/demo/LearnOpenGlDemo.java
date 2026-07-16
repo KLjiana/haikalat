@@ -27,6 +27,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
@@ -78,7 +81,11 @@ public final class LearnOpenGlDemo {
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
         SceneAssetConfig config = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
         try (FrameDriver renderLoop = new FrameDriver(settings);
-             DemoSceneResources resources = DemoSceneResources.load(assets, config)) {
+             DemoSceneResources resources = DemoSceneResources.load(assets, config);
+             PbrEnvironment environment = PbrEnvironmentLoader.load(LearnOpenGlDemo.class,
+                     "/pbr/studio-small.hdr", options.deterministic()
+                             ? PbrEnvironmentSettings.testQuality()
+                             : PbrEnvironmentSettings.defaultQuality())) {
             Scene scene = buildScene(camera, config, resources);
             Mesh instancedMesh = resources.meshes("builtin:" + BuiltinMeshData.QUAD).getFirst();
             ShaderProgram instancedShader = resources.shader("instanced");
@@ -88,7 +95,7 @@ public final class LearnOpenGlDemo {
                     batch, instancedShader, options.instanceShadows());
             addInstances(instanced, options.instances());
 
-            RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings);
+            RenderPipeline pipeline = new RenderPipeline(window, scene, instanced, settings, environment);
             try {
                 pipeline.build();
                 try (LearnOpenGlOverlay overlay = LearnOpenGlOverlay.attach(

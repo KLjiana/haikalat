@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.io.IOException;
@@ -209,6 +210,13 @@ public record SceneAssetConfig(
         String shader = required(properties, prefix + "shader");
         BlendMode blendMode = BlendMode.valueOf(properties.getProperty(prefix + "blend", "OPAQUE").toUpperCase());
         boolean depthTest = Boolean.parseBoolean(properties.getProperty(prefix + "depthTest", "true"));
+        MaterialModel model = parseMaterialModel(properties.getProperty(prefix + "model", "legacy"));
+        if (model == MaterialModel.METALLIC_ROUGHNESS) {
+            rejectUnknownPbrKeys(properties, prefix);
+            return new MaterialDef(shader, List.of(), blendMode, depthTest, model,
+                    pbrProperties(properties, prefix));
+        }
+        rejectLegacyPbrKeys(properties, prefix);
         List<MaterialDef.TextureBinding> bindings = new ArrayList<>();
         for (String samplerName : textureBindingNames(properties, prefix + "texture.")) {
             String bindingPrefix = prefix + "texture." + samplerName;
@@ -218,6 +226,89 @@ public record SceneAssetConfig(
             bindings.add(new MaterialDef.TextureBinding(unit, samplerName, texture, sampler));
         }
         return new MaterialDef(shader, bindings, blendMode, depthTest);
+    }
+
+    private static MaterialModel parseMaterialModel(String value) {
+        return switch (value.strip().toLowerCase(java.util.Locale.ROOT)) {
+            case "legacy" -> MaterialModel.LEGACY;
+            case "metallicroughness", "metallic_roughness", "metallic-roughness" ->
+                    MaterialModel.METALLIC_ROUGHNESS;
+            default -> throw new GlException("Unsupported material model: " + value);
+        };
+    }
+
+    private static PbrMaterialProperties pbrProperties(Properties properties, String materialPrefix) {
+        String prefix = materialPrefix + "pbr.";
+        Vector4f baseColor = vector4(properties.getProperty(prefix + "baseColorFactor", "1,1,1,1"),
+                prefix + "baseColorFactor");
+        float metallic = floatValue(properties, prefix + "metallicFactor", 0.0f);
+        float roughness = floatValue(properties, prefix + "roughnessFactor", 1.0f);
+        float normalScale = floatValue(properties, prefix + "normalScale", 1.0f);
+        float occlusion = floatValue(properties, prefix + "occlusionStrength", 1.0f);
+        Vector3f emissive = vector3(properties.getProperty(prefix + "emissiveFactor", "0,0,0"),
+                prefix + "emissiveFactor");
+        EnumMap<PbrTextureRole, String> roleTextures = new EnumMap<>(PbrTextureRole.class);
+        addRoleTexture(properties, prefix, "baseColorTexture", PbrTextureRole.BASE_COLOR, roleTextures);
+        addRoleTexture(properties, prefix, "normalTexture", PbrTextureRole.NORMAL, roleTextures);
+        addRoleTexture(properties, prefix, "metallicRoughnessTexture", PbrTextureRole.METALLIC_ROUGHNESS,
+                roleTextures);
+        addRoleTexture(properties, prefix, "occlusionTexture", PbrTextureRole.OCCLUSION, roleTextures);
+        addRoleTexture(properties, prefix, "emissiveTexture", PbrTextureRole.EMISSIVE, roleTextures);
+        try {
+            return new PbrMaterialProperties(baseColor, metallic, roughness, normalScale,
+                    occlusion, emissive, roleTextures);
+        } catch (IllegalArgumentException error) {
+            throw new GlException("Invalid PBR parameters for " + materialPrefix.substring(0,
+                    materialPrefix.length() - 1) + ": " + error.getMessage(), error);
+        }
+    }
+
+    private static void addRoleTexture(Properties properties, String prefix, String suffix,
+                                       PbrTextureRole role, Map<PbrTextureRole, String> output) {
+        String value = properties.getProperty(prefix + suffix);
+        if (value != null && !value.isBlank()) output.put(role, value.strip());
+    }
+
+    private static float floatValue(Properties properties, String key, float fallback) {
+        String value = properties.getProperty(key);
+        return value == null ? fallback : Float.parseFloat(value.strip());
+    }
+
+    private static Vector4f vector4(String value, String key) {
+        String[] parts = value.split("\\s*,\\s*");
+        if (parts.length != 4) throw new GlException("Expected vector property with 4 components: " + key);
+        return new Vector4f(Float.parseFloat(parts[0]), Float.parseFloat(parts[1]),
+                Float.parseFloat(parts[2]), Float.parseFloat(parts[3]));
+    }
+
+    private static Vector3f vector3(String value, String key) {
+        String[] parts = value.split("\\s*,\\s*");
+        if (parts.length != 3) throw new GlException("Expected vector property with 3 components: " + key);
+        return new Vector3f(Float.parseFloat(parts[0]), Float.parseFloat(parts[1]),
+                Float.parseFloat(parts[2]));
+    }
+
+    private static void rejectLegacyPbrKeys(Properties properties, String materialPrefix) {
+        for (String key : properties.stringPropertyNames()) {
+            if (key.startsWith(materialPrefix + "pbr.")) {
+                throw new GlException(key + " is only valid for model=metallicRoughness");
+            }
+        }
+    }
+
+    private static void rejectUnknownPbrKeys(Properties properties, String materialPrefix) {
+        Set<String> allowed = Set.of("baseColorFactor", "metallicFactor", "roughnessFactor",
+                "normalScale", "occlusionStrength", "emissiveFactor", "baseColorTexture",
+                "normalTexture", "metallicRoughnessTexture", "occlusionTexture", "emissiveTexture");
+        String prefix = materialPrefix + "pbr.";
+        for (String key : properties.stringPropertyNames()) {
+            if (key.startsWith(prefix) && !allowed.contains(key.substring(prefix.length()))) {
+                throw new GlException("Unknown PBR material property: " + key);
+            }
+            if (key.startsWith(materialPrefix + "texture.")) {
+                throw new GlException("PBR material cannot use generic sampler binding: " + key);
+            }
+        }
     }
 
     private static ShaderAsset shaderAsset(Properties properties, String name) {
@@ -287,6 +378,25 @@ public record SceneAssetConfig(
                 if (!textures.containsKey(binding.texture())) {
                     throw new GlException("material." + materialName + ".texture."
                             + binding.samplerName() + " references missing texture: " + binding.texture());
+                }
+            }
+            if (material.model() == MaterialModel.METALLIC_ROUGHNESS) {
+                if (!"pbrForward".equals(material.shader())) {
+                    throw new GlException("material." + materialName
+                            + " metallic-roughness contract requires shader=pbrForward, got "
+                            + material.shader());
+                }
+                for (Map.Entry<PbrTextureRole, String> role : material.pbr().textures().entrySet()) {
+                    TextureDef texture = textures.get(role.getValue());
+                    if (texture == null) {
+                        throw new GlException("material." + materialName + ".pbr." + role.getKey()
+                                + " references missing texture: " + role.getValue());
+                    }
+                    if (texture.colorSpace() != role.getKey().requiredColorSpace()) {
+                        throw new GlException("material." + materialName + " texture role " + role.getKey()
+                                + " references " + role.getValue() + " with color space "
+                                + texture.colorSpace() + "; required " + role.getKey().requiredColorSpace());
+                    }
                 }
             }
         }

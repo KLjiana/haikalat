@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.util.Objects;
 
@@ -73,6 +74,22 @@ public sealed interface UniformValue {
         @Override
         public void apply(CommandBuffer cmd, ShaderProgram shader, String name) {
             cmd.setUniformVec3(shader, name, value);
+        }
+    }
+
+    record Vec4Val(Vector4f value) implements UniformValue {
+        public Vec4Val {
+            value = new Vector4f(Objects.requireNonNull(value, "value"));
+        }
+
+        @Override
+        public UniformType type() {
+            return UniformType.VEC4;
+        }
+
+        @Override
+        public void apply(CommandBuffer cmd, ShaderProgram shader, String name) {
+            cmd.setUniformVec4(shader, name, value);
         }
     }
 

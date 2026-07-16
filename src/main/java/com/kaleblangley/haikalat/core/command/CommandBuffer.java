@@ -1,6 +1,8 @@
 package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.GpuTimer;
+import com.kaleblangley.haikalat.backend.GlFormats;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
@@ -9,11 +11,14 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureCube;
+import com.kaleblangley.haikalat.backend.texture.ImageAccess;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -68,6 +73,11 @@ public final class CommandBuffer {
     static final byte FINISH_PREPARED_INSTANCED_BATCH = 41;
     static final byte UPLOAD_TEXTURE_REGION = 42;
     static final byte INSERT_GPU_FENCE = 43;
+    static final byte BIND_TEXTURE_CUBE = 44;
+    static final byte BIND_IMAGE_CUBE = 45;
+    static final byte UNIFORM_VEC4 = 46;
+    static final byte GENERATE_CUBE_MIPMAPS = 47;
+    static final byte BIND_IMAGE_2D_TYPED = 48;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -141,6 +151,27 @@ public final class CommandBuffer {
             bindSampler(unit, sampler);
         }
         return this;
+    }
+
+    /** 记录带执行期生命周期校验的 cubemap sampling binding。 */
+    public CommandBuffer bindTextureCube(int unit, TextureCube texture, Sampler sampler) {
+        Objects.requireNonNull(texture, "texture").ensureOpen();
+        if (unit < 0) throw new IllegalArgumentException("texture unit must be non-negative");
+        opcode(BIND_TEXTURE_CUBE);
+        integer(unit);
+        object(texture);
+        if (sampler == null) {
+            opcode(BIND_SAMPLER);
+            integer(unit);
+            integer(0);
+        } else {
+            bindSampler(unit, sampler);
+        }
+        return this;
+    }
+
+    public CommandBuffer bindTextureCube(int unit, TextureCube texture) {
+        return bindTextureCube(unit, texture, null);
     }
 
     /**
@@ -243,6 +274,58 @@ public final class CommandBuffer {
         integer(level);
         integer(access);
         integer(format);
+        return this;
+    }
+
+    /** 记录带生命周期检查的 2D image binding。 */
+    public CommandBuffer bindImage(Texture2D texture, int unit, int mipLevel,
+                                   ImageAccess access, RenderFormat format) {
+        Objects.requireNonNull(texture, "texture");
+        Objects.requireNonNull(access, "access");
+        Objects.requireNonNull(format, "format");
+        if (unit < 0 || mipLevel != 0) {
+            throw new IllegalArgumentException("Texture2D currently supports image mip level 0 only");
+        }
+        if (texture.format() != GlFormats.toGl(format)) {
+            throw new IllegalArgumentException("2D image format must match texture storage format");
+        }
+        opcode(BIND_IMAGE_2D_TYPED);
+        integer(unit);
+        integer(mipLevel);
+        integer(access.glValue());
+        integer(GlFormats.toGl(format));
+        object(texture);
+        return this;
+    }
+
+    /** 以 layered image 覆盖 cubemap 六个 face。 */
+    public CommandBuffer bindImage(TextureCube texture, int unit, int mipLevel,
+                                   ImageAccess access, RenderFormat format) {
+        Objects.requireNonNull(texture, "texture").ensureOpen();
+        Objects.requireNonNull(access, "access");
+        Objects.requireNonNull(format, "format");
+        if (unit < 0 || mipLevel < 0 || mipLevel >= texture.mipLevels()) {
+            throw new IllegalArgumentException("invalid cubemap image binding");
+        }
+        if (texture.format() != format) {
+            throw new IllegalArgumentException("cubemap image format must match storage format");
+        }
+        opcode(BIND_IMAGE_CUBE);
+        integer(unit);
+        integer(mipLevel);
+        integer(access.glValue());
+        integer(GlFormats.toGl(format));
+        object(texture);
+        return this;
+    }
+
+    /** 在已写入 mip 0 后为 cubemap 生成完整 mip 链。 */
+    public CommandBuffer generateMipmaps(TextureCube texture) {
+        Objects.requireNonNull(texture, "texture").ensureOpen();
+        if (texture.mipLevels() <= 1) return this;
+        flushPendingState();
+        opcode(GENERATE_CUBE_MIPMAPS);
+        object(texture);
         return this;
     }
 
@@ -567,6 +650,21 @@ public final class CommandBuffer {
         return uniformVec3(shader, shader.uniformLocation(name), value.x, value.y, value.z);
     }
 
+    public CommandBuffer setUniformVec4(ShaderProgram shader, String name, Vector4f value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        return uniformVec4(shader, shader.uniformLocation(name), value.x, value.y, value.z, value.w);
+    }
+
+    public CommandBuffer trySetUniformVec4(ShaderProgram shader, String name, Vector4f value) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        int location = shader.uniformLocationOrMinusOne(name);
+        return location < 0 ? this : uniformVec4(shader, location, value.x, value.y, value.z, value.w);
+    }
+
     public CommandBuffer trySetUniformVec3(ShaderProgram shader, String name, Vector3f value) {
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(name, "name");
@@ -712,6 +810,18 @@ public final class CommandBuffer {
         integer(floatBits(x));
         integer(floatBits(y));
         integer(floatBits(z));
+        object(shader);
+        return this;
+    }
+
+    private CommandBuffer uniformVec4(ShaderProgram shader, int location,
+                                      float x, float y, float z, float w) {
+        opcode(UNIFORM_VEC4);
+        integer(location);
+        integer(floatBits(x));
+        integer(floatBits(y));
+        integer(floatBits(z));
+        integer(floatBits(w));
         object(shader);
         return this;
     }

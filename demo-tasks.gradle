@@ -15,6 +15,7 @@ def registerDemoJavaExec = { taskName, taskGroup, descriptionText, mainClassName
 
 def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 [
         runDemoIntegration                 : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA'],
@@ -52,6 +53,21 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         runStressIndexedSsboCubeIntegration: [stressMain,
                 ['--deterministic', '--frames=2', '--shape=cube', '--instances=100000', '--mode=indexed-ssbo'],
                 'Renders 100000 indexed cubes from the compact 16-byte instance SSBO.']
+        ,runPbrIntegration                 : [pbrMain,
+                ['--hidden', '--frames=8', '--environment-quality=test', '--aa=fxaa',
+                 '--auto-exposure=on', '--bloom=on'],
+                'Runs the deterministic v0.12 PBR, IBL, shadow, HDR and legacy coexistence scene.']
+        ,runPbrResizeIntegration           : [pbrMain,
+                ['--hidden', '--frames=8', '--resize-frame=4', '--environment-quality=test',
+                 '--aa=none', '--auto-exposure=off', '--bloom=off'],
+                'Resizes the PBR scene without rebuilding its environment resources.']
+        ,runPbrCompatibilityIntegration    : [pbrMain,
+                ['--hidden', '--frames=4', '--environment-quality=test', '--aa=msaa',
+                 '--auto-exposure=off', '--bloom=off'],
+                'Renders legacy and metallic-roughness objects in the same forward scene.']
+        ,runPbrFailureIntegration          : [pbrMain,
+                ['--hidden', '--environment-quality=test', '--verify-failure-cleanup'],
+                'Injects an environment load failure and verifies deterministic cleanup.']
 ].each { taskName, preset ->
     registerDemoJavaExec(taskName, 'verification', preset[2], preset[0], preset[1])
 }
@@ -135,6 +151,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runMinimalDemo    : 'com.kaleblangley.haikalat.demo.MinimalDemo',
         runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+        ,runPbrDemo       : pbrMain
 ].each { taskName, mainClassName ->
     registerDemoApplication(taskName,
             "Runs ${mainClassName} for interactive graphics debugging.",
@@ -158,6 +175,22 @@ registerDemoApplication('runPostV08Benchmarks',
 registerDemoApplication('runInstanceShadowBenchmarks',
         'Runs five formal 100K-instance shadow rounds.',
         'com.kaleblangley.haikalat.demo.PostV08BenchmarkSuite', ['--shadow-only'])
+
+registerDemoApplication('runPbrBenchmarks',
+        'Runs five 1080p/4K rounds for the v0.12 PBR AA/Bloom/exposure matrix.',
+        'com.kaleblangley.haikalat.demo.pbr.PbrBenchmarkSuite', [])
+
+tasks.register('localPbrVerification') {
+    group = 'verification'
+    description = 'Runs v0.12 PBR JVM/GL smoke plus deterministic integration and resize checks.'
+    dependsOn 'glSmoke', 'runPbrIntegration', 'runPbrResizeIntegration',
+            'runPbrCompatibilityIntegration', 'runPbrFailureIntegration'
+}
+
+tasks.named('runPbrIntegration') { mustRunAfter 'glSmoke' }
+tasks.named('runPbrResizeIntegration') { mustRunAfter 'runPbrIntegration' }
+tasks.named('runPbrCompatibilityIntegration') { mustRunAfter 'runPbrResizeIntegration' }
+tasks.named('runPbrFailureIntegration') { mustRunAfter 'runPbrCompatibilityIntegration' }
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",

@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import org.junit.jupiter.api.Test;
@@ -100,6 +101,82 @@ class AssetPipelineTest {
         assertEquals("/models/cube.obj", config.models().get("cube").path().path());
         assertEquals(1.0f, config.objects().get("cube01").position().x, 1.0e-6f);
         assertEquals(true, config.lights().get("sun").castShadows());
+    }
+
+    @Test
+    void sceneConfigParsesMetallicRoughnessDefaultsAndRoles() {
+        SceneAssetConfig config = SceneAssetConfig.parseProperties("""
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                texture.albedo.path=/albedo.png
+                texture.albedo.colorSpace=srgb
+                texture.normal.path=/normal.png
+                texture.normal.colorSpace=linear
+                material.iron.shader=pbrForward
+                material.iron.model=metallicRoughness
+                material.iron.pbr.baseColorTexture=albedo
+                material.iron.pbr.normalTexture=normal
+                """);
+
+        MaterialDef material = config.materials().get("iron");
+        assertEquals(MaterialModel.METALLIC_ROUGHNESS, material.model());
+        assertEquals(0.0f, material.pbr().metallicFactor());
+        assertEquals(1.0f, material.pbr().roughnessFactor());
+        assertEquals("albedo", material.pbr().textures().get(PbrTextureRole.BASE_COLOR));
+        assertEquals(MaterialModel.LEGACY, MaterialDef.of("legacy").model());
+    }
+
+    @Test
+    void pbrPropertiesDefensivelyCopyVectorsAndValidateFiniteRanges() {
+        org.joml.Vector4f color = new org.joml.Vector4f(1.0f);
+        PbrMaterialProperties properties = new PbrMaterialProperties(color, 0.5f, 0.25f,
+                1.0f, 1.0f, new org.joml.Vector3f(), java.util.Map.of());
+        color.x = 0.0f;
+        assertEquals(1.0f, properties.baseColorFactor().x);
+        org.joml.Vector4f returned = properties.baseColorFactor();
+        returned.x = 0.0f;
+        assertEquals(1.0f, properties.baseColorFactor().x);
+        assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
+                new org.joml.Vector4f(1.0f), Float.NaN, 1.0f, 1.0f, 1.0f,
+                new org.joml.Vector3f(), java.util.Map.of()));
+        assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
+                new org.joml.Vector4f(1.0f), 0.0f, 1.01f, 1.0f, 1.0f,
+                new org.joml.Vector3f(), java.util.Map.of()));
+    }
+
+    @Test
+    void sceneConfigRejectsInvalidPbrContractAtParseTime() {
+        String base = """
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                material.iron.shader=pbrForward
+                material.iron.model=metallicRoughness
+                """;
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties(
+                base + "material.iron.pbr.roughnessFactor=NaN\n"));
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties(
+                base + "material.iron.pbr.rougnessFactor=0.5\n"));
+        assertThrows(IllegalArgumentException.class, () -> SceneAssetConfig.parseProperties(
+                base + "material.iron.blend=alpha\n"));
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties(
+                base + "material.iron.texture.uTexture=anything\n"));
+    }
+
+    @Test
+    void sceneConfigRejectsPbrRoleColorSpaceWithActionableContext() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                texture.normal.path=/normal.png
+                texture.normal.colorSpace=srgb
+                material.iron.shader=pbrForward
+                material.iron.model=metallicRoughness
+                material.iron.pbr.normalTexture=normal
+                """));
+        assertTrue(error.getMessage().contains("material.iron"));
+        assertTrue(error.getMessage().contains("NORMAL"));
+        assertTrue(error.getMessage().contains("normal"));
+        assertTrue(error.getMessage().contains("SRGB"));
     }
 
     @Test
@@ -202,6 +279,30 @@ class AssetPipelineTest {
         assertEquals(3, model.firstMesh().layout().attributes().size());
         assertEquals(4 * 8, model.firstMesh().vertices().length);
         assertEquals(6, model.firstMesh().indices().length);
+    }
+
+    @Test
+    void objPbrOptionGeneratesCanonicalTangentLayoutWithoutChangingLegacyDefault() {
+        String source = """
+                v 0 0 0
+                v 1 0 0
+                v 0 1 0
+                vt 0 0
+                vt 1 0
+                vt 0 1
+                vn 0 0 1
+                f 1/1/1 2/2/1 3/3/1
+                """;
+
+        MeshData legacy = ObjModelLoader.parse(source, "triangle.obj").firstMesh();
+        MeshData pbr = ObjModelLoader.parse(source, "triangle.obj", ObjModelLoader.Options.PBR)
+                .firstMesh();
+
+        assertEquals(8 * Float.BYTES, legacy.layout().strideBytes());
+        assertTrue(legacy.layout().attribute(VertexSemantic.TANGENT).isEmpty());
+        assertEquals(12 * Float.BYTES, pbr.layout().strideBytes());
+        assertEquals(3, pbr.layout().attribute(VertexSemantic.TANGENT).orElseThrow().index());
+        assertEquals(4, BuiltinMeshData.instanceAttributeBase(pbr.layout()));
     }
 
     @Test

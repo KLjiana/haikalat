@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureCube;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
@@ -27,6 +28,7 @@ import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
 import static org.lwjgl.opengl.GL42.glMemoryBarrier;
 import static org.lwjgl.opengl.GL43.glDispatchCompute;
+import static org.lwjgl.opengl.GL45.glGenerateTextureMipmap;
 
 /**
  * 解释并执行 {@link CommandStream} 中已经定型的 opcode。
@@ -54,6 +56,12 @@ final class CommandExecutor {
                 case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
                 case BIND_TEXTURE_2D -> cache.bindTexture2D(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                case BIND_TEXTURE_CUBE -> {
+                    int unit = stream.integerAt(integerCursor++);
+                    TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
+                    texture.ensureOpen();
+                    cache.bindTextureCube(unit, texture.id());
+                }
                 case BIND_FRAMEBUFFER -> cache.bindFramebuffer(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
                 case BIND_SAMPLER -> cache.bindSampler(
@@ -105,12 +113,36 @@ final class CommandExecutor {
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
                         stream.integerAt(integerCursor++), false, 0,
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                case BIND_IMAGE_2D_TYPED -> {
+                    int unit = stream.integerAt(integerCursor++);
+                    int mipLevel = stream.integerAt(integerCursor++);
+                    int access = stream.integerAt(integerCursor++);
+                    int format = stream.integerAt(integerCursor++);
+                    Texture2D texture = (Texture2D) stream.objectAt(objectCursor++);
+                    if (texture.isClosed()) throw new com.kaleblangley.haikalat.backend.GlException(
+                            "Texture2D is closed");
+                    cache.bindImageTexture(unit, texture.id(), mipLevel, false, 0, access, format);
+                }
+                case BIND_IMAGE_CUBE -> {
+                    int unit = stream.integerAt(integerCursor++);
+                    int mipLevel = stream.integerAt(integerCursor++);
+                    int access = stream.integerAt(integerCursor++);
+                    int format = stream.integerAt(integerCursor++);
+                    TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
+                    texture.ensureOpen();
+                    cache.bindImageTexture(unit, texture.id(), mipLevel, true, 0, access, format);
+                }
                 case DISPATCH_COMPUTE -> {
                     glDispatchCompute(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
                 }
                 case MEMORY_BARRIER -> {
                     glMemoryBarrier(stream.integerAt(integerCursor++));
+                }
+                case GENERATE_CUBE_MIPMAPS -> {
+                    TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
+                    texture.ensureOpen();
+                    glGenerateTextureMipmap(texture.id());
                 }
                 case DRAW_MESH -> {
                     ((Mesh) stream.objectAt(objectCursor++)).drawBound();
@@ -170,6 +202,14 @@ final class CommandExecutor {
                     float y = Float.intBitsToFloat(stream.integerAt(integerCursor++));
                     float z = Float.intBitsToFloat(stream.integerAt(integerCursor++));
                     ((ShaderProgram) stream.objectAt(objectCursor++)).setVec3(location, x, y, z);
+                }
+                case UNIFORM_VEC4 -> {
+                    int location = stream.integerAt(integerCursor++);
+                    float x = Float.intBitsToFloat(stream.integerAt(integerCursor++));
+                    float y = Float.intBitsToFloat(stream.integerAt(integerCursor++));
+                    float z = Float.intBitsToFloat(stream.integerAt(integerCursor++));
+                    float w = Float.intBitsToFloat(stream.integerAt(integerCursor++));
+                    ((ShaderProgram) stream.objectAt(objectCursor++)).setVec4(location, x, y, z, w);
                 }
                 case UNIFORM_VEC2 -> {
                     int location = stream.integerAt(integerCursor++);
