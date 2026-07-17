@@ -31,4 +31,19 @@ class PbrBrdfMathTest {
         assertEquals(3.0f, PbrBrdfMath.compose(5, 2, 1, 1, 1), 1.0e-6f);
         assertEquals(6.0f, PbrBrdfMath.compose(5, 2, 1, 0, 0), 1.0e-6f);
     }
+
+    @Test
+    void pointAndSpotFalloffIsFiniteInverseSquareAndContinuousAtRange() {
+        float near = PbrBrdfMath.rangeInverseSquareAttenuation(1.0f, 10.0f);
+        float farther = PbrBrdfMath.rangeInverseSquareAttenuation(2.0f, 10.0f);
+        assertTrue(near > farther, "radiance must decrease with distance");
+        assertTrue(near / farther > 3.0f,
+                "distance term must retain the inverse-square contribution");
+
+        float justInside = PbrBrdfMath.rangeInverseSquareAttenuation(9.999f, 10.0f);
+        assertTrue(justInside >= 0.0f && justInside < 1.0e-8f);
+        assertEquals(0.0f, PbrBrdfMath.rangeInverseSquareAttenuation(10.0f, 10.0f), 0.0f);
+        assertEquals(0.0f, PbrBrdfMath.rangeInverseSquareAttenuation(12.0f, 10.0f), 0.0f);
+        assertTrue(Float.isFinite(PbrBrdfMath.rangeInverseSquareAttenuation(0.0f, 10.0f)));
+    }
 }

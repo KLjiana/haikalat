@@ -116,6 +116,11 @@ vec3 directBrdf(vec3 n, vec3 v, vec3 l, vec3 radiance,
     return (kd * baseColor / PI + specular) * radiance * nDotL;
 }
 
+float rangeInverseSquareAttenuation(float distanceToLight, float range) {
+    float rangeWindow = clamp(1.0 - distanceToLight / max(range, 1.0e-4), 0.0, 1.0);
+    return (rangeWindow * rangeWindow) / max(distanceToLight * distanceToLight, 1.0e-4);
+}
+
 void main() {
     vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor;
     vec2 mr = texture(uMetallicRoughnessMap, vTexCoord).gb;
@@ -144,8 +149,8 @@ void main() {
             vec3 delta = uPointLights[i].position - vWorldPosition;
             float distanceToLight = length(delta);
             vec3 l = delta / max(distanceToLight, 1.0e-5);
-            float attenuation = clamp(1.0 - distanceToLight / uPointLights[i].range, 0.0, 1.0);
-            attenuation *= attenuation;
+            float attenuation = rangeInverseSquareAttenuation(
+                    distanceToLight, uPointLights[i].range);
             direct += directBrdf(n, v, l, uPointLights[i].color
                     * uPointLights[i].intensity * attenuation,
                     baseSample.rgb, metallic, roughness, f0);
@@ -154,8 +159,8 @@ void main() {
             vec3 delta = uSpotLights[i].position - vWorldPosition;
             float distanceToLight = length(delta);
             vec3 l = delta / max(distanceToLight, 1.0e-5);
-            float attenuation = clamp(1.0 - distanceToLight / uSpotLights[i].range, 0.0, 1.0);
-            attenuation *= attenuation;
+            float attenuation = rangeInverseSquareAttenuation(
+                    distanceToLight, uSpotLights[i].range);
             float angle = acos(clamp(dot(-l, normalize(uSpotLights[i].direction)), -1.0, 1.0));
             float cone = 1.0 - smoothstep(uSpotLights[i].innerCone, uSpotLights[i].outerCone, angle);
             direct += directBrdf(n, v, l, uSpotLights[i].color

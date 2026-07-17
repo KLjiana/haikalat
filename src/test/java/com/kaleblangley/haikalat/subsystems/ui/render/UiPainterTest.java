@@ -15,6 +15,7 @@ import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.ListView;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Panel;
 import com.kaleblangley.haikalat.subsystems.ui.widget.ScrollView;
+import com.kaleblangley.haikalat.subsystems.ui.widget.Slider;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +29,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UiPainterTest {
     private static final double EPSILON = 0.0001;
+
+    @Test
+    void sliderPaintsTrackFillAndThumbAtItsCurrentValue() {
+        try (UiDocument document = new UiDocument()) {
+            Slider slider = new Slider(0.0, 10.0, 5.0);
+            slider.computedStyle(new ComputedStyle(
+                    UiColor.TRANSPARENT, UiColor.WHITE,
+                    new UiColor(0.25f, 0.25f, 0.25f, 1.0f),
+                    1.0f, 0.0f, 1.0f, 10.0f, "TestFont"));
+            layout(slider, 10, 20, 100, 28);
+            document.root().add(slider);
+
+            UiDisplayList list = new UiPainter().paint(document);
+
+            assertEquals(4, list.quadCount(),
+                    "slider must emit track, active range, thumb border and thumb body");
+            assertEquals(53.0, list.quadX(2), EPSILON,
+                    "half-range thumb must be centered in its available travel");
+            assertEquals(14.0, list.quadWidth(2), EPSILON);
+            assertEquals(24.0, list.quadY(2), EPSILON);
+        }
+    }
 
     @Test
     void paintsNormalTreeBeforeOverlayAndSkipsDocumentRootsAndHiddenNodes() {

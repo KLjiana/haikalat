@@ -82,12 +82,13 @@ public final class LearnOpenGlDemo {
         SceneAssetConfig config = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
         try (FrameDriver renderLoop = new FrameDriver(settings);
              DemoSceneResources resources = DemoSceneResources.load(assets, config);
-             PbrEnvironment environment = PbrEnvironmentLoader.load(LearnOpenGlDemo.class,
+             PbrEnvironment environment = PbrEnvironmentLoader.load(renderLoop.device(), LearnOpenGlDemo.class,
                      "/pbr/studio-small.hdr", options.deterministic()
                              ? PbrEnvironmentSettings.testQuality()
                              : PbrEnvironmentSettings.defaultQuality())) {
             Scene scene = buildScene(camera, config, resources);
-            Mesh instancedMesh = resources.meshes("builtin:" + BuiltinMeshData.QUAD).getFirst();
+            Mesh instancedMesh = resources.meshes("builtin:" + BuiltinMeshData.QUAD,
+                    com.kaleblangley.haikalat.core.assets.MaterialModel.LEGACY).getFirst();
             ShaderProgram instancedShader = resources.shader("instanced");
             InstancedMeshBatch batch = InstancedMeshBatch.of(instancedMesh,
                     options.instances(), BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
@@ -194,7 +195,7 @@ public final class LearnOpenGlDemo {
         for (Map.Entry<String, SceneAssetConfig.ObjectDef> entry : config.objects().entrySet()) {
             SceneAssetConfig.ObjectDef def = entry.getValue();
             Material material = resources.material(def.material());
-            addModelMeshes(scene, resources.meshes(def.model()), material,
+            addModelMeshes(scene, resources.meshes(def, config), material,
                     updaterFor(entry.getKey(), def), def.castShadows());
         }
         for (SceneAssetConfig.LightDef light : config.lights().values()) {

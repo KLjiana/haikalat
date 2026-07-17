@@ -18,6 +18,8 @@ import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 
+import java.util.function.DoubleConsumer;
+
 /** PbrDemo 的 retained-mode 参数面板；不把 Demo 调试开关写入 manifest。 */
 final class PbrDemoOverlay implements AutoCloseable {
     private final UiSystem ui;
@@ -100,7 +102,7 @@ final class PbrDemoOverlay implements AutoCloseable {
     }
 
     private static void addSlider(Panel panel, String text, double min, double max,
-                                  double initial, java.util.function.DoubleConsumer listener) {
+                                  double initial, DoubleConsumer listener) {
         Panel row = new Panel();
         row.style(UiStyle.builder().width(UiLength.percent(100)).height(UiLength.points(32))
                 .flexDirection(UiStyle.FlexDirection.ROW)

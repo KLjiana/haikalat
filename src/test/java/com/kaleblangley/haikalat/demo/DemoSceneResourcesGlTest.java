@@ -5,6 +5,8 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.MaterialDef;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
+import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.assets.SceneAssetConfig;
 import com.kaleblangley.haikalat.core.assets.ShaderAsset;
@@ -37,7 +39,7 @@ class DemoSceneResourcesGlTest {
             SceneAssetConfig baseline = SceneAssetConfig.load(locator, "/demo/learnopengl.properties");
             DemoSceneResources resources = DemoSceneResources.load(locator, baseline);
             ShaderProgram modelShader = resources.shader("model");
-            List<Mesh> modelMeshes = resources.meshes("pyramid");
+            List<Mesh> modelMeshes = resources.meshes("pyramid", MaterialModel.LEGACY);
 
             resources.close();
             resources.close();
@@ -51,6 +53,28 @@ class DemoSceneResourcesGlTest {
             assertThrows(IllegalStateException.class,
                     () -> DemoSceneResources.load(locator, partialFailure, allocated::set));
             assertTrue(allocated.get().isClosed(), "Partially loaded resources must be closed on failure");
+        }
+    }
+
+    @Test
+    void sharedModelCreatesIndependentLegacyAndPbrVertexVariants() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            ResourceLocator locator = ResourceLocator.classpath(LearnOpenGlDemo.class);
+            SceneAssetConfig config = sharedBuiltinConfig();
+            try (DemoSceneResources resources = DemoSceneResources.load(locator, config)) {
+                Mesh legacy = resources.meshes("builtin:texturedQuad", MaterialModel.LEGACY).getFirst();
+                Mesh pbr = resources.meshes("builtin:texturedQuad",
+                        MaterialModel.METALLIC_ROUGHNESS).getFirst();
+
+                assertTrue(legacy != pbr, "legacy/PBR variants must not share a GPU mesh");
+                assertTrue(legacy.vertexLayout().attribute(
+                        com.kaleblangley.haikalat.backend.vertex.VertexSemantic.TANGENT).isEmpty());
+                assertEquals(3, pbr.vertexLayout().attribute(
+                        com.kaleblangley.haikalat.backend.vertex.VertexSemantic.TANGENT)
+                        .orElseThrow().index());
+            }
         }
     }
 
@@ -96,6 +120,27 @@ class DemoSceneResourcesGlTest {
                         new MaterialDef.TextureBinding(0, "uTexture", "wall", "unsupportedSampler")),
                         BlendMode.OPAQUE, true)),
                 Map.of(), Map.of(), Map.of());
+    }
+
+    private static SceneAssetConfig sharedBuiltinConfig() {
+        Map<String, ShaderAsset> shaders = Map.of(
+                "legacy", ShaderAsset.of("/demo/model_scene.vert", "/demo/lit_scene.frag"),
+                "pbrForward", ShaderAsset.of(
+                        "/render3d/pbr/pbr_forward.vert",
+                        "/render3d/pbr/pbr_forward.frag"));
+        Map<String, MaterialDef> materials = Map.of(
+                "legacy", MaterialDef.of("legacy"),
+                "pbr", MaterialDef.metallicRoughness(
+                        "pbrForward", true, PbrMaterialProperties.defaults()));
+        Map<String, SceneAssetConfig.ObjectDef> objects = Map.of(
+                "legacyObject", object("legacy"),
+                "pbrObject", object("pbr"));
+        return new SceneAssetConfig(shaders, Map.of(), materials, Map.of(), objects, Map.of());
+    }
+
+    private static SceneAssetConfig.ObjectDef object(String material) {
+        return new SceneAssetConfig.ObjectDef("builtin:texturedQuad", material,
+                new org.joml.Vector3f(), new org.joml.Vector3f(), 1.0f, false);
     }
 
     private static GlfwWindow hiddenWindow() {

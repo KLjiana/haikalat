@@ -12,6 +12,7 @@ import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Image;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Panel;
+import com.kaleblangley.haikalat.subsystems.ui.widget.Slider;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 
 import java.util.Objects;
@@ -113,7 +114,9 @@ public final class UiPainter {
 
     private void paintVisual(UiDocument document, UiNode node,
                              UiScreenRect bounds, UiDisplayList output) {
-        if (node instanceof Panel || node instanceof TextField) {
+        if (node instanceof Slider slider) {
+            paintSlider(slider, bounds, output);
+        } else if (node instanceof Panel || node instanceof TextField) {
             paintBox(node.computedStyle(), bounds, output);
         }
         if (node instanceof Image image) {
@@ -122,6 +125,48 @@ public final class UiPainter {
             paintText(node, label.text(), label.alignment(), bounds, false, output);
         } else if (node instanceof TextField field) {
             paintTextField(document, field, bounds, output);
+        }
+    }
+
+    private static void paintSlider(Slider slider, UiScreenRect bounds,
+                                    UiDisplayList output) {
+        if (bounds.isEmpty()) return;
+        ComputedStyle style = slider.computedStyle();
+        double normalized = (slider.value() - slider.minimum())
+                / (slider.maximum() - slider.minimum());
+        normalized = Math.max(0.0, Math.min(1.0, normalized));
+
+        double thumbWidth = Math.min(14.0, bounds.width());
+        double thumbHeight = Math.min(20.0, bounds.height());
+        double travel = Math.max(0.0, bounds.width() - thumbWidth);
+        double thumbX = bounds.x() + normalized * travel;
+        double thumbY = bounds.y() + (bounds.height() - thumbHeight) * 0.5;
+        double trackX = bounds.x() + thumbWidth * 0.5;
+        double trackWidth = Math.max(0.0, bounds.width() - thumbWidth);
+        double trackHeight = Math.min(4.0, bounds.height());
+        double trackY = bounds.y() + (bounds.height() - trackHeight) * 0.5;
+
+        int trackColor = premultipliedRgba8(style.borderColor(), style.opacity());
+        int activeColor = premultipliedRgba8(style.foreground(), style.opacity());
+        if (trackWidth > 0.0 && alpha(trackColor) != 0) {
+            output.addSolidQuad(trackX, trackY, trackWidth, trackHeight,
+                    trackColor, UiBlendMode.PREMULTIPLIED_ALPHA);
+        }
+        double activeWidth = trackWidth * normalized;
+        if (activeWidth > 0.0 && alpha(activeColor) != 0) {
+            output.addSolidQuad(trackX, trackY, activeWidth, trackHeight,
+                    activeColor, UiBlendMode.PREMULTIPLIED_ALPHA);
+        }
+        if (alpha(trackColor) != 0) {
+            output.addSolidQuad(thumbX, thumbY, thumbWidth, thumbHeight,
+                    trackColor, UiBlendMode.PREMULTIPLIED_ALPHA);
+        }
+        double inset = Math.min(2.0, Math.min(thumbWidth, thumbHeight) * 0.25);
+        if (thumbWidth > inset * 2.0 && thumbHeight > inset * 2.0
+                && alpha(activeColor) != 0) {
+            output.addSolidQuad(thumbX + inset, thumbY + inset,
+                    thumbWidth - inset * 2.0, thumbHeight - inset * 2.0,
+                    activeColor, UiBlendMode.PREMULTIPLIED_ALPHA);
         }
     }
 

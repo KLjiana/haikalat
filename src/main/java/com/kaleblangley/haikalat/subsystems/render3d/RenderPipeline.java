@@ -1,6 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
@@ -18,7 +21,10 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRe
 import org.joml.Matrix4f;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class RenderPipeline {
     private static final int SHADOW_TEXTURE_UNIT = 7;
@@ -105,6 +111,7 @@ public final class RenderPipeline {
         closeGraphResources();
 
         try {
+            validatePbrVertexLayouts();
             graph = new RenderGraph(w, h);
             cameraUniforms = new CameraUniforms();
             lightingBinder = new LightingBinder(scene);
@@ -349,5 +356,38 @@ public final class RenderPipeline {
             if (renderer.material().material().model() == MaterialModel.METALLIC_ROUGHNESS) return true;
         }
         return false;
+    }
+
+    private void validatePbrVertexLayouts() {
+        int rendererIndex = 0;
+        for (MeshRenderer renderer : scene.renderers()) {
+            if (renderer.material().material().model() == MaterialModel.METALLIC_ROUGHNESS) {
+                validatePbrVertexLayout(renderer.mesh().vertexLayout(), rendererIndex);
+            }
+            rendererIndex++;
+        }
+    }
+
+    private static void validatePbrVertexLayout(VertexLayout layout, int rendererIndex) {
+        Map<VertexSemantic, int[]> contract = Map.of(
+                VertexSemantic.POSITION, new int[]{0, 3},
+                VertexSemantic.TEXCOORD_0, new int[]{1, 2},
+                VertexSemantic.NORMAL, new int[]{2, 3},
+                VertexSemantic.TANGENT, new int[]{3, 4});
+        for (Map.Entry<VertexSemantic, int[]> required : contract.entrySet()) {
+            VertexSemantic semantic = required.getKey();
+            VertexAttribute attribute = layout.attribute(semantic).orElseThrow(() ->
+                    new IllegalArgumentException("PBR renderer[" + rendererIndex
+                            + "] mesh is missing " + semantic + " semantic"));
+            int expectedLocation = required.getValue()[0];
+            int expectedSize = required.getValue()[1];
+            if (attribute.index() != expectedLocation || attribute.type() != GL_FLOAT
+                    || attribute.size() != expectedSize || attribute.divisor() != 0
+                    || attribute.normalized()) {
+                throw new IllegalArgumentException("PBR renderer[" + rendererIndex + "] "
+                        + semantic + " must be divisor-0 unnormalized GL_FLOAT vec" + expectedSize
+                        + " at location " + expectedLocation);
+            }
+        }
     }
 }

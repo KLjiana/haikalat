@@ -16,8 +16,8 @@ public final class EnvironmentBackgroundRenderer implements AutoCloseable {
     private static final int UNIT = 8;
     private final PbrEnvironment environment;
     private final ShaderProgram shader = ShaderProgram.fromResource(EnvironmentBackgroundRenderer.class,
-            "/com/kaleblangley/haikalat/subsystems/render3d/pbr/shaders/environment_background.vert",
-            "/com/kaleblangley/haikalat/subsystems/render3d/pbr/shaders/environment_background.frag");
+            "/render3d/pbr/environment_background.vert",
+            "/render3d/pbr/environment_background.frag");
     private final VertexArray vertexArray = new VertexArray();
     private final Sampler sampler = Sampler.create(new Sampler.Descriptor(GL_LINEAR, GL_LINEAR,
             GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE));

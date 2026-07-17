@@ -323,8 +323,9 @@
         "platform/win32/arguments": "",
         "platform/win32/autoconnect": true,
         "platform/win32/environment": "",
-        "platform/win32/executable": "D:/project/Java/learnopengl/gl_nsight/06_ui_demo.bat",
+        "platform/win32/executable": "D:/project/Java/learnopengl/gl_nsight/07_pbr_demo.bat",
         "platform/win32/executable/history": [
+            "D:/project/Java/learnopengl/gl_nsight/07_pbr_demo.bat",
             "D:/project/Java/learnopengl/gl_nsight/06_ui_demo.bat",
             "D:/project/Java/learnopengl/gl_nsight/01_learnopengl_demo.bat",
             "D:/project/Java/learnopengl/gl_nsight/03_async_demo.bat"

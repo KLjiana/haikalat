@@ -6,9 +6,9 @@
 
 ## 当前重点
 
-v0.11 UI subsystem 已完成正式版验收。v0.12 Minimal PBR / IBL 主链已实现，当前重点是完成
-[`v0.12-minimal-pbr-ibl.md`](v0.12-minimal-pbr-ibl.md) 的发布证据：完整性能矩阵、远端 CI 与
-人工视觉清单。UI 分配优化继续作为维护项推进，不扩大 v0.12 材质范围。
+v0.11 UI subsystem 与 v0.12 Minimal PBR / IBL 均已完成正式版验收。后续重点转向
+PBR 资产工作流、探针与材质扩展的需求评估，同时继续推进 UI 分配优化；新增能力仍需保持
+typed command、RenderGraph、明确资源所有权与可回归 Demo 的现有准入标准。
 
 ### 近期
 
@@ -17,7 +17,7 @@ v0.11 UI subsystem 已完成正式版验收。v0.12 Minimal PBR / IBL 主链已�
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 - [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。
-- [ ] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
+- [x] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
 
 ### 中期
 

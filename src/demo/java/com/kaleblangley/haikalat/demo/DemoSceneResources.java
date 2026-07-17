@@ -35,7 +35,7 @@ import java.util.function.Consumer;
 final class DemoSceneResources implements AutoCloseable {
     private final Map<String, ShaderProgram> shaders = new LinkedHashMap<>();
     private final Map<String, Material> materials = new LinkedHashMap<>();
-    private final Map<String, List<Mesh>> meshes = new LinkedHashMap<>();
+    private final Map<MeshVariant, List<Mesh>> meshes = new LinkedHashMap<>();
     private final TextureAssetCache textureCache;
     private PbrFallbackTextures pbrFallbacks;
     private boolean closed;
@@ -88,12 +88,18 @@ final class DemoSceneResources implements AutoCloseable {
         return material;
     }
 
-    List<Mesh> meshes(String modelReference) {
-        List<Mesh> result = meshes.get(modelReference);
+    List<Mesh> meshes(String modelReference, MaterialModel materialModel) {
+        List<Mesh> result = meshes.get(new MeshVariant(modelReference, materialModel));
         if (result == null) {
-            throw new IllegalArgumentException("Model not loaded: " + modelReference);
+            throw new IllegalArgumentException("Model variant not loaded: " + modelReference
+                    + " [" + materialModel + "]");
         }
         return result;
+    }
+
+    List<Mesh> meshes(SceneAssetConfig.ObjectDef object, SceneAssetConfig config) {
+        MaterialModel model = config.materials().get(object.material()).model();
+        return meshes(object.model(), model);
     }
 
     boolean isClosed() {
@@ -148,31 +154,26 @@ final class DemoSceneResources implements AutoCloseable {
     }
 
     private void loadMeshes(ResourceLocator locator, SceneAssetConfig config) {
+        ModelAssetManager legacyAssets = new ModelAssetManager()
+                .register("obj", new ObjModelLoader(locator));
         for (SceneAssetConfig.ObjectDef object : config.objects().values()) {
-            if (object.builtinMesh()) {
-                String reference = object.model();
-                meshes.computeIfAbsent(reference, ignored -> {
+            MaterialModel materialModel = config.materials().get(object.material()).model();
+            MeshVariant variant = new MeshVariant(object.model(), materialModel);
+            meshes.computeIfAbsent(variant, ignored -> {
+                if (object.builtinMesh()) {
                     MeshData data = BuiltinMeshData.named(object.builtinMeshName());
-                    if (config.materials().get(object.material()).model()
-                            == MaterialModel.METALLIC_ROUGHNESS) {
+                    if (materialModel == MaterialModel.METALLIC_ROUGHNESS) {
                         data = TangentGenerator.generate(data).mesh();
                     }
                     return List.of(Mesh.from(data));
-                });
-            }
-        }
-
-        ModelAssetManager modelAssets = new ModelAssetManager()
-                .register("obj", new ObjModelLoader(locator));
-        for (Map.Entry<String, SceneAssetConfig.ModelDef> entry : config.models().entrySet()) {
-            boolean pbr = config.objects().values().stream().anyMatch(object ->
-                    object.model().equals(entry.getKey())
-                            && config.materials().get(object.material()).model()
-                            == MaterialModel.METALLIC_ROUGHNESS);
-            LoadedModel loaded = pbr && entry.getValue().path().extension().equals("obj")
-                    ? new ObjModelLoader(locator).load(entry.getValue().path(), ObjModelLoader.Options.PBR)
-                    : modelAssets.load(entry.getValue().path());
-            meshes.put(entry.getKey(), uploadMeshes(loaded));
+                }
+                SceneAssetConfig.ModelDef model = config.models().get(object.model());
+                LoadedModel loaded = materialModel == MaterialModel.METALLIC_ROUGHNESS
+                        && model.path().extension().equals("obj")
+                        ? new ObjModelLoader(locator).load(model.path(), ObjModelLoader.Options.PBR)
+                        : legacyAssets.load(model.path());
+                return uploadMeshes(loaded);
+            });
         }
     }
 
@@ -243,5 +244,13 @@ final class DemoSceneResources implements AutoCloseable {
         }
         failure.addSuppressed(next);
         return failure;
+    }
+
+    /** 同一模型引用可同时拥有 legacy 与 canonical PBR 两份独立 GPU layout。 */
+    private record MeshVariant(String modelReference, MaterialModel materialModel) {
+        private MeshVariant {
+            Objects.requireNonNull(modelReference, "modelReference");
+            Objects.requireNonNull(materialModel, "materialModel");
+        }
     }
 }

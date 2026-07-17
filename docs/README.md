@@ -12,7 +12,7 @@
 - [post-v0.8 色彩与 Bloom 路线图](planning/post-v0.8-roadmap.md) — v0.9 已完成主线与条件基准
 - [v0.10 全 GPU 自动曝光实施计划](planning/v0.10-gpu-auto-exposure.md) — 已完成 GPU 测光、时间适应与发布验收
 - [v0.11 Retained-mode UI Subsystem 实施计划](planning/v0.11-ui-subsystem.md) — 已完成游戏 UI、Yoga、FreeType/HarfBuzz、GPU atlas 与 Windows IME RC 主线
-- [v0.12 Minimal PBR / IBL 实施计划](planning/v0.12-minimal-pbr-ibl.md) — metallic-roughness、tangent、GPU 环境预计算与现有 HDR/UI 链路集成
+- [v0.12 Minimal PBR / IBL 实施计划](planning/v0.12-minimal-pbr-ibl.md) — 已完成 metallic-roughness、tangent、GPU IBL、HDR 后处理与 legacy/PBR 共存
 - [后续计划](planning/future-plans.md)
 
 ## 架构

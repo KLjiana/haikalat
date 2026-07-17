@@ -41,6 +41,17 @@ final class PbrBrdfMath {
         return direct * (1.0f - clamp01(shadow)) + indirect * clamp01(ao) + emissive;
     }
 
+    static float rangeInverseSquareAttenuation(float distance, float range) {
+        if (!Float.isFinite(distance) || distance < 0.0f) {
+            throw new IllegalArgumentException("light distance must be finite and non-negative");
+        }
+        if (!Float.isFinite(range) || range <= 0.0f) {
+            throw new IllegalArgumentException("light range must be finite and positive");
+        }
+        float smooth = Math.max(0.0f, Math.min(1.0f, 1.0f - distance / range));
+        return smooth * smooth / Math.max(distance * distance, 1.0e-4f);
+    }
+
     private static float clamp01(float value) {
         if (!Float.isFinite(value)) throw new IllegalArgumentException("BRDF input must be finite");
         return Math.max(0.0f, Math.min(1.0f, value));

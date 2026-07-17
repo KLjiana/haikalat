@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ObjModelLoader;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
+import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
@@ -76,13 +77,14 @@ public final class PbrDemo {
         List<Material> materials = new ArrayList<>();
         List<Mesh> meshes = new ArrayList<>();
         List<Texture2D> textures = new ArrayList<>();
+        Throwable primaryFailure = null;
         try (FrameDriver driver = new FrameDriver(settings);
-             PbrEnvironment environment = PbrEnvironmentLoader.load(PbrDemo.class,
+             PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(), PbrDemo.class,
                      "/pbr/studio-small.hdr", options.environmentSettings());
              PbrFallbackTextures fallbacks = new PbrFallbackTextures();
              ShaderProgram pbrShader = ShaderProgram.fromResource(PbrDemo.class,
-                     "/com/kaleblangley/haikalat/subsystems/render3d/pbr/shaders/pbr_forward.vert",
-                     "/com/kaleblangley/haikalat/subsystems/render3d/pbr/shaders/pbr_forward.frag");
+                     "/render3d/pbr/pbr_forward.vert",
+                     "/render3d/pbr/pbr_forward.frag");
              ShaderProgram legacyShader = ShaderProgram.fromResource(PbrDemo.class,
                      "/demo/color_scene.vert", "/demo/lit_scene.frag")) {
             Mesh sphere = Mesh.from(PbrSphereMesh.create(32, 20));
@@ -139,10 +141,18 @@ public final class PbrDemo {
             } finally {
                 pipeline.close();
             }
+        } catch (RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
         } finally {
-            closeReverse(materials);
-            closeReverse(meshes);
-            closeReverse(textures);
+            RuntimeException cleanupFailure = null;
+            cleanupFailure = closeReverse(materials, cleanupFailure);
+            cleanupFailure = closeReverse(meshes, cleanupFailure);
+            cleanupFailure = closeReverse(textures, cleanupFailure);
+            if (cleanupFailure != null) {
+                if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
+                else throw cleanupFailure;
+            }
         }
     }
 
@@ -210,18 +220,39 @@ public final class PbrDemo {
     }
 
     private static void verifyFailureCleanup(Options options) {
-        try {
-            PbrEnvironmentLoader.load(PbrDemo.class, "/pbr/missing.hdr", options.environmentSettings());
-            throw new AssertionError("expected environment loading failure");
-        } catch (RuntimeException expected) {
-            System.out.println("PBR failure cleanup verified: " + expected.getMessage());
+        GlRenderDevice device = new GlRenderDevice();
+        String property = "haikalat.pbr.testFailurePoint";
+        for (String point : List.of("AFTER_ENVIRONMENT_CUBE", "BEFORE_PREFILTER_MIP",
+                "AFTER_BRDF_LUT")) {
+            System.setProperty(property, point);
+            try {
+                try (PbrEnvironment ignored = PbrEnvironmentLoader.load(device, PbrDemo.class,
+                        "/pbr/studio-small.hdr", options.environmentSettings())) {
+                    throw new AssertionError("expected environment preprocessing failure at " + point);
+                }
+            } catch (RuntimeException expected) {
+                if (!expected.getMessage().contains(point)) throw expected;
+                System.out.println("PBR failure cleanup verified: " + point);
+            } finally {
+                System.clearProperty(property);
+            }
         }
+        GlDebug.checkError("PBR preprocessing failure cleanup");
     }
 
-    private static void closeReverse(List<? extends AutoCloseable> resources) {
+    private static RuntimeException closeReverse(List<? extends AutoCloseable> resources,
+                                                 RuntimeException failure) {
         for (int i = resources.size() - 1; i >= 0; i--) {
-            try { resources.get(i).close(); } catch (Exception ignored) { }
+            try {
+                resources.get(i).close();
+            } catch (Exception closeFailure) {
+                RuntimeException wrapped = closeFailure instanceof RuntimeException runtime ? runtime
+                        : new IllegalStateException("Failed to close PBR Demo resource", closeFailure);
+                if (failure == null) failure = wrapped;
+                else failure.addSuppressed(wrapped);
+            }
         }
+        return failure;
     }
 
     private record Options(boolean hidden, int frames, String quality,
