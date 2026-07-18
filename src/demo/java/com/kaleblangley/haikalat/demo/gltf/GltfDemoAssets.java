@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** GltfDemo 独占的两份场景资产及其 GPU 生命周期。 */
+/** GltfDemo 独占的场景资产及其 GPU 生命周期。 */
 final class GltfDemoAssets implements AutoCloseable {
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
@@ -53,6 +53,14 @@ final class GltfDemoAssets implements AutoCloseable {
                     .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
             objects.addAll(radioGpu.instantiate(radioRoot, false));
             appendInspection(lines, "radio.gltf", radio, radioGpu);
+
+            LoadedGltfScene creeper = loader.load(AssetRef.of("/gltf/creeper.gltf"));
+            GltfSceneAsset creeperGpu = GltfSceneAsset.upload(creeper, library);
+            assets.add(creeperGpu);
+            Matrix4f creeperRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
+                    .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
+            objects.addAll(creeperGpu.instantiate(creeperRoot, false));
+            appendInspection(lines, "creeper.gltf", creeper, creeperGpu);
             return new GltfDemoAssets(library, assets, objects, lines);
         } catch (RuntimeException failure) {
             RuntimeException primary = closeAssets(assets, failure);

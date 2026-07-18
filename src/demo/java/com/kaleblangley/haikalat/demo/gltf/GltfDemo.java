@@ -27,7 +27,7 @@ import java.time.Duration;
 import java.util.Locale;
 
 /**
- * 只加载并绘制 {@code showcase.gltf} 与 {@code radio.gltf} 的独立静态资产 Demo。
+ * 只加载并绘制 {@code gltf模型} 的独立静态资产 Demo。
  *
  * <p>该入口自行拥有窗口、runtime、PBR environment、场景、pipeline 和 retained inspector，
  * 不依赖主综合 Demo 的 manifest、对象或启动循环。</p>
@@ -40,7 +40,7 @@ public final class GltfDemo {
         Options options = Options.parse(args);
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(options.width(), options.height())
-                .title("Haikalat glTF Demo | showcase.gltf + radio.gltf")
+                .title("Haikalat glTF Demo")
                 .visible(!options.hidden())
                 .cursorMode(GlfwWindow.CursorMode.DISABLED)
                 .build()) {
@@ -100,7 +100,9 @@ public final class GltfDemo {
             DebugOverlaySnapshot previous = DebugOverlaySnapshot.from(driver.statistics(),
                     scene.renderers().size(), scene.renderers().size(), settings.antiAliasingMode());
             overlay.update(input, deltaSeconds, previous);
-            DemoSupport.updateFreeCamera(window, camera, deltaSeconds);
+            if (overlay.consumeCameraInputPermission()) {
+                DemoSupport.updateFreeCamera(window, camera, deltaSeconds);
+            }
             if (window.consumeResize()) pipeline.resize(window.width(), window.height());
 
             driver.beginFrame();
@@ -114,7 +116,7 @@ public final class GltfDemo {
                 DebugOverlaySnapshot stats = DebugOverlaySnapshot.from(driver.statistics(),
                         scene.renderers().size(), scene.renderers().size(), settings.antiAliasingMode());
                 window.setTitle(String.format(Locale.ROOT,
-                        "Haikalat glTF | showcase + radio | FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d",
+                        "Haikalat glTF | showcase + radio + creeper | FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d",
                         stats.fps(), stats.cpuSubmitMillis(), stats.gpuMillis(), stats.drawCalls()));
             }
             GlDebug.checkError("GltfDemo.frame");

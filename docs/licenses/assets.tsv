@@ -13,6 +13,7 @@ src/demo/resources/demo/textured_mvp.vert	Demo shader	Haikalat project	project l
 src/demo/resources/demo/textured_scene.vert	Demo shader	Haikalat project	project license	v0.14	5cdc408460522fa4272f5b13968f060de3675cbf8e98f96c4d1540cb13dd679e	project source	yes
 src/demo/resources/demo/textured_unlit.frag	Demo shader	Haikalat project	project license	v0.14	d433957f9bf0a0f0ee6313018bffe5ff674fc62b73a2ebcf44b64e14d29e717d	project source	yes
 src/demo/resources/demo/vertex_color_unlit.frag	Demo shader	Haikalat project	project license	v0.14	0816a90fd165c89c19fd178b6b705d7b235f24e05d3bcfb92dd3b984ccaf339e	project source	yes
+src/demo/resources/gltf/creeper.gltf	glTF Demo model	Project maintainer via Blockbench 5.1.4	project-maintainer redistribution grant	2026-07-19	ed38c0738fb66da7e6f69adc58156b3563989cdfda3c2edc294772888de3482c	user-provided embedded mesh and texture	yes
 src/demo/resources/gltf/showcase.gltf	glTF regression fixture	Haikalat project	project license	v0.13 fixture / 2026-07-18	73d0da223125f7993900d567bf29b5fdd31e4e0dde5bc6d2eb2fbfbf3e0a34b1	self-authored embedded-data fixture	yes
 src/demo/resources/pbr/README.md	PBR asset notice	Haikalat project	project license	v0.14	71c6c3e0d6da6becfd45c9b1d6a526346fc3793cf9fbec450551e55b043af075	project documentation	yes
 src/demo/resources/pbr/studio-small.hdr	Deterministic PBR environment	Haikalat project	project license	v0.12 fixture	846da7b4d7807d6539560c9ceb79d6391224577bcf22b3e583515d84390d9190	self-authored 4x2 RGBE fixture	yes

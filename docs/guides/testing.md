@@ -96,8 +96,9 @@ v0.13 glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedd
 `radio.gltf` MASK/cutoff 保留和 BLEND 拒绝都在普通 `test` 中执行。
 `localGltfVerification` 额外创建隐藏 OpenGL 4.6 context，验证 embedded PNG、同一 image 的
 sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、四阶段上传失败清理、library active-asset
-guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及只含 showcase/radio 共 10 个
-对象的独立 Demo/resize 链路。
+guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及包含 showcase/radio/creeper 共
+16 个对象的独立 Demo/resize 链路。可见窗口中按 F1 切换 inspector 交互模式，使用滚轮、
+PageUp/PageDown 或 Home/End 检查长资产树，F2 隐藏面板。
 
 v0.11 UI 的四条有限帧、隐藏窗口验证和聚合入口：
 

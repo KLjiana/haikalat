@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-暂无。
+- `GltfDemo` 增加用户提供的 `creeper.gltf`，独立场景现在绘制 16 个对象，并把该资源纳入发布资产
+  来源、许可和 SHA-256 清单。
+- 修复 glTF inspector 在相机捕获模式下无法命中滚动区域的问题：F1 切换 UI/相机输入，F2 隐藏，
+  支持滚轮、PageUp/PageDown、Home/End 和页码/偏移提示；退出 UI 模式后延迟两帧恢复相机输入。
 
 ## 已完成路线图
 
