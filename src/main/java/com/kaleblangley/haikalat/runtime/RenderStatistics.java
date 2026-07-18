@@ -38,11 +38,13 @@ public final class RenderStatistics {
         lastFrameDurationNanos = now - lastFrameStartNanos;
         accumulatedFrameNanos += lastFrameDurationNanos;
         frameCount++;
-        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, lastFrameProfile.passes());
+        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, lastFrameProfile.passes(),
+                lastFrameProfile.frameSequence());
     }
 
     public synchronized void recordGraphProfile(FrameProfile profile) {
-        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, profile.passes());
+        lastFrameProfile = new FrameProfile(lastFrameDurationNanos, profile.passes(),
+                profile.frameSequence());
     }
 
     /** 记录一次已经完成的 buffer swap/present。 */

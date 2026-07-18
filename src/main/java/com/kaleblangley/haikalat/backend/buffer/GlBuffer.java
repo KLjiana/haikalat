@@ -22,6 +22,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     private final int target;
     private final int usage;
     private final int id;
+    private final long resourceSequence;
     private boolean labeled;
     private boolean closed;
 
@@ -29,6 +30,8 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         this.target = target;
         this.usage = usage;
         this.id = glCreateBuffers();
+        this.resourceSequence = GlDebug.trackResource("BUFFER", id,
+                "GlBuffer target=" + target, -1L);
         labelIfNeeded();
     }
 
@@ -71,6 +74,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     public GlBuffer allocate(long sizeBytes) {
         ensureOpen();
         glNamedBufferData(id, sizeBytes, usage);
+        GlDebug.updateResourceBytes(resourceSequence, sizeBytes);
         return this;
     }
 
@@ -78,6 +82,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
     public GlBuffer allocateStorage(long sizeBytes, int flags) {
         ensureOpen();
         glNamedBufferStorage(id, sizeBytes, flags);
+        GlDebug.updateResourceBytes(resourceSequence, sizeBytes);
         return this;
     }
 
@@ -85,6 +90,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         ensureOpen();
         Objects.requireNonNull(data, "data");
         glNamedBufferData(id, data, usage);
+        GlDebug.updateResourceBytes(resourceSequence, data.remaining());
         return this;
     }
 
@@ -92,6 +98,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         ensureOpen();
         Objects.requireNonNull(data, "data");
         glNamedBufferData(id, data, usage);
+        GlDebug.updateResourceBytes(resourceSequence, (long) data.remaining() * Float.BYTES);
         return this;
     }
 
@@ -103,6 +110,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         ensureOpen();
         Objects.requireNonNull(data, "data");
         glNamedBufferData(id, data, usage);
+        GlDebug.updateResourceBytes(resourceSequence, (long) data.remaining() * Integer.BYTES);
         return this;
     }
 
@@ -162,6 +170,7 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
             return;
         }
         glDeleteBuffers(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 

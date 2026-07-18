@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.backend.texture;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
 
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
@@ -18,14 +19,17 @@ import static org.lwjgl.opengl.GL33.glSamplerParameteri;
 
 public final class Sampler implements GlResource {
     private final int id;
+    private final long resourceSequence;
     private boolean closed;
 
     private Sampler(int id) {
         this.id = id;
+        resourceSequence = GlDebug.trackResource("SAMPLER", id, "Sampler", 0L);
     }
 
     private Sampler(Descriptor descriptor) {
         this.id = glGenSamplers();
+        resourceSequence = GlDebug.trackResource("SAMPLER", id, "Sampler", 0L);
         glSamplerParameteri(id, GL_TEXTURE_MIN_FILTER, descriptor.minFilter);
         glSamplerParameteri(id, GL_TEXTURE_MAG_FILTER, descriptor.magFilter);
         glSamplerParameteri(id, GL_TEXTURE_WRAP_S, descriptor.wrapS);
@@ -61,6 +65,7 @@ public final class Sampler implements GlResource {
             return;
         }
         glDeleteSamplers(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 

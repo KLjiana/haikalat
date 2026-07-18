@@ -170,7 +170,7 @@ public final class PbrDemo {
             if (window.consumeResize()) pipeline.resize(window.width(), window.height());
             driver.beginFrame();
             pipeline.execute(driver.device(), delta);
-            driver.statistics().recordGraphProfile(pipeline.graph().lastFrameProfile());
+            driver.recordGraph(pipeline.graph());
             driver.endFrame();
             driver.present(window::swapBuffers);
             window.pollEvents();

@@ -23,6 +23,7 @@
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态 glTF 2.0 链路。
 - 五条 Demo 证明路径：空窗口/present 基线、综合场景管线、最小命令流、异步更新与渲染线程协作、自动生成 GPU procedural shader 的 100 万实例压力分析。
+- 有界运行时诊断：帧/pass 样本身份、RenderGraph 检查、结构化 GL 消息、资源追踪、F2 retained UI 面板、冻结历史和确定性 schema-v1 JSON 导出。
 
 主 Demo 是稳定基准场景，包含 receiver、普通与实例化 caster、纹理/纯色材质、方向光、点光，以及显式启用的 ACES HDR/FXAA。
 
@@ -65,6 +66,14 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localGlVerification
+.\gradlew.bat localDiagnosticsVerification
+```
+
+主 Demo 中按 F2 打开诊断面板；自动 capture 和五轮开销对比使用：
+
+```powershell
+.\gradlew.bat runDiagnosticsIntegration
+.\gradlew.bat runDiagnosticsBenchmarks
 ```
 
 交互查看 Bloom 或执行五轮正式性能基准：

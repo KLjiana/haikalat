@@ -107,7 +107,7 @@ public final class GltfDemo {
 
             driver.beginFrame();
             pipeline.execute(driver.device(), deltaSeconds);
-            driver.statistics().recordGraphProfile(pipeline.graph().lastFrameProfile());
+            driver.recordGraph(pipeline.graph());
             driver.endFrame();
             driver.present(window::swapBuffers);
             window.pollEvents();

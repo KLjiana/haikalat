@@ -26,6 +26,7 @@ public final class PipelineStatisticsQuery implements GlResource {
     private boolean hasResult;
     private long latestValue;
     private boolean closed;
+    private final long resourceSequence;
 
     private PipelineStatisticsQuery(int target, boolean supported) {
         this.target = target;
@@ -33,6 +34,8 @@ public final class PipelineStatisticsQuery implements GlResource {
         this.queryIds = supported ? new int[QUERY_RING_SIZE] : new int[0];
         this.pending = supported ? new boolean[QUERY_RING_SIZE] : new boolean[0];
         for (int i = 0; i < queryIds.length; i++) queryIds[i] = glGenQueries();
+        resourceSequence = supported ? GlDebug.trackResource("QUERY", queryIds[0],
+                "PipelineStatisticsQuery ring=" + QUERY_RING_SIZE, 0L) : -1L;
     }
 
     public static PipelineStatisticsQuery vertexShaderInvocations() {
@@ -82,6 +85,7 @@ public final class PipelineStatisticsQuery implements GlResource {
     public void close() {
         if (closed) return;
         for (int queryId : queryIds) glDeleteQueries(queryId);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 

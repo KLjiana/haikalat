@@ -6,7 +6,11 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.graph.FrameProfile;
+import com.kaleblangley.haikalat.core.graph.PassProfile;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
+import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,11 +22,28 @@ public final class FrameDriver implements AutoCloseable {
     private final RenderSettings settings;
     private final GlRenderDevice device;
     private final UploadSystem uploadQueue = new UploadSystem();
+    private final FrameDiagnostics diagnostics;
+    private final GlDebug.ResourceTrackingLease resourceTrackingLease;
+    private RenderGraph.Description pendingGraphDescription;
 
     /** @param settings 当前渲染配置 */
     public FrameDriver(RenderSettings settings) {
+        this(settings, DiagnosticsLevel.OFF, FrameDiagnostics.DEFAULT_HISTORY_CAPACITY);
+    }
+
+    /** 创建带指定诊断层级的帧驱动。 */
+    public FrameDriver(RenderSettings settings, DiagnosticsLevel diagnosticsLevel) {
+        this(settings, diagnosticsLevel, FrameDiagnostics.DEFAULT_HISTORY_CAPACITY);
+    }
+
+    /** 创建带有界诊断历史的帧驱动。 */
+    public FrameDriver(RenderSettings settings, DiagnosticsLevel diagnosticsLevel,
+                       int diagnosticsHistoryCapacity) {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.device = new GlRenderDevice();
+        this.diagnostics = new FrameDiagnostics(diagnosticsLevel, diagnosticsHistoryCapacity);
+        resourceTrackingLease = diagnosticsLevel == DiagnosticsLevel.DETAILED
+                ? GlDebug.acquireResourceTracking() : null;
     }
 
     /** @return 当前渲染配置 */
@@ -38,6 +59,23 @@ public final class FrameDriver implements AutoCloseable {
     /** @return 当前渲染设备 */
     public RenderDevice device() {
         return device;
+    }
+
+    /** @return 由该 driver 独占写入的运行时诊断 session。 */
+    public FrameDiagnostics diagnostics() { return diagnostics; }
+
+    /** 附加下一次发布使用的场景摘要。 */
+    public void recordSceneStatistics(long drawCalls, long instanceCount,
+                                      long ordinaryRenderers, long instancedRenderers) {
+        diagnostics.scene(drawCalls, instanceCount, ordinaryRenderers, instancedRenderers);
+    }
+
+    /** 附加下一次发布使用的 UI 摘要；参数均为值类型，runtime 不依赖 UI subsystem。 */
+    public void recordUiStatistics(long visibleNodes, long quads, long glyphs, long drawCalls,
+                                   long updateNanos, long vertexBytes, long indexBytes,
+                                   long atlasUploadBytes) {
+        diagnostics.ui(visibleNodes, quads, glyphs, drawCalls, updateNanos,
+                vertexBytes, indexBytes, atlasUploadBytes);
     }
 
     /** @return 无需向下转型即可读取的 OpenGL 状态缓存累计统计 */
@@ -74,13 +112,31 @@ public final class FrameDriver implements AutoCloseable {
      */
     public void frame(RenderGraph graph) {
         beginFrame();
-        graph.execute(device);
+        try {
+            graph.execute(device);
+            recordGraph(graph);
+            endFrame();
+        } catch (RuntimeException | Error failure) {
+            try {
+                failFrame(graph, failure);
+            } catch (RuntimeException | Error diagnosticsFailure) {
+                failure.addSuppressed(diagnosticsFailure);
+            }
+            throw failure;
+        }
+    }
+
+    /** 记录正式执行后的 graph profile 和只读描述，供帧边界统一发布。 */
+    public void recordGraph(RenderGraph graph) {
+        Objects.requireNonNull(graph, "graph");
         statistics.recordGraphProfile(graph.lastFrameProfile());
-        endFrame();
+        pendingGraphDescription = diagnostics.level() == DiagnosticsLevel.DETAILED
+                ? graph.description() : null;
     }
 
     /** 开始 CPU submit 计时，并刷新已经接受的上传请求。 */
     public void beginFrame() {
+        GlDebug.frameSequence(statistics.frameCount());
         statistics.beginFrame();
         uploadQueue.flush();
     }
@@ -88,7 +144,33 @@ public final class FrameDriver implements AutoCloseable {
     /** 结束 CPU submit 计时，并检查当前 OpenGL 错误。 */
     public void endFrame() {
         statistics.endFrame();
+        diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(),
+                pendingGraphDescription, device.stateStatistics(), true,
+                uploadQueue.totalBytesUploaded(), uploadQueue.pendingCount(),
+                uploadQueue.totalGpuUpdates());
+        pendingGraphDescription = null;
         GlDebug.checkError("FrameDriver.endFrame");
+    }
+
+    /**
+     * 在调用方捕获正式帧异常后发布一个可诊断的 incomplete frame，并允许下一帧继续。
+     */
+    public void failFrame(RenderGraph graph, Throwable failure) {
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(failure, "failure");
+        FrameProfile source = graph.lastFrameProfile();
+        FrameProfile failed = new FrameProfile(0L, source.passes().stream()
+                .map(pass -> new PassProfile(pass.passName(), pass.cpuRecordNanos(), 0L,
+                        PassProfile.GpuTimingStatus.FAILED, -1L, 0L,
+                        pass.skippedSubmissions())).toList(), source.frameSequence());
+        statistics.recordGraphProfile(failed);
+        statistics.endFrame();
+        RenderGraph.Description description = diagnostics.level() == DiagnosticsLevel.DETAILED
+                ? graph.description() : null;
+        diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(), description,
+                device.stateStatistics(), false, uploadQueue.totalBytesUploaded(),
+                uploadQueue.pendingCount(), uploadQueue.totalGpuUpdates());
+        pendingGraphDescription = null;
     }
 
     /**
@@ -115,6 +197,25 @@ public final class FrameDriver implements AutoCloseable {
     @Override
     public void close() {
         requestStop();
-        uploadQueue.close();
+        Throwable failure = null;
+        try {
+            uploadQueue.close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure = closeFailure;
+        }
+        try {
+            diagnostics.close();
+        } catch (RuntimeException | Error closeFailure) {
+            if (failure == null) failure = closeFailure;
+            else failure.addSuppressed(closeFailure);
+        }
+        try {
+            if (resourceTrackingLease != null) resourceTrackingLease.close();
+        } catch (RuntimeException | Error closeFailure) {
+            if (failure == null) failure = closeFailure;
+            else failure.addSuppressed(closeFailure);
+        }
+        if (failure instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+        if (failure instanceof Error error) throw error;
     }
 }

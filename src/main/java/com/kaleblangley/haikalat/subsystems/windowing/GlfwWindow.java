@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.windowing;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
+
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputCollector;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import com.kaleblangley.haikalat.subsystems.windowing.input.ClipboardService;
@@ -286,6 +288,10 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     public void close() {
         if (closed) {
             return;
+        }
+        if (glfwGetCurrentContext() == handle) {
+            GlDebug.releaseCurrentContext();
+            org.lwjgl.opengl.GL.setCapabilities(null);
         }
         glfwDestroyWindow(handle);
         glfwTerminate();

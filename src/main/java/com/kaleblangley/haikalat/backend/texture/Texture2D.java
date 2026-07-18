@@ -78,6 +78,7 @@ public final class Texture2D implements GlResource {
     private final int height;
     private final int format;
     private final TextureColorSpace colorSpace;
+    private final long resourceSequence;
     private boolean closed;
 
     private Texture2D(int id, int width, int height, int format) {
@@ -90,6 +91,8 @@ public final class Texture2D implements GlResource {
         this.height = height;
         this.format = format;
         this.colorSpace = Objects.requireNonNull(colorSpace, "colorSpace");
+        this.resourceSequence = GlDebug.trackResource("TEXTURE", id,
+                "Texture2D " + width + "x" + height, (long) width * height * bytesPerPixel(format));
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_TEXTURE, id, "Texture2D " + width + "x" + height);
     }
 
@@ -505,6 +508,7 @@ public final class Texture2D implements GlResource {
             return;
         }
         glDeleteTextures(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 
@@ -521,6 +525,17 @@ public final class Texture2D implements GlResource {
             case 3 -> GL_RGB;
             case 4 -> GL_RGBA;
             default -> throw new GlException("Unsupported channel count: " + channels);
+        };
+    }
+
+    private static int bytesPerPixel(int internalFormat) {
+        return switch (internalFormat) {
+            case GL_R8, GL_RED -> 1;
+            case GL_RG8 -> 2;
+            case GL_RGB8, GL_SRGB8, GL_RGB -> 3;
+            case GL_RG16F -> 4;
+            case GL_RGBA16F -> 8;
+            default -> 4;
         };
     }
 

@@ -88,7 +88,16 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runGltfIntegration
 .\gradlew.bat runGltfResizeIntegration
 .\gradlew.bat localGltfVerification
+.\gradlew.bat runDiagnosticsIntegration
+.\gradlew.bat runDiagnosticsResizeIntegration
+.\gradlew.bat runDiagnosticsFailureIntegration
+.\gradlew.bat localDiagnosticsVerification
 ```
+
+v0.15 diagnostics integration 使用同一个主 Demo 正式管线：第一项在 12 帧 DETAILED 运行后导出
+`build/diagnostics/integration.json`；resize 项验证 960×540 managed target 和保持 2048×2048 的固定阴影
+target；failure 项发布一个明确的 incomplete/FAILED frame，并验证后续帧恢复和资源 live count 归零。
+默认 `test` 仍只运行无桌面的 history、epoch、freeze、确定性 JSON 和 graph description 测试。
 
 v0.13 glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资源、interleaved
 与 normalized attribute、sparse accessor、node graph/transform、normal/tangent 生成、URI root

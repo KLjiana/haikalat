@@ -1,4 +1,4 @@
-# v0.14 public API classification.
+# v0.15 public API classification.
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.runtime.AutoExposureSettings
@@ -16,3 +16,8 @@ advanced com.kaleblangley.haikalat.runtime.PeriodicTimer
 advanced com.kaleblangley.haikalat.runtime.RenderSettings
 advanced com.kaleblangley.haikalat.runtime.RenderStatistics
 advanced com.kaleblangley.haikalat.runtime.ToneMappingMode
+advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter
+advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel
+advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot
+advanced com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics
+advanced com.kaleblangley.haikalat.runtime.diagnostics.FrozenDiagnostics

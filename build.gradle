@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.14.0'
+version = '0.15.0'
 
 repositories {
     mavenCentral()
@@ -26,6 +26,7 @@ project.ext.lwjglNatives = detectLwjglNatives()
 
 def generatedProceduralJava = layout.buildDirectory.dir('generated/sources/proceduralShaders/java')
 def generatedProceduralResources = layout.buildDirectory.dir('generated/resources/proceduralShaders')
+def generatedBuildInfoResources = layout.buildDirectory.dir('generated/resources/buildInfo')
 
 def lwjglModules = [
         "lwjgl",
@@ -56,6 +57,9 @@ static String detectLwjglNatives() {
 }
 
 sourceSets {
+    main {
+        resources.srcDir generatedBuildInfoResources
+    }
     shaderGenerator {
         java.srcDir 'src/shaderGenerator/java'
         compileClasspath += sourceSets.main.output
@@ -67,6 +71,22 @@ sourceSets {
         compileClasspath += sourceSets.main.output
         runtimeClasspath += sourceSets.main.output
     }
+}
+
+tasks.register('generateBuildInfo') {
+    def revision = providers.environmentVariable('GITHUB_SHA').getOrElse('local')
+    inputs.property('engineVersion', project.version.toString())
+    inputs.property('buildRevision', revision)
+    outputs.dir generatedBuildInfoResources
+    doLast {
+        File output = generatedBuildInfoResources.get().file('haikalat-build.properties').asFile
+        output.parentFile.mkdirs()
+        output.setText("engineVersion=${project.version}\nbuildRevision=${revision}\n", 'UTF-8')
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn 'generateBuildInfo'
 }
 
 configurations {
@@ -103,7 +123,7 @@ test {
 
 tasks.register('quickVerification') {
     group = 'verification'
-    description = 'Runs the complete no-desktop v0.14 verification gate.'
+    description = 'Runs the complete no-desktop v0.15 verification gate.'
     dependsOn 'compileJava', 'demoClasses', 'test'
 }
 
@@ -407,7 +427,154 @@ tasks.register('localUiVerification') {
 }
 
 tasks.named('localGlVerification') {
-    dependsOn 'localUiVerification', 'localPbrVerification', 'localGltfVerification'
+    dependsOn 'localUiVerification', 'localPbrVerification', 'localGltfVerification',
+            'localDiagnosticsVerification'
+}
+
+tasks.register('runDiagnosticsIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the main Demo with DETAILED diagnostics and exports schema v1 JSON.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--deterministic', '--quiet', '--frames=12', '--diagnostics=detailed', '--diagnostics-panel',
+            '--diagnostics-verify-cleanup',
+            '--diagnostics-export=build/diagnostics/integration.json'
+    outputs.file layout.buildDirectory.file('diagnostics/integration.json')
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runDemoIntegration'
+    doLast {
+        File output = layout.buildDirectory.file('diagnostics/integration.json').get().asFile
+        def capture = new groovy.json.JsonSlurper().parse(output)
+        if (capture.schemaVersion != 1 || capture.frames.size() != 12) {
+            throw new GradleException('Diagnostics integration did not export 12 schema-v1 frames')
+        }
+        if (capture.frames.any { it.graph == null || it.passes.isEmpty()
+                || it.scene == null || it.ui == null || it.upload == null }) {
+            throw new GradleException('Diagnostics integration is missing graph/pass/subsystem data')
+        }
+        if (capture.frames.any { frame -> frame.passes.any { pass ->
+            pass.gpuStatus != 'AVAILABLE' && pass.gpuNanos != null
+        } }) {
+            throw new GradleException('Unavailable GPU samples must export null durations')
+        }
+        if (capture.resources.live.isEmpty()) {
+            throw new GradleException('Detailed capture did not include tracked live resources')
+        }
+        if (capture.messages.entries.any { it.severity == 'HIGH' }) {
+            throw new GradleException('Diagnostics integration captured a HIGH OpenGL error')
+        }
+    }
+}
+
+tasks.register('diagnosticsJvmVerification', Test) {
+    group = 'verification'
+    description = 'Validates bounded history, freeze/clear and atomic exporter failure contracts.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnosticsTest' }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('diagnosticsGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates diagnostics resource leases, message eviction, id reuse and context isolation.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.integration.DiagnosticsContractsGlTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentPreprocessorFailureGlTest'
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runDiagnosticsResizeIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Captures a deterministic resize and validates managed/fixed graph target metadata.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--deterministic', '--quiet', '--frames=12', '--resize=4:960x540',
+            '--diagnostics=detailed', '--diagnostics-export=build/diagnostics/resize.json',
+            '--diagnostics-verify-cleanup'
+    outputs.file layout.buildDirectory.file('diagnostics/resize.json')
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runDiagnosticsIntegration'
+    doLast {
+        def capture = new groovy.json.JsonSlurper().parse(
+                layout.buildDirectory.file('diagnostics/resize.json').get().asFile)
+        def resized = capture.frames.find { it.frameSequence >= 5 }
+        if (resized == null || resized.graph.width != 960 || resized.graph.height != 540) {
+            throw new GradleException('Diagnostics resize capture did not publish 960x540 graph metadata')
+        }
+        def shadow = resized.graph.passes.find { it.name == 'DirectionalShadowPass' }
+        if (shadow == null || shadow.width != 2048 || shadow.height != 2048) {
+            throw new GradleException('Fixed shadow target changed during diagnostics resize')
+        }
+    }
+}
+
+tasks.register('runDiagnosticsFailureIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Triggers real pass-recording and active-query command failures, then verifies recovery.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.DiagnosticsFailureIntegration'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args 'build/diagnostics/failure.json'
+    outputs.file layout.buildDirectory.file('diagnostics/failure.json')
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runDiagnosticsResizeIntegration'
+    doLast {
+        def capture = new groovy.json.JsonSlurper().parse(
+                layout.buildDirectory.file('diagnostics/failure.json').get().asFile)
+        def failed = capture.frames.findAll { it.frameSequence in [1, 3] }
+        if (capture.frames.size() != 6 || failed.size() != 2
+                || failed.any { it.complete || it.passes.any { pass -> pass.gpuStatus != 'FAILED' } }) {
+            throw new GradleException('Diagnostics failure capture lacks real callback/command failures')
+        }
+        if (!capture.frames.any { it.frameSequence > 3 && it.complete }) {
+            throw new GradleException('Diagnostics failure integration did not recover on a later frame')
+        }
+        if (capture.metadata.engineVersion != project.version.toString()
+                || capture.metadata.glVendor == 'unavailable') {
+            throw new GradleException('Diagnostics failure capture lacks build/OpenGL metadata')
+        }
+        if (capture.resources.live.any { it.containsKey('nativeId') }) {
+            throw new GradleException('Default diagnostics export leaked native GL ids')
+        }
+    }
+}
+
+tasks.register('runDiagnosticsBenchmarks', JavaExec) {
+    group = 'application'
+    description = 'Compares OFF, BASIC and DETAILED diagnostics overhead on the same scene.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.DiagnosticsBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--rounds=${providers.gradleProperty('diagnosticsBenchmarkRounds').getOrElse('3')}",
+            "--warmup=${providers.gradleProperty('diagnosticsBenchmarkWarmup').getOrElse('100')}",
+            "--frames=${providers.gradleProperty('diagnosticsBenchmarkFrames').getOrElse('1000')}",
+            "--size=${providers.gradleProperty('diagnosticsBenchmarkSize').getOrElse('1920x1080')}"
+}
+
+tasks.register('localDiagnosticsVerification') {
+    group = 'verification'
+    description = 'Runs deterministic diagnostics capture and failure-contract verification.'
+    dependsOn 'diagnosticsJvmVerification', 'diagnosticsGlVerification', 'runDiagnosticsIntegration',
+            'runDiagnosticsResizeIntegration', 'runDiagnosticsFailureIntegration'
 }
 
 def localReleaseTasks = [
@@ -415,7 +582,9 @@ def localReleaseTasks = [
         'runAsyncIntegration', 'runPbrIntegration', 'runPbrResizeIntegration',
         'runGltfIntegration', 'runGltfResizeIntegration', 'runUiIntegration',
         'runUiResizeIntegration', 'runUiTextIntegration',
-        'runUiSyntheticImeSoak', 'runUiNativeSoak'
+        'runUiSyntheticImeSoak', 'runUiNativeSoak',
+        'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',
+        'runDiagnosticsFailureIntegration'
 ]
 
 tasks.register('localReleaseVerification') {

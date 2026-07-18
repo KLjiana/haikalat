@@ -65,6 +65,7 @@ import static org.lwjgl.opengl.GL43.glShaderStorageBlockBinding;
 public final class ShaderProgram implements GlResource {
     private final int id;
     private final Set<ShaderStage> stages;
+    private final long resourceSequence;
     private final Map<String, Integer> uniformLocations = new HashMap<>();
     private final Map<String, Integer> uniformBlockIndices = new HashMap<>();
     private final Map<String, Integer> storageBlockIndices = new HashMap<>();
@@ -77,6 +78,8 @@ public final class ShaderProgram implements GlResource {
     private ShaderProgram(int id, Set<ShaderStage> stages) {
         this.id = id;
         this.stages = Set.copyOf(stages);
+        this.resourceSequence = GlDebug.trackResource("PROGRAM", id,
+                stages.isEmpty() ? "ShaderProgram" : "ShaderProgram " + stages, -1L);
         GlDebug.labelObject(GL_PROGRAM, id, stages.isEmpty()
                 ? "ShaderProgram"
                 : "ShaderProgram " + stages);
@@ -262,6 +265,7 @@ public final class ShaderProgram implements GlResource {
     public void close() {
         if (closed) return;
         glDeleteProgram(id);
+        GlDebug.closeResource(resourceSequence);
         uniformLocations.clear();
         uniformBlockIndices.clear();
         storageBlockIndices.clear();

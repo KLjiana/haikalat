@@ -28,27 +28,31 @@ class EnvironmentPreprocessorFailureGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
             GL.createCapabilities();
-            for (EnvironmentPreprocessor.FailurePoint point : List.of(
-                    EnvironmentPreprocessor.FailurePoint.AFTER_ENVIRONMENT_CUBE,
-                    EnvironmentPreprocessor.FailurePoint.BEFORE_PREFILTER_MIP,
-                    EnvironmentPreprocessor.FailurePoint.AFTER_BRDF_LUT)) {
-                Tracker tracker = new Tracker(false);
-                try (Texture2D source = Texture2D.fromHdrResource(getClass(),
-                        "/pbr/studio-small.hdr", false)) {
-                    IllegalStateException failure = assertThrows(IllegalStateException.class,
-                            () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
-                                    PbrEnvironmentSettings.testQuality(), point, tracker));
-                    assertTrue(failure.getMessage().contains(point.name()));
+            try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
+                for (EnvironmentPreprocessor.FailurePoint point : List.of(
+                        EnvironmentPreprocessor.FailurePoint.AFTER_ENVIRONMENT_CUBE,
+                        EnvironmentPreprocessor.FailurePoint.BEFORE_PREFILTER_MIP,
+                        EnvironmentPreprocessor.FailurePoint.AFTER_BRDF_LUT)) {
+                    Tracker tracker = new Tracker(false);
+                    try (Texture2D source = Texture2D.fromHdrResource(getClass(),
+                            "/pbr/studio-small.hdr", false)) {
+                        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                                () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
+                                        PbrEnvironmentSettings.testQuality(), point, tracker));
+                        assertTrue(failure.getMessage().contains(point.name()));
+                    }
+                    List<String> expectedCloseOrder = new ArrayList<>(tracker.created.keySet());
+                    Collections.reverse(expectedCloseOrder);
+                    assertEquals(expectedCloseOrder, tracker.closed,
+                            "partial environment resources must close in reverse creation order");
+                    assertEquals(tracker.closed.size(), tracker.closed.stream().distinct().count(),
+                            "each resource must close exactly once");
+                    tracker.created.values().forEach(id -> assertFalse(glIsTexture(id),
+                            "failed preprocessing leaked texture " + id));
+                    assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                            "failed preprocessing left tracked resources at " + point);
+                    GlDebug.checkError("PBR injected failure " + point);
                 }
-                List<String> expectedCloseOrder = new ArrayList<>(tracker.created.keySet());
-                Collections.reverse(expectedCloseOrder);
-                assertEquals(expectedCloseOrder, tracker.closed,
-                        "partial environment resources must close in reverse creation order");
-                assertEquals(tracker.closed.size(), tracker.closed.stream().distinct().count(),
-                        "each resource must close exactly once");
-                tracker.created.values().forEach(id -> assertFalse(glIsTexture(id),
-                        "failed preprocessing leaked texture " + id));
-                GlDebug.checkError("PBR injected failure " + point);
             }
         }
     }
@@ -58,20 +62,23 @@ class EnvironmentPreprocessorFailureGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
             GL.createCapabilities();
-            Tracker tracker = new Tracker(true);
-            try (Texture2D source = Texture2D.fromHdrResource(getClass(),
-                    "/pbr/studio-small.hdr", false)) {
-                IllegalStateException failure = assertThrows(IllegalStateException.class,
-                        () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
-                                PbrEnvironmentSettings.testQuality(),
-                                EnvironmentPreprocessor.FailurePoint.AFTER_BRDF_LUT, tracker));
-                assertTrue(failure.getMessage().contains("AFTER_BRDF_LUT"));
-                assertEquals(1, failure.getSuppressed().length);
-                assertTrue(failure.getSuppressed()[0].getMessage().contains("synthetic close observer"));
+            try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
+                Tracker tracker = new Tracker(true);
+                try (Texture2D source = Texture2D.fromHdrResource(getClass(),
+                        "/pbr/studio-small.hdr", false)) {
+                    IllegalStateException failure = assertThrows(IllegalStateException.class,
+                            () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
+                                    PbrEnvironmentSettings.testQuality(),
+                                    EnvironmentPreprocessor.FailurePoint.AFTER_BRDF_LUT, tracker));
+                    assertTrue(failure.getMessage().contains("AFTER_BRDF_LUT"));
+                    assertEquals(1, failure.getSuppressed().length);
+                    assertTrue(failure.getSuppressed()[0].getMessage().contains("synthetic close observer"));
+                }
+                assertEquals(tracker.created.size(), tracker.closed.size(),
+                        "one cleanup exception must not abort later resource closes");
+                tracker.created.values().forEach(id -> assertFalse(glIsTexture(id)));
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
-            assertEquals(tracker.created.size(), tracker.closed.size(),
-                    "one cleanup exception must not abort later resource closes");
-            tracker.created.values().forEach(id -> assertFalse(glIsTexture(id)));
         }
     }
 

@@ -2,10 +2,7 @@
 
 ## Unreleased
 
-- `GltfDemo` 增加用户提供的 `creeper.gltf`，独立场景现在绘制 16 个对象，并把该资源纳入发布资产
-  来源、许可和 SHA-256 清单。
-- 修复 glTF inspector 在相机捕获模式下无法命中滚动区域的问题：F1 切换 UI/相机输入，F2 隐藏，
-  支持滚轮、PageUp/PageDown、Home/End 和页码/偏移提示；退出 UI 模式后延迟两帧恢复相机输入。
+当前没有尚未发布的变更。
 
 ## 已完成路线图
 
@@ -319,3 +316,47 @@
   254.5 KiB/frame，2,000 glyphs 中位低于 5 KiB/frame。
 - 百万 Cube 路径继续保持单 draw、100% state skip；indexed/compact SSBO 为约 900 万次 VS invocation，
   expanded 路径为 3600 万次。
+
+### v0.15-debugging-and-observability（0.15.0，2026-07-19）
+
+#### 帧诊断与 GPU 查询
+
+- GPU pass query 增加 submission/result identity、`PENDING/AVAILABLE/SKIPPED/FAILED`、sample age 和
+  完整总和语义；未知或未完成值不再伪装成零，8-slot ring 保持非阻塞。
+- `FrameDriver` 提供 OFF/BASIC/DETAILED、有界 240 帧 history、epoch、freeze/clear、scene/UI/upload
+  摘要和 incomplete failure frame；主 Demo 默认使用 BASIC。
+- RenderGraph 发布来自 compiled plan 和 framebuffer descriptor 的不可变拓扑、target、attachment 与
+  pass 描述，并通过 typed command 生成 `RenderGraph/<pass>` OpenGL debug group。
+- 命令异常会结束并丢弃仍 active 的 timer query，再逆序恢复 prepared batch 和 debug group；真实 pass
+  callback 与 query 后 command failure 均保留当前帧序号，下一帧可继续渲染。
+
+#### GL 消息、资源与生命周期
+
+- backend 增加每 context 独立的 256 项结构化 message ring，相邻消息折叠，溢出优先淘汰
+  notification/low，并保留 dropped、repeat、phase 和 driver identity。
+- 主要 GL wrapper 接入单调 resource sequence、label、创建帧和 storage 字节估值；native id 复用不再
+  污染身份，正常/失败/重复关闭均不会留下 tracked resource。
+- 资源跟踪改为 context-scoped 引用计数 lease；同 context 的 BASIC/OFF driver 不再关闭另一个
+  DETAILED session。native callback 内部异常被截断，不能穿过原生边界。
+- `FrameDiagnostics.clear()` 同时清除暂存 scene/UI 摘要；关闭后 read/history/freeze/clear 行为统一。
+  runtime 公共 frozen capture 使用自身不可变 DTO，不暴露 backend/LWJGL 类型。
+
+#### retained 诊断面板与导出
+
+- 主 Demo 在原 `UiSystem/UiOverlayPass` 中加入 F2 五页诊断面板：Overview、Passes、Graph、Resources、
+  Messages；面板可见时保持 UI 输入，F1 不再错误切回 CAMERA。
+- 资源和消息页面与 Overview 共用同一 `FrameDiagnostics.read()` 发布边界；明细行支持单击、Ctrl/Shift
+  多选、Ctrl+A 和 Ctrl+C，不直接查询 backend live registry。
+- schema v1 JSON 在写文件前验证有限数值、计数和 frame/pass/graph/resource/message 一致性；写出
+  引擎版本、构建修订、OpenGL vendor/renderer/version，默认省略 native GL id。
+- Demo 自动导出限制在 `build/diagnostics/`，拒绝目录穿越和符号链接；临时文件完整关闭后再原子替换，
+  失败不留下半文件。
+
+#### Demo、资产与验收
+
+- `GltfDemo` 增加用户提供的 `creeper.gltf`，独立场景绘制 16 个对象，并把资源纳入来源、许可和
+  SHA-256 清单；inspector 支持 F1 UI/相机切换、F2 隐藏、滚轮和键盘翻页。
+- 新增 deterministic、resize、真实 callback/command failure diagnostics integrations，以及消息优先
+  淘汰、native id 复用、多 context 隔离、资源失败清理和关闭后访问测试。
+- `localGlVerification --rerun-tasks` 的 40 个任务和 `localReleaseVerification --rerun-tasks` 的
+  31 个任务全部通过；五轮 OFF/BASIC/DETAILED 性能与限制记录于 v0.15 性能报告。

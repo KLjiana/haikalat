@@ -78,6 +78,8 @@ public final class CommandBuffer {
     static final byte UNIFORM_VEC4 = 46;
     static final byte GENERATE_CUBE_MIPMAPS = 47;
     static final byte BIND_IMAGE_2D_TYPED = 48;
+    static final byte PUSH_DEBUG_GROUP = 49;
+    static final byte POP_DEBUG_GROUP = 50;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -723,9 +725,16 @@ public final class CommandBuffer {
      * @return 当前命令缓冲区
      */
     public CommandBuffer beginGpuTimer(GpuTimer timer) {
+        return beginGpuTimer(timer, 0L);
+    }
+
+    /** 记录带提交帧身份的 GPU query 开始边界。 */
+    public CommandBuffer beginGpuTimer(GpuTimer timer, long submissionSequence) {
         Objects.requireNonNull(timer, "timer");
+        if (submissionSequence < 0L) throw new IllegalArgumentException("submissionSequence must be non-negative");
         flushPendingState();
         opcode(BEGIN_GPU_TIMER);
+        longValue(submissionSequence);
         object(timer);
         return this;
     }
@@ -741,6 +750,23 @@ public final class CommandBuffer {
         flushPendingState();
         opcode(END_GPU_TIMER);
         object(timer);
+        return this;
+    }
+
+    /** 记录 typed OpenGL debug group；该边界不会改变渲染状态。 */
+    public CommandBuffer pushDebugGroup(String label) {
+        String safe = Objects.requireNonNull(label, "label").trim();
+        if (safe.isEmpty()) throw new IllegalArgumentException("debug group label must not be blank");
+        flushPendingState();
+        opcode(PUSH_DEBUG_GROUP);
+        object(safe);
+        return this;
+    }
+
+    /** 记录 typed OpenGL debug group 结束边界。 */
+    public CommandBuffer popDebugGroup() {
+        flushPendingState();
+        opcode(POP_DEBUG_GROUP);
         return this;
     }
 

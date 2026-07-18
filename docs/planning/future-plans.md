@@ -6,9 +6,7 @@
 
 ## 当前重点
 
-v0.11 UI subsystem、v0.12 Minimal PBR / IBL 与 v0.13 glTF 2.0 静态资产主路径均已完成正式版验收。
-当前只执行 [`v0.14-consolidation-and-contract-hardening.md`](v0.14-consolidation-and-contract-hardening.md)
-的收口工作，不并行增加画面功能。v0.14 发布后，先使用真实多 mesh/material glTF 场景测量
+v0.15 调试与可观察性闭环已作为 `0.15.0` 发布。下一版本先使用真实多 mesh/material glTF 场景测量
 draw、binding、CPU scene traversal 和显存，再在 PBR instancing/material batching、GPU
 frustum culling + MDI、动画和压缩纹理之间确定优先级。
 
@@ -23,7 +21,8 @@ frustum culling + MDI、动画和压缩纹理之间确定优先级。
 
 ### 中期
 
-- [ ] 以 UI subsystem 为基础逐步建设调试面板、资源检查器和编辑工具；工具需求应反向验证稳定 API，而不是绕过生命周期边界。
+- [x] 以 UI subsystem 建立只读调试面板、资源/消息检查和 frozen capture；没有绕过正式生命周期边界。
+- [ ] 为 RenderGraph texture preview 单独设计 HDR/depth/MSAA/cubemap 可视化策略，不在通用 diagnostics 中裸采样。
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
 - [ ] 当场景出现多个 mesh/material 的真实压力数据后，评估 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`；单 mesh 单 draw 场景不提前引入 indirect command 复杂度。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。

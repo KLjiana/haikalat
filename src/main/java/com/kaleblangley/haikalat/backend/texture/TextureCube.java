@@ -28,6 +28,7 @@ public final class TextureCube implements GlResource {
     private final int size;
     private final int mipLevels;
     private final RenderFormat format;
+    private final long resourceSequence;
     private boolean closed;
 
     private TextureCube(int id, int size, int mipLevels, RenderFormat format) {
@@ -35,6 +36,9 @@ public final class TextureCube implements GlResource {
         this.size = size;
         this.mipLevels = mipLevels;
         this.format = format;
+        this.resourceSequence = GlDebug.trackResource("TEXTURE", id,
+                "TextureCube " + size + "x" + size + " mips=" + mipLevels,
+                estimateBytes(size, mipLevels));
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_TEXTURE, id,
                 "TextureCube " + size + "x" + size + " mips=" + mipLevels);
     }
@@ -87,6 +91,17 @@ public final class TextureCube implements GlResource {
     public void close() {
         if (closed) return;
         glDeleteTextures(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
+    }
+
+    private static long estimateBytes(int size, int mipLevels) {
+        long pixels = 0L;
+        int dimension = size;
+        for (int mip = 0; mip < mipLevels; mip++) {
+            pixels += (long) dimension * dimension * 6L;
+            dimension = Math.max(1, dimension / 2);
+        }
+        return pixels * 8L;
     }
 }

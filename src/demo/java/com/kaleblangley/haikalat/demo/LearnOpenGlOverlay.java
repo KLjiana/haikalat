@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.demo;
 import com.kaleblangley.haikalat.core.graph.FrameProfile;
 import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.LightType;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
@@ -25,6 +26,7 @@ import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputCollector
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 
 import java.nio.IntBuffer;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -53,6 +55,7 @@ final class LearnOpenGlOverlay implements AutoCloseable {
     private final Label lightValue;
     private final Slider lightSlider;
     private final Toggle lightToggle;
+    private final DiagnosticsPanel diagnosticsPanel;
     private final String dependencyPass;
     private final int dynamicLightIndex;
     private final float initialLightIntensity;
@@ -64,7 +67,8 @@ final class LearnOpenGlOverlay implements AutoCloseable {
     private boolean closed;
 
     private LearnOpenGlOverlay(GlfwWindow window, RenderPipeline pipeline,
-                               RenderSettings settings, UiSystem ui) {
+                               RenderSettings settings, FrameDiagnostics diagnostics,
+                               Path diagnosticsExportPath, boolean showDiagnostics, UiSystem ui) {
         this.window = window;
         this.settings = settings;
         this.scene = pipeline.scene();
@@ -80,7 +84,9 @@ final class LearnOpenGlOverlay implements AutoCloseable {
                 .width(UiLength.percent(100.0f))
                 .height(UiLength.percent(100.0f))
                 .padding(UiInsets.points(12.0f))
+                .flexDirection(UiStyle.FlexDirection.COLUMN)
                 .alignItems(UiStyle.AlignItems.FLEX_START)
+                .gap(8.0f)
                 .build());
         Panel hud = new Panel();
         hud.debugName("LearnOpenGlHud");
@@ -145,7 +151,10 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         }
         controls.add(lightSlider).add(lightValue).add(lightToggle);
         hud.add(telemetry).add(modes).add(interactionHint).add(bilingual).add(controls);
-        root.add(hud);
+        diagnosticsPanel = new DiagnosticsPanel(
+                diagnostics, diagnosticsExportPath, window.clipboardService());
+        root.add(hud).add(diagnosticsPanel.root());
+        if (showDiagnostics) diagnosticsPanel.show();
         updateInteractionHint();
 
         ui.attachTo(pipeline.graph(), dependencyPass);
@@ -160,13 +169,15 @@ final class LearnOpenGlOverlay implements AutoCloseable {
 
     /** 创建并附加 overlay；部分初始化失败时关闭已创建的 UiSystem。 */
     static LearnOpenGlOverlay attach(GlfwWindow window, RenderPipeline pipeline,
-                                     RenderSettings settings) {
+                                     RenderSettings settings, FrameDiagnostics diagnostics,
+                                     Path diagnosticsExportPath, boolean showDiagnostics) {
         Objects.requireNonNull(window, "window");
         Objects.requireNonNull(pipeline, "pipeline");
         Objects.requireNonNull(settings, "settings");
         UiSystem ui = UiSystem.create(window, UiConfig.defaults());
         try {
-            return new LearnOpenGlOverlay(window, pipeline, settings, ui);
+            return new LearnOpenGlOverlay(window, pipeline, settings, diagnostics,
+                    diagnosticsExportPath, showDiagnostics, ui);
         } catch (RuntimeException | Error failure) {
             try {
                 ui.close();
@@ -183,8 +194,14 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         ensureOpen();
         Objects.requireNonNull(platformInput, "platformInput");
         Objects.requireNonNull(overlay, "overlay");
-        if (platformInput.keyPressed(Key.F1)) {
+        if (platformInput.keyPressed(Key.F1)
+                && acceptsF1InteractionToggle(diagnosticsPanel.visible())) {
             setInteractive(!interactive, platformInput.windowWidth(), platformInput.windowHeight());
+        }
+        if (platformInput.keyPressed(Key.F2)) {
+            diagnosticsPanel.toggle();
+            setInteractive(diagnosticsPanel.visible(), platformInput.windowWidth(),
+                    platformInput.windowHeight());
         }
         if (deterministic) applyDeterministicControls(frame);
         if (frame <= 1 || frame % 15 == 0) {
@@ -194,6 +211,7 @@ final class LearnOpenGlOverlay implements AutoCloseable {
                     overlay.drawCalls(), overlay.instanceCount()));
             modes.text(formatModes(settings));
         }
+        diagnosticsPanel.update(frame);
         ui.update(input.filter(platformInput, interactive), deltaSeconds);
     }
 
@@ -213,9 +231,15 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         return interactive;
     }
 
+    static boolean acceptsF1InteractionToggle(boolean diagnosticsVisible) {
+        return !diagnosticsVisible;
+    }
+
     String inputModeName() {
         return interactive ? "UI" : "CAMERA";
     }
+
+    UiFrameStats statistics() { return ui.statistics(); }
 
     /** 汇总有限帧集成所需的 pass 顺序、动态参数和 target 不变量。 */
     Result result(FrameProfile profile) {
@@ -230,7 +254,8 @@ final class LearnOpenGlOverlay implements AutoCloseable {
                 ? 0.0f : scene.lights().get(dynamicLightIndex).intensity();
         return new Result(dependencyPass, finalOrder, bloomTargetPreserved,
                 exposureTargetPreserved, statistics.drawCalls(), dynamicLightIndex,
-                initialLightIntensity, finalIntensity, List.copyOf(passes));
+                initialLightIntensity, finalIntensity, diagnosticsPanel.visible(),
+                List.copyOf(passes));
     }
 
     @Override
@@ -317,7 +342,7 @@ final class LearnOpenGlOverlay implements AutoCloseable {
     record Result(String dependencyPass, boolean finalPassOrderCorrect,
                   boolean bloomTargetPreserved, boolean exposureTargetPreserved,
                   long uiDrawCalls, int dynamicLightIndex,
-                  float initialLightIntensity, float finalLightIntensity,
+                  float initialLightIntensity, float finalLightIntensity, boolean diagnosticsVisible,
                   List<String> passOrder) {
     }
 

@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.GpuTimer;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;
@@ -47,7 +48,9 @@ final class CommandExecutor {
         int objectCursor = 0;
         int gpuFenceTargetCursor = 0;
         ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
+        ArrayDeque<GpuTimer> activeGpuTimers = new ArrayDeque<>();
         Throwable commandFailure = null;
+        int debugGroupDepth = 0;
         try {
             for (int command = 0; command < stream.commandCount(); command++) {
                 byte opcode = stream.opcodeAt(command);
@@ -297,10 +300,22 @@ final class CommandExecutor {
                     batch.finishPrepared();
                 }
                 case BEGIN_GPU_TIMER -> {
-                    ((GpuTimer) stream.objectAt(objectCursor++)).begin();
+                    GpuTimer timer = (GpuTimer) stream.objectAt(objectCursor++);
+                    if (timer.begin(stream.longAt(longCursor++))) activeGpuTimers.addLast(timer);
                 }
                 case END_GPU_TIMER -> {
-                    ((GpuTimer) stream.objectAt(objectCursor++)).end();
+                    GpuTimer timer = (GpuTimer) stream.objectAt(objectCursor++);
+                    timer.end();
+                    activeGpuTimers.removeLastOccurrence(timer);
+                }
+                case PUSH_DEBUG_GROUP -> {
+                    GlDebug.pushGroup((String) stream.objectAt(objectCursor++));
+                    debugGroupDepth++;
+                }
+                case POP_DEBUG_GROUP -> {
+                    if (debugGroupDepth <= 0) throw new IllegalStateException("unbalanced debug group pop");
+                    GlDebug.popGroup();
+                    debugGroupDepth--;
                 }
                 default -> throw new IllegalStateException("Unknown command opcode " + opcode);
                 }
@@ -310,8 +325,33 @@ final class CommandExecutor {
             failPendingGpuFenceTargets(stream, gpuFenceTargetCursor, failure);
             throw failure;
         } finally {
-            finishPreparedBatches(preparedBatches, cache, commandFailure);
+            try {
+                abortGpuTimers(activeGpuTimers, commandFailure);
+            } finally {
+                try {
+                    finishPreparedBatches(preparedBatches, cache, commandFailure);
+                } finally {
+                    while (debugGroupDepth-- > 0) GlDebug.popGroup();
+                }
+            }
         }
+    }
+
+    private static void abortGpuTimers(ArrayDeque<GpuTimer> activeTimers,
+                                       Throwable commandFailure) {
+        Throwable cleanupFailure = null;
+        while (!activeTimers.isEmpty()) {
+            try {
+                activeTimers.removeLast().abort();
+            } catch (RuntimeException | Error failure) {
+                if (cleanupFailure == null) cleanupFailure = failure;
+                else cleanupFailure.addSuppressed(failure);
+            }
+        }
+        if (cleanupFailure == null) return;
+        if (commandFailure != null) commandFailure.addSuppressed(cleanupFailure);
+        else if (cleanupFailure instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+        else throw (Error) cleanupFailure;
     }
 
     private static void failPendingGpuFenceTargets(CommandStream stream, int firstPending,

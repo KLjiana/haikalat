@@ -9,5 +9,6 @@
 - [v0.12 Minimal PBR / IBL](../planning/v0.12-minimal-pbr-ibl.md)
 - [v0.13 glTF 2.0 静态资产管线](../planning/v0.13-gltf-static-asset-pipeline.md)
 - [v0.14 项目收口、API 收缩与工程合同加固](../planning/v0.14-consolidation-and-contract-hardening.md)
+- [v0.15 调试与可观察性](../planning/v0.15-debugging-and-observability.md)
 
 当前能力只以 `planning/capability-matrix.md` 为准；下一版本工作以 `planning/future-plans.md` 中经批准的计划为准。

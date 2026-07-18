@@ -6,7 +6,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 |---|---|---|---|
 | `EmptyWindowDemo` | 统一分辨率下的 clear/present 基线 | `GlfwWindow`、空 `RenderGraph`、present/CPU/GPU timing、state skip | shader、VAO、buffer、draw |
 | `MinimalDemo` | 最小同步渲染入口和 API 教学 | command buffer、material、texture、framebuffer、mesh、instanced batch、resize | 阴影、异步线程、极限性能 |
-| `LearnOpenGlDemo` | 完整功能正确性与正式场景基准 | asset、model、sRGB texture、lighting、directional shadow、HDR/AA/Bloom、camera、pass timing | GPU procedural 极端吞吐 |
+| `LearnOpenGlDemo` | 完整功能正确性、正式场景基准与统一诊断入口 | asset、model、sRGB texture、lighting、shadow、HDR/AA/Bloom、camera、F2 diagnostics、capture/export | GPU procedural 极端吞吐、RenderGraph 编辑 |
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
 | `PbrDemo` | v0.12 现代材质纵向闭环与参数观察 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、retained UI | glTF、PBR instancing、高级材质扩展 |
@@ -93,3 +93,8 @@ main class 参数：
 ```
 
 详细数据见 `docs/performance/post-v0.8-bloom-2026-07-15.md`。
+
+诊断面板与原 HUD 共用同一个 `UiSystem` 和最终 `UiOverlayPass`。F2 打开 Overview、Passes、Graph、
+Resources、Messages；自动化使用 `--diagnostics=off|basic|detailed`、`--diagnostics-panel` 和
+`--diagnostics-export=<path>`。诊断资源生成、统计和 JSON 序列化不放在 Demo 主循环中；Demo 只负责
+参数、输入、附加面板和有限帧验收。详见 `docs/guides/diagnostics.md`。

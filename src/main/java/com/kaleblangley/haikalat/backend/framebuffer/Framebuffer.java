@@ -57,6 +57,9 @@ public final class Framebuffer implements GlResource {
     private final int depthAttachment;
     private final FramebufferDescriptor.AttachmentStorage depthAttachmentStorage;
     private final FramebufferDescriptor descriptor;
+    private final long resourceSequence;
+    private final long[] colorResourceSequences;
+    private final long depthResourceSequence;
     private boolean closed;
 
     public Framebuffer(int id, int colorAttachment, int depthAttachment, int width, int height,
@@ -88,6 +91,21 @@ public final class Framebuffer implements GlResource {
         this.depthAttachment = depthAttachment;
         this.depthAttachmentStorage = depthAttachmentStorage;
         this.descriptor = descriptor;
+        resourceSequence = GlDebug.trackResource("FRAMEBUFFER", id,
+                "Framebuffer " + descriptor.width() + "x" + descriptor.height(), 0L);
+        colorResourceSequences = new long[colorAttachments.length];
+        long estimatedAttachmentBytes = (long) descriptor.width() * descriptor.height()
+                * Math.max(1, descriptor.samples()) * 4L;
+        for (int index = 0; index < colorAttachments.length; index++) {
+            colorResourceSequences[index] = GlDebug.trackResource(
+                    colorAttachmentStorage[index] == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D
+                            ? "TEXTURE" : "RENDERBUFFER",
+                    colorAttachments[index], "Framebuffer color[" + index + "]", estimatedAttachmentBytes);
+        }
+        depthResourceSequence = depthAttachment == 0 ? -1L : GlDebug.trackResource(
+                depthAttachmentStorage == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D
+                        ? "TEXTURE" : "RENDERBUFFER", depthAttachment,
+                "Framebuffer depth", estimatedAttachmentBytes);
     }
 
     public static Framebuffer singleSampled(int width, int height) {
@@ -260,9 +278,12 @@ public final class Framebuffer implements GlResource {
         }
         for (int i = 0; i < colorAttachments.length; i++) {
             deleteAttachment(colorAttachments[i], colorAttachmentStorage[i]);
+            GlDebug.closeResource(colorResourceSequences[i]);
         }
         deleteAttachment(depthAttachment, depthAttachmentStorage);
+        GlDebug.closeResource(depthResourceSequence);
         glDeleteFramebuffers(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 

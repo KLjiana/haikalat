@@ -21,6 +21,8 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
@@ -30,6 +32,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
+import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
@@ -38,6 +41,7 @@ import org.joml.Vector3f;
 import org.lwjgl.opengl.GL;
 
 import java.util.Map;
+import java.nio.file.Path;
 import java.time.Duration;
 
 public final class LearnOpenGlDemo {
@@ -73,6 +77,14 @@ public final class LearnOpenGlDemo {
                 window.show();
             }
             run(window, settings, options);
+            if (options.diagnosticsPanel() && !lastOverlayResult().diagnosticsVisible()) {
+                throw new IllegalStateException("Diagnostics panel was not visible during integration");
+            }
+            if (options.verifyDiagnosticsCleanup()
+                    && !GlDebug.resources().liveResources().isEmpty()) {
+                throw new IllegalStateException("Tracked GL resources leaked after Demo close: "
+                        + GlDebug.resources().liveResources());
+            }
         }
     }
 
@@ -80,7 +92,7 @@ public final class LearnOpenGlDemo {
         Camera camera = new Camera(new Vector3f(0, 0, 5));
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
         SceneAssetConfig config = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
-        try (FrameDriver renderLoop = new FrameDriver(settings);
+        try (FrameDriver renderLoop = new FrameDriver(settings, options.diagnosticsLevel());
              DemoSceneResources resources = DemoSceneResources.load(assets, config);
              DemoGltfResources gltfResources = DemoGltfResources.load(assets, config);
              PbrEnvironment environment = PbrEnvironmentLoader.load(renderLoop.device(), LearnOpenGlDemo.class,
@@ -101,7 +113,10 @@ public final class LearnOpenGlDemo {
             try {
                 pipeline.build();
                 try (LearnOpenGlOverlay overlay = LearnOpenGlOverlay.attach(
-                        window, pipeline, settings)) {
+                        window, pipeline, settings, renderLoop.diagnostics(),
+                        options.diagnosticsExport() == null
+                                ? Path.of("build", "diagnostics", "learnopengl.json")
+                                : options.diagnosticsExport(), options.diagnosticsPanel())) {
                     renderFrames(window, camera, renderLoop, pipeline, instanced,
                             settings, options, overlay);
                 }
@@ -123,7 +138,11 @@ public final class LearnOpenGlDemo {
                 options.maxFrames(), options.warmupFrames());
         PassBenchmarkAccumulator passBenchmark = new PassBenchmarkAccumulator(
                 Math.max(0, options.maxFrames()));
+        long measuredAllocationBytes = 0L;
+        long measuredAllocationFrames = 0L;
         while (!window.shouldClose()) {
+            long allocatedBefore = options.measureAllocation()
+                    ? DemoAllocationCounter.currentThreadBytes() : -1L;
             if (options.resize() != null && frame == options.resize().frame()) {
                 window.resize(options.resize().width(), options.resize().height());
             }
@@ -144,11 +163,29 @@ public final class LearnOpenGlDemo {
             }
 
             renderLoop.beginFrame();
-            updateAutoExposureIntegrationScene(pipeline.scene(), options, frame);
-            instanced.beginFrame(frame);
-            pipeline.execute(renderLoop.device(), time.deltaSeconds());
-            renderLoop.statistics().recordGraphProfile(pipeline.graph().lastFrameProfile());
-            renderLoop.endFrame();
+            try {
+                updateAutoExposureIntegrationScene(pipeline.scene(), options, frame);
+                instanced.beginFrame(frame);
+                pipeline.execute(renderLoop.device(), time.deltaSeconds());
+                var instanceStats = instanced.statistics();
+                renderLoop.recordSceneStatistics(
+                        pipeline.scene().renderers().size() + instanceStats.drawCalls()
+                                + pipeline.lastShadowCasterDrawCount(),
+                        instanced.drawnCount(), pipeline.scene().renderers().size(), 1L);
+                UiFrameStats uiStats = uiOverlay.statistics();
+                renderLoop.recordUiStatistics(uiStats.visibleNodes(), uiStats.quads(), uiStats.glyphs(),
+                        uiStats.drawCalls(), uiStats.uiUpdateNanos(), uiStats.vertexBytes(),
+                        uiStats.indexBytes(), uiStats.atlasUploadBytes());
+                renderLoop.recordGraph(pipeline.graph());
+                renderLoop.endFrame();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    renderLoop.failFrame(pipeline.graph(), failure);
+                } catch (RuntimeException | Error diagnosticsFailure) {
+                    failure.addSuppressed(diagnosticsFailure);
+                }
+                throw failure;
+            }
             if (options.resize() != null && frame > options.resize().frame()) {
                 options.resize().verify(window, pipeline);
             }
@@ -166,6 +203,11 @@ public final class LearnOpenGlDemo {
             }
             if (benchmarkSnapshot.measuredFrames() > measuredBefore) {
                 passBenchmark.add(pipeline.graph().lastFrameProfile());
+                long allocatedAfter = DemoAllocationCounter.currentThreadBytes();
+                if (allocatedBefore >= 0L && allocatedAfter >= allocatedBefore) {
+                    measuredAllocationBytes += allocatedAfter - allocatedBefore;
+                    measuredAllocationFrames++;
+                }
             }
 
             if (titleUpdate.poll()) {
@@ -185,9 +227,19 @@ public final class LearnOpenGlDemo {
             }
         }
         lastOverlayResult = uiOverlay.result(pipeline.graph().lastFrameProfile());
+        if (options.diagnosticsExport() != null) {
+            try {
+                DiagnosticsJsonExporter.export(renderLoop.diagnostics().freeze(),
+                        options.diagnosticsExport());
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException("Failed to export diagnostics", failure);
+            }
+        }
         if (options.maxFrames() > 0) {
             printBenchmark(renderLoop, pipeline, instanced, settings, options,
-                    benchmark.snapshot(), passBenchmark);
+                    benchmark.snapshot(), passBenchmark,
+                    measuredAllocationFrames == 0L ? -1.0
+                            : measuredAllocationBytes / (double) measuredAllocationFrames);
         }
     }
 
@@ -232,7 +284,8 @@ public final class LearnOpenGlDemo {
     private static void printBenchmark(FrameDriver driver, RenderPipeline pipeline,
                                        InstancedRenderer instanced, RenderSettings settings,
                                        DemoOptions options, FrameBenchmarkSession.Snapshot benchmark,
-                                       PassBenchmarkAccumulator passBenchmark) {
+                                       PassBenchmarkAccumulator passBenchmark,
+                                       double allocatedBytesPerFrame) {
         var timings = benchmark.timings();
         var buffer = instanced.bufferStatistics();
         var state = driver.stateStatistics();
@@ -251,7 +304,7 @@ public final class LearnOpenGlDemo {
                 benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
                 timings.averageGpuMillis(), timings.medianGpuMillis(), uploadPerFrameMb,
                 buffer.fenceWaitMillis(), buffer.fenceWaitCount(), benchmark.measuredFrames(),
-                stateSkip, pipeline.scene().renderers().size(), passTimings);
+                stateSkip, pipeline.scene().renderers().size(), allocatedBytesPerFrame, passTimings);
         if (options.quiet()) {
             return;
         }
@@ -342,11 +395,14 @@ public final class LearnOpenGlDemo {
         }
     }
 
-    private record DemoOptions(boolean deterministic, int maxFrames,
+    record DemoOptions(boolean deterministic, int maxFrames,
                                AntiAliasingMode antiAliasingMode, ResizeSpec resize, boolean bloom,
                                ToneMappingMode toneMappingMode, int instances,
                                boolean instanceShadows, int warmupFrames, boolean quiet,
-                               boolean autoExposure, boolean autoExposureCycle, SizeSpec size) {
+                               boolean autoExposure, boolean autoExposureCycle, SizeSpec size,
+                               DiagnosticsLevel diagnosticsLevel, Path diagnosticsExport,
+                               boolean diagnosticsPanel, boolean verifyDiagnosticsCleanup,
+                               boolean measureAllocation) {
         static DemoOptions parse(String[] args) {
             boolean deterministic = false;
             int maxFrames = -1;
@@ -361,6 +417,11 @@ public final class LearnOpenGlDemo {
             boolean autoExposure = false;
             boolean autoExposureCycle = false;
             SizeSpec size = new SizeSpec(DemoSupport.DEFAULT_WIDTH, DemoSupport.DEFAULT_HEIGHT);
+            DiagnosticsLevel diagnosticsLevel = DiagnosticsLevel.BASIC;
+            Path diagnosticsExport = null;
+            boolean diagnosticsPanel = false;
+            boolean verifyDiagnosticsCleanup = false;
+            boolean measureAllocation = false;
             for (String arg : args) {
                 if ("--deterministic".equals(arg)) {
                     deterministic = true;
@@ -396,6 +457,18 @@ public final class LearnOpenGlDemo {
                     autoExposureCycle = true;
                 } else if (arg.startsWith("--size=")) {
                     size = SizeSpec.parse(arg.substring("--size=".length()));
+                } else if (arg.startsWith("--diagnostics=")) {
+                    diagnosticsLevel = DiagnosticsLevel.valueOf(
+                            arg.substring("--diagnostics=".length()).toUpperCase());
+                } else if (arg.startsWith("--diagnostics-export=")) {
+                    diagnosticsExport = diagnosticsExportPath(
+                            arg.substring("--diagnostics-export=".length()));
+                } else if ("--diagnostics-panel".equals(arg)) {
+                    diagnosticsPanel = true;
+                } else if ("--diagnostics-verify-cleanup".equals(arg)) {
+                    verifyDiagnosticsCleanup = true;
+                } else if ("--measure-allocation".equals(arg)) {
+                    measureAllocation = true;
                 } else {
                     throw new IllegalArgumentException("Unknown demo argument: " + arg);
                 }
@@ -423,7 +496,35 @@ public final class LearnOpenGlDemo {
             }
             return new DemoOptions(deterministic, maxFrames, mode, resize, bloom,
                     toneMappingMode, instances, instanceShadows, warmupFrames, quiet,
-                    autoExposure, autoExposureCycle, size);
+                    autoExposure, autoExposureCycle, size, diagnosticsLevel, diagnosticsExport,
+                    diagnosticsPanel, verifyDiagnosticsCleanup, measureAllocation);
+        }
+
+        private static Path diagnosticsExportPath(String value) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException("--diagnostics-export path must not be blank");
+            }
+            Path root = Path.of("build", "diagnostics").toAbsolutePath().normalize();
+            Path candidate = Path.of(value).toAbsolutePath().normalize();
+            if (!candidate.startsWith(root) || candidate.equals(root)) {
+                throw new IllegalArgumentException(
+                        "--diagnostics-export must be a file inside " + root);
+            }
+            Path cursor = root;
+            if (java.nio.file.Files.isSymbolicLink(cursor)) {
+                throw new IllegalArgumentException("diagnostics export root must not be a symbolic link");
+            }
+            Path parent = candidate.getParent();
+            if (parent != null) {
+                for (Path segment : root.relativize(parent)) {
+                    cursor = cursor.resolve(segment);
+                    if (java.nio.file.Files.isSymbolicLink(cursor)) {
+                        throw new IllegalArgumentException(
+                                "diagnostics export path must not traverse a symbolic link: " + cursor);
+                    }
+                }
+            }
+            return candidate;
         }
     }
 
@@ -440,6 +541,7 @@ public final class LearnOpenGlDemo {
             int measuredFrames,
             double stateSkipPercent,
             int ordinarySceneDraws,
+            double allocatedBytesPerFrame,
             Map<String, FrameTimingAccumulator.Summary> passTimings
     ) {
     }

@@ -32,6 +32,8 @@ current goals, capabilities, and non-goals.
 - Demo proof paths for an empty present baseline, the combined scene pipeline, minimal command/window flow,
   async update/upload/render-thread interaction, a dedicated UiDemo, and generated GPU-procedural
   1000000-instance stress profiling.
+- Bounded runtime diagnostics with frame/pass sample identity, RenderGraph inspection, structured GL messages,
+  tracked resources, an F2 retained UI panel, frozen history, and deterministic schema-v1 JSON capture.
 
 ## Requirements
 
@@ -54,7 +56,7 @@ CI runs the same non-windowed path plus demo source compilation:
 .\gradlew.bat compileJava demoClasses test
 ```
 
-The equivalent named v0.14 no-desktop verification gate is:
+The equivalent named v0.15 no-desktop verification gate is:
 
 ```powershell
 .\gradlew.bat quickVerification
@@ -81,6 +83,14 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localUiVerification
 .\gradlew.bat localGlVerification
+.\gradlew.bat localDiagnosticsVerification
+```
+
+Open the main Demo diagnostics panel with F2, or create a deterministic capture with:
+
+```powershell
+.\gradlew.bat runDiagnosticsIntegration
+.\gradlew.bat runDiagnosticsBenchmarks
 ```
 
 Run the complete local release gate only on a desktop system with a supported

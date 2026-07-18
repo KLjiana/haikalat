@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.backend.vertex;
 
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 
@@ -13,10 +14,12 @@ import static org.lwjgl.opengl.GL45.glVertexArrayElementBuffer;
 
 public final class VertexArray implements GlResource {
     private final int id;
+    private final long resourceSequence;
     private boolean closed;
 
     public VertexArray() {
         this.id = glCreateVertexArrays();
+        resourceSequence = GlDebug.trackResource("VAO", id, "VertexArray", 0L);
     }
 
     public VertexArray bind() {
@@ -73,6 +76,7 @@ public final class VertexArray implements GlResource {
             return;
         }
         glDeleteVertexArrays(id);
+        GlDebug.closeResource(resourceSequence);
         closed = true;
     }
 

@@ -166,6 +166,18 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
             mainClassName, [])
 }
 
+tasks.named('runLearnOpenGlDemo', JavaExec) {
+    if (providers.gradleProperty('demoDiagnostics').isPresent()) {
+        args "--diagnostics=${providers.gradleProperty('demoDiagnostics').get()}"
+    }
+    if (providers.gradleProperty('demoDiagnosticsPanel').getOrElse('false').toBoolean()) {
+        args '--diagnostics-panel'
+    }
+    if (providers.gradleProperty('demoDiagnosticsExport').isPresent()) {
+        args "--diagnostics-export=${providers.gradleProperty('demoDiagnosticsExport').get()}"
+    }
+}
+
 registerDemoApplication('runBloomDemo',
         'Runs LearnOpenGlDemo with HDR Bloom enabled.', learnMain, ['--bloom'])
 

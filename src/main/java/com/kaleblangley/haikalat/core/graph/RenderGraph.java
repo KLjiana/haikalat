@@ -35,6 +35,9 @@ public final class RenderGraph implements AutoCloseable {
     private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
     private boolean topologySealed;
     private boolean closed;
+    private long frameSequence;
+    private long topologyRevision;
+    private Description cachedDescription;
 
     public RenderGraph(int width, int height) {
         this(width, height, true);
@@ -94,6 +97,7 @@ public final class RenderGraph implements AutoCloseable {
     public void sealTopology() {
         ensureOpen();
         topologySealed = true;
+        cachedDescription = null;
     }
 
     /** @return pass 拓扑是否已经冻结 */
@@ -104,6 +108,7 @@ public final class RenderGraph implements AutoCloseable {
     public void importTexture(String name, Texture2D texture) {
         importedTextures.put(Objects.requireNonNull(name, "name"),
                 Objects.requireNonNull(texture, "texture"));
+        cachedDescription = null;
     }
 
     Framebuffer getPassFramebuffer(String passName) {
@@ -140,6 +145,8 @@ public final class RenderGraph implements AutoCloseable {
         passByName.put(pass.name, pass);
         sortedPasses = null;
         compiledGraph = null;
+        topologyRevision++;
+        cachedDescription = null;
         if (allocateResources && !pass.useBackbuffer && !pass.externalTarget) {
             allocatePassFramebuffer(pass);
         }
@@ -151,6 +158,7 @@ public final class RenderGraph implements AutoCloseable {
                 .toList();
         compiledGraph = RenderGraphCompiler.compile(specifications);
         sortedPasses = compiledGraph.passNames().stream().map(passByName::get).toList();
+        cachedDescription = null;
     }
 
     List<String> passExecutionOrder() {
@@ -177,54 +185,118 @@ public final class RenderGraph implements AutoCloseable {
             cpuRecordNanos = new long[sortedPasses.size()];
         }
 
-        for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
-            Pass pass = sortedPasses.get(passIndex);
-            long passCpuStart = System.nanoTime();
-            Framebuffer framebuffer = getPassFramebuffer(pass.name);
-            currentFbo = framebuffer;
-            if (pass.timer == null) pass.timer = new GpuTimer();
-            GpuTimer timer = pass.timer;
-            cmd.enableScissor(false);
-            cmd.beginGpuTimer(timer);
+        long currentFrameSequence = frameSequence++;
+        Arrays.fill(cpuRecordNanos, 0L);
+        try {
+            for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
+                Pass pass = sortedPasses.get(passIndex);
+                long passCpuStart = System.nanoTime();
+                Framebuffer framebuffer = getPassFramebuffer(pass.name);
+                currentFbo = framebuffer;
+                if (pass.timer == null) pass.timer = new GpuTimer();
+                GpuTimer timer = pass.timer;
+                cmd.pushDebugGroup("RenderGraph/" + pass.name);
+                cmd.enableScissor(false);
+                cmd.beginGpuTimer(timer, currentFrameSequence);
 
-            if (pass.useBackbuffer) {
-                cmd.enableBlend(false);
-                cmd.depthMask(true);
-                cmd.enableFramebufferSrgb(false);
-                cmd.bindDefaultFramebuffer()
-                        .viewport(0, 0, width, height);
-            } else if (!pass.externalTarget && framebuffer != null) {
-                cmd.enableFramebufferSrgb(pass.colorFormats.contains(RenderFormat.SRGB8_ALPHA8));
-                cmd.bindFramebuffer(framebuffer)
-                        .viewport(0, 0, framebuffer.width(), framebuffer.height());
-            }
-
-            if ((pass.clearColor || pass.clearDepth) && !pass.useBackbuffer && framebuffer != null) {
-                if (pass.clearDepth) {
+                if (pass.useBackbuffer) {
+                    cmd.enableBlend(false);
                     cmd.depthMask(true);
+                    cmd.enableFramebufferSrgb(false);
+                    cmd.bindDefaultFramebuffer()
+                            .viewport(0, 0, width, height);
+                } else if (!pass.externalTarget && framebuffer != null) {
+                    cmd.enableFramebufferSrgb(pass.colorFormats.contains(RenderFormat.SRGB8_ALPHA8));
+                    cmd.bindFramebuffer(framebuffer)
+                            .viewport(0, 0, framebuffer.width(), framebuffer.height());
                 }
-                cmd.clearColor(pass.clearR, pass.clearG, pass.clearB, pass.clearA);
-                cmd.clear(pass.clearColor, pass.clearDepth);
+
+                if ((pass.clearColor || pass.clearDepth) && !pass.useBackbuffer && framebuffer != null) {
+                    if (pass.clearDepth) {
+                        cmd.depthMask(true);
+                    }
+                    cmd.clearColor(pass.clearR, pass.clearG, pass.clearB, pass.clearA);
+                    cmd.clear(pass.clearColor, pass.clearDepth);
+                }
+
+                try {
+                    pass.executor.execute(passResources, cmd);
+                } finally {
+                    cmd.endGpuTimer(timer);
+                    cmd.popDebugGroup();
+                    cpuRecordNanos[passIndex] = System.nanoTime() - passCpuStart;
+                }
             }
 
-            pass.executor.execute(passResources, cmd);
-            cmd.endGpuTimer(timer);
-            cpuRecordNanos[passIndex] = System.nanoTime() - passCpuStart;
+            device.execute(cmd);
+            List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
+            for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
+                Pass pass = sortedPasses.get(passIndex);
+                GpuTimer timer = pass.timer;
+                GpuTimer.Sample sample = timer.sample(currentFrameSequence);
+                passProfiles.add(new PassProfile(pass.name, cpuRecordNanos[passIndex],
+                        sample.elapsedNanos(), mapStatus(sample.status()), sample.resultSequence(),
+                        sample.sampleAgeFrames(), sample.skippedSubmissions()));
+            }
+            lastFrameProfile = new FrameProfile(0L, passProfiles, currentFrameSequence);
+        } catch (RuntimeException | Error failure) {
+            lastFrameProfile = failedProfile(currentFrameSequence);
+            throw failure;
         }
+    }
 
-        device.execute(cmd);
-        List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
-        for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
-            Pass pass = sortedPasses.get(passIndex);
-            GpuTimer timer = pass.timer;
-            long gpuNanos = timer == null ? 0L : timer.elapsedNanos();
-            passProfiles.add(new PassProfile(pass.name, cpuRecordNanos[passIndex], gpuNanos));
+    private FrameProfile failedProfile(long currentFrameSequence) {
+        List<PassProfile> failed = new ArrayList<>(sortedPasses.size());
+        for (int index = 0; index < sortedPasses.size(); index++) {
+            Pass pass = sortedPasses.get(index);
+            long skipped = pass.timer == null ? 0L
+                    : pass.timer.sample(currentFrameSequence).skippedSubmissions();
+            failed.add(new PassProfile(pass.name, cpuRecordNanos[index], 0L,
+                    PassProfile.GpuTimingStatus.FAILED, -1L, 0L, skipped));
         }
-        lastFrameProfile = new FrameProfile(0L, passProfiles);
+        return new FrameProfile(0L, failed, currentFrameSequence);
     }
 
     public FrameProfile lastFrameProfile() {
         return lastFrameProfile;
+    }
+
+    /**
+     * 返回与实际 compiled plan 一致的不可变 RenderGraph 描述。
+     * topology 和尺寸未变化时复用同一实例。
+     */
+    public Description description() {
+        ensureOpen();
+        if (sortedPasses == null) compile();
+        if (cachedDescription != null) return cachedDescription;
+        List<PassDescription> descriptions = new ArrayList<>(sortedPasses.size());
+        for (Pass pass : sortedPasses) {
+            TargetKind kind = pass.useBackbuffer ? TargetKind.BACKBUFFER
+                    : pass.externalTarget ? TargetKind.EXTERNAL : TargetKind.MANAGED;
+            int targetWidth = kind == TargetKind.EXTERNAL ? 0
+                    : targetDimension(width, pass.fixedWidth, pass.relativeWidthScale);
+            int targetHeight = kind == TargetKind.EXTERNAL ? 0
+                    : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale);
+            List<AttachmentDescription> colors = new ArrayList<>(pass.colorFormats.size());
+            for (int index = 0; index < pass.colorFormats.size(); index++) {
+                String logicalName = index < pass.colorTextureNames.size()
+                        ? pass.colorTextureNames.get(index) : "color" + index;
+                colors.add(new AttachmentDescription(logicalName,
+                        pass.colorFormats.get(index).name(),
+                        pass.samples > 1 ? StorageKind.RENDERBUFFER : StorageKind.TEXTURE));
+            }
+            AttachmentDescription depth = pass.createDepth
+                    ? new AttachmentDescription(pass.depthTextureName == null ? "depth" : pass.depthTextureName,
+                    pass.depthTextureName == null ? "DEPTH24_STENCIL8" : "DEPTH_COMPONENT",
+                    pass.depthTextureName == null ? StorageKind.RENDERBUFFER : StorageKind.TEXTURE)
+                    : null;
+            descriptions.add(new PassDescription(pass.name, pass.dependencies, kind,
+                    targetWidth, targetHeight, pass.samples, colors, depth,
+                    pass.clearColor, pass.clearDepth));
+        }
+        cachedDescription = new Description(width, height, topologyRevision, topologySealed,
+                compiledGraph.passNames(), descriptions);
+        return cachedDescription;
     }
 
     public void resize(int newWidth, int newHeight) {
@@ -233,6 +305,7 @@ public final class RenderGraph implements AutoCloseable {
         }
         width = newWidth;
         height = newHeight;
+        cachedDescription = null;
         if (!allocateResources) {
             return;
         }
@@ -329,6 +402,38 @@ public final class RenderGraph implements AutoCloseable {
             throw new IllegalStateException("RenderGraph pass topology is sealed");
         }
     }
+
+    private static PassProfile.GpuTimingStatus mapStatus(GpuTimer.Status status) {
+        return PassProfile.GpuTimingStatus.valueOf(status.name());
+    }
+
+    /** RenderGraph compiled plan 的只读描述。 */
+    public record Description(int width, int height, long topologyRevision, boolean sealed,
+                              List<String> executionOrder, List<PassDescription> passes) {
+        public Description {
+            executionOrder = List.copyOf(executionOrder);
+            passes = List.copyOf(passes);
+        }
+    }
+
+    /** 单个 pass 的只读 target 与依赖描述。 */
+    public record PassDescription(String name, List<String> directDependencies,
+                                  TargetKind targetKind, int width, int height, int samples,
+                                  List<AttachmentDescription> colorAttachments,
+                                  AttachmentDescription depthAttachment,
+                                  boolean clearColor, boolean clearDepth) {
+        public PassDescription {
+            directDependencies = List.copyOf(directDependencies);
+            colorAttachments = List.copyOf(colorAttachments);
+        }
+    }
+
+    /** attachment 的逻辑描述，不暴露 native id。 */
+    public record AttachmentDescription(String logicalName, String format, StorageKind storageKind) {
+    }
+
+    public enum TargetKind { BACKBUFFER, MANAGED, EXTERNAL }
+    public enum StorageKind { TEXTURE, RENDERBUFFER }
 
     @FunctionalInterface
     public interface PassExecutor {
