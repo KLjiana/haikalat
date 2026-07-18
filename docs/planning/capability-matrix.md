@@ -7,7 +7,7 @@
 | RenderGraph 排序与资源生命周期 | 完整 | `core/graph/RenderGraph`、`backend/framebuffer/RenderTargetManager` | 三个 Demo | `RenderGraphTest`、`FramebufferDescriptorTest`、`GlContextSmokeTest` | GPU timing 使用正式 `beginGpuTimer/endGpuTimer` query opcode |
 | 材质与纹理 | 完整 | `TextureColorSpace`、`Texture2D`、`core/material`、`TextureAssetCache` | `LearnOpenGlDemo`、`MinimalDemo` | `MaterialTest`、`AssetPipelineTest`、`RuntimeResourceGlTest` | 旧纹理 API 默认 linear；颜色纹理需在 manifest/API 显式声明 sRGB，数据纹理保持 linear |
 | Metallic-roughness PBR | 完整 | `MaterialModel`、`PbrMaterialProperties`、`TangentGenerator`、`PbrMaterials`、PBR forward shader | `PbrDemo`、`LearnOpenGlDemo` PBR proof | `AssetPipelineTest`、`TangentGeneratorTest`、`PbrBrdfMathTest`、`PbrEnvironmentGlTest`、`runPbrCompatibilityIntegration` | framework material 保持 opaque，glTF scene-asset 可设置 MASK cutoff；单一固定 shader/unit contract；不承诺 PBR instancing、alpha blending/transmission 或高级材质扩展 |
-| glTF 2.0 静态资产 | 部分完成 | `core/assets/gltf`、`subsystems/render3d/gltf`、`SceneAssetConfig.gltfScenes` | 独立 `GltfDemo` + retained inspector、主 Demo showcase | `GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runGltfIntegration`、`runGltfResizeIntegration`、`localGltfVerification`、`runGltfBenchmarks` | opaque/MASK `.gltf/.glb`、external/data/GLB embedded 资源、完整 accessor 主型、hierarchy、共享 mesh、PBR 像素、四阶段上传失败清理与五轮性能矩阵已闭环；MASK shadow caster 与 BLEND 明确拒绝；GLB/external 可视 Demo fixture、等价 OBJ/glTF A/B 与发布资产许可仍待补齐 |
+| glTF 2.0 静态资产 | 完整 | `core/assets/gltf`、`subsystems/render3d/gltf`、`SceneAssetConfig.gltfScenes` | 独立 `GltfDemo` + retained inspector、主 Demo showcase | `GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runGltfIntegration`、`runGltfResizeIntegration`、`localGltfVerification`、`runGltfBenchmarks` | opaque/MASK `.gltf/.glb`、external/data/GLB embedded 资源、完整 accessor 主型、hierarchy、共享 mesh、PBR 像素、四阶段上传失败清理、五轮性能矩阵与人工验收均已闭环；MASK shadow caster 与 BLEND 保持明确拒绝语义 |
 | HDR cubemap 与 GPU IBL | 完整 | `TextureCube`、typed cube commands、`EnvironmentPreprocessor`、`PbrEnvironment` | `PbrDemo` environment/background | `PbrEnvironmentGlTest`、`runPbrIntegration`、`runPbrResizeIntegration`、`runPbrFailureIntegration` | 单一全局 environment；启动期 compute 预计算；生产路径无 readback/glFinish，resize 不重建 environment |
 | 方向光、点光、聚光参数 | 完整 | `SceneLight`、`LightingBinder`、Demo forward shader | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | shader 数组上限为方向光 2、点光 8、聚光 4；shadow light index 与有界方向光数组使用同一选择结果 |
 | 方向光阴影 | 完整 | `DirectionalShadowMap`、`ForwardPassBuilder`、`RenderPipeline` | `LearnOpenGlDemo` | `ScenePipelineTest`、`RenderPipelineGlTest.fullLightingAndShadowPipelineChangesFinalPixels`、`runDemoIntegration` | 普通与显式 opt-in 的实例 caster 均使用固定 2048×2048 depth target；GL 测试覆盖开关、移动 caster、改变光方向和最终像素 |
@@ -28,7 +28,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定基线：`0.12.0`；当前开发版本：`0.13.0-SNAPSHOT`。
+- 正式稳定基线：`0.13.0`；下一开发版本尚未确定。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。

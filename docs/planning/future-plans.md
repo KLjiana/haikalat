@@ -6,11 +6,11 @@
 
 ## 当前重点
 
-v0.11 UI subsystem 与 v0.12 Minimal PBR / IBL 均已完成正式版验收。v0.13 已选择
-glTF 2.0 静态资产主路径，详细工程合同见
-[`v0.13-gltf-static-asset-pipeline.md`](v0.13-gltf-static-asset-pipeline.md)。本版本先完成
-`.gltf/.glb`、静态 node hierarchy、多 primitive 和 metallic-roughness 资产闭环，动画、骨骼、
-压缩纹理及高级材质继续留在后续评估。
+v0.11 UI subsystem、v0.12 Minimal PBR / IBL 与 v0.13 glTF 2.0 静态资产主路径均已完成正式版验收。
+v0.13 的工程合同归档于
+[`v0.13-gltf-static-asset-pipeline.md`](v0.13-gltf-static-asset-pipeline.md)。下一版本尚未编号，
+应先使用真实多 mesh/material glTF 场景测量 draw、binding、CPU scene traversal 和显存，再在
+PBR instancing/material batching、GPU frustum culling + MDI、动画和压缩纹理之间确定优先级。
 
 ### 近期
 
