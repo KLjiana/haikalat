@@ -85,7 +85,19 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runPbrCompatibilityIntegration
 .\gradlew.bat runPbrFailureIntegration
 .\gradlew.bat localPbrVerification
+.\gradlew.bat runGltfIntegration
+.\gradlew.bat runGltfResizeIntegration
+.\gradlew.bat localGltfVerification
 ```
+
+v0.13 glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资源、interleaved
+与 normalized attribute、sparse accessor、node graph/transform、normal/tangent 生成、URI root
+约束、结构化错误、百万元素零基底 sparse accessor、sparse indices/values 完整范围、
+`radio.gltf` MASK/cutoff 保留和 BLEND 拒绝都在普通 `test` 中执行。
+`localGltfVerification` 额外创建隐藏 OpenGL 4.6 context，验证 embedded PNG、同一 image 的
+sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、四阶段上传失败清理、library active-asset
+guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及只含 showcase/radio 共 10 个
+对象的独立 Demo/resize 链路。
 
 v0.11 UI 的四条有限帧、隐藏窗口验证和聚合入口：
 
@@ -143,3 +155,14 @@ WndProc hook 安装、消息链和恢复，不会自动打开真实输入法。M
 每个场景预热 100 帧并统计 1000 帧，覆盖 NONE/FXAA/MSAA/TAA 及 manual/auto exposure、
 Bloom off/on 的代表组合。当前代表性 FXAA+AUTO+Bloom 五轮记录见
 [`docs/performance/v0.12-pbr-2026-07-17.md`](../performance/v0.12-pbr-2026-07-17.md)。
+
+v0.13 glTF 五轮 decode/upload 与 1080p/4K 稳态矩阵：
+
+```powershell
+.\gradlew.bat runGltfBenchmarks
+```
+
+decode/upload 直接使用原始 MASK `radio.gltf`，不生成或改写 OPAQUE 副本；GPU upload 单独测量
+sampler、sRGB image、material 与 mesh 创建，稳态部分使用主 Demo 的 glTF/OBJ/legacy
+共存场景，每轮预热 100 帧并正式统计 1000 帧。
+当前本机结果见 [`docs/performance/v0.13-gltf-2026-07-18.md`](../performance/v0.13-gltf-2026-07-18.md)。

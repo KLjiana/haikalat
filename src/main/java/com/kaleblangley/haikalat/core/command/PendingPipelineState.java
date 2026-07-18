@@ -22,6 +22,7 @@ final class PendingPipelineState {
     private static final int FRAMEBUFFER_SRGB = 1 << 7;
     private static final int SCISSOR_ENABLE = 1 << 8;
     private static final int SCISSOR_RECTANGLE = 1 << 9;
+    private static final int FRONT_FACE = 1 << 10;
 
     private int dirty;
     private int viewportX;
@@ -34,6 +35,7 @@ final class PendingPipelineState {
     private boolean depthWriteEnabled;
     private boolean depthTestEnabled;
     private boolean cullFaceEnabled;
+    private int frontFace;
     private boolean framebufferSrgbEnabled;
     private boolean scissorEnabled;
     private int scissorX;
@@ -77,6 +79,11 @@ final class PendingPipelineState {
     void enableCullFace(boolean enable) {
         cullFaceEnabled = enable;
         dirty |= CULL_FACE;
+    }
+
+    void frontFace(int winding) {
+        frontFace = winding;
+        dirty |= FRONT_FACE;
     }
 
     void enableFramebufferSrgb(boolean enable) {
@@ -145,6 +152,7 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(depthWriteEnabled);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(depthTestEnabled);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(cullFaceEnabled);
+        if ((changes & FRONT_FACE) != 0) target.frontFace(frontFace);
         if ((changes & SCISSOR_RECTANGLE) != 0) {
             target.scissor(scissorX, scissorY, scissorWidth, scissorHeight);
         }
@@ -179,6 +187,7 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) stream.integer(depthWriteEnabled ? 1 : 0);
         if ((changes & DEPTH_TEST) != 0) stream.integer(depthTestEnabled ? 1 : 0);
         if ((changes & CULL_FACE) != 0) stream.integer(cullFaceEnabled ? 1 : 0);
+        if ((changes & FRONT_FACE) != 0) stream.integer(frontFace);
         if ((changes & SCISSOR_RECTANGLE) != 0) {
             stream.integer(scissorX);
             stream.integer(scissorY);
@@ -210,6 +219,7 @@ final class PendingPipelineState {
         if ((changes & DEPTH_MASK) != 0) target.depthMask(stream.integerAt(cursor++) != 0);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(stream.integerAt(cursor++) != 0);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(stream.integerAt(cursor++) != 0);
+        if ((changes & FRONT_FACE) != 0) target.frontFace(stream.integerAt(cursor++));
         if ((changes & SCISSOR_RECTANGLE) != 0) {
             target.scissor(stream.integerAt(cursor++), stream.integerAt(cursor++),
                     stream.integerAt(cursor++), stream.integerAt(cursor++));

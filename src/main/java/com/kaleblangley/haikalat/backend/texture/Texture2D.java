@@ -53,6 +53,7 @@ import static org.lwjgl.opengl.GL45.glCreateTextures;
 import static org.lwjgl.opengl.GL45.glTextureParameteri;
 import static org.lwjgl.opengl.GL45.glTextureStorage2D;
 import static org.lwjgl.opengl.GL45.glTextureSubImage2D;
+import static org.lwjgl.opengl.GL45.glGenerateTextureMipmap;
 
 public final class Texture2D implements GlResource {
     private static final UploadFormat R8_UPLOAD = new UploadFormat(
@@ -228,6 +229,53 @@ public final class Texture2D implements GlResource {
                     glDeleteTextures(textureId);
                 }
             }
+        }
+    }
+
+    /**
+     * 从内存中的 PNG/JPEG 编码字节创建完整 mip 链纹理。该入口使用 STB 线程局部 flip 状态，
+     * 不会改变其他图片加载器的全局方向；glTF 调用方应传入 {@code false}。
+     */
+    public static Texture2D fromEncoded(byte[] encoded, boolean flipVertically,
+                                        TextureColorSpace colorSpace) {
+        Objects.requireNonNull(encoded, "encoded");
+        Objects.requireNonNull(colorSpace, "colorSpace");
+        if (encoded.length == 0) throw new IllegalArgumentException("encoded image must not be empty");
+        ByteBuffer data = DirectBuffers.copyOf(encoded);
+        STBImage.stbi_set_flip_vertically_on_load_thread(flipVertically ? 1 : 0);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer widthBuffer = stack.mallocInt(1);
+            IntBuffer heightBuffer = stack.mallocInt(1);
+            IntBuffer channelsBuffer = stack.mallocInt(1);
+            ByteBuffer image = STBImage.stbi_load_from_memory(data, widthBuffer, heightBuffer,
+                    channelsBuffer, 4);
+            if (image == null) throw new GlException("Failed to decode image memory: "
+                    + STBImage.stbi_failure_reason());
+            int textureId = 0;
+            try {
+                int width = widthBuffer.get(0);
+                int height = heightBuffer.get(0);
+                int levels = 1 + (31 - Integer.numberOfLeadingZeros(Math.max(width, height)));
+                int internalFormat = colorSpace == TextureColorSpace.SRGB
+                        ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+                textureId = glCreateTextures(GL_TEXTURE_2D);
+                glTextureStorage2D(textureId, levels, internalFormat, width, height);
+                glTextureSubImage2D(textureId, 0, 0, 0, width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, image);
+                glGenerateTextureMipmap(textureId);
+                glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTextureParameteri(textureId, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTextureParameteri(textureId, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                Texture2D texture = new Texture2D(textureId, width, height, internalFormat, colorSpace);
+                textureId = 0;
+                return texture;
+            } finally {
+                STBImage.stbi_image_free(image);
+                if (textureId != 0) glDeleteTextures(textureId);
+            }
+        } finally {
+            STBImage.stbi_set_flip_vertically_on_load_thread(0);
         }
     }
 

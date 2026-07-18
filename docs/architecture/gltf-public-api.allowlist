@@ -1,0 +1,11 @@
+# v0.13 glTF 顶层 public API 分类。
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions
+stable com.kaleblangley.haikalat.core.assets.gltf.GltfSceneStatistics
+stable com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene
+stable com.kaleblangley.haikalat.core.assets.gltf.SceneSelection
+stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary
+stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset

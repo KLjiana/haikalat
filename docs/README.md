@@ -13,6 +13,7 @@
 - [v0.10 全 GPU 自动曝光实施计划](planning/v0.10-gpu-auto-exposure.md) — 已完成 GPU 测光、时间适应与发布验收
 - [v0.11 Retained-mode UI Subsystem 实施计划](planning/v0.11-ui-subsystem.md) — 已完成游戏 UI、Yoga、FreeType/HarfBuzz、GPU atlas 与 Windows IME RC 主线
 - [v0.12 Minimal PBR / IBL 实施计划](planning/v0.12-minimal-pbr-ibl.md) — 已完成 metallic-roughness、tangent、GPU IBL、HDR 后处理与 legacy/PBR 共存
+- [v0.13 glTF 2.0 静态资产管线实施计划](planning/v0.13-gltf-static-asset-pipeline.md) — 实施中；首条 `.gltf/.glb → CPU scene → GPU resources → PBR pipeline` 已通过本地验证
 - [后续计划](planning/future-plans.md)
 
 ## 架构
@@ -45,3 +46,4 @@
 - [2026-07-15 Stress 矩阵快照修复后五轮基准](performance/stress-matrix-copy-fix-2026-07-15.md)
 - [2026-07-14 Stress indexed / compact SSBO 基准](performance/stress-indexed-ssbo-2026-07-14.md)
 - [2026-07-17 v0.12 PBR / IBL 1080p/4K 五轮代表基准](performance/v0.12-pbr-2026-07-17.md)
+- [2026-07-18 v0.13 glTF decode/upload 与 1080p/4K 五轮基准](performance/v0.13-gltf-2026-07-18.md)

@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.state.PipelineStateSink;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.FrontFace;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -65,6 +66,7 @@ class PendingPipelineStateTest {
                 .depthMask(true)
                 .enableDepthTest(true)
                 .enableCullFace(true)
+                .frontFace(FrontFace.CW)
                 .scissor(2, 3, 1276, 714)
                 .enableScissor(true)
                 .enableFramebufferSrgb(false)
@@ -78,6 +80,19 @@ class PendingPipelineStateTest {
         commands.reset();
         assertEquals(0, commands.commandCount());
         assertEquals(0, commands.objectPayloadCount());
+    }
+
+    @Test
+    void frontFaceUsesLastValueWithoutCrossingDrawBoundary() {
+        PendingPipelineState pending = new PendingPipelineState();
+        RecordingSink sink = new RecordingSink();
+        pending.frontFace(FrontFace.CCW.glValue());
+        pending.frontFace(FrontFace.CW.glValue());
+        pending.flush(sink);
+        pending.frontFace(FrontFace.CCW.glValue());
+        pending.flush(sink);
+        assertEquals(List.of("front:" + FrontFace.CW.glValue(),
+                "front:" + FrontFace.CCW.glValue()), sink.events);
     }
 
     @Test
@@ -153,6 +168,7 @@ class PendingPipelineStateTest {
         }
 
         @Override public void enableCullFace(boolean enable) { events.add("cull:" + enable); }
+        @Override public void frontFace(int winding) { events.add("front:" + winding); }
 
         @Override public void enableScissor(boolean enable) {
             events.add("scissorEnable:" + enable);

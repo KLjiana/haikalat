@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
@@ -38,6 +39,7 @@ public final class Material implements GlResource {
     private final boolean depthTest;
     private final ResourceOwnership resourceOwnership;
     private final MaterialModel model;
+    private final CullMode cullMode;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -48,6 +50,7 @@ public final class Material implements GlResource {
         this.depthTest = builder.depthTest;
         this.resourceOwnership = builder.resourceOwnership;
         this.model = builder.model;
+        this.cullMode = builder.cullMode;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -60,6 +63,7 @@ public final class Material implements GlResource {
     void bindState(CommandBuffer cmd) {
         cmd.bindShader(shader);
         cmd.materialState(blendMode, depthTest);
+        cmd.enableCullFace(cullMode == CullMode.BACK);
     }
 
     void bindDefaultTextures(CommandBuffer cmd) {
@@ -102,6 +106,8 @@ public final class Material implements GlResource {
     public MaterialModel model() {
         return model;
     }
+
+    public CullMode cullMode() { return cullMode; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -170,6 +176,7 @@ public final class Material implements GlResource {
         private boolean depthTest = true;
         private ResourceOwnership resourceOwnership = ResourceOwnership.BORROWED;
         private MaterialModel model = MaterialModel.LEGACY;
+        private CullMode cullMode = CullMode.NONE;
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;
@@ -270,6 +277,11 @@ public final class Material implements GlResource {
 
         public Builder model(MaterialModel model) {
             this.model = Objects.requireNonNull(model, "model");
+            return this;
+        }
+
+        public Builder cullMode(CullMode mode) {
+            this.cullMode = Objects.requireNonNull(mode, "cullMode");
             return this;
         }
 

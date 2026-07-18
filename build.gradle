@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.12.0'
+version = '0.13.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -82,6 +82,7 @@ dependencies {
     }
 
     implementation "org.joml:joml:${jomlVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-core:2.18.3"
     implementation "net.java.dev.jna:jna:${jnaVersion}"
     implementation "net.java.dev.jna:jna-platform:${jnaVersion}"
 
@@ -291,5 +292,5 @@ tasks.register('localUiVerification') {
 }
 
 tasks.named('localGlVerification') {
-    dependsOn 'localUiVerification', 'localPbrVerification'
+    dependsOn 'localUiVerification', 'localPbrVerification', 'localGltfVerification'
 }

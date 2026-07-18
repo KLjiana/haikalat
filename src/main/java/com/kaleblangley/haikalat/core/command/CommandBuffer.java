@@ -528,6 +528,12 @@ public final class CommandBuffer {
         return this;
     }
 
+    /** 设置正面绕序；状态在下一个可观察 GPU 边界前折叠提交。 */
+    public CommandBuffer frontFace(com.kaleblangley.haikalat.core.FrontFace winding) {
+        pendingState.frontFace(Objects.requireNonNull(winding, "winding").glValue());
+        return this;
+    }
+
     /**
      * 设置 scissor test；状态在下一个可观察 GPU 边界前与其他 pending state 一起提交。
      *

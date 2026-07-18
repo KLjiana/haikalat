@@ -4,6 +4,7 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec2 aTexCoord;
 layout(location = 2) in vec3 aNormal;
 layout(location = 3) in vec4 aTangent;
+layout(location = 4) in vec4 aColor;
 
 layout(std140) uniform CameraBlock {
     mat4 uProjection;
@@ -19,6 +20,7 @@ out vec3 vNormal;
 out vec3 vTangent;
 out float vTangentHandedness;
 out vec4 vDirectionalLightPosition;
+out vec4 vVertexColor;
 
 void main() {
     vec4 world = uModel * vec4(aPosition, 1.0);
@@ -29,7 +31,8 @@ void main() {
     vWorldPosition = world.xyz;
     vNormal = n;
     vTangent = normalize(t - n * dot(n, t));
-    vTangentHandedness = aTangent.w;
+    vTangentHandedness = aTangent.w * sign(determinant(mat3(uModel)));
+    vVertexColor = aColor;
     vDirectionalLightPosition = uDirectionalLightSpace * world;
     gl_Position = uProjection * uView * world;
 }

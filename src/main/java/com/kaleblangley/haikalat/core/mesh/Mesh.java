@@ -20,11 +20,16 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_INT;
 import static org.lwjgl.opengl.GL11.glDrawArrays;
 import static org.lwjgl.opengl.GL11.glDrawElements;
+import static org.lwjgl.opengl.GL11.glGetInteger;
+import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER_BINDING;
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
 import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
+import static org.lwjgl.opengl.GL30.GL_VERTEX_ARRAY_BINDING;
+import static org.lwjgl.opengl.GL30.glBindVertexArray;
 
 /**
  * Runtime mesh resource uploaded to OpenGL.
@@ -46,44 +51,43 @@ public final class Mesh implements GlResource {
         this.primitiveMode = builder.primitiveMode;
         this.vertexLayout = builder.layout;
         this.indexCount = builder.indexCount;
-        this.indexBuffer = builder.indexData == null ? null
-                : GlBuffer.elementArrayBuffer(GL_STATIC_DRAW).upload(builder.indexData);
-
+        int previousVertexArray = glGetInteger(GL_VERTEX_ARRAY_BINDING);
+        int previousArrayBuffer = glGetInteger(GL_ARRAY_BUFFER_BINDING);
         this.vertexArray = new VertexArray();
-
-        if (builder.attribDatas != null) {
-            this.interleaved = false;
-            this.vertexCount = builder.nonILVertexCount;
-            List<GlBuffer> bufs = new ArrayList<>(builder.attribDatas.size());
-            vertexArray.bind();
-            for (Builder.AttribData ad : builder.attribDatas) {
-                GlBuffer buf = GlBuffer.arrayBuffer(GL_STATIC_DRAW).upload(ad.data);
-                bufs.add(buf);
-                buf.bind();
-                glVertexAttribPointer(ad.location, ad.componentCount, GL_FLOAT, false,
-                        ad.componentCount * Float.BYTES, 0);
-                glEnableVertexAttribArray(ad.location);
-            }
+        vertexArray.bind();
+        try {
+            this.indexBuffer = builder.indexData == null ? null
+                    : GlBuffer.elementArrayBuffer(GL_STATIC_DRAW).upload(builder.indexData);
             if (indexBuffer != null) {
-                indexBuffer.bind();
+                vertexArray.bindElementBuffer(indexBuffer);
             }
-            vertexArray.unbind();
-            this.vertexBuffer = bufs.get(0);
-            this.extraBuffers = bufs.size() > 1
-                    ? bufs.subList(1, bufs.size()).toArray(GlBuffer[]::new)
-                    : null;
-        } else {
-            this.interleaved = true;
-            this.vertexCount = builder.vertexCount;
-            this.vertexBuffer = GlBuffer.arrayBuffer(GL_STATIC_DRAW).upload(builder.vertexData);
-            this.extraBuffers = null;
-            vertexArray.bind();
-            vertexBuffer.bind();
-            builder.layout.apply();
-            if (indexBuffer != null) {
-                indexBuffer.bind();
+            if (builder.attribDatas != null) {
+                this.interleaved = false;
+                this.vertexCount = builder.nonILVertexCount;
+                List<GlBuffer> bufs = new ArrayList<>(builder.attribDatas.size());
+                for (Builder.AttribData ad : builder.attribDatas) {
+                    GlBuffer buf = GlBuffer.arrayBuffer(GL_STATIC_DRAW).upload(ad.data);
+                    bufs.add(buf);
+                    buf.bind();
+                    glVertexAttribPointer(ad.location, ad.componentCount, GL_FLOAT, false,
+                            ad.componentCount * Float.BYTES, 0);
+                    glEnableVertexAttribArray(ad.location);
+                }
+                this.vertexBuffer = bufs.get(0);
+                this.extraBuffers = bufs.size() > 1
+                        ? bufs.subList(1, bufs.size()).toArray(GlBuffer[]::new)
+                        : null;
+            } else {
+                this.interleaved = true;
+                this.vertexCount = builder.vertexCount;
+                this.vertexBuffer = GlBuffer.arrayBuffer(GL_STATIC_DRAW).upload(builder.vertexData);
+                this.extraBuffers = null;
+                vertexBuffer.bind();
+                builder.layout.apply();
             }
-            vertexArray.unbind();
+        } finally {
+            glBindVertexArray(previousVertexArray);
+            glBindBuffer(org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
         }
     }
 

@@ -6,9 +6,11 @@
 
 ## 当前重点
 
-v0.11 UI subsystem 与 v0.12 Minimal PBR / IBL 均已完成正式版验收。后续重点转向
-PBR 资产工作流、探针与材质扩展的需求评估，同时继续推进 UI 分配优化；新增能力仍需保持
-typed command、RenderGraph、明确资源所有权与可回归 Demo 的现有准入标准。
+v0.11 UI subsystem 与 v0.12 Minimal PBR / IBL 均已完成正式版验收。v0.13 已选择
+glTF 2.0 静态资产主路径，详细工程合同见
+[`v0.13-gltf-static-asset-pipeline.md`](v0.13-gltf-static-asset-pipeline.md)。本版本先完成
+`.gltf/.glb`、静态 node hierarchy、多 primitive 和 metallic-roughness 资产闭环，动画、骨骼、
+压缩纹理及高级材质继续留在后续评估。
 
 ### 近期
 
@@ -41,4 +43,4 @@ typed command、RenderGraph、明确资源所有权与可回归 Demo 的现有�
 - 不引入复杂 ECS，除非当前 `SceneObject` 模型出现明确瓶颈。
 - 不直接重写 Vulkan 后端；第二后端只用于验证稳定边界。
 - 不在稳定公共组件之前一次性建设封闭、单体的生产级编辑器；允许调试器和编辑工具作为 UI/runtime API 的真实使用者逐步演进。
-- 不将 v0.12 的最小 metallic-roughness 主路径扩大为 glTF、透明/折射、高级材质扩展或完整材质编辑器。
+- 不将 v0.13 静态 glTF 主路径扩大为动画/骨骼、透明/折射、高级材质扩展或完整材质编辑器。

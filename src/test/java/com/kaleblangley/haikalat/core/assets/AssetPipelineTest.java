@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -370,6 +371,33 @@ class AssetPipelineTest {
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
                 texture.wall.path=/wall.png
                 texture.wall.colorSpace=display-p3
+                """));
+    }
+
+    @Test
+    void sceneConfigParsesIndependentGltfInstancesAndRejectsUnknownKeys() {
+        SceneAssetConfig config = SceneAssetConfig.parseProperties("""
+                gltf.radio.path=/radio.gltf
+                gltf.radio.scene=showcase
+                gltf.radio.position=1,2,3
+                gltf.radio.rotation=0,1,0
+                gltf.radio.scale=-2
+                gltf.radio.castShadows=false
+                """);
+        SceneAssetConfig.GltfSceneDef def = config.gltfScenes().get("radio");
+        assertEquals("showcase", def.scene());
+        assertEquals(-2.0f, def.scale());
+        assertFalse(def.castShadows());
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                gltf.radio.path=/radio.gltf
+                gltf.radio.material=legacy
+                """));
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                gltf.radio.path=/radio.obj
+                """));
+        assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                gltf.radio.path=/radio.gltf
+                gltf.radio.position=NaN,0,0
                 """));
     }
 

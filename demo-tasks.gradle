@@ -16,6 +16,7 @@ def registerDemoJavaExec = { taskName, taskGroup, descriptionText, mainClassName
 def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
+def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 [
         runDemoIntegration                 : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA'],
@@ -68,6 +69,12 @@ def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
         ,runPbrFailureIntegration          : [pbrMain,
                 ['--hidden', '--environment-quality=test', '--verify-failure-cleanup'],
                 'Injects an environment load failure and verifies deterministic cleanup.']
+        ,runGltfIntegration                : [gltfMain,
+                ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
+                'Runs the v0.13 static glTF scene through PBR, shadow, IBL and post-processing.']
+        ,runGltfResizeIntegration          : [gltfMain,
+                ['--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'],
+                'Resizes the glTF/OBJ/legacy compatibility scene without re-uploading assets.']
 ].each { taskName, preset ->
     registerDemoJavaExec(taskName, 'verification', preset[2], preset[0], preset[1])
 }
@@ -152,6 +159,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain
+        ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
     registerDemoApplication(taskName,
             "Runs ${mainClassName} for interactive graphics debugging.",
@@ -180,6 +188,10 @@ registerDemoApplication('runPbrBenchmarks',
         'Runs five 1080p/4K rounds for the v0.12 PBR AA/Bloom/exposure matrix.',
         'com.kaleblangley.haikalat.demo.pbr.PbrBenchmarkSuite', [])
 
+registerDemoApplication('runGltfBenchmarks',
+        'Runs five v0.13 glTF decode/upload and 1080p/4K steady-state rounds.',
+        'com.kaleblangley.haikalat.demo.GltfBenchmarkSuite', [])
+
 tasks.register('localPbrVerification') {
     group = 'verification'
     description = 'Runs v0.12 PBR JVM/GL smoke plus deterministic integration and resize checks.'
@@ -191,6 +203,15 @@ tasks.named('runPbrIntegration') { mustRunAfter 'glSmoke' }
 tasks.named('runPbrResizeIntegration') { mustRunAfter 'runPbrIntegration' }
 tasks.named('runPbrCompatibilityIntegration') { mustRunAfter 'runPbrResizeIntegration' }
 tasks.named('runPbrFailureIntegration') { mustRunAfter 'runPbrCompatibilityIntegration' }
+
+tasks.register('localGltfVerification') {
+    group = 'verification'
+    description = 'Runs v0.13 glTF JVM/real-GL tests and deterministic scene integrations.'
+    dependsOn 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration'
+}
+
+tasks.named('runGltfIntegration') { mustRunAfter 'glSmoke' }
+tasks.named('runGltfResizeIntegration') { mustRunAfter 'runGltfIntegration' }
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",

@@ -52,8 +52,8 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 暂不直接重写 Vulkan 或第二后端；第二后端只能在 OpenGL 边界稳定后用于验证 `RenderDevice`。
 - 暂不一次性建设与框架紧耦合的单体生产级编辑器；允许基于 UI subsystem 逐步增加调试面板、
   资源检查器和编辑工作流。
-- 暂不把 v0.12 最小 PBR 扩张为完整材质平台；glTF、transmission、clearcoat、local probe、
-  clustered lighting 与 shader graph 必须由后续真实内容需求和性能数据驱动。
+- v0.13 只把 v0.12 PBR 接入静态 glTF 2.0 资产主路径；animation/skin、transmission、
+  clearcoat、local probe、clustered lighting 与 shader graph 仍必须由后续真实内容需求和性能数据驱动。
 
 ## 命名
 

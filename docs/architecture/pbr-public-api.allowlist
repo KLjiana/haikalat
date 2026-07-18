@@ -6,6 +6,7 @@ stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings
 
 advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures
 advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrTextureBinding
 
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder

@@ -82,11 +82,12 @@ public final class LearnOpenGlDemo {
         SceneAssetConfig config = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
         try (FrameDriver renderLoop = new FrameDriver(settings);
              DemoSceneResources resources = DemoSceneResources.load(assets, config);
+             DemoGltfResources gltfResources = DemoGltfResources.load(assets, config);
              PbrEnvironment environment = PbrEnvironmentLoader.load(renderLoop.device(), LearnOpenGlDemo.class,
                      "/pbr/studio-small.hdr", options.deterministic()
                              ? PbrEnvironmentSettings.testQuality()
                              : PbrEnvironmentSettings.defaultQuality())) {
-            Scene scene = buildScene(camera, config, resources);
+            Scene scene = buildScene(camera, config, resources, gltfResources);
             Mesh instancedMesh = resources.meshes("builtin:" + BuiltinMeshData.QUAD,
                     com.kaleblangley.haikalat.core.assets.MaterialModel.LEGACY).getFirst();
             ShaderProgram instancedShader = resources.shader("instanced");
@@ -190,7 +191,8 @@ public final class LearnOpenGlDemo {
         }
     }
 
-    private static Scene buildScene(Camera camera, SceneAssetConfig config, DemoSceneResources resources) {
+    private static Scene buildScene(Camera camera, SceneAssetConfig config, DemoSceneResources resources,
+                                    DemoGltfResources gltfResources) {
         Scene scene = new Scene(camera);
         for (Map.Entry<String, SceneAssetConfig.ObjectDef> entry : config.objects().entrySet()) {
             SceneAssetConfig.ObjectDef def = entry.getValue();
@@ -198,6 +200,7 @@ public final class LearnOpenGlDemo {
             addModelMeshes(scene, resources.meshes(def, config), material,
                     updaterFor(entry.getKey(), def), def.castShadows());
         }
+        for (SceneObject object : gltfResources.objects()) scene.add(object);
         for (SceneAssetConfig.LightDef light : config.lights().values()) {
             scene.addLight(lightFor(light));
         }
@@ -248,7 +251,7 @@ public final class LearnOpenGlDemo {
                 benchmark.presentFps(), timings.averageCpuMillis(), timings.medianCpuMillis(),
                 timings.averageGpuMillis(), timings.medianGpuMillis(), uploadPerFrameMb,
                 buffer.fenceWaitMillis(), buffer.fenceWaitCount(), benchmark.measuredFrames(),
-                stateSkip, passTimings);
+                stateSkip, pipeline.scene().renderers().size(), passTimings);
         if (options.quiet()) {
             return;
         }
@@ -436,6 +439,7 @@ public final class LearnOpenGlDemo {
             long ringWaitCount,
             int measuredFrames,
             double stateSkipPercent,
+            int ordinarySceneDraws,
             Map<String, FrameTimingAccumulator.Summary> passTimings
     ) {
     }

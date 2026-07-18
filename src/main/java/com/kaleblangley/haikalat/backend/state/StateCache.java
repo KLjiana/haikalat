@@ -56,6 +56,8 @@ public final class StateCache implements PipelineStateSink {
     private boolean depthTestCached;
     private boolean cullFaceEnabled;
     private boolean cullFaceCached;
+    private int frontFace;
+    private boolean frontFaceCached;
     private boolean scissorEnabled;
     private boolean scissorEnableCached;
     private int scissorX;
@@ -312,6 +314,19 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
+    /** 设置正面绕序并跳过重复的 glFrontFace。 */
+    @Override
+    public void frontFace(int winding) {
+        if (winding != GL_CCW && winding != GL_CW) {
+            throw new IllegalArgumentException("front face must be GL_CCW or GL_CW");
+        }
+        if (changeRequired(!frontFaceCached || frontFace != winding)) {
+            glFrontFace(winding);
+            frontFace = winding;
+            frontFaceCached = true;
+        }
+    }
+
     /** 启用或禁用 scissor test，并跳过重复的 OpenGL 状态提交。 */
     @Override
     public void enableScissor(boolean enable) {
@@ -413,6 +428,7 @@ public final class StateCache implements PipelineStateSink {
         depthWriteCached = false;
         depthTestCached = false;
         cullFaceCached = false;
+        frontFaceCached = false;
         scissorEnableCached = false;
         scissorRectangleCached = false;
         framebufferSrgbCached = false;

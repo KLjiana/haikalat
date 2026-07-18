@@ -13,6 +13,7 @@ in vec3 vNormal;
 in vec3 vTangent;
 in float vTangentHandedness;
 in vec4 vDirectionalLightPosition;
+in vec4 vVertexColor;
 layout(location = 0) out vec4 FragColor;
 
 uniform sampler2D uBaseColorMap;
@@ -48,6 +49,9 @@ uniform int uEnableDirect;
 uniform int uEnableDiffuseIbl;
 uniform int uEnableSpecularIbl;
 uniform int uEnableNormalMap;
+uniform int uHasVertexColor;
+uniform int uDoubleSided;
+uniform float uAlphaCutoff;
 
 const float PI = 3.14159265358979323846;
 
@@ -122,11 +126,14 @@ float rangeInverseSquareAttenuation(float distanceToLight, float range) {
 }
 
 void main() {
-    vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor;
+    vec4 vertexColor = uHasVertexColor != 0 ? vVertexColor : vec4(1.0);
+    vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor * vertexColor;
+    if (uAlphaCutoff > 0.0 && baseSample.a < uAlphaCutoff) discard;
     vec2 mr = texture(uMetallicRoughnessMap, vTexCoord).gb;
     float roughness = clamp(mr.x * uRoughnessFactor, 0.045, 1.0);
     float metallic = clamp(mr.y * uMetallicFactor, 0.0, 1.0);
     vec3 n = normalize(vNormal);
+    if (uDoubleSided != 0 && !gl_FrontFacing) n = -n;
     if (uEnableNormalMap != 0) {
         vec3 sampled = texture(uNormalMap, vTexCoord).xyz * 2.0 - 1.0;
         sampled.xy *= uNormalScale;

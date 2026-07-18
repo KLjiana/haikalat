@@ -14,6 +14,8 @@ public interface PipelineStateSink {
 
     void enableCullFace(boolean enable);
 
+    void frontFace(int winding);
+
     void enableScissor(boolean enable);
 
     void scissor(int x, int y, int width, int height);

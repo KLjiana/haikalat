@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
+import com.kaleblangley.haikalat.core.FrontFace;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
@@ -320,6 +321,7 @@ public final class RenderPipeline {
         for (MeshRenderer renderer : scene.forwardDrawOrder()) {
             renderer.modelMatrix(model, frameIndex);
             MaterialInstance material = renderer.material();
+            cmd.frontFace(model.determinant3x3() < 0.0f ? FrontFace.CW : FrontFace.CCW);
             material.bind(cmd);
             ShaderProgram shader = material.material().shader();
             bindFrameState(shader, cmd, shadowTexture);

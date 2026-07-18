@@ -36,7 +36,8 @@ public record SceneAssetConfig(
         Map<String, MaterialDef> materials,
         Map<String, ModelDef> models,
         Map<String, ObjectDef> objects,
-        Map<String, LightDef> lights
+        Map<String, LightDef> lights,
+        Map<String, GltfSceneDef> gltfScenes
 ) {
     public SceneAssetConfig {
         shaders = Map.copyOf(Objects.requireNonNull(shaders, "shaders"));
@@ -45,7 +46,18 @@ public record SceneAssetConfig(
         models = Map.copyOf(Objects.requireNonNull(models, "models"));
         objects = Map.copyOf(Objects.requireNonNull(objects, "objects"));
         lights = Map.copyOf(Objects.requireNonNull(lights, "lights"));
+        gltfScenes = Map.copyOf(Objects.requireNonNull(gltfScenes, "gltfScenes"));
         validateReferences(shaders, textures, materials, models, objects);
+        for (String name : gltfScenes.keySet()) {
+            if (objects.containsKey(name)) throw new GlException(
+                    "gltf." + name + " conflicts with object." + name);
+        }
+    }
+
+    public SceneAssetConfig(Map<String, ShaderAsset> shaders, Map<String, TextureDef> textures,
+                            Map<String, MaterialDef> materials, Map<String, ModelDef> models,
+                            Map<String, ObjectDef> objects, Map<String, LightDef> lights) {
+        this(shaders, textures, materials, models, objects, lights, Map.of());
     }
 
     public static SceneAssetConfig load(ResourceLocator locator, String path) {
@@ -70,6 +82,7 @@ public record SceneAssetConfig(
         Map<String, ModelDef> models = new LinkedHashMap<>();
         Map<String, ObjectDef> objects = new LinkedHashMap<>();
         Map<String, LightDef> lights = new LinkedHashMap<>();
+        Map<String, GltfSceneDef> gltfScenes = new LinkedHashMap<>();
 
         for (String name : names(properties, "shader.")) {
             shaders.put(name, shaderAsset(properties, name));
@@ -103,8 +116,24 @@ public record SceneAssetConfig(
                     Float.parseFloat(properties.getProperty("light." + name + ".range", "0")),
                     Boolean.parseBoolean(properties.getProperty("light." + name + ".castShadows", "false"))));
         }
+        for (String name : names(properties, "gltf.")) {
+            String prefix = "gltf." + name + ".";
+            Set<String> allowed = Set.of("path", "scene", "position", "rotation", "scale", "castShadows");
+            for (String key : properties.stringPropertyNames()) {
+                if (key.startsWith(prefix) && !allowed.contains(key.substring(prefix.length()))) {
+                    throw new GlException("Unknown glTF scene property: " + key);
+                }
+            }
+            gltfScenes.put(name, new GltfSceneDef(
+                    AssetRef.of(required(properties, prefix + "path")),
+                    properties.getProperty(prefix + "scene", "default").strip(),
+                    vector(properties, prefix + "position"),
+                    vector(properties, prefix + "rotation"),
+                    Float.parseFloat(properties.getProperty(prefix + "scale", "1")),
+                    Boolean.parseBoolean(properties.getProperty(prefix + "castShadows", "true"))));
+        }
 
-        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights);
+        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights, gltfScenes);
     }
 
     public static SceneAssetConfig parse(String source) {
@@ -114,6 +143,7 @@ public record SceneAssetConfig(
         Map<String, ModelDef> models = new LinkedHashMap<>();
         Map<String, ObjectDef> objects = new LinkedHashMap<>();
         Map<String, LightDef> lights = new LinkedHashMap<>();
+        Map<String, GltfSceneDef> gltfScenes = new LinkedHashMap<>();
 
         String[] lines = Objects.requireNonNull(source, "source").split("\\R");
         for (int lineNumber = 0; lineNumber < lines.length; lineNumber++) {
@@ -132,13 +162,14 @@ public record SceneAssetConfig(
                     case "model" -> models.put(parts[1], new ModelDef(AssetRef.of(parts[2])));
                     case "object" -> objects.put(parts[1], parseObject(parts));
                     case "light" -> lights.put(parts[1], parseLight(parts));
+                    case "gltf" -> gltfScenes.put(parts[1], parseGltf(parts));
                     default -> throw new GlException("Unknown scene config directive: " + parts[0]);
                 }
             } catch (RuntimeException e) {
                 throw new GlException("Invalid scene config at line " + (lineNumber + 1) + ": " + lines[lineNumber], e);
             }
         }
-        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights);
+        return new SceneAssetConfig(shaders, textures, materials, models, objects, lights, gltfScenes);
     }
 
     private static MaterialDef parseMaterial(String[] parts) {
@@ -168,6 +199,14 @@ public record SceneAssetConfig(
                 Float.parseFloat(parts[9]),
                 Float.parseFloat(parts[10]),
                 Boolean.parseBoolean(parts[11]));
+    }
+
+    private static GltfSceneDef parseGltf(String[] parts) {
+        requireLength(parts, 12);
+        return new GltfSceneDef(AssetRef.of(parts[2]), parts[3],
+                new Vector3f(Float.parseFloat(parts[4]), Float.parseFloat(parts[5]), Float.parseFloat(parts[6])),
+                new Vector3f(Float.parseFloat(parts[7]), Float.parseFloat(parts[8]), Float.parseFloat(parts[9])),
+                Float.parseFloat(parts[10]), Boolean.parseBoolean(parts[11]));
     }
 
     private static void requireLength(String[] parts, int length) {
@@ -426,6 +465,24 @@ public record SceneAssetConfig(
     }
 
     public record ModelDef(AssetRef path) {
+    }
+
+    /** glTF 内部材质驱动的静态场景实例配置。 */
+    public record GltfSceneDef(AssetRef path, String scene, Vector3f position,
+                               Vector3f rotationRadians, float scale, boolean castShadows) {
+        public GltfSceneDef {
+            path = Objects.requireNonNull(path, "path");
+            if (!path.extension().equals("gltf") && !path.extension().equals("glb")) {
+                throw new GlException("glTF scene path must use .gltf or .glb: " + path.path());
+            }
+            scene = Objects.requireNonNull(scene, "scene").strip();
+            if (scene.isEmpty()) throw new GlException("glTF scene selector must not be blank");
+            position = new Vector3f(Objects.requireNonNull(position, "position"));
+            rotationRadians = new Vector3f(Objects.requireNonNull(rotationRadians, "rotationRadians"));
+            if (!position.isFinite()) throw new GlException("glTF scene position must be finite");
+            if (!rotationRadians.isFinite()) throw new GlException("glTF scene rotation must be finite");
+            if (!Float.isFinite(scale) || scale == 0.0f) throw new GlException("glTF scene scale must be finite and non-zero");
+        }
     }
 
     public record ObjectDef(
