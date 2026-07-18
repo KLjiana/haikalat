@@ -1,39 +1,6 @@
-# v0.11 UI 顶层 public 类型分类。格式：<stable|advanced|internal> <fully-qualified-name>
-# 新增、删除或移动 public 类型时必须在同一提交中更新本文件。
+# v0.14 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
 
-stable com.kaleblangley.haikalat.subsystems.ui.UiConfig
-stable com.kaleblangley.haikalat.subsystems.ui.UiDocument
-stable com.kaleblangley.haikalat.subsystems.ui.UiId
-stable com.kaleblangley.haikalat.subsystems.ui.UiNode
-stable com.kaleblangley.haikalat.subsystems.ui.UiSemanticRole
-stable com.kaleblangley.haikalat.subsystems.ui.UiSystem
-stable com.kaleblangley.haikalat.subsystems.ui.UiVisibility
-stable com.kaleblangley.haikalat.subsystems.ui.event.FocusManager
-stable com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox
-stable com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle
-stable com.kaleblangley.haikalat.subsystems.ui.style.Theme
-stable com.kaleblangley.haikalat.subsystems.ui.style.ThemeTokens
-stable com.kaleblangley.haikalat.subsystems.ui.style.UiColor
-stable com.kaleblangley.haikalat.subsystems.ui.style.UiInsets
-stable com.kaleblangley.haikalat.subsystems.ui.style.UiLength
-stable com.kaleblangley.haikalat.subsystems.ui.style.UiStyle
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Button
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Image
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Label
-stable com.kaleblangley.haikalat.subsystems.ui.widget.ListView
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Menu
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Panel
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Popup
-stable com.kaleblangley.haikalat.subsystems.ui.widget.ScrollView
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Slider
-stable com.kaleblangley.haikalat.subsystems.ui.widget.TextField
-stable com.kaleblangley.haikalat.subsystems.ui.widget.Toggle
-
-advanced com.kaleblangley.haikalat.subsystems.ui.UiDebugOptions
-advanced com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats
-advanced com.kaleblangley.haikalat.subsystems.ui.UiDirtyFlag
-advanced com.kaleblangley.haikalat.subsystems.ui.UiFrameStats
-advanced com.kaleblangley.haikalat.subsystems.ui.UiImageId
 advanced com.kaleblangley.haikalat.subsystems.ui.event.EventPhase
 advanced com.kaleblangley.haikalat.subsystems.ui.event.FocusEvent
 advanced com.kaleblangley.haikalat.subsystems.ui.event.KeyEvent
@@ -75,7 +42,11 @@ advanced com.kaleblangley.haikalat.subsystems.ui.text.TextRange
 advanced com.kaleblangley.haikalat.subsystems.ui.text.TextRun
 advanced com.kaleblangley.haikalat.subsystems.ui.text.TextShaper
 advanced com.kaleblangley.haikalat.subsystems.ui.text.TextWrapMode
-
+advanced com.kaleblangley.haikalat.subsystems.ui.UiBatchBreakStats
+advanced com.kaleblangley.haikalat.subsystems.ui.UiDebugOptions
+advanced com.kaleblangley.haikalat.subsystems.ui.UiDirtyFlag
+advanced com.kaleblangley.haikalat.subsystems.ui.UiFrameStats
+advanced com.kaleblangley.haikalat.subsystems.ui.UiImageId
 internal com.kaleblangley.haikalat.subsystems.ui.event.UiInputRouter
 internal com.kaleblangley.haikalat.subsystems.ui.layout.LayoutEngine
 internal com.kaleblangley.haikalat.subsystems.ui.layout.LayoutPostProcessor
@@ -113,3 +84,30 @@ internal com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest
 internal com.kaleblangley.haikalat.subsystems.ui.text.ShapingCache
 internal com.kaleblangley.haikalat.subsystems.ui.text.ShapingCacheKey
 internal com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine
+stable com.kaleblangley.haikalat.subsystems.ui.event.FocusManager
+stable com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox
+stable com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle
+stable com.kaleblangley.haikalat.subsystems.ui.style.Theme
+stable com.kaleblangley.haikalat.subsystems.ui.style.ThemeTokens
+stable com.kaleblangley.haikalat.subsystems.ui.style.UiColor
+stable com.kaleblangley.haikalat.subsystems.ui.style.UiInsets
+stable com.kaleblangley.haikalat.subsystems.ui.style.UiLength
+stable com.kaleblangley.haikalat.subsystems.ui.style.UiStyle
+stable com.kaleblangley.haikalat.subsystems.ui.UiConfig
+stable com.kaleblangley.haikalat.subsystems.ui.UiDocument
+stable com.kaleblangley.haikalat.subsystems.ui.UiId
+stable com.kaleblangley.haikalat.subsystems.ui.UiNode
+stable com.kaleblangley.haikalat.subsystems.ui.UiSemanticRole
+stable com.kaleblangley.haikalat.subsystems.ui.UiSystem
+stable com.kaleblangley.haikalat.subsystems.ui.UiVisibility
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Button
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Image
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Label
+stable com.kaleblangley.haikalat.subsystems.ui.widget.ListView
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Menu
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Panel
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Popup
+stable com.kaleblangley.haikalat.subsystems.ui.widget.ScrollView
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Slider
+stable com.kaleblangley.haikalat.subsystems.ui.widget.TextField
+stable com.kaleblangley.haikalat.subsystems.ui.widget.Toggle

@@ -113,8 +113,10 @@ public final class UiDocument implements AutoCloseable {
     /** 按 paint order 逆序命中最上层节点，同时服从祖先裁剪。 */
     public UiNode hitTest(double x, double y) {
         ensureOpen();
-        UiNode overlay = hitTest(overlayRoot, x, y, null, 0.0, 0.0);
-        return overlay != null ? overlay : hitTest(root, x, y, null, 0.0, 0.0);
+        UiNode overlay = hitTest(overlayRoot, x, y, false,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return overlay != null ? overlay : hitTest(root, x, y, false,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
 
     /** 返回叠加所有祖先 scroll/transform 后的逻辑可视矩形。 */
@@ -241,25 +243,49 @@ public final class UiDocument implements AutoCloseable {
         for (UiNode child : node.children()) appendVisible(child, output);
     }
 
-    private static UiNode hitTest(UiNode node, double x, double y, LayoutBox inheritedClip,
+    private static UiNode hitTest(UiNode node, double x, double y, boolean hasClip,
+                                  double clipX, double clipY, double clipWidth, double clipHeight,
                                   double offsetX, double offsetY) {
         if (node.visibility() != UiVisibility.VISIBLE) return null;
         LayoutBox raw = node.layoutBox();
-        LayoutBox box = new LayoutBox((float) (raw.x() + offsetX), (float) (raw.y() + offsetY),
-                raw.width(), raw.height());
-        LayoutBox clip = inheritedClip;
+        double boxX = raw.x() + offsetX;
+        double boxY = raw.y() + offsetY;
+        double boxWidth = raw.width();
+        double boxHeight = raw.height();
         if (node.clipChildren()) {
-            clip = clip == null ? box : clip.intersect(box);
+            if (hasClip) {
+                double left = Math.max(clipX, boxX);
+                double top = Math.max(clipY, boxY);
+                double right = Math.min(clipX + clipWidth, boxX + boxWidth);
+                double bottom = Math.min(clipY + clipHeight, boxY + boxHeight);
+                clipX = left;
+                clipY = top;
+                clipWidth = Math.max(0.0, right - left);
+                clipHeight = Math.max(0.0, bottom - top);
+            } else {
+                hasClip = true;
+                clipX = boxX;
+                clipY = boxY;
+                clipWidth = boxWidth;
+                clipHeight = boxHeight;
+            }
         }
-        if (clip != null && !clip.contains(x, y)) return null;
+        if (hasClip && !contains(clipX, clipY, clipWidth, clipHeight, x, y)) return null;
         List<UiNode> children = node.children();
         double childOffsetX = offsetX + node.childVisualOffsetX();
         double childOffsetY = offsetY + node.childVisualOffsetY();
         for (int index = children.size() - 1; index >= 0; index--) {
-            UiNode hit = hitTest(children.get(index), x, y, clip, childOffsetX, childOffsetY);
+            UiNode hit = hitTest(children.get(index), x, y, hasClip,
+                    clipX, clipY, clipWidth, clipHeight, childOffsetX, childOffsetY);
             if (hit != null) return hit;
         }
-        return node.hitTestVisible() && box.contains(x, y) ? node : null;
+        return node.hitTestVisible() && contains(boxX, boxY, boxWidth, boxHeight, x, y)
+                ? node : null;
+    }
+
+    private static boolean contains(double x, double y, double width, double height,
+                                    double pointX, double pointY) {
+        return pointX >= x && pointX < x + width && pointY >= y && pointY < y + height;
     }
 
     private static boolean isDescendantOrSelf(UiNode node, UiNode root) {

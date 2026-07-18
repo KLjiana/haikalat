@@ -1,0 +1,26 @@
+# v0.14 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.render3d.Camera
+advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalShadowMap
+advanced com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer
+advanced com.kaleblangley.haikalat.subsystems.render3d.LightType
+advanced com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrTextureBinding
+advanced com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline
+advanced com.kaleblangley.haikalat.subsystems.render3d.RenderPipelineKind
+advanced com.kaleblangley.haikalat.subsystems.render3d.Scene
+advanced com.kaleblangley.haikalat.subsystems.render3d.SceneLight
+advanced com.kaleblangley.haikalat.subsystems.render3d.SceneObject
+advanced com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad
+advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.Transform
+internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
+internal com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder
+stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary
+stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset
+stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment
+stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader
+stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings

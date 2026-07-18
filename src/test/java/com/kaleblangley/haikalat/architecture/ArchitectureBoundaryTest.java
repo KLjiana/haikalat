@@ -3,17 +3,122 @@ package com.kaleblangley.haikalat.architecture;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArchitectureBoundaryTest {
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
     private static final Path HAIKALAT = MAIN_JAVA.resolve(
             Path.of("com", "kaleblangley", "haikalat"));
+    private static final Set<String> FORBIDDEN_STABLE_SIGNATURE_PREFIXES = Set.of(
+            "org.lwjgl.", "com.fasterxml.jackson.", "com.sun.jna.");
+
+    @Test
+    void wholeProjectPublicTypesMatchAllowlist() throws IOException {
+        Set<String> discovered = PublicApiCatalog.discover(MAIN_JAVA);
+        Map<String, PublicApiCatalog.Entry> catalog = PublicApiCatalog.read();
+        Set<String> unclassified = new HashSet<>(discovered);
+        unclassified.removeAll(catalog.keySet());
+        Set<String> stale = new HashSet<>(catalog.keySet());
+        stale.removeAll(discovered);
+
+        assertEquals(Set.of(), unclassified,
+                "new public types require classification in docs/architecture/public-api: "
+                        + unclassified);
+        assertEquals(Set.of(), stale,
+                "remove stale public API entries or document a stable migration: " + stale);
+        assertCatalogDomains(catalog);
+    }
+
+    @Test
+    void stableSignaturesDoNotExposeImplementationLibraries() throws Exception {
+        for (PublicApiCatalog.Entry entry : PublicApiCatalog.read().values()) {
+            if (!entry.category().equals("stable")) continue;
+            Class<?> type = Class.forName(entry.type(), false, getClass().getClassLoader());
+            for (Field field : type.getDeclaredFields()) {
+                if (isPublicOrProtected(field.getModifiers())) {
+                    assertAllowedSignature(entry.type(), field.toGenericString(), field.getGenericType());
+                }
+            }
+            for (Executable executable : concat(type.getDeclaredConstructors(), type.getDeclaredMethods())) {
+                if (!isPublicOrProtected(executable.getModifiers())) continue;
+                for (Type parameter : executable.getGenericParameterTypes()) {
+                    assertAllowedSignature(entry.type(), executable.toGenericString(), parameter);
+                }
+                for (Type exception : executable.getGenericExceptionTypes()) {
+                    assertAllowedSignature(entry.type(), executable.toGenericString(), exception);
+                }
+                for (TypeVariable<?> variable : executable.getTypeParameters()) {
+                    for (Type bound : variable.getBounds()) {
+                        assertAllowedSignature(entry.type(), executable.toGenericString(), bound);
+                    }
+                }
+                if (executable instanceof java.lang.reflect.Method method) {
+                    assertAllowedSignature(entry.type(), executable.toGenericString(),
+                            method.getGenericReturnType());
+                }
+            }
+        }
+    }
+
+    @Test
+    void removedStableTypesRequireMigrationRecord() throws IOException {
+        Set<String> currentStable = new HashSet<>();
+        PublicApiCatalog.read().values().stream()
+                .filter(entry -> entry.category().equals("stable"))
+                .map(PublicApiCatalog.Entry::type)
+                .forEach(currentStable::add);
+        Set<String> baseline = new HashSet<>();
+        for (String line : Files.readAllLines(PublicApiCatalog.DIRECTORY.resolve(
+                "stable-baseline.allowlist"))) {
+            line = line.strip();
+            if (!line.isEmpty() && !line.startsWith("#")) baseline.add(line);
+        }
+        String migrations = Files.readString(PublicApiCatalog.DIRECTORY.resolve("migrations.md"));
+        Set<String> undocumented = baseline.stream()
+                .filter(type -> !currentStable.contains(type))
+                .filter(type -> !migrations.contains("`" + type + "`"))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        assertEquals(Set.of(), undocumented,
+                "removed stable types require a migration entry in public-api/migrations.md");
+    }
+
+    @Test
+    void internalTypesStayInsideTheirSubsystemOrDemoProof() throws IOException {
+        Map<String, PublicApiCatalog.Entry> catalog = PublicApiCatalog.read();
+        for (PublicApiCatalog.Entry entry : catalog.values()) {
+            if (!entry.category().equals("internal")) continue;
+            String importLine = "import " + entry.type() + ";";
+            for (Path root : Set.of(MAIN_JAVA, Path.of("src", "demo", "java"))) {
+                if (!Files.isDirectory(root)) continue;
+                try (var files = Files.walk(root)) {
+                    for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                        if (!Files.readString(file).contains(importLine)) continue;
+                        String normalized = file.toString().replace('\\', '/');
+                        boolean demo = normalized.startsWith("src/demo/");
+                        assertTrue(demo || normalized.contains(domainPath(entry.file())),
+                                entry.type() + " is internal but imported by " + file);
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     void backendDoesNotDependOnHigherLayers() throws IOException {
         Path backend = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "backend"));
@@ -131,6 +236,87 @@ class ArchitectureBoundaryTest {
         Path renderSettings = HAIKALAT.resolve(Path.of("runtime", "RenderSettings.java"));
         assertTrue(!Files.readString(renderSettings).contains("PbrEnvironment"),
                 "RenderSettings must not own PBR GL resources");
+    }
+
+    @Test
+    void unverifiedNativeModelEntryPointAndDependencyStayRemoved() throws IOException {
+        Path experimentalLoader = HAIKALAT.resolve(Path.of("core", "assets", "Ass" + "impModelLoader.java"));
+        assertTrue(!Files.exists(experimentalLoader), "The unverified native model entry point must remain removed");
+
+        String build = Files.readString(Path.of("build.gradle"));
+        assertTrue(!build.contains("lwjgl-" + "assimp"),
+                "The runtime classpath must not reintroduce the removed native dependency");
+    }
+
+    private static void assertCatalogDomains(Map<String, PublicApiCatalog.Entry> catalog) {
+        Map<String, Set<String>> prefixes = Map.of(
+                "backend.allowlist", Set.of("com.kaleblangley.haikalat.backend."),
+                "core.allowlist", Set.of("com.kaleblangley.haikalat.core.",
+                        "com.kaleblangley.haikalat.util."),
+                "runtime.allowlist", Set.of("com.kaleblangley.haikalat.runtime."),
+                "render3d.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.render3d."),
+                "postprocess.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.postprocess."),
+                "ui.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.ui."),
+                "windowing.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.windowing."));
+        for (PublicApiCatalog.Entry entry : catalog.values()) {
+            assertTrue(prefixes.get(entry.file()).stream().anyMatch(entry.type()::startsWith),
+                    entry.type() + " is in the wrong allowlist " + entry.file());
+        }
+    }
+
+    private static String domainPath(String allowlist) {
+        return switch (allowlist) {
+            case "backend.allowlist" -> "/backend/";
+            case "core.allowlist" -> "/core/";
+            case "runtime.allowlist" -> "/runtime/";
+            case "render3d.allowlist" -> "/subsystems/render3d/";
+            case "postprocess.allowlist" -> "/subsystems/postprocess/";
+            case "ui.allowlist" -> "/subsystems/ui/";
+            case "windowing.allowlist" -> "/subsystems/windowing/";
+            default -> throw new AssertionError("unknown allowlist " + allowlist);
+        };
+    }
+
+    private static boolean isPublicOrProtected(int modifiers) {
+        return Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers);
+    }
+
+    private static void assertAllowedSignature(String owner, String signature, Type type) {
+        for (String referenced : referencedTypes(type)) {
+            assertFalse(FORBIDDEN_STABLE_SIGNATURE_PREFIXES.stream().anyMatch(referenced::startsWith),
+                    owner + " exposes implementation type " + referenced + " in " + signature);
+        }
+    }
+
+    private static Set<String> referencedTypes(Type type) {
+        Set<String> result = new HashSet<>();
+        collectTypes(type, result);
+        return result;
+    }
+
+    private static void collectTypes(Type type, Set<String> output) {
+        if (type instanceof Class<?> clazz) {
+            if (clazz.isArray()) collectTypes(clazz.getComponentType(), output);
+            else output.add(clazz.getName());
+        } else if (type instanceof ParameterizedType parameterized) {
+            collectTypes(parameterized.getRawType(), output);
+            for (Type argument : parameterized.getActualTypeArguments()) collectTypes(argument, output);
+        } else if (type instanceof WildcardType wildcard) {
+            for (Type bound : wildcard.getUpperBounds()) collectTypes(bound, output);
+            for (Type bound : wildcard.getLowerBounds()) collectTypes(bound, output);
+        } else if (type instanceof TypeVariable<?> variable) {
+            for (Type bound : variable.getBounds()) collectTypes(bound, output);
+        } else if (type instanceof GenericArrayType array) {
+            collectTypes(array.getGenericComponentType(), output);
+        }
+    }
+
+    private static Executable[] concat(java.lang.reflect.Constructor<?>[] constructors,
+                                       java.lang.reflect.Method[] methods) {
+        Executable[] result = new Executable[constructors.length + methods.length];
+        System.arraycopy(constructors, 0, result, 0, constructors.length);
+        System.arraycopy(methods, 0, result, constructors.length, methods.length);
+        return result;
     }
 
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {

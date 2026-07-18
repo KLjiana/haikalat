@@ -1,7 +1,7 @@
 # v0.11 UI 公共 API 分层
 
 v0.11 RC 的 Java 可见性不是兼容性承诺。UI 实现存在跨子包协作，因此部分实现类型暂时仍为
-`public`；兼容边界由 [`ui-public-api.allowlist`](ui-public-api.allowlist) 明确分类，并由
+`public`；兼容边界由 [UI API 清单](public-api/ui.allowlist) 明确分类，并由
 `UiPublicApiSurfaceTest` 强制保持穷尽且互斥。
 
 ## 分类语义

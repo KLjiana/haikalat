@@ -20,7 +20,7 @@ class PbrPublicApiSurfaceTest {
     private static final Path PBR_SOURCE = Path.of("src", "main", "java", "com",
             "kaleblangley", "haikalat", "subsystems", "render3d", "pbr");
     private static final Path ALLOWLIST = Path.of("docs", "architecture",
-            "pbr-public-api.allowlist");
+            "public-api", "render3d.allowlist");
     private static final Pattern PACKAGE = Pattern.compile(
             "(?m)^package\\s+([A-Za-z0-9_.]+);");
     private static final Pattern PUBLIC_TOP_LEVEL = Pattern.compile(
@@ -30,8 +30,10 @@ class PbrPublicApiSurfaceTest {
 
     @Test
     void everyPublicPbrTypeHasExactlyOneCurrentClassification() throws IOException {
-        Map<String, String> classified = readAllowlist();
         Set<String> discovered = discoverPublicTypes();
+        Map<String, String> classified = new HashMap<>(readAllowlist());
+        classified.keySet().removeIf(type -> !type.startsWith(
+                "com.kaleblangley.haikalat.subsystems.render3d.pbr."));
         Set<String> unclassified = new HashSet<>(discovered);
         unclassified.removeAll(classified.keySet());
         Set<String> stale = new HashSet<>(classified.keySet());

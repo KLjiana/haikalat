@@ -92,13 +92,22 @@ public final class UiPainter {
     private void paintNode(UiDocument document, UiNode node,
                            double offsetX, double offsetY, UiDisplayList output) {
         if (node.visibility() != UiVisibility.VISIBLE) return;
-        UiScreenRect nodeBounds = bounds(node, offsetX, offsetY);
-        paintVisual(document, node, nodeBounds, output);
+        LayoutBox layout = node.layoutBox();
+        double x = layout.x() + offsetX;
+        double y = layout.y() + offsetY;
+        double width = layout.width();
+        double height = layout.height();
+        boolean clipped = clipsChildren(node);
+        boolean scalarPanel = node instanceof Panel
+                && !(node instanceof Slider) && !(node instanceof TextField)
+                && !clipped && !debugOptions.layoutBounds();
+        UiScreenRect nodeBounds = scalarPanel ? null : new UiScreenRect(x, y, width, height);
+        if (scalarPanel) paintBox(node.computedStyle(), x, y, width, height, output);
+        else paintVisual(document, node, nodeBounds, output);
         if (debugOptions.layoutBounds() && !nodeBounds.isEmpty()) {
             output.addDebugOutline(nodeBounds, DEBUG_BOUNDS_COLOR);
         }
 
-        boolean clipped = clipsChildren(node);
         if (clipped) output.pushClip(nodeBounds);
         try {
             double childOffsetX = offsetX + node.childVisualOffsetX();
@@ -172,22 +181,27 @@ public final class UiPainter {
 
     private static void paintBox(ComputedStyle style, UiScreenRect bounds,
                                  UiDisplayList output) {
+        paintBox(style, bounds.x(), bounds.y(), bounds.width(), bounds.height(), output);
+    }
+
+    private static void paintBox(ComputedStyle style, double x, double y,
+                                 double width, double height, UiDisplayList output) {
         int background = premultipliedRgba8(style.background(), style.opacity());
-        if (!bounds.isEmpty() && alpha(background) != 0) {
-            output.addSolidQuad(bounds, background, UiBlendMode.PREMULTIPLIED_ALPHA);
+        if (width > 0.0 && height > 0.0 && alpha(background) != 0) {
+            output.addSolidQuad(x, y, width, height,
+                    background, UiBlendMode.PREMULTIPLIED_ALPHA);
         }
         double border = Math.min(style.borderWidth(),
-                Math.min(bounds.width() * 0.5, bounds.height() * 0.5));
+                Math.min(width * 0.5, height * 0.5));
         int borderColor = premultipliedRgba8(style.borderColor(), style.opacity());
-        if (border <= 0.0 || alpha(borderColor) == 0 || bounds.isEmpty()) return;
+        if (border <= 0.0 || alpha(borderColor) == 0 || width <= 0.0 || height <= 0.0) return;
 
-        addSolid(output, bounds.x(), bounds.y(), bounds.width(), border, borderColor);
-        addSolid(output, bounds.x(), bounds.bottom() - border,
-                bounds.width(), border, borderColor);
-        double sideHeight = Math.max(0.0, bounds.height() - border * 2.0);
-        addSolid(output, bounds.x(), bounds.y() + border,
+        addSolid(output, x, y, width, border, borderColor);
+        addSolid(output, x, y + height - border, width, border, borderColor);
+        double sideHeight = Math.max(0.0, height - border * 2.0);
+        addSolid(output, x, y + border,
                 border, sideHeight, borderColor);
-        addSolid(output, bounds.right() - border, bounds.y() + border,
+        addSolid(output, x + width - border, y + border,
                 border, sideHeight, borderColor);
     }
 

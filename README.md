@@ -24,8 +24,8 @@ current goals, capabilities, and non-goals.
   linear HDR/ACES tone mapping, optional multi-level Bloom, explicit linear/sRGB textures,
   and selectable none/MSAA/FXAA/TAA paths.
 - Asset helpers for classpath resources, shader assets, texture caching,
-  `.properties` scene configuration, and an OBJ path exercised by the main demo;
-  the Assimp loader remains experimental.
+  `.properties` scene configuration, the OBJ path exercised by the main demo,
+  and the static glTF 2.0 path exercised by the dedicated glTF demo.
 - A retained-mode game UI subsystem with Yoga layout, typed theme/widgets/events,
   virtualized lists, popup/focus/clipboard support, bundled Noto Sans SC shaping through
   FreeType/HarfBuzz, a GPU glyph atlas, typed scissor/texture uploads, and Windows IME composition.
@@ -54,6 +54,12 @@ CI runs the same non-windowed path plus demo source compilation:
 .\gradlew.bat compileJava demoClasses test
 ```
 
+The equivalent named v0.14 no-desktop verification gate is:
+
+```powershell
+.\gradlew.bat quickVerification
+```
+
 Opt-in GL smoke checks create a hidden GLFW window and verify minimal GL/resource lifecycle behavior:
 
 ```powershell
@@ -75,6 +81,13 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localUiVerification
 .\gradlew.bat localGlVerification
+```
+
+Run the complete local release gate only on a desktop system with a supported
+OpenGL driver:
+
+```powershell
+.\gradlew.bat localReleaseVerification
 ```
 
 Run the interactive Bloom scene or the formal five-round post-v0.8 benchmark suite:

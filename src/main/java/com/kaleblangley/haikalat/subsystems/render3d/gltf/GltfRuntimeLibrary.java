@@ -13,26 +13,17 @@ public final class GltfRuntimeLibrary implements AutoCloseable {
     private boolean closed;
 
     private GltfRuntimeLibrary() {
-        shader = ShaderProgram.fromResource(GltfRuntimeLibrary.class,
+        ShaderProgram createdShader = ShaderProgram.fromResource(GltfRuntimeLibrary.class,
                 "/render3d/pbr/pbr_forward.vert", "/render3d/pbr/pbr_forward.frag");
-        PbrFallbackTextures createdFallbacks = null;
-        Sampler createdSampler = null;
-        try {
-            createdFallbacks = new PbrFallbackTextures();
-            createdSampler = Sampler.linearRepeat();
-        } catch (RuntimeException failure) {
-            if (createdSampler != null) {
-                try { createdSampler.close(); }
-                catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
-            }
-            if (createdFallbacks != null) {
-                try { createdFallbacks.close(); }
-                catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
-            }
-            try { shader.close(); }
-            catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
-            throw failure;
+        PbrFallbackTextures createdFallbacks;
+        Sampler createdSampler;
+        try (CloseStack rollback = new CloseStack()) {
+            rollback.own(createdShader);
+            createdFallbacks = rollback.own(new PbrFallbackTextures());
+            createdSampler = rollback.own(Sampler.linearRepeat());
+            rollback.releaseOwnership();
         }
+        shader = createdShader;
         fallbacks = createdFallbacks;
         defaultSampler = createdSampler;
     }
@@ -58,15 +49,11 @@ public final class GltfRuntimeLibrary implements AutoCloseable {
         if (activeAssets != 0) throw new IllegalStateException(
                 "cannot close glTF runtime library while " + activeAssets + " scene assets are active");
         closed = true;
-        RuntimeException failure = null;
-        try { defaultSampler.close(); } catch (RuntimeException error) { failure = error; }
-        try { fallbacks.close(); } catch (RuntimeException error) {
-            if (failure == null) failure = error; else failure.addSuppressed(error);
-        }
-        try { shader.close(); } catch (RuntimeException error) {
-            if (failure == null) failure = error; else failure.addSuppressed(error);
-        }
-        if (failure != null) throw failure;
+        CloseStack resources = new CloseStack();
+        resources.own(shader);
+        resources.own(fallbacks);
+        resources.own(defaultSampler);
+        resources.close();
     }
 
     private void ensureOpen() { if (closed) throw new IllegalStateException("glTF runtime library is closed"); }

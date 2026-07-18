@@ -233,7 +233,7 @@ public final class UiSystem implements AutoCloseable {
             throw new IllegalStateException("UiSnapshotExchange publication was interrupted", interrupted);
         }
 
-        long visibleNodes = document.paintOrder().size();
+        long visibleNodes = countNodes(document.root()) + countNodes(document.overlayRoot());
         long updateNanos = System.nanoTime() - updateStart;
         ShapingCache.Statistics shaping = textEngine.shapingStatistics();
         GlyphAtlasStatistics atlas = textEngine.atlasStatistics();

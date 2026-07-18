@@ -1,0 +1,9 @@
+# v0.14 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.postprocess.AutoExposurePass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.BloomPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor
+advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass

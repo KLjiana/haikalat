@@ -1,0 +1,20 @@
+# v0.14 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.ClipboardService
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.GlfwClipboardService
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.ImeComposition
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.Key
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.KeyModifiers
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.MouseButton
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.QueuedTextInputClient
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.TestTextInputAdapter
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.TextInputAdapter
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.TextInputClient
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.TextInputRect
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.UnavailableTextInputAdapter
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.win32.Win32TextInputAdapter
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputCollector
+advanced com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot
+advanced com.kaleblangley.haikalat.subsystems.windowing.RenderWindow

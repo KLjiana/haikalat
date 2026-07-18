@@ -60,6 +60,17 @@ class AssetPipelineTest {
     }
 
     @Test
+    void lineManifestPreservesLineContextForParserFailures() {
+        GlException error = assertThrows(GlException.class, () -> SceneAssetConfig.parse("""
+                shader color /demo/color.vert /demo/color.frag
+                object cube01 cube
+                """));
+
+        assertTrue(error.getMessage().contains("line 2"));
+        assertTrue(error.getMessage().contains("object cube01 cube"));
+    }
+
+    @Test
     void sceneConfigParsesStandardPropertiesFormat() {
         SceneAssetConfig config = SceneAssetConfig.parseProperties("""
                 shader.color.vertex=/demo/color.vert
@@ -102,6 +113,42 @@ class AssetPipelineTest {
         assertEquals("/models/cube.obj", config.models().get("cube").path().path());
         assertEquals(1.0f, config.objects().get("cube01").position().x, 1.0e-6f);
         assertEquals(true, config.lights().get("sun").castShadows());
+    }
+
+    @Test
+    void sceneConfigSyntaxesProduceEquivalentDefinitions() {
+        SceneAssetConfig text = SceneAssetConfig.parse("""
+                shader color /demo/color.vert /demo/color.frag
+                texture wall /wall.png false
+                material wallMat color alpha false
+                model cube /models/cube.obj
+                object cube01 cube wallMat 1 2 3 0 0 0 1 true
+                light sun directional -1 -1 -1 1 1 1 2 0 true
+                """);
+        SceneAssetConfig properties = SceneAssetConfig.parseProperties("""
+                shader.color.vertex=/demo/color.vert
+                shader.color.fragment=/demo/color.frag
+                texture.wall.path=/wall.png
+                texture.wall.flipVertically=false
+                material.wallMat.shader=color
+                material.wallMat.blend=alpha
+                material.wallMat.depthTest=false
+                model.cube.path=/models/cube.obj
+                object.cube01.model=cube
+                object.cube01.material=wallMat
+                object.cube01.position=1,2,3
+                object.cube01.rotation=0,0,0
+                object.cube01.scale=1
+                object.cube01.castShadows=true
+                light.sun.type=directional
+                light.sun.vector=-1,-1,-1
+                light.sun.color=1,1,1
+                light.sun.intensity=2
+                light.sun.range=0
+                light.sun.castShadows=true
+                """);
+
+        assertEquals(text, properties);
     }
 
     @Test
@@ -399,6 +446,25 @@ class AssetPipelineTest {
                 gltf.radio.path=/radio.gltf
                 gltf.radio.position=NaN,0,0
                 """));
+    }
+
+    @Test
+    void scenePropertiesRejectMalformedScalarsWithTheirExactKey() {
+        GlException number = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                light.sun.type=DIRECTIONAL
+                light.sun.vector=0,-1,0
+                light.sun.color=1,1,1
+                light.sun.intensity=bright
+                """));
+        assertTrue(number.getMessage().contains("light.sun.intensity"));
+
+        GlException flag = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
+                gltf.radio.path=/radio.gltf
+                gltf.radio.position=0,0,0
+                gltf.radio.rotation=0,0,0
+                gltf.radio.castShadows=sometimes
+                """));
+        assertTrue(flag.getMessage().contains("gltf.radio.castShadows"));
     }
 
     private static Texture2D texture(int id) throws Exception {

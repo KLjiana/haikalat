@@ -20,7 +20,7 @@ class UiPublicApiSurfaceTest {
     private static final Path UI_SOURCE = Path.of("src", "main", "java", "com",
             "kaleblangley", "haikalat", "subsystems", "ui");
     private static final Path ALLOWLIST = Path.of("docs", "architecture",
-            "ui-public-api.allowlist");
+            "public-api", "ui.allowlist");
     private static final Pattern PACKAGE = Pattern.compile(
             "(?m)^package\\s+([A-Za-z0-9_.]+);");
     private static final Pattern PUBLIC_TOP_LEVEL = Pattern.compile(
@@ -30,8 +30,8 @@ class UiPublicApiSurfaceTest {
 
     @Test
     void everyPublicUiTypeHasExactlyOneCurrentClassification() throws IOException {
-        Map<String, String> classified = readAllowlist();
         Set<String> discovered = discoverPublicTypes();
+        Map<String, String> classified = new HashMap<>(readAllowlist());
         Set<String> unclassified = new HashSet<>(discovered);
         unclassified.removeAll(classified.keySet());
         Set<String> stale = new HashSet<>(classified.keySet());

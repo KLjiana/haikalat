@@ -25,6 +25,7 @@ public abstract class UiNode implements AutoCloseable {
 
     private final UiId id = new UiId(NEXT_ID.getAndIncrement());
     private final List<UiNode> children = new ArrayList<>();
+    private List<UiNode> childrenSnapshot = List.of();
     private final EnumSet<UiDirtyFlag> dirty = EnumSet.allOf(UiDirtyFlag.class);
     private final EnumMap<UiEventType, ListenerSet> listeners = new EnumMap<>(UiEventType.class);
     private UiDocument document;
@@ -60,7 +61,8 @@ public abstract class UiNode implements AutoCloseable {
     }
 
     public final List<UiNode> children() {
-        return List.copyOf(children);
+        if (childrenSnapshot == null) childrenSnapshot = List.copyOf(children);
+        return childrenSnapshot;
     }
 
     public final UiNode add(UiNode child) {
@@ -83,6 +85,7 @@ public abstract class UiNode implements AutoCloseable {
         Runnable mutation = () -> {
             child.parent = this;
             children.add(child);
+            childrenSnapshot = null;
             markTreeChanged();
         };
         mutate(mutation);
@@ -98,6 +101,7 @@ public abstract class UiNode implements AutoCloseable {
         mutate(() -> {
             if (document != null) document.beforeSubtreeDetached(child);
             children.remove(child);
+            childrenSnapshot = null;
             child.parent = null;
             markTreeChanged();
         });

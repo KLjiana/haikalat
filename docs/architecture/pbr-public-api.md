@@ -1,7 +1,7 @@
 # v0.12 PBR 公共 API 分层
 
 PBR 子系统的 Java 可见性不等于兼容性承诺。跨包协作所需的部分实现类型暂时保持
-`public`，实际兼容边界由 [`pbr-public-api.allowlist`](pbr-public-api.allowlist) 分类，
+`public`，实际兼容边界由 [render3d API 清单](public-api/render3d.allowlist) 分类，
 并由 `PbrPublicApiSurfaceTest` 保证分类完整且没有陈旧条目。
 
 - `stable`：环境资源、加载入口与预处理设置，面向普通调用方。

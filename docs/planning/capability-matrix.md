@@ -20,7 +20,6 @@
 | Latin/CJK 文本与 glyph atlas | 完整 | `FontManager`、`TextShaper`、`TextLayouter`、`GlyphAtlas`、`UiGlyphAtlasGpu` | `UiDemo`、`runUiTextIntegration` | native shaping/font/atlas tests、`UiGlyphAtlasGpuGlTest`、`UiDemoGlTest` | 内建 Sans2.004 Noto Sans SC VF；正式承诺 Latin/CJK，暂不承诺完整 BiDi、彩色 emoji 或 variable-axis UI |
 | UI 输入、焦点、clipboard 与 Windows IME | 完整 | `WindowInputSnapshot`、`UiInputRouter`、`TextField`、`TextInputAdapter`、`Win32TextInputAdapter` | `UiDemo`、`runUiInteractiveSoak` | input/focus/TextField tests、可注入 IME integration、`runUiSyntheticImeSoak`、`runUiNativeSoak`、2026-07-17 Microsoft Pinyin 人工矩阵 | committed char 与 composition 分离；非 Windows 平台降级为 committed-char；Emoji 输入可提交，但内建字体不保证对应字形且不支持彩色 Emoji |
 | OBJ 模型与场景配置 | 完整 | `ObjModelLoader`、`ModelAssetManager`、`SceneAssetConfig` | `LearnOpenGlDemo` | `AssetPipelineTest`、`DemoResourceContractTest`、`runDemoIntegration` | 主 Demo 从 classpath manifest 加载自有 OBJ，并将多 mesh 映射为共享材质/transform 的 renderer |
-| Assimp 模型入口 | 部分完成 | `AssimpModelLoader` | 无 | 无端到端验证 | 仍要求真实文件系统路径，尚未进入打包 Demo 主路径 |
 | 异步上传与渲染线程 | 完整 | `UploadSystem`、`LatestFrameMailbox`、`GlRenderThread` | `AsyncDemo` | `UploadSystemTest`、`LatestFrameMailboxTest`、`GlContextSmokeTest`、`runAsyncIntegration` | 两线程 latest-wins；矩阵 UBO 上传成功后才发布对应不可变帧状态 |
 | CPU/GPU profiling | 完整 | `FrameDriver`、`GpuTimer`、`FrameProfile` | `LearnOpenGlDemo` 标题 | `ObservabilityTest`、`RenderGraphTest`、`runDemoIntegration` | RenderGraph profiling 不再依赖 `custom()` escape hatch |
 

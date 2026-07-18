@@ -21,7 +21,7 @@
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化方向光阴影、3x3 PCF、
   显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom，以及 none、MSAA、FXAA、TAA 路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
-  以及已接入主 Demo 的 OBJ 模型链路；Assimp 入口仍为实验能力。
+  以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态 glTF 2.0 链路。
 - 五条 Demo 证明路径：空窗口/present 基线、综合场景管线、最小命令流、异步更新与渲染线程协作、自动生成 GPU procedural shader 的 100 万实例压力分析。
 
 主 Demo 是稳定基准场景，包含 receiver、普通与实例化 caster、纹理/纯色材质、方向光、点光，以及显式启用的 ACES HDR/FXAA。

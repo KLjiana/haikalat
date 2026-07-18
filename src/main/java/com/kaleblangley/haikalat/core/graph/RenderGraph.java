@@ -10,14 +10,12 @@ import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.backend.GpuTimer;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Queue;
 
 public final class RenderGraph implements AutoCloseable {
     private final List<Pass> passes = new ArrayList<>();
@@ -29,6 +27,7 @@ public final class RenderGraph implements AutoCloseable {
     private final PassResources passResources;
     private final CommandBuffer immediateCommands = new CommandBuffer();
     private List<Pass> sortedPasses;
+    private CompiledRenderGraph compiledGraph;
     private int width;
     private int height;
     private Framebuffer currentFbo;
@@ -140,60 +139,25 @@ public final class RenderGraph implements AutoCloseable {
         passes.add(pass);
         passByName.put(pass.name, pass);
         sortedPasses = null;
+        compiledGraph = null;
         if (allocateResources && !pass.useBackbuffer && !pass.externalTarget) {
             allocatePassFramebuffer(pass);
         }
     }
 
     public void compile() {
-        Map<String, Integer> inDegree = new HashMap<>();
-        for (Pass pass : passes) {
-            inDegree.putIfAbsent(pass.name, 0);
-            for (String dep : pass.dependencies) {
-                if (!passByName.containsKey(dep)) {
-                    throw new GlException("RenderGraph pass " + pass.name + " depends on missing pass " + dep);
-                }
-                inDegree.merge(pass.name, 1, Integer::sum);
-            }
-        }
-        for (Pass pass : passes) {
-            inDegree.putIfAbsent(pass.name, 0);
-        }
-
-        List<Pass> sorted = new ArrayList<>();
-        Queue<Pass> queue = new ArrayDeque<>();
-        for (Pass pass : passes) {
-            if (inDegree.getOrDefault(pass.name, 0) == 0) {
-                queue.add(pass);
-            }
-        }
-        while (!queue.isEmpty()) {
-            Pass pass = queue.poll();
-            sorted.add(pass);
-            for (Pass other : passes) {
-                if (other.dependencies.contains(pass.name)) {
-                    int degree = inDegree.merge(other.name, -1, Integer::sum);
-                    if (degree == 0) {
-                        queue.add(other);
-                    }
-                }
-            }
-        }
-        if (sorted.size() != passes.size()) {
-            throw new GlException("RenderGraph has circular dependency");
-        }
-        sortedPasses = sorted;
+        List<RenderGraphCompiler.PassSpec> specifications = passes.stream()
+                .map(pass -> new RenderGraphCompiler.PassSpec(pass.name, pass.dependencies))
+                .toList();
+        compiledGraph = RenderGraphCompiler.compile(specifications);
+        sortedPasses = compiledGraph.passNames().stream().map(passByName::get).toList();
     }
 
     List<String> passExecutionOrder() {
         if (sortedPasses == null) {
             compile();
         }
-        List<String> names = new ArrayList<>(sortedPasses.size());
-        for (Pass pass : sortedPasses) {
-            names.add(pass.name);
-        }
-        return names;
+        return compiledGraph.passNames();
     }
 
     public void execute(RenderDevice device) {

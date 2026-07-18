@@ -20,7 +20,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 3D 管线：forward pipeline、scene/camera/object/light 模型、带输入校验和数量上限的基础光照、
   固定分辨率 directional shadow map、depth-only caster pass、bias/3x3 PCF，以及 FXAA/TAA/MSAA/none 后处理选择。
 - 资产系统：classpath resource locator、shader asset、texture cache、`.properties` 场景配置，
-  以及由主 Demo 证明的 OBJ 加载链路；Assimp 加载器仍是要求文件系统路径的实验入口。
+  以及由主 Demo 证明的 OBJ 加载链路和由专用 Demo 证明的静态 glTF 2.0 加载链路。
 - UI subsystem：Yoga/Flexbox 布局、保留式节点树、主题与样式、widgets、事件传播、滚动与
   虚拟列表、FreeType/HarfBuzz 文本、glyph atlas、字体注册与切换，以及 Windows IME 组合输入。
 - Demo 证明：`LearnOpenGlDemo` 作为综合场景、阴影、后处理证明；`MinimalDemo` 验证最小窗口、

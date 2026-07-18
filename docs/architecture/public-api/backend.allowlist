@@ -1,0 +1,34 @@
+# v0.14 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget
+advanced com.kaleblangley.haikalat.backend.buffer.GlBuffer
+advanced com.kaleblangley.haikalat.backend.framebuffer.Framebuffer
+advanced com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor
+advanced com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager
+advanced com.kaleblangley.haikalat.backend.GlDebug
+advanced com.kaleblangley.haikalat.backend.GlException
+advanced com.kaleblangley.haikalat.backend.GlFormats
+advanced com.kaleblangley.haikalat.backend.GlResource
+advanced com.kaleblangley.haikalat.backend.GpuTimer
+advanced com.kaleblangley.haikalat.backend.PipelineStatisticsQuery
+advanced com.kaleblangley.haikalat.backend.RenderErrorCategory
+advanced com.kaleblangley.haikalat.backend.RenderErrors
+advanced com.kaleblangley.haikalat.backend.RenderException
+advanced com.kaleblangley.haikalat.backend.RenderFormat
+advanced com.kaleblangley.haikalat.backend.shader.ShaderProgram
+advanced com.kaleblangley.haikalat.backend.shader.ShaderStage
+advanced com.kaleblangley.haikalat.backend.state.PipelineStateSink
+advanced com.kaleblangley.haikalat.backend.state.StateCache
+advanced com.kaleblangley.haikalat.backend.sync.GpuFence
+advanced com.kaleblangley.haikalat.backend.sync.GpuFenceTarget
+advanced com.kaleblangley.haikalat.backend.texture.ImageAccess
+advanced com.kaleblangley.haikalat.backend.texture.Sampler
+advanced com.kaleblangley.haikalat.backend.texture.Texture2D
+advanced com.kaleblangley.haikalat.backend.texture.TextureColorSpace
+advanced com.kaleblangley.haikalat.backend.texture.TextureCube
+advanced com.kaleblangley.haikalat.backend.UniformBlock
+advanced com.kaleblangley.haikalat.backend.vertex.VertexArray
+advanced com.kaleblangley.haikalat.backend.vertex.VertexAttribute
+advanced com.kaleblangley.haikalat.backend.vertex.VertexLayout
+advanced com.kaleblangley.haikalat.backend.vertex.VertexSemantic

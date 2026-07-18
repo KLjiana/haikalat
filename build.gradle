@@ -9,10 +9,14 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.13.0'
+version = '0.14.0'
 
 repositories {
     mavenCentral()
+}
+
+dependencyLocking {
+    lockAllConfigurations()
 }
 
 project.ext.lwjglVersion = "3.3.3"
@@ -25,7 +29,6 @@ def generatedProceduralResources = layout.buildDirectory.dir('generated/resource
 
 def lwjglModules = [
         "lwjgl",
-        "lwjgl-assimp",
         "lwjgl-freetype",
         "lwjgl-glfw",
         "lwjgl-harfbuzz",
@@ -96,6 +99,117 @@ dependencies {
 test {
     useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', System.getProperty('haikalat.glSmoke', 'false')
+}
+
+tasks.register('quickVerification') {
+    group = 'verification'
+    description = 'Runs the complete no-desktop v0.14 verification gate.'
+    dependsOn 'compileJava', 'demoClasses', 'test'
+}
+
+def configureGuardTest = { Test guard, List<String> patterns ->
+    guard.group = 'verification'
+    guard.dependsOn testClasses
+    guard.testClassesDirs = sourceSets.test.output.classesDirs
+    guard.classpath = sourceSets.test.runtimeClasspath
+    guard.useJUnitPlatform()
+    guard.filter {
+        patterns.each { includeTestsMatching it }
+    }
+}
+
+tasks.register('publicApiGuard', Test) {
+    description = 'Validates the complete public API catalog, stable signatures and migration records.'
+    configureGuardTest(delegate, [
+            '*.ArchitectureBoundaryTest.wholeProjectPublicTypesMatchAllowlist',
+            '*.ArchitectureBoundaryTest.stableSignaturesDoNotExposeImplementationLibraries',
+            '*.ArchitectureBoundaryTest.removedStableTypesRequireMigrationRecord',
+            '*.PbrPublicApiSurfaceTest', '*.UiPublicApiSurfaceTest',
+            '*.GltfArchitectureTest.publicTypesMatchAllowlist'
+    ])
+}
+
+tasks.register('architectureGuard', Test) {
+    description = 'Validates package dependencies, OpenGL call sites and production escape hatches.'
+    configureGuardTest(delegate, [
+            '*.ArchitectureBoundaryTest.internalTypesStayInsideTheirSubsystemOrDemoProof',
+            '*.ArchitectureBoundaryTest.backendDoesNotDependOnHigherLayers',
+            '*.ArchitectureBoundaryTest.coreAndRuntimeDoNotDependOnSubsystems',
+            '*.ArchitectureBoundaryTest.coreDoesNotDependOnRuntime',
+            '*.ArchitectureBoundaryTest.uiRemainsASiblingSubsystemWithoutReverseDependencies',
+            '*.ArchitectureBoundaryTest.nativeUiLibrariesStayInsideTheirAdapters',
+            '*.ArchitectureBoundaryTest.uiLogicPackagesDoNotIssueOpenGlCalls',
+            '*.ArchitectureBoundaryTest.productionCodeDoesNotUseCustomCommandEscapeHatch',
+            '*.ArchitectureBoundaryTest.unverifiedNativeModelEntryPointAndDependencyStayRemoved',
+            '*.GltfArchitectureTest.cpuLoaderDoesNotDependOnSubsystemOrInvokeOpenGl',
+            '*.GltfArchitectureTest.backendDoesNotDependOnGltfPackages'
+    ])
+}
+
+tasks.register('dependencyLockGuard') {
+    group = 'verification'
+    description = 'Verifies the committed dependency lock and the removed Assimp dependency contract.'
+    inputs.files 'build.gradle', 'gradle.lockfile'
+    doLast {
+        File lock = file('gradle.lockfile')
+        if (!lock.isFile()) throw new GradleException('Missing gradle.lockfile; run dependencies --write-locks')
+        String buildText = file('build.gradle').getText('UTF-8')
+        String lockText = lock.getText('UTF-8')
+        String removedNativeModule = 'lwjgl-' + 'assimp'
+        if (buildText.toLowerCase(Locale.ROOT).contains(removedNativeModule)
+                || lockText.toLowerCase(Locale.ROOT).contains(removedNativeModule)) {
+            throw new GradleException('Assimp must not re-enter the v0.14 dependency graph')
+        }
+        ['org.lwjgl:lwjgl-opengl:3.3.3', 'org.joml:joml:1.10.9',
+         'com.fasterxml.jackson.core:jackson-core:2.18.3'].each { coordinate ->
+            if (!lockText.contains(coordinate)) {
+                throw new GradleException("Dependency lock is missing $coordinate")
+            }
+        }
+    }
+}
+
+tasks.register('assetManifestGuard') {
+    group = 'verification'
+    description = 'Verifies every release resource against its ownership, license and SHA-256 record.'
+    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'),
+            file('docs/licenses/assets.tsv')
+    doLast {
+        File manifest = file('docs/licenses/assets.tsv')
+        if (!manifest.isFile()) throw new GradleException('Missing docs/licenses/assets.tsv')
+        Map<String, List<String>> records = [:]
+        manifest.readLines('UTF-8').findAll { it && !it.startsWith('#') }.eachWithIndex { line, index ->
+            List<String> fields = line.split('\t', -1) as List<String>
+            if (fields.size() != 8 || fields.any { it.isBlank() }) {
+                throw new GradleException("Invalid asset manifest row ${index + 1}: expected 8 non-empty fields")
+            }
+            if (records.put(fields[0], fields) != null) {
+                throw new GradleException("Duplicate asset manifest path: ${fields[0]}")
+            }
+        }
+        Set<String> resources = []
+        [fileTree('src/main/resources'), fileTree('src/demo/resources')].each { tree ->
+            tree.files.each { resource ->
+                resources.add(project.relativePath(resource).replace('\\', '/'))
+            }
+        }
+        if (records.keySet() != resources) {
+            throw new GradleException("Asset manifest mismatch; missing=${resources - records.keySet()}, stale=${records.keySet() - resources}")
+        }
+        records.each { path, fields ->
+            String actual = java.security.MessageDigest.getInstance('SHA-256')
+                    .digest(file(path).bytes).encodeHex().toString()
+            if (!actual.equalsIgnoreCase(fields[5])) {
+                throw new GradleException("Asset hash mismatch for $path: expected ${fields[5]}, actual $actual")
+            }
+            if (fields[7] != 'yes') throw new GradleException("Non-redistributable asset is present: $path")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'quickVerification', 'publicApiGuard', 'architectureGuard',
+            'dependencyLockGuard', 'assetManifestGuard'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -280,6 +394,7 @@ tasks.register('runUiNativeSoak', Test) {
     systemProperty 'haikalat.uiNativeSoakRounds',
             providers.gradleProperty('uiNativeSoakRounds').getOrElse('50')
     outputs.upToDateWhen { false }
+    onlyIf { System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win') }
     mustRunAfter 'runUiSyntheticImeSoak'
 }
 
@@ -293,4 +408,24 @@ tasks.register('localUiVerification') {
 
 tasks.named('localGlVerification') {
     dependsOn 'localUiVerification', 'localPbrVerification', 'localGltfVerification'
+}
+
+def localReleaseTasks = [
+        'check', 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration',
+        'runAsyncIntegration', 'runPbrIntegration', 'runPbrResizeIntegration',
+        'runGltfIntegration', 'runGltfResizeIntegration', 'runUiIntegration',
+        'runUiResizeIntegration', 'runUiTextIntegration',
+        'runUiSyntheticImeSoak', 'runUiNativeSoak'
+]
+
+tasks.register('localReleaseVerification') {
+    group = 'verification'
+    description = 'Runs the complete local desktop/OpenGL release verification gate.'
+    dependsOn localReleaseTasks
+}
+
+localReleaseTasks.collate(2, 1, false).each { pair ->
+    tasks.named(pair[1]) {
+        mustRunAfter pair[0]
+    }
 }

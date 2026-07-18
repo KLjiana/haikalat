@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-当前没有尚未发布的变更。
+暂无。
 
 ## 已完成路线图
 
@@ -283,3 +283,36 @@
   `docs/performance/v0.13-gltf-2026-07-18.md`。
 - 默认无桌面测试、`localGltfVerification`、完整 `localGlVerification` 与 `git diff --check`
   均通过，v0.13 静态 glTF 资产主路径完成。
+
+### v0.14-consolidation-and-contract-hardening（0.14.0，2026-07-19）
+
+#### API、依赖与文档收口
+
+- 移除未被 Demo 或端到端验证证明的 `AssimpModelLoader` 实验 API 及其 LWJGL native 依赖；
+  正式模型导入路径收敛为 OBJ 和静态 glTF 2.0。
+- 建立覆盖 main source set 的 backend/core/runtime/render3d/postprocess/ui/windowing 七域公共 API
+  清单；stable、advanced、internal 分类具有未分类、重复、陈旧、错域、第三方签名泄漏和越域门禁。
+- 增加 dependency locking、发布资源八字段 manifest 与 SHA-256 校验，并把 API、架构、依赖和
+  资产守卫纳入默认 `check`。
+- 归档 v0.8–v0.14 实施计划，新增资源所有权合同、公共 API 迁移说明、发布验收报告和性能复测报告。
+
+#### 内部职责与生命周期
+
+- 将 glTF document、URI、buffer、accessor、material、node 与 canonical mesh decode 拆为包内阶段，
+  保持 `GltfAssetLoader` facade、错误 phase/location、sparse 和 selected-scene 语义。
+- 将 `.properties` 与行式 scene manifest 的解析、scalar/vector 转换和引用校验分离；非法布尔值
+  不再静默退化为 false，错误携带精确 key 或行号。
+- 复用包内 `CloseStack` 统一 glTF runtime 构造回滚和逆序关闭，保留 active lease、幂等 close、
+  主异常与 suppressed cleanup 异常合同。
+- `RenderGraph` 将依赖校验和稳定拓扑排序委托给不可变 compiled plan；`CommandBuffer` 保留既有
+  primitive SoA stream、typed executor 与 pending pipeline state，避免为了拆分类名制造薄包装。
+
+#### 验证与性能
+
+- 建立串行 `localReleaseVerification`，覆盖 headless check、GL smoke、baseline/async、PBR、glTF、
+  UI、synthetic IME 和 Windows native soak；正式发布前 27 个任务全部重跑通过。
+- glTF decode/upload 中位相对 v0.13 为 `+1.4%/-6.6%`，未触发 5% 回退门槛。
+- 优化静态 UI 样式脏标记、children 快照、命中测试和绘制边界临时对象；10,000 quads 三轮稳定为
+  254.5 KiB/frame，2,000 glyphs 中位低于 5 KiB/frame。
+- 百万 Cube 路径继续保持单 draw、100% state skip；indexed/compact SSBO 为约 900 万次 VS invocation，
+  expanded 路径为 3600 万次。

@@ -26,15 +26,12 @@ class GltfArchitectureTest {
         Set<String> discovered = new HashSet<>();
         discover(CORE, discovered);
         discover(RUNTIME, discovered);
-        Set<String> classified = new HashSet<>();
-        for (String line : Files.readAllLines(Path.of("docs/architecture/gltf-public-api.allowlist"))) {
-            line = line.strip();
-            if (line.isEmpty() || line.startsWith("#")) continue;
-            String[] fields = line.split("\\s+");
-            assertEquals(2, fields.length);
-            assertTrue(Set.of("stable", "advanced", "internal").contains(fields[0]));
-            assertTrue(classified.add(fields[1]), "duplicate glTF allowlist entry " + fields[1]);
-        }
+        Set<String> classified = PublicApiCatalog.classifiedUnder(PublicApiCatalog.read(),
+                "com.kaleblangley.haikalat.core.assets.gltf.");
+        Set<String> runtimeClassified = PublicApiCatalog.classifiedUnder(PublicApiCatalog.read(),
+                "com.kaleblangley.haikalat.subsystems.render3d.gltf.");
+        classified = new HashSet<>(classified);
+        classified.addAll(runtimeClassified);
         assertEquals(discovered, classified);
     }
 
@@ -45,6 +42,21 @@ class GltfArchitectureTest {
             assertFalse(source.contains("com.kaleblangley.haikalat.subsystems."), file.toString());
             assertFalse(Pattern.compile("\\bgl[A-Z]\\w*\\s*\\(").matcher(source).find(), file.toString());
         }
+    }
+
+    @Test
+    void decodeStagesRemainPackagePrivateBehindTheFacade() throws IOException {
+        for (String stage : Set.of("GltfDocumentReader", "GltfUriResolver", "GltfBufferTable",
+                "GltfAccessorDecoder", "GltfMaterialDecoder", "GltfNodeDecoder",
+                "GltfMeshCanonicalizer")) {
+            Path sourceFile = CORE.resolve(stage + ".java");
+            assertTrue(Files.isRegularFile(sourceFile), "missing glTF decode stage: " + stage);
+            String source = Files.readString(sourceFile);
+            assertFalse(Pattern.compile("(?m)^public\\s+(?:final\\s+)?class\\s+" + stage + "\\b")
+                    .matcher(source).find(), stage + " must remain package-private");
+        }
+        assertTrue(Files.readString(CORE.resolve("GltfAssetLoader.java"))
+                .contains("public final class GltfAssetLoader"));
     }
 
     @Test

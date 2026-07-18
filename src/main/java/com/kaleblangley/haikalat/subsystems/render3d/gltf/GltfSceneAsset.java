@@ -60,35 +60,31 @@ public final class GltfSceneAsset implements AutoCloseable {
         List<Sampler> ownedSamplers = new ArrayList<>();
         List<Mesh> ownedMeshes = new ArrayList<>();
         Map<MaterialKey, Material> ownedMaterials = new LinkedHashMap<>();
-        try {
+        try (CloseStack rollback = new CloseStack()) {
+            rollback.own(new LibraryLease(library));
             Map<SamplerDescriptor, Sampler> samplerCache = createSamplers(source,
-                    ownedSamplers, fault);
+                    ownedSamplers, rollback, fault);
             Map<LoadedGltfScene.ImageVariantKey, Texture2D> textureCache = createTextures(
-                    source, ownedTextures, fault);
+                    source, ownedTextures, rollback, fault);
             for (LoadedGltfScene.Primitive primitive : source.primitives()) {
                 MaterialKey key = new MaterialKey(primitive.materialIndex(), primitive.hasVertexColor());
                 if (!ownedMaterials.containsKey(key)) {
-                    ownedMaterials.put(key, createMaterial(source, primitive, library,
-                            samplerCache, textureCache));
+                    ownedMaterials.put(key, rollback.own(createMaterial(source, primitive, library,
+                            samplerCache, textureCache)));
                     fault.check(UploadStage.MATERIAL, primitive.materialIndex());
                 }
             }
             for (LoadedGltfScene.Primitive primitive : source.primitives()) {
-                ownedMeshes.add(Mesh.from(primitive.mesh()));
+                ownedMeshes.add(rollback.own(Mesh.from(primitive.mesh())));
                 fault.check(UploadStage.MESH, primitive.index());
             }
-            return new GltfSceneAsset(source, library, ownedMeshes, ownedMaterials,
+            GltfSceneAsset asset = new GltfSceneAsset(source, library, ownedMeshes, ownedMaterials,
                     ownedTextures, ownedSamplers);
+            rollback.releaseOwnership();
+            return asset;
         } catch (RuntimeException failure) {
-            RuntimeException primary = closeOwned(ownedMeshes, ownedMaterials.values(),
-                    ownedSamplers, ownedTextures, failure);
-            try {
-                library.releaseAsset();
-            } catch (RuntimeException cleanupFailure) {
-                primary.addSuppressed(cleanupFailure);
-            }
             throw new GltfAssetException(source.source(), GltfAssetException.Phase.UPLOAD, "$", null,
-                    "GPU resource upload failed", primary);
+                    "GPU resource upload failed", failure);
         }
     }
 
@@ -148,7 +144,7 @@ public final class GltfSceneAsset implements AutoCloseable {
     }
 
     private static Map<SamplerDescriptor, Sampler> createSamplers(LoadedGltfScene source,
-                                                                   List<Sampler> owned,
+                                                                   List<Sampler> owned, CloseStack rollback,
                                                                    UploadFault fault) {
         Map<SamplerDescriptor, Sampler> result = new HashMap<>();
         for (LoadedGltfScene.SamplerDef def : source.samplers()) {
@@ -157,7 +153,7 @@ public final class GltfSceneAsset implements AutoCloseable {
             result.computeIfAbsent(descriptor, key -> {
                 Sampler sampler = Sampler.create(new Sampler.Descriptor(key.min(), key.mag(),
                         key.wrapS(), key.wrapT(), key.wrapT()));
-                owned.add(sampler);
+                owned.add(rollback.own(sampler));
                 fault.check(UploadStage.SAMPLER, def.index());
                 return sampler;
             });
@@ -166,7 +162,7 @@ public final class GltfSceneAsset implements AutoCloseable {
     }
 
     private static Map<LoadedGltfScene.ImageVariantKey, Texture2D> createTextures(
-            LoadedGltfScene source, List<Texture2D> owned, UploadFault fault) {
+            LoadedGltfScene source, List<Texture2D> owned, CloseStack rollback, UploadFault fault) {
         Map<LoadedGltfScene.ImageVariantKey, Texture2D> result = new HashMap<>();
         for (LoadedGltfScene.MaterialDef material : source.materials()) {
             for (Map.Entry<PbrTextureRole, Integer> entry : material.textureIndices().entrySet()) {
@@ -176,7 +172,7 @@ public final class GltfSceneAsset implements AutoCloseable {
                 result.computeIfAbsent(key, ignored -> {
                     Texture2D uploaded = Texture2D.fromEncoded(
                             source.images().get(key.imageIndex()).encoded(), false, key.colorSpace());
-                    owned.add(uploaded);
+                    owned.add(rollback.own(uploaded));
                     fault.check(UploadStage.TEXTURE, key.imageIndex());
                     return uploaded;
                 });
@@ -215,29 +211,18 @@ public final class GltfSceneAsset implements AutoCloseable {
                                                Iterable<Sampler> samplers,
                                                Iterable<Texture2D> textures,
                                                RuntimeException primary) {
-        RuntimeException failure = primary;
-        List<AutoCloseable> resources = new ArrayList<>();
-        appendReverse(resources, meshes);
-        appendReverse(resources, materials);
-        appendReverse(resources, samplers);
-        appendReverse(resources, textures);
-        for (AutoCloseable resource : resources) {
-            try { resource.close(); }
-            catch (Exception error) {
-                RuntimeException runtime = error instanceof RuntimeException r ? r : new RuntimeException(error);
-                if (failure == null) failure = runtime; else failure.addSuppressed(runtime);
-            }
+        CloseStack closeStack = new CloseStack();
+        textures.forEach(closeStack::own);
+        samplers.forEach(closeStack::own);
+        materials.forEach(closeStack::own);
+        meshes.forEach(closeStack::own);
+        try {
+            closeStack.close();
+        } catch (RuntimeException cleanupFailure) {
+            if (primary == null) return cleanupFailure;
+            primary.addSuppressed(cleanupFailure);
         }
-        return failure;
-    }
-
-    private static void appendReverse(List<AutoCloseable> output,
-                                      Iterable<? extends AutoCloseable> input) {
-        List<AutoCloseable> resources = new ArrayList<>();
-        input.forEach(resources::add);
-        for (int i = resources.size() - 1; i >= 0; i--) {
-            output.add(resources.get(i));
-        }
+        return primary;
     }
 
     private void ensureOpen() {
@@ -246,6 +231,9 @@ public final class GltfSceneAsset implements AutoCloseable {
 
     private record MaterialKey(int materialIndex, boolean vertexColor) {}
     private record SamplerDescriptor(int min, int mag, int wrapS, int wrapT) {}
+    private record LibraryLease(GltfRuntimeLibrary library) implements AutoCloseable {
+        @Override public void close() { library.releaseAsset(); }
+    }
 
     enum UploadStage { SAMPLER, TEXTURE, MATERIAL, MESH }
 
