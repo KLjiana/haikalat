@@ -14,3 +14,7 @@ v0.15 没有删除 stable 类型。advanced `PassProfile` 保留原三参数构�
 v0.16 没有删除 stable 类型。advanced `MeshData` 保持原 record component 和构造签名，新增
 `localBounds()`；advanced `Mesh`/`Mesh.Builder` 新增不可变 `Bounds3f` 读取与显式设置入口。
 旧 builder 无法从 POSITION semantic 推导范围时会保守返回 unbounded，不会错误裁剪。
+
+v0.17 没有删除 stable 类型或修改 `SceneObject` record component。advanced `SceneObject` 新增
+`fixed(Mesh, Material, Matrix4fc[, boolean])`，用于明确表达可缓存的防御性复制固定矩阵；现有构造器
+与任意 `ModelUpdater` 保持动态、每帧一次语义。`Transform` 的 revision 与 queue/cache 类型不公开。

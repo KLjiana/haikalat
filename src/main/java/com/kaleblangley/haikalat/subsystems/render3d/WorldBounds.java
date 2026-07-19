@@ -14,4 +14,10 @@ final class WorldBounds {
         unbounded = true;
         minX = minY = minZ = maxX = maxY = maxZ = 0.0f;
     }
+
+    void set(WorldBounds source) {
+        unbounded = source.unbounded;
+        minX = source.minX; minY = source.minY; minZ = source.minZ;
+        maxX = source.maxX; maxY = source.maxY; maxZ = source.maxZ;
+    }
 }

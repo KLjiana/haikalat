@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-暂无。
+当前没有未发布的版本条目。
 
 ## 已完成路线图
 
@@ -391,3 +391,23 @@
   稳态整帧分配为 2.2 KiB/frame。
 - 完整 JVM、真实 GL、public API、架构和本地发布门禁通过；发布人完成人工视觉验收并批准
   工程版本进入 `0.16.0`。
+
+### v0.17-real-scene-cpu-submission-consolidation（0.17.0，2026-07-19）
+
+- 新增 Transform revision 与防御性复制的 `SceneObject.fixed(...)`，静态 model/world-bounds 在稳定帧
+  复用；任意 `ModelUpdater` 仍严格每 renderer 每帧调用一次。
+- forward/shadow queue 使用独立完整 matrix key；支持稳定复用和 camera/light/resize/mutation 精确失效，
+  TAA jitter 不再制造无意义 rebuild。
+- mat4 command snapshot 改用可复用 primitive arena，保持录制后不可变语义；geometry/shadow pass
+  对相邻 shader/material/mesh binding 去重。
+- `Scene.add(SceneObject)` 改为每对象独立 `MaterialInstance`，修复共享 Material 时 override 串扰；
+  同材质且无 override 的实例仍保持安全 binding 折叠。
+- `CommandBuffer.recordedMatrixSnapshotCount()` 与 `recordedObjectPayloadCount()` 正式列为 advanced
+  diagnostics API，统计边界和 reset 行为形成文档及测试合同。
+- 新增项目自有多 primitive/material glTF 压测资产、`GltfSceneScalabilityDemo`、100/1k/10k 布局、
+  allocation hard gate 与五轮 compat/optimized 基准。
+- diagnostics schema/UI 增加 cache、queue 和 command encoding 指标；真实 GL 覆盖 matrix 像素 parity、
+  TAA 32 帧、独立 queue 失效、resize 和失败恢复。
+- 五轮 10k/10% glTF CPU median 从 1.106 ms 降到 0.626 ms，allocation 从 86.2 降到
+  7.3 KiB/frame；当前证据决定 v0.18 暂不进入 GPU-driven。
+- 完整 JVM、真实 GL 与本地发布门禁通过；发布人批准工程版本进入 `0.17.0`。

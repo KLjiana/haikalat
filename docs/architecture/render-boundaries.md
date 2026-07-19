@@ -199,3 +199,18 @@ callback 仍是 committed Unicode 的唯一来源，避免 `GCS_RESULTSTR` 重�
 ```
 
 该 smoke test 会创建隐藏 GLFW 窗口，初始化 GL capabilities，执行 clear，并用 `glReadPixels` 验证回读像素。它还覆盖 framebuffer、shader、texture 和 texture cache 的最小生命周期边界，确保关闭后的资源拒绝继续使用。
+
+## Static Scene Submission
+
+`MeshRenderer.of(..., Transform)` 和 `SceneObject.fixed(...)` 是唯一可被 SceneFrame 明确认定为
+revisioned 的 model source。前者读取 Transform 内部单调 revision；后者防御性复制 finite affine
+matrix。任意 `SceneObject.ModelUpdater` 都保持未知动态语义，框架不根据 lambda identity、连续矩阵
+相等或场景来源猜测静态性。
+
+SceneFrame 分别缓存 model/world bounds、forward queue 和 shadow queue。queue hit 必须比较完整稳定
+camera clip matrix 或最终 light-space matrix；TAA jitter 不属于 visibility 事实。membership、bounds、
+camera、shadow matrix 和 culling 开关按各自影响范围失效，失败帧不发布半构建 SceneFrame。
+
+mat4 uniform 的录制时快照保存在 `CommandStream` 的 primitive arena；公共
+`CommandBuffer.setUniformMat4(...)` 语义不变，调用方随后修改源矩阵不会影响已录制命令。arena、cache key
+和 renderer slot 都是内部实现，不作为 public scene API 暴露。

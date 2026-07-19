@@ -89,19 +89,53 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                                     long unboundedRenderers, long forwardVisible,
                                     long forwardCulled, long shadowCandidates,
                                     long shadowVisible, long shadowCulled,
+                                    long staticRenderers, long dynamicRenderers,
+                                    long modelCacheHits, long modelCacheMisses,
+                                    long boundsCacheHits, long boundsCacheMisses,
+                                    boolean forwardQueueReused, boolean forwardQueueRebuilt,
+                                    boolean shadowQueueReused, boolean shadowQueueRebuilt,
                                     long modelUpdateNanos, long boundsTransformNanos,
                                     long frustumTestNanos, long queueSortNanos,
                                     long totalQueueBuildNanos, long opaqueDraws,
                                     long additiveDraws, long alphaDraws,
                                     long shaderChanges, long materialChanges,
                                     long meshChanges, long blendChanges,
-                                    long mirroredChanges) {
+                                    long mirroredChanges, long commandRecordNanos,
+                                    long recordedCommands, long recordedMatrixSnapshots,
+                                    long recordedObjectPayloads) {
+        public VisibilitySummary(boolean cullingEnabled, long sceneRevision,
+                                 long candidateRenderers, long finiteBoundsRenderers,
+                                 long unboundedRenderers, long forwardVisible,
+                                 long forwardCulled, long shadowCandidates,
+                                 long shadowVisible, long shadowCulled,
+                                 long modelUpdateNanos, long boundsTransformNanos,
+                                 long frustumTestNanos, long queueSortNanos,
+                                 long totalQueueBuildNanos, long opaqueDraws,
+                                 long additiveDraws, long alphaDraws,
+                                 long shaderChanges, long materialChanges,
+                                 long meshChanges, long blendChanges,
+                                 long mirroredChanges) {
+            this(cullingEnabled, sceneRevision, candidateRenderers, finiteBoundsRenderers,
+                    unboundedRenderers, forwardVisible, forwardCulled, shadowCandidates,
+                    shadowVisible, shadowCulled, 0L, candidateRenderers, 0L,
+                    candidateRenderers, 0L, candidateRenderers, false, true,
+                    false, true, modelUpdateNanos, boundsTransformNanos,
+                    frustumTestNanos, queueSortNanos, totalQueueBuildNanos,
+                    opaqueDraws, additiveDraws, alphaDraws, shaderChanges,
+                    materialChanges, meshChanges, blendChanges, mirroredChanges,
+                    0L, 0L, 0L, 0L);
+        }
+
         VisibilitySummary basic() {
             return new VisibilitySummary(cullingEnabled, sceneRevision, candidateRenderers,
                     finiteBoundsRenderers, unboundedRenderers, forwardVisible, forwardCulled,
-                    shadowCandidates, shadowVisible, shadowCulled, 0L, 0L, 0L, 0L,
+                    shadowCandidates, shadowVisible, shadowCulled, staticRenderers,
+                    dynamicRenderers, modelCacheHits, modelCacheMisses, boundsCacheHits,
+                    boundsCacheMisses, forwardQueueReused, forwardQueueRebuilt,
+                    shadowQueueReused, shadowQueueRebuilt, 0L, 0L, 0L, 0L,
                     totalQueueBuildNanos, opaqueDraws, additiveDraws, alphaDraws,
-                    0L, 0L, 0L, 0L, 0L);
+                    0L, 0L, 0L, 0L, 0L, commandRecordNanos, recordedCommands,
+                    recordedMatrixSnapshots, recordedObjectPayloads);
         }
     }
 

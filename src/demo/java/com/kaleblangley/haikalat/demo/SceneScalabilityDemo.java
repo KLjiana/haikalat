@@ -23,6 +23,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL;
 
 import java.io.IOException;
@@ -60,6 +61,12 @@ public final class SceneScalabilityDemo {
     public static void main(String[] arguments) {
         lastBenchmarkResult = null;
         Options options = Options.parse(arguments);
+        System.setProperty("haikalat.scene.staticCache",
+                Boolean.toString(options.staticCacheEnabled()));
+        System.setProperty("haikalat.scene.queueCache",
+                Boolean.toString(options.queueCacheEnabled()));
+        System.setProperty("haikalat.command.matrixArena",
+                Boolean.toString(options.commandMatrixArenaEnabled()));
         RenderSettings settings = RenderSettings.builder()
                 .vsync(false)
                 .sceneVisibility(options.visibilityEnabled())
@@ -149,7 +156,8 @@ public final class SceneScalabilityDemo {
             window.pollEvents();
             benchmark.recordFrame(driver, pipeline.graph().lastFrameProfile().totalGpuNanos());
 
-            expectedCalls = Math.addExact(expectedCalls, options.objects());
+            expectedCalls = Math.addExact(expectedCalls,
+                    options.modelSource().dynamicCount(options.objects()));
             if (options.verify() && updaterCalls[0] != expectedCalls) {
                 throw new IllegalStateException("updater 调用次数不是每对象每帧一次: expected="
                         + expectedCalls + ", actual=" + updaterCalls[0]);
@@ -177,6 +185,14 @@ public final class SceneScalabilityDemo {
         double averageQueueMillis = queueNanos / samples / 1_000_000.0;
         double allocationKiB = allocationFrames == 0L ? Double.NaN
                 : allocationBytes / (double) allocationFrames / 1024.0;
+        if (options.verify() && options.objects() == 10_000
+                && options.layout() == Layout.ALL_HIDDEN
+                && options.modelSource() == ModelSourceMode.STATIC
+                && options.staticCacheEnabled() && options.queueCacheEnabled()
+                && averageQueueMillis > 0.15) {
+            throw new IllegalStateException("10k static/all-hidden SceneFrame + queue gate 超限: "
+                    + averageQueueMillis + " ms > 0.15 ms");
+        }
         BenchmarkResult result = new BenchmarkResult(options.objects(), options.layout().optionName,
                 options.visibilityEnabled(), last.forwardVisible(), last.forwardCulled(),
                 snapshot.presentFps(), snapshot.timings().averageCpuMillis(),
@@ -187,6 +203,7 @@ public final class SceneScalabilityDemo {
                 "SceneScalability round=%d objects=%d layout=%s visibility=%s visible=%d culled=%d "
                         + "draws=%d FPS=%.1f CPU(avg/median)=%.3f/%.3fms GPU(avg/median)=%.3f/%.3fms "
                         + "queue/model/bounds/frustum/sort=%.3f/%.3f/%.3f/%.3f/%.3fms "
+                        + "cache(model/bounds)=%d/%d queueReuse=%s/%s commands/matrices/objects=%d/%d/%d "
                         + "allocation=%.1fKiB/frame stateSkip=%.2f%%%n",
                 round, options.objects(), options.layout().optionName,
                 options.visibilityEnabled() ? "enabled" : "disabled",
@@ -196,6 +213,9 @@ public final class SceneScalabilityDemo {
                 snapshot.timings().medianGpuMillis(), averageQueueMillis,
                 modelNanos / samples / 1_000_000.0, boundsNanos / samples / 1_000_000.0,
                 frustumNanos / samples / 1_000_000.0, sortNanos / samples / 1_000_000.0,
+                last.modelCacheHits(), last.boundsCacheHits(), last.forwardQueueReused(),
+                last.shadowQueueReused(), last.recordedCommands(),
+                last.recordedMatrixSnapshots(), last.recordedObjectPayloads(),
                 allocationKiB,
                 skipRatio * 100.0);
         GlDebug.assertNoError("SceneScalabilityDemo.round");
@@ -240,17 +260,22 @@ public final class SceneScalabilityDemo {
             float scaleX = mirrored ? -baseScale : baseScale;
             float scaleY = index % 17 == 0 ? baseScale * 1.6f : baseScale;
             float scaleZ = index % 23 == 0 ? baseScale * 0.7f : baseScale;
-            boolean dynamic = index % 113 == 0;
+            boolean dynamic = options.modelSource().dynamic(index);
             float phase = (index & 255) * 0.017f;
             Mesh mesh = options.layout() == Layout.ALL_HIDDEN && index == 0
                     ? resources.unboundedProbe() : resources.meshes().get(index & 3);
             Material material = resources.materials().get(index & (MATERIAL_COUNT - 1));
-            scene.add(new SceneObject(mesh, material, (model, frame) -> {
-                updaterCalls[0]++;
-                model.translation(x, y, z);
-                if (dynamic) model.rotateY(phase + frame * 0.002f);
-                model.scale(scaleX, scaleY, scaleZ);
-            }, false));
+            if (dynamic) {
+                scene.add(new SceneObject(mesh, material, (model, frame) -> {
+                    updaterCalls[0]++;
+                    model.translation(x, y, z).rotateY(phase + frame * 0.002f)
+                            .scale(scaleX, scaleY, scaleZ);
+                }, false));
+            } else {
+                Matrix4f model = new Matrix4f().translation(x, y, z)
+                        .rotateY(phase).scale(scaleX, scaleY, scaleZ);
+                scene.add(SceneObject.fixed(mesh, material, model, false));
+            }
         }
         return scene;
     }
@@ -272,16 +297,22 @@ public final class SceneScalabilityDemo {
         }
     }
 
-    private static DiagnosticsSnapshot.VisibilitySummary toDiagnostics(
+    static DiagnosticsSnapshot.VisibilitySummary toDiagnostics(
             RenderPipeline.VisibilityStatistics value) {
         return new DiagnosticsSnapshot.VisibilitySummary(value.cullingEnabled(), value.sceneRevision(),
                 value.candidateRenderers(), value.finiteBoundsRenderers(), value.unboundedRenderers(),
                 value.forwardVisible(), value.forwardCulled(), value.shadowCandidates(),
-                value.shadowVisible(), value.shadowCulled(), value.modelUpdateNanos(),
+                value.shadowVisible(), value.shadowCulled(), value.staticRenderers(),
+                value.dynamicRenderers(), value.modelCacheHits(), value.modelCacheMisses(),
+                value.boundsCacheHits(), value.boundsCacheMisses(), value.forwardQueueReused(),
+                value.forwardQueueRebuilt(), value.shadowQueueReused(), value.shadowQueueRebuilt(),
+                value.modelUpdateNanos(),
                 value.boundsTransformNanos(), value.frustumTestNanos(), value.queueSortNanos(),
                 value.totalQueueBuildNanos(), value.opaqueDraws(), value.additiveDraws(),
                 value.alphaDraws(), value.shaderChanges(), value.materialChanges(),
-                value.meshChanges(), value.blendChanges(), value.mirroredChanges());
+                value.meshChanges(), value.blendChanges(), value.mirroredChanges(),
+                value.commandRecordNanos(), value.recordedCommands(),
+                value.recordedMatrixSnapshots(), value.recordedObjectPayloads());
     }
 
     private record Resources(List<Mesh> meshes, Mesh unboundedProbe,
@@ -357,9 +388,36 @@ public final class SceneScalabilityDemo {
         }
     }
 
+    enum ModelSourceMode {
+        STATIC("static") {
+            @Override boolean dynamic(int index) { return false; }
+        },
+        DYNAMIC("dynamic") {
+            @Override boolean dynamic(int index) { return true; }
+        },
+        MIXED("mixed") {
+            @Override boolean dynamic(int index) { return index % 113 == 0; }
+        };
+
+        private final String optionName;
+        ModelSourceMode(String optionName) { this.optionName = optionName; }
+        abstract boolean dynamic(int index);
+        int dynamicCount(int objects) {
+            int count = 0;
+            for (int index = 0; index < objects; index++) if (dynamic(index)) count++;
+            return count;
+        }
+        static ModelSourceMode parse(String value) {
+            for (ModelSourceMode mode : values()) if (mode.optionName.equals(value)) return mode;
+            throw new IllegalArgumentException("未知 model source: " + value);
+        }
+    }
+
     record Options(int objects, boolean visibilityEnabled, Layout layout, int frames, int warmup,
                    int rounds, int width, int height, boolean deterministic, boolean verify,
-                   Path diagnosticsExport, int resizeFrame, int resizeWidth, int resizeHeight) {
+                   Path diagnosticsExport, int resizeFrame, int resizeWidth, int resizeHeight,
+                   ModelSourceMode modelSource, boolean staticCacheEnabled,
+                   boolean queueCacheEnabled, boolean commandMatrixArenaEnabled) {
         static Options parse(String[] arguments) {
             int objects = 10_000;
             boolean visibility = true;
@@ -375,11 +433,23 @@ public final class SceneScalabilityDemo {
             int resizeFrame = -1;
             int resizeWidth = 0;
             int resizeHeight = 0;
+            ModelSourceMode modelSource = ModelSourceMode.DYNAMIC;
+            boolean staticCache = true;
+            boolean queueCache = true;
+            boolean matrixArena = true;
             for (String argument : arguments) {
                 if (argument.startsWith("--objects=")) objects = positive(argument, "--objects=");
                 else if (argument.equals("--visibility=enabled")) visibility = true;
                 else if (argument.equals("--visibility=disabled")) visibility = false;
                 else if (argument.startsWith("--layout=")) layout = Layout.parse(value(argument));
+                else if (argument.startsWith("--model-source=")) {
+                    modelSource = ModelSourceMode.parse(value(argument));
+                } else if (argument.equals("--static-cache=enabled")) staticCache = true;
+                else if (argument.equals("--static-cache=disabled")) staticCache = false;
+                else if (argument.equals("--queue-cache=enabled")) queueCache = true;
+                else if (argument.equals("--queue-cache=disabled")) queueCache = false;
+                else if (argument.equals("--command-matrix-arena=enabled")) matrixArena = true;
+                else if (argument.equals("--command-matrix-arena=disabled")) matrixArena = false;
                 else if (argument.startsWith("--frames=")) frames = positive(argument, "--frames=");
                 else if (argument.startsWith("--warmup=")) warmup = nonNegative(argument, "--warmup=");
                 else if (argument.startsWith("--rounds=")) rounds = positive(argument, "--rounds=");
@@ -404,7 +474,8 @@ public final class SceneScalabilityDemo {
                 throw new IllegalArgumentException("--objects 只接受 100、1000 或 10000");
             }
             return new Options(objects, visibility, layout, frames, warmup, rounds, width, height,
-                    deterministic, verify, export, resizeFrame, resizeWidth, resizeHeight);
+                    deterministic, verify, export, resizeFrame, resizeWidth, resizeHeight,
+                    modelSource, staticCache, queueCache, matrixArena);
         }
 
         private static String value(String argument) {

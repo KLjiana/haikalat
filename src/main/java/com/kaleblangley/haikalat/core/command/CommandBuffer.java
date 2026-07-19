@@ -80,9 +80,12 @@ public final class CommandBuffer {
     static final byte BIND_IMAGE_2D_TYPED = 48;
     static final byte PUSH_DEBUG_GROUP = 49;
     static final byte POP_DEBUG_GROUP = 50;
+    static final byte UNIFORM_MAT4_PRIMITIVE = 51;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
+    private final boolean primitiveMatrixArena = Boolean.parseBoolean(
+            System.getProperty("haikalat.command.matrixArena", "true"));
 
     public CommandBuffer useProgram(int program) {
         opcode(USE_PROGRAM);
@@ -794,8 +797,34 @@ public final class CommandBuffer {
         return stream.commandCount() + (pendingState.isDirty() ? 1 : 0);
     }
 
-    int objectPayloadCount() {
+    /**
+     * 返回当前录制中由 primitive arena 持有的 mat4 快照数。
+     *
+     * <p>这是 advanced diagnostics API，只描述当前录制快照，不承诺具体 opcode 与矩阵数量的比例；
+     * {@link #reset()} 后归零。legacy 对象 payload 中的矩阵不计入此值。</p>
+     *
+     * @return 当前 primitive mat4 快照数
+     * @since 0.17
+     */
+    public int recordedMatrixSnapshotCount() {
+        return stream.matrixCount();
+    }
+
+    /**
+     * 返回当前命令流保存的对象引用 payload 数量。
+     *
+     * <p>这是 advanced diagnostics API，只用于容量、分配与录制统计；它不包含 primitive arena、
+     * pending pipeline state，也不能用于解释或修改命令语义。{@link #reset()} 后归零。</p>
+     *
+     * @return 当前对象引用 payload 数量
+     * @since 0.17
+     */
+    public int recordedObjectPayloadCount() {
         return stream.objectCount();
+    }
+
+    int objectPayloadCount() {
+        return recordedObjectPayloadCount();
     }
 
     byte recordedOpcodeAt(int commandIndex) {
@@ -828,6 +857,10 @@ public final class CommandBuffer {
     }
 
     private CommandBuffer uniformMat4(ShaderProgram shader, int location, Matrix4f value) {
+        if (primitiveMatrixArena) {
+            stream.matrixCommand(UNIFORM_MAT4_PRIMITIVE, location, shader, value);
+            return this;
+        }
         opcode(UNIFORM_MAT4);
         integer(location);
         object(shader);

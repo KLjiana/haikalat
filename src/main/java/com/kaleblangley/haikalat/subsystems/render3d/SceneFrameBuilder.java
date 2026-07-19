@@ -1,25 +1,41 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 
 import java.util.Arrays;
 import java.util.IdentityHashMap;
 
-/** 构建并复用普通 renderer 的每帧 transform、bounds 与可见队列。 */
+/** 构建并复用普通 renderer 的 transform、bounds 与独立可见队列。 */
 final class SceneFrameBuilder {
     private static final int MINIMUM_CAPACITY = 16;
 
+    private final boolean staticCacheEnabled = Boolean.parseBoolean(
+            System.getProperty("haikalat.scene.staticCache", "true"));
+    private final boolean queueCacheEnabled = Boolean.parseBoolean(
+            System.getProperty("haikalat.scene.queueCache", "true"));
     private final Frustum cameraFrustum = new Frustum();
     private final Frustum shadowFrustum = new Frustum();
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
     private final Matrix4f clip = new Matrix4f();
+    private final Matrix4f forwardKeyMatrix = new Matrix4f();
+    private final Matrix4f shadowKeyMatrix = new Matrix4f();
     private final SceneFrame frame = new SceneFrame();
     private MeshRenderer[] renderers = new MeshRenderer[0];
     private Matrix4f[] models = new Matrix4f[0];
+    private Matrix4f[] pendingModels = new Matrix4f[0];
     private WorldBounds[] bounds = new WorldBounds[0];
+    private WorldBounds[] pendingBounds = new WorldBounds[0];
+    private Bounds3f[] cachedLocalBounds = new Bounds3f[0];
+    private long[] cachedModelRevisions = new long[0];
+    private long[] requestedModelRevisions = new long[0];
+    private boolean[] cacheValid = new boolean[0];
+    private boolean[] modelMiss = new boolean[0];
+    private boolean[] boundsMiss = new boolean[0];
+    private int[] changed = new int[0];
     private int[] forward = new int[0];
     private int[] shadow = new int[0];
     private int[] scratch = new int[0];
@@ -30,89 +46,166 @@ final class SceneFrameBuilder {
     private boolean[] mirrored = new boolean[0];
     private boolean[] castsShadow = new boolean[0];
     private long cachedRevision = Long.MIN_VALUE;
+    private long boundsRevision;
     private int entryCount;
+    private int shadowCandidateCount;
+
+    private boolean forwardCacheValid;
+    private long forwardSceneRevision;
+    private long forwardBoundsRevision;
+    private boolean forwardCullingEnabled;
+    private int forwardCount;
+    private int forwardOpaque;
+    private int forwardAdditive;
+    private int forwardAlpha;
+    private int forwardShaderChanges;
+    private int forwardMaterialChanges;
+    private int forwardMeshChanges;
+    private int forwardBlendChanges;
+    private int forwardMirroredChanges;
+
+    private boolean shadowCacheValid;
+    private long shadowSceneRevision;
+    private long shadowBoundsRevision;
+    private boolean shadowCullingEnabled;
+    private boolean shadowEnabledKey;
+    private int shadowCount;
 
     SceneFrame build(Scene scene, int width, int height, Matrix4fc shadowMatrix,
                      boolean shadowEnabled, boolean cullingEnabled, int frameIndex) {
         long totalStart = System.nanoTime();
+        frame.available = false;
         try {
             syncMembership(scene);
             CameraProjection.stable(scene.camera(), width, height, projection);
             scene.camera().getViewMatrix(view);
-            cameraFrustum.set(projection.mul(view, clip));
-            if (shadowEnabled) shadowFrustum.set(shadowMatrix);
+            projection.mul(view, clip);
 
+            int staticRenderers = 0;
+            int dynamicRenderers = 0;
+            int modelHits = 0;
+            int modelMisses = 0;
+            int boundsHits = 0;
+            int boundsMisses = 0;
+            int finite = 0;
+            int changedCount = 0;
             long stageStart = System.nanoTime();
             for (int index = 0; index < entryCount; index++) {
-                Matrix4f model = models[index].identity();
-                try {
-                    renderers[index].modelMatrix(model, frameIndex);
-                } catch (RuntimeException | Error failure) {
-                    throw stageFailure(index, "model update", failure);
+                MeshRenderer renderer = renderers[index];
+                boolean revisioned = renderer.revisionedModel();
+                if (revisioned) staticRenderers++; else dynamicRenderers++;
+                long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
+                requestedModelRevisions[index] = revision;
+                boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
+                        && cachedModelRevisions[index] == revision;
+                modelMiss[index] = !hit;
+                if (hit) {
+                    modelHits++;
+                } else {
+                    modelMisses++;
+                    try {
+                        renderer.modelMatrix(pendingModels[index].identity(), frameIndex);
+                    } catch (RuntimeException | Error failure) {
+                        throw stageFailure(index, "model update", failure);
+                    }
                 }
-                mirrored[index] = model.determinant3x3() < 0.0f;
+
+                Bounds3f local = renderer.mesh().localBounds();
+                boolean boundsHit = hit && cacheValid[index]
+                        && cachedLocalBounds[index] == local;
+                boundsMiss[index] = !boundsHit;
+                if (boundsHit) {
+                    boundsHits++;
+                    if (!bounds[index].unbounded) finite++;
+                } else {
+                    boundsMisses++;
+                    changed[changedCount++] = index;
+                }
             }
             long modelNanos = System.nanoTime() - stageStart;
 
             stageStart = System.nanoTime();
-            int finite = 0;
-            for (int index = 0; index < entryCount; index++) {
+            for (int changedIndex = 0; changedIndex < changedCount; changedIndex++) {
+                int index = changed[changedIndex];
+                Bounds3f local = renderers[index].mesh().localBounds();
+                Matrix4fc model = modelMiss[index] ? pendingModels[index] : models[index];
                 try {
-                    BoundsTransforms.world(renderers[index].mesh().localBounds(), models[index],
-                            bounds[index]);
+                    BoundsTransforms.world(local, model, pendingBounds[index]);
                 } catch (RuntimeException | Error failure) {
                     throw stageFailure(index, "world bounds", failure);
                 }
-                if (!bounds[index].unbounded) finite++;
+                if (!pendingBounds[index].unbounded) finite++;
             }
             long boundsNanos = System.nanoTime() - stageStart;
 
-            stageStart = System.nanoTime();
-            int forwardCount = 0;
-            int shadowCount = 0;
-            int shadowCandidates = 0;
-            for (int index = 0; index < entryCount; index++) {
-                if (!cullingEnabled || !cameraFrustum.outside(bounds[index])) {
-                    forward[forwardCount++] = index;
+            for (int changedIndex = 0; changedIndex < changedCount; changedIndex++) {
+                int index = changed[changedIndex];
+                if (modelMiss[index]) {
+                    models[index].set(pendingModels[index]);
+                    mirrored[index] = models[index].determinant3x3() < 0.0f;
+                    cachedModelRevisions[index] = requestedModelRevisions[index];
                 }
-                if (castsShadow[index]) {
-                    shadowCandidates++;
-                    if (shadowEnabled && (!cullingEnabled || !shadowFrustum.outside(bounds[index]))) {
+                if (boundsMiss[index]) {
+                    bounds[index].set(pendingBounds[index]);
+                    cachedLocalBounds[index] = renderers[index].mesh().localBounds();
+                }
+                cacheValid[index] = true;
+            }
+            if (changedCount != 0) boundsRevision = Math.incrementExact(boundsRevision);
+
+            long frustumNanos = 0L;
+            long sortNanos = 0L;
+            boolean forwardReused = forwardCacheMatches(scene.membershipRevision(), cullingEnabled);
+            if (!forwardReused) {
+                stageStart = System.nanoTime();
+                cameraFrustum.set(clip);
+                forwardCount = 0;
+                for (int index = 0; index < entryCount; index++) {
+                    if (!cullingEnabled || !cameraFrustum.outside(bounds[index])) {
+                        forward[forwardCount++] = index;
+                    }
+                }
+                frustumNanos += System.nanoTime() - stageStart;
+                stageStart = System.nanoTime();
+                RenderQueueSorter.forward(forward, forwardCount, scratch, blend, shader, material, mesh);
+                sortNanos += System.nanoTime() - stageStart;
+                updateForwardStatistics();
+                forwardKeyMatrix.set(clip);
+                forwardSceneRevision = scene.membershipRevision();
+                forwardBoundsRevision = boundsRevision;
+                forwardCullingEnabled = cullingEnabled;
+                forwardCacheValid = true;
+            }
+
+            boolean shadowReused = shadowCacheMatches(scene.membershipRevision(), shadowMatrix,
+                    shadowEnabled, cullingEnabled);
+            if (!shadowReused) {
+                stageStart = System.nanoTime();
+                if (shadowEnabled) shadowFrustum.set(shadowMatrix);
+                shadowCount = 0;
+                for (int index = 0; index < entryCount; index++) {
+                    if (castsShadow[index] && shadowEnabled
+                            && (!cullingEnabled || !shadowFrustum.outside(bounds[index]))) {
                         shadow[shadowCount++] = index;
                     }
                 }
-            }
-            long frustumNanos = System.nanoTime() - stageStart;
-
-            stageStart = System.nanoTime();
-            RenderQueueSorter.forward(forward, forwardCount, scratch, blend, shader, material, mesh);
-            RenderQueueSorter.shadow(shadow, shadowCount, scratch, mesh);
-            long sortNanos = System.nanoTime() - stageStart;
-
-            int opaque = 0, additive = 0, alpha = 0;
-            int shaderChanges = 0, materialChanges = 0, meshChanges = 0;
-            int blendChanges = 0, mirroredChanges = 0;
-            for (int queue = 0; queue < forwardCount; queue++) {
-                int index = forward[queue];
-                switch (blend[index]) {
-                    case 0 -> opaque++;
-                    case 1 -> additive++;
-                    default -> alpha++;
-                }
-                if (queue > 0) {
-                    int previous = forward[queue - 1];
-                    if (shader[index] != shader[previous]) shaderChanges++;
-                    if (material[index] != material[previous]) materialChanges++;
-                    if (mesh[index] != mesh[previous]) meshChanges++;
-                    if (blend[index] != blend[previous]) blendChanges++;
-                    if (mirrored[index] != mirrored[previous]) mirroredChanges++;
-                }
+                frustumNanos += System.nanoTime() - stageStart;
+                stageStart = System.nanoTime();
+                RenderQueueSorter.shadow(shadow, shadowCount, scratch, mesh);
+                sortNanos += System.nanoTime() - stageStart;
+                shadowKeyMatrix.set(shadowMatrix);
+                shadowSceneRevision = scene.membershipRevision();
+                shadowBoundsRevision = boundsRevision;
+                shadowCullingEnabled = cullingEnabled;
+                shadowEnabledKey = shadowEnabled;
+                shadowCacheValid = true;
             }
 
             long totalNanos = System.nanoTime() - totalStart;
             frame.renderers = renderers;
             frame.models = models;
             frame.worldBounds = bounds;
+            frame.mirrored = mirrored;
             frame.forwardIndices = forward;
             frame.shadowIndices = shadow;
             frame.forwardCount = forwardCount;
@@ -121,15 +214,58 @@ final class SceneFrameBuilder {
             frame.sceneRevision = scene.membershipRevision();
             frame.statistics = new SceneFrame.Statistics(cullingEnabled, frame.sceneRevision,
                     entryCount, finite, entryCount - finite, forwardCount,
-                    entryCount - forwardCount, shadowCandidates, shadowCount,
-                    shadowCandidates - shadowCount, modelNanos, boundsNanos, frustumNanos,
-                    sortNanos, totalNanos, opaque, additive, alpha, shaderChanges,
-                    materialChanges, meshChanges, blendChanges, mirroredChanges);
+                    entryCount - forwardCount, shadowCandidateCount, shadowCount,
+                    shadowCandidateCount - shadowCount, staticRenderers, dynamicRenderers,
+                    modelHits, modelMisses, boundsHits, boundsMisses,
+                    forwardReused, !forwardReused, shadowReused, !shadowReused,
+                    modelNanos, boundsNanos, frustumNanos, sortNanos, totalNanos,
+                    forwardOpaque, forwardAdditive, forwardAlpha, forwardShaderChanges,
+                    forwardMaterialChanges, forwardMeshChanges, forwardBlendChanges,
+                    forwardMirroredChanges);
             frame.available = true;
             return frame;
         } catch (RuntimeException | Error failure) {
             abort();
             throw failure;
+        }
+    }
+
+    private boolean forwardCacheMatches(long sceneRevision, boolean cullingEnabled) {
+        return queueCacheEnabled && forwardCacheValid
+                && forwardSceneRevision == sceneRevision
+                && forwardBoundsRevision == boundsRevision
+                && forwardCullingEnabled == cullingEnabled
+                && matrixEquals(forwardKeyMatrix, clip);
+    }
+
+    private boolean shadowCacheMatches(long sceneRevision, Matrix4fc shadowMatrix,
+                                       boolean shadowEnabled, boolean cullingEnabled) {
+        return queueCacheEnabled && shadowCacheValid
+                && shadowSceneRevision == sceneRevision
+                && shadowBoundsRevision == boundsRevision
+                && shadowCullingEnabled == cullingEnabled
+                && shadowEnabledKey == shadowEnabled
+                && matrixEquals(shadowKeyMatrix, shadowMatrix);
+    }
+
+    private void updateForwardStatistics() {
+        forwardOpaque = forwardAdditive = forwardAlpha = 0;
+        forwardShaderChanges = forwardMaterialChanges = forwardMeshChanges = 0;
+        forwardBlendChanges = forwardMirroredChanges = 0;
+        for (int queue = 0; queue < forwardCount; queue++) {
+            int index = forward[queue];
+            switch (blend[index]) {
+                case 0 -> forwardOpaque++;
+                case 1 -> forwardAdditive++;
+                default -> forwardAlpha++;
+            }
+            if (queue == 0) continue;
+            int previous = forward[queue - 1];
+            if (shader[index] != shader[previous]) forwardShaderChanges++;
+            if (material[index] != material[previous]) forwardMaterialChanges++;
+            if (mesh[index] != mesh[previous]) forwardMeshChanges++;
+            if (blend[index] != blend[previous]) forwardBlendChanges++;
+            if (mirrored[index] != mirrored[previous]) forwardMirroredChanges++;
         }
     }
 
@@ -140,11 +276,14 @@ final class SceneFrameBuilder {
         ensureCapacity(entryCount);
         IdentityHashMap<Object, Integer> materialOrdinals = new IdentityHashMap<>();
         int nextMaterial = 0;
+        shadowCandidateCount = 0;
         for (int index = 0; index < entryCount; index++) {
             MeshRenderer renderer = scene.rendererAt(index);
             renderers[index] = renderer;
             blend[index] = blendRank(renderer.material().material().blendMode());
             shader[index] = renderer.material().material().shader().id();
+            // 排序只按不可变 Material 模板分组。独立 MaterialInstance 的 override 仍由
+            // RenderPipeline binding cursor 逐实例判断，不能让可变实例身份破坏默认材质批次。
             Object materialIdentity = renderer.material().material();
             Integer ordinal = materialOrdinals.get(materialIdentity);
             if (ordinal == null) {
@@ -154,8 +293,15 @@ final class SceneFrameBuilder {
             material[index] = ordinal;
             mesh[index] = renderer.mesh().vertexArray().id();
             castsShadow[index] = renderer.castShadows();
+            if (castsShadow[index]) shadowCandidateCount++;
+            cacheValid[index] = false;
+            cachedLocalBounds[index] = null;
         }
         Arrays.fill(renderers, entryCount, renderers.length, null);
+        Arrays.fill(cachedLocalBounds, entryCount, cachedLocalBounds.length, null);
+        Arrays.fill(cacheValid, entryCount, cacheValid.length, false);
+        forwardCacheValid = false;
+        shadowCacheValid = false;
         cachedRevision = revision;
     }
 
@@ -166,11 +312,22 @@ final class SceneFrameBuilder {
         int previous = renderers.length;
         renderers = Arrays.copyOf(renderers, capacity);
         models = Arrays.copyOf(models, capacity);
+        pendingModels = Arrays.copyOf(pendingModels, capacity);
         bounds = Arrays.copyOf(bounds, capacity);
+        pendingBounds = Arrays.copyOf(pendingBounds, capacity);
         for (int index = previous; index < capacity; index++) {
             models[index] = new Matrix4f();
+            pendingModels[index] = new Matrix4f();
             bounds[index] = new WorldBounds();
+            pendingBounds[index] = new WorldBounds();
         }
+        cachedLocalBounds = Arrays.copyOf(cachedLocalBounds, capacity);
+        cachedModelRevisions = Arrays.copyOf(cachedModelRevisions, capacity);
+        requestedModelRevisions = Arrays.copyOf(requestedModelRevisions, capacity);
+        cacheValid = Arrays.copyOf(cacheValid, capacity);
+        modelMiss = Arrays.copyOf(modelMiss, capacity);
+        boundsMiss = Arrays.copyOf(boundsMiss, capacity);
+        changed = Arrays.copyOf(changed, capacity);
         forward = Arrays.copyOf(forward, capacity);
         shadow = Arrays.copyOf(shadow, capacity);
         scratch = Arrays.copyOf(scratch, capacity);
@@ -188,6 +345,19 @@ final class SceneFrameBuilder {
         frame.shadowCount = 0;
         frame.statistics = SceneFrame.Statistics.UNAVAILABLE;
     }
+
+    private static boolean matrixEquals(Matrix4fc left, Matrix4fc right) {
+        return bits(left.m00()) == bits(right.m00()) && bits(left.m01()) == bits(right.m01())
+                && bits(left.m02()) == bits(right.m02()) && bits(left.m03()) == bits(right.m03())
+                && bits(left.m10()) == bits(right.m10()) && bits(left.m11()) == bits(right.m11())
+                && bits(left.m12()) == bits(right.m12()) && bits(left.m13()) == bits(right.m13())
+                && bits(left.m20()) == bits(right.m20()) && bits(left.m21()) == bits(right.m21())
+                && bits(left.m22()) == bits(right.m22()) && bits(left.m23()) == bits(right.m23())
+                && bits(left.m30()) == bits(right.m30()) && bits(left.m31()) == bits(right.m31())
+                && bits(left.m32()) == bits(right.m32()) && bits(left.m33()) == bits(right.m33());
+    }
+
+    private static int bits(float value) { return Float.floatToIntBits(value); }
 
     private static IllegalStateException stageFailure(int rendererIndex, String stage,
                                                       Throwable cause) {

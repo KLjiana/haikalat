@@ -266,11 +266,19 @@ final class DiagnosticsPanel {
         return overview + String.format(Locale.ROOT,
                 "\nvisibility %s\nforward %,d / %,d (culled %.1f%%)"
                         + "\nshadow %,d / %,d\nunbounded %,d\nqueue %.3f ms"
+                        + "\nstatic/dynamic %,d/%,d model hit %,d bounds hit %,d"
+                        + "\nqueue reuse forward/shadow %s/%s"
+                        + "\ncommands %,d matrices %,d objects %,d"
                         + "\nqueue changes shader/material/mesh %,d/%,d/%,d",
                 visibility.cullingEnabled() ? "enabled" : "disabled",
                 visibility.forwardVisible(), visibility.candidateRenderers(), cullRatio,
                 visibility.shadowVisible(), visibility.shadowCandidates(),
                 visibility.unboundedRenderers(), visibility.totalQueueBuildNanos() / 1_000_000.0,
+                visibility.staticRenderers(), visibility.dynamicRenderers(),
+                visibility.modelCacheHits(), visibility.boundsCacheHits(),
+                visibility.forwardQueueReused(), visibility.shadowQueueReused(),
+                visibility.recordedCommands(), visibility.recordedMatrixSnapshots(),
+                visibility.recordedObjectPayloads(),
                 visibility.shaderChanges(), visibility.materialChanges(),
                 visibility.meshChanges());
     }

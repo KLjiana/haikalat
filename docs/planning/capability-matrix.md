@@ -23,13 +23,13 @@
 | 异步上传与渲染线程 | 完整 | `UploadSystem`、`LatestFrameMailbox`、`GlRenderThread` | `AsyncDemo` | `UploadSystemTest`、`LatestFrameMailboxTest`、`GlContextSmokeTest`、`runAsyncIntegration` | 两线程 latest-wins；矩阵 UBO 上传成功后才发布对应不可变帧状态 |
 | CPU/GPU profiling | 完整 | `FrameDriver`、`GpuTimer`、`FrameProfile` | `LearnOpenGlDemo` 标题 | `ObservabilityTest`、`RenderGraphTest`、`runDemoIntegration` | RenderGraph profiling 不再依赖 `custom()` escape hatch |
 | 调试与可观察性闭环 | 完整 | `runtime/diagnostics`、`RenderGraph.description`、`GlDebug` message/resource snapshot | `LearnOpenGlDemo` F2 五页面板 | `FrameDiagnosticsTest`、`RenderGraphDescriptionTest`、`localDiagnosticsVerification` | 有界 240-frame/256-message；显存是估值；不预览纹理、不编辑 graph、不控制外部 debugger |
-| 普通场景可见性与 Render Queue | 完整 | `Bounds3f`、`SceneFrameBuilder`、`Frustum`、`RenderQueueSorter` | `SceneScalabilityDemo` | `Bounds3fTest`、`FrustumTest`、`SceneVisibilityGlTest`、`localSceneVisibilityVerification` | CPU AABB/frustum；普通 renderer 每帧 updater 一次；相机与方向光阴影视锥独立；opaque/additive 分组，alpha 保持 insertion order；不包含层级 bounds、occlusion、GPU culling 或 MDI |
+| 普通场景可见性与 Render Queue | 完整 | `Bounds3f`、`SceneFrameBuilder`、`Frustum`、`RenderQueueSorter` | `SceneScalabilityDemo`、`GltfSceneScalabilityDemo` | `TransformRevisionTest`、`SceneVisibilityGlTest`、`localSceneSubmissionVerification` | revisioned/fixed renderer 复用 model、bounds 与独立 forward/shadow queue；任意 updater 仍每帧一次；alpha 保持 insertion order；不包含层级 bounds、occlusion、GPU culling 或 MDI |
 
 ## 构建基线
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.16.0`。
+- 正式稳定版本：`0.17.0`；当前版本：`0.17.0`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
@@ -38,6 +38,8 @@
 - glTF 本地验收：`localGltfVerification`，执行 parser/accessor/node/material JVM 测试、真实 GL upload/lifecycle，以及 deterministic/resize 集成。
 - diagnostics 本地验收：`localDiagnosticsVerification`，执行 history/export JVM 测试以及 deterministic、resize、failure/recovery 三项真实 GL capture。
 - scene visibility 本地验收：`localSceneVisibilityVerification`，执行 bounds/frustum/queue JVM 测试、camera/shadow/resize 真实 GL 回归和 10,000 renderer 有限帧门禁。
+- scene submission 本地验收：`localSceneSubmissionVerification`，执行 revision/mat4 arena JVM 测试、
+  queue/TAA/像素真实 GL、共享 glTF 100/1k、resize/motion、10k allocation 和静态 all-hidden 门禁。
 - 完整本地验收：`localGlVerification`，包含 `localUiVerification`，并继续运行基准/resize/Bloom/自动曝光/Minimal/Async/空窗口 Demo 和压力入口。
 
 矩阵状态随实现阶段更新；未完成端到端验证的能力不得在 README 中描述为完整效果。

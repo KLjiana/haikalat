@@ -1,6 +1,6 @@
 # 公共 API 分类合同
 
-状态：v0.14 当前有效合同。
+状态：v0.17 当前有效合同。
 
 main source set 的每个 public 顶层类型必须恰好出现在一个域清单中。每行格式为
 `<stable|advanced|internal> <fully-qualified-class-name>`。
@@ -16,3 +16,6 @@ main source set 的每个 public 顶层类型必须恰好出现在一个域清�
 `PublicApiCatalog` 与 `ArchitectureBoundaryTest` 校验未分类、重复、陈旧、错域、stable
 第三方签名泄漏和 internal 越域调用。反射检查覆盖导入后的简单类型，不依赖源码中出现完整包名。
 稳定基线见 `stable-baseline.allowlist`，迁移记录见 `migrations.md`。
+
+成员级新增 API 如果承担诊断合同，还必须在对应的成员合同文档中记录统计边界。v0.17 新增的
+`CommandBuffer` 录制计数见 [command-buffer-diagnostics.md](command-buffer-diagnostics.md)。

@@ -177,8 +177,11 @@ class FrameDiagnosticsTest {
         diagnostics.scene(9, 0, 10, 0);
         diagnostics.visibility(new DiagnosticsSnapshot.VisibilitySummary(true, 3,
                 10, 9, 1, 7, 3, 6, 4, 2,
+                8, 2, 8, 2, 9, 1,
+                true, false, false, true,
                 11, 12, 13, 14, 60,
-                5, 1, 1, 2, 3, 4, 1, 1));
+                5, 1, 1, 2, 3, 4, 1, 1,
+                15, 16, 17, 18));
         RenderStatistics statistics = new RenderStatistics();
         statistics.beginFrame();
         statistics.endFrame();
@@ -192,6 +195,15 @@ class FrameDiagnosticsTest {
         assertEquals(60, visibility.totalQueueBuildNanos());
         assertEquals(0, visibility.modelUpdateNanos());
         assertEquals(0, visibility.shaderChanges());
+        assertEquals(8, visibility.staticRenderers());
+        assertEquals(8, visibility.modelCacheHits());
+        assertEquals(9, visibility.boundsCacheHits());
+        assertTrue(visibility.forwardQueueReused());
+        assertTrue(visibility.shadowQueueRebuilt());
+        assertEquals(15, visibility.commandRecordNanos());
+        assertEquals(16, visibility.recordedCommands());
+        assertEquals(17, visibility.recordedMatrixSnapshots());
+        assertEquals(18, visibility.recordedObjectPayloads());
 
         Path output = temporaryDirectory.resolve("visibility.json");
         DiagnosticsJsonExporter.export(diagnostics.freeze(), output);
@@ -199,6 +211,9 @@ class FrameDiagnosticsTest {
         assertTrue(json.contains("\"candidateRenderers\" : 10"));
         assertTrue(json.contains("\"forwardVisible\" : 7"));
         assertTrue(json.contains("\"totalQueueBuildNanos\" : 60"));
+        assertTrue(json.contains("\"modelCacheHits\" : 8"));
+        assertTrue(json.contains("\"forwardQueueReused\" : true"));
+        assertTrue(json.contains("\"recordedMatrixSnapshots\" : 17"));
     }
 
     @Test

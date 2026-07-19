@@ -6,10 +6,10 @@
 
 ## 当前重点
 
-v0.16 场景扩展与可见性闭环已作为 `0.16.0` 验收。普通 renderer 已具备 bounds、SceneFrame、
-camera/shadow frustum 和 primitive Render Queue；本机 10,000 renderer / 10% 可见场景把 draw
-从 10,000 降到 1,000。下一版本先用真实多 mesh/material glTF 场景复核 CPU queue、显存和 draw
-分布，再决定是否进入 GPU culling + MDI；不因单个程序化基准直接扩张协议。
+v0.17 已完成本地实现候选。真实多材质 glTF 的 10,000 renderer / 10% 可见场景只提交 1,000 draw，
+optimized CPU/GPU median 为 `0.626/0.259 ms`，没有达到 GPU-driven 决策门要求的约 2 ms CPU 和
+3,000 个持续可见 draw。因此 v0.18 暂不建设 GPU culling、Hi-Z 或 MDI；先处理调试可视化、透明
+排序合同和 UI allocation，等新真实内容再次提供联合证据。
 
 ### 近期
 
@@ -18,7 +18,7 @@ camera/shadow frustum 和 primitive Render Queue；本机 10,000 renderer / 10% 
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 - [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。
-- [ ] 在正式发布流水线复验 v0.16 的远端 Windows/Linux CI。
+- [ ] 在正式发布流水线复验 v0.17 的远端 Windows/Linux CI。
 - [x] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
 
 ### 中期
@@ -26,9 +26,9 @@ camera/shadow frustum 和 primitive Render Queue；本机 10,000 renderer / 10% 
 - [x] 以 UI subsystem 建立只读调试面板、资源/消息检查和 frozen capture；没有绕过正式生命周期边界。
 - [ ] 为 RenderGraph texture preview 单独设计 HDR/depth/MSAA/cubemap 可视化策略，不在通用 diagnostics 中裸采样。
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
-- [ ] 用同一 10,000 renderer 数据判断 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`：
-  只有 CPU SceneFrame 持续成为目标硬件瓶颈、draw 仍高且材质协议能批处理时才进入；否则优先
-  缓存静态 transform/bounds 和减少 per-draw command/uniform allocation。
+- [x] 用同一 10,000 renderer 数据判断 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`：
+  v0.17 数据不满足联合门槛，决定暂缓；未来只有 CPU 持续超过约 2 ms、可见 draw 超过 3,000、
+  至少 70% draw 可批处理且 GPU 非主要瓶颈时重新评估。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。
 
 ### 长期

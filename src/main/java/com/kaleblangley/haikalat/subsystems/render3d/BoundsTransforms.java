@@ -14,9 +14,7 @@ final class BoundsTransforms {
         Objects.requireNonNull(local, "local");
         Objects.requireNonNull(matrix, "matrix");
         Objects.requireNonNull(destination, "destination");
-        if (!finiteAffine(matrix)) {
-            throw new IllegalArgumentException("model matrix must be finite and affine");
-        }
+        requireFiniteAffine(matrix);
         if (local.isUnbounded()) {
             destination.unbounded();
             return;
@@ -51,6 +49,12 @@ final class BoundsTransforms {
         destination.maxZ = worldCenterZ + worldExtentZ;
         if (!finite(destination)) {
             throw new IllegalArgumentException("world bounds overflowed to a non-finite value");
+        }
+    }
+
+    static void requireFiniteAffine(Matrix4fc matrix) {
+        if (!finiteAffine(matrix)) {
+            throw new IllegalArgumentException("model matrix must be finite and affine");
         }
     }
 

@@ -12,11 +12,28 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 
 class CommandBufferTest {
+    @Test
+    void publicDiagnosticsCountsCoverOnlyTheirDocumentedArenas() throws Exception {
+        assertTrue(java.lang.reflect.Modifier.isPublic(CommandBuffer.class
+                .getMethod("recordedMatrixSnapshotCount").getModifiers()));
+        assertTrue(java.lang.reflect.Modifier.isPublic(CommandBuffer.class
+                .getMethod("recordedObjectPayloadCount").getModifiers()));
+
+        CommandBuffer commands = new CommandBuffer().custom(() -> { });
+
+        assertEquals(0, commands.recordedMatrixSnapshotCount());
+        assertEquals(1, commands.recordedObjectPayloadCount());
+        commands.reset();
+        assertEquals(0, commands.recordedMatrixSnapshotCount());
+        assertEquals(0, commands.recordedObjectPayloadCount());
+    }
+
     @Test
     void indexedInstancedDrawIsAFormalValidatedCommand() {
         CommandBuffer cmd = new CommandBuffer()

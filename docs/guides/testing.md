@@ -198,3 +198,15 @@ enabled/disabled 像素一致、resize aspect、固定 2048×2048 shadow target�
 并补充 10,000 all-visible/all-hidden；每轮预热 100 帧、统计 1000 帧。输出 present FPS、CPU/GPU
 平均和中位数、SceneFrame 各阶段时间、进程级 allocation、draw 和 state-cache skip ratio。
 当前本机结果见 [`docs/performance/v0.16-scene-visibility-2026-07-19.md`](../performance/v0.16-scene-visibility-2026-07-19.md)。
+
+v0.17 scene submission 门禁：
+
+```powershell
+.\gradlew.bat localSceneSubmissionVerification --rerun-tasks
+.\gradlew.bat runSceneSubmissionBenchmarks
+```
+
+前者串行执行 revision/matrix arena JVM 测试、真实 GL queue/TAA/pixel parity、共享资源 glTF 1k、
+resize、camera-motion、10k allocation 和 static/all-hidden 0.15 ms 门禁。后者对程序化与真实 glTF 的
+100/1k/10k compat/optimized 路径各运行五轮，每轮预热 100 帧并采样 1,000 帧。结果见
+[`docs/performance/v0.17-scene-submission-2026-07-19.md`](../performance/v0.17-scene-submission-2026-07-19.md)。

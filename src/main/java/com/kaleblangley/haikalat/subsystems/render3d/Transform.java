@@ -9,6 +9,7 @@ public final class Transform {
     private final Vector3f position = new Vector3f();
     private final Vector3f rotationRadians = new Vector3f();
     private final Vector3f scale = new Vector3f(1.0f, 1.0f, 1.0f);
+    private long revision;
 
     public static Transform identity() {
         return new Transform();
@@ -19,27 +20,37 @@ public final class Transform {
     }
 
     public Transform position(float x, float y, float z) {
+        long nextRevision = Math.incrementExact(revision);
         position.set(x, y, z);
+        revision = nextRevision;
         return this;
     }
 
     public Transform position(Vector3f value) {
+        long nextRevision = Math.incrementExact(revision);
         position.set(Objects.requireNonNull(value, "value"));
+        revision = nextRevision;
         return this;
     }
 
     public Transform rotationRadians(float x, float y, float z) {
+        long nextRevision = Math.incrementExact(revision);
         rotationRadians.set(x, y, z);
+        revision = nextRevision;
         return this;
     }
 
     public Transform scale(float value) {
+        long nextRevision = Math.incrementExact(revision);
         scale.set(value, value, value);
+        revision = nextRevision;
         return this;
     }
 
     public Transform scale(float x, float y, float z) {
+        long nextRevision = Math.incrementExact(revision);
         scale.set(x, y, z);
+        revision = nextRevision;
         return this;
     }
 
@@ -64,5 +75,9 @@ public final class Transform {
                 .translate(position)
                 .rotateXYZ(rotationRadians.x, rotationRadians.y, rotationRadians.z)
                 .scale(scale);
+    }
+
+    long revision() {
+        return revision;
     }
 }

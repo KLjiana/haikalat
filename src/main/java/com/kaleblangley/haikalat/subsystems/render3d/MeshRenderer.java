@@ -26,7 +26,9 @@ public record MeshRenderer(
     }
 
     public static MeshRenderer of(Mesh mesh, MaterialInstance material, Transform transform) {
-        return new MeshRenderer(mesh, material, transform, (out, frame) -> transform.matrix(out), true);
+        Objects.requireNonNull(transform, "transform");
+        return new MeshRenderer(mesh, material, transform,
+                new RevisionedModelSource.TransformSource(transform), true);
     }
 
     public static MeshRenderer animated(Mesh mesh, Material material, SceneObject.ModelUpdater updater) {
@@ -44,5 +46,13 @@ public record MeshRenderer(
     public Matrix4f modelMatrix(Matrix4f out, int frameIndex) {
         updater.update(out, frameIndex);
         return out;
+    }
+
+    boolean revisionedModel() {
+        return updater instanceof RevisionedModelSource;
+    }
+
+    long modelRevision() {
+        return ((RevisionedModelSource) updater).revision();
     }
 }

@@ -117,10 +117,7 @@ public final class GltfSceneAsset implements AutoCloseable {
                 Mesh mesh = meshes.get(primitive.index());
                 Material material = materials.get(new MaterialKey(primitive.materialIndex(),
                         primitive.hasVertexColor()));
-                result.add(new SceneObject(mesh, material, (out, frame) -> {
-                    ensureOpen();
-                    out.set(model);
-                }, castShadows));
+                result.add(SceneObject.fixed(mesh, material, model, castShadows));
             }
         }
         return List.copyOf(result);
@@ -131,6 +128,18 @@ public final class GltfSceneAsset implements AutoCloseable {
     public int uniqueMeshCount() { return meshes.size(); }
     public int uniqueTextureCount() { return textures.size(); }
     public int uniqueSamplerCount() { return samplers.size() + 1; }
+    /** @return 实际上传且可由多个 scene instance 共享的 material 数量 */
+    public int uniqueMaterialCount() { return materials.size(); }
+
+    /** @return mesh/index 与已上传 RGBA 纹理的保守 GPU storage 估值 */
+    public long estimatedGpuBytes() {
+        long bytes = Math.addExact(source.statistics().vertexBytes(), source.statistics().indexBytes());
+        for (Texture2D texture : textures) {
+            bytes = Math.addExact(bytes, Math.multiplyExact(
+                    Math.multiplyExact((long) texture.width(), texture.height()), 4L));
+        }
+        return bytes;
+    }
 
     @Override
     public void close() {

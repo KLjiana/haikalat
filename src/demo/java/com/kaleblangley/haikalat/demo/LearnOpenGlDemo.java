@@ -181,13 +181,20 @@ public final class LearnOpenGlDemo {
                             visibility.unboundedRenderers(), visibility.forwardVisible(),
                             visibility.forwardCulled(), visibility.shadowCandidates(),
                             visibility.shadowVisible(), visibility.shadowCulled(),
+                            visibility.staticRenderers(), visibility.dynamicRenderers(),
+                            visibility.modelCacheHits(), visibility.modelCacheMisses(),
+                            visibility.boundsCacheHits(), visibility.boundsCacheMisses(),
+                            visibility.forwardQueueReused(), visibility.forwardQueueRebuilt(),
+                            visibility.shadowQueueReused(), visibility.shadowQueueRebuilt(),
                             visibility.modelUpdateNanos(), visibility.boundsTransformNanos(),
                             visibility.frustumTestNanos(), visibility.queueSortNanos(),
                             visibility.totalQueueBuildNanos(), visibility.opaqueDraws(),
                             visibility.additiveDraws(), visibility.alphaDraws(),
                             visibility.shaderChanges(), visibility.materialChanges(),
                             visibility.meshChanges(), visibility.blendChanges(),
-                            visibility.mirroredChanges()));
+                            visibility.mirroredChanges(), visibility.commandRecordNanos(),
+                            visibility.recordedCommands(), visibility.recordedMatrixSnapshots(),
+                            visibility.recordedObjectPayloads()));
                 }
                 UiFrameStats uiStats = uiOverlay.statistics();
                 renderLoop.recordUiStatistics(uiStats.visibleNodes(), uiStats.quads(), uiStats.glyphs(),

@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.16.0'
+version = '0.17.0'
 
 repositories {
     mavenCentral()
@@ -590,12 +590,19 @@ tasks.register('runSceneScalabilityDemo', JavaExec) {
     args "--objects=${providers.gradleProperty('sceneObjects').getOrElse('10000')}",
             "--layout=${providers.gradleProperty('sceneLayout').getOrElse('large')}",
             "--visibility=${providers.gradleProperty('sceneVisibility').getOrElse('enabled')}",
+            "--model-source=${providers.gradleProperty('sceneModelSource').getOrElse('dynamic')}",
+            "--static-cache=${providers.gradleProperty('sceneStaticCache').getOrElse('enabled')}",
+            "--queue-cache=${providers.gradleProperty('sceneQueueCache').getOrElse('enabled')}",
+            "--command-matrix-arena=${providers.gradleProperty('sceneMatrixArena').getOrElse('enabled')}",
             "--frames=${providers.gradleProperty('sceneFrames').getOrElse('1000')}",
             "--warmup=${providers.gradleProperty('sceneWarmup').getOrElse('100')}",
             "--rounds=${providers.gradleProperty('sceneRounds').getOrElse('1')}",
             "--size=${providers.gradleProperty('sceneSize').getOrElse('1280x720')}"
     if (providers.gradleProperty('sceneDeterministic').getOrElse('false').toBoolean()) {
         args '--deterministic'
+    }
+    if (providers.gradleProperty('sceneVerify').getOrElse('false').toBoolean()) {
+        args '--verify'
     }
 }
 
@@ -708,8 +715,188 @@ tasks.register('localSceneVisibilityVerification') {
             'runSceneVisibilityShadowIntegration', 'runSceneScalabilityIntegration'
 }
 
+def gltfSceneScalabilityMainClass = 'com.kaleblangley.haikalat.demo.GltfSceneScalabilityDemo'
+
+tasks.register('runGltfSceneScalabilityDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs the shared-resource real glTF scene submission benchmark.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = gltfSceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--scene=${providers.gradleProperty('gltfScene').getOrElse('/gltf/scalability.gltf')}",
+            "--renderers=${providers.gradleProperty('gltfSceneRenderers').getOrElse('1000')}",
+            "--layout=${providers.gradleProperty('gltfSceneLayout').getOrElse('mixed')}",
+            "--visibility=${providers.gradleProperty('gltfSceneVisibility').getOrElse('enabled')}",
+            "--static-cache=${providers.gradleProperty('gltfSceneStaticCache').getOrElse('enabled')}",
+            "--queue-cache=${providers.gradleProperty('gltfSceneQueueCache').getOrElse('enabled')}",
+            "--command-matrix-arena=${providers.gradleProperty('gltfSceneMatrixArena').getOrElse('enabled')}",
+            "--frames=${providers.gradleProperty('gltfSceneFrames').getOrElse('1000')}",
+            "--warmup=${providers.gradleProperty('gltfSceneWarmup').getOrElse('100')}",
+            "--rounds=${providers.gradleProperty('gltfSceneRounds').getOrElse('1')}",
+            "--size=${providers.gradleProperty('gltfSceneSize').getOrElse('1280x720')}"
+    if (providers.gradleProperty('gltfSceneDeterministic').getOrElse('false').toBoolean()) {
+        args '--deterministic'
+    }
+    if (providers.gradleProperty('gltfSceneVerify').getOrElse('false').toBoolean()) {
+        args '--verify'
+    }
+}
+
+tasks.register('sceneSubmissionJvmVerification', Test) {
+    group = 'verification'
+    description = 'Validates transform revisions, fixed matrices and primitive mat4 snapshots.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.TransformRevisionTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.core.command.CommandStreamMatrixArenaTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoaderTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnosticsTest'
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('sceneSubmissionGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates real-GL static caches, independent queues and failure recovery.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.SceneVisibilityGlTest' }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runGltfSceneScalabilityIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the 1,000-renderer mixed real glTF correctness gate.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = gltfSceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--renderers=1000', '--layout=mixed', '--visibility=enabled',
+            '--static-cache=enabled', '--queue-cache=enabled',
+            '--command-matrix-arena=enabled', '--frames=12', '--warmup=4',
+            '--rounds=1', '--size=640x360', '--deterministic', '--verify',
+            '--diagnostics-export=build/diagnostics/gltf-scene-scalability.json'
+    outputs.file layout.buildDirectory.file('diagnostics/gltf-scene-scalability.json')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runGltfSceneScalabilityResizeIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the real glTF scene through a deterministic resize.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = gltfSceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--renderers=100', '--layout=all-visible', '--visibility=enabled',
+            '--frames=12', '--warmup=4', '--rounds=1', '--size=640x640',
+            '--resize=6:960x540', '--deterministic', '--verify'
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runGltfSceneScalabilityIntegration'
+}
+
+tasks.register('runGltfSceneScalabilityMotionIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs moving-camera queue invalidation on a real glTF scene.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = gltfSceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--renderers=100', '--layout=camera-motion', '--visibility=enabled',
+            '--frames=12', '--warmup=4', '--rounds=1', '--size=640x360',
+            '--deterministic', '--verify'
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runGltfSceneScalabilityResizeIntegration'
+}
+
+tasks.register('runSceneSubmissionAllocationIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the 10k all-visible and mostly-hidden allocation hard gates.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.SceneSubmissionAllocationIntegration'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runGltfSceneScalabilityMotionIntegration'
+}
+
+tasks.register('runSceneSubmissionStaticGate', JavaExec) {
+    group = 'verification'
+    description = 'Enforces the 10k static/all-hidden SceneFrame plus queue 0.15 ms gate.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = sceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--objects=10000', '--layout=all-hidden', '--model-source=static',
+            '--visibility=enabled', '--static-cache=enabled', '--queue-cache=enabled',
+            '--command-matrix-arena=enabled', '--frames=1000', '--warmup=100',
+            '--rounds=1', '--size=640x360', '--deterministic', '--verify'
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runSceneSubmissionAllocationIntegration'
+}
+
+tasks.register('runSceneSubmissionBenchmarks', JavaExec) {
+    group = 'application'
+    description = 'Runs the five-round programmatic and real glTF submission A/B matrix.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.SceneSubmissionBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--rounds=${providers.gradleProperty('sceneSubmissionRounds').getOrElse('5')}",
+            "--warmup=${providers.gradleProperty('sceneSubmissionWarmup').getOrElse('100')}",
+            "--frames=${providers.gradleProperty('sceneSubmissionFrames').getOrElse('1000')}"
+}
+
+tasks.register('runSceneSubmissionJfr', JavaExec) {
+    group = 'application'
+    description = 'Records a 10k real glTF submission JFR allocation profile.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = gltfSceneScalabilityMainClass
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    def recording = layout.buildDirectory.file('reports/jfr/v0.17-scene-submission.jfr')
+    def jfrTemporary = layout.buildDirectory.dir('tmp/jfr')
+    doFirst {
+        recording.get().asFile.parentFile.mkdirs()
+        jfrTemporary.get().asFile.mkdirs()
+    }
+    environment 'TEMP', jfrTemporary.get().asFile.absolutePath
+    environment 'TMP', jfrTemporary.get().asFile.absolutePath
+    jvmArgs "-XX:StartFlightRecording=filename=${recording.get().asFile.absolutePath},settings=profile,delay=3s,duration=5s,dumponexit=true"
+    args '--renderers=10000', '--layout=mostly-hidden', '--visibility=enabled',
+            '--static-cache=enabled', '--queue-cache=enabled',
+            '--command-matrix-arena=enabled', '--frames=10000', '--warmup=1000',
+            '--rounds=1', '--size=1280x720', '--deterministic'
+    outputs.file recording
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('localSceneSubmissionVerification') {
+    group = 'verification'
+    description = 'Runs v0.17 JVM, real-GL, glTF resize/motion and 10k allocation gates.'
+    dependsOn 'sceneSubmissionJvmVerification', 'sceneSubmissionGlVerification',
+            'runGltfSceneScalabilityIntegration',
+            'runGltfSceneScalabilityResizeIntegration',
+            'runGltfSceneScalabilityMotionIntegration',
+            'runSceneSubmissionAllocationIntegration', 'runSceneSubmissionStaticGate'
+}
+
 tasks.named('localGlVerification') {
-    dependsOn 'localSceneVisibilityVerification'
+    dependsOn 'localSceneVisibilityVerification', 'localSceneSubmissionVerification'
 }
 
 def localReleaseTasks = [
@@ -721,7 +908,10 @@ def localReleaseTasks = [
         'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',
         'runDiagnosticsFailureIntegration', 'runSceneVisibilityIntegration',
         'runSceneVisibilityResizeIntegration', 'runSceneVisibilityShadowIntegration',
-        'runSceneScalabilityIntegration'
+        'runSceneScalabilityIntegration', 'runGltfSceneScalabilityIntegration',
+        'runGltfSceneScalabilityResizeIntegration',
+        'runGltfSceneScalabilityMotionIntegration',
+        'runSceneSubmissionAllocationIntegration', 'runSceneSubmissionStaticGate'
 ]
 
 tasks.register('localReleaseVerification') {

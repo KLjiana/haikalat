@@ -219,6 +219,13 @@ public final class RenderPipeline {
         postProcess.beginFrame(deltaSeconds);
         try {
             graph.execute(device);
+            long commandRecordNanos = 0L;
+            for (var pass : graph.lastFrameProfile().passes()) {
+                commandRecordNanos = Math.addExact(commandRecordNanos, pass.cpuRecordNanos());
+            }
+            lastVisibilityStatistics = lastVisibilityStatistics.withCommandEncoding(
+                    commandRecordNanos, graph.lastRecordedCommandCount(),
+                    graph.lastRecordedMatrixSnapshots(), graph.lastRecordedObjectPayloads());
             postProcess.frameSucceeded();
         } catch (RuntimeException | Error failure) {
             postProcess.frameFailed();
@@ -305,11 +312,15 @@ public final class RenderPipeline {
                     // 基准场景包含双面平面，因此阴影 pass 显式关闭剔除。
                     .enableCullFace(false)
                     .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
+            com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
             for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
                 MeshRenderer renderer = frame.shadowRenderer(queueIndex);
-                cmd.setUniformMat4(shadowShader, "uModel", frame.shadowModel(queueIndex))
-                        .bindMesh(renderer.mesh())
-                        .drawMesh(renderer.mesh());
+                cmd.setUniformMat4(shadowShader, "uModel", frame.shadowModel(queueIndex));
+                if (renderer.mesh() != boundMesh) {
+                    cmd.bindMesh(renderer.mesh());
+                    boundMesh = renderer.mesh();
+                }
+                cmd.drawMesh(renderer.mesh());
             }
             lastShadowCasterDrawCount = frame.shadowCount;
             if (instanced != null && instanced.castShadows()) {
@@ -329,20 +340,35 @@ public final class RenderPipeline {
             environmentBackground.render(cmd, scene.camera(), window.width(), window.height());
         }
 
+        ShaderProgram boundShader = null;
+        MaterialInstance boundMaterial = null;
+        com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
         for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
             MeshRenderer renderer = frame.forwardRenderer(queueIndex);
             Matrix4f model = frame.forwardModel(queueIndex);
             MaterialInstance material = renderer.material();
-            cmd.frontFace(model.determinant3x3() < 0.0f ? FrontFace.CW : FrontFace.CCW);
-            material.bind(cmd);
             ShaderProgram shader = material.material().shader();
-            bindFrameState(shader, cmd, shadowTexture);
-            if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
-                pbrMaterialBinder.bind(shader, cmd);
+            cmd.frontFace(frame.forwardMirrored(queueIndex) ? FrontFace.CW : FrontFace.CCW);
+            boolean materialChanged = material != boundMaterial;
+            boolean materialBindingChanged = materialChanged
+                    && !sharesUnmodifiedMaterialBinding(boundMaterial, material);
+            if (materialBindingChanged) {
+                material.bind(cmd);
             }
-            cmd.setUniformMat4(shader, "uModel", model)
-                    .bindMesh(renderer.mesh())
-                    .drawMesh(renderer.mesh());
+            boundMaterial = material;
+            if (shader != boundShader || materialBindingChanged) {
+                bindFrameState(shader, cmd, shadowTexture);
+                if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
+                    pbrMaterialBinder.bind(shader, cmd);
+                }
+                boundShader = shader;
+            }
+            cmd.setUniformMat4(shader, "uModel", model);
+            if (renderer.mesh() != boundMesh) {
+                cmd.bindMesh(renderer.mesh());
+                boundMesh = renderer.mesh();
+            }
+            cmd.drawMesh(renderer.mesh());
         }
 
         if (instanced != null) {
@@ -428,26 +454,66 @@ public final class RenderPipeline {
                                        int finiteBoundsRenderers, int unboundedRenderers,
                                        int forwardVisible, int forwardCulled,
                                        int shadowCandidates, int shadowVisible,
-                                       int shadowCulled, long modelUpdateNanos,
+                                       int shadowCulled, int staticRenderers,
+                                       int dynamicRenderers, int modelCacheHits,
+                                       int modelCacheMisses, int boundsCacheHits,
+                                       int boundsCacheMisses, boolean forwardQueueReused,
+                                       boolean forwardQueueRebuilt, boolean shadowQueueReused,
+                                       boolean shadowQueueRebuilt, long modelUpdateNanos,
                                        long boundsTransformNanos, long frustumTestNanos,
                                        long queueSortNanos, long totalQueueBuildNanos,
                                        int opaqueDraws, int additiveDraws, int alphaDraws,
                                        int shaderChanges, int materialChanges, int meshChanges,
-                                       int blendChanges, int mirroredChanges) {
+                                       int blendChanges, int mirroredChanges,
+                                       long commandRecordNanos, int recordedCommands,
+                                       int recordedMatrixSnapshots, int recordedObjectPayloads) {
         public static final VisibilityStatistics UNAVAILABLE = new VisibilityStatistics(false,
                 false, 0L, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                0, 0, 0, 0, 0, 0, false, false, false, false,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0);
 
         private static VisibilityStatistics from(SceneFrame.Statistics source) {
             return new VisibilityStatistics(true, source.cullingEnabled(), source.sceneRevision(),
                     source.candidateRenderers(), source.finiteBoundsRenderers(),
                     source.unboundedRenderers(), source.forwardVisible(), source.forwardCulled(),
                     source.shadowCandidates(), source.shadowVisible(), source.shadowCulled(),
+                    source.staticRenderers(), source.dynamicRenderers(), source.modelCacheHits(),
+                    source.modelCacheMisses(), source.boundsCacheHits(), source.boundsCacheMisses(),
+                    source.forwardQueueReused(), source.forwardQueueRebuilt(),
+                    source.shadowQueueReused(), source.shadowQueueRebuilt(),
                     source.modelUpdateNanos(), source.boundsTransformNanos(),
                     source.frustumTestNanos(), source.queueSortNanos(),
                     source.totalQueueBuildNanos(), source.opaqueDraws(), source.additiveDraws(),
                     source.alphaDraws(), source.shaderChanges(), source.materialChanges(),
-                    source.meshChanges(), source.blendChanges(), source.mirroredChanges());
+                    source.meshChanges(), source.blendChanges(), source.mirroredChanges(),
+                    0L, 0, 0, 0);
         }
+
+        private VisibilityStatistics withCommandEncoding(long nanos, int commands,
+                                                         int matrices, int objects) {
+            if (!available) return this;
+            return new VisibilityStatistics(available, cullingEnabled, sceneRevision,
+                    candidateRenderers, finiteBoundsRenderers, unboundedRenderers,
+                    forwardVisible, forwardCulled, shadowCandidates, shadowVisible,
+                    shadowCulled, staticRenderers, dynamicRenderers, modelCacheHits,
+                    modelCacheMisses, boundsCacheHits, boundsCacheMisses,
+                    forwardQueueReused, forwardQueueRebuilt, shadowQueueReused,
+                    shadowQueueRebuilt, modelUpdateNanos, boundsTransformNanos,
+                    frustumTestNanos, queueSortNanos, totalQueueBuildNanos, opaqueDraws,
+                    additiveDraws, alphaDraws, shaderChanges, materialChanges, meshChanges,
+                    blendChanges, mirroredChanges, nanos, commands, matrices, objects);
+        }
+    }
+
+    /** 仅无逐对象覆盖的实例可以按同一 Material 模板安全折叠 binding。 */
+    private static boolean sharesUnmodifiedMaterialBinding(MaterialInstance previous,
+                                                            MaterialInstance current) {
+        return previous != null
+                && previous.material() == current.material()
+                && previous.uniformOverrides().isEmpty()
+                && previous.textureOverrides().isEmpty()
+                && current.uniformOverrides().isEmpty()
+                && current.textureOverrides().isEmpty();
     }
 }

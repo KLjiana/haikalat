@@ -52,6 +52,21 @@ class GltfAssetLoaderTest {
     }
 
     @Test
+    void scalabilityFixtureProvidesSharedMultiMaterialTopology() {
+        LoadedGltfScene scene = new GltfAssetLoader(
+                ResourceLocator.classpath(GltfAssetLoaderTest.class))
+                .load(AssetRef.of("/gltf/scalability.gltf"));
+
+        assertEquals(2, scene.nodes().size());
+        assertEquals(8, scene.primitives().size());
+        assertEquals(9, scene.materials().size()); // 8 authored + loader fallback material
+        assertEquals(4, scene.textures().size());
+        assertEquals(1, scene.images().size());
+        assertTrue(scene.nodes().stream().allMatch(node -> node.meshIndex() == 0));
+        assertEquals(GltfAlphaMode.MASK, scene.materials().get(7).alphaMode());
+    }
+
+    @Test
     void blendMaterialStillFailsWithPreciseDiagnostic() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
         String blend = classpath.readString(AssetRef.of("/radio.gltf"))

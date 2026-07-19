@@ -5,6 +5,7 @@ final class SceneFrame {
     MeshRenderer[] renderers;
     org.joml.Matrix4f[] models;
     WorldBounds[] worldBounds;
+    boolean[] mirrored;
     int[] forwardIndices;
     int[] shadowIndices;
     int forwardCount;
@@ -23,7 +24,7 @@ final class SceneFrame {
     }
 
     boolean forwardMirrored(int queueIndex) {
-        return forwardModel(queueIndex).determinant3x3() < 0.0f;
+        return mirrored[forwardIndices[queueIndex]];
     }
 
     MeshRenderer shadowRenderer(int queueIndex) {
@@ -38,6 +39,11 @@ final class SceneFrame {
                       int candidateRenderers, int finiteBoundsRenderers,
                       int unboundedRenderers, int forwardVisible, int forwardCulled,
                       int shadowCandidates, int shadowVisible, int shadowCulled,
+                      int staticRenderers, int dynamicRenderers,
+                      int modelCacheHits, int modelCacheMisses,
+                      int boundsCacheHits, int boundsCacheMisses,
+                      boolean forwardQueueReused, boolean forwardQueueRebuilt,
+                      boolean shadowQueueReused, boolean shadowQueueRebuilt,
                       long modelUpdateNanos, long boundsTransformNanos,
                       long frustumTestNanos, long queueSortNanos,
                       long totalQueueBuildNanos, int opaqueDraws,
@@ -46,6 +52,7 @@ final class SceneFrame {
                       int mirroredChanges) {
         static final Statistics UNAVAILABLE = new Statistics(false, 0L,
                 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, false, false, false, false,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 }

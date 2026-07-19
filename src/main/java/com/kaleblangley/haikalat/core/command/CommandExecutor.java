@@ -47,6 +47,7 @@ final class CommandExecutor {
         int longCursor = 0;
         int objectCursor = 0;
         int gpuFenceTargetCursor = 0;
+        Matrix4f matrixScratch = new Matrix4f();
         ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
         ArrayDeque<GpuTimer> activeGpuTimers = new ArrayDeque<>();
         Throwable commandFailure = null;
@@ -198,6 +199,12 @@ final class CommandExecutor {
                     ShaderProgram shader = (ShaderProgram) stream.objectAt(objectCursor++);
                     Matrix4f matrix = (Matrix4f) stream.objectAt(objectCursor++);
                     shader.setMat4(location, matrix);
+                }
+                case UNIFORM_MAT4_PRIMITIVE -> {
+                    int location = stream.integerAt(integerCursor++);
+                    int matrixOffset = stream.integerAt(integerCursor++);
+                    ShaderProgram shader = (ShaderProgram) stream.objectAt(objectCursor++);
+                    shader.setMat4(location, stream.loadMatrix(matrixOffset, matrixScratch));
                 }
                 case UNIFORM_VEC3 -> {
                     int location = stream.integerAt(integerCursor++);

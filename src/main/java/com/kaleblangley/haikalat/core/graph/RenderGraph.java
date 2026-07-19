@@ -26,6 +26,9 @@ public final class RenderGraph implements AutoCloseable {
     private final boolean allocateResources;
     private final PassResources passResources;
     private final CommandBuffer immediateCommands = new CommandBuffer();
+    private int lastRecordedCommandCount;
+    private int lastRecordedMatrixSnapshots;
+    private int lastRecordedObjectPayloads;
     private List<Pass> sortedPasses;
     private CompiledRenderGraph compiledGraph;
     private int width;
@@ -228,6 +231,9 @@ public final class RenderGraph implements AutoCloseable {
                 }
             }
 
+            lastRecordedCommandCount = cmd.commandCount();
+            lastRecordedMatrixSnapshots = cmd.recordedMatrixSnapshotCount();
+            lastRecordedObjectPayloads = cmd.recordedObjectPayloadCount();
             device.execute(cmd);
             List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
             for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
@@ -244,6 +250,15 @@ public final class RenderGraph implements AutoCloseable {
             throw failure;
         }
     }
+
+    /** @return 最近成功录制帧的 typed command 数量 */
+    public int lastRecordedCommandCount() { return lastRecordedCommandCount; }
+
+    /** @return 最近成功录制帧的 primitive mat4 快照数量 */
+    public int lastRecordedMatrixSnapshots() { return lastRecordedMatrixSnapshots; }
+
+    /** @return 最近成功录制帧的对象引用 payload 数量 */
+    public int lastRecordedObjectPayloads() { return lastRecordedObjectPayloads; }
 
     private FrameProfile failedProfile(long currentFrameSequence) {
         List<PassProfile> failed = new ArrayList<>(sortedPasses.size());

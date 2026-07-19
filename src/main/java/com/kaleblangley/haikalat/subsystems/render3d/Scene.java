@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import com.kaleblangley.haikalat.core.material.MaterialInstance;
 
 public final class Scene {
     private final Camera camera;
@@ -39,8 +40,10 @@ public final class Scene {
 
     public Scene add(SceneObject object) {
         Objects.requireNonNull(object, "object");
-        MeshRenderer renderer = MeshRenderer.animated(object.mesh(), object.material(), object.updater());
-        return add(object.castShadows() ? renderer : renderer.withoutShadows());
+        MaterialInstance instance = object.material().createInstance();
+        MeshRenderer renderer = new MeshRenderer(object.mesh(), instance, Transform.identity(),
+                object.updater(), object.castShadows());
+        return add(renderer);
     }
 
     public Scene addLight(SceneLight light) {
