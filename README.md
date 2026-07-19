@@ -22,7 +22,8 @@ current goals, capabilities, and non-goals.
 - A forward 3D scene pipeline with basic Blinn-Phong lighting, fixed-size
   directional shadows for ordinary and opt-in instanced casters, 3x3 PCF,
   linear HDR/ACES tone mapping, optional multi-level Bloom, explicit linear/sRGB textures,
-  and selectable none/MSAA/FXAA/TAA paths.
+  selectable none/MSAA/FXAA/TAA paths, finite/unbounded mesh bounds, stable camera/shadow
+  frustum culling, and primitive render queues that preserve transparent insertion order.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, the OBJ path exercised by the main demo,
   and the static glTF 2.0 path exercised by the dedicated glTF demo.
@@ -33,7 +34,8 @@ current goals, capabilities, and non-goals.
   async update/upload/render-thread interaction, a dedicated UiDemo, and generated GPU-procedural
   1000000-instance stress profiling.
 - Bounded runtime diagnostics with frame/pass sample identity, RenderGraph inspection, structured GL messages,
-  tracked resources, an F2 retained UI panel, frozen history, and deterministic schema-v1 JSON capture.
+  tracked resources, scene visibility/queue statistics, an F2 retained UI panel, frozen history,
+  and deterministic schema-v1 JSON capture.
 
 ## Requirements
 
@@ -56,7 +58,7 @@ CI runs the same non-windowed path plus demo source compilation:
 .\gradlew.bat compileJava demoClasses test
 ```
 
-The equivalent named v0.15 no-desktop verification gate is:
+The equivalent named no-desktop verification gate is:
 
 ```powershell
 .\gradlew.bat quickVerification
@@ -84,6 +86,7 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 .\gradlew.bat localUiVerification
 .\gradlew.bat localGlVerification
 .\gradlew.bat localDiagnosticsVerification
+.\gradlew.bat localSceneVisibilityVerification
 ```
 
 Open the main Demo diagnostics panel with F2, or create a deterministic capture with:
@@ -91,6 +94,7 @@ Open the main Demo diagnostics panel with F2, or create a deterministic capture 
 ```powershell
 .\gradlew.bat runDiagnosticsIntegration
 .\gradlew.bat runDiagnosticsBenchmarks
+.\gradlew.bat runSceneScalabilityBenchmarks
 ```
 
 Run the complete local release gate only on a desktop system with a supported
@@ -119,5 +123,6 @@ the `learnopengl.demo` module.
 - Minimal smoke demo: `com.kaleblangley.haikalat.demo.MinimalDemo`
 - Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
 - Retained UI demo: `com.kaleblangley.haikalat.demo.ui.UiDemo`
+- Ordinary-renderer visibility benchmark: `com.kaleblangley.haikalat.demo.SceneScalabilityDemo`
 
 The demo source set lives in `src/demo/java` and uses resources from `src/demo/resources`.

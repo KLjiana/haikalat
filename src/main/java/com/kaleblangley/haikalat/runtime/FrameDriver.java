@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.core.graph.PassProfile;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -68,6 +69,11 @@ public final class FrameDriver implements AutoCloseable {
     public void recordSceneStatistics(long drawCalls, long instanceCount,
                                       long ordinaryRenderers, long instancedRenderers) {
         diagnostics.scene(drawCalls, instanceCount, ordinaryRenderers, instancedRenderers);
+    }
+
+    /** 附加下一次发布使用的普通 scene visibility/queue 值摘要。 */
+    public void recordSceneVisibility(DiagnosticsSnapshot.VisibilitySummary summary) {
+        diagnostics.visibility(summary);
     }
 
     /** 附加下一次发布使用的 UI 摘要；参数均为值类型，runtime 不依赖 UI subsystem。 */

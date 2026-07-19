@@ -92,6 +92,11 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runDiagnosticsResizeIntegration
 .\gradlew.bat runDiagnosticsFailureIntegration
 .\gradlew.bat localDiagnosticsVerification
+.\gradlew.bat runSceneVisibilityIntegration
+.\gradlew.bat runSceneVisibilityResizeIntegration
+.\gradlew.bat runSceneVisibilityShadowIntegration
+.\gradlew.bat runSceneScalabilityIntegration
+.\gradlew.bat localSceneVisibilityVerification
 ```
 
 v0.15 diagnostics integration 使用同一个主 Demo 正式管线：第一项在 12 帧 DETAILED 运行后导出
@@ -176,3 +181,20 @@ decode/upload 直接使用原始 MASK `radio.gltf`，不生成或改写 OPAQUE �
 sampler、sRGB image、material 与 mesh 创建，稳态部分使用主 Demo 的 glTF/OBJ/legacy
 共存场景，每轮预热 100 帧并正式统计 1000 帧。
 当前本机结果见 [`docs/performance/v0.13-gltf-2026-07-18.md`](../performance/v0.13-gltf-2026-07-18.md)。
+
+v0.16 普通 renderer 可见性门禁保持默认 `test` 无桌面：bounds、world AABB、六平面 frustum、
+TAA stable projection、primitive stable queue 和 10,000 index sort 都是纯 JVM 测试。
+`localSceneVisibilityVerification` 额外创建隐藏 OpenGL 4.6 context，验证 camera/shadow 独立 queue、
+enabled/disabled 像素一致、resize aspect、固定 2048×2048 shadow target、updater 单次执行、
+失败帧恢复和 10,000 renderer 的 90% draw reduction。
+
+正式 scene scalability 五轮矩阵：
+
+```powershell
+.\gradlew.bat runSceneScalabilityBenchmarks
+```
+
+默认在 1920×1080 与 3840×2160 分别执行 100/1,000/10,000 的 enabled/disabled 配对，
+并补充 10,000 all-visible/all-hidden；每轮预热 100 帧、统计 1000 帧。输出 present FPS、CPU/GPU
+平均和中位数、SceneFrame 各阶段时间、进程级 allocation、draw 和 state-cache skip ratio。
+当前本机结果见 [`docs/performance/v0.16-scene-visibility-2026-07-19.md`](../performance/v0.16-scene-visibility-2026-07-19.md)。

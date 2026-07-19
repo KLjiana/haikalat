@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-当前没有尚未发布的变更。
+暂无。
 
 ## 已完成路线图
 
@@ -360,3 +360,34 @@
   淘汰、native id 复用、多 context 隔离、资源失败清理和关闭后访问测试。
 - `localGlVerification --rerun-tasks` 的 40 个任务和 `localReleaseVerification --rerun-tasks` 的
   31 个任务全部通过；五轮 OFF/BASIC/DETAILED 性能与限制记录于 v0.15 性能报告。
+
+### v0.16-scene-scalability-and-visibility（0.16.0，2026-07-19）
+
+#### Bounds、SceneFrame 与可见性
+
+- 新增不可变 `Bounds3f`，按 POSITION semantic/stride/offset 为 interleaved `MeshData` 计算有限
+  local AABB；缺失或不支持的布局保守使用 unbounded，`Mesh`/Builder 传播或显式覆盖该值。
+- 新增 allocation-free world AABB 中心/extent 变换、六平面三态 frustum 和 Camera projection
+  共享事实；TAA 使用稳定非抖动视锥，方向光 shadow volume 独立分类。
+- `SceneFrameBuilder` 每 renderer 每帧只执行一次 updater，复用 matrix/world-bounds/index arena，
+  分别构建 forward/shadow queue；失败回滚 active counts，下一帧可重试。
+- `RenderPipeline` 的 geometry/shadow pass 消费同一快照；mirrored front-face 和 draw matrix 不再
+  重复求值，scene membership revision 变化时使缓存失效。
+
+#### Render Queue 与诊断
+
+- OPAQUE/ADDITIVE 按 shader/material/mesh 稳定分组，ALPHA 保持用户 insertion order；shadow 按
+  mesh 分组。`RenderSettings.sceneVisibility(false)` 保留同一条 frame/queue 路径供 A/B。
+- diagnostics schema v1 增加可选 `scene.visibility`，Overview/JSON 发布候选、裁剪、draw category、
+  状态 key 变化和 queue 分阶段时间，并校验所有计数等式。
+- 新增独立 `SceneScalabilityDemo`、100/1k/10k deterministic layout、all-visible/all-hidden、
+  resize/shadow/10k 集成、JVM/GL 聚合门禁与 1080p/4K 五轮交替顺序成对基准。
+
+#### 性能与验收
+
+- 10k large 的普通 draw 由 10,000 降到 1,000；1080p 五轮 CPU median 从 4.853 ms 降到
+  0.922 ms，GPU median 从 1.008 ms 降到 0.130 ms，成对节省 3.907/0.874 ms。
+- 100 all-visible 的成对 CPU 开销在 1080p/4K 均低于 5%；all-hidden 只保留 unbounded probe，
+  稳态整帧分配为 2.2 KiB/frame。
+- 完整 JVM、真实 GL、public API、架构和本地发布门禁通过；发布人完成人工视觉验收并批准
+  工程版本进入 `0.16.0`。

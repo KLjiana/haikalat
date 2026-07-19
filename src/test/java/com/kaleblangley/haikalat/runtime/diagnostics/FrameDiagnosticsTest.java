@@ -172,6 +172,36 @@ class FrameDiagnosticsTest {
     }
 
     @Test
+    void basicVisibilitySummaryKeepsCountsAndTotalButOmitsDetailedStages() throws Exception {
+        FrameDiagnostics diagnostics = new FrameDiagnostics(DiagnosticsLevel.BASIC, 16);
+        diagnostics.scene(9, 0, 10, 0);
+        diagnostics.visibility(new DiagnosticsSnapshot.VisibilitySummary(true, 3,
+                10, 9, 1, 7, 3, 6, 4, 2,
+                11, 12, 13, 14, 60,
+                5, 1, 1, 2, 3, 4, 1, 1));
+        RenderStatistics statistics = new RenderStatistics();
+        statistics.beginFrame();
+        statistics.endFrame();
+        diagnostics.publish(statistics.snapshot(), profile(0), null,
+                new StateCache.Statistics(0, 0));
+
+        DiagnosticsSnapshot.VisibilitySummary visibility = diagnostics.latest().scene()
+                .orElseThrow().visibility().orElseThrow();
+        assertEquals(7, visibility.forwardVisible());
+        assertEquals(3, visibility.forwardCulled());
+        assertEquals(60, visibility.totalQueueBuildNanos());
+        assertEquals(0, visibility.modelUpdateNanos());
+        assertEquals(0, visibility.shaderChanges());
+
+        Path output = temporaryDirectory.resolve("visibility.json");
+        DiagnosticsJsonExporter.export(diagnostics.freeze(), output);
+        String json = Files.readString(output);
+        assertTrue(json.contains("\"candidateRenderers\" : 10"));
+        assertTrue(json.contains("\"forwardVisible\" : 7"));
+        assertTrue(json.contains("\"totalQueueBuildNanos\" : 60"));
+    }
+
+    @Test
     void failedExportLeavesNoTemporaryOrPartialFile() throws Exception {
         Path destination = temporaryDirectory.resolve("occupied.json");
         Files.createDirectory(destination);

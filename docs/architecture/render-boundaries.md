@@ -49,6 +49,30 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 基准场景包含双面平面，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
 
+## SceneFrame And Visibility Boundary
+
+`MeshData.localBounds()` 按 `VertexSemantic.POSITION`、真实 stride 和 offset 计算有限局部 AABB；
+缺失或不支持的 POSITION 布局显式降级为 `Bounds3f.unbounded()`。`Mesh.from(...)` 保存该值，
+程序化/非交错 mesh 可通过 `Mesh.Builder.bounds(...)` 明确提供范围。bounds 是 CPU 值对象，
+不依赖 Camera、Scene、diagnostics 或 OpenGL context。
+
+`RenderPipeline` 在 build 时创建内部 `SceneFrameBuilder`，每个 execute 只形成一个借用快照。
+每个普通 renderer 的 updater 恰好执行一次；同一 model matrix 同时供 world AABB、mirrored
+front-face、forward draw 和 shadow draw 使用。world AABB 使用中心/extent 与仿射矩阵绝对线性部变换，
+不会逐对象变换八个角，也不会创建逐对象临时向量。非有限或透视 model matrix 在包含 renderer index
+和阶段的边界 fail-fast，失败帧不发布半 queue，下一帧重新构建。
+
+相机可见性使用与 `CameraUniforms` 相同 near/far/FOV 的非抖动 projection；TAA jitter 只进入 shader
+projection，不改变分类。方向光 shadow queue 使用固定 shadow light-space matrix 独立分类，因此
+camera 外、shadow 内的 caster 仍会进入 shadow pass，反向情况不会提交无效 shadow draw。
+unbounded 对象在两套视锥中都保守保留。
+
+forward queue 只保存 primitive renderer index。OPAQUE/ADDITIVE 按 blend → shader → material → mesh →
+insertion index 稳定排序，ALPHA 始终位于最后并保持用户 insertion order；shadow queue 按 mesh 和
+insertion index 排序。queue 不公开 renderer list、matrix arena、native key 或可修改入口。
+`RenderSettings.sceneVisibility(false)` 只关闭 classification 删除，仍经过相同 updater、world-bounds、
+queue 和 draw 路径，用于同机场景 A/B，不改变 RenderGraph topology。
+
 ## HDR And Tone Mapping Boundary
 
 `RenderSettings.toneMappingMode=NONE` 使用 `SRGB8_ALPHA8` scene、最终后处理和 TAA history target。RenderGraph 根据附件格式在 clear/draw 前提交 framebuffer sRGB；最终 Present 只复制已经编码的字节，因此默认 backbuffer 被驱动标记为 linear 或 sRGB 都不会造成漏编码或重复编码。只有显式选择 `ACES` 才启用 HDR；HDR geometry、MSAA resolve 和 TAA history/accumulation 使用 `RGBA16F`，tone-mapping target 使用普通 `RGBA8`。ACES pass 按 exposure、fitted curve、clamp、gamma 编码的顺序工作，并显式关闭 framebuffer sRGB。

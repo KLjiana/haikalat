@@ -9,6 +9,7 @@
 - [项目目标](planning/project-goals.md)
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
 - [后续计划](planning/future-plans.md)
+- [v0.16 场景扩展、可见性裁剪与 Render Queue 实施计划](planning/v0.16-scene-scalability-and-visibility.md)
 
 ## 架构
 
@@ -42,6 +43,8 @@
 - [v0.8–v0.15 已归档实施计划](history/archived-plans.md)
 - [v0.14 发布验收报告](releases/v0.14-release-report.md)
 - [v0.15 发布验收报告](releases/v0.15-release-report.md)
+- [v0.16 发布候选验收报告](releases/v0.16-release-report.md)
+- [2026-07-19 v0.16 scene visibility 五轮基准](performance/v0.16-scene-visibility-2026-07-19.md)
 - [2026-07-19 v0.15 diagnostics 五轮开销基准](performance/v0.15-debugging-2026-07-19.md)
 - [2026-07-15 Stress 百万实例三轮基准](performance/stress-one-million-2026-07-15.md)
 - [2026-07-15 post-v0.8 色彩、Bloom 与实例阴影基准](performance/post-v0.8-bloom-2026-07-15.md)

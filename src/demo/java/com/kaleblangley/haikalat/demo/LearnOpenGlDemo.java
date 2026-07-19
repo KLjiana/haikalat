@@ -23,6 +23,7 @@ import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
@@ -169,9 +170,25 @@ public final class LearnOpenGlDemo {
                 pipeline.execute(renderLoop.device(), time.deltaSeconds());
                 var instanceStats = instanced.statistics();
                 renderLoop.recordSceneStatistics(
-                        pipeline.scene().renderers().size() + instanceStats.drawCalls()
+                        pipeline.lastVisibilityStatistics().forwardVisible() + instanceStats.drawCalls()
                                 + pipeline.lastShadowCasterDrawCount(),
-                        instanced.drawnCount(), pipeline.scene().renderers().size(), 1L);
+                    instanced.drawnCount(), pipeline.scene().renderers().size(), 1L);
+                var visibility = pipeline.lastVisibilityStatistics();
+                if (visibility.available()) {
+                    renderLoop.recordSceneVisibility(new DiagnosticsSnapshot.VisibilitySummary(
+                            visibility.cullingEnabled(), visibility.sceneRevision(),
+                            visibility.candidateRenderers(), visibility.finiteBoundsRenderers(),
+                            visibility.unboundedRenderers(), visibility.forwardVisible(),
+                            visibility.forwardCulled(), visibility.shadowCandidates(),
+                            visibility.shadowVisible(), visibility.shadowCulled(),
+                            visibility.modelUpdateNanos(), visibility.boundsTransformNanos(),
+                            visibility.frustumTestNanos(), visibility.queueSortNanos(),
+                            visibility.totalQueueBuildNanos(), visibility.opaqueDraws(),
+                            visibility.additiveDraws(), visibility.alphaDraws(),
+                            visibility.shaderChanges(), visibility.materialChanges(),
+                            visibility.meshChanges(), visibility.blendChanges(),
+                            visibility.mirroredChanges()));
+                }
                 UiFrameStats uiStats = uiOverlay.statistics();
                 renderLoop.recordUiStatistics(uiStats.visibleNodes(), uiStats.quads(), uiStats.glyphs(),
                         uiStats.drawCalls(), uiStats.uiUpdateNanos(), uiStats.vertexBytes(),

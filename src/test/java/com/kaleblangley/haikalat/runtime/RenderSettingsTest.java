@@ -18,6 +18,12 @@ class RenderSettingsTest {
         assertEquals(ExposureMode.MANUAL, settings.exposureMode());
         assertFalse(settings.hdrEnabled());
         assertFalse(settings.bloomSettings().enabled());
+        assertTrue(settings.sceneVisibility());
+    }
+
+    @Test
+    void sceneVisibilityCanBeDisabledForSamePathABComparison() {
+        assertFalse(RenderSettings.builder().sceneVisibility(false).build().sceneVisibility());
     }
 
     @Test

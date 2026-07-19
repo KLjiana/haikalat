@@ -66,7 +66,43 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
     }
 
     public record SceneSummary(long drawCalls, long instanceCount,
-                               long ordinaryRenderers, long instancedRenderers) {
+                               long ordinaryRenderers, long instancedRenderers,
+                               Optional<VisibilitySummary> visibility) {
+        public SceneSummary(long drawCalls, long instanceCount,
+                            long ordinaryRenderers, long instancedRenderers) {
+            this(drawCalls, instanceCount, ordinaryRenderers, instancedRenderers, Optional.empty());
+        }
+
+        public SceneSummary {
+            visibility = Objects.requireNonNull(visibility, "visibility");
+        }
+
+        SceneSummary withVisibility(VisibilitySummary summary) {
+            return new SceneSummary(drawCalls, instanceCount, ordinaryRenderers,
+                    instancedRenderers, Optional.of(summary));
+        }
+    }
+
+    /** 不包含逐对象数据的普通 scene visibility/queue 值摘要。 */
+    public record VisibilitySummary(boolean cullingEnabled, long sceneRevision,
+                                    long candidateRenderers, long finiteBoundsRenderers,
+                                    long unboundedRenderers, long forwardVisible,
+                                    long forwardCulled, long shadowCandidates,
+                                    long shadowVisible, long shadowCulled,
+                                    long modelUpdateNanos, long boundsTransformNanos,
+                                    long frustumTestNanos, long queueSortNanos,
+                                    long totalQueueBuildNanos, long opaqueDraws,
+                                    long additiveDraws, long alphaDraws,
+                                    long shaderChanges, long materialChanges,
+                                    long meshChanges, long blendChanges,
+                                    long mirroredChanges) {
+        VisibilitySummary basic() {
+            return new VisibilitySummary(cullingEnabled, sceneRevision, candidateRenderers,
+                    finiteBoundsRenderers, unboundedRenderers, forwardVisible, forwardCulled,
+                    shadowCandidates, shadowVisible, shadowCulled, 0L, 0L, 0L, 0L,
+                    totalQueueBuildNanos, opaqueDraws, additiveDraws, alphaDraws,
+                    0L, 0L, 0L, 0L, 0L);
+        }
     }
 
     public record UploadSummary(long frameBytes, long totalBytes, long queueDepth,

@@ -11,6 +11,7 @@ public final class Scene {
     private final List<SceneLight> lights = new ArrayList<>();
     private List<MeshRenderer> forwardDrawOrder;
     private List<MeshRenderer> shadowDrawOrder;
+    private long membershipRevision;
 
     public Scene(Camera camera) {
         this.camera = Objects.requireNonNull(camera, "camera");
@@ -32,6 +33,7 @@ public final class Scene {
         renderers.add(Objects.requireNonNull(renderer, "renderer"));
         forwardDrawOrder = null;
         shadowDrawOrder = null;
+        membershipRevision = Math.incrementExact(membershipRevision);
         return this;
     }
 
@@ -68,6 +70,19 @@ public final class Scene {
 
     public List<MeshRenderer> renderers() {
         return List.copyOf(renderers);
+    }
+
+    /** @return renderer membership 的单调修订号；灯光参数变化不会修改它 */
+    public long membershipRevision() {
+        return membershipRevision;
+    }
+
+    int rendererCount() {
+        return renderers.size();
+    }
+
+    MeshRenderer rendererAt(int index) {
+        return renderers.get(index);
     }
 
     List<MeshRenderer> forwardDrawOrder() {

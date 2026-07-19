@@ -10,3 +10,7 @@ v0.15 没有删除 stable 类型。advanced `PassProfile` 保留原三参数构�
 年龄和 skipped 计数。旧调用方可继续读取显式传入的 `gpuNanos`，新诊断调用方应先检查
 `gpuStatus()==AVAILABLE`。advanced `FrameProfile` 保留双参数构造器，并新增 frame sequence 与
 `gpuTotalComplete()`。
+
+v0.16 没有删除 stable 类型。advanced `MeshData` 保持原 record component 和构造签名，新增
+`localBounds()`；advanced `Mesh`/`Mesh.Builder` 新增不可变 `Bounds3f` 读取与显式设置入口。
+旧 builder 无法从 POSITION semantic 推导范围时会保守返回 unbounded，不会错误裁剪。

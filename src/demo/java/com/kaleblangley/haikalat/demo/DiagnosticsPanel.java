@@ -245,7 +245,7 @@ final class DiagnosticsPanel {
     }
 
     private String overview(DiagnosticsSnapshot snapshot) {
-        return String.format(Locale.ROOT,
+        String overview = String.format(Locale.ROOT,
                 "Overview / 总览\n\nlevel %s\nframe %,d / presented %,d\nCPU %.3f ms\nGPU %s\nFPS %.1f\nstate applied %,d\nstate avoided %,d\nskip %.1f%%\nresources %,d / %.2f MiB\nmessages %,d (dropped %,d)",
                 snapshot.level(), snapshot.frameSequence(), snapshot.presentedFrameSequence(),
                 snapshot.frameProfile().cpuFrameMillis(),
@@ -256,6 +256,23 @@ final class DiagnosticsPanel {
                 snapshot.state().skipRatio() * 100.0, snapshot.resources().liveCount(),
                 snapshot.resources().estimatedBytes() / 1048576.0,
                 snapshot.messages().total(), snapshot.messages().dropped());
+        if (snapshot.scene().isEmpty() || snapshot.scene().orElseThrow().visibility().isEmpty()) {
+            return overview;
+        }
+        DiagnosticsSnapshot.VisibilitySummary visibility = snapshot.scene().orElseThrow()
+                .visibility().orElseThrow();
+        double cullRatio = visibility.candidateRenderers() == 0L ? 0.0
+                : visibility.forwardCulled() * 100.0 / visibility.candidateRenderers();
+        return overview + String.format(Locale.ROOT,
+                "\nvisibility %s\nforward %,d / %,d (culled %.1f%%)"
+                        + "\nshadow %,d / %,d\nunbounded %,d\nqueue %.3f ms"
+                        + "\nqueue changes shader/material/mesh %,d/%,d/%,d",
+                visibility.cullingEnabled() ? "enabled" : "disabled",
+                visibility.forwardVisible(), visibility.candidateRenderers(), cullRatio,
+                visibility.shadowVisible(), visibility.shadowCandidates(),
+                visibility.unboundedRenderers(), visibility.totalQueueBuildNanos() / 1_000_000.0,
+                visibility.shaderChanges(), visibility.materialChanges(),
+                visibility.meshChanges());
     }
 
     private static String passes(DiagnosticsSnapshot snapshot) {

@@ -6,9 +6,10 @@
 
 ## 当前重点
 
-v0.15 调试与可观察性闭环已作为 `0.15.0` 发布。下一版本先使用真实多 mesh/material glTF 场景测量
-draw、binding、CPU scene traversal 和显存，再在 PBR instancing/material batching、GPU
-frustum culling + MDI、动画和压缩纹理之间确定优先级。
+v0.16 场景扩展与可见性闭环已作为 `0.16.0` 验收。普通 renderer 已具备 bounds、SceneFrame、
+camera/shadow frustum 和 primitive Render Queue；本机 10,000 renderer / 10% 可见场景把 draw
+从 10,000 降到 1,000。下一版本先用真实多 mesh/material glTF 场景复核 CPU queue、显存和 draw
+分布，再决定是否进入 GPU culling + MDI；不因单个程序化基准直接扩张协议。
 
 ### 近期
 
@@ -17,6 +18,7 @@ frustum culling + MDI、动画和压缩纹理之间确定优先级。
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 - [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。
+- [ ] 在正式发布流水线复验 v0.16 的远端 Windows/Linux CI。
 - [x] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
 
 ### 中期
@@ -24,7 +26,9 @@ frustum culling + MDI、动画和压缩纹理之间确定优先级。
 - [x] 以 UI subsystem 建立只读调试面板、资源/消息检查和 frozen capture；没有绕过正式生命周期边界。
 - [ ] 为 RenderGraph texture preview 单独设计 HDR/depth/MSAA/cubemap 可视化策略，不在通用 diagnostics 中裸采样。
 - [ ] 继续监控 backend/core seam；只有出现真实维护阻力时才进一步拆分模块。
-- [ ] 当场景出现多个 mesh/material 的真实压力数据后，评估 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`；单 mesh 单 draw 场景不提前引入 indirect command 复杂度。
+- [ ] 用同一 10,000 renderer 数据判断 GPU frustum/Hi-Z culling 与 `glMultiDraw*IndirectCount`：
+  只有 CPU SceneFrame 持续成为目标硬件瓶颈、draw 仍高且材质协议能批处理时才进入；否则优先
+  缓存静态 transform/bounds 和减少 per-draw command/uniform allocation。
 - [ ] 当纹理绑定成为实测瓶颈后，评估 bindless texture 或 texture array；在当前 state-cache skip 已接近饱和前不扩大材质协议。
 
 ### 长期

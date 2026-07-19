@@ -45,12 +45,14 @@ public final class Mesh implements GlResource {
     private final int indexCount;
     private final GlBuffer[] extraBuffers;
     private final boolean interleaved;
+    private final Bounds3f localBounds;
     private boolean closed;
 
     private Mesh(Builder builder) {
         this.primitiveMode = builder.primitiveMode;
         this.vertexLayout = builder.layout;
         this.indexCount = builder.indexCount;
+        this.localBounds = builder.localBounds == null ? Bounds3f.unbounded() : builder.localBounds;
         int previousVertexArray = glGetInteger(GL_VERTEX_ARRAY_BINDING);
         int previousArrayBuffer = glGetInteger(GL_ARRAY_BUFFER_BINDING);
         this.vertexArray = new VertexArray();
@@ -105,6 +107,7 @@ public final class Mesh implements GlResource {
         Builder builder = builder()
                 .vertices(data.vertices(), data.layout().strideBytes(),
                         data.layout().attributes().toArray(VertexAttribute[]::new))
+                .bounds(data.localBounds())
                 .primitiveMode(data.primitiveMode());
         if (data.hasIndices()) {
             builder.indices(data.indices());
@@ -250,6 +253,11 @@ public final class Mesh implements GlResource {
         return indexCount;
     }
 
+    /** @return 与网格生命周期无关的不可变局部包围盒 */
+    public Bounds3f localBounds() {
+        return localBounds;
+    }
+
     @Override
     public int id() {
         return vertexArray.id();
@@ -293,6 +301,8 @@ public final class Mesh implements GlResource {
         private int indexCount;
         private List<AttribData> attribDatas;
         private int nonILVertexCount;
+        private Bounds3f localBounds;
+        private boolean explicitBounds;
 
         private Builder() {
         }
@@ -309,6 +319,14 @@ public final class Mesh implements GlResource {
             this.vertexData = DirectBuffers.copyOf(data);
             this.layout = VertexLayout.interleaved(strideBytes, attributes);
             this.vertexCount = vertexCountFromStride(data.length, strideBytes);
+            if (!explicitBounds) this.localBounds = MeshBounds.fromInterleaved(data, layout);
+            return this;
+        }
+
+        /** 为程序化或非交错网格显式指定不可变局部包围盒。 */
+        public Builder bounds(Bounds3f bounds) {
+            this.localBounds = Objects.requireNonNull(bounds, "bounds");
+            this.explicitBounds = true;
             return this;
         }
 

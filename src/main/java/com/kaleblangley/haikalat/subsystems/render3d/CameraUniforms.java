@@ -16,16 +16,16 @@ final class CameraUniforms implements AutoCloseable {
 
     private final UniformBlock block = new UniformBlock(BLOCK_SIZE_BYTES);
     private final Set<Integer> boundPrograms = new HashSet<>();
+    private final Matrix4f projection = new Matrix4f();
+    private final Matrix4f view = new Matrix4f();
 
     void update(CommandBuffer cmd, Camera camera, int width, int height,
                 AntiAliasingMode mode, int frameIndex) {
-        Matrix4f projection = new Matrix4f().perspective(
-                (float) Math.toRadians(camera.zoom()),
-                width / (float) Math.max(1, height), 0.1f, 100.0f);
+        CameraProjection.stable(camera, Math.max(1, width), Math.max(1, height), projection);
         applyTemporalJitter(projection, width, height, mode, frameIndex);
 
         block.setMat4(0, projection)
-                .setMat4(16 * Float.BYTES, camera.getViewMatrix());
+                .setMat4(16 * Float.BYTES, camera.getViewMatrix(view));
         cmd.bindUniformBlock(BLOCK_BINDING, block);
     }
 
@@ -46,17 +46,10 @@ final class CameraUniforms implements AutoCloseable {
         if (mode != AntiAliasingMode.TAA || width <= 0 || height <= 0) {
             return;
         }
-        float[] jitter = jitter(frameIndex);
-        projection.m20(projection.m20() + (jitter[0] * 2.0f / width));
-        projection.m21(projection.m21() + (jitter[1] * 2.0f / height));
-    }
-
-    static float[] jitter(int frameIndex) {
-        return switch (frameIndex & 3) {
-            case 0 -> new float[]{-0.25f, -0.25f};
-            case 1 -> new float[]{0.25f, -0.25f};
-            case 2 -> new float[]{-0.25f, 0.25f};
-            default -> new float[]{0.25f, 0.25f};
-        };
+        int phase = frameIndex & 3;
+        float jitterX = (phase & 1) == 0 ? -0.25f : 0.25f;
+        float jitterY = (phase & 2) == 0 ? -0.25f : 0.25f;
+        projection.m20(projection.m20() + (jitterX * 2.0f / width));
+        projection.m21(projection.m21() + (jitterY * 2.0f / height));
     }
 }

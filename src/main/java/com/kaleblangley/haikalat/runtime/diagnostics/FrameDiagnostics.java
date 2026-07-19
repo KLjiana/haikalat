@@ -25,6 +25,7 @@ public final class FrameDiagnostics implements AutoCloseable {
     private long epoch;
     private long lastUploadBytes;
     private DiagnosticsSnapshot.SceneSummary pendingScene;
+    private DiagnosticsSnapshot.VisibilitySummary pendingVisibility;
     private DiagnosticsSnapshot.UiSummary pendingUi;
     private boolean closed;
 
@@ -79,6 +80,7 @@ public final class FrameDiagnostics implements AutoCloseable {
         lastBackendResources = null;
         lastBackendMessages = null;
         pendingScene = null;
+        pendingVisibility = null;
         pendingUi = null;
     }
 
@@ -107,6 +109,12 @@ public final class FrameDiagnostics implements AutoCloseable {
                 ordinaryRenderers, instancedRenderers);
     }
 
+    /** 为下一次帧发布附加普通 scene visibility/queue 摘要。 */
+    public synchronized void visibility(DiagnosticsSnapshot.VisibilitySummary summary) {
+        ensureOpen();
+        pendingVisibility = Objects.requireNonNull(summary, "summary");
+    }
+
     /** 为下一次帧发布附加值类型 UI 摘要，避免 runtime 反向依赖 UI subsystem。 */
     public synchronized void ui(long visibleNodes, long quads, long glyphs, long drawCalls,
                                 long updateNanos, long vertexBytes, long indexBytes,
@@ -130,6 +138,7 @@ public final class FrameDiagnostics implements AutoCloseable {
         ensureOpen();
         if (level == DiagnosticsLevel.OFF) {
             pendingScene = null;
+            pendingVisibility = null;
             pendingUi = null;
             return;
         }
@@ -150,18 +159,24 @@ public final class FrameDiagnostics implements AutoCloseable {
             latestMessages = adaptMessages(backendMessages);
             lastBackendMessages = backendMessages;
         }
+        DiagnosticsSnapshot.SceneSummary sceneSummary = pendingScene;
+        if (sceneSummary != null && pendingVisibility != null) {
+            sceneSummary = sceneSummary.withVisibility(level == DiagnosticsLevel.DETAILED
+                    ? pendingVisibility : pendingVisibility.basic());
+        }
         DiagnosticsSnapshot snapshot = new DiagnosticsSnapshot(epoch, sequence,
                 statistics.presentedFrames(), level, complete, statistics.presentFps(),
                 statistics.lastPresentIntervalNanos(), profile,
                 new DiagnosticsSnapshot.State(state.appliedChanges(), state.avoidedChanges()),
                 resourceSummary(latestResources), messageSummary(backendMessages),
-                Optional.ofNullable(pendingScene),
+                Optional.ofNullable(sceneSummary),
                 new DiagnosticsSnapshot.UploadSummary(Math.max(0L, totalUploadBytes - lastUploadBytes),
                         totalUploadBytes, uploadQueueDepth, uploadGpuUpdates),
                 Optional.ofNullable(pendingUi),
                 level == DiagnosticsLevel.DETAILED ? Optional.ofNullable(graph) : Optional.empty());
         lastUploadBytes = totalUploadBytes;
         pendingScene = null;
+        pendingVisibility = null;
         pendingUi = null;
         if (history.size() == capacity) history.removeFirst();
         history.addLast(snapshot);
@@ -177,6 +192,7 @@ public final class FrameDiagnostics implements AutoCloseable {
         lastBackendResources = null;
         lastBackendMessages = null;
         pendingScene = null;
+        pendingVisibility = null;
         pendingUi = null;
         closed = true;
     }

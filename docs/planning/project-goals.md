@@ -18,14 +18,16 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 核心渲染协议：`CommandBuffer`、`RenderDevice`、`RenderGraph`、mesh/vertex layout、
   instancing、latest-frame mailbox、upload system、material/material instance、typed uniform value。
 - 3D 管线：forward pipeline、scene/camera/object/light 模型、带输入校验和数量上限的基础光照、
-  固定分辨率 directional shadow map、depth-only caster pass、bias/3x3 PCF，以及 FXAA/TAA/MSAA/none 后处理选择。
+  固定分辨率 directional shadow map、depth-only caster pass、bias/3x3 PCF、有限/unbounded bounds、
+  stable camera/shadow frustum、每帧 SceneFrame 和稳定 Render Queue，以及 FXAA/TAA/MSAA/none 后处理选择。
 - 资产系统：classpath resource locator、shader asset、texture cache、`.properties` 场景配置，
   以及由主 Demo 证明的 OBJ 加载链路和由专用 Demo 证明的静态 glTF 2.0 加载链路。
 - UI subsystem：Yoga/Flexbox 布局、保留式节点树、主题与样式、widgets、事件传播、滚动与
   虚拟列表、FreeType/HarfBuzz 文本、glyph atlas、字体注册与切换，以及 Windows IME 组合输入。
 - Demo 证明：`LearnOpenGlDemo` 作为综合场景、阴影、后处理证明；`MinimalDemo` 验证最小窗口、
   命令提交和 instancing；`AsyncDemo` 验证异步更新、上传和 render thread 协作；`UiDemo`
-  验证布局、输入、文本、弹窗、滚动、虚拟化和 UI 渲染链路。
+  验证布局、输入、文本、弹窗、滚动、虚拟化和 UI 渲染链路；`SceneScalabilityDemo` 验证
+  100/1k/10k 普通 renderer 的 traversal、裁剪、队列和状态切换。
 - 现代材质闭环：opaque metallic-roughness、OBJ tangent、HDR cubemap、GPU irradiance/GGX
   prefilter/BRDF LUT、Cook–Torrance 直接光、IBL、环境背景，以及与阴影、ACES、Bloom、自动曝光和 UI 的协同。
 - 测试覆盖：render graph、pipeline pass、asset config、vertex packing、instance layout、

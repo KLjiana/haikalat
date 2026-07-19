@@ -41,6 +41,15 @@ public record MeshData(
         return vertices.length / floatsPerVertex(layout);
     }
 
+    /**
+     * 按 POSITION semantic 和交错布局计算局部包围盒。
+     *
+     * @return 可可靠推导时为有限 AABB，否则为显式 unbounded
+     */
+    public Bounds3f localBounds() {
+        return MeshBounds.fromInterleaved(vertices, layout);
+    }
+
     @Override
     public float[] vertices() {
         return vertices.clone();

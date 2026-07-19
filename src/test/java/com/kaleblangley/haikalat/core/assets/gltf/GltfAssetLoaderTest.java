@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.core.assets.gltf;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,6 +34,7 @@ class GltfAssetLoaderTest {
         assertEquals(3, primitive.mesh().vertexCount());
         assertTrue(primitive.mesh().layout().attribute(VertexSemantic.NORMAL).isPresent());
         assertTrue(primitive.mesh().layout().attribute(VertexSemantic.TANGENT).isPresent());
+        assertEquals(Bounds3f.of(0, 0, 0, 1, 1, 0), primitive.mesh().localBounds());
         assertFalse(primitive.hasVertexColor());
         for (float value : primitive.mesh().vertices()) assertTrue(Float.isFinite(value));
     }

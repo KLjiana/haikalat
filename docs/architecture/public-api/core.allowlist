@@ -48,6 +48,7 @@ advanced com.kaleblangley.haikalat.core.material.UniformKey
 advanced com.kaleblangley.haikalat.core.material.UniformType
 advanced com.kaleblangley.haikalat.core.material.UniformValue
 advanced com.kaleblangley.haikalat.core.mesh.BuiltinMeshData
+advanced com.kaleblangley.haikalat.core.mesh.Bounds3f
 advanced com.kaleblangley.haikalat.core.mesh.InstanceBatchStats
 advanced com.kaleblangley.haikalat.core.mesh.InstanceDataLayout
 advanced com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch

@@ -11,6 +11,7 @@ public final class RenderSettings {
     private final ExposureMode exposureMode;
     private final AutoExposureSettings autoExposureSettings;
     private final BloomSettings bloomSettings;
+    private final boolean sceneVisibility;
 
     private RenderSettings(Builder builder) {
         this.vsync = builder.vsync;
@@ -21,6 +22,7 @@ public final class RenderSettings {
         this.exposureMode = builder.exposureMode;
         this.autoExposureSettings = builder.autoExposureSettings;
         this.bloomSettings = builder.bloomSettings;
+        this.sceneVisibility = builder.sceneVisibility;
     }
 
     public static Builder builder() {
@@ -59,6 +61,11 @@ public final class RenderSettings {
         return bloomSettings;
     }
 
+    /** @return 普通 scene renderer 是否启用相机/阴影视锥裁剪 */
+    public boolean sceneVisibility() {
+        return sceneVisibility;
+    }
+
     /** @return 当前设置是否需要线性 HDR 中间目标 */
     public boolean hdrEnabled() {
         return toneMappingMode != ToneMappingMode.NONE;
@@ -73,6 +80,7 @@ public final class RenderSettings {
         private ExposureMode exposureMode = ExposureMode.MANUAL;
         private AutoExposureSettings autoExposureSettings = AutoExposureSettings.defaults();
         private BloomSettings bloomSettings = BloomSettings.defaults();
+        private boolean sceneVisibility = true;
 
         private Builder() {
         }
@@ -114,6 +122,12 @@ public final class RenderSettings {
 
         public Builder bloomSettings(BloomSettings value) {
             bloomSettings = value;
+            return this;
+        }
+
+        /** 开启或关闭普通 renderer 裁剪；关闭时仍经过同一 SceneFrame 路径。 */
+        public Builder sceneVisibility(boolean value) {
+            sceneVisibility = value;
             return this;
         }
 

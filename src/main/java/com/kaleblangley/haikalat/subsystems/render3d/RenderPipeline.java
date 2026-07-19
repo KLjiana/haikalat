@@ -46,6 +46,11 @@ public final class RenderPipeline {
     private final PbrEnvironment pbrEnvironment;
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
+    private SceneFrameBuilder sceneFrameBuilder;
+    private SceneFrame currentSceneFrame;
+    private int activeFrameIndex;
+    private int pipelineFrameIndex;
+    private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -115,6 +120,7 @@ public final class RenderPipeline {
             validatePbrVertexLayouts();
             graph = new RenderGraph(w, h);
             cameraUniforms = new CameraUniforms();
+            sceneFrameBuilder = new SceneFrameBuilder();
             lightingBinder = new LightingBinder(scene);
             if (hasPbrMaterials()) {
                 if (!settings.hdrEnabled()) {
@@ -182,6 +188,11 @@ public final class RenderPipeline {
         return lastShadowCasterDrawCount;
     }
 
+    /** @return 最近一次成功构建的普通 scene visibility/queue 统计 */
+    public VisibilityStatistics lastVisibilityStatistics() {
+        return lastVisibilityStatistics;
+    }
+
     /** @return 最近一次 shadow pass 绘制的实例 caster 数量 */
     public int lastInstancedShadowCasterCount() {
         return instanced == null ? 0 : instanced.shadowDrawnCount();
@@ -201,11 +212,15 @@ public final class RenderPipeline {
         if (graph == null || postProcess == null) {
             throw new IllegalStateException("RenderPipeline must be built before execute");
         }
+        currentSceneFrame = null;
+        lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
+        activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
+        pipelineFrameIndex++;
         postProcess.beginFrame(deltaSeconds);
         try {
             graph.execute(device);
             postProcess.frameSucceeded();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             postProcess.frameFailed();
             throw failure;
         }
@@ -240,6 +255,9 @@ public final class RenderPipeline {
         lightingBinder = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
+        sceneFrameBuilder = null;
+        currentSceneFrame = null;
+        lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
         finalPassName = null;
 
         RuntimeException failure = null;
@@ -279,10 +297,7 @@ public final class RenderPipeline {
 
     private PassExecutor shadowExecutor() {
         return (res, cmd) -> LightingBinder.shadowDirectionalLight(scene).ifPresent(selection -> {
-            SceneLight light = selection.light();
-            lastDirectionalLightSpaceMatrix = directionalShadowMap.lightSpaceMatrix(
-                    light, scene.camera().position());
-            int frameIndex = instanced == null ? 0 : instanced.frameIndex();
+            SceneFrame frame = sceneFrame();
             cmd.bindShader(shadowShader)
                     .enableBlend(false)
                     .enableDepthTest(true)
@@ -290,16 +305,13 @@ public final class RenderPipeline {
                     // 基准场景包含双面平面，因此阴影 pass 显式关闭剔除。
                     .enableCullFace(false)
                     .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
-            Matrix4f model = new Matrix4f();
-            int casterDraws = 0;
-            for (MeshRenderer renderer : scene.shadowDrawOrder()) {
-                renderer.modelMatrix(model, frameIndex);
-                cmd.setUniformMat4(shadowShader, "uModel", model)
+            for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
+                MeshRenderer renderer = frame.shadowRenderer(queueIndex);
+                cmd.setUniformMat4(shadowShader, "uModel", frame.shadowModel(queueIndex))
                         .bindMesh(renderer.mesh())
                         .drawMesh(renderer.mesh());
-                casterDraws++;
             }
-            lastShadowCasterDrawCount = casterDraws;
+            lastShadowCasterDrawCount = frame.shadowCount;
             if (instanced != null && instanced.castShadows()) {
                 cmd.bindShader(instancedShadowShader)
                         .setUniformMat4(instancedShadowShader, "uLightSpace",
@@ -310,16 +322,16 @@ public final class RenderPipeline {
     }
 
     private void renderScene(CommandBuffer cmd, int shadowTexture) {
-        int frameIndex = instanced == null ? 0 : instanced.frameIndex();
+        SceneFrame frame = sceneFrame();
         cameraUniforms.update(cmd, scene.camera(), window.width(), window.height(),
-                settings.antiAliasingMode(), frameIndex);
+                settings.antiAliasingMode(), activeFrameIndex);
         if (environmentBackground != null) {
             environmentBackground.render(cmd, scene.camera(), window.width(), window.height());
         }
 
-        Matrix4f model = new Matrix4f();
-        for (MeshRenderer renderer : scene.forwardDrawOrder()) {
-            renderer.modelMatrix(model, frameIndex);
+        for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
+            MeshRenderer renderer = frame.forwardRenderer(queueIndex);
+            Matrix4f model = frame.forwardModel(queueIndex);
             MaterialInstance material = renderer.material();
             cmd.frontFace(model.determinant3x3() < 0.0f ? FrontFace.CW : FrontFace.CCW);
             material.bind(cmd);
@@ -339,6 +351,23 @@ public final class RenderPipeline {
             bindFrameState(instanced.shader(), cmd, shadowTexture);
             instanced.render(cmd);
         }
+    }
+
+    private SceneFrame sceneFrame() {
+        if (currentSceneFrame != null) return currentSceneFrame;
+        var shadow = LightingBinder.shadowDirectionalLight(scene);
+        if (shadow.isPresent()) {
+            lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
+                    shadow.orElseThrow().light(), scene.camera().position()));
+        } else {
+            lastDirectionalLightSpaceMatrix.identity();
+        }
+        SceneFrame built = sceneFrameBuilder.build(scene, Math.max(1, window.width()),
+                Math.max(1, window.height()), lastDirectionalLightSpaceMatrix,
+                shadow.isPresent(), settings.sceneVisibility(), activeFrameIndex);
+        currentSceneFrame = built;
+        lastVisibilityStatistics = VisibilityStatistics.from(built.statistics);
+        return built;
     }
 
     private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture) {
@@ -390,6 +419,35 @@ public final class RenderPipeline {
                         + semantic + " must be divisor-0 unnormalized GL_FLOAT vec" + expectedSize
                         + " at location " + expectedLocation);
             }
+        }
+    }
+
+    /** 不暴露 renderer/queue 引用的每帧可见性值快照。 */
+    public record VisibilityStatistics(boolean available, boolean cullingEnabled,
+                                       long sceneRevision, int candidateRenderers,
+                                       int finiteBoundsRenderers, int unboundedRenderers,
+                                       int forwardVisible, int forwardCulled,
+                                       int shadowCandidates, int shadowVisible,
+                                       int shadowCulled, long modelUpdateNanos,
+                                       long boundsTransformNanos, long frustumTestNanos,
+                                       long queueSortNanos, long totalQueueBuildNanos,
+                                       int opaqueDraws, int additiveDraws, int alphaDraws,
+                                       int shaderChanges, int materialChanges, int meshChanges,
+                                       int blendChanges, int mirroredChanges) {
+        public static final VisibilityStatistics UNAVAILABLE = new VisibilityStatistics(false,
+                false, 0L, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        private static VisibilityStatistics from(SceneFrame.Statistics source) {
+            return new VisibilityStatistics(true, source.cullingEnabled(), source.sceneRevision(),
+                    source.candidateRenderers(), source.finiteBoundsRenderers(),
+                    source.unboundedRenderers(), source.forwardVisible(), source.forwardCulled(),
+                    source.shadowCandidates(), source.shadowVisible(), source.shadowCulled(),
+                    source.modelUpdateNanos(), source.boundsTransformNanos(),
+                    source.frustumTestNanos(), source.queueSortNanos(),
+                    source.totalQueueBuildNanos(), source.opaqueDraws(), source.additiveDraws(),
+                    source.alphaDraws(), source.shaderChanges(), source.materialChanges(),
+                    source.meshChanges(), source.blendChanges(), source.mirroredChanges());
         }
     }
 }

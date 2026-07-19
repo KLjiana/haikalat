@@ -327,6 +327,8 @@ class AssetPipelineTest {
         assertEquals(3, model.firstMesh().layout().attributes().size());
         assertEquals(4 * 8, model.firstMesh().vertices().length);
         assertEquals(6, model.firstMesh().indices().length);
+        assertEquals(com.kaleblangley.haikalat.core.mesh.Bounds3f.of(0, 0, 0, 1, 1, 0),
+                model.firstMesh().localBounds());
     }
 
     @Test

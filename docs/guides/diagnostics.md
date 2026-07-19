@@ -41,3 +41,12 @@ VSync、debug callback、warmup 和采样帧，并优先比较帧时间和 paire
 
 当前不提供 RenderGraph 编辑、texture 像素预览、远程 telemetry、shader 热重载或外部 GPU debugger
 控制。Nsight/RenderDoc 可以直接识别 `RenderGraph/<pass>` debug group 和已有 GL object label。
+
+## Scene visibility
+
+主 Demo 的 Overview 和 schema-v1 `scene.visibility` section 显示普通 renderer 的候选、有限/
+unbounded、forward 可见/裁剪、shadow 候选/可见/裁剪、opaque/additive/alpha draw、相邻 shader/
+material/mesh/blend/mirrored 变化，以及 model、bounds、frustum、sort 和总 queue build 时间。
+必须满足 `visible + culled == candidates`；shadow 使用自己的候选等式。BASIC 保留计数和总时间，
+DETAILED 才保留各阶段时间与 key-change 明细；两种层级都不会导出逐对象矩阵或 renderer 列表。
+SceneFrame 构建失败时该帧 visibility 为 unavailable，不复用上一成功帧的值。

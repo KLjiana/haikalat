@@ -147,6 +147,7 @@ public final class DiagnosticsJsonExporter {
                 requireNonNegative(scene.instanceCount(), "scene.instanceCount");
                 requireNonNegative(scene.ordinaryRenderers(), "scene.ordinaryRenderers");
                 requireNonNegative(scene.instancedRenderers(), "scene.instancedRenderers");
+                scene.visibility().ifPresent(DiagnosticsJsonExporter::validateVisibility);
             });
             requireNonNegative(frame.upload().frameBytes(), "upload.frameBytes");
             requireNonNegative(frame.upload().totalBytes(), "upload.totalBytes");
@@ -303,6 +304,11 @@ public final class DiagnosticsJsonExporter {
             json.writeNumberField("instanceCount", scene.instanceCount());
             json.writeNumberField("ordinaryRenderers", scene.ordinaryRenderers());
             json.writeNumberField("instancedRenderers", scene.instancedRenderers());
+            if (scene.visibility().isPresent()) {
+                writeVisibility(json, scene.visibility().orElseThrow());
+            } else {
+                json.writeNullField("visibility");
+            }
             json.writeEndObject();
         } else json.writeNullField("scene");
         json.writeObjectFieldStart("upload");
@@ -345,6 +351,66 @@ public final class DiagnosticsJsonExporter {
         json.writeEndArray();
         if (frame.graph().isPresent()) writeGraph(json, frame.graph().orElseThrow());
         else json.writeNullField("graph");
+        json.writeEndObject();
+    }
+
+    private static void validateVisibility(DiagnosticsSnapshot.VisibilitySummary visibility) {
+        long[] values = {visibility.sceneRevision(), visibility.candidateRenderers(),
+                visibility.finiteBoundsRenderers(), visibility.unboundedRenderers(),
+                visibility.forwardVisible(), visibility.forwardCulled(),
+                visibility.shadowCandidates(), visibility.shadowVisible(),
+                visibility.shadowCulled(), visibility.modelUpdateNanos(),
+                visibility.boundsTransformNanos(), visibility.frustumTestNanos(),
+                visibility.queueSortNanos(), visibility.totalQueueBuildNanos(),
+                visibility.opaqueDraws(), visibility.additiveDraws(), visibility.alphaDraws(),
+                visibility.shaderChanges(), visibility.materialChanges(), visibility.meshChanges(),
+                visibility.blendChanges(), visibility.mirroredChanges()};
+        for (long value : values) requireNonNegative(value, "scene.visibility");
+        if (visibility.finiteBoundsRenderers() + visibility.unboundedRenderers()
+                != visibility.candidateRenderers()
+                || visibility.forwardVisible() + visibility.forwardCulled()
+                != visibility.candidateRenderers()
+                || visibility.shadowVisible() + visibility.shadowCulled()
+                != visibility.shadowCandidates()
+                || visibility.opaqueDraws() + visibility.additiveDraws() + visibility.alphaDraws()
+                != visibility.forwardVisible()) {
+            throw new IllegalArgumentException("scene visibility counters are inconsistent");
+        }
+        long adjacency = Math.max(0L, visibility.forwardVisible() - 1L);
+        if (visibility.shaderChanges() > adjacency || visibility.materialChanges() > adjacency
+                || visibility.meshChanges() > adjacency || visibility.blendChanges() > adjacency
+                || visibility.mirroredChanges() > adjacency) {
+            throw new IllegalArgumentException("scene queue changes exceed forward adjacency count");
+        }
+    }
+
+    private static void writeVisibility(JsonGenerator json,
+                                        DiagnosticsSnapshot.VisibilitySummary visibility)
+            throws IOException {
+        json.writeObjectFieldStart("visibility");
+        json.writeBooleanField("cullingEnabled", visibility.cullingEnabled());
+        json.writeNumberField("sceneRevision", visibility.sceneRevision());
+        json.writeNumberField("candidateRenderers", visibility.candidateRenderers());
+        json.writeNumberField("finiteBoundsRenderers", visibility.finiteBoundsRenderers());
+        json.writeNumberField("unboundedRenderers", visibility.unboundedRenderers());
+        json.writeNumberField("forwardVisible", visibility.forwardVisible());
+        json.writeNumberField("forwardCulled", visibility.forwardCulled());
+        json.writeNumberField("shadowCandidates", visibility.shadowCandidates());
+        json.writeNumberField("shadowVisible", visibility.shadowVisible());
+        json.writeNumberField("shadowCulled", visibility.shadowCulled());
+        json.writeNumberField("modelUpdateNanos", visibility.modelUpdateNanos());
+        json.writeNumberField("boundsTransformNanos", visibility.boundsTransformNanos());
+        json.writeNumberField("frustumTestNanos", visibility.frustumTestNanos());
+        json.writeNumberField("queueSortNanos", visibility.queueSortNanos());
+        json.writeNumberField("totalQueueBuildNanos", visibility.totalQueueBuildNanos());
+        json.writeNumberField("opaqueDraws", visibility.opaqueDraws());
+        json.writeNumberField("additiveDraws", visibility.additiveDraws());
+        json.writeNumberField("alphaDraws", visibility.alphaDraws());
+        json.writeNumberField("shaderChanges", visibility.shaderChanges());
+        json.writeNumberField("materialChanges", visibility.materialChanges());
+        json.writeNumberField("meshChanges", visibility.meshChanges());
+        json.writeNumberField("blendChanges", visibility.blendChanges());
+        json.writeNumberField("mirroredChanges", visibility.mirroredChanges());
         json.writeEndObject();
     }
 
