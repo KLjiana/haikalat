@@ -92,6 +92,35 @@ tasks.register('glSmoke', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
+    doLast {
+        File resultDirectory = reports.junitXml.outputLocation.get().asFile
+        List<String> violations = []
+        fileTree(resultDirectory).matching { include '*.xml' }.files.sort().each { File report ->
+            report.eachLine('UTF-8') { String line ->
+                boolean expectedInjectedHigh = report.name.contains('DiagnosticsContractsGlTest')
+                        && line.contains('OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive')
+                boolean auditedShaderSpecialization = (report.name.contains('RenderPipelineGlTest')
+                        || report.name.contains('UiPipelineMatrixGlTest'))
+                        && line.contains('OpenGL PERFORMANCE [MEDIUM] source=API id=131218:')
+                        && line.contains('Program/shader state performance warning: Vertex shader')
+                boolean auditedTestReadback = report.name.contains('UiDemoGlTest')
+                        && line.contains('OpenGL PERFORMANCE [MEDIUM] source=API id=131154:')
+                        && line.contains('Pixel transfer is synchronized with 3D rendering')
+
+                if (line.contains('[HIGH]') && !expectedInjectedHigh) {
+                    violations.add("${report.name}: ${line.trim()}")
+                } else if (line.contains('[MEDIUM]')
+                        && !auditedShaderSpecialization && !auditedTestReadback) {
+                    violations.add("${report.name}: unaudited MEDIUM: ${line.trim()}")
+                } else if (line.contains('GL_INVALID_')) {
+                    violations.add("${report.name}: ${line.trim()}")
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException('OpenGL debug-log gate failed:\n' + violations.join('\n'))
+        }
+    }
 }
 
 tasks.register('localGlVerification') {

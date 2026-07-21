@@ -120,6 +120,22 @@ class UiDisplayListBatcherTest {
     }
 
     @Test
+    void logicalImagesSurviveSnapshotsAndNeverMergeAcrossIds() {
+        UiDisplayList builder = new UiDisplayList()
+                .addLogicalImageQuad(QUAD, UiUvRect.FULL, 41L, 7, 3,
+                        0xffffffff, UiBlendMode.PREMULTIPLIED_ALPHA)
+                .addLogicalImageQuad(QUAD, UiUvRect.FULL, 42L, 7, 3,
+                        0xffffffff, UiBlendMode.PREMULTIPLIED_ALPHA);
+
+        UiRenderSnapshot snapshot = UiRenderSnapshot.capture(1L, builder);
+
+        assertEquals(2, snapshot.batches().size());
+        assertEquals(41L, snapshot.batches().imageId(0));
+        assertEquals(42L, snapshot.batches().imageId(1));
+        assertEquals(1L, snapshot.batches().breakStatistics().textureChanges());
+    }
+
+    @Test
     void incompleteClipOrGlyphRecordingCannotBePublished() {
         UiDisplayList clip = new UiDisplayList().pushClip(QUAD);
         UiDisplayList glyph = new UiDisplayList();

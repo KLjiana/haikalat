@@ -6,6 +6,11 @@ import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrozenDiagnostics;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewOptions;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewSourceDescription;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewSourceKey;
+import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
 import com.kaleblangley.haikalat.subsystems.ui.UiVisibility;
 import com.kaleblangley.haikalat.subsystems.ui.event.KeyEvent;
 import com.kaleblangley.haikalat.subsystems.ui.event.UiEvent;
@@ -15,6 +20,7 @@ import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Button;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
+import com.kaleblangley.haikalat.subsystems.ui.widget.Image;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Panel;
 import com.kaleblangley.haikalat.subsystems.ui.widget.ScrollView;
 import com.kaleblangley.haikalat.subsystems.windowing.input.ClipboardService;
@@ -38,27 +44,32 @@ final class DiagnosticsPanel {
     private final FrameDiagnostics diagnostics;
     private final Path exportPath;
     private final ClipboardService clipboard;
+    private final GraphPreviewController preview;
     private final Panel root = new Panel();
     private final Panel body = new Panel();
     private final List<DiagnosticRow> rows = new ArrayList<>();
     private final BitSet selectedRows = new BitSet();
     private final Label status = new Label("F2 opens diagnostics / F2 打开诊断");
+    private final Image previewImage = new Image(new UiImageId(GraphPreviewController.IMAGE_ID));
+    private final List<PreviewSourceKey> previewRowKeys = new ArrayList<>();
     private View view = View.OVERVIEW;
     private FrozenDiagnostics frozen;
     private int filterIndex;
+    private int previewRangePreset;
     private int activeRowCount;
     private int selectionAnchor = -1;
     private float bodyHeight = 1200.0f;
     private String notice = "Click a row, then Ctrl+C to copy / 点击一行后按 Ctrl+C 复制";
 
     DiagnosticsPanel(FrameDiagnostics diagnostics, Path exportPath,
-                     ClipboardService clipboard) {
+                     ClipboardService clipboard, GraphPreviewController preview) {
         this.diagnostics = diagnostics;
         this.exportPath = exportPath;
         this.clipboard = Objects.requireNonNull(clipboard, "clipboard");
+        this.preview = Objects.requireNonNull(preview, "preview");
         root.debugName("DiagnosticsPanel");
         root.visibility(UiVisibility.COLLAPSED);
-        root.style(UiStyle.builder().width(UiLength.points(760)).height(UiLength.points(380))
+        root.style(UiStyle.builder().width(UiLength.points(760)).height(UiLength.points(570))
                 .padding(UiInsets.points(8)).flexDirection(UiStyle.FlexDirection.COLUMN)
                 .gap(6).flexShrink(0).build());
 
@@ -82,22 +93,54 @@ final class DiagnosticsPanel {
                 .flexShrink(0).build());
         scroll.content(body);
 
+        previewImage.debugName("RenderGraphPreviewImage");
+        previewImage.style(UiStyle.builder().width(UiLength.percent(100))
+                .height(UiLength.points(140)).flexShrink(0).build());
+
         Panel actions = row(38);
-        Button freeze = action("Freeze / 冻结", () -> { frozen = diagnostics.freeze(); refresh(); });
-        Button live = action("Live / 实时", () -> { frozen = null; refresh(); });
-        Button clear = action("Clear / 清空", () -> { diagnostics.clear(); frozen = null; refresh(); });
+        Button freeze = action("Freeze / 冻结", () -> {
+            frozen = diagnostics.freeze(); preview.frozen(true); refresh();
+        });
+        Button live = action("Live / 实时", () -> {
+            frozen = null; preview.frozen(false); refresh();
+        });
+        Button clear = action("Clear / 清空", () -> {
+            diagnostics.clear(); frozen = null; preview.frozen(false); refresh();
+        });
         Button filter = action("Filter / 筛选", () -> {
             filterIndex = (filterIndex + 1) % 3;
             clearSelection();
             refresh();
         });
         Button export = action("Export / 导出", this::export);
-        actions.add(live).add(freeze).add(clear).add(filter).add(export);
+        Button mode = action("Mode", this::cyclePreviewMode);
+        Button channel = action("Channel", this::cyclePreviewChannel);
+        Button pause = action("Pause", () -> {
+            preview.paused(!preview.summary().paused()); refresh();
+        });
+        actions.add(live).add(freeze).add(clear).add(filter).add(export)
+                .add(mode).add(channel).add(pause);
+        Panel previewActions = row(36);
+        previewActions.add(action("EV +", this::increaseExposure))
+                .add(action("Range", this::cycleRange))
+                .add(action("False", this::toggleFalseColor))
+                .add(action("Depth", this::cycleDepth))
+                .add(action("Face", this::cycleCubeFace))
+                .add(action("Mip +", this::cycleMip))
+                .add(action("Filter", this::cycleFiltering))
+                .add(action("Interval", this::cycleInterval));
         status.style(UiStyle.builder().width(UiLength.percent(100)).height(UiLength.points(24)).build());
         root.add(tabs);
         root.add(scroll);
+        root.add(previewImage);
         root.add(actions);
+        root.add(previewActions);
         root.add(status);
+    }
+
+    DiagnosticsPanel(FrameDiagnostics diagnostics, Path exportPath,
+                     ClipboardService clipboard) {
+        this(diagnostics, exportPath, clipboard, new GraphPreviewController());
     }
 
     Panel root() { return root; }
@@ -109,6 +152,7 @@ final class DiagnosticsPanel {
 
     void toggle() {
         root.visibility(visible() ? UiVisibility.COLLAPSED : UiVisibility.VISIBLE);
+        preview.panelVisible(visible());
         if (visible()) refresh();
     }
 
@@ -123,19 +167,24 @@ final class DiagnosticsPanel {
                 ? live.resources() : frozen.resources();
         FrozenDiagnostics.MessageTable messages = frozen == null
                 ? live.messages() : frozen.messages();
-        setBodyText(switch (view) {
+        if (view == View.GRAPH) setGraphBody(snapshot);
+        else setBodyText(switch (view) {
             case OVERVIEW -> overview(snapshot);
             case PASSES -> passes(snapshot);
-            case GRAPH -> graph(snapshot);
             case RESOURCES -> resources(resources);
             case MESSAGES -> messages(messages);
-        });
+            case GRAPH -> throw new AssertionError();
+        }, List.of());
         status.text((frozen == null ? "LIVE" : "FROZEN") + " | epoch " + snapshot.epoch()
-                + " | frame " + snapshot.frameSequence() + " | " + notice);
+                + " | frame " + snapshot.frameSequence() + " | preview "
+                + preview.summary().status() + " | " + notice);
     }
 
-    private void setBodyText(String text) {
+    private void setBodyText(String text, List<PreviewSourceKey> sourceKeys) {
         String[] lines = text.split("\\R", -1);
+        previewRowKeys.clear();
+        previewRowKeys.addAll(sourceKeys);
+        while (previewRowKeys.size() < lines.length) previewRowKeys.add(null);
         activeRowCount = lines.length;
         if (selectedRows.length() > activeRowCount) {
             selectedRows.clear(activeRowCount, selectedRows.length());
@@ -195,6 +244,10 @@ final class DiagnosticsPanel {
         }
         applySelectionVisuals();
         notice = "Selected / 已选择 " + selectedRows.cardinality() + " line(s)";
+        if (view == View.GRAPH && frozen == null && index < previewRowKeys.size()) {
+            PreviewSourceKey source = previewRowKeys.get(index);
+            if (source != null) preview.select(source);
+        }
     }
 
     private void selectAllRows() {
@@ -256,6 +309,17 @@ final class DiagnosticsPanel {
                 snapshot.state().skipRatio() * 100.0, snapshot.resources().liveCount(),
                 snapshot.resources().estimatedBytes() / 1048576.0,
                 snapshot.messages().total(), snapshot.messages().dropped());
+        if (snapshot.preview().isPresent()) {
+            var item = snapshot.preview().orElseThrow();
+            overview += String.format(Locale.ROOT,
+                    "\npreview %s | %s\nsource %s\noutput %dx%d | draw %d blit %d\npath %s",
+                    item.status(), item.mode(), item.selectedLogicalKey(),
+                    item.outputWidth(), item.outputHeight(), item.frameDraws(),
+                    item.frameBlits(), item.path());
+            if (!item.errorCode().isBlank()) {
+                overview += "\npreview error " + item.errorCode() + ": " + item.errorMessage();
+            }
+        }
         if (snapshot.scene().isEmpty() || snapshot.scene().orElseThrow().visibility().isEmpty()) {
             return overview;
         }
@@ -313,6 +377,112 @@ final class DiagnosticsPanel {
                     .append(String.join(", ", pass.directDependencies())).append('\n');
         }
         return text.toString();
+    }
+
+    private void setGraphBody(DiagnosticsSnapshot snapshot) {
+        if (frozen != null || diagnostics.level() != com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel.DETAILED) {
+            setBodyText(graph(snapshot), List.of());
+            return;
+        }
+        StringBuilder text = new StringBuilder("Graph resources / 渲染图资源\n\n");
+        ArrayList<PreviewSourceKey> keys = new ArrayList<>();
+        keys.add(null);
+        keys.add(null);
+        for (PreviewSourceDescription source : preview.sources()) {
+            text.append(source.previewable() ? "[view] " : "[--] ")
+                    .append(source.displayName()).append(" | ")
+                    .append(source.format()).append(' ')
+                    .append(source.width()).append('x').append(source.height())
+                    .append(" x").append(source.sampleCount())
+                    .append(" | ").append(source.storageKind());
+            if (!source.reason().isBlank()) text.append(" | ").append(source.reason());
+            text.append('\n');
+            keys.add(source.key());
+        }
+        setBodyText(text.toString(), keys);
+    }
+
+    private void cyclePreviewMode() {
+        PreviewOptions options = preview.options();
+        PreviewOptions.Mode[] values = PreviewOptions.Mode.values();
+        preview.options(options.mode(values[(options.mode().ordinal() + 1) % values.length]));
+        refresh();
+    }
+
+    private void cyclePreviewChannel() {
+        PreviewOptions options = preview.options();
+        PreviewOptions.Channel[] values = PreviewOptions.Channel.values();
+        preview.options(options.channel(values[(options.channel().ordinal() + 1) % values.length]));
+        refresh();
+    }
+
+    private void increaseExposure() {
+        PreviewOptions options = preview.options();
+        float next = options.exposureEv() >= PreviewOptions.MAX_EXPOSURE_EV
+                ? PreviewOptions.MIN_EXPOSURE_EV : options.exposureEv() + 1.0f;
+        preview.options(options.exposureEv(next));
+        refresh();
+    }
+
+    private void cycleRange() {
+        previewRangePreset = (previewRangePreset + 1) % 3;
+        PreviewOptions options = preview.options();
+        preview.options(switch (previewRangePreset) {
+            case 1 -> options.range(-1.0f, 1.0f);
+            case 2 -> options.range(0.0f, 16.0f);
+            default -> options.range(0.0f, 1.0f);
+        });
+        refresh();
+    }
+
+    private void toggleFalseColor() {
+        PreviewOptions options = preview.options();
+        preview.options(options.falseColor(!options.falseColor()));
+        refresh();
+    }
+
+    private void cycleDepth() {
+        PreviewOptions options = preview.options();
+        PreviewOptions.DepthInterpretation[] values = PreviewOptions.DepthInterpretation.values();
+        PreviewOptions.DepthInterpretation next = values[
+                (options.depthInterpretation().ordinal() + 1) % values.length];
+        preview.options(options.depth(next, options.nearPlane(), options.farPlane(),
+                options.invertDepth()));
+        refresh();
+    }
+
+    private void cycleCubeFace() {
+        PreviewOptions options = preview.options();
+        PreviewOptions.CubeFace[] values = PreviewOptions.CubeFace.values();
+        preview.options(options.cube(values[(options.cubeFace().ordinal() + 1) % values.length],
+                options.mipLevel()));
+        refresh();
+    }
+
+    private void cycleMip() {
+        PreviewOptions options = preview.options();
+        int count = preview.selectedDescription().map(PreviewSourceDescription::mipCount).orElse(1);
+        preview.options(options.cube(options.cubeFace(), (options.mipLevel() + 1) % count));
+        refresh();
+    }
+
+    private void cycleFiltering() {
+        PreviewOptions options = preview.options();
+        preview.options(options.filtering(options.filtering() == PreviewOptions.Filtering.LINEAR
+                ? PreviewOptions.Filtering.NEAREST : PreviewOptions.Filtering.LINEAR));
+        refresh();
+    }
+
+    private void cycleInterval() {
+        PreviewOptions options = preview.options();
+        int next = switch (options.updateInterval()) {
+            case 1 -> 2;
+            case 2 -> 4;
+            case 4 -> 8;
+            default -> 1;
+        };
+        preview.options(options.updateInterval(next));
+        refresh();
     }
 
     private String resources(FrozenDiagnostics.ResourceTable snapshot) {
@@ -376,7 +546,7 @@ final class DiagnosticsPanel {
 
     private static Button action(String label, Runnable action) {
         Button button = new Button(label);
-        button.style(UiStyle.builder().width(UiLength.points(112)).height(UiLength.points(32))
+        button.style(UiStyle.builder().width(UiLength.points(84)).height(UiLength.points(32))
                 .padding(UiInsets.points(3)).flexShrink(0).build());
         button.onClick(action);
         return button;

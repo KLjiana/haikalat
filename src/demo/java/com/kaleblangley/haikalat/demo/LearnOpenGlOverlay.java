@@ -4,14 +4,19 @@ import com.kaleblangley.haikalat.core.graph.FrameProfile;
 import com.kaleblangley.haikalat.runtime.DebugOverlaySnapshot;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
+import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.LightType;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
+import com.kaleblangley.haikalat.subsystems.ui.UiVisibility;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiImageRegion;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiUvRect;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiInsets;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
@@ -56,9 +61,12 @@ final class LearnOpenGlOverlay implements AutoCloseable {
     private final Slider lightSlider;
     private final Toggle lightToggle;
     private final DiagnosticsPanel diagnosticsPanel;
+    private final Panel hud;
     private final String dependencyPass;
     private final int dynamicLightIndex;
     private final float initialLightIntensity;
+    private final GraphPreviewController preview;
+    private final String requestedPreviewSource;
     private final boolean bloomTargetPreserved;
     private final boolean exposureTargetPreserved;
     private float requestedLightIntensity;
@@ -68,11 +76,13 @@ final class LearnOpenGlOverlay implements AutoCloseable {
 
     private LearnOpenGlOverlay(GlfwWindow window, RenderPipeline pipeline,
                                RenderSettings settings, FrameDiagnostics diagnostics,
-                               Path diagnosticsExportPath, boolean showDiagnostics, UiSystem ui) {
+                               Path diagnosticsExportPath, boolean showDiagnostics,
+                               String requestedPreviewSource, UiSystem ui) {
         this.window = window;
         this.settings = settings;
         this.scene = pipeline.scene();
         this.ui = ui;
+        this.requestedPreviewSource = requestedPreviewSource;
         dependencyPass = pipeline.finalPassName();
 
         boolean bloomBefore = pipeline.graph().hasPass(PostProcessTargets.BLOOM_EXTRACT_PASS);
@@ -88,7 +98,7 @@ final class LearnOpenGlOverlay implements AutoCloseable {
                 .alignItems(UiStyle.AlignItems.FLEX_START)
                 .gap(8.0f)
                 .build());
-        Panel hud = new Panel();
+        hud = new Panel();
         hud.debugName("LearnOpenGlHud");
         hud.style(UiStyle.builder()
                 .width(UiLength.points(540.0f))
@@ -151,13 +161,18 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         }
         controls.add(lightSlider).add(lightValue).add(lightToggle);
         hud.add(telemetry).add(modes).add(interactionHint).add(bilingual).add(controls);
+        preview = pipeline.previewController();
+        preview.detailedDiagnostics(diagnostics.level() == DiagnosticsLevel.DETAILED);
         diagnosticsPanel = new DiagnosticsPanel(
-                diagnostics, diagnosticsExportPath, window.clipboardService());
+                diagnostics, diagnosticsExportPath, window.clipboardService(), preview);
         root.add(hud).add(diagnosticsPanel.root());
-        if (showDiagnostics) diagnosticsPanel.show();
+        if (showDiagnostics) {
+            diagnosticsPanel.show();
+            hud.visibility(UiVisibility.COLLAPSED);
+        }
         updateInteractionHint();
 
-        ui.attachTo(pipeline.graph(), dependencyPass);
+        ui.attachTo(pipeline.graph(), dependencyPass, pipeline.previewOverlayRecorder());
         bloomTargetPreserved = bloomBefore
                 == pipeline.graph().hasPass(PostProcessTargets.BLOOM_EXTRACT_PASS);
         exposureTargetPreserved = exposureBefore
@@ -170,14 +185,21 @@ final class LearnOpenGlOverlay implements AutoCloseable {
     /** 创建并附加 overlay；部分初始化失败时关闭已创建的 UiSystem。 */
     static LearnOpenGlOverlay attach(GlfwWindow window, RenderPipeline pipeline,
                                      RenderSettings settings, FrameDiagnostics diagnostics,
-                                     Path diagnosticsExportPath, boolean showDiagnostics) {
+                                     Path diagnosticsExportPath, boolean showDiagnostics,
+                                     String requestedPreviewSource) {
         Objects.requireNonNull(window, "window");
         Objects.requireNonNull(pipeline, "pipeline");
         Objects.requireNonNull(settings, "settings");
-        UiSystem ui = UiSystem.create(window, UiConfig.defaults());
+        GraphPreviewController preview = pipeline.previewController();
+        UiSystem ui = UiSystem.create(window, UiConfig.defaults(), imageId -> {
+            if (imageId.value() != GraphPreviewController.IMAGE_ID) return java.util.Optional.empty();
+            return preview.output().map(output -> new UiImageRegion(
+                    output.textureId(), output.samplerId(), output.width(), output.height(),
+                    new UiUvRect(0.0f, 1.0f, 1.0f, 0.0f)));
+        });
         try {
             return new LearnOpenGlOverlay(window, pipeline, settings, diagnostics,
-                    diagnosticsExportPath, showDiagnostics, ui);
+                    diagnosticsExportPath, showDiagnostics, requestedPreviewSource, ui);
         } catch (RuntimeException | Error failure) {
             try {
                 ui.close();
@@ -200,10 +222,12 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         }
         if (platformInput.keyPressed(Key.F2)) {
             diagnosticsPanel.toggle();
+            hud.visibility(diagnosticsPanel.visible() ? UiVisibility.COLLAPSED : UiVisibility.VISIBLE);
             setInteractive(diagnosticsPanel.visible(), platformInput.windowWidth(),
                     platformInput.windowHeight());
         }
         if (deterministic) applyDeterministicControls(frame);
+        selectRequestedPreview();
         if (frame <= 1 || frame % 15 == 0) {
             telemetry.text(String.format(Locale.ROOT,
                     "FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d | inst %d",
@@ -274,6 +298,16 @@ final class LearnOpenGlOverlay implements AutoCloseable {
         if (frame == 2) lightSlider.value(Math.max(0.1, initialLightIntensity * 0.65));
         if (frame == 4) lightToggle.value(false);
         if (frame == 6) lightToggle.value(true);
+    }
+
+    private void selectRequestedPreview() {
+        if (requestedPreviewSource == null || preview.selected().isPresent()) return;
+        String needle = requestedPreviewSource.toLowerCase(Locale.ROOT);
+        preview.sources().stream()
+                .filter(source -> source.previewable()
+                        && (source.key().logicalName().toLowerCase(Locale.ROOT).contains(needle)
+                        || source.displayName().toLowerCase(Locale.ROOT).contains(needle)))
+                .findFirst().ifPresent(source -> preview.select(source.key()));
     }
 
     private void setInteractive(boolean value, int logicalWidth, int logicalHeight) {

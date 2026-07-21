@@ -29,6 +29,7 @@ class GlDebugTest {
     @Test
     void debugCallsAreNoopsWithoutCurrentContext() {
         assertFalse(GlDebug.hasCurrentContext());
+        assertEquals(GlDebug.ContextInfo.UNAVAILABLE, GlDebug.contextInfo());
         assertFalse(GlDebug.enableDebugCallback());
         assertDoesNotThrow(() -> GlDebug.checkError("unit"));
         assertDoesNotThrow(() -> GlDebug.assertNoError("unit"));

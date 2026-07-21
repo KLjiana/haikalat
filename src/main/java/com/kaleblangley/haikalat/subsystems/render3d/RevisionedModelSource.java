@@ -7,6 +7,11 @@ import org.joml.Matrix4fc;
 interface RevisionedModelSource extends SceneObject.ModelUpdater {
     long revision();
 
+    /**
+     * 表示模型源在创建后永远不会改变，允许 scene frame 在 membership 稳定后省略 revision 扫描。
+     */
+    default boolean immutable() { return false; }
+
     final class TransformSource implements RevisionedModelSource {
         private final Transform transform;
 
@@ -27,6 +32,7 @@ interface RevisionedModelSource extends SceneObject.ModelUpdater {
         }
 
         @Override public long revision() { return 0L; }
+        @Override public boolean immutable() { return true; }
         @Override public void update(Matrix4f out, int frameIndex) { out.set(matrix); }
     }
 }

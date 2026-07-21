@@ -5,6 +5,7 @@ import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,6 +40,7 @@ class TransformRevisionTest {
         Transform transform = Transform.at(1.0f, 2.0f, 3.0f);
         RevisionedModelSource.TransformSource source =
                 new RevisionedModelSource.TransformSource(transform);
+        assertFalse(source.immutable());
         assertEquals(transform.revision(), source.revision());
         transform.scale(3.0f);
         assertEquals(transform.revision(), source.revision());
@@ -46,6 +48,7 @@ class TransformRevisionTest {
         Matrix4f supplied = new Matrix4f().translation(7.0f, 8.0f, 9.0f);
         RevisionedModelSource.FixedSource fixed =
                 new RevisionedModelSource.FixedSource(supplied);
+        assertTrue(fixed.immutable());
         supplied.translation(100.0f, 100.0f, 100.0f);
         Matrix4f actual = new Matrix4f();
         fixed.update(actual, 99);

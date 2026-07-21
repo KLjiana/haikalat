@@ -25,6 +25,12 @@
 | PBR owner | 独占 environment、fallback、binder/background renderer | environment fault injection 与 PBR GL tests |
 | `UiSystem`、`UiDocument` | system 独占 native/render/layout 服务；document 为逻辑 owner | UI integration、async、soak |
 | UI font/atlas/render owner | 独占 FreeType/HarfBuzz handle、atlas page、GPU upload ring | shaping/atlas/renderer close tests |
+| `GraphPreviewRenderer` | 惰性独占 preview output、临时 resolve、shader/quad/sampler；只借用 graph/PBR source | `GraphPreviewGlTest`、`runPreviewIntegration`、重复 panel 开关/close |
 
 PBR 和 UI 的清理仍保留各自专用事务，因为它们包含 context affinity、history/atlas lease 与
 故障注入阶段。`CloseStack` 只在 glTF runtime 中消除已经重复的逆序关闭语义，不提升为公共 API。
+
+preview 关闭或 pipeline close 时先撤销逻辑 output mapping，再逆序关闭 resolve/output/sampler/quad/program。
+UI snapshot 只保存 `UiImageId`；即使 snapshot 延迟消费，UiRenderer 也会重新解析 mapping，失效时跳过
+该 batch，因此不会持有或使用已释放的 preview texture。被检查的 graph attachment/cubemap 始终由原 owner
+管理，preview 不延长其生命周期。

@@ -20,4 +20,5 @@ advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter
 advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel
 advanced com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot
 advanced com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics
+advanced com.kaleblangley.haikalat.runtime.diagnostics.PreviewSummary
 advanced com.kaleblangley.haikalat.runtime.diagnostics.FrozenDiagnostics

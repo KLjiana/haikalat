@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
 
 import java.nio.ByteBuffer;
@@ -46,6 +47,7 @@ public final class UiRenderer implements AutoCloseable {
 
     private final int maximumQuads;
     private final UiGlyphAtlasGpu glyphAtlas;
+    private final UiImageResolver imageResolver;
     private final List<VertexArray> vertexArrays = new ArrayList<>();
     private ShaderProgram shader;
     private Sampler sampler;
@@ -76,8 +78,16 @@ public final class UiRenderer implements AutoCloseable {
      */
     public UiRenderer(int maximumQuads, int glyphAtlasWidth, int glyphAtlasHeight,
                       int maximumGlyphAtlasPages) {
+        this(maximumQuads, glyphAtlasWidth, glyphAtlasHeight,
+                maximumGlyphAtlasPages, UiImageResolver.empty());
+    }
+
+    /** 创建带 render-record 时逻辑图片重解析能力的 renderer。 */
+    public UiRenderer(int maximumQuads, int glyphAtlasWidth, int glyphAtlasHeight,
+                      int maximumGlyphAtlasPages, UiImageResolver imageResolver) {
         if (maximumQuads <= 0) throw new IllegalArgumentException("maximumQuads must be positive");
         this.maximumQuads = maximumQuads;
+        this.imageResolver = Objects.requireNonNull(imageResolver, "imageResolver");
         glyphAtlas = new UiGlyphAtlasGpu(
                 glyphAtlasWidth, glyphAtlasHeight, maximumGlyphAtlasPages);
     }
@@ -126,10 +136,12 @@ public final class UiRenderer implements AutoCloseable {
                     .setUniformInt(shader, "uTexture", TEXTURE_UNIT);
 
             int drawIndex = 0;
+            int drawnQuads = 0;
             for (int batch = 0; batch < batches.size(); batch++) {
-                configureBatchState(commands, batches, batch, snapshot);
+                if (!configureBatchState(commands, batches, batch, snapshot)) continue;
                 int firstQuad = batches.firstQuad(batch);
                 int remaining = batches.quadCount(batch);
+                drawnQuads += remaining;
                 while (remaining > 0) {
                     int part = Math.min(remaining, MAX_QUADS_PER_DRAW);
                     VertexArray vao = vertexArrays.get(drawIndex++);
@@ -148,8 +160,8 @@ public final class UiRenderer implements AutoCloseable {
             vertexRing.markSubmitted();
             commands.insertGpuFence(vertexRing);
             submitted = true;
-            lastDrawCalls = drawCount;
-            lastQuadCount = displayList.quadCount();
+            lastDrawCalls = drawIndex;
+            lastQuadCount = drawnQuads;
         } finally {
             if (!submitted) vertexRing.abortWrite();
         }
@@ -287,8 +299,15 @@ public final class UiRenderer implements AutoCloseable {
         glVertexArrayAttribBinding(vao.id(), 2, 0);
     }
 
-    private void configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
-                                     int batch, UiRenderSnapshot snapshot) {
+    private boolean configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
+                                        int batch, UiRenderSnapshot snapshot) {
+        int texture = batches.texture(batch);
+        if (batches.shader(batch) == UiShaderVariant.TEXTURED && batches.imageId(batch) >= 0L) {
+            UiImageRegion resolved = imageResolver.resolve(new UiImageId(batches.imageId(batch)))
+                    .orElse(null);
+            if (resolved == null) return false;
+            texture = resolved.textureId();
+        }
         commands.setUniformInt(shader, "uMode", shaderMode(batches.shader(batch)));
         if (batches.hasClip(batch)) {
             GlScissorRect scissor = batches.glScissor(batch,
@@ -301,12 +320,13 @@ public final class UiRenderer implements AutoCloseable {
         }
         if (batches.shader(batch) == UiShaderVariant.TEXTURED
                 || batches.shader(batch) == UiShaderVariant.GLYPH) {
-            int texture = batches.shader(batch) == UiShaderVariant.GLYPH
+            texture = batches.shader(batch) == UiShaderVariant.GLYPH
                     ? glyphAtlas.renderTextureId(batches.texture(batch))
-                    : batches.texture(batch);
+                    : texture;
             commands.bindTexture(TEXTURE_UNIT, texture)
                     .bindSampler(TEXTURE_UNIT, sampler);
         }
+        return true;
     }
 
     private static void recordPassState(CommandBuffer commands, int width, int height) {

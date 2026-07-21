@@ -12,6 +12,7 @@ import com.kaleblangley.haikalat.core.upload.UploadSystem;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
+import com.kaleblangley.haikalat.runtime.diagnostics.PreviewSummary;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -82,6 +83,11 @@ public final class FrameDriver implements AutoCloseable {
                                    long atlasUploadBytes) {
         diagnostics.ui(visibleNodes, quads, glyphs, drawCalls, updateNanos,
                 vertexBytes, indexBytes, atlasUploadBytes);
+    }
+
+    /** 附加下一次发布使用的纯值 RenderGraph preview 摘要。 */
+    public void recordPreview(PreviewSummary summary) {
+        diagnostics.preview(summary);
     }
 
     /** @return 无需向下转型即可读取的 OpenGL 状态缓存累计统计 */
@@ -155,7 +161,7 @@ public final class FrameDriver implements AutoCloseable {
                 uploadQueue.totalBytesUploaded(), uploadQueue.pendingCount(),
                 uploadQueue.totalGpuUpdates());
         pendingGraphDescription = null;
-        GlDebug.checkError("FrameDriver.endFrame");
+        GlDebug.assertNoError("FrameDriver.endFrame");
     }
 
     /**

@@ -16,8 +16,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
 
 class CommandBufferTest {
+    @Test
+    void typedFramebufferBlitRejectsInvalidDepthFilteringAndMasks() {
+        CommandBuffer commands = new CommandBuffer()
+                .blitFramebuffer(1, 2, 16, 16, 8, 8,
+                        GL_COLOR_BUFFER_BIT, GL_LINEAR)
+                .blitFramebuffer(1, 2, 16, 16, 16, 16,
+                        GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+        assertEquals(2, commands.commandCount());
+        assertThrows(IllegalArgumentException.class, () -> commands.blitFramebuffer(
+                1, 2, 16, 16, 16, 16, GL_DEPTH_BUFFER_BIT, GL_LINEAR));
+        assertThrows(IllegalArgumentException.class, () -> commands.blitFramebuffer(
+                1, 2, 16, 16, 16, 16,
+                GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST));
+        assertThrows(IllegalArgumentException.class, () -> commands.blitFramebuffer(
+                1, 2, 0, 16, 16, 16, GL_COLOR_BUFFER_BIT, GL_NEAREST));
+    }
+
     @Test
     void publicDiagnosticsCountsCoverOnlyTheirDocumentedArenas() throws Exception {
         assertTrue(java.lang.reflect.Modifier.isPublic(CommandBuffer.class

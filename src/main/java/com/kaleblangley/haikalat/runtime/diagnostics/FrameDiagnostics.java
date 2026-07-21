@@ -27,6 +27,7 @@ public final class FrameDiagnostics implements AutoCloseable {
     private DiagnosticsSnapshot.SceneSummary pendingScene;
     private DiagnosticsSnapshot.VisibilitySummary pendingVisibility;
     private DiagnosticsSnapshot.UiSummary pendingUi;
+    private PreviewSummary pendingPreview;
     private boolean closed;
 
     public FrameDiagnostics(DiagnosticsLevel level) {
@@ -82,6 +83,7 @@ public final class FrameDiagnostics implements AutoCloseable {
         pendingScene = null;
         pendingVisibility = null;
         pendingUi = null;
+        pendingPreview = null;
     }
 
     /** 仅供 owner FrameDriver 在帧边界发布。 */
@@ -129,6 +131,12 @@ public final class FrameDiagnostics implements AutoCloseable {
                 updateNanos, vertexBytes, indexBytes, atlasUploadBytes);
     }
 
+    /** 为下一次 DETAILED 帧发布附加不包含 GPU owner/native id 的预览值摘要。 */
+    public synchronized void preview(PreviewSummary summary) {
+        ensureOpen();
+        pendingPreview = Objects.requireNonNull(summary, "summary");
+    }
+
     /** owner 使用的完整发布入口。 */
     public synchronized void publish(RenderStatistics.Snapshot statistics,
                                      FrameProfile profile, RenderGraph.Description graph,
@@ -140,6 +148,7 @@ public final class FrameDiagnostics implements AutoCloseable {
             pendingScene = null;
             pendingVisibility = null;
             pendingUi = null;
+            pendingPreview = null;
             return;
         }
         long sequence = profile.frameSequence() >= 0L
@@ -173,11 +182,14 @@ public final class FrameDiagnostics implements AutoCloseable {
                 new DiagnosticsSnapshot.UploadSummary(Math.max(0L, totalUploadBytes - lastUploadBytes),
                         totalUploadBytes, uploadQueueDepth, uploadGpuUpdates),
                 Optional.ofNullable(pendingUi),
-                level == DiagnosticsLevel.DETAILED ? Optional.ofNullable(graph) : Optional.empty());
+                level == DiagnosticsLevel.DETAILED ? Optional.ofNullable(graph) : Optional.empty(),
+                level == DiagnosticsLevel.DETAILED
+                        ? Optional.ofNullable(pendingPreview) : Optional.empty());
         lastUploadBytes = totalUploadBytes;
         pendingScene = null;
         pendingVisibility = null;
         pendingUi = null;
+        pendingPreview = null;
         if (history.size() == capacity) history.removeFirst();
         history.addLast(snapshot);
         latest = snapshot;
@@ -194,6 +206,7 @@ public final class FrameDiagnostics implements AutoCloseable {
         pendingScene = null;
         pendingVisibility = null;
         pendingUi = null;
+        pendingPreview = null;
         closed = true;
     }
 

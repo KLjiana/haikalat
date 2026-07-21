@@ -22,6 +22,7 @@ import java.util.function.IntConsumer;
 import static com.kaleblangley.haikalat.core.command.CommandBuffer.*;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
@@ -188,10 +189,17 @@ final class CommandExecutor {
                     int sourceHeight = stream.integerAt(integerCursor++);
                     int targetWidth = stream.integerAt(integerCursor++);
                     int targetHeight = stream.integerAt(integerCursor++);
+                    int mask = stream.integerAt(integerCursor++);
+                    int filter = stream.integerAt(integerCursor++);
+                    int sourceColorAttachment = stream.integerAt(integerCursor++);
                     cache.bindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+                    if (sourceColorAttachment >= 0) {
+                        glReadBuffer(sourceFbo == 0
+                                ? GL_BACK : GL_COLOR_ATTACHMENT0 + sourceColorAttachment);
+                    }
                     cache.bindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFbo);
                     glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
-                            0, 0, targetWidth, targetHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                            0, 0, targetWidth, targetHeight, mask, filter);
                     cache.bindFramebuffer(GL_FRAMEBUFFER, 0);
                 }
                 case UNIFORM_MAT4 -> {

@@ -215,7 +215,7 @@ public final class UiPainter {
 
         output.pushClip(bounds);
         try {
-            output.addTexturedQuad(placement.bounds(), placement.uv(),
+            output.addLogicalImageQuad(placement.bounds(), placement.uv(), image.imageId().value(),
                     region.textureId(), region.samplerId(), tint,
                     UiBlendMode.PREMULTIPLIED_ALPHA);
         } finally {

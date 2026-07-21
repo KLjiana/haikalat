@@ -52,6 +52,10 @@ public record MeshRenderer(
         return updater instanceof RevisionedModelSource;
     }
 
+    boolean immutableModel() {
+        return updater instanceof RevisionedModelSource source && source.immutable();
+    }
+
     long modelRevision() {
         return ((RevisionedModelSource) updater).revision();
     }

@@ -92,6 +92,9 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runDiagnosticsResizeIntegration
 .\gradlew.bat runDiagnosticsFailureIntegration
 .\gradlew.bat localDiagnosticsVerification
+.\gradlew.bat previewGlVerification
+.\gradlew.bat runPreviewIntegration
+.\gradlew.bat runPreviewBenchmarks
 .\gradlew.bat runSceneVisibilityIntegration
 .\gradlew.bat runSceneVisibilityResizeIntegration
 .\gradlew.bat runSceneVisibilityShadowIntegration
@@ -103,6 +106,12 @@ v0.15 diagnostics integration 使用同一个主 Demo 正式管线：第一项�
 `build/diagnostics/integration.json`；resize 项验证 960×540 managed target 和保持 2048×2048 的固定阴影
 target；failure 项发布一个明确的 incomplete/FAILED frame，并验证后续帧恢复和资源 live count 归零。
 默认 `test` 仍只运行无桌面的 history、epoch、freeze、确定性 JSON 和 graph description 测试。
+
+v0.17.1 preview 的 JVM 测试覆盖逻辑 key/generation、参数校验、目录、显存估算、请求 revision、
+错误环和纯值 JSON。`previewGlVerification` 使用隐藏 OpenGL context 验证确定性色彩 conversion、
+MRT MSAA read attachment、DEPTH24_STENCIL8 精确 resolve，以及异步 UI 遇到失效逻辑图片时跳过 draw。
+`runPreviewIntegration` 打开 F2、选择 `GeometryPass/sceneColor`、导出 16 帧，并检查 1 draw/最多 1 blit、
+graph topology 不变以及 JSON 不含 texture id/像素。
 
 v0.13 glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资源、interleaved
 与 normalized attribute、sparse accessor、node graph/transform、normal/tangent 生成、URI root

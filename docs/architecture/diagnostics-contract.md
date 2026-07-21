@@ -17,6 +17,9 @@ v0.15 的诊断链路只观察正式渲染、资源和 UI 路径，不拥有 Ren
 - exporter 只接受 `FrozenDiagnostics`，文件 I/O 不会发生在 render pass 或 GL callback 中。
 - `FrozenDiagnostics` 的公共值类型不暴露 `GlDebug`、LWJGL 或其他 backend 类型；runtime 在发布边界
   将 backend 快照适配成自身不可变 DTO。
+- v0.17.1 的 `PreviewSummary` 只包含逻辑资源键、显示参数、状态、尺寸、命令计数和估算字节；不包含
+  texture/framebuffer id、resolver、GPU owner 或像素。请求 revision 保证迟到的 GPU 完成结果不会与
+  已改变的选择或参数组成错误摘要。
 
 ## GPU 时间语义
 
@@ -52,6 +55,9 @@ capture 不变化。`clear()` 同时丢弃尚未发布的 scene/UI 摘要，避�
 JSON schema v1 固定字段顺序，使用 UTF-8 临时文件并在 flush/close 后原子替换目标。写文件前验证
 所有数值和 section 的结构一致性，元数据包含引擎版本、构建修订和 OpenGL 环境。默认省略 native id；
 Demo 自动路径只允许位于 `build/diagnostics/`。
+
+DETAILED 帧可带可选 `preview` section；BASIC/OFF 丢弃暂存 preview 摘要。冻结只复制该值摘要，
+不承诺纹理像素被冻结。F2 的实时 image mapping 是 preview-owned 输出且只在 render-record 边界解析。
 
 关闭 `FrameDriver` 会关闭 diagnostics owner。`OFF` 不写历史；`BASIC` 发布帧、pass、present、state 和
 严重消息摘要；`DETAILED` 额外发布 graph、资源和完整允许严重度消息。

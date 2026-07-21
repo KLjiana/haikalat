@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.subsystems.ui.render.UiBatcher;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiGlyphAtlasGpu;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiGlyphUploadResult;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiImageResolver;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiPainter;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderSnapshot;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderer;
@@ -47,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class UiSystem implements AutoCloseable {
     public static final String OVERLAY_PASS_NAME = "UiOverlayPass";
     private static final System.Logger LOG = System.getLogger(UiSystem.class.getName());
+    private static final RenderGraph.PassExecutor NO_OVERLAY_PREFIX = (resources, commands) -> { };
 
     private final RenderWindow window;
     private final UiConfig config;
@@ -82,7 +84,7 @@ public final class UiSystem implements AutoCloseable {
 
     private UiSystem(RenderWindow window, UiConfig config, UiDocument document,
                      LayoutEngine layoutEngine, UiTextEngine textEngine, UiPainter painter,
-                     TextInputAdapter textInputAdapter) {
+                     TextInputAdapter textInputAdapter, UiImageResolver imageResolver) {
         this.window = Objects.requireNonNull(window, "window");
         this.config = Objects.requireNonNull(config, "config");
         this.document = Objects.requireNonNull(document, "document");
@@ -97,7 +99,7 @@ public final class UiSystem implements AutoCloseable {
         snapshots = new UiSnapshotExchange(config.snapshotSlots());
         renderer = new UiRenderer(config.maximumPrimitives(),
                 config.glyphAtlasWidth(), config.glyphAtlasHeight(),
-                config.maximumGlyphAtlasPages());
+                config.maximumGlyphAtlasPages(), imageResolver);
     }
 
     /** 创建不依赖 RenderGraph 或当前 GL context 的 UI 系统。 */
@@ -106,12 +108,30 @@ public final class UiSystem implements AutoCloseable {
         return create(requiredWindow, config, defaultTextInputAdapter(requiredWindow));
     }
 
+    /** 使用默认平台文本输入和显式 image resolver 创建 UI 系统。 */
+    public static UiSystem create(RenderWindow window, UiConfig config,
+                                  UiImageResolver imageResolver) {
+        RenderWindow requiredWindow = Objects.requireNonNull(window, "window");
+        return create(requiredWindow, config, defaultTextInputAdapter(requiredWindow), imageResolver);
+    }
+
     /** 使用显式 adapter 创建 UI 系统，供确定性测试和非默认平台集成。 */
     public static UiSystem create(RenderWindow window, UiConfig config,
                                   TextInputAdapter textInputAdapter) {
+        return create(window, config, textInputAdapter, UiImageResolver.empty());
+    }
+
+    /**
+     * 使用显式 image resolver 创建 UI 系统。
+     * resolver 只解析调用方拥有的逻辑 UI image；UI 不接管纹理或 sampler 所有权。
+     */
+    public static UiSystem create(RenderWindow window, UiConfig config,
+                                  TextInputAdapter textInputAdapter,
+                                  UiImageResolver imageResolver) {
         Objects.requireNonNull(window, "window");
         config = Objects.requireNonNullElseGet(config, UiConfig::defaults);
         Objects.requireNonNull(textInputAdapter, "textInputAdapter");
+        Objects.requireNonNull(imageResolver, "imageResolver");
         UiDocument document = new UiDocument();
         LayoutEngine layout = null;
         UiTextEngine text = null;
@@ -119,9 +139,9 @@ public final class UiSystem implements AutoCloseable {
             text = UiTextEngine.createBundled(config.glyphAtlasWidth(),
                     config.glyphAtlasHeight(), config.maximumGlyphAtlasPages());
             layout = new YogaLayoutEngine(text::measure);
-            UiPainter painter = new UiPainter(com.kaleblangley.haikalat.subsystems.ui.render.UiImageResolver.empty(),
-                    text, config.debugOptions());
-            return new UiSystem(window, config, document, layout, text, painter, textInputAdapter);
+            UiPainter painter = new UiPainter(imageResolver, text, config.debugOptions());
+            return new UiSystem(window, config, document, layout, text, painter,
+                    textInputAdapter, imageResolver);
         } catch (RuntimeException | Error failure) {
             closeSuppressed(layout, failure);
             closeSuppressed(text, failure);
@@ -255,10 +275,20 @@ public final class UiSystem implements AutoCloseable {
      * 把 UI overlay 接到最终 backbuffer pass 后，并冻结 graph pass 拓扑。
      */
     public void attachTo(RenderGraph graph, String dependencyPass) {
+        attachTo(graph, dependencyPass, NO_OVERLAY_PREFIX);
+    }
+
+    /**
+     * 在同一个 overlay pass 内、正式 UI 命令之前记录一个受控前缀。
+     * 该组合入口不会新增或改变 RenderGraph topology，适合 GPU 诊断转换等内部集成。
+     */
+    public void attachTo(RenderGraph graph, String dependencyPass,
+                         RenderGraph.PassExecutor beforeOverlay) {
         updateThread.check();
         ensureOpen("UiSystem graph attachment");
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(dependencyPass, "dependencyPass");
+        Objects.requireNonNull(beforeOverlay, "beforeOverlay");
         if (attachedGraph != null) throw new IllegalStateException("UiSystem is already attached to a RenderGraph");
         if (graph.isTopologySealed()) throw new IllegalStateException("RenderGraph topology is already sealed");
         if (!graph.hasPass(dependencyPass)) {
@@ -275,7 +305,10 @@ public final class UiSystem implements AutoCloseable {
                 .writeToBackbuffer()
                 .noClear()
                 .dependsOn(dependencyPass)
-                .execute((resources, commands) -> recordOverlay(commands));
+                .execute((resources, commands) -> {
+                    beforeOverlay.execute(resources, commands);
+                    recordOverlay(commands);
+                });
         graph.sealTopology();
         attachedGraph = graph;
     }

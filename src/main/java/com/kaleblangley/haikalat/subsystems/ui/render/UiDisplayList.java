@@ -21,6 +21,7 @@ public final class UiDisplayList {
     private byte[] primitiveBlends;
     private int[] primitiveTextures;
     private int[] primitiveSamplers;
+    private long[] primitiveImageIds;
     private int[] primitiveFirstQuads;
     private int[] primitiveQuadCounts;
     private double[] primitiveClipX;
@@ -81,6 +82,7 @@ public final class UiDisplayList {
         primitiveBlends = Arrays.copyOf(source.primitiveBlends, primitiveCount);
         primitiveTextures = Arrays.copyOf(source.primitiveTextures, primitiveCount);
         primitiveSamplers = Arrays.copyOf(source.primitiveSamplers, primitiveCount);
+        primitiveImageIds = Arrays.copyOf(source.primitiveImageIds, primitiveCount);
         primitiveFirstQuads = Arrays.copyOf(source.primitiveFirstQuads, primitiveCount);
         primitiveQuadCounts = Arrays.copyOf(source.primitiveQuadCounts, primitiveCount);
         primitiveClipX = Arrays.copyOf(source.primitiveClipX, primitiveCount);
@@ -169,6 +171,27 @@ public final class UiDisplayList {
                 premultipliedRgba8);
         appendPrimitive(UiPrimitiveKind.TEXTURED_QUAD, UiShaderVariant.TEXTURED,
                 textureId, samplerId, blendMode, firstQuad, 1);
+        return this;
+    }
+
+    /**
+     * 追加需要在 render-record 边界重新解析的逻辑图片。
+     * 快照中的 texture/sampler 只用于布局元数据，渲染时不会直接信任它们。
+     */
+    public UiDisplayList addLogicalImageQuad(UiScreenRect bounds, UiUvRect uv,
+                                             long imageId, int textureId, int samplerId,
+                                             int premultipliedRgba8, UiBlendMode blendMode) {
+        Objects.requireNonNull(bounds, "bounds");
+        Objects.requireNonNull(uv, "uv");
+        if (imageId < 0L) throw new IllegalArgumentException("imageId must be non-negative");
+        ensureRecordable();
+        requireResource(textureId, "textureId");
+        requireResource(samplerId, "samplerId");
+        Objects.requireNonNull(blendMode, "blendMode");
+        int firstQuad = appendQuad(bounds, uv, premultipliedRgba8);
+        int primitive = appendPrimitive(UiPrimitiveKind.TEXTURED_QUAD, UiShaderVariant.TEXTURED,
+                textureId, samplerId, blendMode, firstQuad, 1);
+        primitiveImageIds[primitive] = imageId;
         return this;
     }
 
@@ -339,6 +362,7 @@ public final class UiDisplayList {
         copy(source.primitiveBlends, primitiveBlends, primitiveCount);
         copy(source.primitiveTextures, primitiveTextures, primitiveCount);
         copy(source.primitiveSamplers, primitiveSamplers, primitiveCount);
+        copy(source.primitiveImageIds, primitiveImageIds, primitiveCount);
         copy(source.primitiveFirstQuads, primitiveFirstQuads, primitiveCount);
         copy(source.primitiveQuadCounts, primitiveQuadCounts, primitiveCount);
         copy(source.primitiveClipX, primitiveClipX, primitiveCount);
@@ -396,6 +420,12 @@ public final class UiDisplayList {
     public int primitiveSampler(int primitiveIndex) {
         requireDrawPrimitive(primitiveIndex);
         return primitiveSamplers[primitiveIndex];
+    }
+
+    /** 返回逻辑图片 ID；普通纹理 primitive 返回 -1。 */
+    public long primitiveImageId(int primitiveIndex) {
+        requireDrawPrimitive(primitiveIndex);
+        return primitiveImageIds[primitiveIndex];
     }
 
     /** 返回 draw primitive 的混合模式。 */
@@ -538,6 +568,7 @@ public final class UiDisplayList {
         primitiveBlends[index] = blend == null ? -1 : (byte) blend.ordinal();
         primitiveTextures[index] = texture;
         primitiveSamplers[index] = sampler;
+        primitiveImageIds[index] = -1L;
         primitiveFirstQuads[index] = firstQuad;
         primitiveQuadCounts[index] = quadCountValue;
         return index;
@@ -587,6 +618,8 @@ public final class UiDisplayList {
         primitiveBlends = new byte[capacity];
         primitiveTextures = new int[capacity];
         primitiveSamplers = new int[capacity];
+        primitiveImageIds = new long[capacity];
+        Arrays.fill(primitiveImageIds, -1L);
         primitiveFirstQuads = new int[capacity];
         primitiveQuadCounts = new int[capacity];
         primitiveClipX = new double[capacity];
@@ -617,6 +650,9 @@ public final class UiDisplayList {
         primitiveBlends = Arrays.copyOf(primitiveBlends, capacity);
         primitiveTextures = Arrays.copyOf(primitiveTextures, capacity);
         primitiveSamplers = Arrays.copyOf(primitiveSamplers, capacity);
+        int previousCapacity = primitiveImageIds.length;
+        primitiveImageIds = Arrays.copyOf(primitiveImageIds, capacity);
+        Arrays.fill(primitiveImageIds, previousCapacity, capacity, -1L);
         primitiveFirstQuads = Arrays.copyOf(primitiveFirstQuads, capacity);
         primitiveQuadCounts = Arrays.copyOf(primitiveQuadCounts, capacity);
         primitiveClipX = Arrays.copyOf(primitiveClipX, capacity);
@@ -660,6 +696,10 @@ public final class UiDisplayList {
     }
 
     private static void copy(int[] source, int[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
+    }
+
+    private static void copy(long[] source, long[] target, int count) {
         System.arraycopy(source, 0, target, 0, count);
     }
 

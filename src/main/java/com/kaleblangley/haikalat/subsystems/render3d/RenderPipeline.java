@@ -19,16 +19,23 @@ import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
 import org.joml.Matrix4f;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class RenderPipeline {
     private static final int SHADOW_TEXTURE_UNIT = 7;
+    private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
     private final RenderWindow window;
     private final Scene scene;
     private final InstancedRenderer instanced;
@@ -51,6 +58,9 @@ public final class RenderPipeline {
     private int activeFrameIndex;
     private int pipelineFrameIndex;
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
+    private final GraphPreviewController previewController = new GraphPreviewController();
+    private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
+    private GraphPreviewRenderer previewRenderer;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -147,6 +157,8 @@ public final class RenderPipeline {
                     shadowExecutor(), geometryExecutor());
             postProcess.addFinalPass(graph);
             finalPassName = postProcess.finalPassName();
+            previewRenderer = new GraphPreviewRenderer(previewController, graph, pbrEnvironment,
+                    PREVIEW_GENERATIONS.incrementAndGet());
         } catch (RuntimeException failure) {
             try {
                 closeGraphResources();
@@ -178,6 +190,23 @@ public final class RenderPipeline {
 
     public Scene scene() {
         return scene;
+    }
+
+    /** @return 当前 pipeline 的逻辑预览协调器；不暴露 source native handle */
+    public GraphPreviewController previewController() {
+        return previewController;
+    }
+
+    /**
+     * 返回在 UiOverlayPass 内、正式 UI 绘制前使用的受控 recorder。
+     * 该入口不会改变 RenderGraph topology。
+     */
+    public PassExecutor previewOverlayRecorder() {
+        GraphPreviewRenderer renderer = previewRenderer;
+        if (renderer == null) {
+            throw new IllegalStateException("RenderPipeline must be built before preview attachment");
+        }
+        return renderer.overlayRecorder();
     }
 
     public Matrix4f lastDirectionalLightSpaceMatrix() {
@@ -212,11 +241,14 @@ public final class RenderPipeline {
         if (graph == null || postProcess == null) {
             throw new IllegalStateException("RenderPipeline must be built before execute");
         }
+        usedDevices.add(Objects.requireNonNull(device, "device"));
         currentSceneFrame = null;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
+        long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
         postProcess.beginFrame(deltaSeconds);
+        if (previewRenderer != null) previewRenderer.prepare(device, previewFrameSequence);
         try {
             graph.execute(device);
             long commandRecordNanos = 0L;
@@ -227,8 +259,10 @@ public final class RenderPipeline {
                     commandRecordNanos, graph.lastRecordedCommandCount(),
                     graph.lastRecordedMatrixSnapshots(), graph.lastRecordedObjectPayloads());
             postProcess.frameSucceeded();
+            if (previewRenderer != null) previewRenderer.frameSucceeded(previewFrameSequence);
         } catch (RuntimeException | Error failure) {
             postProcess.frameFailed();
+            if (previewRenderer != null) previewRenderer.frameFailed(failure);
             throw failure;
         }
     }
@@ -254,6 +288,9 @@ public final class RenderPipeline {
         RenderGraph localGraph = graph;
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
+        GraphPreviewRenderer localPreviewRenderer = previewRenderer;
+        List<RenderDevice> localDevices = List.copyOf(usedDevices);
+        usedDevices.clear();
         instancedShadowShader = null;
         shadowShader = null;
         postProcess = null;
@@ -262,12 +299,14 @@ public final class RenderPipeline {
         lightingBinder = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
+        previewRenderer = null;
         sceneFrameBuilder = null;
         currentSceneFrame = null;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
         finalPassName = null;
 
         RuntimeException failure = null;
+        failure = closeCollecting(localPreviewRenderer, failure);
         failure = closeCollecting(localInstancedShadow, failure);
         failure = closeCollecting(localShadow, failure);
         failure = closeCollecting(localPostProcess, failure);
@@ -275,6 +314,14 @@ public final class RenderPipeline {
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);
         failure = closeCollecting(localGraph, failure);
+        for (RenderDevice device : localDevices) {
+            try {
+                device.invalidateState();
+            } catch (RuntimeException invalidateFailure) {
+                if (failure == null) failure = invalidateFailure;
+                else failure.addSuppressed(invalidateFailure);
+            }
+        }
         if (failure != null) {
             throw failure;
         }

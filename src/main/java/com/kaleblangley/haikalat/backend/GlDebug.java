@@ -114,6 +114,11 @@ public final class GlDebug {
         if (error != GL_NO_ERROR) {
             throw new GlException(formatError(context, error));
         }
+        DebugMessage high = latestHighSeverityMessageOrNull();
+        if (high != null) {
+            throw new GlException(context + ": OpenGL " + high.type() + " [HIGH] source="
+                    + high.source() + " id=" + high.driverId() + ": " + high.message());
+        }
     }
 
     public static void labelObject(int identifier, int object, String label) {
@@ -321,14 +326,15 @@ public final class GlDebug {
     }
 
     private static GLCapabilities currentCapabilitiesOrNull() {
-        if (glfwGetCurrentContext() == NULL) {
-            return null;
-        }
+        GLCapabilities capabilities;
         try {
-            return GL.getCapabilities();
+            capabilities = GL.getCapabilities();
         } catch (IllegalStateException ignored) {
+            // Headless JVM tests have neither GL capabilities nor an initialized GLFW library.
+            // Return before glfwGetCurrentContext(), which would emit GLFW_NOT_INITIALIZED.
             return null;
         }
+        return glfwGetCurrentContext() == NULL ? null : capabilities;
     }
 
     private static synchronized ContextFacts currentFactsOrNull() {
@@ -336,6 +342,14 @@ public final class GlDebug {
         if (capabilities == null) return null;
         return CONTEXTS.computeIfAbsent(capabilities,
                 ignored -> new ContextFacts(NEXT_CONTEXT.getAndIncrement()));
+    }
+
+    private static synchronized DebugMessage latestHighSeverityMessageOrNull() {
+        ContextFacts facts = currentFactsOrNull();
+        if (facts == null) return null;
+        return facts.messages.reversed().stream()
+                .filter(message -> message.severity().equals("HIGH"))
+                .findFirst().orElse(null);
     }
 
     private static synchronized void recordMessage(int source, int type, int id,

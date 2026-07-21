@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-当前没有未发布的版本条目。
+- 暂无。
 
 ## 已完成路线图
 
@@ -411,3 +411,19 @@
 - 五轮 10k/10% glTF CPU median 从 1.106 ms 降到 0.626 ms，allocation 从 86.2 降到
   7.3 KiB/frame；当前证据决定 v0.18 暂不进入 GPU-driven。
 - 完整 JVM、真实 GL 与本地发布门禁通过；发布人批准工程版本进入 `0.17.0`。
+
+### v0.17.1-rendergraph-resource-preview（0.17.1，2026-07-21）
+
+- F2 Graph 页可选择 RenderGraph attachment，并通过 GPU-only conversion 在同一 UiOverlayPass 内预览
+  LDR/sRGB/HDR/R/RG/depth；支持通道、EV/range、false-color、depth、cubemap face/mip 和节流参数。
+- 新增逻辑 key/catalog、pipeline/request generation 与纯值 `PreviewSummary`；FrozenDiagnostics/JSON
+  不含 source native id、owner 或像素，并通过 request revision 拒绝并发切换产生的迟到结果。
+- 新增 typed color/depth blit，color resolve 显式选择 MRT read attachment；DEPTH24_STENCIL8 使用同格式
+  depth-stencil texture，1080p HDR MSAA 复用管线已有 `HdrResolvePass`，避免重复 16 MiB 临时目标。
+- UI 逻辑图片在 render-record 时重新解析，旧异步 snapshot 遇到已释放 preview output 会跳过 batch；
+  render3d 不依赖 UI subsystem，架构方向保持不变。
+- 新增 `GraphPreviewGlTest`、`runPreviewIntegration`、`runPreviewBenchmarks` 与 8 MiB/1 draw/1 blit、
+  topology 不变、无生产 readback、JSON 无 native/pixel payload 门禁。
+- fixed-only scene 首帧缓存完成后省略 10k immutable model/bounds 重复扫描；membership 变化仍完整失效，
+  static gate 从连续失败的 `0.178～0.225 ms` 降至 `0.003～0.004 ms`，原 `0.15 ms` 门槛保持不变。
+- 完整 JVM、真实 GL、本地发布、asset manifest 和工作树一致性门禁通过；工程版本进入 `0.17.1`。

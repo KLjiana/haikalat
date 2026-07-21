@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.runtime.diagnostics;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.graph.FrameProfile;
 import com.kaleblangley.haikalat.core.graph.PassProfile;
+import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.RenderStatistics;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -228,6 +229,42 @@ class FrameDiagnosticsTest {
         try (var files = Files.list(temporaryDirectory)) {
             assertTrue(files.noneMatch(path -> path.getFileName().toString().endsWith(".tmp")));
         }
+    }
+
+    @Test
+    void previewSummaryIsDetailedOnlyAndJsonContainsNoNativeOrPixelPayload() throws Exception {
+        PreviewSummary preview = new PreviewSummary("Geometry/sceneColor:COLOR", "HDR", "RGB",
+                1.0f, 0.0f, 4.0f, true, "RAW", 0.1f, 100.0f,
+                "POSITIVE_X", 0, "LINEAR", 2, false, false,
+                "LIVE", 256, 144, 7L, "", "", "DIRECT_CONVERT", 1, 0, 147456L);
+        RenderGraph.Description graph = new RenderGraph.Description(16, 16, 0L, true,
+                List.of(), List.of());
+        DiagnosticsSnapshot detailed = new DiagnosticsSnapshot(0L, 7L, 7L,
+                DiagnosticsLevel.DETAILED, true, 60.0, 16_666_667L, profile(7L),
+                new DiagnosticsSnapshot.State(0L, 0L),
+                DiagnosticsSnapshot.ResourceSummary.EMPTY,
+                DiagnosticsSnapshot.MessageSummary.EMPTY, java.util.Optional.empty(),
+                DiagnosticsSnapshot.UploadSummary.EMPTY, java.util.Optional.empty(),
+                java.util.Optional.of(graph), java.util.Optional.of(preview));
+        FrozenDiagnostics capture = new FrozenDiagnostics(1, 0L, List.of(detailed));
+        Path output = temporaryDirectory.resolve("preview.json");
+
+        DiagnosticsJsonExporter.export(capture, output);
+
+        String json = Files.readString(output);
+        assertTrue(json.contains("\"selectedLogicalKey\" : \"Geometry/sceneColor:COLOR\""));
+        assertTrue(json.contains("\"path\" : \"DIRECT_CONVERT\""));
+        assertFalse(json.contains("textureId"));
+        assertFalse(json.contains("pixels"));
+
+        FrameDiagnostics basic = new FrameDiagnostics(DiagnosticsLevel.BASIC, 16);
+        basic.preview(preview);
+        RenderStatistics statistics = new RenderStatistics();
+        statistics.beginFrame();
+        statistics.endFrame();
+        basic.publish(statistics.snapshot(), profile(0L), null,
+                new StateCache.Statistics(0L, 0L));
+        assertTrue(basic.latest().preview().isEmpty());
     }
 
     private static FrameProfile profile(long sequence) {

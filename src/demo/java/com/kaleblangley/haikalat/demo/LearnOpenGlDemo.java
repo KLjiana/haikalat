@@ -117,7 +117,8 @@ public final class LearnOpenGlDemo {
                         window, pipeline, settings, renderLoop.diagnostics(),
                         options.diagnosticsExport() == null
                                 ? Path.of("build", "diagnostics", "learnopengl.json")
-                                : options.diagnosticsExport(), options.diagnosticsPanel())) {
+                                : options.diagnosticsExport(), options.diagnosticsPanel(),
+                        options.previewSource())) {
                     renderFrames(window, camera, renderLoop, pipeline, instanced,
                             settings, options, overlay);
                 }
@@ -201,6 +202,7 @@ public final class LearnOpenGlDemo {
                         uiStats.drawCalls(), uiStats.uiUpdateNanos(), uiStats.vertexBytes(),
                         uiStats.indexBytes(), uiStats.atlasUploadBytes());
                 renderLoop.recordGraph(pipeline.graph());
+                renderLoop.recordPreview(pipeline.previewController().summary());
                 renderLoop.endFrame();
             } catch (RuntimeException | Error failure) {
                 try {
@@ -426,7 +428,7 @@ public final class LearnOpenGlDemo {
                                boolean autoExposure, boolean autoExposureCycle, SizeSpec size,
                                DiagnosticsLevel diagnosticsLevel, Path diagnosticsExport,
                                boolean diagnosticsPanel, boolean verifyDiagnosticsCleanup,
-                               boolean measureAllocation) {
+                               boolean measureAllocation, String previewSource) {
         static DemoOptions parse(String[] args) {
             boolean deterministic = false;
             int maxFrames = -1;
@@ -446,6 +448,7 @@ public final class LearnOpenGlDemo {
             boolean diagnosticsPanel = false;
             boolean verifyDiagnosticsCleanup = false;
             boolean measureAllocation = false;
+            String previewSource = null;
             for (String arg : args) {
                 if ("--deterministic".equals(arg)) {
                     deterministic = true;
@@ -493,6 +496,13 @@ public final class LearnOpenGlDemo {
                     verifyDiagnosticsCleanup = true;
                 } else if ("--measure-allocation".equals(arg)) {
                     measureAllocation = true;
+                } else if (arg.startsWith("--preview=")) {
+                    previewSource = arg.substring("--preview=".length()).trim();
+                    if (previewSource.isEmpty()) {
+                        throw new IllegalArgumentException("--preview source must not be blank");
+                    }
+                    diagnosticsLevel = DiagnosticsLevel.DETAILED;
+                    diagnosticsPanel = true;
                 } else {
                     throw new IllegalArgumentException("Unknown demo argument: " + arg);
                 }
@@ -521,7 +531,7 @@ public final class LearnOpenGlDemo {
             return new DemoOptions(deterministic, maxFrames, mode, resize, bloom,
                     toneMappingMode, instances, instanceShadows, warmupFrames, quiet,
                     autoExposure, autoExposureCycle, size, diagnosticsLevel, diagnosticsExport,
-                    diagnosticsPanel, verifyDiagnosticsCleanup, measureAllocation);
+                    diagnosticsPanel, verifyDiagnosticsCleanup, measureAllocation, previewSource);
         }
 
         private static Path diagnosticsExportPath(String value) {

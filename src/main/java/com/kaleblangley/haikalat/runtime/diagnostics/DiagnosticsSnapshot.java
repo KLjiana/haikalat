@@ -14,7 +14,8 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                                   ResourceSummary resources, MessageSummary messages,
                                   Optional<SceneSummary> scene, UploadSummary upload,
                                   Optional<UiSummary> ui,
-                                  Optional<RenderGraph.Description> graph) {
+                                  Optional<RenderGraph.Description> graph,
+                                  Optional<PreviewSummary> preview) {
     public DiagnosticsSnapshot {
         level = Objects.requireNonNull(level, "level");
         frameProfile = Objects.requireNonNull(frameProfile, "frameProfile");
@@ -25,6 +26,21 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
         upload = Objects.requireNonNull(upload, "upload");
         ui = Objects.requireNonNull(ui, "ui");
         graph = Objects.requireNonNull(graph, "graph");
+        preview = Objects.requireNonNull(preview, "preview");
+    }
+
+    /** v0.15-v0.17 构造兼容入口；未提供 preview 时使用空值。 */
+    public DiagnosticsSnapshot(long epoch, long frameSequence, long presentedFrameSequence,
+                               DiagnosticsLevel level, boolean complete,
+                               double presentFps, long presentIntervalNanos,
+                               FrameProfile frameProfile, State state,
+                               ResourceSummary resources, MessageSummary messages,
+                               Optional<SceneSummary> scene, UploadSummary upload,
+                               Optional<UiSummary> ui,
+                               Optional<RenderGraph.Description> graph) {
+        this(epoch, frameSequence, presentedFrameSequence, level, complete, presentFps,
+                presentIntervalNanos, frameProfile, state, resources, messages, scene,
+                upload, ui, graph, Optional.empty());
     }
 
     /** 尚未发布第一帧时使用的显式空值。 */
@@ -40,7 +56,7 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
         this(epoch, frameSequence, presentedFrameSequence, level, complete, presentFps,
                 presentIntervalNanos, frameProfile, state, ResourceSummary.EMPTY,
                 MessageSummary.EMPTY, Optional.empty(), UploadSummary.EMPTY,
-                Optional.empty(), graph);
+                Optional.empty(), graph, Optional.empty());
     }
 
     /** OpenGL 状态缓存累计命中摘要。 */

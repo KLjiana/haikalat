@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.17.0'
+version = '0.17.1'
 
 repositories {
     mavenCentral()
@@ -575,6 +575,70 @@ tasks.register('localDiagnosticsVerification') {
     description = 'Runs deterministic diagnostics capture and failure-contract verification.'
     dependsOn 'diagnosticsJvmVerification', 'diagnosticsGlVerification', 'runDiagnosticsIntegration',
             'runDiagnosticsResizeIntegration', 'runDiagnosticsFailureIntegration'
+}
+
+tasks.register('previewGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates GPU-only graph preview conversion, MRT resolve selection and depth resolve.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.GraphPreviewGlTest' }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runPreviewIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs F2 graph-resource selection, GPU preview, freeze-safe summary and JSON export.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--deterministic', '--quiet', '--frames=16', '--aa=MSAA', '--diagnostics=detailed',
+            '--diagnostics-panel', '--preview=GeometryPass/sceneColor',
+            '--diagnostics-export=build/diagnostics/preview-integration.json'
+    outputs.file layout.buildDirectory.file('diagnostics/preview-integration.json')
+    outputs.upToDateWhen { false }
+    mustRunAfter 'runDiagnosticsFailureIntegration'
+    doLast {
+        def output = layout.buildDirectory.file('diagnostics/preview-integration.json').get().asFile
+        def capture = new groovy.json.JsonSlurper().parse(output)
+        def live = capture.frames.findAll { it.preview?.status == 'LIVE' }
+        if (live.isEmpty() || live.any { it.preview.frameDraws != 1 || it.preview.frameBlits > 1 }) {
+            throw new GradleException('Preview integration did not publish bounded live GPU work')
+        }
+        if (capture.frames.any { it.preview == null }) {
+            throw new GradleException('Detailed preview integration omitted PreviewSummary')
+        }
+        if (capture.frames.any { frame -> frame.graph.passes.any { it.name.contains('Preview') } }) {
+            throw new GradleException('Preview changed RenderGraph topology')
+        }
+        String json = output.getText('UTF-8')
+        if (json.contains('textureId') || json.contains('pixels')) {
+            throw new GradleException('Preview export leaked native texture identity or pixels')
+        }
+    }
+}
+
+tasks.register('runPreviewBenchmarks', JavaExec) {
+    group = 'application'
+    description = 'Runs closed/direct/MSAA/cubemap preview benchmark rounds on identical settings.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.PreviewBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--rounds=${providers.gradleProperty('previewBenchmarkRounds').getOrElse('5')}",
+            "--warmup=${providers.gradleProperty('previewBenchmarkWarmup').getOrElse('100')}",
+            "--frames=${providers.gradleProperty('previewBenchmarkFrames').getOrElse('1000')}",
+            "--size=${providers.gradleProperty('previewBenchmarkSize').getOrElse('1920x1080')}"
+}
+
+tasks.named('localGlVerification') {
+    dependsOn 'previewGlVerification', 'runPreviewIntegration'
 }
 
 def sceneScalabilityMainClass = 'com.kaleblangley.haikalat.demo.SceneScalabilityDemo'

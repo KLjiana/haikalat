@@ -11,10 +11,12 @@ import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_RED;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
+import static org.lwjgl.opengl.GL30.GL_UNSIGNED_INT_24_8;
 import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL_ATTACHMENT;
+import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_R16F;
@@ -154,6 +156,13 @@ public record FramebufferDescriptor(
             return new DepthAttachment(GL_DEPTH24_STENCIL8, 0, 0, GL_DEPTH_STENCIL_ATTACHMENT,
                     AttachmentStorage.RENDERBUFFER);
         }
+
+        /** 创建可采样且与 DEPTH24_STENCIL8 renderbuffer 精确匹配的 resolve 目标。 */
+        public static DepthAttachment stencilTexture() {
+            return new DepthAttachment(GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL,
+                    GL_UNSIGNED_INT_24_8, GL_DEPTH_STENCIL_ATTACHMENT,
+                    AttachmentStorage.TEXTURE_2D);
+        }
     }
 
     public static final class Builder {
@@ -198,6 +207,11 @@ public record FramebufferDescriptor(
 
         public Builder depthStencilRenderbuffer() {
             depthAttachment = DepthAttachment.stencilRenderbuffer();
+            return this;
+        }
+
+        public Builder depthStencilTexture() {
+            depthAttachment = DepthAttachment.stencilTexture();
             return this;
         }
 

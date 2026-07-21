@@ -181,6 +181,7 @@ public final class DiagnosticsJsonExporter {
                 throw new IllegalArgumentException("detailed frame lacks graph description");
             }
             frame.graph().ifPresent(DiagnosticsJsonExporter::validateGraph);
+            frame.preview().ifPresent(DiagnosticsJsonExporter::validatePreview);
         }
         FrozenDiagnostics.ResourceTable resources = capture.resources();
         requireNonNegative(resources.estimatedBytes(), "resources.estimatedBytes");
@@ -351,7 +352,73 @@ public final class DiagnosticsJsonExporter {
         json.writeEndArray();
         if (frame.graph().isPresent()) writeGraph(json, frame.graph().orElseThrow());
         else json.writeNullField("graph");
+        if (frame.preview().isPresent()) writePreview(json, frame.preview().orElseThrow());
+        else json.writeNullField("preview");
         json.writeEndObject();
+    }
+
+    private static void writePreview(JsonGenerator json, PreviewSummary preview) throws IOException {
+        json.writeObjectFieldStart("preview");
+        json.writeStringField("selectedLogicalKey", preview.selectedLogicalKey());
+        json.writeStringField("mode", preview.mode());
+        json.writeStringField("channel", preview.channel());
+        json.writeNumberField("exposureEv", preview.exposureEv());
+        json.writeNumberField("rangeMin", preview.rangeMin());
+        json.writeNumberField("rangeMax", preview.rangeMax());
+        json.writeBooleanField("falseColor", preview.falseColor());
+        json.writeStringField("depthInterpretation", preview.depthInterpretation());
+        json.writeNumberField("nearPlane", preview.nearPlane());
+        json.writeNumberField("farPlane", preview.farPlane());
+        json.writeStringField("cubeFace", preview.cubeFace());
+        json.writeNumberField("mipLevel", preview.mipLevel());
+        json.writeStringField("filtering", preview.filtering());
+        json.writeNumberField("updateInterval", preview.updateInterval());
+        json.writeBooleanField("paused", preview.paused());
+        json.writeBooleanField("frozenMetadata", preview.frozenMetadata());
+        json.writeStringField("status", preview.status());
+        json.writeNumberField("outputWidth", preview.outputWidth());
+        json.writeNumberField("outputHeight", preview.outputHeight());
+        json.writeNumberField("lastSuccessfulFrameSequence", preview.lastSuccessfulFrameSequence());
+        json.writeStringField("errorCode", preview.errorCode());
+        json.writeStringField("errorMessage", preview.errorMessage());
+        json.writeStringField("path", preview.path());
+        json.writeNumberField("frameDraws", preview.frameDraws());
+        json.writeNumberField("frameBlits", preview.frameBlits());
+        json.writeNumberField("estimatedBytes", preview.estimatedBytes());
+        json.writeEndObject();
+    }
+
+    private static void validatePreview(PreviewSummary preview) {
+        requireValidUnicode(preview.selectedLogicalKey(), "preview.selectedLogicalKey");
+        requireValidUnicode(preview.mode(), "preview.mode");
+        requireValidUnicode(preview.channel(), "preview.channel");
+        requireValidUnicode(preview.depthInterpretation(), "preview.depthInterpretation");
+        requireValidUnicode(preview.cubeFace(), "preview.cubeFace");
+        requireValidUnicode(preview.filtering(), "preview.filtering");
+        requireValidUnicode(preview.status(), "preview.status");
+        requireValidUnicode(preview.errorCode(), "preview.errorCode");
+        requireValidUnicode(preview.errorMessage(), "preview.errorMessage");
+        requireValidUnicode(preview.path(), "preview.path");
+        requireFinite(preview.exposureEv(), "preview.exposureEv");
+        requireFinite(preview.rangeMin(), "preview.rangeMin");
+        requireFinite(preview.rangeMax(), "preview.rangeMax");
+        requireFinite(preview.nearPlane(), "preview.nearPlane");
+        requireFinite(preview.farPlane(), "preview.farPlane");
+        if (preview.rangeMin() >= preview.rangeMax()
+                || preview.nearPlane() <= 0.0f || preview.farPlane() <= preview.nearPlane()
+                || preview.mipLevel() < 0 || preview.updateInterval() <= 0
+                || preview.outputWidth() < 0 || preview.outputHeight() < 0
+                || preview.lastSuccessfulFrameSequence() < -1L
+                || preview.frameDraws() < 0 || preview.frameBlits() < 0
+                || preview.estimatedBytes() < 0L) {
+            throw new IllegalArgumentException("invalid preview summary");
+        }
+    }
+
+    private static void requireFinite(double value, String field) {
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException(field + " must be finite");
+        }
     }
 
     private static void validateVisibility(DiagnosticsSnapshot.VisibilitySummary visibility) {

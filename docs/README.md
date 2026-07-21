@@ -11,6 +11,7 @@
 - [后续计划](planning/future-plans.md)
 - [v0.16 场景扩展、可见性裁剪与 Render Queue 实施计划](planning/v0.16-scene-scalability-and-visibility.md)
 - [v0.17 真实场景压力与 CPU 提交收敛实施计划](planning/v0.17-real-scene-cpu-submission-consolidation.md)
+- [v0.17.1 RenderGraph 资源预览与帧调试可视化实施计划](planning/v0.17.1-rendergraph-resource-preview.md)
 
 ## 架构
 
@@ -46,6 +47,8 @@
 - [v0.15 发布验收报告](releases/v0.15-release-report.md)
 - [v0.16 发布候选验收报告](releases/v0.16-release-report.md)
 - [v0.17 本地发布候选验收报告](releases/v0.17-release-report.md)
+- [v0.17.1 RenderGraph 资源预览正式版验收报告](releases/v0.17.1-release-report.md)
+- [2026-07-20 v0.17.1 RenderGraph 资源预览 1080p/4K 五轮基准](performance/v0.17.1-rendergraph-preview-2026-07-20.md)
 - [2026-07-19 v0.17 真实场景 CPU 提交五轮基准](performance/v0.17-scene-submission-2026-07-19.md)
 - [2026-07-19 v0.16 scene visibility 五轮基准](performance/v0.16-scene-visibility-2026-07-19.md)
 - [2026-07-19 v0.15 diagnostics 五轮开销基准](performance/v0.15-debugging-2026-07-19.md)

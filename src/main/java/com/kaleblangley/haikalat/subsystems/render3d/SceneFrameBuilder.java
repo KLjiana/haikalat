@@ -49,6 +49,12 @@ final class SceneFrameBuilder {
     private long boundsRevision;
     private int entryCount;
     private int shadowCandidateCount;
+    private boolean allModelsImmutable;
+    private boolean immutableSceneCacheReady;
+    private int immutableFiniteCount;
+    private long cachedCameraRevision = Long.MIN_VALUE;
+    private int cachedWidth = -1;
+    private int cachedHeight = -1;
 
     private boolean forwardCacheValid;
     private long forwardSceneRevision;
@@ -77,8 +83,15 @@ final class SceneFrameBuilder {
         frame.available = false;
         try {
             syncMembership(scene);
-            CameraProjection.stable(scene.camera(), width, height, projection);
-            scene.camera().getViewMatrix(view);
+            long sceneRevision = scene.membershipRevision();
+            Camera camera = scene.camera();
+            if (canReuseImmutableFrame(camera, sceneRevision, width, height, shadowMatrix,
+                    shadowEnabled, cullingEnabled)) {
+                return reuseImmutableFrame(sceneRevision, cullingEnabled, frameIndex, totalStart);
+            }
+
+            CameraProjection.stable(camera, width, height, projection);
+            camera.getViewMatrix(view);
             projection.mul(view, clip);
 
             int staticRenderers = 0;
@@ -90,36 +103,43 @@ final class SceneFrameBuilder {
             int finite = 0;
             int changedCount = 0;
             long stageStart = System.nanoTime();
-            for (int index = 0; index < entryCount; index++) {
-                MeshRenderer renderer = renderers[index];
-                boolean revisioned = renderer.revisionedModel();
-                if (revisioned) staticRenderers++; else dynamicRenderers++;
-                long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
-                requestedModelRevisions[index] = revision;
-                boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
-                        && cachedModelRevisions[index] == revision;
-                modelMiss[index] = !hit;
-                if (hit) {
-                    modelHits++;
-                } else {
-                    modelMisses++;
-                    try {
-                        renderer.modelMatrix(pendingModels[index].identity(), frameIndex);
-                    } catch (RuntimeException | Error failure) {
-                        throw stageFailure(index, "model update", failure);
+            if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady) {
+                staticRenderers = entryCount;
+                modelHits = entryCount;
+                boundsHits = entryCount;
+                finite = immutableFiniteCount;
+            } else {
+                for (int index = 0; index < entryCount; index++) {
+                    MeshRenderer renderer = renderers[index];
+                    boolean revisioned = renderer.revisionedModel();
+                    if (revisioned) staticRenderers++; else dynamicRenderers++;
+                    long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
+                    requestedModelRevisions[index] = revision;
+                    boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
+                            && cachedModelRevisions[index] == revision;
+                    modelMiss[index] = !hit;
+                    if (hit) {
+                        modelHits++;
+                    } else {
+                        modelMisses++;
+                        try {
+                            renderer.modelMatrix(pendingModels[index].identity(), frameIndex);
+                        } catch (RuntimeException | Error failure) {
+                            throw stageFailure(index, "model update", failure);
+                        }
                     }
-                }
 
-                Bounds3f local = renderer.mesh().localBounds();
-                boolean boundsHit = hit && cacheValid[index]
-                        && cachedLocalBounds[index] == local;
-                boundsMiss[index] = !boundsHit;
-                if (boundsHit) {
-                    boundsHits++;
-                    if (!bounds[index].unbounded) finite++;
-                } else {
-                    boundsMisses++;
-                    changed[changedCount++] = index;
+                    Bounds3f local = renderer.mesh().localBounds();
+                    boolean boundsHit = hit && cacheValid[index]
+                            && cachedLocalBounds[index] == local;
+                    boundsMiss[index] = !boundsHit;
+                    if (boundsHit) {
+                        boundsHits++;
+                        if (!bounds[index].unbounded) finite++;
+                    } else {
+                        boundsMisses++;
+                        changed[changedCount++] = index;
+                    }
                 }
             }
             long modelNanos = System.nanoTime() - stageStart;
@@ -152,10 +172,14 @@ final class SceneFrameBuilder {
                 cacheValid[index] = true;
             }
             if (changedCount != 0) boundsRevision = Math.incrementExact(boundsRevision);
+            if (staticCacheEnabled && allModelsImmutable && !immutableSceneCacheReady) {
+                immutableFiniteCount = finite;
+                immutableSceneCacheReady = true;
+            }
 
             long frustumNanos = 0L;
             long sortNanos = 0L;
-            boolean forwardReused = forwardCacheMatches(scene.membershipRevision(), cullingEnabled);
+            boolean forwardReused = forwardCacheMatches(sceneRevision, cullingEnabled);
             if (!forwardReused) {
                 stageStart = System.nanoTime();
                 cameraFrustum.set(clip);
@@ -171,13 +195,13 @@ final class SceneFrameBuilder {
                 sortNanos += System.nanoTime() - stageStart;
                 updateForwardStatistics();
                 forwardKeyMatrix.set(clip);
-                forwardSceneRevision = scene.membershipRevision();
+                forwardSceneRevision = sceneRevision;
                 forwardBoundsRevision = boundsRevision;
                 forwardCullingEnabled = cullingEnabled;
                 forwardCacheValid = true;
             }
 
-            boolean shadowReused = shadowCacheMatches(scene.membershipRevision(), shadowMatrix,
+            boolean shadowReused = shadowCacheMatches(sceneRevision, shadowMatrix,
                     shadowEnabled, cullingEnabled);
             if (!shadowReused) {
                 stageStart = System.nanoTime();
@@ -194,7 +218,7 @@ final class SceneFrameBuilder {
                 RenderQueueSorter.shadow(shadow, shadowCount, scratch, mesh);
                 sortNanos += System.nanoTime() - stageStart;
                 shadowKeyMatrix.set(shadowMatrix);
-                shadowSceneRevision = scene.membershipRevision();
+                shadowSceneRevision = sceneRevision;
                 shadowBoundsRevision = boundsRevision;
                 shadowCullingEnabled = cullingEnabled;
                 shadowEnabledKey = shadowEnabled;
@@ -211,7 +235,7 @@ final class SceneFrameBuilder {
             frame.forwardCount = forwardCount;
             frame.shadowCount = shadowCount;
             frame.frameIndex = Integer.toUnsignedLong(frameIndex);
-            frame.sceneRevision = scene.membershipRevision();
+            frame.sceneRevision = sceneRevision;
             frame.statistics = new SceneFrame.Statistics(cullingEnabled, frame.sceneRevision,
                     entryCount, finite, entryCount - finite, forwardCount,
                     entryCount - forwardCount, shadowCandidateCount, shadowCount,
@@ -222,12 +246,52 @@ final class SceneFrameBuilder {
                     forwardOpaque, forwardAdditive, forwardAlpha, forwardShaderChanges,
                     forwardMaterialChanges, forwardMeshChanges, forwardBlendChanges,
                     forwardMirroredChanges);
+            cachedCameraRevision = camera.visibilityRevision();
+            cachedWidth = width;
+            cachedHeight = height;
             frame.available = true;
             return frame;
         } catch (RuntimeException | Error failure) {
             abort();
             throw failure;
         }
+    }
+
+    private boolean canReuseImmutableFrame(Camera camera, long sceneRevision, int width, int height,
+                                           Matrix4fc shadowMatrix, boolean shadowEnabled,
+                                           boolean cullingEnabled) {
+        // Camera is extensible. A subclass can override matrix generation without updating the
+        // base revision, so the O(1) shortcut is deliberately limited to the built-in camera.
+        return camera.getClass() == Camera.class
+                && staticCacheEnabled && queueCacheEnabled
+                && allModelsImmutable && immutableSceneCacheReady
+                && cachedRevision == sceneRevision
+                && cachedCameraRevision == camera.visibilityRevision()
+                && cachedWidth == width && cachedHeight == height
+                && forwardCacheValid
+                && forwardSceneRevision == sceneRevision
+                && forwardBoundsRevision == boundsRevision
+                && forwardCullingEnabled == cullingEnabled
+                && shadowCacheMatches(sceneRevision, shadowMatrix, shadowEnabled, cullingEnabled);
+    }
+
+    private SceneFrame reuseImmutableFrame(long sceneRevision, boolean cullingEnabled,
+                                           int frameIndex, long totalStart) {
+        long totalNanos = System.nanoTime() - totalStart;
+        frame.frameIndex = Integer.toUnsignedLong(frameIndex);
+        frame.sceneRevision = sceneRevision;
+        frame.statistics = new SceneFrame.Statistics(cullingEnabled, sceneRevision,
+                entryCount, immutableFiniteCount, entryCount - immutableFiniteCount,
+                forwardCount, entryCount - forwardCount, shadowCandidateCount, shadowCount,
+                shadowCandidateCount - shadowCount, entryCount, 0,
+                entryCount, 0, entryCount, 0,
+                true, false, true, false,
+                0L, 0L, 0L, 0L, totalNanos,
+                forwardOpaque, forwardAdditive, forwardAlpha, forwardShaderChanges,
+                forwardMaterialChanges, forwardMeshChanges, forwardBlendChanges,
+                forwardMirroredChanges);
+        frame.available = true;
+        return frame;
     }
 
     private boolean forwardCacheMatches(long sceneRevision, boolean cullingEnabled) {
@@ -277,9 +341,13 @@ final class SceneFrameBuilder {
         IdentityHashMap<Object, Integer> materialOrdinals = new IdentityHashMap<>();
         int nextMaterial = 0;
         shadowCandidateCount = 0;
+        allModelsImmutable = true;
+        immutableSceneCacheReady = false;
+        immutableFiniteCount = 0;
         for (int index = 0; index < entryCount; index++) {
             MeshRenderer renderer = scene.rendererAt(index);
             renderers[index] = renderer;
+            allModelsImmutable &= renderer.immutableModel();
             blend[index] = blendRank(renderer.material().material().blendMode());
             shader[index] = renderer.material().material().shader().id();
             // 排序只按不可变 Material 模板分组。独立 MaterialInstance 的 override 仍由

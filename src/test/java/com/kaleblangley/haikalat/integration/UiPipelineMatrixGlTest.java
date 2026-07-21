@@ -78,7 +78,7 @@ class UiPipelineMatrixGlTest {
             } else {
                 pipeline.execute(device);
             }
-            GlDebug.checkError(describe(settings) + ", ui=" + uiEnabled);
+            GlDebug.assertNoError(describe(settings) + ", ui=" + uiEnabled);
         } finally {
             pipeline.close();
         }

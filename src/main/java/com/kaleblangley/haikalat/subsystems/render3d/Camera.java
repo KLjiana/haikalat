@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.Objects;
+
 public class Camera {
     public enum Movement {
         FORWARD,
@@ -13,7 +15,7 @@ public class Camera {
 
     public static final float YAW = -90.0f;
     public static final float PITCH = 0.0f;
-    public static final float SPEED = 2.5f;
+    public static final float SPEED = 25f;
     public static final float SENSITIVITY = 0.1f;
     public static final float ZOOM = 45.0f;
 
@@ -28,6 +30,7 @@ public class Camera {
     private float movementSpeed = SPEED;
     private float mouseSensitivity = SENSITIVITY;
     private float zoom = ZOOM;
+    private long visibilityRevision;
 
     public Camera() {
         this(new Vector3f(0.0f, 0.0f, 0.0f));
@@ -73,17 +76,27 @@ public class Camera {
     public float zoom() { return zoom; }
 
     public void setPosition(Vector3f pos) {
+        Objects.requireNonNull(pos, "pos");
+        if (same(position.x, pos.x) && same(position.y, pos.y) && same(position.z, pos.z)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
         position.set(pos);
+        visibilityRevision = nextRevision;
     }
 
     public void setYaw(float yaw) {
+        if (same(this.yaw, yaw)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
         this.yaw = yaw;
         updateCameraVectors();
+        visibilityRevision = nextRevision;
     }
 
     public void setPitch(float pitch) {
+        if (same(this.pitch, pitch)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
         this.pitch = pitch;
         updateCameraVectors();
+        visibilityRevision = nextRevision;
     }
 
     public void setMovementSpeed(float speed) {
@@ -116,11 +129,17 @@ public class Camera {
      */
     public void processKeyboard(Movement direction, float deltaTime) {
         float velocity = movementSpeed * deltaTime;
+        float oldX = position.x;
+        float oldY = position.y;
+        float oldZ = position.z;
         switch (direction) {
             case FORWARD -> position.fma(velocity, front);
             case BACKWARD -> position.fma(-velocity, front);
             case LEFT -> position.fma(-velocity, right);
             case RIGHT -> position.fma(velocity, right);
+        }
+        if (!same(oldX, position.x) || !same(oldY, position.y) || !same(oldZ, position.z)) {
+            visibilityRevision = Math.incrementExact(visibilityRevision);
         }
     }
 
@@ -145,15 +164,20 @@ public class Camera {
         xOffset *= mouseSensitivity;
         yOffset *= mouseSensitivity;
 
-        yaw += xOffset;
-        pitch += yOffset;
+        float nextYaw = yaw + xOffset;
+        float nextPitch = pitch + yOffset;
 
         if (constrainPitch) {
-            if (pitch > 89.0f) pitch = 89.0f;
-            if (pitch < -89.0f) pitch = -89.0f;
+            if (nextPitch > 89.0f) nextPitch = 89.0f;
+            if (nextPitch < -89.0f) nextPitch = -89.0f;
         }
 
+        if (same(yaw, nextYaw) && same(pitch, nextPitch)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
+        yaw = nextYaw;
+        pitch = nextPitch;
         updateCameraVectors();
+        visibilityRevision = nextRevision;
     }
 
     /**
@@ -162,9 +186,22 @@ public class Camera {
      * @param yOffset 滚轮垂直偏移
      */
     public void processMouseScroll(float yOffset) {
-        zoom -= yOffset;
-        if (zoom < 1.0f) zoom = 1.0f;
-        if (zoom > 45.0f) zoom = 45.0f;
+        float nextZoom = zoom - yOffset;
+        if (nextZoom < 1.0f) nextZoom = 1.0f;
+        if (nextZoom > 45.0f) nextZoom = 45.0f;
+        if (same(zoom, nextZoom)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
+        zoom = nextZoom;
+        visibilityRevision = nextRevision;
+    }
+
+    /** 供 scene visibility cache 使用；只描述影响 view/projection 的状态。 */
+    long visibilityRevision() {
+        return visibilityRevision;
+    }
+
+    private static boolean same(float left, float right) {
+        return Float.floatToIntBits(left) == Float.floatToIntBits(right);
     }
 
     private void updateCameraVectors() {

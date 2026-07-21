@@ -39,6 +39,8 @@ src/main/resources/render3d/pbr/irradiance.comp	Runtime shader	Haikalat project	
 src/main/resources/render3d/pbr/pbr_forward.frag	Runtime shader	Haikalat project	project license	v0.14	823584735cef73f0d26cf92d0d695a3cff27b0d9dd84f9992122df425e8a4a3a	project source	yes
 src/main/resources/render3d/pbr/pbr_forward.vert	Runtime shader	Haikalat project	project license	v0.14	40e0b15639148abde7a8277bb788e4dfa6b3835985a426a8bf739e576184f14d	project source	yes
 src/main/resources/render3d/pbr/prefilter.comp	Runtime shader	Haikalat project	project license	v0.14	f41c79d6417db1827a5b51ae679a2932bbe1b15217964a802febef6f411236ef	project source	yes
+src/main/resources/render3d/preview/preview.frag	Runtime shader	Haikalat project	project license	v0.17.1	41499ecf01c77ddfdb3874e37be26ced64a25a899b7bbab7989350effbf58c8f	project source	yes
+src/main/resources/render3d/preview/preview.vert	Runtime shader	Haikalat project	project license	v0.17.1	6b5df82040888060f340726a05d9419bb2e29ad3f44fe3f10bd5633c3f607abd	project source	yes
 src/main/resources/shadows/directional_depth.frag	Runtime shader	Haikalat project	project license	v0.14	dda6e324c1f5d0d527eff418ea8089e63859237a9169c9425d73e6ae449e3384	project source	yes
 src/main/resources/shadows/directional_depth.vert	Runtime shader	Haikalat project	project license	v0.14	862e879331837bd8308d6269c3b7b69b7031acb513d58909b19b51f55af29fbb	project source	yes
 src/main/resources/shadows/instanced_directional_depth.vert	Runtime shader	Haikalat project	project license	v0.14	5c3b3351180b1a200e95b32fba780917ed95e5cdd5f73c50c5e470746c608da8	project source	yes

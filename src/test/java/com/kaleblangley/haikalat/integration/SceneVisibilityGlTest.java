@@ -301,6 +301,27 @@ class SceneVisibilityGlTest {
                         () -> assertTrue(stable.forwardQueueReused()),
                         () -> assertTrue(stable.shadowQueueReused()),
                         () -> assertEquals(1, stable.forwardVisible()));
+
+                scene.add(SceneObject.fixed(mesh, material,
+                        new org.joml.Matrix4f().translate(0.5f, 0.0f, 0.0f), false));
+                pipeline.execute(device);
+                RenderPipeline.VisibilityStatistics membershipChanged =
+                        pipeline.lastVisibilityStatistics();
+                assertAll(
+                        () -> assertEquals(0, membershipChanged.modelCacheHits()),
+                        () -> assertEquals(2, membershipChanged.modelCacheMisses()),
+                        () -> assertEquals(0, membershipChanged.boundsCacheHits()),
+                        () -> assertEquals(2, membershipChanged.boundsCacheMisses()),
+                        () -> assertTrue(membershipChanged.forwardQueueRebuilt()));
+
+                pipeline.execute(device);
+                RenderPipeline.VisibilityStatistics restabilized =
+                        pipeline.lastVisibilityStatistics();
+                assertAll(
+                        () -> assertEquals(2, restabilized.modelCacheHits()),
+                        () -> assertEquals(2, restabilized.boundsCacheHits()),
+                        () -> assertTrue(restabilized.forwardQueueReused()),
+                        () -> assertEquals(2, restabilized.forwardVisible()));
                 GlDebug.assertNoError("SceneVisibilityGlTest.queue-reuse");
             } finally {
                 pipeline.close();

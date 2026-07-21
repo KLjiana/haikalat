@@ -28,6 +28,8 @@ import java.util.function.IntConsumer;
 
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
 /**
@@ -628,6 +630,55 @@ public final class CommandBuffer {
     public CommandBuffer blitFramebuffer(int sourceFbo, int targetFbo,
                                          int sourceWidth, int sourceHeight,
                                          int targetWidth, int targetHeight) {
+        return blitFramebuffer(sourceFbo, targetFbo, sourceWidth, sourceHeight,
+                targetWidth, targetHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+
+    /**
+     * 记录受控的 framebuffer color/depth blit。
+     *
+     * <p>深度 blit 只允许 {@code GL_NEAREST}，避免驱动延迟到执行期才报告非法过滤器。
+     * 该入口不支持 stencil，也不允许任意 mask 逃逸。</p>
+     */
+    public CommandBuffer blitFramebuffer(int sourceFbo, int targetFbo,
+                                         int sourceWidth, int sourceHeight,
+                                         int targetWidth, int targetHeight,
+                                         int mask, int filter) {
+        return blitFramebuffer(sourceFbo, targetFbo, sourceWidth, sourceHeight,
+                targetWidth, targetHeight, mask, filter,
+                mask == GL_COLOR_BUFFER_BIT ? 0 : -1);
+    }
+
+    /**
+     * 记录带显式 source color attachment 的 framebuffer blit。
+     * depth blit 的 attachment index 必须为 -1。
+     */
+    public CommandBuffer blitFramebuffer(int sourceFbo, int targetFbo,
+                                         int sourceWidth, int sourceHeight,
+                                         int targetWidth, int targetHeight,
+                                         int mask, int filter,
+                                         int sourceColorAttachment) {
+        if (sourceFbo < 0 || targetFbo < 0) {
+            throw new IllegalArgumentException("framebuffer ids must be non-negative");
+        }
+        if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+            throw new IllegalArgumentException("blit dimensions must be positive");
+        }
+        if (mask != GL_COLOR_BUFFER_BIT && mask != GL_DEPTH_BUFFER_BIT) {
+            throw new IllegalArgumentException("blit mask must select exactly color or depth");
+        }
+        if (filter != GL_NEAREST && filter != GL_LINEAR) {
+            throw new IllegalArgumentException("blit filter must be GL_NEAREST or GL_LINEAR");
+        }
+        if (mask == GL_DEPTH_BUFFER_BIT && filter != GL_NEAREST) {
+            throw new IllegalArgumentException("depth blit requires GL_NEAREST");
+        }
+        if (mask == GL_COLOR_BUFFER_BIT && sourceColorAttachment < 0) {
+            throw new IllegalArgumentException("color blit requires a source attachment index");
+        }
+        if (mask == GL_DEPTH_BUFFER_BIT && sourceColorAttachment != -1) {
+            throw new IllegalArgumentException("depth blit must not select a color attachment");
+        }
         flushPendingState();
         opcode(BLIT_FRAMEBUFFER);
         integer(sourceFbo);
@@ -636,7 +687,18 @@ public final class CommandBuffer {
         integer(sourceHeight);
         integer(targetWidth);
         integer(targetHeight);
+        integer(mask);
+        integer(filter);
+        integer(sourceColorAttachment);
         return this;
+    }
+
+    /** 记录尺寸一致的 typed depth resolve，不经过 {@link #custom(Runnable)}。 */
+    public CommandBuffer blitDepth(Framebuffer source, Framebuffer target) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(target, "target");
+        return blitFramebuffer(source.id(), target.id(), source.width(), source.height(),
+                target.width(), target.height(), GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     }
 
     public CommandBuffer setUniformMat4(ShaderProgram shader, String name, Matrix4f value) {

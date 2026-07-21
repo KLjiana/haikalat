@@ -23,6 +23,7 @@ public final class UiBatcher {
     private byte[] blends = new byte[DEFAULT_CAPACITY];
     private int[] textures = new int[DEFAULT_CAPACITY];
     private int[] samplers = new int[DEFAULT_CAPACITY];
+    private long[] imageIds = filledImageIds(DEFAULT_CAPACITY);
     private boolean[] clipEnabled = new boolean[DEFAULT_CAPACITY];
     private double[] clipX = new double[DEFAULT_CAPACITY];
     private double[] clipY = new double[DEFAULT_CAPACITY];
@@ -96,10 +97,11 @@ public final class UiBatcher {
             UiBlendMode blend = displayList.primitiveBlend(primitive);
             int texture = displayList.primitiveTexture(primitive);
             int sampler = displayList.primitiveSampler(primitive);
+            long imageId = displayList.primitiveImageId(primitive);
             boolean hasClip = clipDepth != 0;
             int activeClip = clipDepth - 1;
             boolean compatible = mayMergePrevious && batchCount != 0
-                    && keyEquals(batchCount - 1, shader, texture, sampler, blend,
+                    && keyEquals(batchCount - 1, shader, texture, sampler, imageId, blend,
                     hasClip, activeClip);
             if (compatible) {
                 primitiveCounts[batchCount - 1]++;
@@ -108,7 +110,8 @@ public final class UiBatcher {
                 if (batchCount != 0) {
                     if (!mayMergePrevious) orderBarriers++;
                     else if (shaders[batchCount - 1] != (byte) shader.ordinal()) shaderChanges++;
-                    else if (textures[batchCount - 1] != texture) textureChanges++;
+                    else if (textures[batchCount - 1] != texture
+                            || imageIds[batchCount - 1] != imageId) textureChanges++;
                     else if (samplers[batchCount - 1] != sampler) samplerChanges++;
                     else if (blends[batchCount - 1] != (byte) blend.ordinal()) blendChanges++;
                     else clipChanges++;
@@ -122,6 +125,7 @@ public final class UiBatcher {
                 blends[batchCount] = (byte) blend.ordinal();
                 textures[batchCount] = texture;
                 samplers[batchCount] = sampler;
+                imageIds[batchCount] = imageId;
                 clipEnabled[batchCount] = hasClip;
                 if (hasClip) {
                     clipX[batchCount] = stackX[activeClip];
@@ -143,10 +147,12 @@ public final class UiBatcher {
     }
 
     private boolean keyEquals(int batch, UiShaderVariant shader, int texture, int sampler,
+                              long imageId,
                               UiBlendMode blend, boolean hasClip, int activeClip) {
         if (shaders[batch] != (byte) shader.ordinal()
                 || textures[batch] != texture
                 || samplers[batch] != sampler
+                || imageIds[batch] != imageId
                 || blends[batch] != (byte) blend.ordinal()
                 || clipEnabled[batch] != hasClip) {
             return false;
@@ -175,6 +181,9 @@ public final class UiBatcher {
         blends = Arrays.copyOf(blends, capacity);
         textures = Arrays.copyOf(textures, capacity);
         samplers = Arrays.copyOf(samplers, capacity);
+        int previous = imageIds.length;
+        imageIds = Arrays.copyOf(imageIds, capacity);
+        Arrays.fill(imageIds, previous, capacity, -1L);
         clipEnabled = Arrays.copyOf(clipEnabled, capacity);
         clipX = Arrays.copyOf(clipX, capacity);
         clipY = Arrays.copyOf(clipY, capacity);
@@ -207,6 +216,7 @@ public final class UiBatcher {
         private final byte[] blends;
         private final int[] textures;
         private final int[] samplers;
+        private final long[] imageIds;
         private final boolean[] clipEnabled;
         private final double[] clipX;
         private final double[] clipY;
@@ -223,6 +233,7 @@ public final class UiBatcher {
             blends = new byte[0];
             textures = new int[0];
             samplers = new int[0];
+            imageIds = new long[0];
             clipEnabled = new boolean[0];
             clipX = new double[0];
             clipY = new double[0];
@@ -240,6 +251,7 @@ public final class UiBatcher {
             blends = Arrays.copyOf(source.blends, count);
             textures = Arrays.copyOf(source.textures, count);
             samplers = Arrays.copyOf(source.samplers, count);
+            imageIds = Arrays.copyOf(source.imageIds, count);
             clipEnabled = Arrays.copyOf(source.clipEnabled, count);
             clipX = Arrays.copyOf(source.clipX, count);
             clipY = Arrays.copyOf(source.clipY, count);
@@ -300,6 +312,12 @@ public final class UiBatcher {
             return samplers[batchIndex];
         }
 
+        /** 返回需要在 render-record 阶段重新解析的逻辑图片 ID；普通纹理为 -1。 */
+        public long imageId(int batchIndex) {
+            checkIndex(batchIndex);
+            return imageIds[batchIndex];
+        }
+
         /** 返回混合模式。 */
         public UiBlendMode blend(int batchIndex) {
             checkIndex(batchIndex);
@@ -334,5 +352,11 @@ public final class UiBatcher {
                 throw new IndexOutOfBoundsException("batch index: " + index);
             }
         }
+    }
+
+    private static long[] filledImageIds(int capacity) {
+        long[] values = new long[capacity];
+        Arrays.fill(values, -1L);
+        return values;
     }
 }
