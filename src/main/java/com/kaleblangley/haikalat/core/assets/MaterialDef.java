@@ -8,6 +8,13 @@ import java.util.Objects;
 /**
  * 用于资产和场景配置的非 OpenGL 材质定义。
  * runtime {@code Material} 会在之后根据这些 shader/texture 引用构建。
+ *
+ * @param shader 着色器资产名称
+ * @param textures 通用纹理绑定
+ * @param blendMode 混合模式
+ * @param depthTest 是否启用深度测试
+ * @param model 材质模型
+ * @param pbr metallic-roughness 材质参数；legacy 材质为 {@code null}
  */
 public record MaterialDef(
         String shader,

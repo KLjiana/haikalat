@@ -423,39 +423,87 @@ public final class GlDebug {
         facts.cachedResources = null;
     }
 
-    /** 结构化 OpenGL debug callback 消息。 */
+    /**
+     * 结构化 OpenGL debug callback 消息。
+     *
+     * @param sequence 消息序号
+     * @param source 消息来源
+     * @param type 消息类型
+     * @param severity 严重程度
+     * @param driverId 驱动消息编号
+     * @param message 消息正文
+     * @param firstFrameSequence 首次出现的帧序号
+     * @param lastFrameSequence 最近出现的帧序号
+     * @param repeatCount 重复出现次数
+     * @param contextIdentity OpenGL context 身份
+     * @param phase 记录消息时所处阶段
+     */
     public record DebugMessage(long sequence, String source, String type, String severity,
                                int driverId, String message, long firstFrameSequence,
                                long lastFrameSequence, long repeatCount, long contextIdentity,
                                String phase) {
     }
 
-    /** 有界消息环的一致副本。 */
+    /**
+     * 有界消息环的一致副本。
+     *
+     * @param messages 已保留的消息
+     * @param droppedCount 已丢弃的消息数量
+     */
     public record MessageSnapshot(List<DebugMessage> messages, long droppedCount) {
         public static final MessageSnapshot EMPTY = new MessageSnapshot(List.of(), 0L);
         public MessageSnapshot { messages = List.copyOf(messages); }
     }
 
-    /** backend wrapper 的存活资源元数据，不持有 wrapper 强引用。 */
+    /**
+     * backend wrapper 的存活资源元数据，不持有 wrapper 强引用。
+     *
+     * @param resourceSequence 资源序号
+     * @param kind 资源种类
+     * @param label 调试标签
+     * @param nativeId 原生 OpenGL 标识
+     * @param createdFrameSequence 创建资源时的帧序号
+     * @param estimatedBytes 估算占用字节数
+     * @param contextIdentity 所属 OpenGL context 身份
+     */
     public record ResourceInfo(long resourceSequence, String kind, String label, int nativeId,
                                long createdFrameSequence, long estimatedBytes,
                                long contextIdentity) {
     }
 
-    /** 当前 context 的资源清单和累计计数。 */
+    /**
+     * 当前 context 的资源清单和累计计数。
+     *
+     * @param liveResources 当前存活资源
+     * @param estimatedBytes 估算占用字节数
+     * @param createdCount 累计创建数量
+     * @param closedCount 累计关闭数量
+     * @param highWaterMark 存活资源数量峰值
+     */
     public record ResourceSnapshot(List<ResourceInfo> liveResources, long estimatedBytes,
                                    long createdCount, long closedCount, long highWaterMark) {
         public static final ResourceSnapshot EMPTY = new ResourceSnapshot(List.of(), 0L, 0L, 0L, 0L);
         public ResourceSnapshot { liveResources = List.copyOf(liveResources); }
     }
 
-    /** context 销毁边界的最终值类型摘要。 */
+    /**
+     * context 销毁边界的最终值类型摘要。
+     *
+     * @param resources 最终资源摘要
+     * @param messages 最终消息摘要
+     */
     public record ContextRelease(ResourceSnapshot resources, MessageSnapshot messages) {
         public static final ContextRelease EMPTY = new ContextRelease(
                 ResourceSnapshot.EMPTY, MessageSnapshot.EMPTY);
     }
 
-    /** OpenGL vendor/renderer/version 的值类型快照。 */
+    /**
+     * OpenGL vendor、renderer 和 version 的值类型快照。
+     *
+     * @param vendor OpenGL 厂商
+     * @param renderer OpenGL 渲染器
+     * @param version OpenGL 版本
+     */
     public record ContextInfo(String vendor, String renderer, String version) {
         public static final ContextInfo UNAVAILABLE = new ContextInfo(
                 "unavailable", "unavailable", "unavailable");

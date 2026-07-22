@@ -17,6 +17,14 @@ import java.util.Objects;
  * <p>Demo 场景便捷字段包括 {@code object.*} 和 {@code light.*}，刻意限制为简单的
  * object/material/light 绑定与静态变换。动画 updater、procedural geometry、复杂内建网格变体、
  * 脚本和编辑器数据继续保留在 Java 代码中。</p>
+ *
+ * @param shaders 命名着色器资产
+ * @param textures 命名纹理资产
+ * @param materials 命名材质定义
+ * @param models 命名模型资产
+ * @param objects 普通场景对象定义
+ * @param lights 场景灯光定义
+ * @param gltfScenes glTF 场景实例定义
  */
 public record SceneAssetConfig(
         Map<String, ShaderAsset> shaders,
@@ -78,7 +86,16 @@ public record SceneAssetConfig(
     public record ModelDef(AssetRef path) {
     }
 
-    /** glTF 内部材质驱动的静态场景实例配置。 */
+    /**
+     * glTF 内部材质驱动的静态场景实例配置。
+     *
+     * @param path glTF 或 GLB 资产路径
+     * @param scene 场景选择器
+     * @param position 世界空间位置
+     * @param rotationRadians 各轴旋转弧度
+     * @param scale 统一缩放
+     * @param castShadows 是否投射阴影
+     */
     public record GltfSceneDef(AssetRef path, String scene, Vector3f position,
                                Vector3f rotationRadians, float scale, boolean castShadows) {
         public GltfSceneDef {

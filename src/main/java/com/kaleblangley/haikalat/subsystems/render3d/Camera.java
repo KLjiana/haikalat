@@ -112,7 +112,7 @@ public class Camera {
      * 将视图矩阵写入调用方持有的存储，避免逐帧分配。
      *
      * @param destination 接收结果的矩阵
-     * @return {@code destination}
+     * @return 写入视图矩阵后的 {@code destination}
      */
     public Matrix4f getViewMatrix(Matrix4f destination) {
         return destination.identity().lookAt(

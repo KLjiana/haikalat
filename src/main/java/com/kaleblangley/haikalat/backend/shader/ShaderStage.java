@@ -7,7 +7,7 @@ import static org.lwjgl.opengl.GL40.GL_TESS_CONTROL_SHADER;
 import static org.lwjgl.opengl.GL40.GL_TESS_EVALUATION_SHADER;
 import static org.lwjgl.opengl.GL43.GL_COMPUTE_SHADER;
 
-/** OpenGL 4.6 core shader stages supported by {@link ShaderProgram}. */
+/** {@link ShaderProgram} 支持的 OpenGL 4.6 核心着色器阶段。 */
 public enum ShaderStage {
     VERTEX(GL_VERTEX_SHADER),
     TESS_CONTROL(GL_TESS_CONTROL_SHADER),

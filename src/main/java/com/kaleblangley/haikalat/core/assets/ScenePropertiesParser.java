@@ -19,7 +19,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** Parses the supported {@code .properties} scene-manifest syntax. */
+/** 解析受支持的 {@code .properties} 场景清单语法。 */
 final class ScenePropertiesParser {
     private ScenePropertiesParser() {
     }

@@ -6,10 +6,37 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+    withSourcesJar()
 }
 
 group = 'com.kaleblangley'
 version = '0.17.2'
+
+def projectLicenseFile = layout.projectDirectory.file('LICENSE')
+def projectLicenseManifest = [
+        'License'       : 'AGPL-3.0-only',
+        'Bundle-License': 'https://www.gnu.org/licenses/agpl-3.0.html'
+]
+
+tasks.named('sourcesJar', Jar) {
+    dependsOn 'generateBuildInfo'
+    inputs.file projectLicenseFile
+    from(projectLicenseFile) {
+        into 'META-INF'
+        rename { 'LICENSE' }
+    }
+    manifest.attributes(projectLicenseManifest)
+}
+
+tasks.named('jar', Jar) {
+    dependsOn tasks.named('sourcesJar')
+    inputs.file projectLicenseFile
+    from(projectLicenseFile) {
+        into 'META-INF'
+        rename { 'LICENSE' }
+    }
+    manifest.attributes(projectLicenseManifest)
+}
 
 repositories {
     mavenCentral()
@@ -196,6 +223,12 @@ tasks.named('check') {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
 }
 
 tasks.withType(ProcessResources).configureEach {

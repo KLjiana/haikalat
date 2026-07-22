@@ -145,7 +145,15 @@ public final class GpuTimer implements GlResource {
     /** 查询样本状态。 */
     public enum Status { PENDING, AVAILABLE, SKIPPED, UNSUPPORTED, FAILED }
 
-    /** 不持有 GL 对象的计时值快照。 */
+    /**
+     * 不持有 GL 对象的计时值快照。
+     *
+     * @param status 查询状态
+     * @param elapsedNanos 已完成样本的耗时纳秒数
+     * @param resultSequence 结果对应的提交序号
+     * @param sampleAgeFrames 样本相对当前帧的年龄
+     * @param skippedSubmissions 跳过的提交数量
+     */
     public record Sample(Status status, long elapsedNanos, long resultSequence,
                          long sampleAgeFrames, long skippedSubmissions) {
     }

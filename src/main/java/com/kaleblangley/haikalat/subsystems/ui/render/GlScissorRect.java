@@ -25,7 +25,7 @@ public record GlScissorRect(int x, int y, int width, int height) {
      * @param scaleY 垂直内容缩放
      * @param framebufferWidth framebuffer 宽度，可为零
      * @param framebufferHeight framebuffer 高度，可为零
-     * @return framebuffer scissor
+     * @return framebuffer 坐标系中的裁剪矩形
      */
     public static GlScissorRect fromLogical(UiScreenRect logical,
                                              double scaleX, double scaleY,

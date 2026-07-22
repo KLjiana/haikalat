@@ -32,8 +32,8 @@ import static org.lwjgl.opengl.GL30.GL_VERTEX_ARRAY_BINDING;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 
 /**
- * Runtime mesh resource uploaded to OpenGL.
- * Use {@link MeshData} for asset parsing, builtin geometry, and pure JVM tests before a GL context exists.
+ * 已上传到 OpenGL 的运行时网格资源。
+ * 在 GL context 创建前，应使用 {@link MeshData} 完成资产解析、内建几何体构造和纯 JVM 测试。
  */
 public final class Mesh implements GlResource {
     private final VertexArray vertexArray;
@@ -99,8 +99,8 @@ public final class Mesh implements GlResource {
     }
 
     /**
-     * Uploads pure mesh data into OpenGL buffers and a vertex array.
-     * This method requires a current GL context and transfers lifecycle ownership to the returned {@code Mesh}.
+     * 将纯网格数据上传到 OpenGL buffer 和顶点数组。
+     * 该方法要求当前线程持有有效的 GL context，并把生命周期所有权转交给返回的 {@code Mesh}。
      */
     public static Mesh from(MeshData data) {
         Objects.requireNonNull(data, "data");

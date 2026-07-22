@@ -104,3 +104,12 @@ Demo 源码位于 `src/demo/java`，资源位于 `src/demo/resources`。
 - `docs/architecture`：渲染边界和抽象审计。
 - `docs/guides`：测试与开发指南。
 - `docs/history`：变更记录。
+
+## 发布制品与许可证
+
+执行 `./gradlew jar` 会在 `build/libs` 同时生成 `haikalat-<version>.jar` 和
+`haikalat-<version>-sources.jar`。两个归档均在 `META-INF/LICENSE` 中携带项目许可证。
+
+Haikalat 采用 GNU Affero General Public License v3.0 only（
+[AGPL-3.0-only](LICENSE)）。随项目分发的第三方资产和依赖继续遵循
+[`docs/licenses`](docs/licenses) 中记录的各自许可证。

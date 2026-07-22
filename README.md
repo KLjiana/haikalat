@@ -126,3 +126,13 @@ the `learnopengl.demo` module.
 - Ordinary-renderer visibility benchmark: `com.kaleblangley.haikalat.demo.SceneScalabilityDemo`
 
 The demo source set lives in `src/demo/java` and uses resources from `src/demo/resources`.
+
+## Distribution And License
+
+Running `./gradlew jar` produces both `haikalat-<version>.jar` and
+`haikalat-<version>-sources.jar` in `build/libs`. Both archives include the project license at
+`META-INF/LICENSE`.
+
+Haikalat is licensed under the GNU Affero General Public License v3.0 only
+([AGPL-3.0-only](LICENSE)). Bundled third-party assets and dependencies retain the licenses recorded
+under [`docs/licenses`](docs/licenses).

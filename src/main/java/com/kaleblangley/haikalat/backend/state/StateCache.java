@@ -301,7 +301,7 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
-    /** Enables or disables face culling while avoiding redundant GL state changes. */
+    /** 启用或禁用面剔除，同时避免重复提交 GL 状态。 */
     public void enableCullFace(boolean enable) {
         if (changeRequired(!cullFaceCached || enable != cullFaceEnabled)) {
             if (enable) {
@@ -435,12 +435,12 @@ public final class StateCache implements PipelineStateSink {
         clearColorCached = false;
     }
 
-    /** Invalidates VAO state after a draw path binds a vertex array directly. */
+    /** 绘制路径直接绑定顶点数组后，使缓存的 VAO 状态失效。 */
     public void invalidateVertexArray() {
         currentVAO = -1;
     }
 
-    /** Lifetime counters useful for overlays, profiling and state-cache regression tests. */
+    /** @return 用于叠加层、性能分析和状态缓存回归测试的生命周期计数器 */
     public Statistics statistics() {
         return new Statistics(appliedChanges, avoidedChanges);
     }

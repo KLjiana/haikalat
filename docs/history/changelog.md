@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-暂无。
+- 项目许可证明确为 `AGPL-3.0-only`，根目录加入 GNU AGPLv3 完整许可证文本。
+- `jar` 任务现在同时生成二进制 JAR 与 `-sources.jar`，两个制品均携带 `META-INF/LICENSE` 和许可证 manifest 元数据。
+- 统一 Java API 文档为中文说明，并固定 Javadoc 输入、页面和输出编码为 UTF-8。
 
 ## 已完成路线图
 

@@ -97,7 +97,13 @@ public final class TextureAssetCache implements AutoCloseable {
         Texture2D load(AssetRef path, boolean flipVertically, TextureColorSpace colorSpace);
     }
 
-    /** 纹理缓存的完整身份，避免同一路径的线性与 sRGB 资源错误复用。 */
+    /**
+     * 纹理缓存的完整身份，避免同一路径的线性与 sRGB 资源错误复用。
+     *
+     * @param path 纹理资产路径
+     * @param flipVertically 是否垂直翻转
+     * @param colorSpace 纹理颜色空间
+     */
     public record TextureKey(AssetRef path, boolean flipVertically, TextureColorSpace colorSpace) {
         public TextureKey {
             path = Objects.requireNonNull(path, "path");

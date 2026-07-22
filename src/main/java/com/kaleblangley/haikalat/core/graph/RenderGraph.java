@@ -443,7 +443,13 @@ public final class RenderGraph implements AutoCloseable {
         }
     }
 
-    /** attachment 的逻辑描述，不暴露 native id。 */
+    /**
+     * attachment 的逻辑描述，不暴露 native id。
+     *
+     * @param logicalName 逻辑资源名称
+     * @param format 渲染格式名称
+     * @param storageKind 底层存储种类
+     */
     public record AttachmentDescription(String logicalName, String format, StorageKind storageKind) {
     }
 

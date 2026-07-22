@@ -152,7 +152,11 @@ public final class ObjModelLoader implements ModelAssetLoader {
         return Float.parseFloat(parts[index]);
     }
 
-    /** OBJ 顶点装配策略；legacy 是默认行为。 */
+    /**
+     * OBJ 顶点装配策略；legacy 是默认行为。
+     *
+     * @param generateTangents 是否生成切线属性
+     */
     public record Options(boolean generateTangents) {
         public static final Options LEGACY = new Options(false);
         public static final Options PBR = new Options(true);

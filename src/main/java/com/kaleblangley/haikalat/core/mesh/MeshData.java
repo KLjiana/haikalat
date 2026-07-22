@@ -7,8 +7,8 @@ import java.util.Objects;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 
 /**
- * Pure mesh data that can be created, parsed, and tested without an OpenGL context.
- * Uploading this data creates a runtime {@link Mesh}.
+ * 无需 OpenGL context 即可创建、解析和测试的纯网格数据。
+ * 上传该数据后会创建运行时 {@link Mesh}。
  */
 public record MeshData(
         String name,

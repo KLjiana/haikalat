@@ -4,7 +4,7 @@ import com.kaleblangley.haikalat.backend.GlException;
 
 import java.util.Map;
 
-/** Validates references shared by both supported scene configuration syntaxes. */
+/** 校验两种受支持场景配置语法共用的资源引用。 */
 final class SceneReferenceValidator {
     private SceneReferenceValidator() {
     }

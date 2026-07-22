@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Parses the legacy line-oriented scene manifest syntax. */
+/** 解析旧版按行组织的场景清单语法。 */
 final class SceneTextManifestParser {
     private SceneTextManifestParser() {
     }

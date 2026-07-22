@@ -8,7 +8,7 @@ import org.joml.Vector4f;
 import java.util.Locale;
 import java.util.Properties;
 
-/** Converts supported scene-manifest scalar and vector values with actionable context. */
+/** 转换场景清单支持的标量和向量值，并在失败时提供可操作的上下文。 */
 final class SceneValueParser {
     private SceneValueParser() {
     }

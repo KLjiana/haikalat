@@ -6,7 +6,17 @@ import org.joml.Vector4f;
 import java.util.Map;
 import java.util.Objects;
 
-/** 不持有 GL 对象的不可变 metallic-roughness 参数。 */
+/**
+ * 不持有 GL 对象的不可变 metallic-roughness 参数。
+ *
+ * @param baseColorFactor 基础颜色因子
+ * @param metallicFactor 金属度因子
+ * @param roughnessFactor 粗糙度因子
+ * @param normalScale 法线贴图缩放
+ * @param occlusionStrength 环境遮蔽强度
+ * @param emissiveFactor 自发光因子
+ * @param textures 各 PBR 角色对应的纹理资产名称
+ */
 public record PbrMaterialProperties(
         Vector4f baseColorFactor,
         float metallicFactor,

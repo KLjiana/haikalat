@@ -1,6 +1,6 @@
 package com.kaleblangley.haikalat.backend.state;
 
-/** Backend-facing target used when a command buffer flushes its final pending pipeline state. */
+/** 命令缓冲区提交最终待处理管线状态时使用的后端写入目标。 */
 public interface PipelineStateSink {
     void viewport(int x, int y, int width, int height);
 

@@ -14,7 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Package-private GLB container and JSON document reader for {@link GltfAssetLoader}. */
+/** 供 {@link GltfAssetLoader} 使用的包内 GLB 容器与 JSON 文档读取器。 */
 final class GltfDocumentReader {
     private static final int GLB_MAGIC = 0x46546C67;
     private static final int JSON_CHUNK = 0x4E4F534A;

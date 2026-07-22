@@ -87,8 +87,8 @@ final class LightingBinder {
     }
 
     /**
-     * Selects the shadow-casting directional light from the same bounded array uploaded to shaders.
-     * A shadow light beyond the shader array limit is deliberately ignored by both passes.
+     * 从上传到着色器的同一个有界数组中选择投射阴影的方向光。
+     * 超出着色器数组上限的阴影灯光会被两个 pass 一致忽略。
      */
     static Optional<ShadowDirectionalLight> shadowDirectionalLight(Scene scene) {
         int directionalIndex = 0;

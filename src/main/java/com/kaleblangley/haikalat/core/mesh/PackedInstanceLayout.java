@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-/** Pure-JVM codec for the 16-byte std430 {@code uvec4} instance representation. */
+/** 适用于 16 字节 std430 {@code uvec4} 实例表示的纯 JVM 编解码器。 */
 public final class PackedInstanceLayout {
     public static final int STRIDE_BYTES = 4 * Integer.BYTES;
 

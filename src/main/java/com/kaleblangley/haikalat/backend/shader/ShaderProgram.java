@@ -56,11 +56,10 @@ import static org.lwjgl.opengl.GL43.glGetProgramResourceIndex;
 import static org.lwjgl.opengl.GL43.glShaderStorageBlockBinding;
 
 /**
- * Linked OpenGL shader program with stage-aware construction and DSA uniform updates.
+ * 支持按阶段构建和 DSA uniform 更新的已链接 OpenGL 着色器程序。
  *
- * <p>The object is owned by one OpenGL context thread. Consequently its lookup caches use
- * ordinary maps instead of concurrent maps. Name lookups happen once; commands can retain the
- * resulting integer location and update this program without making it current first.</p>
+ * <p>该对象由单个 OpenGL context 线程持有，因此查询缓存使用普通映射而非并发映射。
+ * 名称只查询一次；命令可以保留查询得到的整数 location，并在不预先激活程序的情况下更新它。</p>
  */
 public final class ShaderProgram implements GlResource {
     private static final int RECENT_UNIFORM_SET_COUNT = 32;
@@ -96,7 +95,7 @@ public final class ShaderProgram implements GlResource {
         return new Builder();
     }
 
-    /** Compatibility helper for the most common graphics pipeline. */
+    /** 为最常见图形管线提供的兼容性辅助入口。 */
     public static ShaderProgram fromSources(String vertexSource, String fragmentSource) {
         return builder()
                 .stage(ShaderStage.VERTEX, vertexSource, "vertex source")
@@ -104,7 +103,7 @@ public final class ShaderProgram implements GlResource {
                 .link();
     }
 
-    /** Compatibility helper for classpath vertex/fragment resources. */
+    /** 为 classpath 中的顶点和片段着色器资源提供的兼容性辅助入口。 */
     public static ShaderProgram fromResource(Class<?> anchor, String vertexPath, String fragmentPath) {
         return builder()
                 .resource(anchor, ShaderStage.VERTEX, vertexPath)
@@ -244,12 +243,12 @@ public final class ShaderProgram implements GlResource {
         return this;
     }
 
-    /** A sampler is an integer texture-unit uniform; this name makes that intent explicit. */
+    /** 设置表示纹理单元的整数 sampler uniform，并通过方法名明确其用途。 */
     public ShaderProgram setSampler(String name, int textureUnit) {
         return setInt(name, textureUnit);
     }
 
-    /** An image is also selected through an integer image-unit uniform. */
+    /** 设置表示图像单元的整数 image uniform。 */
     public ShaderProgram setImage(String name, int imageUnit) {
         return setInt(name, imageUnit);
     }
