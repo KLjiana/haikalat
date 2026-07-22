@@ -42,29 +42,30 @@ final class CommandStream {
         objects[objectCount++] = value;
     }
 
+    /** 原子记录只有一个对象 payload 的常用命令。 */
+    void objectCommand(byte opcode, Object value) {
+        if (commandCount == opcodes.length || objectCount == objects.length) {
+            ensureOpcodeCapacity(Math.addExact(commandCount, 1));
+            ensureObjectCapacity(Math.addExact(objectCount, 1));
+        }
+        objects[objectCount++] = value;
+        opcodes[commandCount++] = opcode;
+    }
+
     /** 原子记录一条 primitive mat4 命令；所有容量就绪后才发布 opcode。 */
     void matrixCommand(byte opcode, int location, Object shader, Matrix4fc value) {
-        float m00 = value.m00(), m01 = value.m01(), m02 = value.m02(), m03 = value.m03();
-        float m10 = value.m10(), m11 = value.m11(), m12 = value.m12(), m13 = value.m13();
-        float m20 = value.m20(), m21 = value.m21(), m22 = value.m22(), m23 = value.m23();
-        float m30 = value.m30(), m31 = value.m31(), m32 = value.m32(), m33 = value.m33();
+        if (commandCount == opcodes.length || integerCount > integers.length - 2
+                || objectCount == objects.length || matrixFloatCount > matrices.length - 16) {
+            ensureMatrixCommandCapacity();
+        }
         int offset = matrixFloatCount;
-        int required = Math.addExact(offset, 16);
-        ensureOpcodeCapacity(Math.addExact(commandCount, 1));
-        ensureIntegerCapacity(Math.addExact(integerCount, 2));
-        ensureObjectCapacity(Math.addExact(objectCount, 1));
-        ensureMatrixCapacity(required);
-        integers[integerCount++] = location;
-        integers[integerCount++] = offset;
-        objects[objectCount++] = shader;
-        matrices[offset] = m00; matrices[offset + 1] = m01;
-        matrices[offset + 2] = m02; matrices[offset + 3] = m03;
-        matrices[offset + 4] = m10; matrices[offset + 5] = m11;
-        matrices[offset + 6] = m12; matrices[offset + 7] = m13;
-        matrices[offset + 8] = m20; matrices[offset + 9] = m21;
-        matrices[offset + 10] = m22; matrices[offset + 11] = m23;
-        matrices[offset + 12] = m30; matrices[offset + 13] = m31;
-        matrices[offset + 14] = m32; matrices[offset + 15] = m33;
+        int required = offset + 16;
+        integers[integerCount] = location;
+        integers[integerCount + 1] = offset;
+        objects[objectCount] = shader;
+        value.get(matrices, offset);
+        integerCount += 2;
+        objectCount++;
         matrixFloatCount = required;
         matrixCount++;
         opcodes[commandCount++] = opcode;
@@ -150,6 +151,13 @@ final class CommandStream {
 
     private void ensureMatrixCapacity(int required) {
         if (required > matrices.length) matrices = Arrays.copyOf(matrices, grown(matrices.length, required));
+    }
+
+    private void ensureMatrixCommandCapacity() {
+        ensureOpcodeCapacity(Math.addExact(commandCount, 1));
+        ensureIntegerCapacity(Math.addExact(integerCount, 2));
+        ensureObjectCapacity(Math.addExact(objectCount, 1));
+        ensureMatrixCapacity(Math.addExact(matrixFloatCount, 16));
     }
 
     private static int grown(int current, int required) {

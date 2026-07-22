@@ -19,6 +19,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UiGlyphUploadResultTest {
     @Test
+    void onlyFenceBackedInitializationAcceptsDependentPageUploads() {
+        assertFalse(UiGlyphAtlasGpu.acceptsDependentUpload(
+                UiGlyphAtlasGpu.SubmissionStatus.RECORDED));
+        assertTrue(UiGlyphAtlasGpu.acceptsDependentUpload(
+                UiGlyphAtlasGpu.SubmissionStatus.GPU_PENDING));
+        assertFalse(UiGlyphAtlasGpu.acceptsDependentUpload(
+                UiGlyphAtlasGpu.SubmissionStatus.SUCCEEDED));
+        assertFalse(UiGlyphAtlasGpu.acceptsDependentUpload(
+                UiGlyphAtlasGpu.SubmissionStatus.FAILED));
+    }
+
+    @Test
     void successDefensivelyPublishesWholeBatchAndPageTextures() {
         try (GlyphAtlas atlas = new GlyphAtlas(8, 8, 1, 1)) {
             GlyphUploadRequest request = request(atlas, 1);

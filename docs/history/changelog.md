@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- 暂无。
+暂无。
 
 ## 已完成路线图
 
@@ -427,3 +427,34 @@
 - fixed-only scene 首帧缓存完成后省略 10k immutable model/bounds 重复扫描；membership 变化仍完整失效，
   static gate 从连续失败的 `0.178～0.225 ms` 降至 `0.003～0.004 ms`，原 `0.15 ms` 门槛保持不变。
 - 完整 JVM、真实 GL、本地发布、asset manifest 和工作树一致性门禁通过；工程版本进入 `0.17.1`。
+
+### v0.17.2-release-lifecycle-static-submission-hardening（0.17.2，2026-07-22）
+
+- 将资产清单、Git candidate、版本元数据、GL debug policy、结构化性能结果和 readiness 证据集中到
+  独立 Gradle 发布脚本；机器摘要会校验发布报告中的成功声明，未知或缺失证据默认失败。
+- readiness claim 校验同时登记直接门禁和被报告的 benchmark/contract 叶任务，不再把已执行成功的
+  `releaseVerificationContracts` 或静态五轮基准误报为无证据；环境摘要采用 JavaExec 实际使用的 JDK。
+- OpenGL wrapper 删除资源时推进当前 context 的 deletion epoch；`GlRenderDevice` 在下一提交边界失效
+  状态缓存，防止驱动复用 VAO、program、texture、sampler、buffer 或 framebuffer 数值 ID 后错误跳过绑定。
+- epoch 按弱引用的 LWJGL capabilities identity 隔离并使用全局唯一 token；无 context 路径不初始化 GLFW，
+  同一 device 在多个 context 间切换也会正确失效缓存。
+- JUnit 与 JavaExec integration 共用精确到 vendor、renderer、severity、source、type、id、入口、文本、
+  次数和到期日的 GL 日志策略；未知 HIGH/MEDIUM 与任何 `GL_INVALID_*` 均阻止发布。
+- GL 汇总门禁现在显式依赖全部受审计的 Test/JavaExec 生产者，并把对应 XML/日志声明为输入；性能 JSON
+  从 benchmark 自报配置读取尺寸、warmup、samples 与 rounds，不再复制常量。
+- 性能环境或场景参数不一致会写入 `incomparableReasons` 并使发布失败；performance/readiness 共用同一份
+  staged candidate Git 身份，且 readiness 会拒绝候选身份不一致的证据。
+- diagnostics OFF 不再构造不会发布的摘要，visibility statistics 只在命令录制结束后构造一次；shader
+  matrix uniform 复用 program-owned direct scratch，移除逐 draw 的临时 FloatBuffer wrapper；uniform
+  location 增加逐 program 的两路 identity 热缓存，消除静态全可见路径反复查询 `uModel` 时的字符串哈希。
+- pending pipeline state 会记住同一 command buffer 内已经提交的值，连续 draw 的相同 front-face、depth、
+  blend 等状态不再重复编码；`custom()` 会清除这份知识并强制后续状态重发。矩阵 arena 的常用容量路径
+  合并为单次边界检查，同时保留扩容失败前不发布 opcode 的原子性。
+- command recorder 同样折叠连续相同 program binding，单对象 draw 以一次原子命令写入；RenderPipeline
+  只在 winding 确实变化时写 front-face，并避免不会覆盖引擎 binding 的材质重复提交逐帧光照状态。
+- `MaterialInstance` 缓存不可变 override 快照；内容未变化时 diagnostics、排序与 binding 检查不再重复
+  复制映射，同时旧快照继续保持非 live 的公共 API 语义。
+- 真实 GL 覆盖 128 次 VAO 重建、100 次 framebuffer resize 式重建、精确 ID reuse、多 context 与无
+  context；五轮静态基准、JFR allocation、lifecycle 耗时和 GL 消息计数均进入 schema-v1 证据。
+- 修复高频连续 benchmark 下 glyph atlas 首次 page 初始化 fence 尚未完成时，下一批合法 region upload
+  被误判为并发初始化的问题；只有已插入 fence 的 submission 可被后续上传依赖，未执行命令仍保持拒绝。

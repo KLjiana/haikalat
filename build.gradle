@@ -9,7 +9,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.17.1'
+version = '0.17.2'
 
 repositories {
     mavenCentral()
@@ -185,44 +185,6 @@ tasks.register('dependencyLockGuard') {
             if (!lockText.contains(coordinate)) {
                 throw new GradleException("Dependency lock is missing $coordinate")
             }
-        }
-    }
-}
-
-tasks.register('assetManifestGuard') {
-    group = 'verification'
-    description = 'Verifies every release resource against its ownership, license and SHA-256 record.'
-    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'),
-            file('docs/licenses/assets.tsv')
-    doLast {
-        File manifest = file('docs/licenses/assets.tsv')
-        if (!manifest.isFile()) throw new GradleException('Missing docs/licenses/assets.tsv')
-        Map<String, List<String>> records = [:]
-        manifest.readLines('UTF-8').findAll { it && !it.startsWith('#') }.eachWithIndex { line, index ->
-            List<String> fields = line.split('\t', -1) as List<String>
-            if (fields.size() != 8 || fields.any { it.isBlank() }) {
-                throw new GradleException("Invalid asset manifest row ${index + 1}: expected 8 non-empty fields")
-            }
-            if (records.put(fields[0], fields) != null) {
-                throw new GradleException("Duplicate asset manifest path: ${fields[0]}")
-            }
-        }
-        Set<String> resources = []
-        [fileTree('src/main/resources'), fileTree('src/demo/resources')].each { tree ->
-            tree.files.each { resource ->
-                resources.add(project.relativePath(resource).replace('\\', '/'))
-            }
-        }
-        if (records.keySet() != resources) {
-            throw new GradleException("Asset manifest mismatch; missing=${resources - records.keySet()}, stale=${records.keySet() - resources}")
-        }
-        records.each { path, fields ->
-            String actual = java.security.MessageDigest.getInstance('SHA-256')
-                    .digest(file(path).bytes).encodeHex().toString()
-            if (!actual.equalsIgnoreCase(fields[5])) {
-                throw new GradleException("Asset hash mismatch for $path: expected ${fields[5]}, actual $actual")
-            }
-            if (fields[7] != 'yes') throw new GradleException("Non-redistributable asset is present: $path")
         }
     }
 }
@@ -836,6 +798,18 @@ tasks.register('sceneSubmissionGlVerification', Test) {
     outputs.upToDateWhen { false }
 }
 
+tasks.register('glResourceLifecycleVerification', Test) {
+    group = 'verification'
+    description = 'Validates context deletion epochs, native id reuse and context isolation.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.GlResourceLifecycleTest' }
+    outputs.upToDateWhen { false }
+}
+
 tasks.register('runGltfSceneScalabilityIntegration', JavaExec) {
     group = 'verification'
     description = 'Runs the 1,000-renderer mixed real glTF correctness gate.'
@@ -906,7 +880,7 @@ tasks.register('runSceneSubmissionStaticGate', JavaExec) {
     args '--objects=10000', '--layout=all-hidden', '--model-source=static',
             '--visibility=enabled', '--static-cache=enabled', '--queue-cache=enabled',
             '--command-matrix-arena=enabled', '--frames=1000', '--warmup=100',
-            '--rounds=1', '--size=640x360', '--deterministic', '--verify'
+            '--rounds=5', '--size=640x360', '--deterministic', '--verify'
     outputs.upToDateWhen { false }
     mustRunAfter 'runSceneSubmissionAllocationIntegration'
 }
@@ -949,6 +923,46 @@ tasks.register('runSceneSubmissionJfr', JavaExec) {
     outputs.upToDateWhen { false }
 }
 
+tasks.register('runSceneSubmissionStaticBenchmarks', JavaExec) {
+    group = 'application'
+    description = 'Runs five rounds for 10k static all-hidden, mostly-hidden and all-visible scenes.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.SceneHardeningBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--rounds=${providers.gradleProperty('hardeningBenchmarkRounds').getOrElse('5')}",
+            "--warmup=${providers.gradleProperty('hardeningBenchmarkWarmup').getOrElse('100')}",
+            "--frames=${providers.gradleProperty('hardeningBenchmarkFrames').getOrElse('1000')}",
+            "--size=${providers.gradleProperty('hardeningBenchmarkSize').getOrElse('1280x720')}"
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runSceneSubmissionStaticJfr', JavaExec) {
+    group = 'application'
+    description = 'Records allocation stacks for the three 10k static hardening layouts.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.SceneHardeningBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    def recording = layout.buildDirectory.file('reports/jfr/v0.17.2-static-submission.jfr')
+    def temporary = layout.buildDirectory.dir('tmp/jfr-v0.17.2')
+    doFirst {
+        recording.get().asFile.parentFile.mkdirs()
+        temporary.get().asFile.mkdirs()
+    }
+    environment 'TEMP', temporary.get().asFile.absolutePath
+    environment 'TMP', temporary.get().asFile.absolutePath
+    jvmArgs "-XX:StartFlightRecording=filename=${recording.get().asFile.absolutePath},settings=profile,dumponexit=true"
+    args "--rounds=${providers.gradleProperty('hardeningJfrRounds').getOrElse('1')}",
+            "--warmup=${providers.gradleProperty('hardeningJfrWarmup').getOrElse('1000')}",
+            "--frames=${providers.gradleProperty('hardeningJfrFrames').getOrElse('10000')}",
+            '--size=1280x720'
+    outputs.file recording
+    outputs.upToDateWhen { false }
+}
+
 tasks.register('localSceneSubmissionVerification') {
     group = 'verification'
     description = 'Runs v0.17 JVM, real-GL, glTF resize/motion and 10k allocation gates.'
@@ -960,7 +974,8 @@ tasks.register('localSceneSubmissionVerification') {
 }
 
 tasks.named('localGlVerification') {
-    dependsOn 'localSceneVisibilityVerification', 'localSceneSubmissionVerification'
+    dependsOn 'localSceneVisibilityVerification', 'localSceneSubmissionVerification',
+            'glResourceLifecycleVerification'
 }
 
 def localReleaseTasks = [
@@ -989,3 +1004,5 @@ localReleaseTasks.collate(2, 1, false).each { pair ->
         mustRunAfter pair[0]
     }
 }
+
+apply from: 'gradle/release-verification.gradle'

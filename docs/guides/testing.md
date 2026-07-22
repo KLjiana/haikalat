@@ -65,6 +65,30 @@ Naming/package convention: `*IntegrationTest` under `com.kaleblangley.haikalat.i
 
 CI should run only the default unit path unless the environment explicitly provides a desktop GL context.
 
+## v0.17.2 发布与 GL 生命周期门禁
+
+以下入口将发布工程、资源生命周期和性能证据分开，便于失败时定位：
+
+```powershell
+.\gradlew.bat assetManifestGuard releaseVerificationContracts
+.\gradlew.bat glResourceLifecycleVerification --rerun-tasks
+.\gradlew.bat glDebugPolicyGuard --rerun-tasks
+.\gradlew.bat runSceneSubmissionStaticGate --rerun-tasks
+.\gradlew.bat writePerformanceResult comparePerformanceBaseline --rerun-tasks
+```
+
+`glResourceLifecycleVerification` 覆盖 native id reuse、128 次 VAO rebuild、100 次 framebuffer resize 式
+rebuild、多 context 隔离和无 context 查询。`glDebugPolicyGuard` 同时读取 `glSmoke` XML 与
+`build/reports/gl/*.log`；策略来自 `config/gl-debug-policy.tsv`。任何 `GL_INVALID_*`、未授权 HIGH/MEDIUM、
+过期规则、入口或消息文本不匹配、以及超过次数上限都会失败，不能用宽泛 vendor 白名单绕过。
+
+`writePerformanceResult` 只写 `build/reports/performance/current.json`，不会覆盖已审查 baseline；
+`comparePerformanceBaseline` 先比较 OS、架构、Java、LWJGL 和完整 GL identity，环境不一致时明确标记为
+不可直接比较。PowerShell 下正式候选入口使用
+`releaseReadiness "-PreleaseVersion=x.y.z" --rerun-tasks`；它还要求所有候选文件
+已经 staged、版本/报告/changelog/capability matrix 一致，并把实际 gate outcome 写入
+`build/reports/release/readiness.json` 与 `readiness.md`。它不挂到默认 `check`，也不代替远端 CI 和人工 GL 检查。
+
 The deterministic baseline integration uses a hidden 1280x720 window, fixed camera and frame indices, disabled VSync, and exits after eight frames:
 
 ```powershell

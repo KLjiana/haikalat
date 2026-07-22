@@ -126,6 +126,7 @@ public final class SceneScalabilityDemo {
         long boundsNanos = 0L;
         long frustumNanos = 0L;
         long sortNanos = 0L;
+        long commandRecordNanos = 0L;
         long expectedCalls = updaterCalls[0];
         RenderPipeline.VisibilityStatistics last = RenderPipeline.VisibilityStatistics.UNAVAILABLE;
 
@@ -146,7 +147,10 @@ public final class SceneScalabilityDemo {
                 driver.recordGraph(pipeline.graph());
                 driver.recordSceneStatistics(last.forwardVisible() + last.shadowVisible(),
                         0L, last.candidateRenderers(), 0L);
-                driver.recordSceneVisibility(toDiagnostics(last));
+                if (driver.diagnostics().level()
+                        != com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel.OFF) {
+                    driver.recordSceneVisibility(toDiagnostics(last));
+                }
                 driver.endFrame();
             } catch (RuntimeException | Error failure) {
                 driver.failFrame(pipeline.graph(), failure);
@@ -168,6 +172,7 @@ public final class SceneScalabilityDemo {
                 boundsNanos += last.boundsTransformNanos();
                 frustumNanos += last.frustumTestNanos();
                 sortNanos += last.queueSortNanos();
+                commandRecordNanos += last.commandRecordNanos();
                 long allocatedAfter = DemoAllocationCounter.currentThreadBytes();
                 if (allocatedBefore >= 0L && allocatedAfter >= allocatedBefore) {
                     allocationBytes += allocatedAfter - allocatedBefore;
@@ -197,12 +202,14 @@ public final class SceneScalabilityDemo {
                 options.visibilityEnabled(), last.forwardVisible(), last.forwardCulled(),
                 snapshot.presentFps(), snapshot.timings().averageCpuMillis(),
                 snapshot.timings().medianCpuMillis(), snapshot.timings().averageGpuMillis(),
-                snapshot.timings().medianGpuMillis(), averageQueueMillis, allocationKiB,
+                snapshot.timings().medianGpuMillis(), averageQueueMillis,
+                commandRecordNanos / samples / 1_000_000.0, allocationKiB,
                 skipRatio * 100.0);
         System.out.printf(Locale.ROOT,
                 "SceneScalability round=%d objects=%d layout=%s visibility=%s visible=%d culled=%d "
                         + "draws=%d FPS=%.1f CPU(avg/median)=%.3f/%.3fms GPU(avg/median)=%.3f/%.3fms "
                         + "queue/model/bounds/frustum/sort=%.3f/%.3f/%.3f/%.3f/%.3fms "
+                        + "command=%.3fms "
                         + "cache(model/bounds)=%d/%d queueReuse=%s/%s commands/matrices/objects=%d/%d/%d "
                         + "allocation=%.1fKiB/frame stateSkip=%.2f%%%n",
                 round, options.objects(), options.layout().optionName,
@@ -213,6 +220,7 @@ public final class SceneScalabilityDemo {
                 snapshot.timings().medianGpuMillis(), averageQueueMillis,
                 modelNanos / samples / 1_000_000.0, boundsNanos / samples / 1_000_000.0,
                 frustumNanos / samples / 1_000_000.0, sortNanos / samples / 1_000_000.0,
+                commandRecordNanos / samples / 1_000_000.0,
                 last.modelCacheHits(), last.boundsCacheHits(), last.forwardQueueReused(),
                 last.shadowQueueReused(), last.recordedCommands(),
                 last.recordedMatrixSnapshots(), last.recordedObjectPayloads(),
@@ -226,7 +234,8 @@ public final class SceneScalabilityDemo {
                            int visible, int culled, double presentFps,
                            double averageCpuMillis, double medianCpuMillis,
                            double averageGpuMillis, double medianGpuMillis,
-                           double averageQueueMillis, double allocationKiBPerFrame,
+                           double averageQueueMillis, double averageCommandMillis,
+                           double allocationKiBPerFrame,
                            double stateSkipPercent) {
     }
 

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haikalat.local/schema/performance-baseline-v1.json",
+  "title": "Haikalat performance result v1",
+  "type": "object",
+  "required": ["schemaVersion", "projectVersion", "git", "timestamp", "timezone", "environment", "scenarios", "glMessages", "glMessageSummary", "success", "incomparableReasons"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "projectVersion": { "type": "string" },
+    "git": {
+      "type": "object",
+      "required": ["head", "branch", "dirty", "stagedDiffSha256"]
+    },
+    "environment": {
+      "type": "object",
+      "required": ["os", "arch", "java", "lwjgl", "glVendor", "glRenderer", "glVersion"]
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["name", "task", "arguments", "scene", "layout", "objectCount", "width", "height", "vsync", "debug", "warmup", "samples", "rounds", "success"]
+      }
+    },
+    "glMessages": { "type": "array" },
+    "glMessageSummary": {
+      "type": "object",
+      "required": ["total", "high", "medium", "unauthorized"]
+    },
+    "success": { "type": "boolean" },
+    "incomparableReasons": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

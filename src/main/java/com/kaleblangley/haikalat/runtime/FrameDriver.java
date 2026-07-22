@@ -69,11 +69,13 @@ public final class FrameDriver implements AutoCloseable {
     /** 附加下一次发布使用的场景摘要。 */
     public void recordSceneStatistics(long drawCalls, long instanceCount,
                                       long ordinaryRenderers, long instancedRenderers) {
+        if (diagnostics.level() == DiagnosticsLevel.OFF) return;
         diagnostics.scene(drawCalls, instanceCount, ordinaryRenderers, instancedRenderers);
     }
 
     /** 附加下一次发布使用的普通 scene visibility/queue 值摘要。 */
     public void recordSceneVisibility(DiagnosticsSnapshot.VisibilitySummary summary) {
+        if (diagnostics.level() == DiagnosticsLevel.OFF) return;
         diagnostics.visibility(summary);
     }
 
@@ -81,12 +83,14 @@ public final class FrameDriver implements AutoCloseable {
     public void recordUiStatistics(long visibleNodes, long quads, long glyphs, long drawCalls,
                                    long updateNanos, long vertexBytes, long indexBytes,
                                    long atlasUploadBytes) {
+        if (diagnostics.level() == DiagnosticsLevel.OFF) return;
         diagnostics.ui(visibleNodes, quads, glyphs, drawCalls, updateNanos,
                 vertexBytes, indexBytes, atlasUploadBytes);
     }
 
     /** 附加下一次发布使用的纯值 RenderGraph preview 摘要。 */
     public void recordPreview(PreviewSummary summary) {
+        if (diagnostics.level() == DiagnosticsLevel.OFF) return;
         diagnostics.preview(summary);
     }
 
@@ -156,10 +160,12 @@ public final class FrameDriver implements AutoCloseable {
     /** 结束 CPU submit 计时，并检查当前 OpenGL 错误。 */
     public void endFrame() {
         statistics.endFrame();
-        diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(),
-                pendingGraphDescription, device.stateStatistics(), true,
-                uploadQueue.totalBytesUploaded(), uploadQueue.pendingCount(),
-                uploadQueue.totalGpuUpdates());
+        if (diagnostics.level() != DiagnosticsLevel.OFF) {
+            diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(),
+                    pendingGraphDescription, device.stateStatistics(), true,
+                    uploadQueue.totalBytesUploaded(), uploadQueue.pendingCount(),
+                    uploadQueue.totalGpuUpdates());
+        }
         pendingGraphDescription = null;
         GlDebug.assertNoError("FrameDriver.endFrame");
     }
@@ -179,9 +185,11 @@ public final class FrameDriver implements AutoCloseable {
         statistics.endFrame();
         RenderGraph.Description description = diagnostics.level() == DiagnosticsLevel.DETAILED
                 ? graph.description() : null;
-        diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(), description,
-                device.stateStatistics(), false, uploadQueue.totalBytesUploaded(),
-                uploadQueue.pendingCount(), uploadQueue.totalGpuUpdates());
+        if (diagnostics.level() != DiagnosticsLevel.OFF) {
+            diagnostics.publish(statistics.snapshot(), statistics.lastFrameProfile(), description,
+                    device.stateStatistics(), false, uploadQueue.totalBytesUploaded(),
+                    uploadQueue.pendingCount(), uploadQueue.totalGpuUpdates());
+        }
         pendingGraphDescription = null;
     }
 

@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.core.device;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
@@ -7,9 +8,11 @@ import java.util.Objects;
 
 public final class GlRenderDevice implements RenderDevice {
     private final StateCache stateCache;
+    private long observedContextStateEpoch;
 
     public GlRenderDevice() {
         this.stateCache = new StateCache();
+        this.observedContextStateEpoch = GlDebug.contextStateEpoch();
     }
 
     @Override
@@ -30,12 +33,15 @@ public final class GlRenderDevice implements RenderDevice {
     @Override
     public void execute(CommandBuffer buffer) {
         Objects.requireNonNull(buffer, "buffer");
+        synchronizeContextState();
         buffer.execute(stateCache);
     }
 
     public void executeAll(CommandBuffer... buffers) {
         Objects.requireNonNull(buffers, "buffers");
         for (CommandBuffer buffer : buffers) {
+            Objects.requireNonNull(buffer, "buffer");
+            synchronizeContextState();
             buffer.execute(stateCache);
         }
     }
@@ -51,6 +57,7 @@ public final class GlRenderDevice implements RenderDevice {
     @Override
     public void invalidateState() {
         stateCache.invalidate();
+        observedContextStateEpoch = GlDebug.contextStateEpoch();
     }
 
     @Override
@@ -61,5 +68,13 @@ public final class GlRenderDevice implements RenderDevice {
         }
         // OpenGL tracks resource hazards implicitly for the paths used here. The
         // method exists so explicit backends can enforce layout transitions.
+    }
+
+    private void synchronizeContextState() {
+        long current = GlDebug.contextStateEpoch();
+        if (current != observedContextStateEpoch) {
+            stateCache.invalidate();
+            observedContextStateEpoch = current;
+        }
     }
 }

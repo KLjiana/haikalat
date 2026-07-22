@@ -12,6 +12,7 @@
 - [v0.16 场景扩展、可见性裁剪与 Render Queue 实施计划](planning/v0.16-scene-scalability-and-visibility.md)
 - [v0.17 真实场景压力与 CPU 提交收敛实施计划](planning/v0.17-real-scene-cpu-submission-consolidation.md)
 - [v0.17.1 RenderGraph 资源预览与帧调试可视化实施计划](planning/v0.17.1-rendergraph-resource-preview.md)
+- [v0.17.2 发布工程、GL 生命周期与静态提交加固实施计划](planning/v0.17.2-release-lifecycle-static-submission-hardening.md)
 
 ## 架构
 

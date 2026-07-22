@@ -15,24 +15,24 @@ final class SceneFrame {
     Statistics statistics = Statistics.UNAVAILABLE;
     boolean available;
 
-    MeshRenderer forwardRenderer(int queueIndex) {
-        return renderers[forwardIndices[queueIndex]];
+    int forwardEntry(int queueIndex) {
+        return forwardIndices[queueIndex];
     }
 
-    org.joml.Matrix4f forwardModel(int queueIndex) {
-        return models[forwardIndices[queueIndex]];
+    int shadowEntry(int queueIndex) {
+        return shadowIndices[queueIndex];
     }
 
-    boolean forwardMirrored(int queueIndex) {
-        return mirrored[forwardIndices[queueIndex]];
+    MeshRenderer renderer(int entry) {
+        return renderers[entry];
     }
 
-    MeshRenderer shadowRenderer(int queueIndex) {
-        return renderers[shadowIndices[queueIndex]];
+    org.joml.Matrix4f model(int entry) {
+        return models[entry];
     }
 
-    org.joml.Matrix4f shadowModel(int queueIndex) {
-        return models[shadowIndices[queueIndex]];
+    boolean mirrored(int entry) {
+        return mirrored[entry];
     }
 
     record Statistics(boolean cullingEnabled, long sceneRevision,

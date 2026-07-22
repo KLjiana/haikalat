@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
+import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.FrontFace;
@@ -60,6 +61,7 @@ public final class RenderPipeline {
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
     private final GraphPreviewController previewController = new GraphPreviewController();
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private GraphPreviewRenderer previewRenderer;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
@@ -255,9 +257,11 @@ public final class RenderPipeline {
             for (var pass : graph.lastFrameProfile().passes()) {
                 commandRecordNanos = Math.addExact(commandRecordNanos, pass.cpuRecordNanos());
             }
-            lastVisibilityStatistics = lastVisibilityStatistics.withCommandEncoding(
-                    commandRecordNanos, graph.lastRecordedCommandCount(),
-                    graph.lastRecordedMatrixSnapshots(), graph.lastRecordedObjectPayloads());
+            if (currentSceneFrame != null) {
+                lastVisibilityStatistics = VisibilityStatistics.from(currentSceneFrame.statistics,
+                        commandRecordNanos, graph.lastRecordedCommandCount(),
+                        graph.lastRecordedMatrixSnapshots(), graph.lastRecordedObjectPayloads());
+            }
             postProcess.frameSucceeded();
             if (previewRenderer != null) previewRenderer.frameSucceeded(previewFrameSequence);
         } catch (RuntimeException | Error failure) {
@@ -291,6 +295,7 @@ public final class RenderPipeline {
         GraphPreviewRenderer localPreviewRenderer = previewRenderer;
         List<RenderDevice> localDevices = List.copyOf(usedDevices);
         usedDevices.clear();
+        frameStateInvalidationByMaterial.clear();
         instancedShadowShader = null;
         shadowShader = null;
         postProcess = null;
@@ -361,8 +366,9 @@ public final class RenderPipeline {
                     .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
             com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
             for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
-                MeshRenderer renderer = frame.shadowRenderer(queueIndex);
-                cmd.setUniformMat4(shadowShader, "uModel", frame.shadowModel(queueIndex));
+                int entry = frame.shadowEntry(queueIndex);
+                MeshRenderer renderer = frame.renderer(entry);
+                cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
                 if (renderer.mesh() != boundMesh) {
                     cmd.bindMesh(renderer.mesh());
                     boundMesh = renderer.mesh();
@@ -389,21 +395,37 @@ public final class RenderPipeline {
 
         ShaderProgram boundShader = null;
         MaterialInstance boundMaterial = null;
+        Material boundMaterialTemplate = null;
+        boolean boundMaterialHasOverrides = false;
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+        boolean frontFaceBound = false;
+        boolean boundMirrored = false;
         for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
-            MeshRenderer renderer = frame.forwardRenderer(queueIndex);
-            Matrix4f model = frame.forwardModel(queueIndex);
+            int entry = frame.forwardEntry(queueIndex);
+            MeshRenderer renderer = frame.renderer(entry);
+            Matrix4f model = frame.model(entry);
             MaterialInstance material = renderer.material();
-            ShaderProgram shader = material.material().shader();
-            cmd.frontFace(frame.forwardMirrored(queueIndex) ? FrontFace.CW : FrontFace.CCW);
+            Material materialTemplate = material.material();
+            ShaderProgram shader = materialTemplate.shader();
+            boolean materialHasOverrides = material.hasOverrides();
+            boolean mirrored = frame.mirrored(entry);
+            if (!frontFaceBound || mirrored != boundMirrored) {
+                cmd.frontFace(mirrored ? FrontFace.CW : FrontFace.CCW);
+                frontFaceBound = true;
+                boundMirrored = mirrored;
+            }
             boolean materialChanged = material != boundMaterial;
             boolean materialBindingChanged = materialChanged
-                    && !sharesUnmodifiedMaterialBinding(boundMaterial, material);
+                    && (boundMaterialTemplate != materialTemplate
+                    || boundMaterialHasOverrides || materialHasOverrides);
             if (materialBindingChanged) {
                 material.bind(cmd);
             }
             boundMaterial = material;
-            if (shader != boundShader || materialBindingChanged) {
+            boundMaterialTemplate = materialTemplate;
+            boundMaterialHasOverrides = materialHasOverrides;
+            if (shader != boundShader
+                    || materialBindingChanged && invalidatesFrameState(material)) {
                 bindFrameState(shader, cmd, shadowTexture);
                 if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
                     pbrMaterialBinder.bind(shader, cmd);
@@ -439,7 +461,6 @@ public final class RenderPipeline {
                 Math.max(1, window.height()), lastDirectionalLightSpaceMatrix,
                 shadow.isPresent(), settings.sceneVisibility(), activeFrameIndex);
         currentSceneFrame = built;
-        lastVisibilityStatistics = VisibilityStatistics.from(built.statistics);
         return built;
     }
 
@@ -520,7 +541,11 @@ public final class RenderPipeline {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0);
 
-        private static VisibilityStatistics from(SceneFrame.Statistics source) {
+        private static VisibilityStatistics from(SceneFrame.Statistics source,
+                                                  long commandRecordNanos,
+                                                  int recordedCommands,
+                                                  int recordedMatrixSnapshots,
+                                                  int recordedObjectPayloads) {
             return new VisibilityStatistics(true, source.cullingEnabled(), source.sceneRevision(),
                     source.candidateRenderers(), source.finiteBoundsRenderers(),
                     source.unboundedRenderers(), source.forwardVisible(), source.forwardCulled(),
@@ -534,33 +559,54 @@ public final class RenderPipeline {
                     source.totalQueueBuildNanos(), source.opaqueDraws(), source.additiveDraws(),
                     source.alphaDraws(), source.shaderChanges(), source.materialChanges(),
                     source.meshChanges(), source.blendChanges(), source.mirroredChanges(),
-                    0L, 0, 0, 0);
-        }
-
-        private VisibilityStatistics withCommandEncoding(long nanos, int commands,
-                                                         int matrices, int objects) {
-            if (!available) return this;
-            return new VisibilityStatistics(available, cullingEnabled, sceneRevision,
-                    candidateRenderers, finiteBoundsRenderers, unboundedRenderers,
-                    forwardVisible, forwardCulled, shadowCandidates, shadowVisible,
-                    shadowCulled, staticRenderers, dynamicRenderers, modelCacheHits,
-                    modelCacheMisses, boundsCacheHits, boundsCacheMisses,
-                    forwardQueueReused, forwardQueueRebuilt, shadowQueueReused,
-                    shadowQueueRebuilt, modelUpdateNanos, boundsTransformNanos,
-                    frustumTestNanos, queueSortNanos, totalQueueBuildNanos, opaqueDraws,
-                    additiveDraws, alphaDraws, shaderChanges, materialChanges, meshChanges,
-                    blendChanges, mirroredChanges, nanos, commands, matrices, objects);
+                    commandRecordNanos, recordedCommands, recordedMatrixSnapshots,
+                    recordedObjectPayloads);
         }
     }
 
-    /** 仅无逐对象覆盖的实例可以按同一 Material 模板安全折叠 binding。 */
-    private static boolean sharesUnmodifiedMaterialBinding(MaterialInstance previous,
-                                                            MaterialInstance current) {
-        return previous != null
-                && previous.material() == current.material()
-                && previous.uniformOverrides().isEmpty()
-                && previous.textureOverrides().isEmpty()
-                && current.uniformOverrides().isEmpty()
-                && current.textureOverrides().isEmpty();
+    /** 仅在材质确实覆盖引擎逐帧 binding 时，才需要在材质之后重新提交 frame state。 */
+    private boolean invalidatesFrameState(MaterialInstance instance) {
+        Material material = instance.material();
+        boolean templateInvalidates = frameStateInvalidationByMaterial.computeIfAbsent(material,
+                candidate -> candidate.defaultUniforms().keySet().stream()
+                        .anyMatch(key -> isFrameOwnedUniform(key.name()))
+                        || candidate.defaultTextures().stream()
+                        .anyMatch(binding -> isFrameOwnedTextureUnit(binding.unit())));
+        if (templateInvalidates || !instance.hasOverrides()) return templateInvalidates;
+        for (var key : instance.uniformOverrides().keySet()) {
+            if (isFrameOwnedUniform(key.name())) return true;
+        }
+        for (int unit : instance.textureOverrides().keySet()) {
+            if (isFrameOwnedTextureUnit(unit)) return true;
+        }
+        return false;
+    }
+
+    static boolean isFrameOwnedUniform(String name) {
+        return name.startsWith("uDirectionalLights[")
+                || name.startsWith("uPointLights[")
+                || name.startsWith("uSpotLights[")
+                || name.equals("uDirectionalLightCount")
+                || name.equals("uPointLightCount")
+                || name.equals("uSpotLightCount")
+                || name.equals("uCameraPosition")
+                || name.equals("uDirectionalLightSpace")
+                || name.equals("uDirectionalShadowLightIndex")
+                || name.equals("uHasDirectionalShadow")
+                || name.equals("uShadowMap")
+                || name.equals("uShadowBias")
+                || name.equals("uIrradianceMap")
+                || name.equals("uPrefilteredMap")
+                || name.equals("uBrdfLut")
+                || name.equals("uEnvironmentIntensity")
+                || name.equals("uEnvironmentRotation")
+                || name.equals("uPrefilterMaxLod");
+    }
+
+    private static boolean isFrameOwnedTextureUnit(int unit) {
+        return unit == SHADOW_TEXTURE_UNIT
+                || unit == PbrMaterialBinder.IRRADIANCE_UNIT
+                || unit == PbrMaterialBinder.PREFILTERED_SPECULAR_UNIT
+                || unit == PbrMaterialBinder.BRDF_LUT_UNIT;
     }
 }

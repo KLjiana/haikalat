@@ -355,9 +355,12 @@ public final class UiGlyphAtlasGpu implements AutoCloseable {
             }
             TexturePage page = pages[request.pageIndex()];
             if (page != null && !page.initialized && page.initializingSubmission != 0L) {
-                throw new IllegalStateException("glyph atlas page " + request.pageIndex()
-                        + " is awaiting initialization by submission "
-                        + page.initializingSubmission);
+                Completion initializing = submission(page.initializingSubmission);
+                if (initializing == null || !acceptsDependentUpload(initializing.status)) {
+                    throw new IllegalStateException("glyph atlas page " + request.pageIndex()
+                            + " is awaiting initialization by submission "
+                            + page.initializingSubmission);
+                }
             }
         }
     }
@@ -390,11 +393,20 @@ public final class UiGlyphAtlasGpu implements AutoCloseable {
             if (!page.initialized && page.initializingSubmission == 0L) {
                 page.initializingSubmission = completion.id;
                 completion.pagesToInitialize.add(request.pageIndex());
-            } else if (!page.initialized && page.initializingSubmission != completion.id) {
-                throw new IllegalStateException("glyph atlas page " + request.pageIndex()
-                        + " is already being initialized");
             }
         }
+    }
+
+    private Completion submission(long submissionId) {
+        for (Completion completion : submissions) {
+            if (completion.id == submissionId) return completion;
+        }
+        return null;
+    }
+
+    /** 同一 context 已插入 fence 后，后续 upload 可依赖 OpenGL 命令顺序追加到该 page。 */
+    static boolean acceptsDependentUpload(SubmissionStatus status) {
+        return status == SubmissionStatus.GPU_PENDING;
     }
 
     private void recordPageInitialization(Completion completion, CommandBuffer commands) {

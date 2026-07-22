@@ -1,0 +1,986 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+import java.security.MessageDigest
+import java.time.LocalDate
+import java.time.OffsetDateTime
+
+def reportDirectory = layout.buildDirectory.dir('reports/release')
+def manifestFile = file('docs/licenses/assets.tsv')
+def releaseScopedRoots = ['src/', 'docs/', 'gradle/', 'config/']
+def rootBuildFiles = ['build.gradle', 'demo-tasks.gradle', 'settings.gradle', 'gradle.lockfile']
+def glPolicyFile = file('config/gl-debug-policy.tsv')
+def glReportDirectory = layout.buildDirectory.dir('reports/gl')
+def performanceBaselineFile = file('docs/performance/baselines/v0.17.2-windows-rtx3050.json')
+
+def sha256 = { byte[] bytes ->
+    MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
+}
+
+def runGit = { List<String> arguments ->
+    List<String> command = ['git', '-c',
+                            "safe.directory=${projectDir.toString().replace('\\', '/')}".toString(),
+                            '-c', 'core.excludesFile=']
+    command.addAll(arguments.collect { it.toString() })
+    Process process = new ProcessBuilder(command).directory(projectDir)
+            .redirectErrorStream(true).start()
+    String output = process.inputStream.getText('UTF-8')
+    int exit = process.waitFor()
+    if (exit != 0) {
+        throw new GradleException("Git command failed (${arguments.join(' ')}):\n${output.trim()}")
+    }
+    output
+}
+
+def resourcePaths = {
+    Set<String> result = new TreeSet<>()
+    [fileTree('src/main/resources'), fileTree('src/demo/resources')].each { tree ->
+        tree.files.each { resource ->
+            result.add(project.relativePath(resource).replace('\\', '/'))
+        }
+    }
+    result
+}
+
+def purposeFor = { String path ->
+    String extension = path.lastIndexOf('.') >= 0
+            ? path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT) : ''
+    switch (extension) {
+        case 'vert': case 'frag': case 'comp': return 'Runtime shader'
+        case 'png': case 'jpg': case 'jpeg': case 'hdr': return 'Texture/image asset'
+        case 'gltf': case 'glb': case 'obj': return 'Model asset'
+        case 'ttf': case 'otf': return 'Font asset'
+        case 'properties': return 'Runtime configuration'
+        default: return 'Runtime resource'
+    }
+}
+
+def writeMissingAssetSuggestions = { Set<String> missing ->
+    File output = reportDirectory.get().file('missing-assets.tsv').asFile
+    output.parentFile.mkdirs()
+    List<String> lines = ['# path\tpurpose\towner/source URL\tlicense\tversion/date\tsha256\ttransformation\tredistributable']
+    missing.sort().each { path ->
+        lines.add([path, purposeFor(path), 'TODO', 'TODO', 'TODO',
+                   sha256(file(path).bytes), 'TODO', 'TODO'].join('\t'))
+    }
+    output.setText(lines.join('\n') + '\n', 'UTF-8')
+}
+
+def parseManifest = { File manifest ->
+    if (!manifest.isFile()) throw new GradleException("Missing asset manifest: ${manifest}")
+    Map<String, List<String>> records = new LinkedHashMap<>()
+    Map<String, String> caseFolded = [:]
+    List<String> failures = []
+    manifest.readLines('UTF-8').eachWithIndex { line, lineIndex ->
+        if (!line || line.startsWith('#')) return
+        List<String> fields = line.split('\t', -1) as List<String>
+        int row = lineIndex + 1
+        if (fields.size() != 8 || fields.any { it.isBlank() }) {
+            failures.add("row ${row}: expected exactly 8 non-empty fields")
+            return
+        }
+        String path = fields[0]
+        if (path.contains('\\') || path.startsWith('/') || path ==~ /^[A-Za-z]:.*/
+                || path.split('/').contains('..')) {
+            failures.add("row ${row}: unsafe or non-canonical path '${path}'")
+        }
+        String folded = path.toLowerCase(Locale.ROOT)
+        if (caseFolded.put(folded, path) != null) {
+            failures.add("row ${row}: duplicate path ignoring case '${path}'")
+        }
+        if (records.put(path, fields) != null) failures.add("row ${row}: duplicate path '${path}'")
+        if (!(fields[5] ==~ /[0-9a-f]{64}/)) {
+            failures.add("row ${row}: sha256 must be 64 lowercase hexadecimal characters")
+        }
+        if (fields[7] != 'yes') failures.add("row ${row}: redistributable must be 'yes'")
+        if (fields[2] != 'Haikalat project' && fields[3] == 'project license') {
+            failures.add("row ${row}: third-party resource must name an explicit license")
+        }
+    }
+    if (!failures.isEmpty()) {
+        throw new GradleException('Invalid asset manifest:\n- ' + failures.join('\n- '))
+    }
+    records
+}
+
+def parseGlPolicy = {
+    List<Map<String, Object>> policies = []
+    List<String> failures = []
+    glPolicyFile.readLines('UTF-8').eachWithIndex { line, index ->
+        if (!line || line.startsWith('#')) return
+        List<String> fields = line.split('\t', -1) as List<String>
+        if (fields.size() != 13 || fields.any { it.isBlank() }) {
+            failures.add("row ${index + 1}: expected exactly 13 non-empty fields")
+            return
+        }
+        LocalDate expiry
+        int maximum
+        int messageId
+        try {
+            expiry = LocalDate.parse(fields[11])
+            maximum = Integer.parseInt(fields[12])
+            messageId = Integer.parseInt(fields[5])
+            if (maximum <= 0) throw new IllegalArgumentException('non-positive count')
+            fields[0].matches(fields[0]); fields[1].matches(fields[1])
+            fields[6].matches(fields[6]); fields[7].matches(fields[7])
+        } catch (RuntimeException invalid) {
+            failures.add("row ${index + 1}: invalid regex/date/count: ${invalid.message}")
+            return
+        }
+        policies.add([vendor: fields[0], renderer: fields[1], severity: fields[2],
+                      source: fields[3], type: fields[4], id: messageId,
+                      entry: fields[6], message: fields[7], rationale: fields[8], owner: fields[9],
+                      added: fields[10], expiry: expiry, maximum: maximum, row: index + 1])
+    }
+    if (!failures.isEmpty()) throw new GradleException('Invalid GL debug policy:\n- ' + failures.join('\n- '))
+    policies
+}
+
+def auditGlText = { String entry, String textValue, List<Map<String, Object>> policies ->
+    String vendor = 'unavailable'
+    String renderer = 'unavailable'
+    def identity = textValue =~ /OpenGL debug output enabled vendor=(.*?) renderer=(.*?) version=/
+    if (identity.find()) {
+        vendor = identity.group(1).trim()
+        renderer = identity.group(2).trim()
+    }
+    List<Map<String, Object>> messages = []
+    List<String> violations = []
+    if (textValue =~ /GL_INVALID_[A-Z_]+/) {
+        (textValue =~ /GL_INVALID_[A-Z_]+/).each { violations.add("${entry}: ${it}") }
+    }
+    def matcher = textValue =~ /OpenGL ([A-Z_]+) \[(HIGH|MEDIUM|LOW|NOTIFICATION)] source=([A-Z_]+) id=(\d+): ([^\r\n<]*)/
+    Map<Integer, Integer> counts = [:].withDefault { 0 }
+    matcher.each { full, type, severity, source, idText, message ->
+        int id = Integer.parseInt(idText)
+        Map<String, Object> found = policies.find { policy ->
+            vendor ==~ policy.vendor && renderer ==~ policy.renderer
+                    && severity == policy.severity && source == policy.source
+                    && type == policy.type && id == policy.id
+                    && entry ==~ policy.entry && message.trim() ==~ policy.message
+                    && !LocalDate.now().isAfter(policy.expiry as LocalDate)
+        }
+        Map<String, Object> item = [entry: entry, vendor: vendor, renderer: renderer,
+                                    severity: severity, source: source, type: type,
+                                    id: id, message: message.trim(), authorized: found != null]
+        messages.add(item)
+        if (severity in ['HIGH', 'MEDIUM']) {
+            if (found == null) {
+                violations.add("${entry}: unauthorized ${severity} ${source}/${type} id=${id}: ${message.trim()}")
+            } else {
+                counts[found.row as Integer]++
+                if (counts[found.row as Integer] > (found.maximum as Integer)) {
+                    violations.add("${entry}: policy row ${found.row} exceeded max count ${found.maximum}")
+                }
+            }
+        }
+    }
+    [messages: messages, violations: violations, vendor: vendor, renderer: renderer]
+}
+
+def auditGlFiles = { Map<String, File> inputs ->
+    List<Map<String, Object>> policies = parseGlPolicy()
+    List<Map<String, Object>> messages = []
+    List<String> violations = []
+    inputs.sort { it.key }.each { entry, input ->
+        if (!input.isFile()) return
+        def result = auditGlText(entry, input.getText('UTF-8'), policies)
+        messages.addAll(result.messages)
+        violations.addAll(result.violations)
+    }
+    [messages: messages, violations: violations]
+}
+
+tasks.register('suggestAssetManifestEntries') {
+    group = 'verification'
+    description = 'Writes non-authoritative TODO rows for resources missing from assets.tsv.'
+    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
+    outputs.file reportDirectory.map { it.file('missing-assets.tsv') }
+    doLast {
+        Map<String, List<String>> records = parseManifest(manifestFile)
+        writeMissingAssetSuggestions(resourcePaths() - records.keySet())
+    }
+}
+
+tasks.register('assetManifestGuard') {
+    group = 'verification'
+    description = 'Strictly verifies resource provenance, canonical paths and lowercase SHA-256 values.'
+    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
+    doLast {
+        Map<String, List<String>> records = parseManifest(manifestFile)
+        Set<String> resources = resourcePaths()
+        Set<String> missing = resources - records.keySet()
+        Set<String> stale = records.keySet() - resources
+        if (!missing.isEmpty()) writeMissingAssetSuggestions(missing)
+        List<String> failures = []
+        if (!missing.isEmpty()) failures.add("missing=${missing.sort()}")
+        if (!stale.isEmpty()) failures.add("stale=${stale.sort()}")
+        records.each { path, fields ->
+            if (!file(path).isFile()) return
+            String actual = sha256(file(path).bytes)
+            if (actual != fields[5]) {
+                failures.add("hash path=${path} expected=${fields[5]} actual=${actual}")
+            }
+        }
+        if (!failures.isEmpty()) {
+            throw new GradleException('Asset manifest verification failed:\n- ' + failures.join('\n- '))
+        }
+    }
+}
+
+tasks.register('releaseVerificationContracts') {
+    group = 'verification'
+    description = 'Exercises release path, hash and candidate-row invariants without a desktop.'
+    doLast {
+        assert sha256('abc'.getBytes('UTF-8')) ==
+                'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+        ['../escape', '/absolute', 'C:/absolute', 'nested\\windows'].each { path ->
+            assert path.contains('\\') || path.startsWith('/') || path ==~ /^[A-Za-z]:.*/
+                    || path.split('/').contains('..')
+        }
+        assert purposeFor('shader.frag') == 'Runtime shader'
+        assert purposeFor('model.gltf') == 'Model asset'
+        List<Map<String, Object>> policies = parseGlPolicy()
+        assert policies.size() == 6
+        def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
+                'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
+                        + 'OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive', policies)
+        assert allowed.violations.isEmpty()
+        def rejected = auditGlText('runUnknownIntegration',
+                'OpenGL PERFORMANCE [MEDIUM] source=API id=424242: unknown', policies)
+        assert rejected.violations.size() == 1
+        def invalid = auditGlText('runUnknownIntegration', 'probe: GL_INVALID_OPERATION (1282)', policies)
+        assert invalid.violations.size() == 1
+    }
+}
+
+tasks.named('glSmoke', Test) { Test smoke ->
+    inputs.file glPolicyFile
+    doLast {
+        Map<String, File> reportFiles = [:]
+        fileTree(smoke.reports.junitXml.outputLocation.get().asFile).matching { include '*.xml' }
+                .files.each { reportFiles[it.name] = it }
+        def audit = auditGlFiles(reportFiles)
+        if (!audit.violations.isEmpty()) {
+            throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
+        }
+    }
+}
+
+tasks.withType(JavaExec).configureEach { JavaExec integration ->
+    if (integration.group != 'verification'
+            && !(integration.name in ['runSceneSubmissionStaticBenchmarks', 'runPreviewBenchmarks'])) return
+    File logFile = glReportDirectory.get().file("${integration.name}.log").asFile
+    outputs.file logFile
+    ignoreExitValue = true
+    doFirst {
+        logFile.parentFile.mkdirs()
+        OutputStream output = new BufferedOutputStream(new FileOutputStream(logFile, false))
+        integration.extensions.extraProperties.set('glPolicyLogOutput', output)
+        standardOutput = new org.apache.tools.ant.util.TeeOutputStream(System.out, output)
+        errorOutput = new org.apache.tools.ant.util.TeeOutputStream(System.err, output)
+    }
+    doLast {
+        OutputStream output = integration.extensions.extraProperties.get('glPolicyLogOutput') as OutputStream
+        output.flush()
+        output.close()
+        def audit = auditGlFiles([(integration.name): logFile])
+        int exit = executionResult.get().exitValue
+        if (exit != 0) {
+            GradleException processFailure = new GradleException(
+                    "${integration.path} process exited with code ${exit}; log=${logFile}")
+            if (!audit.violations.isEmpty()) {
+                processFailure.addSuppressed(new GradleException(
+                        'OpenGL debug-log violations:\n- ' + audit.violations.join('\n- ')))
+            }
+            throw processFailure
+        }
+        if (!audit.violations.isEmpty()) {
+            throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
+        }
+    }
+}
+
+def glPolicyProducerTasks = {
+    Set<Task> visited = new LinkedHashSet<>()
+    List<Task> pending = ['localGlVerification', 'runSceneSubmissionStaticBenchmarks',
+                          'runPreviewBenchmarks'].collect { tasks.named(it).get() }
+    while (!pending.isEmpty()) {
+        Task task = pending.remove(pending.size() - 1)
+        if (!visited.add(task)) continue
+        pending.addAll(task.taskDependencies.getDependencies(task))
+    }
+    visited.findAll { Task candidate ->
+        candidate instanceof JavaExec || (candidate instanceof Test
+                && candidate.systemProperties['haikalat.glSmoke']?.toString() == 'true')
+    }
+}
+def glPolicyJavaExecProducers = {
+    glPolicyProducerTasks().findAll { it instanceof JavaExec } as List<JavaExec>
+}
+def glPolicyTestProducers = {
+    glPolicyProducerTasks().findAll { it instanceof Test } as List<Test>
+}
+
+tasks.register('glDebugPolicyGuard') {
+    group = 'verification'
+    description = 'Audits JUnit and JavaExec OpenGL logs through config/gl-debug-policy.tsv.'
+    dependsOn { glPolicyProducerTasks() }
+    inputs.file glPolicyFile
+    inputs.files {
+        glPolicyJavaExecProducers().collect { JavaExec producer ->
+            glReportDirectory.get().file("${producer.name}.log").asFile
+        }
+    }
+    inputs.files {
+        glPolicyTestProducers().collect { Test producer ->
+            producer.reports.junitXml.outputLocation.get().asFile
+        }
+    }
+    outputs.file reportDirectory.map { it.file('gl-messages.json') }
+    doLast {
+        Map<String, File> inputs = [:]
+        glPolicyTestProducers().each { Test producer ->
+            fileTree(producer.reports.junitXml.outputLocation).matching { include '**/*.xml' }
+                    .files.each { inputs["${producer.name}/${it.name}"] = it }
+        }
+        glPolicyJavaExecProducers().each { JavaExec producer ->
+            File log = glReportDirectory.get().file("${producer.name}.log").asFile
+            inputs[producer.name] = log
+        }
+        def audit = auditGlFiles(inputs)
+        File output = reportDirectory.get().file('gl-messages.json').asFile
+        output.parentFile.mkdirs()
+        Map<String, Object> summary = [schemaVersion: 1, policy: project.relativePath(glPolicyFile),
+                                       entries: inputs.keySet().sort(), messages: audit.messages,
+                                       counts: audit.messages.countBy { it.severity },
+                                       success: audit.violations.isEmpty(), violations: audit.violations]
+        output.setText(JsonOutput.prettyPrint(JsonOutput.toJson(summary)) + '\n', 'UTF-8')
+        if (!audit.violations.isEmpty()) {
+            throw new GradleException('OpenGL debug policy failed:\n- ' + audit.violations.join('\n- '))
+        }
+    }
+}
+
+def median = { List<Double> values ->
+    List<Double> sorted = values.findAll { it != null && Double.isFinite(it) }.sort()
+    if (sorted.isEmpty()) return null
+    int middle = sorted.size().intdiv(2)
+    (sorted.size() & 1) == 0 ? (sorted[middle - 1] + sorted[middle]) * 0.5 : sorted[middle]
+}
+
+def requiredPerformanceScenarios = ['static-all-hidden', 'static-mostly-hidden',
+                                    'static-all-visible', 'preview-closed',
+                                    'preview-direct-hdr', 'lifecycle-id-reuse']
+
+def performanceComparabilityReasons = { Object baseline, Object current ->
+    List<String> reasons = []
+    ['os', 'arch', 'java', 'lwjgl', 'glVendor', 'glRenderer', 'glVersion'].each { field ->
+        def baselineValue = baseline.environment?.get(field)
+        def currentValue = current.environment?.get(field)
+        if (baselineValue != currentValue) {
+            reasons.add("environment.${field}: baseline='${baselineValue}' current='${currentValue}'")
+        }
+    }
+    ['scene', 'layout', 'objectCount', 'width', 'height', 'vsync', 'debug',
+     'warmup', 'samples', 'rounds'].each { field ->
+        requiredPerformanceScenarios.each { name ->
+            def baselineScenario = baseline.scenarios?.find { it.name == name }
+            def currentScenario = current.scenarios?.find { it.name == name }
+            if (baselineScenario != null && currentScenario != null
+                    && baselineScenario[field] != currentScenario[field]) {
+                reasons.add("scenario.${name}.${field}: baseline='${baselineScenario[field]}' current='${currentScenario[field]}'")
+            }
+        }
+    }
+    reasons
+}
+
+def sameCandidateIdentity = { Object left, Object right ->
+    ['head', 'branch', 'dirty', 'stagedDiffSha256'].every { field ->
+        left?.get(field) == right?.get(field)
+    }
+}
+
+tasks.named('releaseVerificationContracts') {
+    doLast {
+        def matching = [environment: [os: 'Windows', arch: 'amd64', java: '21', lwjgl: '3',
+                                      glVendor: 'Vendor', glRenderer: 'Renderer', glVersion: '4.6'],
+                        scenarios: requiredPerformanceScenarios.collect { name ->
+                            [name: name, scene: 'scene', layout: 'layout', objectCount: 1,
+                             width: 1280, height: 720, vsync: false, debug: true,
+                             warmup: 100, samples: 1000, rounds: 5]
+                        }]
+        assert performanceComparabilityReasons(matching, matching).isEmpty()
+        def mismatching = new JsonSlurper().parseText(JsonOutput.toJson(matching))
+        mismatching.environment.glRenderer = 'Different Renderer'
+        mismatching.scenarios.find { it.name == 'static-all-visible' }.samples = 999
+        List<String> reasons = performanceComparabilityReasons(matching, mismatching)
+        assert reasons.any { it.startsWith('environment.glRenderer:') }
+        assert reasons.any { it.startsWith('scenario.static-all-visible.samples:') }
+
+        Task guard = tasks.named('glDebugPolicyGuard').get()
+        Set<Task> dependencies = guard.taskDependencies.getDependencies(guard)
+        assert dependencies.containsAll(glPolicyJavaExecProducers())
+        assert dependencies.containsAll(glPolicyTestProducers())
+        Set<String> declaredInputs = guard.inputs.files.files*.name as Set<String>
+        assert declaredInputs.contains('gl-debug-policy.tsv')
+        assert declaredInputs.any { it.endsWith('.log') }
+    }
+}
+
+def validatePerformanceResult = { Object candidate, String source ->
+    List<String> failures = []
+    if (!(candidate instanceof Map) || candidate.schemaVersion != 1) {
+        failures.add('schemaVersion must be 1')
+    }
+    ['projectVersion', 'timestamp', 'timezone'].each { field ->
+        if (!candidate[field]) failures.add("missing ${field}")
+    }
+    ['head', 'branch', 'dirty', 'stagedDiffSha256'].each { field ->
+        if (candidate.git == null || !candidate.git.containsKey(field)) failures.add("missing git.${field}")
+    }
+    ['os', 'arch', 'java', 'lwjgl', 'glVendor', 'glRenderer', 'glVersion'].each { field ->
+        if (candidate.environment == null || !candidate.environment[field]) {
+            failures.add("missing environment.${field}")
+        }
+    }
+    if (!(candidate.scenarios instanceof List)) {
+        failures.add('scenarios must be an array')
+    } else {
+        List<String> names = candidate.scenarios.collect { it.name }
+        requiredPerformanceScenarios.each { name ->
+            if (names.count(name) != 1) failures.add("scenario '${name}' must occur exactly once")
+        }
+        candidate.scenarios.eachWithIndex { scenario, index ->
+            ['name', 'task', 'arguments', 'scene', 'layout', 'objectCount',
+             'width', 'height', 'vsync', 'debug',
+             'warmup', 'samples', 'rounds', 'success'].each { field ->
+                if (!scenario.containsKey(field)) failures.add("scenarios[${index}] missing ${field}")
+            }
+            ['objectCount', 'width', 'height', 'warmup', 'samples', 'rounds'].each { field ->
+                if (scenario.containsKey(field) && (!(scenario[field] instanceof Number)
+                        || (scenario[field] as Number).longValue() < 0L)) {
+                    failures.add("scenarios[${index}].${field} must be non-negative")
+                }
+            }
+            ['cpuAverageMillis', 'cpuMedianMillis', 'gpuAverageMillis', 'gpuMedianMillis',
+             'queueMillis', 'commandMillis', 'allocationKiBPerFrame', 'presentFps',
+             'totalMillis', 'glMessageCount'].each { field ->
+                if (scenario[field] != null && (!(scenario[field] instanceof Number)
+                        || !Double.isFinite((scenario[field] as Number).doubleValue())
+                        || (scenario[field] as Number).doubleValue() < 0.0d)) {
+                    failures.add("scenarios[${index}].${field} must be finite and non-negative")
+                }
+            }
+        }
+        def lifecycle = candidate.scenarios.find { it.name == 'lifecycle-id-reuse' }
+        ['totalMillis', 'glMessageCount'].each { field ->
+            if (lifecycle != null && !lifecycle.containsKey(field)) {
+                failures.add("lifecycle-id-reuse missing ${field}")
+            }
+        }
+    }
+    if (!(candidate.glMessages instanceof List)) failures.add('glMessages must be an array')
+    ['total', 'high', 'medium', 'unauthorized'].each { field ->
+        if (!(candidate.glMessageSummary instanceof Map)
+                || !(candidate.glMessageSummary[field] instanceof Number)
+                || (candidate.glMessageSummary[field] as Number).longValue() < 0L) {
+            failures.add("glMessageSummary.${field} must be non-negative")
+        }
+    }
+    if (!candidate.containsKey('success') || !(candidate.success instanceof Boolean)) {
+        failures.add('success must be boolean')
+    }
+    if (!(candidate.incomparableReasons instanceof List)
+            || candidate.incomparableReasons.any { !(it instanceof String) || it.isBlank() }) {
+        failures.add('incomparableReasons must be an array of non-blank strings')
+    }
+    if (candidate.success == true && candidate.incomparableReasons instanceof List
+            && !candidate.incomparableReasons.isEmpty()) {
+        failures.add('success cannot be true when incomparableReasons is non-empty')
+    }
+    if (!failures.isEmpty()) {
+        throw new GradleException("Invalid performance result ${source}:\n- " + failures.join('\n- '))
+    }
+}
+
+tasks.named('releaseVerificationContracts') {
+    doLast {
+        def baseline = new JsonSlurper().parse(performanceBaselineFile)
+        baseline.incomparableReasons = ['environment.glRenderer differs']
+        baseline.success = true
+        boolean rejected = false
+        try {
+            validatePerformanceResult(baseline, 'synthetic-incomparable-result')
+        } catch (GradleException expected) {
+            rejected = expected.message.contains('success cannot be true')
+        }
+        assert rejected
+        assert sameCandidateIdentity(
+                [head: 'a', branch: 'main', dirty: false, stagedDiffSha256: 'b'],
+                [head: 'a', branch: 'main', dirty: false, stagedDiffSha256: 'b'])
+        assert !sameCandidateIdentity(
+                [head: 'a', branch: 'main', dirty: false, stagedDiffSha256: 'b'],
+                [head: 'a', branch: 'main', dirty: true, stagedDiffSha256: 'b'])
+    }
+}
+
+tasks.register('writePerformanceResult') {
+    group = 'verification'
+    description = 'Writes the schema-v1 static, preview and lifecycle performance result.'
+    dependsOn 'runSceneSubmissionStaticBenchmarks', 'runPreviewBenchmarks',
+            'glResourceLifecycleVerification', 'releaseGitGuard'
+    inputs.file 'config/performance-baseline.schema.json'
+    inputs.file performanceBaselineFile
+    inputs.file reportDirectory.map { it.file('git-candidate.json') }
+    inputs.file glReportDirectory.map { it.file('runSceneSubmissionStaticBenchmarks.log') }
+    inputs.file glReportDirectory.map { it.file('runPreviewBenchmarks.log') }
+    inputs.dir layout.buildDirectory.dir('test-results/glResourceLifecycleVerification')
+    outputs.file layout.buildDirectory.file('reports/performance/current.json')
+    doLast {
+        File staticLog = glReportDirectory.get().file('runSceneSubmissionStaticBenchmarks.log').asFile
+        File previewLog = glReportDirectory.get().file('runPreviewBenchmarks.log').asFile
+        String staticText = staticLog.getText('UTF-8')
+        String previewText = previewLog.getText('UTF-8')
+        def staticConfigMatch = staticText =~ /\[SceneHardeningBenchmark] config objects=(\d+) size=(\d+)x(\d+) warmup=(\d+) samples=(\d+) rounds=(\d+)/
+        if (!staticConfigMatch.find()) {
+            throw new GradleException('Static benchmark log does not contain its effective configuration')
+        }
+        Map<String, Integer> staticConfig = [objects: staticConfigMatch.group(1) as int,
+                                             width: staticConfigMatch.group(2) as int,
+                                             height: staticConfigMatch.group(3) as int,
+                                             warmup: staticConfigMatch.group(4) as int,
+                                             samples: staticConfigMatch.group(5) as int,
+                                             rounds: staticConfigMatch.group(6) as int]
+        def previewConfigMatch = previewText =~ /\[PreviewBenchmark] config objects=(\d+) size=(\d+)x(\d+) warmup=(\d+) samples=(\d+) rounds=(\d+)/
+        if (!previewConfigMatch.find()) {
+            throw new GradleException('Preview benchmark log does not contain its effective configuration')
+        }
+        Map<String, Integer> previewConfig = [objects: previewConfigMatch.group(1) as int,
+                                              width: previewConfigMatch.group(2) as int,
+                                              height: previewConfigMatch.group(3) as int,
+                                              warmup: previewConfigMatch.group(4) as int,
+                                              samples: previewConfigMatch.group(5) as int,
+                                              rounds: previewConfigMatch.group(6) as int]
+        List<Map<String, Object>> scenarios = []
+        Map<String, List<Map<String, Double>>> staticRounds = [:].withDefault { [] }
+        def scenePattern = ~/SceneScalability round=\d+ objects=10000 layout=([a-z-]+).*CPU\(avg\/median\)=([0-9.]+)\/([0-9.]+)ms GPU\(avg\/median\)=([0-9.]+)\/([0-9.]+)ms queue\/model\/bounds\/frustum\/sort=([0-9.]+)\/.*command=([0-9.]+)ms .*allocation=([0-9.]+)KiB\/frame/
+        staticLog.eachLine('UTF-8') { line ->
+            def match = line =~ scenePattern
+            if (match.find()) {
+                staticRounds[match.group(1)].add([cpuAverage: match.group(2) as double,
+                                                  cpuMedian: match.group(3) as double,
+                                                  gpuAverage: match.group(4) as double,
+                                                  gpuMedian: match.group(5) as double,
+                                                  queue: match.group(6) as double,
+                                                  command: match.group(7) as double,
+                                                  allocation: match.group(8) as double])
+            }
+        }
+        ['all-hidden', 'large', 'all-visible'].each { layoutName ->
+            List<Map<String, Double>> rounds = staticRounds[layoutName]
+            scenarios.add([name: layoutName == 'large' ? 'static-mostly-hidden' : "static-${layoutName}",
+                           task: 'runSceneSubmissionStaticBenchmarks',
+                            arguments: ["--objects=${staticConfig.objects}", "--layout=${layoutName}", '--model-source=static',
+                                        '--visibility=enabled', '--static-cache=enabled', '--queue-cache=enabled',
+                                        "--size=${staticConfig.width}x${staticConfig.height}",
+                                        "--warmup=${staticConfig.warmup}", "--frames=${staticConfig.samples}",
+                                        "--rounds=${staticConfig.rounds}"],
+                            scene: 'programmatic-static', layout: layoutName, objectCount: staticConfig.objects,
+                            width: staticConfig.width, height: staticConfig.height, vsync: false, debug: true,
+                            warmup: staticConfig.warmup, samples: staticConfig.samples,
+                            rounds: staticConfig.rounds,
+                           cpuAverageMillis: median(rounds*.cpuAverage),
+                           cpuMedianMillis: median(rounds*.cpuMedian),
+                           gpuAverageMillis: median(rounds*.gpuAverage),
+                           gpuMedianMillis: median(rounds*.gpuMedian),
+                           queueMillis: median(rounds*.queue), commandMillis: median(rounds*.command),
+                           allocationKiBPerFrame: median(rounds*.allocation),
+                            success: rounds.size() == staticConfig.rounds])
+        }
+
+        Map<String, List<Map<String, Double>>> previewRounds = [:].withDefault { [] }
+        String currentMode = null
+        previewLog.eachLine('UTF-8') { line ->
+            def marker = line =~ /\[PreviewBenchmark] round=\d+ mode=([a-z-]+)/
+            if (marker.find()) currentMode = marker.group(1)
+            def values = line =~ /LearnOpenGL \[FORMAL].*present FPS ([0-9.]+) \| CPU avg\/median ([0-9.]+)\/([0-9.]+) ms \| GPU avg\/median ([0-9.]+)\/([0-9.]+) ms/
+            if (currentMode != null && values.find()) {
+                previewRounds[currentMode].add([fps: values.group(1) as double,
+                                                cpuAverage: values.group(2) as double,
+                                                cpuMedian: values.group(3) as double,
+                                                gpuAverage: values.group(4) as double,
+                                                gpuMedian: values.group(5) as double])
+            }
+        }
+        ['closed', 'direct-hdr'].each { mode ->
+            List<Map<String, Double>> rounds = previewRounds[mode]
+            scenarios.add([name: "preview-${mode}", task: 'runPreviewBenchmarks',
+                           arguments: ["--mode=${mode}", '--aa=MSAA',
+                                       "--size=${previewConfig.width}x${previewConfig.height}",
+                                       "--warmup=${previewConfig.warmup}", "--frames=${previewConfig.samples}",
+                                       "--rounds=${previewConfig.rounds}"], scene: 'LearnOpenGlDemo',
+                            layout: mode, objectCount: previewConfig.objects,
+                            width: previewConfig.width, height: previewConfig.height,
+                            vsync: false, debug: true, warmup: previewConfig.warmup,
+                            samples: previewConfig.samples, rounds: previewConfig.rounds,
+                            presentFps: median(rounds*.fps),
+                           cpuAverageMillis: median(rounds*.cpuAverage),
+                           cpuMedianMillis: median(rounds*.cpuMedian),
+                           gpuAverageMillis: median(rounds*.gpuAverage),
+                            gpuMedianMillis: median(rounds*.gpuMedian),
+                            success: rounds.size() == previewConfig.rounds])
+        }
+
+        File lifecycleXml = fileTree(layout.buildDirectory.dir(
+                'test-results/glResourceLifecycleVerification')).matching { include '**/*.xml' }
+                .files.find { it.name.contains('GlResourceLifecycleTest') }
+        String lifecycleText = lifecycleXml == null ? '' : lifecycleXml.getText('UTF-8')
+        def lifecycleConfigMatch = lifecycleText =~ /\[GlResourceLifecycle] config objects=(\d+) size=(\d+)x(\d+) warmup=(\d+) rounds=(\d+)/
+        if (!lifecycleConfigMatch.find()) {
+            throw new GradleException('Lifecycle verification XML does not contain its effective configuration')
+        }
+        Map<String, Integer> lifecycleConfig = [objects: lifecycleConfigMatch.group(1) as int,
+                                                width: lifecycleConfigMatch.group(2) as int,
+                                                height: lifecycleConfigMatch.group(3) as int,
+                                                warmup: lifecycleConfigMatch.group(4) as int,
+                                                rounds: lifecycleConfigMatch.group(5) as int]
+        def suiteTag = lifecycleText =~ /<testsuite\b([^>]*)>/
+        String suiteAttributes = suiteTag.find() ? suiteTag.group(1) : ''
+        def testsAttribute = suiteAttributes =~ /\btests="(\d+)"/
+        def timeAttribute = suiteAttributes =~ /\btime="([0-9.]+)"/
+        int lifecycleSamples = testsAttribute.find() ? testsAttribute.group(1) as int : 0
+        double lifecycleTotalMillis = timeAttribute.find()
+                ? (timeAttribute.group(1) as double) * 1000.0d : 0.0d
+        def lifecycleAudit = auditGlFiles(lifecycleXml == null
+                ? [:] : [glResourceLifecycleVerification: lifecycleXml])
+        boolean lifecycleSuccess = lifecycleXml != null && lifecycleSamples > 0
+                && !lifecycleText.contains('<failure') && !lifecycleText.contains('<error')
+                && lifecycleAudit.violations.isEmpty()
+        scenarios.add([name: 'lifecycle-id-reuse', task: 'glResourceLifecycleVerification',
+                       arguments: ['-Dhaikalat.glSmoke=true'], scene: 'resource-lifecycle',
+                       layout: 'id-reuse/multi-context', objectCount: lifecycleConfig.objects,
+                       width: lifecycleConfig.width, height: lifecycleConfig.height,
+                       vsync: false, debug: true, warmup: lifecycleConfig.warmup,
+                       samples: lifecycleSamples, rounds: lifecycleConfig.rounds,
+                       totalMillis: lifecycleTotalMillis,
+                       glMessageCount: lifecycleAudit.messages.size(),
+                       success: lifecycleSuccess])
+
+        def identity = staticText =~ /OpenGL debug output enabled vendor=(.*?) renderer=(.*?) version=([^\r\n<]*)/
+        String vendor = 'unavailable', renderer = 'unavailable', glVersion = 'unavailable'
+        if (identity.find()) {
+            vendor = identity.group(1).trim(); renderer = identity.group(2).trim()
+            glVersion = identity.group(3).trim()
+        }
+        File gitFactsFile = reportDirectory.get().file('git-candidate.json').asFile
+        def gitFacts = new JsonSlurper().parse(gitFactsFile)
+        Map<String, File> performanceInputs = [
+                runSceneSubmissionStaticBenchmarks: staticLog,
+                runPreviewBenchmarks: previewLog]
+        if (lifecycleXml != null) {
+            performanceInputs.glResourceLifecycleVerification = lifecycleXml
+        }
+        def performanceAudit = auditGlFiles(performanceInputs)
+        Map<String, Integer> glMessageSummary = [
+                total: performanceAudit.messages.size(),
+                high: performanceAudit.messages.count { it.severity == 'HIGH' },
+                medium: performanceAudit.messages.count { it.severity == 'MEDIUM' },
+                unauthorized: performanceAudit.messages.count { !it.authorized }
+        ]
+        Map<String, Object> result = [
+                schemaVersion: 1, projectVersion: project.version.toString(),
+                 git: [head: gitFacts.head, branch: gitFacts.branch, dirty: gitFacts.dirty,
+                       stagedDiffSha256: gitFacts.stagedDiffSha256],
+                timestamp: OffsetDateTime.now().toString(), timezone: java.time.ZoneId.systemDefault().id,
+                environment: [os: System.getProperty('os.name'), arch: System.getProperty('os.arch'),
+                              java: javaToolchains.launcherFor {
+                                  languageVersion = JavaLanguageVersion.of(21)
+                              }.get().metadata.languageVersion.toString(),
+                              lwjgl: project.ext.lwjglVersion,
+                              glVendor: vendor, glRenderer: renderer, glVersion: glVersion],
+                scenarios: scenarios,
+                glMessages: performanceAudit.messages,
+                glMessageSummary: glMessageSummary,
+                 success: false,
+                 incomparableReasons: []
+        ]
+        def baseline = new JsonSlurper().parse(performanceBaselineFile)
+        result.incomparableReasons = (performanceAudit.violations
+                + performanceComparabilityReasons(baseline, result)).unique()
+        result.success = scenarios.every { it.success }
+                && performanceAudit.violations.isEmpty()
+                && result.incomparableReasons.isEmpty()
+        File output = layout.buildDirectory.file('reports/performance/current.json').get().asFile
+        output.parentFile.mkdirs()
+        output.setText(JsonOutput.prettyPrint(JsonOutput.toJson(result)) + '\n', 'UTF-8')
+        validatePerformanceResult(result, output.toString())
+        if (!result.success) throw new GradleException('Performance result is incomplete: ' + output)
+    }
+}
+
+tasks.register('comparePerformanceBaseline') {
+    group = 'verification'
+    description = 'Compares matching schema-v1 results without crossing environment fingerprints.'
+    dependsOn 'writePerformanceResult'
+    inputs.file performanceBaselineFile
+    inputs.file layout.buildDirectory.file('reports/performance/current.json')
+    doLast {
+        def baseline = new JsonSlurper().parse(performanceBaselineFile)
+        def current = new JsonSlurper().parse(layout.buildDirectory.file(
+                'reports/performance/current.json').get().asFile)
+        validatePerformanceResult(baseline, 'docs/performance/baselines/v0.17.2-windows-rtx3050.json')
+        validatePerformanceResult(current, 'build/reports/performance/current.json')
+        List<String> mismatch = performanceComparabilityReasons(baseline, current)
+        if (current.incomparableReasons != mismatch) {
+            throw new GradleException('Performance incomparableReasons do not match the audited baseline: '
+                    + "recorded=${current.incomparableReasons}, audited=${mismatch}")
+        }
+        if (!mismatch.isEmpty()) {
+            throw new GradleException('Performance baseline is not directly comparable:\n- '
+                    + mismatch.join('\n- '))
+        }
+        def hidden = current.scenarios.find { it.name == 'static-all-hidden' }
+        if (hidden == null || hidden.rounds < 5 || hidden.queueMillis > 0.15d) {
+            throw new GradleException('static-all-hidden did not satisfy five-round 0.15 ms queue gate')
+        }
+        def currentVisible = current.scenarios.find { it.name == 'static-all-visible' }
+        def baselineVisible = baseline.scenarios.find { it.name == 'static-all-visible' }
+        if (baselineVisible != null && currentVisible.cpuMedianMillis
+                > baselineVisible.cpuMedianMillis * 1.05d) {
+            throw new GradleException('static-all-visible CPU median regressed by more than 5%')
+        }
+    }
+}
+
+tasks.register('releaseGitGuard') {
+    group = 'verification'
+    description = 'Requires a fully staged release candidate and emits reproducible Git fingerprints.'
+    doLast {
+        List<String> lines = runGit(['status', '--porcelain=v1', '--untracked-files=all']).readLines()
+        List<String> unstaged = []
+        List<String> untracked = []
+        lines.each { line ->
+            if (line.startsWith('?? ')) {
+                String path = line.substring(3).replace('\\', '/')
+                if (releaseScopedRoots.any { path.startsWith(it) } || rootBuildFiles.contains(path)) {
+                    untracked.add(path)
+                }
+            } else if (line.length() >= 3 && line.charAt(1) != ' ') {
+                unstaged.add(line)
+            }
+        }
+        if (!unstaged.isEmpty() || !untracked.isEmpty()) {
+            throw new GradleException("Release candidate is not fully staged; unstaged=${unstaged}, untracked=${untracked}")
+        }
+        List<String> deleted = runGit(['diff', '--cached', '--name-only', '--diff-filter=D'])
+                .readLines().collect { it.replace('\\', '/') }
+        List<String> staged = runGit(['diff', '--cached', '--name-only']).readLines()
+        if (deleted.any { it.startsWith('src/main/resources/') || it.startsWith('src/demo/resources/') }
+                && !staged.contains('docs/licenses/assets.tsv')) {
+            throw new GradleException('Staged resource deletion requires docs/licenses/assets.tsv update')
+        }
+        Map<String, Object> facts = [
+                head: runGit(['rev-parse', 'HEAD']).trim(),
+                branch: runGit(['branch', '--show-current']).trim() ?: 'DETACHED',
+                dirty: false,
+                stagedDiffSha256: sha256(runGit(['diff', '--cached', '--binary']).getBytes('UTF-8')),
+                candidateTreeSha256: sha256(runGit(['ls-files', '--stage']).getBytes('UTF-8')),
+                stagedPaths: staged.sort()
+        ]
+        File output = reportDirectory.get().file('git-candidate.json').asFile
+        output.parentFile.mkdirs()
+        output.setText(JsonOutput.prettyPrint(JsonOutput.toJson(facts)) + '\n', 'UTF-8')
+    }
+}
+
+tasks.register('releaseCleanTreeGuard') {
+    group = 'verification'
+    description = 'Requires a completely clean worktree and index after the release commit.'
+    doLast {
+        String status = runGit(['status', '--porcelain=v1', '--untracked-files=all']).trim()
+        if (!status.isEmpty()) throw new GradleException("Release tree is not clean:\n${status}")
+    }
+}
+
+tasks.register('releaseMetadataGuard') {
+    group = 'verification'
+    description = 'Verifies formal version, changelog, capability matrix and release-report consistency.'
+    doLast {
+        String expected = providers.gradleProperty('releaseVersion').orNull
+        if (expected == null || !(expected ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)) {
+            throw new GradleException('releaseMetadataGuard requires -PreleaseVersion=<semver>')
+        }
+        if (project.version.toString() != expected) {
+            throw new GradleException("Project version ${project.version} does not equal releaseVersion ${expected}")
+        }
+        File report = file("docs/releases/v${expected}-release-report.md")
+        if (!report.isFile()) throw new GradleException("Missing release report: ${report}")
+        String reportText = report.getText('UTF-8')
+        if (!reportText.startsWith("# v${expected} ")
+                || !reportText.contains("状态：`${expected}`")
+                || reportText.toLowerCase(Locale.ROOT).contains('snapshot')
+                || reportText.contains('开发中')) {
+            throw new GradleException('Release report title/status is inconsistent with the formal version')
+        }
+        String matrix = file('docs/planning/capability-matrix.md').getText('UTF-8')
+        if (!matrix.contains("正式稳定版本：`${expected}`")) {
+            throw new GradleException('Capability matrix does not name the formal stable version')
+        }
+        String changelog = file('docs/history/changelog.md').getText('UTF-8')
+        def changelogHeading = changelog =~ /(?m)^#{2,3} .*v?${java.util.regex.Pattern.quote(expected)}.*$/
+        if (!changelogHeading.find() || changelogHeading.group().contains('开发中')) {
+            throw new GradleException('Changelog does not contain a completed release entry')
+        }
+        def performanceReferences = (reportText =~ /docs\/performance\/[A-Za-z0-9._\/-]+\.md/)
+                .findAll().collect { it.toString() }.unique()
+        if (performanceReferences.isEmpty()) {
+            throw new GradleException('Release report does not reference a performance result')
+        }
+        LocalDate reportDate = null
+        def dateMatch = reportText =~ /日期：(\d{4}-\d{2}-\d{2})/
+        if (dateMatch.find()) reportDate = LocalDate.parse(dateMatch.group(1))
+        if (reportDate == null) throw new GradleException('Release report has no ISO date')
+        performanceReferences.each { path ->
+            File performance = file(path)
+            if (!performance.isFile()) throw new GradleException("Missing referenced performance report: ${path}")
+            def performanceDateMatch = performance.getText('UTF-8') =~ /日期：(\d{4}-\d{2}-\d{2})/
+            if (!performanceDateMatch.find()
+                    || reportDate.isBefore(LocalDate.parse(performanceDateMatch.group(1)))) {
+                throw new GradleException("Release report predates performance evidence: ${path}")
+            }
+        }
+        runGit(['diff', '--check'])
+        runGit(['diff', '--cached', '--check'])
+    }
+}
+
+def releaseReadinessEntries = ['releaseGitGuard', 'releaseMetadataGuard', 'assetManifestGuard',
+                               'dependencyLockGuard', 'publicApiGuard', 'architectureGuard', 'check',
+                               'releaseVerificationContracts',
+                               'localGlVerification', 'localReleaseVerification',
+                               'runSceneSubmissionStaticBenchmarks', 'runSceneSubmissionStaticGate',
+                               'glDebugPolicyGuard',
+                               'glResourceLifecycleVerification', 'writePerformanceResult',
+                               'comparePerformanceBaseline', 'runSceneSubmissionStaticJfr']
+
+tasks.register('writeReleaseReadiness') {
+    group = 'verification'
+    description = 'Writes machine-readable and Markdown evidence for the executed release graph.'
+    dependsOn releaseReadinessEntries
+    doLast {
+        String expected = providers.gradleProperty('releaseVersion').orNull
+        File gitFactsFile = reportDirectory.get().file('git-candidate.json').asFile
+        def gitFacts = gitFactsFile.isFile()
+                ? new groovy.json.JsonSlurper().parse(gitFactsFile) : [:]
+        List<Map<String, Object>> executed = gradle.taskGraph.allTasks.findAll { task ->
+            !(task.name in ['writeReleaseReadiness', 'releaseReadiness'])
+        }.collect { task ->
+            [path: task.path, outcome: task.state.failure == null && task.state.executed
+                    ? (task.state.skipped ? 'SKIPPED' : 'SUCCESS') : task.state.failure == null ? 'NOT_EXECUTED' : 'FAILED']
+        }
+        List<Map<String, Object>> entryOutcomes = releaseReadinessEntries.collect { name ->
+            executed.find { it.path == tasks.named(name).get().path }
+                    ?: [path: tasks.named(name).get().path, outcome: 'NOT_EXECUTED']
+        }
+        Map<String, String> outcomeByName = releaseReadinessEntries.collectEntries { name ->
+            [(name): entryOutcomes.find { it.path == tasks.named(name).get().path }.outcome]
+        }
+        List<Map<String, Object>> reportClaims = []
+        File releaseReport = expected == null ? null : file("docs/releases/v${expected}-release-report.md")
+        if (releaseReport != null && releaseReport.isFile()) {
+            releaseReport.readLines('UTF-8').each { line ->
+                def claim = line =~ /^\|\s*`([^`]+)`(?:\s*\/\s*`[^`]+`)?\s*\|\s*通过/
+                if (!claim.find()) return
+                String command = claim.group(1)
+                List<String> evidenceTasks = releaseReadinessEntries.findAll { command.contains(it) }
+                if (command.contains('git diff')) evidenceTasks.add('releaseMetadataGuard')
+                boolean supported = !evidenceTasks.isEmpty()
+                        && evidenceTasks.every { outcomeByName[it] in ['SUCCESS', 'SKIPPED'] }
+                reportClaims.add([command: command, evidenceTasks: evidenceTasks.unique(),
+                                  supported: supported])
+            }
+        }
+        boolean reportClaimsSupported = !reportClaims.isEmpty()
+                && reportClaims.every { it.supported }
+        boolean entriesSucceeded = entryOutcomes.every { it.outcome in ['SUCCESS', 'SKIPPED'] }
+        File performanceFile = layout.buildDirectory.file('reports/performance/current.json').get().asFile
+        def performance = performanceFile.isFile()
+                ? new JsonSlurper().parse(performanceFile) : [:]
+        File glMessagesFile = reportDirectory.get().file('gl-messages.json').asFile
+        def glMessages = glMessagesFile.isFile()
+                ? new JsonSlurper().parse(glMessagesFile) : [:]
+        boolean evidencePayloadsSucceeded = performance.success == true
+                && glMessages.success == true
+        boolean candidateIdentityMatches = sameCandidateIdentity(gitFacts, performance.git)
+        boolean performanceComparable = performance.incomparableReasons instanceof List
+                && performance.incomparableReasons.isEmpty()
+        Map<String, Object> evidence = [
+                schemaVersion: 1,
+                version: expected,
+                generatedAt: OffsetDateTime.now().toString(),
+                git: gitFacts,
+                environment: [os: System.getProperty('os.name'), arch: System.getProperty('os.arch'),
+                              java: performance.environment?.java ?: System.getProperty('java.version'),
+                              lwjgl: project.ext.lwjglVersion,
+                              glVendor: performance.environment?.glVendor ?: 'unavailable',
+                              glRenderer: performance.environment?.glRenderer ?: 'unavailable',
+                              glVersion: performance.environment?.glVersion ?: 'unavailable'],
+                entries: releaseReadinessEntries,
+                tasks: executed,
+                releaseReportClaims: reportClaims,
+                glMessages: [source: 'build/reports/release/gl-messages.json',
+                             counts: glMessages.counts ?: [:],
+                             total: glMessages.messages instanceof List ? glMessages.messages.size() : 0,
+                             success: glMessages.success == true],
+                 performance: [source: 'build/reports/performance/current.json',
+                               success: performance.success == true,
+                               candidateIdentityMatches: candidateIdentityMatches,
+                               incomparableReasons: performance.incomparableReasons ?: [],
+                               scenarios: performance.scenarios ?: []],
+                 success: entriesSucceeded && reportClaimsSupported && evidencePayloadsSucceeded
+                         && candidateIdentityMatches && performanceComparable,
+                 failureStage: entryOutcomes.find { !(it.outcome in ['SUCCESS', 'SKIPPED']) }?.path
+                         ?: (!reportClaimsSupported ? 'release-report-claims'
+                         : (!candidateIdentityMatches ? 'candidate-identity'
+                         : (!performanceComparable ? 'performance-comparability'
+                         : (!evidencePayloadsSucceeded ? 'evidence-payloads' : null))))
+        ]
+        File json = reportDirectory.get().file('readiness.json').asFile
+        File markdown = reportDirectory.get().file('readiness.md').asFile
+        json.parentFile.mkdirs()
+        json.setText(JsonOutput.prettyPrint(JsonOutput.toJson(evidence)) + '\n', 'UTF-8')
+        List<String> md = ["# v${expected} release readiness", '',
+                           "- generated: `${evidence.generatedAt}`",
+                           "- HEAD: `${gitFacts.head ?: 'unknown'}`",
+                           "- candidate diff: `${gitFacts.stagedDiffSha256 ?: 'unknown'}`",
+                           "- dirty: `${gitFacts.dirty != false}`",
+                           "- GL: `${evidence.environment.glVendor}` / `${evidence.environment.glRenderer}` / `${evidence.environment.glVersion}`",
+                           "- GL messages: `${evidence.glMessages.total}`; policy success: `${evidence.glMessages.success}`",
+                           "- success: `${evidence.success}`", '',
+                           '| task | outcome |', '| --- | --- |']
+        executed.each { md.add("| `${it.path}` | ${it.outcome} |") }
+        md.addAll(['', '## Release report claims', '',
+                   '| command | evidence tasks | supported |', '| --- | --- | --- |'])
+        reportClaims.each { claim ->
+            md.add("| `${claim.command}` | `${claim.evidenceTasks.join(', ')}` | ${claim.supported} |")
+        }
+        markdown.setText(md.join('\n') + '\n', 'UTF-8')
+        if (!evidence.success) throw new GradleException('Release readiness evidence contains a failed task')
+    }
+}
+
+tasks.register('releaseReadiness') {
+    group = 'verification'
+    description = 'Runs the complete staged-candidate release gate and writes structured evidence.'
+    dependsOn 'writeReleaseReadiness'
+}
+
+tasks.named('check') {
+    dependsOn 'assetManifestGuard', 'releaseVerificationContracts'
+}
+
+tasks.configureEach { task ->
+    if (task.name != 'releaseGitGuard') task.mustRunAfter tasks.named('releaseGitGuard')
+}

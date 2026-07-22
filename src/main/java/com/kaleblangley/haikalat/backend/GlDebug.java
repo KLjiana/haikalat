@@ -65,7 +65,9 @@ public final class GlDebug {
         GLDebugMessageCallback callback = GLDebugMessageCallback.create(GlDebug::handleDebugMessage);
         glDebugMessageCallback(callback, NULL);
         DEBUG_CALLBACKS.put(capabilities, callback);
-        LOG.info("OpenGL debug output enabled");
+        ContextInfo info = contextInfo();
+        LOG.info("OpenGL debug output enabled vendor=" + info.vendor()
+                + " renderer=" + info.renderer() + " version=" + info.version());
         return true;
     }
 
@@ -89,6 +91,7 @@ public final class GlDebug {
         }
         GROUPS.remove();
         FRAME_SEQUENCE.remove();
+        GlContextStateEpoch.releaseCurrent();
         if (!resources.liveResources().isEmpty()) {
             LOG.warning("OpenGL context destroyed with " + resources.liveResources().size()
                     + " tracked live resources");
@@ -207,6 +210,7 @@ public final class GlDebug {
 
     /** 幂等关闭登记；不要求删除时 context 仍是 current。 */
     public static synchronized void closeResource(long resourceSequence) {
+        GlContextStateEpoch.deleted();
         if (resourceSequence < 0L) return;
         ContextFacts facts = RESOURCE_OWNERS.remove(resourceSequence);
         if (facts != null && facts.resources.remove(resourceSequence) != null) {
@@ -231,6 +235,16 @@ public final class GlDebug {
 
     public static boolean hasCurrentContext() {
         return currentCapabilitiesOrNull() != null;
+    }
+
+    /**
+     * 返回当前 context 的可缓存资源删除代次。
+     *
+     * <p>该 advanced backend 入口只供提交边界同步状态缓存；没有 LWJGL
+     * capabilities 时返回稳定的无 context 标记，不查询 GLFW 或 OpenGL 状态。
+     */
+    public static long contextStateEpoch() {
+        return GlContextStateEpoch.current();
     }
 
     static String formatError(String context, int error) {

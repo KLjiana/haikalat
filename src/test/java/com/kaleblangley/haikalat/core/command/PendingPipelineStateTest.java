@@ -54,7 +54,7 @@ class PendingPipelineStateTest {
         assertEquals(List.of(
                 "blend:false", "depthMask:true", "depthTest:true",
                 "blendFunc:" + GL_SRC_ALPHA + ":" + GL_ONE_MINUS_SRC_ALPHA,
-                "blend:true", "depthMask:false", "depthTest:true"), sink.events);
+                "blend:true", "depthMask:false"), sink.events);
     }
 
     @Test
@@ -93,6 +93,30 @@ class PendingPipelineStateTest {
         pending.flush(sink);
         assertEquals(List.of("front:" + FrontFace.CW.glValue(),
                 "front:" + FrontFace.CCW.glValue()), sink.events);
+    }
+
+    @Test
+    void identicalStateAcrossDrawBoundariesIsEncodedOnlyOnce() {
+        CommandBuffer commands = new CommandBuffer()
+                .frontFace(FrontFace.CCW)
+                .drawArrays(GL_TRIANGLES, 0, 3)
+                .frontFace(FrontFace.CCW)
+                .drawArrays(GL_TRIANGLES, 0, 3);
+
+        assertEquals(3, commands.commandCount(),
+                "The retained front-face value does not need a second state packet");
+    }
+
+    @Test
+    void customBarrierInvalidatesRecorderStateKnowledge() {
+        CommandBuffer commands = new CommandBuffer()
+                .frontFace(FrontFace.CCW)
+                .drawArrays(GL_TRIANGLES, 0, 3)
+                .custom(() -> { })
+                .frontFace(FrontFace.CCW);
+
+        assertEquals(4, commands.commandCount(),
+                "A custom callback may change GL state, so the same value must be encoded again");
     }
 
     @Test

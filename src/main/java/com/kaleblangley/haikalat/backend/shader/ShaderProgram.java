@@ -8,7 +8,7 @@ import org.joml.Matrix4fc;
 import org.joml.Vector2fc;
 import org.joml.Vector3fc;
 import org.joml.Vector4fc;
-import org.lwjgl.system.MemoryStack;
+import org.lwjgl.BufferUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,12 +63,19 @@ import static org.lwjgl.opengl.GL43.glShaderStorageBlockBinding;
  * resulting integer location and update this program without making it current first.</p>
  */
 public final class ShaderProgram implements GlResource {
+    private static final int RECENT_UNIFORM_SET_COUNT = 32;
     private final int id;
     private final Set<ShaderStage> stages;
     private final long resourceSequence;
     private final Map<String, Integer> uniformLocations = new HashMap<>();
     private final Map<String, Integer> uniformBlockIndices = new HashMap<>();
     private final Map<String, Integer> storageBlockIndices = new HashMap<>();
+    private final FloatBuffer matrix3Scratch = BufferUtils.createFloatBuffer(9);
+    private final FloatBuffer matrix4Scratch = BufferUtils.createFloatBuffer(16);
+    private final String[] recentUniformNames = new String[RECENT_UNIFORM_SET_COUNT * 2];
+    private final int[] recentUniformLocations = new int[RECENT_UNIFORM_SET_COUNT * 2];
+    private String lastUniformName;
+    private int lastUniformLocation;
     private boolean closed;
 
     private ShaderProgram(int id) {
@@ -218,11 +225,9 @@ public final class ShaderProgram implements GlResource {
     public ShaderProgram setMat3(int location, Matrix3fc value) {
         ensureOpen();
         Objects.requireNonNull(value, "value");
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            FloatBuffer buffer = stack.mallocFloat(9);
-            value.get(buffer);
-            glProgramUniformMatrix3fv(id, requireLocation(location), false, buffer);
-        }
+        matrix3Scratch.clear();
+        value.get(matrix3Scratch);
+        glProgramUniformMatrix3fv(id, requireLocation(location), false, matrix3Scratch);
         return this;
     }
 
@@ -233,11 +238,9 @@ public final class ShaderProgram implements GlResource {
     public ShaderProgram setMat4(int location, Matrix4fc value) {
         ensureOpen();
         Objects.requireNonNull(value, "value");
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            FloatBuffer buffer = stack.mallocFloat(16);
-            value.get(buffer);
-            glProgramUniformMatrix4fv(id, requireLocation(location), false, buffer);
-        }
+        matrix4Scratch.clear();
+        value.get(matrix4Scratch);
+        glProgramUniformMatrix4fv(id, requireLocation(location), false, matrix4Scratch);
         return this;
     }
 
@@ -269,6 +272,10 @@ public final class ShaderProgram implements GlResource {
         uniformLocations.clear();
         uniformBlockIndices.clear();
         storageBlockIndices.clear();
+        lastUniformName = null;
+        for (int index = 0; index < recentUniformNames.length; index++) {
+            recentUniformNames[index] = null;
+        }
         closed = true;
     }
 
@@ -281,10 +288,35 @@ public final class ShaderProgram implements GlResource {
     public int uniformLocationOrMinusOne(String name) {
         ensureOpen();
         Objects.requireNonNull(name, "name");
+        if (name == lastUniformName || name.equals(lastUniformName)) {
+            return lastUniformLocation;
+        }
+        int recentSlot = System.identityHashCode(name) & (RECENT_UNIFORM_SET_COUNT - 1);
+        if (recentUniformNames[recentSlot] == name) {
+            return rememberLastUniform(name, recentUniformLocations[recentSlot]);
+        }
+        int secondSlot = recentSlot + RECENT_UNIFORM_SET_COUNT;
+        if (recentUniformNames[secondSlot] == name) {
+            return rememberLastUniform(name, recentUniformLocations[secondSlot]);
+        }
         Integer cached = uniformLocations.get(name);
-        if (cached != null) return cached;
-        int location = glGetUniformLocation(id, name);
-        uniformLocations.put(name, location);
+        int location;
+        if (cached != null) {
+            location = cached;
+        } else {
+            location = glGetUniformLocation(id, name);
+            uniformLocations.put(name, location);
+        }
+        recentUniformNames[secondSlot] = recentUniformNames[recentSlot];
+        recentUniformLocations[secondSlot] = recentUniformLocations[recentSlot];
+        recentUniformNames[recentSlot] = name;
+        recentUniformLocations[recentSlot] = location;
+        return rememberLastUniform(name, location);
+    }
+
+    private int rememberLastUniform(String name, int location) {
+        lastUniformName = name;
+        lastUniformLocation = location;
         return location;
     }
 

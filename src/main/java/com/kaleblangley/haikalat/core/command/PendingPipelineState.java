@@ -25,6 +25,7 @@ final class PendingPipelineState {
     private static final int FRONT_FACE = 1 << 10;
 
     private int dirty;
+    private int known;
     private int viewportX;
     private int viewportY;
     private int viewportWidth;
@@ -48,51 +49,71 @@ final class PendingPipelineState {
     private float clearAlpha;
 
     void viewport(int x, int y, int width, int height) {
+        if ((known & VIEWPORT) != 0 && viewportX == x && viewportY == y
+                && viewportWidth == width && viewportHeight == height) return;
         viewportX = x;
         viewportY = y;
         viewportWidth = width;
         viewportHeight = height;
+        known |= VIEWPORT;
         dirty |= VIEWPORT;
     }
 
     void enableBlend(boolean enable) {
+        if ((known & BLEND_ENABLE) != 0 && blendEnabled == enable) return;
         blendEnabled = enable;
+        known |= BLEND_ENABLE;
         dirty |= BLEND_ENABLE;
     }
 
     void blendFunc(int sourceRgb, int destinationRgb) {
+        if ((known & BLEND_FUNCTION) != 0 && blendSourceRgb == sourceRgb
+                && blendDestinationRgb == destinationRgb) return;
         blendSourceRgb = sourceRgb;
         blendDestinationRgb = destinationRgb;
+        known |= BLEND_FUNCTION;
         dirty |= BLEND_FUNCTION;
     }
 
     void depthMask(boolean write) {
+        if ((known & DEPTH_MASK) != 0 && depthWriteEnabled == write) return;
         depthWriteEnabled = write;
+        known |= DEPTH_MASK;
         dirty |= DEPTH_MASK;
     }
 
     void enableDepthTest(boolean enable) {
+        if ((known & DEPTH_TEST) != 0 && depthTestEnabled == enable) return;
         depthTestEnabled = enable;
+        known |= DEPTH_TEST;
         dirty |= DEPTH_TEST;
     }
 
     void enableCullFace(boolean enable) {
+        if ((known & CULL_FACE) != 0 && cullFaceEnabled == enable) return;
         cullFaceEnabled = enable;
+        known |= CULL_FACE;
         dirty |= CULL_FACE;
     }
 
     void frontFace(int winding) {
+        if ((known & FRONT_FACE) != 0 && frontFace == winding) return;
         frontFace = winding;
+        known |= FRONT_FACE;
         dirty |= FRONT_FACE;
     }
 
     void enableFramebufferSrgb(boolean enable) {
+        if ((known & FRAMEBUFFER_SRGB) != 0 && framebufferSrgbEnabled == enable) return;
         framebufferSrgbEnabled = enable;
+        known |= FRAMEBUFFER_SRGB;
         dirty |= FRAMEBUFFER_SRGB;
     }
 
     void enableScissor(boolean enable) {
+        if ((known & SCISSOR_ENABLE) != 0 && scissorEnabled == enable) return;
         scissorEnabled = enable;
+        known |= SCISSOR_ENABLE;
         dirty |= SCISSOR_ENABLE;
     }
 
@@ -100,18 +121,27 @@ final class PendingPipelineState {
         if (x < 0 || y < 0 || width < 0 || height < 0) {
             throw new IllegalArgumentException("scissor rectangle must be non-negative");
         }
+        if ((known & SCISSOR_RECTANGLE) != 0 && scissorX == x && scissorY == y
+                && scissorWidth == width && scissorHeight == height) return;
         scissorX = x;
         scissorY = y;
         scissorWidth = width;
         scissorHeight = height;
+        known |= SCISSOR_RECTANGLE;
         dirty |= SCISSOR_RECTANGLE;
     }
 
     void clearColor(float red, float green, float blue, float alpha) {
+        if ((known & CLEAR_COLOR) != 0
+                && Float.floatToRawIntBits(clearRed) == Float.floatToRawIntBits(red)
+                && Float.floatToRawIntBits(clearGreen) == Float.floatToRawIntBits(green)
+                && Float.floatToRawIntBits(clearBlue) == Float.floatToRawIntBits(blue)
+                && Float.floatToRawIntBits(clearAlpha) == Float.floatToRawIntBits(alpha)) return;
         clearRed = red;
         clearGreen = green;
         clearBlue = blue;
         clearAlpha = alpha;
+        known |= CLEAR_COLOR;
         dirty |= CLEAR_COLOR;
     }
 
@@ -235,6 +265,12 @@ final class PendingPipelineState {
 
     void reset() {
         dirty = 0;
+        known = 0;
+    }
+
+    /** 任意外部 GL 回调之后，后续相同 setter 也必须重新编码。 */
+    void invalidateKnownState() {
+        known = 0;
     }
 
     boolean isDirty() {

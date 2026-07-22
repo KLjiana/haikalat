@@ -8,6 +8,9 @@ public final class PreviewBenchmarkSuite {
 
     public static void main(String[] args) {
         Options options = Options.parse(args);
+        System.out.printf(Locale.ROOT,
+                "[PreviewBenchmark] config objects=100 size=%s warmup=%d samples=%d rounds=%d%n",
+                options.size, options.warmup, options.frames, options.rounds);
         for (int round = 1; round <= options.rounds; round++) {
             run(round, "closed", options, "--diagnostics=off", "--aa=MSAA");
             run(round, "direct-hdr", options, "--aa=MSAA", "--preview=hdrResolvedColor");

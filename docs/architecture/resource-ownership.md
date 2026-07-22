@@ -34,3 +34,20 @@ preview 关闭或 pipeline close 时先撤销逻辑 output mapping，再逆序�
 UI snapshot 只保存 `UiImageId`；即使 snapshot 延迟消费，UiRenderer 也会重新解析 mapping，失效时跳过
 该 batch，因此不会持有或使用已释放的 preview texture。被检查的 graph attachment/cubemap 始终由原 owner
 管理，preview 不延长其生命周期。
+
+## OpenGL 删除代次与状态缓存
+
+OpenGL 允许删除资源后立即复用相同的数值名称。数值相同不代表对象相同，因此 wrapper 成功执行
+`glDelete*` 后必须通过 `GlDebug.closeResource()` 推进当前 context 的 deletion epoch。资源是否开启
+diagnostics tracking 不影响 epoch；构造失败但从未对外发布的临时 handle 不需要污染已提交状态。
+
+`GlRenderDevice` 在每个 `CommandBuffer` 提交边界读取一次 epoch。值发生变化时，整份 `StateCache`
+失效，然后照常执行命令；同一批命令内部仍保留状态折叠，未发生删除的稳定帧只做一次无锁 O(1) 比较。
+这条防线覆盖 VAO、program、texture、sampler、buffer 与 framebuffer，不要求各 wrapper 反向持有 device。
+
+epoch 以当前 `GLCapabilities` identity 为 context key。多 context 的删除不会污染另一个 device；
+`GlDebug.releaseCurrentContext()` 必须在销毁 context 前调用以撤销 callback、资源 registry 和 epoch 条目。
+没有 current capabilities 时读取返回固定标记，不查询 GLFW、不创建窗口，也不隐式初始化 native 系统。
+
+pipeline/graph owner 在大规模 rebuild 边界仍可显式调用 `RenderDevice.invalidateState()`；这是防御性边界，
+不是用来替代 wrapper 的删除通知。禁止缓存带已关闭 native handle 的完整 `CommandBuffer` 跨 generation 重放。

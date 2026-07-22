@@ -23,6 +23,25 @@ import static org.lwjgl.opengl.GL11.GL_NEAREST;
 
 class CommandBufferTest {
     @Test
+    void repeatedProgramBindingIsFoldedUntilCustomBarrier() {
+        CommandBuffer commands = new CommandBuffer()
+                .useProgram(7)
+                .drawArrays(GL_TRIANGLES, 0, 3)
+                .useProgram(7)
+                .drawArrays(GL_TRIANGLES, 0, 3);
+
+        assertEquals(3, commands.commandCount());
+
+        commands.custom(() -> { }).useProgram(7);
+        assertEquals(5, commands.commandCount(),
+                "custom may replace the active program, so the binding must be recorded again");
+
+        commands.reset();
+        commands.useProgram(7);
+        assertEquals(1, commands.commandCount(), "reset must forget recorder-local bindings");
+    }
+
+    @Test
     void typedFramebufferBlitRejectsInvalidDepthFilteringAndMasks() {
         CommandBuffer commands = new CommandBuffer()
                 .blitFramebuffer(1, 2, 16, 16, 8, 8,

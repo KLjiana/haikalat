@@ -188,7 +188,10 @@ public final class GltfSceneScalabilityDemo {
                 driver.recordGraph(pipeline.graph());
                 driver.recordSceneStatistics(last.forwardVisible(), 0L,
                         last.candidateRenderers(), 0L);
-                driver.recordSceneVisibility(SceneScalabilityDemo.toDiagnostics(last));
+                if (driver.diagnostics().level()
+                        != com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel.OFF) {
+                    driver.recordSceneVisibility(SceneScalabilityDemo.toDiagnostics(last));
+                }
                 driver.endFrame();
             } catch (RuntimeException | Error failure) {
                 driver.failFrame(pipeline.graph(), failure);

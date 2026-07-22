@@ -8,12 +8,34 @@ import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MaterialTest {
+    @Test
+    void overrideAccessorsReuseSnapshotsWithoutMakingOldSnapshotsLive() {
+        MaterialInstance instance = materialInstance();
+        Map<UniformKey<?>, UniformValue> empty = instance.uniformOverrides();
+
+        assertFalse(instance.hasOverrides());
+
+        instance.setFloat("uValue", 1.0f);
+        Map<UniformKey<?>, UniformValue> populated = instance.uniformOverrides();
+
+        assertTrue(instance.hasOverrides());
+        assertTrue(empty.isEmpty());
+        assertEquals(1, populated.size());
+        assertTrue(populated == instance.uniformOverrides(),
+                "Unchanged overrides should reuse their immutable snapshot");
+
+        instance.clearOverrides();
+        assertFalse(instance.hasOverrides());
+    }
+
     @Test
     void materialDefaultsAreImmutableTemplateState() {
         UniformKey<UniformValue.FloatVal> roughness = UniformKey.float1("uRoughness");

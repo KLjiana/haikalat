@@ -18,3 +18,7 @@ v0.16 没有删除 stable 类型。advanced `MeshData` 保持原 record componen
 v0.17 没有删除 stable 类型或修改 `SceneObject` record component。advanced `SceneObject` 新增
 `fixed(Mesh, Material, Matrix4fc[, boolean])`，用于明确表达可缓存的防御性复制固定矩阵；现有构造器
 与任意 `ModelUpdater` 保持动态、每帧一次语义。`Transform` 的 revision 与 queue/cache 类型不公开。
+
+v0.17.2 没有删除 stable 类型。advanced backend `GlDebug` 新增 `contextStateEpoch()`，只用于
+`GlRenderDevice` 在提交边界同步 native 资源删除代次；普通调用方不应以该值实现资源所有权或跨 context
+同步。无 current context 时返回固定标记，正式资源生命周期仍由各 `GlResource.close()` 管理。

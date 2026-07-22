@@ -88,10 +88,15 @@ public final class CommandBuffer {
     private final PendingPipelineState pendingState = new PendingPipelineState();
     private final boolean primitiveMatrixArena = Boolean.parseBoolean(
             System.getProperty("haikalat.command.matrixArena", "true"));
+    private int recordedProgram;
+    private boolean recordedProgramKnown;
 
     public CommandBuffer useProgram(int program) {
+        if (recordedProgramKnown && recordedProgram == program) return this;
         opcode(USE_PROGRAM);
         integer(program);
+        recordedProgram = program;
+        recordedProgramKnown = true;
         return this;
     }
 
@@ -378,8 +383,7 @@ public final class CommandBuffer {
     public CommandBuffer drawMesh(Mesh mesh) {
         Objects.requireNonNull(mesh, "mesh");
         flushPendingState();
-        opcode(DRAW_MESH);
-        object(mesh);
+        stream.objectCommand(DRAW_MESH, mesh);
         return this;
     }
 
@@ -847,12 +851,15 @@ public final class CommandBuffer {
         flushPendingState();
         opcode(CUSTOM);
         object(action);
+        pendingState.invalidateKnownState();
+        recordedProgramKnown = false;
         return this;
     }
 
     public void reset() {
         stream.reset();
         pendingState.reset();
+        recordedProgramKnown = false;
     }
 
     public int commandCount() {
@@ -970,7 +977,9 @@ public final class CommandBuffer {
     }
 
     private void flushPendingState() {
-        pendingState.writeTo(stream, APPLY_PIPELINE_STATE);
+        if (pendingState.isDirty()) {
+            pendingState.writeTo(stream, APPLY_PIPELINE_STATE);
+        }
     }
 
     private void opcode(byte opcode) {

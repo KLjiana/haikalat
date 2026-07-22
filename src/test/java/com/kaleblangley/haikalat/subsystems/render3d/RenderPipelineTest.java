@@ -20,6 +20,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderPipelineTest {
     @Test
+    void frameOwnedUniformClassificationCoversLightingShadowAndEnvironmentOnly() {
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uDirectionalLights[0].direction"));
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uCameraPosition"));
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uShadowMap"));
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uPrefilteredMap"));
+        assertTrue(!RenderPipeline.isFrameOwnedUniform("uColor"));
+        assertTrue(!RenderPipeline.isFrameOwnedUniform("uModel"));
+    }
+
+    @Test
     void autoExposureAlwaysBuildsResizeStableReductionTopology() {
         assertEquals(14, PostProcessPassBuilder.AUTO_EXPOSURE_REDUCTION_PASS_COUNT);
         assertEquals(13, PostProcessPassBuilder.AUTO_EXPOSURE_RELATIVE_PASS_COUNT);

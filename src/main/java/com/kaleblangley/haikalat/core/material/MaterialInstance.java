@@ -15,6 +15,11 @@ public final class MaterialInstance {
     private final Material material;
     private final Map<UniformKey<?>, UniformValue> uniformOverrides = new LinkedHashMap<>();
     private final Map<Integer, Material.TextureBinding> textureOverrides = new LinkedHashMap<>();
+    private Map<UniformKey<?>, UniformValue> uniformOverridesSnapshot = Map.of();
+    private Map<Integer, Material.TextureBinding> textureOverridesSnapshot = Map.of();
+    private boolean uniformOverridesDirty;
+    private boolean textureOverridesDirty;
+    private boolean hasOverrides;
 
     MaterialInstance(Material material) {
         this.material = Objects.requireNonNull(material, "material");
@@ -98,6 +103,8 @@ public final class MaterialInstance {
     public MaterialInstance texture(int unit, String samplerName, Texture2D texture, Sampler sampler) {
         Material.TextureBinding binding = new Material.TextureBinding(unit, samplerName, texture, sampler);
         textureOverrides.put(unit, binding);
+        textureOverridesDirty = true;
+        hasOverrides = true;
         put(binding.samplerKey(), new UniformValue.IntVal(unit));
         return this;
     }
@@ -117,21 +124,41 @@ public final class MaterialInstance {
         return material;
     }
 
+    /** @return 当前实例是否包含任何逐实例 uniform 或纹理覆盖。 */
+    public boolean hasOverrides() {
+        return hasOverrides;
+    }
+
     public Map<UniformKey<?>, UniformValue> uniformOverrides() {
-        return Map.copyOf(uniformOverrides);
+        if (uniformOverridesDirty) {
+            uniformOverridesSnapshot = Map.copyOf(uniformOverrides);
+            uniformOverridesDirty = false;
+        }
+        return uniformOverridesSnapshot;
     }
 
     public Map<Integer, Material.TextureBinding> textureOverrides() {
-        return Map.copyOf(textureOverrides);
+        if (textureOverridesDirty) {
+            textureOverridesSnapshot = Map.copyOf(textureOverrides);
+            textureOverridesDirty = false;
+        }
+        return textureOverridesSnapshot;
     }
 
     public void clearOverrides() {
         uniformOverrides.clear();
         textureOverrides.clear();
+        uniformOverridesSnapshot = Map.of();
+        textureOverridesSnapshot = Map.of();
+        uniformOverridesDirty = false;
+        textureOverridesDirty = false;
+        hasOverrides = false;
     }
 
     private void put(UniformKey<?> key, UniformValue value) {
         key.validate(value);
         uniformOverrides.put(key, value);
+        uniformOverridesDirty = true;
+        hasOverrides = true;
     }
 }
