@@ -25,5 +25,9 @@ class UiDemoGlTest {
         assertTrue(summary.statistics().atlasUploadBytes() > 0);
         assertTrue(summary.statistics().drawCalls() > 0);
         assertTrue(summary.framebufferWidth() > 0 && summary.framebufferHeight() > 0);
+        assertEquals(2, summary.activeAnimations());
+        assertTrue(summary.animatedHeaderOpacity() > 0.0f
+                && summary.animatedHeaderOpacity() < 1.0f);
+        assertTrue(summary.animatedControlsWidth() > 220.0f);
     }
 }

@@ -10,8 +10,10 @@ import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.AutoExposurePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor;
+import com.kaleblangley.haikalat.subsystems.postprocess.FogPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.BloomPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
@@ -20,11 +22,14 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.stream.Stream;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 final class PostProcessPassBuilder implements AutoCloseable {
     static final int AUTO_EXPOSURE_RELATIVE_PASS_COUNT = 13;
     static final int AUTO_EXPOSURE_REDUCTION_PASS_COUNT = AUTO_EXPOSURE_RELATIVE_PASS_COUNT + 1;
     private final RenderSettings settings;
+    private final PostProcessSettings effects;
     private final RenderWindow window;
     private final FxaaPostProcessor fxaa;
     private final TemporalAccumulationPass taa;
@@ -32,17 +37,25 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final ToneMappingPass toneMapping;
     private final BloomPass bloom;
     private final AutoExposurePass autoExposure;
+    private final FogPass fog;
+    private final Matrix4f fogInverseViewProjection = new Matrix4f();
+    private final Matrix4f fogProjection = new Matrix4f();
+    private final Matrix4f fogView = new Matrix4f();
+    private final Vector3f fogCameraPosition = new Vector3f();
     private float deltaSeconds = 1.0f / 60.0f;
     private String finalPassName;
 
-    private PostProcessPassBuilder(RenderSettings settings, RenderWindow window,
+    private PostProcessPassBuilder(RenderSettings settings, PostProcessSettings effects,
+                                   RenderWindow window,
                                    FxaaPostProcessor fxaa,
                                    TemporalAccumulationPass taa,
                                    TaaHistory taaHistory,
                                    ToneMappingPass toneMapping,
                                    BloomPass bloom,
-                                   AutoExposurePass autoExposure) {
+                                   AutoExposurePass autoExposure,
+                                   FogPass fog) {
         this.settings = settings;
+        this.effects = effects;
         this.window = window;
         this.fxaa = fxaa;
         this.taa = taa;
@@ -50,10 +63,13 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.toneMapping = toneMapping;
         this.bloom = bloom;
         this.autoExposure = autoExposure;
+        this.fog = fog;
     }
 
-    static PostProcessPassBuilder create(RenderSettings settings, RenderWindow window, int width, int height) {
+    static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
+                                         RenderWindow window, int width, int height) {
         Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(window, "window");
         FxaaPostProcessor fxaa = null;
         TemporalAccumulationPass taa = null;
@@ -61,6 +77,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
         ToneMappingPass toneMapping = null;
         BloomPass bloom = null;
         AutoExposurePass autoExposure = null;
+        FogPass fog = null;
         try {
             fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
                     ? new FxaaPostProcessor() : null;
@@ -68,13 +85,16 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     ? new TemporalAccumulationPass() : null;
             history = settings.antiAliasingMode() == AntiAliasingMode.TAA
                     ? new TaaHistory(width, height, taaHistoryFormat(settings)) : null;
-            toneMapping = settings.hdrEnabled() ? new ToneMappingPass() : null;
+            toneMapping = settings.hdrEnabled()
+                    ? new ToneMappingPass(effects.colorGrading()) : null;
             bloom = settings.bloomSettings().enabled() ? new BloomPass() : null;
             autoExposure = settings.exposureMode() == ExposureMode.AUTO
                     ? new AutoExposurePass() : null;
-            return new PostProcessPassBuilder(settings, window, fxaa, taa, history, toneMapping,
-                    bloom, autoExposure);
+            fog = effects.fog().enabled() ? new FogPass() : null;
+            return new PostProcessPassBuilder(settings, effects, window, fxaa, taa, history, toneMapping,
+                    bloom, autoExposure, fog);
         } catch (RuntimeException failure) {
+            closeAfterFailure(fog, failure);
             closeAfterFailure(autoExposure, failure);
             closeAfterFailure(bloom, failure);
             closeAfterFailure(toneMapping, failure);
@@ -229,7 +249,22 @@ final class PostProcessPassBuilder implements AutoCloseable {
             hdrProducer = PostProcessTargets.TAA_PASS;
         }
 
-        final String toneInput = hdrTexture;
+        if (effects.fog().enabled()) {
+            final String fogInputTexture = hdrTexture;
+            final String fogInputPass = hdrProducer;
+            graph.addPass(PostProcessTargets.FOG_PASS)
+                    .createColor(PostProcessTargets.FOG_COLOR, RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(fogInputPass)
+                    .execute((res, cmd) -> fog.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(fogInputTexture),
+                            res.depthAttachment(PostProcessTargets.SCENE_DEPTH),
+                            fogInverseViewProjection, fogCameraPosition,
+                            effects.fog()));
+            hdrTexture = PostProcessTargets.FOG_COLOR;
+            hdrProducer = PostProcessTargets.FOG_PASS;
+        }
+        final String gradedToneInput = hdrTexture;
         ExposureOutput exposureOutput = settings.exposureMode() == ExposureMode.AUTO
                 ? addAutoExposurePasses(graph, hdrTexture, hdrProducer)
                 : ExposureOutput.MANUAL;
@@ -250,7 +285,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                             ? res.colorAttachment(bloomOutput.textureName()) : 0;
                     int exposureTexture = exposureOutput.enabled()
                             ? autoExposure.frameExposureTexture() : 0;
-                    toneMapping.recordIntoCurrentTarget(cmd, res.colorAttachment(toneInput), bloomTexture,
+                    toneMapping.recordIntoCurrentTarget(cmd, res.colorAttachment(gradedToneInput), bloomTexture,
                             settings.exposure(), exposureTexture, settings.bloomSettings().intensity());
                 });
 
@@ -420,11 +455,21 @@ final class PostProcessPassBuilder implements AutoCloseable {
         return new ExposureOutput(PostProcessTargets.AUTO_EXPOSURE_ADAPT_PASS);
     }
 
-    void beginFrame(float frameDeltaSeconds) {
+    void beginFrame(float frameDeltaSeconds, Camera camera, int width, int height,
+                    int frameIndex) {
         if (!Float.isFinite(frameDeltaSeconds) || frameDeltaSeconds < 0.0f) {
             throw new IllegalArgumentException("deltaSeconds must be finite and non-negative");
         }
         deltaSeconds = Math.min(frameDeltaSeconds, 0.1f);
+        if (fog != null) {
+            CameraProjection.stable(Objects.requireNonNull(camera, "camera"),
+                    Math.max(1, width), Math.max(1, height), fogProjection);
+            CameraUniforms.applyTemporalJitter(fogProjection, width, height,
+                    settings.antiAliasingMode(), frameIndex);
+            camera.getViewMatrix(fogView);
+            fogInverseViewProjection.set(fogProjection).mul(fogView).invert();
+            fogCameraPosition.set(camera.position());
+        }
     }
 
     void frameSucceeded() {
@@ -448,6 +493,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     @Override
     public void close() {
         RuntimeException failure = null;
+        failure = closeCollecting(fog, failure);
         failure = closeCollecting(autoExposure, failure);
         failure = closeCollecting(bloom, failure);
         failure = closeCollecting(toneMapping, failure);

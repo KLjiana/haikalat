@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
+import com.kaleblangley.haikalat.testing.SkinnedGltfFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -377,6 +378,67 @@ class GltfAssetLoaderTest {
         assertTrue(lenient.warnings().stream().anyMatch(warning -> warning.contains("VENDOR_metadata")));
     }
 
+    @Test
+    void decodesSkinFourInfluencesInverseBindsAndCubicAnimation() throws Exception {
+        Files.writeString(temporaryDirectory.resolve("skinned.gltf"),
+                SkinnedGltfFixture.document());
+
+        LoadedGltfScene scene = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("skinned.gltf"));
+
+        assertEquals(1, scene.skins().size());
+        assertEquals(2, scene.skins().getFirst().joints().size());
+        assertEquals(1, scene.skins().getFirst().skeletonRootNode());
+        assertEquals(1, scene.animations().size());
+        LoadedGltfScene.AnimationChannelDef channel = scene.animations().getFirst()
+                .channels().getFirst();
+        assertEquals(2, channel.nodeIndex());
+        assertEquals(LoadedGltfScene.AnimationTargetPath.TRANSLATION, channel.path());
+        assertEquals(LoadedGltfScene.AnimationInterpolation.CUBIC_SPLINE,
+                channel.interpolation());
+        assertEquals(2, channel.timesSeconds().length);
+        assertEquals(18, channel.values().length);
+        assertEquals(0, scene.nodeRigs().getFirst().skinIndex());
+        assertEquals(0, scene.nodeRigs().get(1).parentIndex());
+        assertEquals(1, scene.nodeRigs().get(2).parentIndex());
+
+        LoadedGltfScene.Primitive primitive = scene.primitives().getFirst();
+        assertTrue(primitive.mesh().layout().attribute(VertexSemantic.JOINTS_0).isPresent());
+        assertTrue(primitive.mesh().layout().attribute(VertexSemantic.WEIGHTS_0).isPresent());
+        assertEquals(20 * Float.BYTES, primitive.mesh().layout().strideBytes());
+        assertEquals(1, scene.primitiveSkinning(primitive.index()).orElseThrow().maxJointIndex());
+        float[] vertices = primitive.mesh().vertices();
+        assertEquals(0.25f, vertices[2 * 20 + 16], 1.0e-6f);
+        assertEquals(0.75f, vertices[2 * 20 + 17], 1.0e-6f);
+        assertEquals(1, scene.statistics().skinCount());
+        assertEquals(1, scene.statistics().animationCount());
+        assertEquals(1, scene.statistics().animationChannelCount());
+    }
+
+    @Test
+    void rejectsJointIndexOutsideReferencedSkin() throws Exception {
+        Files.writeString(temporaryDirectory.resolve("bad-joint.gltf"),
+                SkinnedGltfFixture.document(2, 6));
+
+        GltfAssetException failure = assertThrows(GltfAssetException.class,
+                () -> new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                        .addRoot(temporaryDirectory)).load(AssetRef.of("bad-joint.gltf")));
+        assertTrue(failure.getMessage().contains("JOINTS_0 index 2"));
+        assertTrue(failure.getMessage().contains("joint count 2"));
+    }
+
+    @Test
+    void rejectsCubicOutputCountThatDoesNotMatchInputTriples() throws Exception {
+        Files.writeString(temporaryDirectory.resolve("bad-cubic.gltf"),
+                SkinnedGltfFixture.document(1, 5));
+
+        GltfAssetException failure = assertThrows(GltfAssetException.class,
+                () -> new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                        .addRoot(temporaryDirectory)).load(AssetRef.of("bad-cubic.gltf")));
+        assertTrue(failure.getMessage().contains("output count"));
+        assertTrue(failure.location().contains("samplers[0].output"));
+    }
+
     private static void putInterleavedVertex(ByteBuffer output, float x, float y, float z,
                                              int u, int v, int r, int g, int b, int a) {
         output.putFloat(x).putFloat(y).putFloat(z).putShort((short) u).putShort((short) v)
@@ -416,6 +478,7 @@ class GltfAssetLoaderTest {
         return Base64.getDecoder().decode(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nYsAAAAASUVORK5CYII=");
     }
+
 
     private static byte[] trianglePositions() {
         return ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN)

@@ -2,6 +2,11 @@
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.subsystems.ui.event.EventPhase
+advanced com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationHandle
+advanced com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSystem
+advanced com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing
+advanced com.kaleblangley.haikalat.subsystems.ui.animation.UiTweenSpec
 advanced com.kaleblangley.haikalat.subsystems.ui.event.FocusEvent
 advanced com.kaleblangley.haikalat.subsystems.ui.event.KeyEvent
 advanced com.kaleblangley.haikalat.subsystems.ui.event.PointerCapture

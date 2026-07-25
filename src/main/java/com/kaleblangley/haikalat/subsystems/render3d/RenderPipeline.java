@@ -22,6 +22,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import org.joml.Matrix4f;
 
 import java.util.Collections;
@@ -36,12 +37,16 @@ import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class RenderPipeline {
     private static final int SHADOW_TEXTURE_UNIT = 7;
+    private static final int POINT_SHADOW_TEXTURE_UNIT = 11;
+    private static final int SPOT_SHADOW_TEXTURE_UNIT = 12;
     private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
     private final RenderWindow window;
     private final Scene scene;
     private final InstancedRenderer instanced;
     private final RenderSettings settings;
     private final DirectionalShadowMap directionalShadowMap = DirectionalShadowMap.defaults();
+    private final PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
+    private final SpotShadowMap spotShadowMap = SpotShadowMap.defaults();
     private RenderGraph graph;
     private CameraUniforms cameraUniforms;
     private LightingBinder lightingBinder;
@@ -50,7 +55,11 @@ public final class RenderPipeline {
     private ShaderProgram instancedShadowShader;
     private String finalPassName;
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
+    private List<Matrix4f> lastPointLightSpaceMatrices = List.of();
+    private Matrix4f lastSpotLightSpaceMatrix = new Matrix4f();
     private int lastShadowCasterDrawCount;
+    private int lastPointShadowCasterDrawCount;
+    private int lastSpotShadowCasterDrawCount;
     private final PbrEnvironment pbrEnvironment;
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
@@ -62,6 +71,7 @@ public final class RenderPipeline {
     private final GraphPreviewController previewController = new GraphPreviewController();
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
+    private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private GraphPreviewRenderer previewRenderer;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
@@ -123,12 +133,22 @@ public final class RenderPipeline {
         return RenderPipelineKind.FORWARD;
     }
 
+    /** Configures subsystem-owned optional effects before the pipeline is built. */
+    public RenderPipeline postProcessSettings(PostProcessSettings value) {
+        if (graph != null) {
+            throw new IllegalStateException("post-process settings must be configured before build");
+        }
+        postProcessSettings = Objects.requireNonNull(value, "postProcessSettings");
+        return this;
+    }
+
     public void build() {
         int w = window.width();
         int h = window.height();
         closeGraphResources();
 
         try {
+            validatePostProcessSettings();
             validatePbrVertexLayouts();
             graph = new RenderGraph(w, h);
             cameraUniforms = new CameraUniforms();
@@ -144,19 +164,25 @@ public final class RenderPipeline {
                 pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
                 environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
             }
-            postProcess = PostProcessPassBuilder.create(settings, window, w, h);
-            if (LightingBinder.shadowDirectionalLight(scene).isPresent()) {
+            postProcess = PostProcessPassBuilder.create(
+                    settings, postProcessSettings, window, w, h);
+            boolean hasDirectionalShadow = LightingBinder.shadowDirectionalLight(scene).isPresent();
+            boolean hasPointShadow = LightingBinder.shadowPointLight(scene).isPresent();
+            boolean hasSpotShadow = LightingBinder.shadowSpotLight(scene).isPresent();
+            if (hasDirectionalShadow || hasPointShadow || hasSpotShadow) {
                 shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                         "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
-                if (instanced != null && instanced.castShadows()) {
+                if (hasDirectionalShadow && instanced != null && instanced.castShadows()) {
                     instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                             "/shadows/instanced_directional_depth.vert",
                             "/shadows/directional_depth.frag");
                 }
             }
 
-            ForwardPassBuilder.addForwardPasses(graph, settings, scene, directionalShadowMap,
-                    shadowExecutor(), geometryExecutor());
+            ForwardPassBuilder.addForwardPasses(graph, settings, scene, postProcessSettings,
+                    directionalShadowMap, pointShadowAtlas, spotShadowMap,
+                    shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
+                    geometryExecutor());
             postProcess.addFinalPass(graph);
             finalPassName = postProcess.finalPassName();
             previewRenderer = new GraphPreviewRenderer(previewController, graph, pbrEnvironment,
@@ -173,6 +199,18 @@ public final class RenderPipeline {
 
     public RenderGraph graph() {
         return graph;
+    }
+
+    private void validatePostProcessSettings() {
+        boolean colorGrading = postProcessSettings.colorGrading().enabled();
+        boolean fog = postProcessSettings.fog().enabled();
+        if ((colorGrading || fog) && !settings.hdrEnabled()) {
+            throw new IllegalStateException("Color grading and fog require HDR tone mapping");
+        }
+        if (fog && settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+            throw new IllegalStateException(
+                    "Fog cannot sample multisampled depth until depth resolve is enabled");
+        }
     }
 
     /**
@@ -219,6 +257,16 @@ public final class RenderPipeline {
         return lastShadowCasterDrawCount;
     }
 
+    /** @return 最近一次点光六面 atlas pass 的 caster draw 总数 */
+    public int lastPointShadowCasterDrawCount() {
+        return lastPointShadowCasterDrawCount;
+    }
+
+    /** @return 最近一次聚光 depth pass 的 caster draw 数 */
+    public int lastSpotShadowCasterDrawCount() {
+        return lastSpotShadowCasterDrawCount;
+    }
+
     /** @return 最近一次成功构建的普通 scene visibility/queue 统计 */
     public VisibilityStatistics lastVisibilityStatistics() {
         return lastVisibilityStatistics;
@@ -245,11 +293,15 @@ public final class RenderPipeline {
         }
         usedDevices.add(Objects.requireNonNull(device, "device"));
         currentSceneFrame = null;
+        lastShadowCasterDrawCount = 0;
+        lastPointShadowCasterDrawCount = 0;
+        lastSpotShadowCasterDrawCount = 0;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
         long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
-        postProcess.beginFrame(deltaSeconds);
+        postProcess.beginFrame(deltaSeconds, scene.camera(), window.width(), window.height(),
+                activeFrameIndex);
         if (previewRenderer != null) previewRenderer.prepare(device, previewFrameSequence);
         try {
             graph.execute(device);
@@ -349,9 +401,13 @@ public final class RenderPipeline {
     }
 
     private PassExecutor geometryExecutor() {
-        return (res, cmd) -> renderScene(cmd, LightingBinder.shadowDirectionalLight(scene).isPresent()
-                ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME)
-                : 0);
+        return (res, cmd) -> renderScene(cmd,
+                LightingBinder.shadowDirectionalLight(scene).isPresent()
+                        ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
+                LightingBinder.shadowPointLight(scene).isPresent()
+                        ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
+                LightingBinder.shadowSpotLight(scene).isPresent()
+                        ? res.depthAttachment(SpotShadowMap.TEXTURE_NAME) : 0);
     }
 
     private PassExecutor shadowExecutor() {
@@ -369,6 +425,11 @@ public final class RenderPipeline {
                 int entry = frame.shadowEntry(queueIndex);
                 MeshRenderer renderer = frame.renderer(entry);
                 cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
+                SceneDrawBinding drawBinding = renderer.drawBinding();
+                cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
+                        drawBinding.deformsVertices() ? 1 : 0);
+                drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
+                        SceneDrawBinding.Pass.SHADOW);
                 if (renderer.mesh() != boundMesh) {
                     cmd.bindMesh(renderer.mesh());
                     boundMesh = renderer.mesh();
@@ -385,7 +446,66 @@ public final class RenderPipeline {
         });
     }
 
-    private void renderScene(CommandBuffer cmd, int shadowTexture) {
+    private PassExecutor pointShadowExecutor() {
+        return (res, cmd) -> LightingBinder.shadowPointLight(scene).ifPresent(selection -> {
+            SceneFrame frame = sceneFrame();
+            cmd.bindShader(shadowShader)
+                    .enableBlend(false)
+                    .enableDepthTest(true)
+                    .depthMask(true)
+                    .enableCullFace(false);
+            int draws = 0;
+            for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
+                cmd.viewport(pointShadowAtlas.viewportX(face), pointShadowAtlas.viewportY(face),
+                        pointShadowAtlas.settings().resolution(),
+                        pointShadowAtlas.settings().resolution())
+                        .setUniformMat4(shadowShader, "uLightSpace",
+                                lastPointLightSpaceMatrices.get(face));
+                draws += recordAllShadowCasters(cmd, frame);
+            }
+            lastPointShadowCasterDrawCount = draws;
+        });
+    }
+
+    private PassExecutor spotShadowExecutor() {
+        return (res, cmd) -> LightingBinder.shadowSpotLight(scene).ifPresent(selection -> {
+            SceneFrame frame = sceneFrame();
+            cmd.bindShader(shadowShader)
+                    .enableBlend(false)
+                    .enableDepthTest(true)
+                    .depthMask(true)
+                    .enableCullFace(false)
+                    .viewport(0, 0, spotShadowMap.settings().resolution(),
+                            spotShadowMap.settings().resolution())
+                    .setUniformMat4(shadowShader, "uLightSpace", lastSpotLightSpaceMatrix);
+            lastSpotShadowCasterDrawCount = recordAllShadowCasters(cmd, frame);
+        });
+    }
+
+    private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame) {
+        com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+        int draws = 0;
+        for (int entry = 0; entry < scene.rendererCount(); entry++) {
+            MeshRenderer renderer = frame.renderer(entry);
+            if (!renderer.castShadows()) continue;
+            cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
+            SceneDrawBinding drawBinding = renderer.drawBinding();
+            cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
+                    drawBinding.deformsVertices() ? 1 : 0);
+            drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
+                    SceneDrawBinding.Pass.SHADOW);
+            if (renderer.mesh() != boundMesh) {
+                cmd.bindMesh(renderer.mesh());
+                boundMesh = renderer.mesh();
+            }
+            cmd.drawMesh(renderer.mesh());
+            draws++;
+        }
+        return draws;
+    }
+
+    private void renderScene(CommandBuffer cmd, int shadowTexture,
+                             int pointShadowTexture, int spotShadowTexture) {
         SceneFrame frame = sceneFrame();
         cameraUniforms.update(cmd, scene.camera(), window.width(), window.height(),
                 settings.antiAliasingMode(), activeFrameIndex);
@@ -426,13 +546,18 @@ public final class RenderPipeline {
             boundMaterialHasOverrides = materialHasOverrides;
             if (shader != boundShader
                     || materialBindingChanged && invalidatesFrameState(material)) {
-                bindFrameState(shader, cmd, shadowTexture);
+                bindFrameState(shader, cmd, shadowTexture, pointShadowTexture, spotShadowTexture);
                 if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
                     pbrMaterialBinder.bind(shader, cmd);
                 }
                 boundShader = shader;
             }
             cmd.setUniformMat4(shader, "uModel", model);
+            SceneDrawBinding drawBinding = renderer.drawBinding();
+            cmd.trySetUniformInt(shader, "uSkinningEnabled",
+                    drawBinding.deformsVertices() ? 1 : 0);
+            drawBinding.record(cmd, shader, (int) frame.frameIndex,
+                    SceneDrawBinding.Pass.FORWARD);
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
                 boundMesh = renderer.mesh();
@@ -443,7 +568,8 @@ public final class RenderPipeline {
         if (instanced != null) {
             cmd.bindShader(instanced.shader());
             cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
-            bindFrameState(instanced.shader(), cmd, shadowTexture);
+            bindFrameState(instanced.shader(), cmd, shadowTexture,
+                    pointShadowTexture, spotShadowTexture);
             instanced.render(cmd);
         }
     }
@@ -457,6 +583,16 @@ public final class RenderPipeline {
         } else {
             lastDirectionalLightSpaceMatrix.identity();
         }
+        var pointShadow = LightingBinder.shadowPointLight(scene);
+        lastPointLightSpaceMatrices = pointShadow.isPresent()
+                ? pointShadowAtlas.faceMatrices(pointShadow.orElseThrow().light()) : List.of();
+        var spotShadow = LightingBinder.shadowSpotLight(scene);
+        if (spotShadow.isPresent()) {
+            lastSpotLightSpaceMatrix.set(
+                    spotShadowMap.lightSpaceMatrix(spotShadow.orElseThrow().light()));
+        } else {
+            lastSpotLightSpaceMatrix.identity();
+        }
         SceneFrame built = sceneFrameBuilder.build(scene, Math.max(1, window.width()),
                 Math.max(1, window.height()), lastDirectionalLightSpaceMatrix,
                 shadow.isPresent(), settings.sceneVisibility(), activeFrameIndex);
@@ -464,7 +600,8 @@ public final class RenderPipeline {
         return built;
     }
 
-    private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture) {
+    private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
+                                int pointShadowTexture, int spotShadowTexture) {
         cameraUniforms.bind(shader);
         lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix);
         boolean hasShadow = shadowTexture != 0;
@@ -474,6 +611,23 @@ public final class RenderPipeline {
         if (hasShadow) {
             cmd.bindTexture(SHADOW_TEXTURE_UNIT, shadowTexture);
         }
+        boolean hasPointShadow = pointShadowTexture != 0;
+        cmd.trySetUniformInt(shader, "uHasPointShadow", hasPointShadow ? 1 : 0)
+                .trySetUniformInt(shader, "uPointShadowMap", POINT_SHADOW_TEXTURE_UNIT)
+                .trySetUniformFloat(shader, "uPointShadowBias", pointShadowAtlas.settings().bias());
+        if (hasPointShadow) {
+            for (int face = 0; face < lastPointLightSpaceMatrices.size(); face++) {
+                cmd.trySetUniformMat4(shader, "uPointShadowMatrices[" + face + "]",
+                        lastPointLightSpaceMatrices.get(face));
+            }
+            cmd.bindTexture(POINT_SHADOW_TEXTURE_UNIT, pointShadowTexture);
+        }
+        boolean hasSpotShadow = spotShadowTexture != 0;
+        cmd.trySetUniformInt(shader, "uHasSpotShadow", hasSpotShadow ? 1 : 0)
+                .trySetUniformInt(shader, "uSpotShadowMap", SPOT_SHADOW_TEXTURE_UNIT)
+                .trySetUniformFloat(shader, "uSpotShadowBias", spotShadowMap.settings().bias())
+                .trySetUniformMat4(shader, "uSpotShadowMatrix", lastSpotLightSpaceMatrix);
+        if (hasSpotShadow) cmd.bindTexture(SPOT_SHADOW_TEXTURE_UNIT, spotShadowTexture);
     }
 
     private boolean hasPbrMaterials() {
@@ -592,9 +746,19 @@ public final class RenderPipeline {
                 || name.equals("uCameraPosition")
                 || name.equals("uDirectionalLightSpace")
                 || name.equals("uDirectionalShadowLightIndex")
+                || name.equals("uPointShadowLightIndex")
+                || name.equals("uSpotShadowLightIndex")
                 || name.equals("uHasDirectionalShadow")
                 || name.equals("uShadowMap")
                 || name.equals("uShadowBias")
+                || name.equals("uHasPointShadow")
+                || name.equals("uPointShadowMap")
+                || name.equals("uPointShadowBias")
+                || name.startsWith("uPointShadowMatrices[")
+                || name.equals("uHasSpotShadow")
+                || name.equals("uSpotShadowMap")
+                || name.equals("uSpotShadowBias")
+                || name.equals("uSpotShadowMatrix")
                 || name.equals("uIrradianceMap")
                 || name.equals("uPrefilteredMap")
                 || name.equals("uBrdfLut")
@@ -605,6 +769,8 @@ public final class RenderPipeline {
 
     private static boolean isFrameOwnedTextureUnit(int unit) {
         return unit == SHADOW_TEXTURE_UNIT
+                || unit == POINT_SHADOW_TEXTURE_UNIT
+                || unit == SPOT_SHADOW_TEXTURE_UNIT
                 || unit == PbrMaterialBinder.IRRADIANCE_UNIT
                 || unit == PbrMaterialBinder.PREFILTERED_SPECULAR_UNIT
                 || unit == PbrMaterialBinder.BRDF_LUT_UNIT;

@@ -1,0 +1,8 @@
+# v0.17 public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.resources.AssetId
+advanced com.kaleblangley.haikalat.subsystems.resources.AsyncResourceDecoder
+advanced com.kaleblangley.haikalat.subsystems.resources.ResourceGeneration
+advanced com.kaleblangley.haikalat.subsystems.resources.ResourceGenerationTracker
+advanced com.kaleblangley.haikalat.subsystems.resources.ResourceSource

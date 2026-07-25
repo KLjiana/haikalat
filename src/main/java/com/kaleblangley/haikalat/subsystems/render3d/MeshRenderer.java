@@ -12,13 +12,20 @@ public record MeshRenderer(
         MaterialInstance material,
         Transform transform,
         SceneObject.ModelUpdater updater,
-        boolean castShadows
+        boolean castShadows,
+        SceneDrawBinding drawBinding
 ) {
     public MeshRenderer {
         Objects.requireNonNull(mesh, "mesh");
         Objects.requireNonNull(material, "material");
         Objects.requireNonNull(transform, "transform");
         Objects.requireNonNull(updater, "updater");
+        Objects.requireNonNull(drawBinding, "drawBinding");
+    }
+
+    public MeshRenderer(Mesh mesh, MaterialInstance material, Transform transform,
+                        SceneObject.ModelUpdater updater, boolean castShadows) {
+        this(mesh, material, transform, updater, castShadows, SceneDrawBinding.NONE);
     }
 
     public static MeshRenderer of(Mesh mesh, Material material, Transform transform) {
@@ -40,7 +47,7 @@ public record MeshRenderer(
     }
 
     public MeshRenderer withoutShadows() {
-        return new MeshRenderer(mesh, material, transform, updater, false);
+        return new MeshRenderer(mesh, material, transform, updater, false, drawBinding);
     }
 
     public Matrix4f modelMatrix(Matrix4f out, int frameIndex) {

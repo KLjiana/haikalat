@@ -67,6 +67,10 @@ final class LightingBinder {
         cmd.trySetUniformMat4(shader, "uDirectionalLightSpace", directionalLightSpace);
         cmd.trySetUniformInt(shader, "uDirectionalShadowLightIndex",
                 shadowDirectionalLight(scene).map(ShadowDirectionalLight::shaderIndex).orElse(-1));
+        cmd.trySetUniformInt(shader, "uPointShadowLightIndex",
+                shadowPointLight(scene).map(ShadowPointLight::shaderIndex).orElse(-1));
+        cmd.trySetUniformInt(shader, "uSpotShadowLightIndex",
+                shadowSpotLight(scene).map(ShadowSpotLight::shaderIndex).orElse(-1));
     }
 
     static LightCounts count(Scene scene) {
@@ -107,9 +111,37 @@ final class LightingBinder {
         return Optional.empty();
     }
 
+    static Optional<ShadowPointLight> shadowPointLight(Scene scene) {
+        int pointIndex = 0;
+        for (SceneLight light : scene.lights()) {
+            if (light.type() != LightType.POINT) continue;
+            if (pointIndex >= MAX_POINT_LIGHTS) break;
+            if (light.castShadows()) return Optional.of(new ShadowPointLight(light, pointIndex));
+            pointIndex++;
+        }
+        return Optional.empty();
+    }
+
+    static Optional<ShadowSpotLight> shadowSpotLight(Scene scene) {
+        int spotIndex = 0;
+        for (SceneLight light : scene.lights()) {
+            if (light.type() != LightType.SPOT) continue;
+            if (spotIndex >= MAX_SPOT_LIGHTS) break;
+            if (light.castShadows()) return Optional.of(new ShadowSpotLight(light, spotIndex));
+            spotIndex++;
+        }
+        return Optional.empty();
+    }
+
     record LightCounts(int directional, int point, int spot) {
     }
 
     record ShadowDirectionalLight(SceneLight light, int shaderIndex) {
+    }
+
+    record ShadowPointLight(SceneLight light, int shaderIndex) {
+    }
+
+    record ShadowSpotLight(SceneLight light, int shaderIndex) {
     }
 }

@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset;
+import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneInstance;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
@@ -18,14 +19,17 @@ import java.util.Locale;
 final class GltfDemoAssets implements AutoCloseable {
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
+    private final List<GltfSceneInstance> animatedInstances;
     private final List<SceneObject> objects;
     private final List<String> inspectionLines;
     private boolean closed;
 
     private GltfDemoAssets(GltfRuntimeLibrary library, List<GltfSceneAsset> assets,
+                           List<GltfSceneInstance> animatedInstances,
                            List<SceneObject> objects, List<String> inspectionLines) {
         this.library = library;
         this.assets = List.copyOf(assets);
+        this.animatedInstances = List.copyOf(animatedInstances);
         this.objects = List.copyOf(objects);
         this.inspectionLines = List.copyOf(inspectionLines);
     }
@@ -35,6 +39,7 @@ final class GltfDemoAssets implements AutoCloseable {
         GltfAssetLoader loader = new GltfAssetLoader(resources);
         GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
         List<GltfSceneAsset> assets = new ArrayList<>();
+        List<GltfSceneInstance> animatedInstances = new ArrayList<>();
         List<SceneObject> objects = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         try {
@@ -61,9 +66,19 @@ final class GltfDemoAssets implements AutoCloseable {
                     .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
             objects.addAll(creeperGpu.instantiate(creeperRoot, false));
             appendInspection(lines, "creeper.gltf", creeper, creeperGpu);
-            return new GltfDemoAssets(library, assets, objects, lines);
+
+            LoadedGltfScene animated = loader.load(AssetRef.of("/gltf/animated-two-joint.gltf"));
+            GltfSceneAsset animatedGpu = GltfSceneAsset.upload(animated, library);
+            assets.add(animatedGpu);
+            GltfSceneInstance animatedInstance = animatedGpu.instantiateAnimated(
+                    new Matrix4f().translation(-0.45f, -0.7f, 1.0f).scale(1.25f), true);
+            animatedInstances.add(animatedInstance);
+            objects.addAll(animatedInstance.objects());
+            appendInspection(lines, "animated-two-joint.gltf", animated, animatedGpu);
+            return new GltfDemoAssets(library, assets, animatedInstances, objects, lines);
         } catch (RuntimeException failure) {
-            RuntimeException primary = closeAssets(assets, failure);
+            RuntimeException primary = closeInstances(animatedInstances, failure);
+            primary = closeAssets(assets, primary);
             if (library.activeAssetCount() == 0) {
                 try {
                     library.close();
@@ -85,11 +100,23 @@ final class GltfDemoAssets implements AutoCloseable {
         return inspectionLines;
     }
 
+    void update(float deltaSeconds) {
+        ensureOpen();
+        animatedInstances.forEach(instance -> instance.update(deltaSeconds));
+    }
+
+    float animatedTipOffset() {
+        ensureOpen();
+        return animatedInstances.isEmpty() ? 0.0f
+                : animatedInstances.getFirst().jointPaletteMatrix(0, 1).m31();
+    }
+
     @Override
     public void close() {
         if (closed) return;
         closed = true;
-        RuntimeException failure = closeAssets(assets, null);
+        RuntimeException failure = closeInstances(animatedInstances, null);
+        failure = closeAssets(assets, failure);
         try {
             library.close();
         } catch (RuntimeException cleanup) {
@@ -114,6 +141,11 @@ final class GltfDemoAssets implements AutoCloseable {
                 "  decoded %.1f KiB | vertex %.1f KiB | index %.1f KiB",
                 stats.decodedBufferBytes() / 1024.0, stats.vertexBytes() / 1024.0,
                 stats.indexBytes() / 1024.0));
+        if (stats.skinCount() > 0 || stats.animationCount() > 0) {
+            lines.add(String.format(Locale.ROOT,
+                    "  skin %d | animation %d | channel %d",
+                    stats.skinCount(), stats.animationCount(), stats.animationChannelCount()));
+        }
         scene.materials().forEach(material -> lines.add(String.format(Locale.ROOT,
                 "  material[%d] %s | %s cutoff %.2f | textures %s",
                 material.index(), material.name().isBlank() ? "unnamed" : material.name(),
@@ -136,6 +168,20 @@ final class GltfDemoAssets implements AutoCloseable {
         for (int index = assets.size() - 1; index >= 0; index--) {
             try {
                 assets.get(index).close();
+            } catch (RuntimeException cleanup) {
+                if (failure == null) failure = cleanup;
+                else failure.addSuppressed(cleanup);
+            }
+        }
+        return failure;
+    }
+
+    private static RuntimeException closeInstances(List<GltfSceneInstance> instances,
+                                                    RuntimeException primary) {
+        RuntimeException failure = primary;
+        for (int index = instances.size() - 1; index >= 0; index--) {
+            try {
+                instances.get(index).close();
             } catch (RuntimeException cleanup) {
                 if (failure == null) failure = cleanup;
                 else failure.addSuppressed(cleanup);

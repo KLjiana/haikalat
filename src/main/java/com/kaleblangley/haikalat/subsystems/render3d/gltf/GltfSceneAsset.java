@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.core.assets.gltf.GltfSceneStatistics;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrTextureBinding;
@@ -34,6 +35,7 @@ public final class GltfSceneAsset implements AutoCloseable {
     private final List<Texture2D> textures;
     private final List<Sampler> samplers;
     private boolean closed;
+    private int activeInstances;
 
     private GltfSceneAsset(LoadedGltfScene source, GltfRuntimeLibrary library,
                            List<Mesh> meshes, Map<MaterialKey, Material> materials,
@@ -75,7 +77,9 @@ public final class GltfSceneAsset implements AutoCloseable {
                 }
             }
             for (LoadedGltfScene.Primitive primitive : source.primitives()) {
-                ownedMeshes.add(rollback.own(Mesh.from(primitive.mesh())));
+                Bounds3f bounds = source.primitiveSkinning(primitive.index()).isPresent()
+                        ? Bounds3f.unbounded() : primitive.mesh().localBounds();
+                ownedMeshes.add(rollback.own(Mesh.from(primitive.mesh(), bounds)));
                 fault.check(UploadStage.MESH, primitive.index());
             }
             GltfSceneAsset asset = new GltfSceneAsset(source, library, ownedMeshes, ownedMaterials,
@@ -123,6 +127,12 @@ public final class GltfSceneAsset implements AutoCloseable {
         return List.copyOf(result);
     }
 
+    public GltfSceneInstance instantiateAnimated(Matrix4fc rootTransform,
+                                                 boolean castShadows) {
+        ensureOpen();
+        return GltfSceneInstance.create(this, rootTransform, castShadows);
+    }
+
     public GltfSceneStatistics statistics() { return source.statistics(); }
     public boolean isClosed() { return closed; }
     public int uniqueMeshCount() { return meshes.size(); }
@@ -144,6 +154,10 @@ public final class GltfSceneAsset implements AutoCloseable {
     @Override
     public void close() {
         if (closed) return;
+        if (activeInstances != 0) {
+            throw new IllegalStateException("cannot close glTF scene asset while "
+                    + activeInstances + " animated instances are active");
+        }
         closed = true;
         RuntimeException failure = closeOwned(meshes, materials.values(), samplers, textures, null);
         try { library.releaseAsset(); } catch (RuntimeException error) {
@@ -236,6 +250,34 @@ public final class GltfSceneAsset implements AutoCloseable {
 
     private void ensureOpen() {
         if (closed) throw new IllegalStateException("glTF scene asset is closed");
+    }
+
+    LoadedGltfScene sourceData() {
+        ensureOpen();
+        return source;
+    }
+
+    Mesh mesh(int primitiveIndex) {
+        ensureOpen();
+        return meshes.get(primitiveIndex);
+    }
+
+    Material material(LoadedGltfScene.Primitive primitive) {
+        ensureOpen();
+        return materials.get(new MaterialKey(primitive.materialIndex(),
+                primitive.hasVertexColor()));
+    }
+
+    void retainInstance() {
+        ensureOpen();
+        activeInstances = Math.incrementExact(activeInstances);
+    }
+
+    void releaseInstance() {
+        if (activeInstances <= 0) {
+            throw new IllegalStateException("glTF scene instance count underflow");
+        }
+        activeInstances--;
     }
 
     private record MaterialKey(int materialIndex, boolean vertexColor) {}

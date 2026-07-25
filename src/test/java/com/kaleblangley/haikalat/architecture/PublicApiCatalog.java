@@ -14,9 +14,9 @@ import java.util.regex.Pattern;
 final class PublicApiCatalog {
     static final Path DIRECTORY = Path.of("docs", "architecture", "public-api");
     static final Set<String> FILES = Set.of(
-            "backend.allowlist", "core.allowlist", "runtime.allowlist",
-            "render3d.allowlist", "postprocess.allowlist", "ui.allowlist",
-            "windowing.allowlist");
+            "animation.allowlist", "backend.allowlist", "core.allowlist", "runtime.allowlist",
+            "render3d.allowlist", "postprocess.allowlist", "resources.allowlist", "ui.allowlist",
+            "vfx.allowlist", "windowing.allowlist");
     static final Set<String> CATEGORIES = Set.of("stable", "advanced", "internal");
     private static final Pattern PACKAGE = Pattern.compile("(?m)^package\\s+([A-Za-z0-9_.]+);");
     private static final Pattern PUBLIC_TOP_LEVEL = Pattern.compile(

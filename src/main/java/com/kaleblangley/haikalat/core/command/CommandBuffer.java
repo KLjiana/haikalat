@@ -83,6 +83,7 @@ public final class CommandBuffer {
     static final byte PUSH_DEBUG_GROUP = 49;
     static final byte POP_DEBUG_GROUP = 50;
     static final byte UNIFORM_MAT4_PRIMITIVE = 51;
+    static final byte UPLOAD_BUFFER_REGION = 52;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -384,6 +385,33 @@ public final class CommandBuffer {
         Objects.requireNonNull(mesh, "mesh");
         flushPendingState();
         stream.objectCommand(DRAW_MESH, mesh);
+        return this;
+    }
+
+    /**
+     * Records a bounded buffer update with a command-owned immutable byte snapshot.
+     * The target performs the backend-specific DSA update during command execution.
+     */
+    public CommandBuffer uploadBufferRegion(BufferUploadTarget buffer, long offsetBytes,
+                                            ByteBuffer data) {
+        Objects.requireNonNull(buffer, "buffer");
+        Objects.requireNonNull(data, "data");
+        if (offsetBytes < 0L) {
+            throw new IllegalArgumentException("buffer upload offset must be non-negative");
+        }
+        if (!data.hasRemaining()) {
+            throw new IllegalArgumentException("buffer upload payload must not be empty");
+        }
+        ByteBuffer source = data.duplicate();
+        ByteBuffer copied = ByteBuffer.allocateDirect(source.remaining()).order(data.order());
+        copied.put(source).flip();
+        ByteBuffer stablePayload = copied.asReadOnlyBuffer().order(copied.order());
+
+        flushPendingState();
+        opcode(UPLOAD_BUFFER_REGION);
+        longValue(offsetBytes);
+        object(buffer);
+        object(stablePayload);
         return this;
     }
 

@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.subsystems.ui;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiTweenSpec;
 import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Button;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
@@ -69,6 +71,24 @@ class UiSystemTest {
                     ui.animationDeltaSeconds(), 0.0001f);
             assertThrows(IllegalArgumentException.class,
                     () -> ui.update(collector.snapshot(), Float.NaN));
+        }
+    }
+
+    @Test
+    void updateAdvancesAnimationsWithTheBoundedUiDelta() {
+        try (UiSystem ui = UiSystem.create(new FixedWindow(320, 180), UiConfig.defaults())) {
+            Button button = new Button("Fade");
+            ui.document().root().add(button);
+            WindowInputCollector input = collector(320, 180, 320, 180);
+            ui.update(input.snapshot(), 1.0f / 60.0f);
+            ui.animations().tweenOpacity(button, 0.0f,
+                    new UiTweenSpec(1.0f, UiEasing.LINEAR));
+
+            ui.update(input.snapshot(), 1.0f);
+
+            assertEquals(1.0f - UiConfig.defaults().maximumDeltaSeconds(),
+                    button.computedStyle().opacity(), 1.0e-5f);
+            assertEquals(1, ui.animations().activeCount());
         }
     }
 

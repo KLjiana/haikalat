@@ -1,0 +1,18 @@
+# Skeletal animation subsystem public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationClip
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationEvent
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationMixer
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer
+advanced com.kaleblangley.haikalat.subsystems.animation.BoneMask
+advanced com.kaleblangley.haikalat.subsystems.animation.gltf.GltfAnimationRig
+advanced com.kaleblangley.haikalat.subsystems.animation.JointTransform
+advanced com.kaleblangley.haikalat.subsystems.animation.JointPalette
+advanced com.kaleblangley.haikalat.subsystems.animation.Pose
+advanced com.kaleblangley.haikalat.subsystems.animation.PoseBuffer
+advanced com.kaleblangley.haikalat.subsystems.animation.PoseBlender
+advanced com.kaleblangley.haikalat.subsystems.animation.RootMotionDelta
+advanced com.kaleblangley.haikalat.subsystems.animation.Skeleton
+advanced com.kaleblangley.haikalat.subsystems.animation.Skin
+advanced com.kaleblangley.haikalat.subsystems.animation.TwoBoneIkSolver

@@ -13,7 +13,7 @@ import java.util.Set;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.*;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.*;
 
-/** glTF 2.0 静态场景的纯 JVM 加载入口。 */
+/** glTF 2.0 scene、skin 与 animation 的纯 JVM 加载入口。 */
 public final class GltfAssetLoader {
     private final ResourceLocator locator;
 
@@ -94,9 +94,12 @@ public final class GltfAssetLoader {
             List<Map<String, Object>> textureDtos = objects(root, "textures");
             List<Map<String, Object>> imageDtos = objects(root, "images");
             List<Map<String, Object>> samplerDtos = objects(root, "samplers");
+            List<Map<String, Object>> skinDtos = objects(root, "skins");
+            List<Map<String, Object>> animationDtos = objects(root, "animations");
             accessors = objects(root, "accessors");
             views = objects(root, "bufferViews");
-            checkCounts(nodeDtos, meshDtos, materialDtos, textureDtos, imageDtos, samplerDtos);
+            checkCounts(nodeDtos, meshDtos, materialDtos, textureDtos, imageDtos, samplerDtos,
+                    skinDtos, animationDtos);
             GltfUriResolver.BufferResolution resolvedBuffers = uriResolver.resolveBuffers(root);
             buffers = resolvedBuffers.buffers();
             decodedBufferBytes = resolvedBuffers.decodedBytes();
@@ -124,17 +127,50 @@ public final class GltfAssetLoader {
             tangentFallbackVertices = meshResult.tangentFallbackVertices();
             vertexBytes = meshResult.vertexBytes();
             indexBytes = meshResult.indexBytes();
+            List<LoadedGltfScene.SkinDef> skins = new GltfSkinDecoder(source,
+                    options.limits(), accessorDecoder).decode(skinDtos, nodeDtos.size());
             GltfNodeDecoder.Result nodeResult = new GltfNodeDecoder(source, root, options)
-                    .decode(nodeDtos, meshDtos.size());
+                    .decode(nodeDtos, meshDtos.size(), skins.size());
             List<LoadedGltfScene.Node> nodes = nodeResult.nodes();
+            validateSkinning(nodes, nodeResult.nodeRigs(), primitives,
+                    meshResult.primitiveSkinning(), skins);
+            List<LoadedGltfScene.AnimationDef> animations = new GltfAnimationDecoder(source,
+                    options.limits(), accessorDecoder).decode(animationDtos, nodeResult.nodeRigs());
             int reachable = (int) nodes.stream().filter(LoadedGltfScene.Node::reachable).count();
+            int animationChannels = animations.stream()
+                    .mapToInt(animation -> animation.channels().size()).sum();
             GltfSceneStatistics stats = new GltfSceneStatistics(nodeDtos.size(), reachable, meshDtos.size(),
                     primitives.size(), allMaterials.size(), textures.size(), images.size(), samplers.size(),
+                    skins.size(), animations.size(), animationChannels,
                     normalFallbacks, tangentFallbackTriangles, tangentFallbackVertices,
                     decodedBufferBytes, encodedImageBytes, vertexBytes, indexBytes);
             return new LoadedGltfScene(source, nodeResult.sceneIndex(), nodeResult.sceneName(),
                     nodeResult.roots(), nodes,
-                    primitives, allMaterials, textures, images, samplers, warnings, stats);
+                    primitives, nodeResult.nodeRigs(), meshResult.primitiveSkinning(),
+                    skins, animations, allMaterials, textures, images, samplers, warnings, stats);
+        }
+
+        private void validateSkinning(List<LoadedGltfScene.Node> nodes,
+                                      List<LoadedGltfScene.NodeRigDef> nodeRigs,
+                                      List<LoadedGltfScene.Primitive> primitives,
+                                      Map<Integer, LoadedGltfScene.PrimitiveSkinning> skinning,
+                                      List<LoadedGltfScene.SkinDef> skins) {
+            for (LoadedGltfScene.NodeRigDef node : nodeRigs) {
+                if (node.skinIndex() < 0) continue;
+                LoadedGltfScene.SkinDef skin = skins.get(node.skinIndex());
+                int meshIndex = nodes.get(node.nodeIndex()).meshIndex();
+                if (meshIndex < 0) continue;
+                for (LoadedGltfScene.Primitive primitive : primitives) {
+                    if (primitive.meshIndex() != meshIndex) continue;
+                    LoadedGltfScene.PrimitiveSkinning contract = skinning.get(primitive.index());
+                    if (contract != null && contract.maxJointIndex() >= skin.joints().size()) {
+                        throw fail("nodes[" + node.nodeIndex() + "].mesh",
+                                "JOINTS_0 index " + contract.maxJointIndex()
+                                        + " exceeds skin[" + node.skinIndex()
+                                        + "] joint count " + skin.joints().size());
+                    }
+                }
+            }
         }
 
         private void validateAsset() {
@@ -191,7 +227,8 @@ public final class GltfAssetLoader {
         }
 
         private void checkCounts(List<?> nodes, List<?> meshes, List<?> materials, List<?> textures,
-                                 List<?> images, List<?> samplers) {
+                                 List<?> images, List<?> samplers, List<?> skins,
+                                 List<?> animations) {
             GltfAssetLimits l = options.limits();
             limit(source, "nodes", nodes.size(), l.nodes(), "nodes");
             limit(source, "meshes", meshes.size(), l.meshes(), "meshes");
@@ -200,6 +237,8 @@ public final class GltfAssetLoader {
             limit(source, "images", images.size(), l.images(), "images");
             limit(source, "samplers", samplers.size(), l.samplers(), "samplers");
             limit(source, "accessors", accessors.size(), l.accessors(), "accessors");
+            limit(source, "skins", skins.size(), l.skins(), "skins");
+            limit(source, "animations", animations.size(), l.animations(), "animations");
         }
 
         private GltfAssetException fail(String location, String message) { return error(source, GltfAssetException.Phase.DECODE, location, message); }

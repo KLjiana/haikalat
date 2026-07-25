@@ -155,6 +155,45 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void animationSubsystemRemainsGlFree() throws IOException {
+        Path animation = HAIKALAT.resolve(Path.of("subsystems", "animation"));
+        Set<String> backendImports = importsUnder(animation,
+                "com.kaleblangley.haikalat.backend.");
+        Set<String> openGlFiles = filesContaining(animation, "org.lwjgl.opengl.");
+
+        assertTrue(backendImports.isEmpty(),
+                "animation must not depend on backend resources: " + backendImports);
+        assertTrue(openGlFiles.isEmpty(),
+                "animation must not issue OpenGL calls: " + openGlFiles);
+    }
+
+    @Test
+    void resourceSubsystemRemainsHostAndGlFree() throws IOException {
+        Path resources = HAIKALAT.resolve(Path.of("subsystems", "resources"));
+        Set<String> backendImports = importsUnder(resources,
+                "com.kaleblangley.haikalat.backend.");
+        Set<String> openGlFiles = filesContaining(resources, "org.lwjgl.opengl.");
+
+        assertTrue(backendImports.isEmpty(),
+                "resources must not depend on backend resources: " + backendImports);
+        assertTrue(openGlFiles.isEmpty(),
+                "resources must not issue OpenGL calls: " + openGlFiles);
+    }
+
+    @Test
+    void vfxSimulationSubsystemRemainsGlFree() throws IOException {
+        Path vfx = HAIKALAT.resolve(Path.of("subsystems", "vfx"));
+        Set<String> backendImports = importsUnder(vfx,
+                "com.kaleblangley.haikalat.backend.");
+        Set<String> openGlFiles = filesContaining(vfx, "org.lwjgl.opengl.");
+
+        assertTrue(backendImports.isEmpty(),
+                "VFX simulation must not depend on backend resources: " + backendImports);
+        assertTrue(openGlFiles.isEmpty(),
+                "VFX simulation must not issue OpenGL calls: " + openGlFiles);
+    }
+
+    @Test
     void uiRemainsASiblingSubsystemWithoutReverseDependencies() throws IOException {
         Path ui = HAIKALAT.resolve(Path.of("subsystems", "ui"));
         Set<String> higherLayerImports = new java.util.HashSet<>();
@@ -227,6 +266,18 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void gpuParticleExperimentDoesNotReadBackSimulationData() throws IOException {
+        Path source = HAIKALAT.resolve(Path.of("subsystems", "render3d", "vfx",
+                "GpuParticleExperiment.java"));
+        String code = Files.readString(source);
+
+        for (String forbidden : Set.of("glGetNamedBufferSubData", ".read(", "glMapNamedBuffer")) {
+            assertFalse(code.contains(forbidden),
+                    "GPU particle experiment must remain GPU-only; found " + forbidden);
+        }
+    }
+
+    @Test
     void pbrSubsystemKeepsOwnershipAndTypedCommandBoundaries() throws IOException {
         Path pbr = HAIKALAT.resolve(Path.of("subsystems", "render3d", "pbr"));
         if (Files.isDirectory(pbr)) {
@@ -250,13 +301,16 @@ class ArchitectureBoundaryTest {
 
     private static void assertCatalogDomains(Map<String, PublicApiCatalog.Entry> catalog) {
         Map<String, Set<String>> prefixes = Map.of(
+                "animation.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.animation."),
                 "backend.allowlist", Set.of("com.kaleblangley.haikalat.backend."),
                 "core.allowlist", Set.of("com.kaleblangley.haikalat.core.",
                         "com.kaleblangley.haikalat.util."),
                 "runtime.allowlist", Set.of("com.kaleblangley.haikalat.runtime."),
                 "render3d.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.render3d."),
                 "postprocess.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.postprocess."),
+                "resources.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.resources."),
                 "ui.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.ui."),
+                "vfx.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.vfx."),
                 "windowing.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.windowing."));
         for (PublicApiCatalog.Entry entry : catalog.values()) {
             assertTrue(prefixes.get(entry.file()).stream().anyMatch(entry.type()::startsWith),
@@ -266,12 +320,15 @@ class ArchitectureBoundaryTest {
 
     private static String domainPath(String allowlist) {
         return switch (allowlist) {
+            case "animation.allowlist" -> "/subsystems/animation/";
             case "backend.allowlist" -> "/backend/";
             case "core.allowlist" -> "/core/";
             case "runtime.allowlist" -> "/runtime/";
             case "render3d.allowlist" -> "/subsystems/render3d/";
             case "postprocess.allowlist" -> "/subsystems/postprocess/";
+            case "resources.allowlist" -> "/subsystems/resources/";
             case "ui.allowlist" -> "/subsystems/ui/";
+            case "vfx.allowlist" -> "/subsystems/vfx/";
             case "windowing.allowlist" -> "/subsystems/windowing/";
             default -> throw new AssertionError("unknown allowlist " + allowlist);
         };

@@ -100,6 +100,7 @@ Deterministic resize and async render-thread integrations:
 ```powershell
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runMinimalIntegration
+.\gradlew.bat runAnimationIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat runEmptyWindowIntegration
 .\gradlew.bat runAutoExposureIntegration
@@ -108,9 +109,18 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runPbrResizeIntegration
 .\gradlew.bat runPbrCompatibilityIntegration
 .\gradlew.bat runPbrFailureIntegration
+.\gradlew.bat runPostProcessEffectsIntegration
+.\gradlew.bat runLocalShadowsIntegration
 .\gradlew.bat localPbrVerification
 .\gradlew.bat runGltfIntegration
+.\gradlew.bat runGltfSkinningIntegration
 .\gradlew.bat runGltfResizeIntegration
+.\gradlew.bat runVfxIntegration
+.\gradlew.bat runVfxPerformanceBaseline
+.\gradlew.bat runShowcaseIntegration
+.\gradlew.bat runShowcasePerformanceBaseline
+.\gradlew.bat runShowcaseStabilityIntegration
+.\gradlew.bat localMilestone4Verification
 .\gradlew.bat localGltfVerification
 .\gradlew.bat runDiagnosticsIntegration
 .\gradlew.bat runDiagnosticsResizeIntegration
@@ -126,6 +136,13 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat localSceneVisibilityVerification
 ```
 
+Milestone 4 的纯 JVM 路径由 `AdvancedAnimationTest` 覆盖混合、Bone Mask、事件、跨循环根运动与
+Two-bone IK；`UiAnimationSystemTest` 覆盖暂停/恢复、进度和诊断计数。`GpuEffectsGlTest` 使用隐藏
+OpenGL 4.6 context 验证 Compute/SSBO 粒子、barrier、体积积分、实际像素与关闭后拒绝使用。
+`runShowcaseIntegration` 用 640×360 / 24 帧串联完整子系统并回读最终像素；
+`runShowcaseStabilityIntegration` 用 320×180 / 3600 帧证明预热后 live GL resource identity 和估算字节不增长。
+受控实验的 API 与限制见 `docs/guides/milestone4-api-performance-limitations.md`。
+
 v0.15 diagnostics integration 使用同一个主 Demo 正式管线：第一项在 12 帧 DETAILED 运行后导出
 `build/diagnostics/integration.json`；resize 项验证 960×540 managed target 和保持 2048×2048 的固定阴影
 target；failure 项发布一个明确的 incomplete/FAILED frame，并验证后续帧恢复和资源 live count 归零。
@@ -137,15 +154,30 @@ MRT MSAA read attachment、DEPTH24_STENCIL8 精确 resolve，以及异步 UI 遇
 `runPreviewIntegration` 打开 F2、选择 `GeometryPass/sceneColor`、导出 16 帧，并检查 1 draw/最多 1 blit、
 graph topology 不变以及 JSON 不含 texture id/像素。
 
-v0.13 glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资源、interleaved
+glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资源、interleaved
 与 normalized attribute、sparse accessor、node graph/transform、normal/tangent 生成、URI root
-约束、结构化错误、百万元素零基底 sparse accessor、sparse indices/values 完整范围、
+约束、skin/inverse-bind/animation、STEP/LINEAR/CUBICSPLINE、四影响权重规范化、结构化错误、
+百万元素零基底 sparse accessor、sparse indices/values 完整范围、
 `radio.gltf` MASK/cutoff 保留和 BLEND 拒绝都在普通 `test` 中执行。
 `localGltfVerification` 额外创建隐藏 OpenGL 4.6 context，验证 embedded PNG、同一 image 的
-sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、四阶段上传失败清理、library active-asset
+sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、PBR 与方向光 shadow GPU 蒙皮、四阶段上传失败清理、library active-asset
 guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及包含 showcase/radio/creeper 共
-16 个对象的独立 Demo/resize 链路。可见窗口中按 F1 切换 inspector 交互模式，使用滚轮、
+16 个对象和 animated two-joint fixture 的独立 Demo/resize 链路。可见窗口中按 F1 切换 inspector 交互模式，使用滚轮、
 PageUp/PageDown 或 Home/End 检查长资产树，F2 隐藏面板。
+
+`runPostProcessEffectsIntegration` 和 `PostProcessEffectsGlTest` 以隐藏窗口验证 Color Grading LUT、
+距离/高度雾、深度重建、最终像素变化和 resize；雾与 MSAA 的未实现深度 resolve 组合会在分配 GL
+资源前明确失败。`runUiIntegration` 同时验证 header fade、spring layout transition 和最终 UI 像素。
+
+Milestone 3 VFX 默认测试覆盖固定种子、容量/寿命、Ribbon 采样、Decal 淘汰、透明稳定排序和
+`EffectAsset/EffectInstance` 关闭顺序。`VfxRendererGlTest` 验证三类 primitive 的实际像素与 GL
+资源关闭；`runVfxIntegration` 在 16 帧中 resize，`runVfxPerformanceBaseline` 以 512 粒子、240 帧
+输出 CPU update、GPU pass 和 uniform payload。当前机器记录约 0.282 ms CPU、0.030 ms GPU、
+44,880 B/frame uniform payload，硬件/驱动变化时应重新采样而不是视为跨机器门限。
+
+`LocalShadowMathTest` 验证点光六面、聚光外锥和方向光级联切分/稳定矩阵；`LocalShadowsGlTest`
+对同一 PBR 场景执行无阴影/有阴影像素 A/B。`runLocalShadowsIntegration` 在 1280×720 test-quality
+场景串联方向光、点光与聚光，当前基线为 point 156 draws、spot 26 draws、GPU pass 约 5.77 ms。
 
 v0.11 UI 的四条有限帧、隐藏窗口验证和聚合入口：
 
@@ -167,7 +199,7 @@ Run every local check that requires a desktop OpenGL environment:
 .\gradlew.bat localGlVerification
 ```
 
-`localGlVerification` also depends on `localUiVerification`, runs MinimalDemo's sRGB LDR target, the deterministic full-GPU automatic-exposure transition, the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
+`localGlVerification` also depends on `localUiVerification`, runs MinimalDemo's sRGB LDR target, the deterministic CPU skeletal-animation proof, the full-GPU automatic-exposure transition, the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
 
 The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, linear/sRGB texture sampling, single-encoded mid-gray output across all LDR AA modes and HDR/ACES, RGBA16F values above 1.0, ACES exposure changes, R16F log-luminance plus RG32F sum/weight reduction/history, 9×1 and 1280×1 edge weighting, a 1×1-to-47×33 resize topology regression, fullscreen state ownership, HDR resize, disabled/enabled Bloom pixels across all four AA paths, the 40-case legal UI/pipeline matrix, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with one upload reused by two passes, reverse cleanup after a geometry-stage failure, next-frame ring reuse, an async UBO upload that drives instanced final pixels, PBR device-cache recovery after runtime environment preprocessing, shared legacy/PBR model variants, canonical tangent fail-fast, and three injected IBL preprocessing cleanup stages. Unit tests verify primitive-only state packets, boundary separation, relative target sizing, packed-instance quantization, uint8 topology/winding, HDR/Bloom/LDR-present pass order, exposure/Bloom validation, frame-rate-independent adaptation, topology-preserving dynamic light replacement, ACES reference behavior, range-limited inverse-square PBR falloff, sRGB/float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.
 

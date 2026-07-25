@@ -1,6 +1,6 @@
 # 公共 API 分类合同
 
-状态：v0.17 当前有效合同。
+状态：v0.18 当前有效合同。
 
 main source set 的每个 public 顶层类型必须恰好出现在一个域清单中。每行格式为
 `<stable|advanced|internal> <fully-qualified-class-name>`。
@@ -9,9 +9,18 @@ main source set 的每个 public 顶层类型必须恰好出现在一个域清�
 - `advanced`：诊断、扩展或低层控制入口；次版本可收紧，但必须更新 changelog。
 - `internal`：因跨包实现暂时 public，不构成兼容承诺，只允许本域或 Demo 证明调用。
 
-清单按 `backend`、`core`、`runtime`、`render3d`、`postprocess`、`ui`、`windowing`
-七个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免 backend public
-类型逃出穷尽校验。`util` 当前归入 core 域。
+清单按 `animation`、`backend`、`core`、`runtime`、`render3d`、`postprocess`、`resources`、
+`ui`、`vfx`、`windowing` 十个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免
+backend public 类型逃出穷尽校验。`animation` 在引擎演进阶段作为无 GL 调用的兄弟
+subsystem 独立管理；`resources` 保存宿主无关的资源身份、代次和 CPU 解码协议，两者均由
+架构测试禁止引用 backend 或直接调用 OpenGL；`vfx` 同样只保存效果资产、实例模拟和帧快照，
+具体 GPU 适配位于 render3d 域；`util` 当前归入 core 域。
+
+Milestone 4 的 `AnimationMixer/BoneMask/RootMotionDelta/TwoBoneIkSolver`、
+`GpuParticleExperiment`、`VolumetricLightPass` 与 `UiAnimationDiagnostics` 均分类为 `advanced`。
+其中动画和 UI 诊断保持 GL-free；GPU 粒子与体积光是经过真实像素、性能和稳定性验证的受控实验，
+不构成完整编辑型 VFX/volume API 的 stable 承诺。详细限制见
+`docs/guides/milestone4-api-performance-limitations.md`。
 
 `PublicApiCatalog` 与 `ArchitectureBoundaryTest` 校验未分类、重复、陈旧、错域、stable
 第三方签名泄漏和 internal 越域调用。反射检查覆盖导入后的简单类型，不依赖源码中出现完整包名。

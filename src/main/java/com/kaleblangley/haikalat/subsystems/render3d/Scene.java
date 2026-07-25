@@ -42,7 +42,7 @@ public final class Scene {
         Objects.requireNonNull(object, "object");
         MaterialInstance instance = object.material().createInstance();
         MeshRenderer renderer = new MeshRenderer(object.mesh(), instance, Transform.identity(),
-                object.updater(), object.castShadows());
+                object.updater(), object.castShadows(), object.drawBinding());
         return add(renderer);
     }
 

@@ -26,12 +26,32 @@ current goals, capabilities, and non-goals.
   frustum culling, and primitive render queues that preserve transparent insertion order.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, the OBJ path exercised by the main demo,
-  and the static glTF 2.0 path exercised by the dedicated glTF demo.
+  and glTF 2.0 static/skinned assets exercised by the dedicated glTF demo.
+- A GL-free skeletal-animation subsystem with arbitrary-index hierarchies, bind poses,
+  reusable pose buffers, STEP/LINEAR/CUBICSPLINE TRS sampling, LOOP/ONCE playback,
+  layered/Bone Mask blending, normalized action synchronization, ordered action events,
+  loop-aware root motion, Two-bone IK, glTF skins/animations, per-instance joint palettes,
+  and four-weight GPU skinning in both the PBR forward and directional-shadow passes.
+- A strict OpenGL 4.6 production capability contract covering Core Profile, DSA, SSBO,
+  compute, image load/store, buffer storage, MDI, shader draw parameters, and debug output.
+  Optional bindless-texture support is reported separately; there is no legacy fallback.
+- A GL-free resource subsystem with normalized `AssetId` values, bounded directory/classpath
+  sources, per-resource generations, and asynchronous CPU decoding that rejects stale results.
 - A retained-mode game UI subsystem with Yoga layout, typed theme/widgets/events,
   virtualized lists, popup/focus/clipboard support, bundled Noto Sans SC shaping through
-  FreeType/HarfBuzz, a GPU glyph atlas, typed scissor/texture uploads, and Windows IME composition.
+  FreeType/HarfBuzz, a GPU glyph atlas, typed scissor/texture uploads, Windows IME composition,
+  and GL-free visual/layout Tween and Transition channels.
+- Post-processing color grading through tiled 2D LUTs and depth-reconstructed distance/height fog,
+  with deterministic pixel and resize verification.
+- A GL-free deterministic VFX subsystem with bounded particle, Ribbon and Decal simulation,
+  asset/instance lifetime protection and stable transparent sorting, plus a render3d GL adapter.
+- Controlled OpenGL 4.6 experiments for compute/SSBO GPU particles without CPU readback and
+  bounded screen-space volumetric spot lighting, with real-pixel and resource-stability checks.
+- Directional, six-face point-atlas and spot shadow passes, with a practical-split,
+  world-texel-stabilized directional cascade plan.
 - Demo proof paths for an empty present baseline, the combined scene pipeline, minimal command/window flow,
-  async update/upload/render-thread interaction, a dedicated UiDemo, and generated GPU-procedural
+  CPU skeletal animation, async update/upload/render-thread interaction, a dedicated UiDemo,
+  a Milestone 4 animation/PBR/postprocess/VFX/UI showcase, and generated GPU-procedural
   1000000-instance stress profiling.
 - Bounded runtime diagnostics with frame/pass sample identity, RenderGraph inspection, structured GL messages,
   tracked resources, scene visibility/queue statistics, an F2 retained UI panel, frozen history,
@@ -82,6 +102,13 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 
 ```powershell
 .\gradlew.bat runDemoResizeIntegration
+.\gradlew.bat runAnimationIntegration
+.\gradlew.bat runGltfSkinningIntegration
+.\gradlew.bat runPostProcessEffectsIntegration
+.\gradlew.bat runVfxIntegration
+.\gradlew.bat runShowcaseIntegration
+.\gradlew.bat runShowcaseStabilityIntegration
+.\gradlew.bat runLocalShadowsIntegration
 .\gradlew.bat runAsyncIntegration
 .\gradlew.bat localUiVerification
 .\gradlew.bat localGlVerification
@@ -121,6 +148,11 @@ the `learnopengl.demo` module.
 - Main demo: `com.kaleblangley.haikalat.demo.LearnOpenGlDemo`
 - Empty no-draw window: `com.kaleblangley.haikalat.demo.EmptyWindowDemo`
 - Minimal smoke demo: `com.kaleblangley.haikalat.demo.MinimalDemo`
+- CPU skeletal animation: `com.kaleblangley.haikalat.demo.animation.AnimationDemo`
+- Static and skinned glTF/PBR: `com.kaleblangley.haikalat.demo.gltf.GltfDemo`
+- PBR, color grading and fog: `com.kaleblangley.haikalat.demo.pbr.PbrDemo`
+- Particle, Ribbon and Decal VFX: `com.kaleblangley.haikalat.demo.vfx.VfxDemo`
+- Combined animation/PBR/postprocess/CPU+GPU VFX/UI showcase: `com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo`
 - Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
 - Retained UI demo: `com.kaleblangley.haikalat.demo.ui.UiDemo`
 - Ordinary-renderer visibility benchmark: `com.kaleblangley.haikalat.demo.SceneScalabilityDemo`

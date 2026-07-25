@@ -6,10 +6,10 @@
 
 ## 当前重点
 
-v0.17 已完成本地实现候选。真实多材质 glTF 的 10,000 renderer / 10% 可见场景只提交 1,000 draw，
-optimized CPU/GPU median 为 `0.626/0.259 ms`，没有达到 GPU-driven 决策门要求的约 2 ms CPU 和
-3,000 个持续可见 draw。因此 v0.18 暂不建设 GPU culling、Hi-Z 或 MDI；先处理调试可视化、透明
-排序合同和 UI allocation，等新真实内容再次提供联合证据。
+v0.18.0 已完成 Haikalat OpenGL 4.6 路线图：骨骼动画与 glTF 蒙皮、资源代次、后处理、UI 动画、
+CPU VFX、局部阴影、高级动画和受控 GPU 特效实验均具备测试、真实像素 Demo 与稳定性证据。
+下一阶段先收敛这些新增 API 的实际使用反馈、跨平台 CI 和实验能力边界，不启动 HaikalatHost、
+Minecraft 接入或缺乏性能证据的 GPU-driven 扩张。
 
 ### 近期
 
@@ -18,7 +18,7 @@ optimized CPU/GPU median 为 `0.626/0.259 ms`，没有达到 GPU-driven 决策�
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 - [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。
-- [ ] 在正式发布流水线复验 v0.17 的远端 Windows/Linux CI。
+- [ ] 在配置远端仓库后复验 v0.18.0 的 Windows/Linux CI。
 - [x] 完成 v0.12 人工视觉清单：mirrored UV、non-uniform scale、environment rotation、shadow/IBL 分离及 UI 不受曝光影响。
 
 ### 中期
@@ -46,4 +46,4 @@ optimized CPU/GPU median 为 `0.626/0.259 ms`，没有达到 GPU-driven 决策�
 - 不引入复杂 ECS，除非当前 `SceneObject` 模型出现明确瓶颈。
 - 不直接重写 Vulkan 后端；第二后端只用于验证稳定边界。
 - 不在稳定公共组件之前一次性建设封闭、单体的生产级编辑器；允许调试器和编辑工具作为 UI/runtime API 的真实使用者逐步演进。
-- 不将 v0.13 静态 glTF 主路径扩大为动画/骨骼、透明/折射、高级材质扩展或完整材质编辑器。
+- 不把现有 glTF skin/animation 主路径扩张成完整材质编辑器、宿主资产管线或网络动画系统。

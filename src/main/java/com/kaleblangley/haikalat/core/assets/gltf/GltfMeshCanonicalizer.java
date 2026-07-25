@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashMap;
 
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.index;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.limit;
@@ -46,6 +47,8 @@ final class GltfMeshCanonicalizer {
         int tangentFallbackVertices = 0;
         long vertexBytes = 0L;
         long indexBytes = 0L;
+        Map<Integer, LoadedGltfScene.PrimitiveSkinning> primitiveSkinning =
+                new LinkedHashMap<>();
         for (int meshIndex = 0; meshIndex < meshes.size(); meshIndex++) {
             Map<String, Object> mesh = meshes.get(meshIndex);
             List<Map<String, Object>> definitions = objects(mesh, "primitives");
@@ -108,6 +111,27 @@ final class GltfMeshCanonicalizer {
                 float[] colors = attributes.containsKey("COLOR_0")
                         ? accessors.colors(integer(attributes, "COLOR_0", true, path),
                         vertexCount, path + ".attributes.COLOR_0") : null;
+                boolean hasJoints = attributes.containsKey("JOINTS_0");
+                boolean hasWeights = attributes.containsKey("WEIGHTS_0");
+                if (hasJoints != hasWeights) {
+                    throw fail(path + ".attributes",
+                            "JOINTS_0 and WEIGHTS_0 must be provided together");
+                }
+                int[] joints = null;
+                float[] weights = null;
+                int maxJointIndex = -1;
+                if (hasJoints) {
+                    joints = accessors.unsignedVector(integer(attributes, "JOINTS_0", true, path),
+                            4, path + ".attributes.JOINTS_0");
+                    requireCount(joints.length / 4, vertexCount,
+                            path + ".attributes.JOINTS_0");
+                    weights = accessors.floats(integer(attributes, "WEIGHTS_0", true, path), 4,
+                            GltfAccessorDecoder.UNSIGNED_NORMALIZED_COMPONENTS,
+                            path + ".attributes.WEIGHTS_0");
+                    requireCount(weights.length / 4, vertexCount,
+                            path + ".attributes.WEIGHTS_0");
+                    maxJointIndex = normalizeWeightsAndFindMaxJoint(joints, weights, path);
+                }
                 String meshName = source.path() + "/mesh[" + meshIndex + "]:"
                         + Objects.toString(mesh.get("name"), "")
                         + "/primitive[" + primitiveIndex + "]";
@@ -128,6 +152,12 @@ final class GltfMeshCanonicalizer {
                     tangentFallbackVertices += generated.fallbackVertexCount();
                     canonical = colors == null ? generated.mesh() : appendColors(generated.mesh(), colors);
                 }
+                int canonicalIndex = result.size();
+                if (hasJoints) {
+                    canonical = appendSkinning(canonical, joints, weights);
+                    primitiveSkinning.put(canonicalIndex,
+                            new LoadedGltfScene.PrimitiveSkinning(canonicalIndex, maxJointIndex));
+                }
                 vertexBytes += (long) canonical.vertices().length * Float.BYTES;
                 indexBytes += (long) canonical.indices().length * Integer.BYTES;
                 result.add(new LoadedGltfScene.Primitive(result.size(), meshIndex, primitiveIndex,
@@ -135,7 +165,33 @@ final class GltfMeshCanonicalizer {
             }
         }
         return new Result(List.copyOf(result), normalFallbacks, tangentFallbackTriangles,
-                tangentFallbackVertices, vertexBytes, indexBytes);
+                tangentFallbackVertices, vertexBytes, indexBytes,
+                Map.copyOf(primitiveSkinning));
+    }
+
+    private int normalizeWeightsAndFindMaxJoint(int[] joints, float[] weights, String path) {
+        int maximum = 0;
+        for (int vertex = 0; vertex < joints.length / 4; vertex++) {
+            float sum = 0.0f;
+            for (int component = 0; component < 4; component++) {
+                int offset = vertex * 4 + component;
+                maximum = Math.max(maximum, joints[offset]);
+                float weight = weights[offset];
+                if (!Float.isFinite(weight) || weight < 0.0f) {
+                    throw fail(path + ".attributes.WEIGHTS_0",
+                            "weights must be finite and non-negative");
+                }
+                sum += weight;
+            }
+            if (!Float.isFinite(sum) || sum <= 1.0e-8f) {
+                throw fail(path + ".attributes.WEIGHTS_0",
+                        "each vertex must have a positive weight sum");
+            }
+            for (int component = 0; component < 4; component++) {
+                weights[vertex * 4 + component] /= sum;
+            }
+        }
+        return maximum;
     }
 
     private void validatePositionBounds(Map<String, Object> accessor,
@@ -223,6 +279,28 @@ final class GltfMeshCanonicalizer {
                 colorLayout(), source.primitiveMode());
     }
 
+    private static MeshData appendSkinning(MeshData source, int[] joints, float[] weights) {
+        float[] old = source.vertices();
+        int count = source.vertexCount();
+        int oldStride = source.layout().strideBytes() / Float.BYTES;
+        int newStride = oldStride + 8;
+        float[] values = new float[count * newStride];
+        for (int vertex = 0; vertex < count; vertex++) {
+            int output = vertex * newStride;
+            System.arraycopy(old, vertex * oldStride, values, output, oldStride);
+            for (int component = 0; component < 4; component++) {
+                values[output + oldStride + component] = joints[vertex * 4 + component];
+                values[output + oldStride + 4 + component] = weights[vertex * 4 + component];
+            }
+        }
+        List<VertexAttribute> attributes = new ArrayList<>(source.layout().attributes());
+        attributes.add(attribute(5, 4, oldStride, VertexSemantic.JOINTS_0));
+        attributes.add(attribute(6, 4, oldStride + 4, VertexSemantic.WEIGHTS_0));
+        return new MeshData(source.name(), values, source.indices(),
+                VertexLayout.interleaved(newStride * Float.BYTES,
+                        attributes.toArray(VertexAttribute[]::new)), source.primitiveMode());
+    }
+
     private static VertexLayout baseLayout() {
         return VertexLayout.interleaved(8 * Float.BYTES,
                 attribute(0, 3, 0, VertexSemantic.POSITION),
@@ -281,6 +359,7 @@ final class GltfMeshCanonicalizer {
                   int tangentFallbackTriangles,
                   int tangentFallbackVertices,
                   long vertexBytes,
-                  long indexBytes) {
+                  long indexBytes,
+                  Map<Integer, LoadedGltfScene.PrimitiveSkinning> primitiveSkinning) {
     }
 }

@@ -26,6 +26,10 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
+import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut;
+import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
@@ -126,12 +130,22 @@ public final class PbrDemo {
                     (out, frame) -> out.identity().translation(-6.1f, 0.0f, 0.0f).scale(1.4f), false));
             scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.4f, -1.0f, -0.5f),
                     new Vector3f(1.0f, 0.92f, 0.82f), 2.5f));
-            scene.addLight(SceneLight.point(new Vector3f(4.0f, 4.0f, 5.0f),
-                    new Vector3f(1.0f, 0.15f, 0.08f), 15.0f, 13.0f));
+            scene.addLight(options.localShadows()
+                    ? SceneLight.shadowedPoint(new Vector3f(4.0f, 4.0f, 5.0f),
+                            new Vector3f(1.0f, 0.15f, 0.08f), 15.0f, 13.0f)
+                    : SceneLight.point(new Vector3f(4.0f, 4.0f, 5.0f),
+                            new Vector3f(1.0f, 0.15f, 0.08f), 15.0f, 13.0f));
             scene.addLight(SceneLight.point(new Vector3f(-4.0f, -2.0f, 4.0f),
                     new Vector3f(0.08f, 0.3f, 1.0f), 12.0f, 12.0f));
+            if (options.localShadows()) {
+                scene.addLight(SceneLight.shadowedSpot(new Vector3f(-5.0f, 4.0f, 6.0f),
+                        new Vector3f(0.45f, -0.35f, -1.0f),
+                        new Vector3f(0.35f, 0.55f, 1.0f),
+                        20.0f, 18.0f, 0.28f, 0.72f));
+            }
 
-            RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, environment);
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, environment)
+                    .postProcessSettings(postProcessSettings(options));
             try {
                 pipeline.build();
                 try (PbrDemoOverlay overlay = PbrDemoOverlay.attach(window, pipeline, settings,
@@ -180,13 +194,22 @@ public final class PbrDemo {
             if (benchmark.isComplete()) window.requestClose();
         }
         var result = benchmark.snapshot();
+        if (options.localShadows()
+                && (pipeline.lastPointShadowCasterDrawCount() <= 0
+                || pipeline.lastPointShadowCasterDrawCount() % 6 != 0
+                || pipeline.lastSpotShadowCasterDrawCount() <= 0)) {
+            throw new IllegalStateException("local shadow integration did not draw all shadow classes");
+        }
         lastBenchmarkResult = new BenchmarkResult(result.presentFps(), result.timings());
         System.out.printf("PBR demo: measured=%d warmup=%d fps=%.1f cpu avg/median=%.3f/%.3fms "
-                        + "gpu avg/median=%.3f/%.3fms environment=%s size=%dx%d%n",
+                        + "gpu avg/median=%.3f/%.3fms environment=%s size=%dx%d pointShadowDraws=%d "
+                        + "spotShadowDraws=%d%n",
                 result.measuredFrames(), options.warmup(), result.presentFps(),
                 result.timings().averageCpuMillis(), result.timings().medianCpuMillis(),
                 result.timings().averageGpuMillis(), result.timings().medianGpuMillis(),
-                options.quality(), options.width(), options.height());
+                options.quality(), options.width(), options.height(),
+                pipeline.lastPointShadowCasterDrawCount(),
+                pipeline.lastSpotShadowCasterDrawCount());
     }
 
     public static BenchmarkResult lastBenchmarkResult() {
@@ -195,6 +218,27 @@ public final class PbrDemo {
 
     public record BenchmarkResult(double presentFps,
                                   com.kaleblangley.haikalat.runtime.FrameTimingAccumulator.Summary timings) {
+    }
+
+    private static PostProcessSettings postProcessSettings(Options options) {
+        PostProcessSettings.Builder builder = PostProcessSettings.builder();
+        if (options.colorGrading()) {
+            ColorGradingLut warm = ColorGradingLut.generate(16,
+                    (red, green, blue) -> new ColorGradingLut.Rgb(
+                            Math.min(1.0f, red * 1.08f), green * 0.92f, blue * 0.82f));
+            builder.colorGrading(ColorGradingSettings.of(warm, 0.72f));
+        }
+        if (options.fog()) {
+            builder.fog(FogSettings.builder()
+                    .color(0.32f, 0.38f, 0.46f)
+                    .distanceDensity(0.018f)
+                    .heightDensity(0.025f)
+                    .heightFalloff(0.18f)
+                    .baseHeight(-2.0f)
+                    .maximumOpacity(0.82f)
+                    .build());
+        }
+        return builder.build();
     }
 
     private static PbrMaterialProperties properties(Vector4f color, float metallic, float roughness) {
@@ -258,7 +302,8 @@ public final class PbrDemo {
     private record Options(boolean hidden, int frames, String quality,
                            boolean autoExposure, boolean bloom, AntiAliasingMode aa,
                            int resizeFrame, boolean verifyFailure, int warmup,
-                           int width, int height) {
+                           int width, int height, boolean colorGrading, boolean fog,
+                           boolean localShadows) {
         static Options parse(String[] args) {
             boolean hidden = false;
             int frames = -1;
@@ -271,6 +316,9 @@ public final class PbrDemo {
             int warmup = 0;
             int width = 1280;
             int height = 720;
+            boolean colorGrading = false;
+            boolean fog = false;
+            boolean localShadows = false;
             for (String arg : args) {
                 if (arg.equals("--hidden") || arg.equals("--deterministic")) hidden = true;
                 else if (arg.startsWith("--frames=")) frames = positive(arg, "--frames=");
@@ -279,6 +327,12 @@ public final class PbrDemo {
                 else if (arg.equals("--auto-exposure=off")) autoExposure = false;
                 else if (arg.equals("--bloom=on")) bloom = true;
                 else if (arg.equals("--bloom=off")) bloom = false;
+                else if (arg.equals("--color-grading=on")) colorGrading = true;
+                else if (arg.equals("--color-grading=off")) colorGrading = false;
+                else if (arg.equals("--fog=on")) fog = true;
+                else if (arg.equals("--fog=off")) fog = false;
+                else if (arg.equals("--local-shadows=on")) localShadows = true;
+                else if (arg.equals("--local-shadows=off")) localShadows = false;
                 else if (arg.startsWith("--aa=")) aa = parseAa(arg.substring(5));
                 else if (arg.startsWith("--resize-frame=")) resizeFrame = positive(arg, "--resize-frame=");
                 else if (arg.equals("--verify-failure-cleanup")) verifyFailure = true;
@@ -295,7 +349,7 @@ public final class PbrDemo {
             if (hidden && frames < 0 && !verifyFailure) frames = 8;
             PbrEnvironmentSettings.quality(quality);
             return new Options(hidden, frames, quality, autoExposure, bloom, aa, resizeFrame,
-                    verifyFailure, warmup, width, height);
+                    verifyFailure, warmup, width, height, colorGrading, fog, localShadows);
         }
 
         PbrEnvironmentSettings environmentSettings() { return PbrEnvironmentSettings.quality(quality); }

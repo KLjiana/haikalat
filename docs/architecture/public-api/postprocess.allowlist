@@ -3,7 +3,14 @@
 
 advanced com.kaleblangley.haikalat.subsystems.postprocess.AutoExposurePass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.BloomPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.FogPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor
 advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
+advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightSettings

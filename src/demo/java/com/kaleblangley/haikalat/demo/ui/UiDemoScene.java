@@ -4,6 +4,9 @@ import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiTweenSpec;
+import com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiInsets;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
@@ -31,6 +34,8 @@ import java.util.Objects;
 final class UiDemoScene implements AutoCloseable {
     private final UiDocument document;
     private final Label statistics;
+    private final Panel header;
+    private final Panel controls;
     private final Label footer;
     private final Toggle toggle;
     private final Slider slider;
@@ -44,12 +49,15 @@ final class UiDemoScene implements AutoCloseable {
     private final List<String> fontFamilies;
     private final Button fontSelector;
 
-    private UiDemoScene(UiDocument document, Label statistics, Label footer,
+    private UiDemoScene(UiDocument document, Panel header, Panel controls,
+                        Label statistics, Label footer,
                         Toggle toggle, Slider slider, TextField textField,
                         ScrollView outerScroll, ScrollView innerScroll,
                         ListView listView, Button menuOwner, Menu menu,
                         UiSystem fonts, List<String> fontFamilies, Button fontSelector) {
         this.document = document;
+        this.header = header;
+        this.controls = controls;
         this.statistics = statistics;
         this.footer = footer;
         this.toggle = toggle;
@@ -276,7 +284,8 @@ final class UiDemoScene implements AutoCloseable {
                 .style(controlStyle());
         menu.item(text.menuSecond(), () -> footer.text("Reset / 已重置"))
                 .style(controlStyle());
-        UiDemoScene scene = new UiDemoScene(document, statistics, footer, toggle, slider,
+        UiDemoScene scene = new UiDemoScene(document, header, controls,
+                statistics, footer, toggle, slider,
                 textField, outerScroll, innerScroll, listView, menuOwner, menu,
                 fonts, fontFamilies, fontSelector);
         action.onClick(() -> footer.text("Action completed / 操作完成"));
@@ -320,6 +329,25 @@ final class UiDemoScene implements AutoCloseable {
             }
         }
     }
+
+    void startAnimationProof(UiSystem ui) {
+        ComputedStyle style = header.computedStyle();
+        header.computedStyle(new ComputedStyle(style.background(), style.foreground(),
+                style.borderColor(), style.borderWidth(), style.radius(), 0.0f,
+                style.fontSize(), style.fontFamily()));
+        ui.animations().tweenOpacity(header, 1.0f,
+                new UiTweenSpec(0.5f, UiEasing.EASE_IN_OUT_CUBIC));
+        ui.animations().transitionLayout(controls,
+                UiStyle.builder()
+                        .width(UiLength.points(260.0f))
+                        .padding(UiInsets.points(10.0f))
+                        .flexDirection(UiStyle.FlexDirection.COLUMN)
+                        .gap(8.0f)
+                        .build(), UiTweenSpec.spring(0.6f));
+    }
+
+    float animatedHeaderOpacity() { return header.computedStyle().opacity(); }
+    float animatedControlsWidth() { return controls.style().width().value(); }
 
     /** layout 改变后刷新虚拟列表可见窗口。 */
     void refreshVirtualizedContent() {

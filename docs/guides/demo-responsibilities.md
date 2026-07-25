@@ -6,10 +6,26 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 |---|---|---|---|
 | `EmptyWindowDemo` | 统一分辨率下的 clear/present 基线 | `GlfwWindow`、空 `RenderGraph`、present/CPU/GPU timing、state skip | shader、VAO、buffer、draw |
 | `MinimalDemo` | 最小同步渲染入口和 API 教学 | command buffer、material、texture、framebuffer、mesh、instanced batch、resize | 阴影、异步线程、极限性能 |
+| `AnimationDemo` | CPU 骨架动画基础与层次传播证明 | `Skeleton`、`PoseBuffer`、`AnimationClip`、`AnimationPlayer`、固定步长 | glTF 资产加载、GPU 蒙皮和综合高级动画 |
 | `LearnOpenGlDemo` | 完整功能正确性、正式场景基准与统一诊断入口 | asset、model、sRGB texture、lighting、shadow、HDR/AA/Bloom、camera、F2 diagnostics、capture/export | GPU procedural 极端吞吐、RenderGraph 编辑 |
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
-| `PbrDemo` | v0.12 现代材质纵向闭环与参数观察 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、retained UI | glTF、PBR instancing、高级材质扩展 |
+| `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
+| `GltfDemo` | 静态与蒙皮 glTF 端到端证明 | accessor/node/material/skin/animation、CUBICSPLINE、joint palette、PBR/shadow GPU 蒙皮、资产实例生命周期 | 动画混合、IK、第二组关节权重 |
+| `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
+| `VfxDemo` | 通用效果模拟与透明绘制证明 | `EffectAsset/EffectInstance`、粒子、Ribbon、Decal、稳定排序、CPU/GPU/uniform 基线、resize | Compute 粒子和体积效果 |
+| `HaikalatShowcaseDemo` | Milestone 4 同帧综合验收与稳定性 | Mixer/Bone Mask/root motion/event/IK、PBR/shadow、Bloom/LUT/fog、CPU/GPU VFX、volume、UI diagnostics、资源集合 | HaikalatHost、宿主事件/网络；不把受控 GPU 实验声明为完整编辑型系统 |
+
+## AnimationDemo
+
+```powershell
+.\gradlew.bat runAnimationDemo
+.\gradlew.bat runAnimationIntegration
+```
+
+该 Demo 用手工构造的三段关节链证明纯 JVM 动画 subsystem。交互入口按真实帧间隔播放，
+隐藏集成入口使用固定 `1/30 s` 步长运行 8 帧，并断言末端关节发生位移。它只复用现有
+`CommandBuffer` 绘制骨段和关节，不把 OpenGL 调用引入 animation subsystem。
 
 ## PbrDemo
 
@@ -22,8 +38,58 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 专用场景固定包含 5×5 metallic/roughness sphere、五纹理 OBJ、legacy 对照、方向光阴影、
 两个点光、HDR environment 和 UI 参数面板。确定性参数包括
 `--frames=N --hidden --environment-quality=test|default --auto-exposure=on|off`
-` --bloom=on|off --aa=none|fxaa|msaa|msaa-fxaa|taa`；性能入口另支持
+` --bloom=on|off --color-grading=on|off --fog=on|off`
+` --aa=none|fxaa|msaa|msaa-fxaa|taa`；雾当前与 MSAA 组合会明确拒绝，性能入口另支持
 `--warmup=N --size=WIDTHxHEIGHT`。
+
+## GltfDemo
+
+```powershell
+.\gradlew.bat runGltfDemo
+.\gradlew.bat runGltfSkinningIntegration
+.\gradlew.bat localGltfVerification
+```
+
+专用 animated two-joint fixture 使用 CUBICSPLINE 通道驱动每实例 `JointPalette`，同一 SSBO 姿态
+分别进入 PBR forward 与方向光 shadow pass；集成入口断言末端位移、画面变化和资产先于实例关闭时的保护。
+
+## UiDemo
+
+```powershell
+.\gradlew.bat runUiDemo
+.\gradlew.bat runUiIntegration
+```
+
+确定性脚本在首帧启动 header visual fade 与 controls spring layout transition；动画求值位于样式解析
+和 Yoga layout 之间，集成入口继续验证 snapshot、最终像素和 resize。
+
+## VfxDemo
+
+```powershell
+.\gradlew.bat runVfxDemo
+.\gradlew.bat runVfxIntegration
+.\gradlew.bat runVfxPerformanceBaseline
+```
+
+模拟逻辑只位于 `subsystems.vfx`，render3d adapter 消费不可变透明排序快照。有限帧入口验证粒子、
+Ribbon、Decal、resize 和关闭顺序；性能入口报告 CPU update、RenderGraph GPU pass、draw 与 uniform payload。
+多类阴影场景使用 `PbrDemo --local-shadows=on`，正式入口为 `runLocalShadowsIntegration`。
+
+## HaikalatShowcaseDemo
+
+```powershell
+.\gradlew.bat runHaikalatShowcaseDemo
+.\gradlew.bat runShowcaseIntegration
+.\gradlew.bat runShowcasePerformanceBaseline
+.\gradlew.bat runShowcaseStabilityIntegration
+```
+
+综合场景只使用 Haikalat 本体 API。`RenderPipeline` 先执行 PBR、方向光阴影、Bloom、Color Grading LUT
+和距离/高度雾；最终 backbuffer overlay 依次记录体积光、CPU VFX、Compute/SSBO 粒子与 retained UI。
+动画对象每帧执行双层混合、Bone Mask、根运动、动作事件和 Two-bone IK。24 帧入口读取最终像素并断言
+每个 subsystem 均实际产出；3600 帧入口在第 120 帧冻结 GL 资源序列和估算显存，结束时要求完全一致，
+随后关闭全部资源并要求 live 表归零。详细边界和实测数字见
+`docs/guides/milestone4-api-performance-limitations.md`。
 
 ## StressDemo 模式
 

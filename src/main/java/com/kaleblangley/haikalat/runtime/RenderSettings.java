@@ -61,6 +61,7 @@ public final class RenderSettings {
         return bloomSettings;
     }
 
+
     /** @return 普通 scene renderer 是否启用相机/阴影视锥裁剪 */
     public boolean sceneVisibility() {
         return sceneVisibility;
@@ -124,6 +125,7 @@ public final class RenderSettings {
             bloomSettings = value;
             return this;
         }
+
 
         /** 开启或关闭普通 renderer 裁剪；关闭时仍经过同一 SceneFrame 路径。 */
         public Builder sceneVisibility(boolean value) {

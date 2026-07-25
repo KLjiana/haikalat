@@ -17,6 +17,9 @@ def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
+def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
+def vfxMain = 'com.kaleblangley.haikalat.demo.vfx.VfxDemo'
+def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
 [
         runDemoIntegration                 : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA'],
@@ -33,6 +36,20 @@ def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
         runMinimalIntegration              : ['com.kaleblangley.haikalat.demo.MinimalDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs MinimalDemo with its sRGB LDR target for a finite number of frames.'],
+        runAnimationIntegration            : [animationMain,
+                ['--deterministic', '--frames=8'],
+                'Runs the CPU skeletal animation proof with a fixed time step.'],
+        runVfxIntegration                  : [vfxMain,
+                ['--deterministic', '--frames=16', '--particles=128', '--resize=8:960x540'],
+                'Runs deterministic particles, Ribbon and Decal rendering through resize.'],
+        runShowcaseIntegration             : [showcaseMain,
+                ['--hidden', '--frames=24', '--size=640x360', '--gpu-particles=256',
+                 '--verify-pixels'],
+                'Runs animation, PBR, post-processing, CPU/GPU VFX and UI in one frame graph.'],
+        runShowcaseStabilityIntegration    : [showcaseMain,
+                ['--hidden', '--frames=3600', '--warmup=120', '--size=320x180',
+                 '--gpu-particles=256', '--stability'],
+                'Runs the combined showcase for 3600 frames and verifies stable live GL resources.'],
         runAsyncIntegration                : ['com.kaleblangley.haikalat.demo.async.AsyncDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs the async upload/render-thread demo hidden for a finite number of frames.'],
@@ -69,9 +86,22 @@ def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
         ,runPbrFailureIntegration          : [pbrMain,
                 ['--hidden', '--environment-quality=test', '--verify-failure-cleanup'],
                 'Injects an environment load failure and verifies deterministic cleanup.']
+        ,runPostProcessEffectsIntegration  : [pbrMain,
+                ['--hidden', '--frames=8', '--environment-quality=test', '--aa=none',
+                 '--auto-exposure=off', '--bloom=off', '--color-grading=on', '--fog=on',
+                 '--resize-frame=4'],
+                'Runs color grading and depth-based distance/height fog through resize.']
+        ,runLocalShadowsIntegration        : [pbrMain,
+                ['--hidden', '--frames=4', '--environment-quality=test', '--aa=none',
+                 '--auto-exposure=off', '--bloom=off', '--local-shadows=on'],
+                'Runs directional, six-face point and spot shadow passes in one PBR scene.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
-                'Runs the v0.13 static glTF scene through PBR, shadow, IBL and post-processing.']
+                'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
+        ,runGltfSkinningIntegration        : [gltfMain,
+                ['--deterministic', '--frames=8', '--aa=NONE', '--bloom=off',
+                 '--auto-exposure=off', '--environment-quality=test'],
+                'Runs deterministic glTF CUBICSPLINE playback and four-weight GPU skinning.']
         ,runGltfResizeIntegration          : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'],
                 'Resizes the glTF/OBJ/legacy compatibility scene without re-uploading assets.']
@@ -100,6 +130,9 @@ tasks.register('localGlVerification') {
     dependsOn 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration', 'runBloomIntegration',
             'runAutoExposureIntegration', 'runAsyncIntegration',
             'runMinimalIntegration', 'runEmptyWindowIntegration',
+            'runAnimationIntegration',
+            'runVfxIntegration',
+            'runShowcaseIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
@@ -112,10 +145,16 @@ tasks.named('runDemoResizeIntegration') {
     mustRunAfter 'runDemoIntegration'
 }
 tasks.named('runAsyncIntegration') {
-    mustRunAfter 'runMinimalIntegration'
+    mustRunAfter 'runVfxIntegration'
 }
 tasks.named('runMinimalIntegration') {
     mustRunAfter 'runAutoExposureIntegration'
+}
+tasks.named('runAnimationIntegration') {
+    mustRunAfter 'runMinimalIntegration'
+}
+tasks.named('runVfxIntegration') {
+    mustRunAfter 'runAnimationIntegration'
 }
 tasks.named('runAutoExposureIntegration') {
     mustRunAfter 'runBloomIntegration'
@@ -156,6 +195,9 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runLearnOpenGlDemo: 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo',
         runEmptyWindowDemo: 'com.kaleblangley.haikalat.demo.EmptyWindowDemo',
         runMinimalDemo    : 'com.kaleblangley.haikalat.demo.MinimalDemo',
+        runAnimationDemo  : animationMain,
+        runVfxDemo        : vfxMain,
+        runHaikalatShowcaseDemo: showcaseMain,
         runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain
@@ -165,6 +207,24 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
             "Runs ${mainClassName} for interactive graphics debugging.",
             mainClassName, [])
 }
+
+registerDemoApplication('runVfxPerformanceBaseline',
+        'Runs a finite VFX CPU/GPU/uniform-payload performance baseline.',
+        vfxMain, ['--hidden', '--frames=240', '--warmup=60', '--particles=512'])
+
+registerDemoApplication('runShowcasePerformanceBaseline',
+        'Runs the bounded combined Haikalat showcase CPU/GPU performance baseline.',
+        showcaseMain, ['--hidden', '--frames=360', '--warmup=60', '--size=960x540',
+                       '--gpu-particles=2048'])
+
+tasks.register('localMilestone4Verification') {
+    group = 'verification'
+    description = 'Runs advanced animation, GPU effects, combined showcase and stability acceptance.'
+    dependsOn 'test', 'glSmoke', 'runShowcaseIntegration', 'runShowcaseStabilityIntegration'
+}
+
+tasks.named('runShowcaseIntegration') { mustRunAfter 'runVfxIntegration' }
+tasks.named('runShowcaseStabilityIntegration') { mustRunAfter 'runShowcaseIntegration' }
 
 tasks.named('runLearnOpenGlDemo', JavaExec) {
     if (providers.gradleProperty('demoDiagnostics').isPresent()) {
@@ -208,6 +268,8 @@ tasks.register('localPbrVerification') {
     group = 'verification'
     description = 'Runs v0.12 PBR JVM/GL smoke plus deterministic integration and resize checks.'
     dependsOn 'glSmoke', 'runPbrIntegration', 'runPbrResizeIntegration',
+            'runPostProcessEffectsIntegration',
+            'runLocalShadowsIntegration',
             'runPbrCompatibilityIntegration', 'runPbrFailureIntegration'
 }
 
@@ -215,15 +277,19 @@ tasks.named('runPbrIntegration') { mustRunAfter 'glSmoke' }
 tasks.named('runPbrResizeIntegration') { mustRunAfter 'runPbrIntegration' }
 tasks.named('runPbrCompatibilityIntegration') { mustRunAfter 'runPbrResizeIntegration' }
 tasks.named('runPbrFailureIntegration') { mustRunAfter 'runPbrCompatibilityIntegration' }
+tasks.named('runPostProcessEffectsIntegration') { mustRunAfter 'runPbrFailureIntegration' }
+tasks.named('runLocalShadowsIntegration') { mustRunAfter 'runPostProcessEffectsIntegration' }
 
 tasks.register('localGltfVerification') {
     group = 'verification'
     description = 'Runs v0.13 glTF JVM/real-GL tests and deterministic scene integrations.'
-    dependsOn 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration'
+    dependsOn 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration',
+            'runGltfSkinningIntegration'
 }
 
 tasks.named('runGltfIntegration') { mustRunAfter 'glSmoke' }
 tasks.named('runGltfResizeIntegration') { mustRunAfter 'runGltfIntegration' }
+tasks.named('runGltfSkinningIntegration') { mustRunAfter 'runGltfResizeIntegration' }
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",

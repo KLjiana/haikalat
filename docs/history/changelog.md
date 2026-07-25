@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+当前没有未发布变更。
+
+## v0.18.0-haikalat-opengl46-roadmap（0.18.0，2026-07-25）
+
+- 新增无 OpenGL 依赖的 `subsystems.animation`，包含骨架层次、绑定姿态、可复用 `PoseBuffer`、不可变 `Pose`、STEP/LINEAR/CUBICSPLINE TRS 关键帧采样和 LOOP/ONCE 播放游标。
+- 新增 `AnimationDemo` 与 `runAnimationIntegration`，使用固定步长和末端关节位移断言证明 CPU 动画求值可通过现有命令流绘制。
+- glTF 2.0 链路新增 skin、inverse bind matrix、animation sampler/channel、四影响 `JOINTS_0/WEIGHTS_0` 规范化、每实例 `JointPalette` 与 SSBO GPU 蒙皮；PBR forward 和方向光 shadow pass 共享同一动画姿态，并由确定性 two-joint fixture、真实 GL 像素与资产生命周期测试验证。
+- 后处理新增无 GL 依赖的 tiled 2D `ColorGradingLut`、颜色分级设置与距离/高度雾设置；GL adapter 在 HDR、Bloom/曝光之后、tone mapping 之前组合雾，并在 ACES 与 gamma 之间应用 LUT。
+- UI 新增无 GL 依赖的 Tween/Transition subsystem，支持 visual/layout 通道、linear/cubic/spring easing、delay、取消、替换和节点关闭清理；`UiDemo` 与 GL 测试覆盖 fade、spring layout、snapshot 像素及 resize。
+- 新增无 OpenGL 依赖的 `subsystems.vfx`：`EffectAsset/EffectInstance` 管理资产实例生命周期，固定种子粒子、Ribbon 控制点和 Decal 使用有界 CPU 模拟并发布按相机距离稳定排序的不可变快照；`VfxRenderer` 是独立 render3d GL adapter。
+- 新增 `VfxDemo`、`runVfxIntegration` 与 `runVfxPerformanceBaseline`；128 粒子 resize 集成覆盖三类 primitive，512 粒子基线记录 CPU update、RenderGraph GPU pass、draw 和 uniform payload。
+- 新增 3×2 六面点光 depth atlas 与聚光透视 depth map，PBR/legacy shader 使用各自 PCF 可见度；新增 2～4 级 practical split、world-texel 稳定的 `DirectionalCascadePlan`，并由矩阵、PBR 像素 A/B 与综合 Demo 验证。
+- 高级动画新增 `AnimationMixer`、`BoneMask`、`PoseBlender`、有序 `AnimationEvent`、跨循环 `RootMotionDelta` 和 `TwoBoneIkSolver`；纯 JVM 测试覆盖非拓扑骨架、别名目标、事件边界、循环位移/旋转、不可达目标和部分 IK 权重。
+- 新增 `GpuParticleExperiment`：单 SSBO、64 线程 compute workgroup、显式 shader-storage barrier 和几何阶段 billboard 批次，正式路径没有 CPU map/readback；新增固定 4～128 步的 `VolumetricLightPass` 受控实验。
+- UI 动画句柄新增暂停、恢复与归一化进度，`UiAnimationDiagnostics` 提供 started/completed/cancelled/replaced、通道分布、暂停数和峰值并发的确定性快照。
+- 新增 `HaikalatShowcaseDemo` 及 `runShowcaseIntegration`、`runShowcasePerformanceBaseline`、`runShowcaseStabilityIntegration`：同帧串联高级动画、PBR/阴影、Bloom/LUT/雾、CPU/GPU VFX、体积光与 UI。3600 帧运行验证预热后 live GL resource identity/估算显存不变且退出后归零。
+- 新增 Milestone 4 API、性能与限制说明；所有本阶段 public 类型归入现有 animation/render3d/postprocess/ui advanced 清单，范围明确排除 HaikalatHost 与宿主集成。
+- 将 NVIDIA preview benchmark 的精确 shader-specialization 日志策略上限调整为五轮四模式矩阵的理论上限 120；消息来源、ID、文本和任务范围仍严格匹配。
+- 公共 API 目录新增 animation 域，并用架构测试禁止 animation subsystem 引用 backend 或直接调用 OpenGL。
+- 新增 `GlCapabilityContract`，将 OpenGL 4.6 Core、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters 和 debug output 固定为生产硬要求，并单独报告 bindless texture 可选能力。
+- 新增无 OpenGL 依赖的 `subsystems.resources`，包含规范化 `AssetId`、有界 `ResourceSource`、逐资源 generation 票据和虚拟线程/调用方 executor 异步 CPU 解码。
+- `GlRenderDevice` 在真实命令提交边界强制 capability contract，`GlRenderThread` 在初始化钩子前提前验证；新增纯 JVM 缺失项测试和真实隐藏窗口 4.6 Core 验证。
 - 项目许可证明确为 `AGPL-3.0-only`，根目录加入 GNU AGPLv3 完整许可证文本。
 - `jar` 任务现在同时生成二进制 JAR 与 `-sources.jar`，两个制品均携带 `META-INF/LICENSE` 和许可证 manifest 元数据。
 - 统一 Java API 文档为中文说明，并固定 Javadoc 输入、页面和输出编码为 UTF-8。

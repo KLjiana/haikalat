@@ -18,6 +18,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
+import com.kaleblangley.haikalat.testing.SkinnedGltfFixture;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,7 @@ import static org.lwjgl.opengl.GL30.GL_VERTEX_ARRAY_BINDING;
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class GltfRuntimeGlTest {
     @TempDir java.nio.file.Path temporaryDirectory;
+
     @Test
     void uploadsInstantiatesAndProtectsLibraryLifetime() {
         try (GlfwWindow window = hiddenWindow()) {
@@ -66,6 +68,73 @@ class GltfRuntimeGlTest {
             assertTrue(library.isClosed());
             assertThrows(IllegalStateException.class,
                     () -> asset.instantiate(new Matrix4f(), true));
+        }
+    }
+
+    @Test
+    void animatedSkinUpdatesForwardAndShadowPassesAndProtectsAssetLifetime() throws Exception {
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("animated-skin.gltf"),
+                SkinnedGltfFixture.document());
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("animated-skin.gltf"));
+
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+            GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+            GltfSceneInstance instance = asset.instantiateAnimated(
+                    new Matrix4f().translation(-0.5f, -0.5f, 0.0f), true);
+            try {
+                assertEquals(1, instance.animationCount());
+                assertEquals(java.util.List.of("lift"), instance.animationNames());
+                assertEquals(1, instance.objects().size());
+                assertEquals(0.0f, instance.jointPaletteMatrix(0, 1).m31(), 1.0e-5f);
+                assertThrows(IllegalStateException.class, asset::close,
+                        "the asset owns meshes and materials used by the live instance");
+
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)));
+                instance.objects().forEach(scene::add);
+                scene.addLight(SceneLight.shadowedDirectional(
+                        new Vector3f(0.0f, 0.0f, -1.0f), new Vector3f(1.0f), 3.0f));
+                try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                        "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            RenderSettings.builder()
+                                    .toneMappingMode(ToneMappingMode.ACES)
+                                    .bloomSettings(BloomSettings.disabled())
+                                    .vsync(false)
+                                    .build(), environment);
+                    try {
+                        pipeline.build();
+                        instance.seek(0.0f);
+                        pipeline.execute(device);
+                        ByteBuffer bindFrame = readFrame(window);
+
+                        instance.seek(1.0f);
+                        assertEquals(1.0f, instance.jointPaletteMatrix(0, 1).m31(), 1.0e-5f,
+                                "the animated tip joint should move one unit from its bind pose");
+                        pipeline.execute(device);
+                        ByteBuffer animatedFrame = readFrame(window);
+
+                        assertEquals(1, pipeline.lastShadowCasterDrawCount(),
+                                "the skinned primitive must traverse the directional shadow pass");
+                        assertTrue(frameRgbEnergy(animatedFrame) > 20,
+                                "the skinned PBR primitive must produce visible pixels");
+                        assertTrue(changedRgbPixels(bindFrame, animatedFrame) > 8,
+                                "GPU skinning must visibly move the weighted triangle");
+                        assertEquals(GL_NO_ERROR, glGetError());
+                    } finally {
+                        pipeline.close();
+                    }
+                }
+            } finally {
+                instance.close();
+                assertTrue(instance.isClosed());
+                asset.close();
+                library.close();
+            }
         }
     }
 
@@ -266,6 +335,36 @@ class GltfRuntimeGlTest {
         ByteBuffer pixel = BufferUtils.createByteBuffer(4);
         glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
         return pixel;
+    }
+
+    private static ByteBuffer readFrame(GlfwWindow window) {
+        ByteBuffer pixels = BufferUtils.createByteBuffer(window.width() * window.height() * 4);
+        glReadPixels(0, 0, window.width(), window.height(), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        return pixels;
+    }
+
+    private static int changedRgbPixels(ByteBuffer left, ByteBuffer right) {
+        int changed = 0;
+        for (int offset = 0; offset < left.capacity(); offset += 4) {
+            int delta = Math.abs(Byte.toUnsignedInt(left.get(offset))
+                    - Byte.toUnsignedInt(right.get(offset)))
+                    + Math.abs(Byte.toUnsignedInt(left.get(offset + 1))
+                    - Byte.toUnsignedInt(right.get(offset + 1)))
+                    + Math.abs(Byte.toUnsignedInt(left.get(offset + 2))
+                    - Byte.toUnsignedInt(right.get(offset + 2)));
+            if (delta > 6) changed++;
+        }
+        return changed;
+    }
+
+    private static int frameRgbEnergy(ByteBuffer pixels) {
+        int energy = 0;
+        for (int offset = 0; offset < pixels.capacity(); offset += 4) {
+            energy += Byte.toUnsignedInt(pixels.get(offset));
+            energy += Byte.toUnsignedInt(pixels.get(offset + 1));
+            energy += Byte.toUnsignedInt(pixels.get(offset + 2));
+        }
+        return energy;
     }
 
     private static int rgbEnergy(ByteBuffer pixel) {

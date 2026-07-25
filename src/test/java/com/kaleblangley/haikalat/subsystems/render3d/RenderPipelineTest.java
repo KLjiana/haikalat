@@ -3,6 +3,10 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut;
+import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
@@ -110,7 +114,8 @@ class RenderPipelineTest {
     void postProcessBuilderPublishesOnlyTheRegisteredBackbufferPass() {
         RenderWindowStub window = new RenderWindowStub();
         try (PostProcessPassBuilder builder = PostProcessPassBuilder.create(
-                RenderSettings.builder().build(), window, window.width(), window.height());
+                RenderSettings.builder().build(), PostProcessSettings.defaults(),
+                window, window.width(), window.height());
              RenderGraph graph = new RenderGraph(window.width(), window.height())) {
             assertThrows(IllegalStateException.class, builder::finalPassName);
 
@@ -121,6 +126,27 @@ class RenderPipelineTest {
             assertTrue(graph.passWritesToBackbuffer(builder.finalPassName()));
             assertThrows(IllegalStateException.class, () -> builder.addFinalPass(graph));
         }
+    }
+
+    @Test
+    void optionalPostEffectsRequireHdrAndResolvedDepth() {
+        RenderWindowStub window = new RenderWindowStub();
+        PostProcessSettings grading = PostProcessSettings.builder()
+                .colorGrading(ColorGradingSettings.of(ColorGradingLut.identity(4), 1.0f))
+                .build();
+        PostProcessSettings fog = PostProcessSettings.builder()
+                .fog(FogSettings.builder().build())
+                .build();
+
+        RenderPipeline ldr = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().build()).postProcessSettings(grading);
+        assertThrows(IllegalStateException.class, ldr::build);
+
+        RenderPipeline unresolved = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                        .antiAliasingMode(AntiAliasingMode.MSAA).build())
+                .postProcessSettings(fog);
+        assertThrows(IllegalStateException.class, unresolved::build);
     }
 
     @Test
@@ -214,6 +240,30 @@ class RenderPipelineTest {
 
         assertEquals(shadowed, selection.light());
         assertEquals(1, selection.shaderIndex());
+    }
+
+    @Test
+    void localShadowIndicesMatchTheirIndependentShaderArrays() {
+        Scene scene = new Scene(new Camera());
+        SceneLight pointFill = SceneLight.point(new Vector3f(1, 0, 0),
+                new Vector3f(1), 1.0f, 5.0f);
+        SceneLight pointShadow = SceneLight.shadowedPoint(new Vector3f(-1, 0, 0),
+                new Vector3f(1), 1.0f, 5.0f);
+        SceneLight spotFill = SceneLight.spot(new Vector3f(), new Vector3f(0, -1, 0),
+                new Vector3f(1), 1.0f, 6.0f, 0.2f, 0.5f);
+        SceneLight spotShadow = SceneLight.shadowedSpot(new Vector3f(),
+                new Vector3f(0, -1, 0), new Vector3f(1),
+                1.0f, 6.0f, 0.2f, 0.5f);
+        scene.addLight(SceneLight.directional(new Vector3f(0, -1, 0), new Vector3f(1), 1.0f))
+                .addLight(pointFill).addLight(spotFill).addLight(pointShadow).addLight(spotShadow);
+
+        LightingBinder.ShadowPointLight point = LightingBinder.shadowPointLight(scene).orElseThrow();
+        LightingBinder.ShadowSpotLight spot = LightingBinder.shadowSpotLight(scene).orElseThrow();
+
+        assertEquals(pointShadow, point.light());
+        assertEquals(1, point.shaderIndex());
+        assertEquals(spotShadow, spot.light());
+        assertEquals(1, spot.shaderIndex());
     }
 
     @Test

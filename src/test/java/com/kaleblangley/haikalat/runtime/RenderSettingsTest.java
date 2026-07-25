@@ -107,4 +107,5 @@ class RenderSettingsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> BloomSettings.builder().maxLevels(0).build());
     }
+
 }

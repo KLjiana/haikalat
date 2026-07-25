@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.GlCapabilityContract;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
@@ -35,6 +36,22 @@ class GlContextSmokeTest {
                 value = uInput + 1u;
             }
             """;
+
+    @Test
+    void hiddenWindowSatisfiesProductionCapabilityContract() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+
+            GlCapabilityContract.Report report = GlCapabilityContract.requireCurrent();
+
+            assertTrue(report.contextAvailable());
+            assertTrue(report.meetsRequirements(), report::summary);
+            assertEquals(4, report.majorVersion());
+            assertTrue(report.minorVersion() >= 6);
+            assertTrue(report.coreProfile());
+        }
+    }
 
     @Test
     void hiddenWindowCanClearAndReadBackPixel() {

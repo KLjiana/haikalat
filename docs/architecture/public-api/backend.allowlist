@@ -6,6 +6,7 @@ advanced com.kaleblangley.haikalat.backend.buffer.GlBuffer
 advanced com.kaleblangley.haikalat.backend.framebuffer.Framebuffer
 advanced com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor
 advanced com.kaleblangley.haikalat.backend.framebuffer.RenderTargetManager
+advanced com.kaleblangley.haikalat.backend.GlCapabilityContract
 advanced com.kaleblangley.haikalat.backend.GlDebug
 advanced com.kaleblangley.haikalat.backend.GlException
 advanced com.kaleblangley.haikalat.backend.GlFormats

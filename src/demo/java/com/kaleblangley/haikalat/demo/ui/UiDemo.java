@@ -134,6 +134,7 @@ public final class UiDemo {
             if (options.scriptMode() == UiDemoOptions.ScriptMode.BUILTIN) {
                 scene.applyBuiltinScript(frame);
             }
+            if (frame == 1) scene.startAnimationProof(ui);
             if (frame <= 1 || frame % 30 == 0) {
                 scene.updateStatistics(lastStatistics);
             }
@@ -177,7 +178,8 @@ public final class UiDemo {
                     "UiDemo deterministic framebuffer contains no UI pixels");
         }
         return new RunSummary(frame, nonClearSamples, lastStatistics,
-                graph.width(), graph.height());
+                graph.width(), graph.height(), ui.animations().activeCount(),
+                scene.animatedHeaderOpacity(), scene.animatedControlsWidth());
     }
 
     private static String focusName(UiNode node) {
@@ -239,14 +241,19 @@ public final class UiDemo {
      */
     public record RunSummary(int renderedFrames, int nonClearSamples,
                              UiFrameStats statistics,
-                             int framebufferWidth, int framebufferHeight) {
+                             int framebufferWidth, int framebufferHeight,
+                             int activeAnimations, float animatedHeaderOpacity,
+                             float animatedControlsWidth) {
         public String format() {
             return String.format(Locale.ROOT,
                     "UiDemo | frames %d | framebuffer %dx%d | nodes %d | quads %d | "
-                            + "batches %d | draws %d | non-clear samples %s",
+                            + "batches %d | draws %d | animations %d | opacity %.3f"
+                            + " | controls %.1f | non-clear samples %s",
                     renderedFrames, framebufferWidth, framebufferHeight,
                     statistics.visibleNodes(), statistics.quads(), statistics.batches(),
-                    statistics.drawCalls(), nonClearSamples < 0 ? "not captured" : nonClearSamples);
+                    statistics.drawCalls(), activeAnimations, animatedHeaderOpacity,
+                    animatedControlsWidth,
+                    nonClearSamples < 0 ? "not captured" : nonClearSamples);
         }
     }
 }

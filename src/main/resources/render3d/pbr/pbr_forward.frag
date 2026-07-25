@@ -22,6 +22,8 @@ uniform sampler2D uMetallicRoughnessMap;
 uniform sampler2D uOcclusionMap;
 uniform sampler2D uEmissiveMap;
 uniform sampler2D uShadowMap;
+uniform sampler2D uPointShadowMap;
+uniform sampler2D uSpotShadowMap;
 uniform samplerCube uIrradianceMap;
 uniform samplerCube uPrefilteredMap;
 uniform sampler2D uBrdfLut;
@@ -45,6 +47,14 @@ uniform SpotLight uSpotLights[4];
 uniform int uHasDirectionalShadow;
 uniform int uDirectionalShadowLightIndex;
 uniform float uShadowBias;
+uniform int uHasPointShadow;
+uniform int uPointShadowLightIndex;
+uniform mat4 uPointShadowMatrices[6];
+uniform float uPointShadowBias;
+uniform int uHasSpotShadow;
+uniform int uSpotShadowLightIndex;
+uniform mat4 uSpotShadowMatrix;
+uniform float uSpotShadowBias;
 uniform int uEnableDirect;
 uniform int uEnableDiffuseIbl;
 uniform int uEnableSpecularIbl;
@@ -107,6 +117,62 @@ float shadowFactor(vec3 n, vec3 l) {
     return shadow / 9.0;
 }
 
+int pointShadowFace(vec3 direction) {
+    vec3 absoluteDirection = abs(direction);
+    if (absoluteDirection.x >= absoluteDirection.y
+            && absoluteDirection.x >= absoluteDirection.z) {
+        return direction.x >= 0.0 ? 0 : 1;
+    }
+    if (absoluteDirection.y >= absoluteDirection.z) {
+        return direction.y >= 0.0 ? 2 : 3;
+    }
+    return direction.z >= 0.0 ? 4 : 5;
+}
+
+float pointShadowFactor(int lightIndex, vec3 n, vec3 l) {
+    if (uHasPointShadow == 0 || lightIndex != uPointShadowLightIndex) return 0.0;
+    vec3 fromLight = vWorldPosition - uPointLights[lightIndex].position;
+    int face = pointShadowFace(fromLight);
+    vec4 clip = uPointShadowMatrices[face] * vec4(vWorldPosition, 1.0);
+    vec3 projected = clip.xyz / clip.w;
+    projected = projected * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0
+            || any(lessThanEqual(projected.xy, vec2(0.0)))
+            || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
+    ivec2 tile = ivec2(face % 3, face / 3);
+    vec2 grid = vec2(3.0, 2.0);
+    vec2 atlasUv = (projected.xy + vec2(tile)) / grid;
+    vec2 atlasTexel = 1.0 / vec2(textureSize(uPointShadowMap, 0));
+    vec2 tileMinimum = vec2(tile) / grid + atlasTexel * 0.5;
+    vec2 tileMaximum = vec2(tile + ivec2(1)) / grid - atlasTexel * 0.5;
+    float bias = max(uPointShadowBias * (1.0 - dot(n, l)), uPointShadowBias * 0.25);
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
+        vec2 sampleUv = clamp(atlasUv + vec2(x, y) * atlasTexel,
+                tileMinimum, tileMaximum);
+        shadow += projected.z - bias > texture(uPointShadowMap, sampleUv).r ? 1.0 : 0.0;
+    }
+    return shadow / 9.0;
+}
+
+float spotShadowFactor(int lightIndex, vec3 n, vec3 l) {
+    if (uHasSpotShadow == 0 || lightIndex != uSpotShadowLightIndex) return 0.0;
+    vec4 clip = uSpotShadowMatrix * vec4(vWorldPosition, 1.0);
+    vec3 projected = clip.xyz / clip.w;
+    projected = projected * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0
+            || any(lessThanEqual(projected.xy, vec2(0.0)))
+            || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
+    float bias = max(uSpotShadowBias * (1.0 - dot(n, l)), uSpotShadowBias * 0.25);
+    vec2 texel = 1.0 / vec2(textureSize(uSpotShadowMap, 0));
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
+        shadow += projected.z - bias
+                > texture(uSpotShadowMap, projected.xy + vec2(x, y) * texel).r ? 1.0 : 0.0;
+    }
+    return shadow / 9.0;
+}
+
 vec3 directBrdf(vec3 n, vec3 v, vec3 l, vec3 radiance,
                 vec3 baseColor, float metallic, float roughness, vec3 f0) {
     float nDotL = max(dot(n, l), 0.0);
@@ -158,7 +224,8 @@ void main() {
             vec3 l = delta / max(distanceToLight, 1.0e-5);
             float attenuation = rangeInverseSquareAttenuation(
                     distanceToLight, uPointLights[i].range);
-            direct += directBrdf(n, v, l, uPointLights[i].color
+            float visibility = 1.0 - pointShadowFactor(i, n, l);
+            direct += visibility * directBrdf(n, v, l, uPointLights[i].color
                     * uPointLights[i].intensity * attenuation,
                     baseSample.rgb, metallic, roughness, f0);
         }
@@ -170,7 +237,8 @@ void main() {
                     distanceToLight, uSpotLights[i].range);
             float angle = acos(clamp(dot(-l, normalize(uSpotLights[i].direction)), -1.0, 1.0));
             float cone = 1.0 - smoothstep(uSpotLights[i].innerCone, uSpotLights[i].outerCone, angle);
-            direct += directBrdf(n, v, l, uSpotLights[i].color
+            float visibility = 1.0 - spotShadowFactor(i, n, l);
+            direct += visibility * directBrdf(n, v, l, uSpotLights[i].color
                     * uSpotLights[i].intensity * attenuation * cone,
                     baseSample.rgb, metallic, roughness, f0);
         }

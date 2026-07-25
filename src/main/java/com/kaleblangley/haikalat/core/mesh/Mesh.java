@@ -103,11 +103,16 @@ public final class Mesh implements GlResource {
      * 该方法要求当前线程持有有效的 GL context，并把生命周期所有权转交给返回的 {@code Mesh}。
      */
     public static Mesh from(MeshData data) {
+        return from(data, Objects.requireNonNull(data, "data").localBounds());
+    }
+
+    /** Uploads mesh data while replacing its CPU-derived local bounds contract. */
+    public static Mesh from(MeshData data, Bounds3f localBounds) {
         Objects.requireNonNull(data, "data");
         Builder builder = builder()
                 .vertices(data.vertices(), data.layout().strideBytes(),
                         data.layout().attributes().toArray(VertexAttribute[]::new))
-                .bounds(data.localBounds())
+                .bounds(Objects.requireNonNull(localBounds, "localBounds"))
                 .primitiveMode(data.primitiveMode());
         if (data.hasIndices()) {
             builder.indices(data.indices());

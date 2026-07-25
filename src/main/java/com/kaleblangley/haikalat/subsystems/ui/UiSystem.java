@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.ui;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.ui.event.UiInputRouter;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSystem;
 import com.kaleblangley.haikalat.subsystems.ui.layout.LayoutEngine;
 import com.kaleblangley.haikalat.subsystems.ui.layout.YogaLayoutEngine;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBatcher;
@@ -55,6 +56,7 @@ public final class UiSystem implements AutoCloseable {
     private final UiThreadGuard updateThread = new UiThreadGuard("UiSystem update state");
     private final UiDocument document;
     private final UiInputRouter inputRouter;
+    private final UiAnimationSystem animations;
     private final UiStylePass stylePass;
     private final LayoutEngine layoutEngine;
     private final UiTextEngine textEngine;
@@ -93,6 +95,7 @@ public final class UiSystem implements AutoCloseable {
         this.painter = Objects.requireNonNull(painter, "painter");
         this.textInputAdapter = Objects.requireNonNull(textInputAdapter, "textInputAdapter");
         inputRouter = new UiInputRouter(document);
+        animations = new UiAnimationSystem(document);
         stylePass = new UiStylePass(StyleResolver.defaults(config.theme()));
         displayList = new UiDisplayList(config.initialPrimitiveCapacity(),
                 config.initialPrimitiveCapacity());
@@ -155,6 +158,12 @@ public final class UiSystem implements AutoCloseable {
         updateThread.check();
         ensureOpen("UiDocument");
         return document;
+    }
+
+    public UiAnimationSystem animations() {
+        updateThread.check();
+        ensureOpen("UiAnimationSystem");
+        return animations;
     }
 
     /** 返回当前已注册、可在运行时切换的 UI 字体族。 */
@@ -225,6 +234,7 @@ public final class UiSystem implements AutoCloseable {
         applyComposition(input, true);
         synchronizeTextInput(input);
         stylePass.resolve(document);
+        animations.update(boundedDelta);
 
         long layoutNanos = 0L;
         long layoutPasses = 0L;
@@ -386,6 +396,7 @@ public final class UiSystem implements AutoCloseable {
         failure = closeCollect(textInputAdapter, failure);
         failure = closeCollect(textEngine, failure);
         failure = closeCollect(layoutEngine, failure);
+        failure = closeCollect(animations, failure);
         failure = closeCollect(document, failure);
         attachedGraph = null;
         if (failure != null) throw failure;

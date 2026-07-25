@@ -118,6 +118,27 @@ final class GltfAccessorDecoder {
         return result;
     }
 
+    int[] unsignedVector(int accessorIndex, int components, String path) {
+        Map<String, Object> accessor = definition(accessorIndex, path);
+        int actualComponents = componentCount(string(accessor, "type", true, path + ".type"),
+                path + ".type");
+        if (actualComponents != components) {
+            throw fail(path, "expected " + components + " components, got " + actualComponents);
+        }
+        int type = integer(accessor, "componentType", true, path + ".componentType");
+        if (type != 5121 && type != 5123) {
+            throw fail(path, "unsigned vector must use UNSIGNED_BYTE or UNSIGNED_SHORT");
+        }
+        if (bool(accessor, "normalized", false, path + ".normalized")) {
+            throw fail(path, "unsigned vector must not be normalized");
+        }
+        int count = integer(accessor, "count", true, path + ".count");
+        int[] result = new int[Math.multiplyExact(count, components)];
+        read(accessorIndex, components, (output, component, buffer, offset, ignored, normalized) ->
+                result[output] = Math.toIntExact(readUnsigned(buffer, offset, type)));
+        return result;
+    }
+
     private void read(int accessorIndex, int components, AccessorConsumer consumer) {
         Map<String, Object> accessor = accessors.get(accessorIndex);
         String path = "accessors[" + accessorIndex + "]";

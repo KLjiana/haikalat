@@ -11,6 +11,9 @@ package com.kaleblangley.haikalat.core.assets.gltf;
  * @param textureCount 纹理数量
  * @param imageCount 图像数量
  * @param samplerCount sampler 数量
+ * @param skinCount skin 数量
+ * @param animationCount animation 数量
+ * @param animationChannelCount animation channel 数量
  * @param generatedNormalVertices 生成法线的顶点数
  * @param tangentFallbackTriangles 使用切线回退的三角形数
  * @param tangentFallbackVertices 使用切线回退的顶点数
@@ -22,6 +25,7 @@ package com.kaleblangley.haikalat.core.assets.gltf;
 public record GltfSceneStatistics(
         int nodeCount, int reachableNodeCount, int meshCount, int primitiveCount,
         int materialCount, int textureCount, int imageCount, int samplerCount,
+        int skinCount, int animationCount, int animationChannelCount,
         int generatedNormalVertices, int tangentFallbackTriangles, int tangentFallbackVertices,
         long decodedBufferBytes, long encodedImageBytes, long vertexBytes, long indexBytes) {
 }

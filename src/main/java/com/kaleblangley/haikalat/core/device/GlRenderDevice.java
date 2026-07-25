@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.device;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.GlCapabilityContract;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
@@ -33,12 +34,14 @@ public final class GlRenderDevice implements RenderDevice {
     @Override
     public void execute(CommandBuffer buffer) {
         Objects.requireNonNull(buffer, "buffer");
+        GlCapabilityContract.requireCurrent();
         synchronizeContextState();
         buffer.execute(stateCache);
     }
 
     public void executeAll(CommandBuffer... buffers) {
         Objects.requireNonNull(buffers, "buffers");
+        GlCapabilityContract.requireCurrent();
         for (CommandBuffer buffer : buffers) {
             Objects.requireNonNull(buffer, "buffer");
             synchronizeContextState();

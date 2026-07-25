@@ -7,5 +7,7 @@ public enum VertexSemantic {
     NORMAL,
     TANGENT,
     COLOR_0,
+    JOINTS_0,
+    WEIGHTS_0,
     CUSTOM
 }

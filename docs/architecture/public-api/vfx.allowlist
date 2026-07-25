@@ -1,0 +1,9 @@
+# GL-free VFX simulation public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.vfx.Decal
+advanced com.kaleblangley.haikalat.subsystems.vfx.EffectAsset
+advanced com.kaleblangley.haikalat.subsystems.vfx.EffectInstance
+advanced com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot
+advanced com.kaleblangley.haikalat.subsystems.vfx.ParticleEmitter
+advanced com.kaleblangley.haikalat.subsystems.vfx.RibbonEmitter

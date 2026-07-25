@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.17.2'
+version = '0.18.0'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -288,7 +288,7 @@ tasks.register('runUiDemo', JavaExec) {
 
 tasks.register('runUiIntegration', JavaExec) {
     group = 'verification'
-    description = 'Runs UiDemo hidden with scripted controls, resize, content scale and pixel proof.'
+    description = 'Runs UiDemo hidden with visual/layout animation, scripted controls, resize and pixel proof.'
     dependsOn demoClasses
     classpath = sourceSets.demo.runtimeClasspath
     mainClass = uiDemoMainClass
@@ -1013,8 +1013,12 @@ tasks.named('localGlVerification') {
 
 def localReleaseTasks = [
         'check', 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration',
-        'runAsyncIntegration', 'runPbrIntegration', 'runPbrResizeIntegration',
-        'runGltfIntegration', 'runGltfResizeIntegration', 'runUiIntegration',
+        'runAnimationIntegration', 'runVfxIntegration', 'runAsyncIntegration',
+        'runShowcaseIntegration', 'runShowcaseStabilityIntegration',
+        'runPbrIntegration', 'runPbrResizeIntegration',
+        'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
+        'runGltfIntegration', 'runGltfResizeIntegration',
+        'runGltfSkinningIntegration', 'runUiIntegration',
         'runUiResizeIntegration', 'runUiTextIntegration',
         'runUiSyntheticImeSoak', 'runUiNativeSoak',
         'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',

@@ -27,7 +27,7 @@ import java.time.Duration;
 import java.util.Locale;
 
 /**
- * 只加载并绘制 {@code gltf模型} 的独立静态资产 Demo。
+ * 加载并绘制静态与骨骼动画 glTF 的独立资产 Demo。
  *
  * <p>该入口自行拥有窗口、runtime、PBR environment、场景、pipeline 和 retained inspector，
  * 不依赖主综合 Demo 的 manifest、对象或启动循环。</p>
@@ -67,7 +67,7 @@ public final class GltfDemo {
             Camera camera = new Camera(new Vector3f(0.0f, 0.8f, 8.0f));
             Scene scene = new Scene(camera);
             assets.objects().forEach(scene::add);
-            scene.addLight(SceneLight.directional(new Vector3f(-0.35f, -1.0f, -0.55f),
+            scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.35f, -1.0f, -0.55f),
                     new Vector3f(1.0f, 0.94f, 0.84f), 3.0f));
             scene.addLight(SceneLight.point(new Vector3f(2.8f, 2.8f, 4.0f),
                     new Vector3f(0.35f, 0.55f, 1.0f), 18.0f, 12.0f));
@@ -77,7 +77,8 @@ public final class GltfDemo {
                 pipeline.build();
                 try (GltfDemoOverlay overlay = GltfDemoOverlay.attach(
                         window, pipeline, assets.inspectionLines())) {
-                    renderLoop(window, driver, pipeline, overlay, camera, scene, settings, options);
+                    renderLoop(window, driver, pipeline, overlay, camera, scene, settings, options,
+                            assets);
                 }
             } finally {
                 pipeline.close();
@@ -87,7 +88,8 @@ public final class GltfDemo {
 
     private static void renderLoop(GlfwWindow window, FrameDriver driver, RenderPipeline pipeline,
                                    GltfDemoOverlay overlay, Camera camera, Scene scene,
-                                   RenderSettings settings, Options options) {
+                                   RenderSettings settings, Options options,
+                                   GltfDemoAssets assets) {
         FrameClock clock = new FrameClock();
         PeriodicTimer titleUpdate = new PeriodicTimer(Duration.ofMillis(250));
         int frame = 0;
@@ -96,6 +98,7 @@ public final class GltfDemo {
                 window.resize(options.resize().width(), options.resize().height());
             }
             float deltaSeconds = clock.tick().deltaSeconds();
+            assets.update(options.hidden() ? 1.0f / 60.0f : deltaSeconds);
             WindowInputSnapshot input = window.inputSnapshot();
             DebugOverlaySnapshot previous = DebugOverlaySnapshot.from(driver.statistics(),
                     scene.renderers().size(), scene.renderers().size(), settings.antiAliasingMode());
@@ -116,16 +119,20 @@ public final class GltfDemo {
                 DebugOverlaySnapshot stats = DebugOverlaySnapshot.from(driver.statistics(),
                         scene.renderers().size(), scene.renderers().size(), settings.antiAliasingMode());
                 window.setTitle(String.format(Locale.ROOT,
-                        "Haikalat glTF | showcase + radio + creeper | FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d",
+                        "Haikalat glTF | static + animated skin | FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d",
                         stats.fps(), stats.cpuSubmitMillis(), stats.gpuMillis(), stats.drawCalls()));
             }
             GlDebug.checkError("GltfDemo.frame");
             frame++;
             if (options.frames() > 0 && frame >= options.frames()) window.requestClose();
         }
+        if (options.hidden() && assets.animatedTipOffset() <= 0.01f) {
+            throw new IllegalStateException("glTF skinning integration did not move the tip joint");
+        }
         System.out.printf(Locale.ROOT,
-                "glTF demo: frames=%d objects=%d fps=%.1f CPU=%.3fms GPU=%.3fms size=%dx%d%n",
-                frame, scene.renderers().size(), driver.statistics().averageFps(),
+                "glTF demo: frames=%d objects=%d tipOffset=%.3f fps=%.1f CPU=%.3fms GPU=%.3fms size=%dx%d%n",
+                frame, scene.renderers().size(), assets.animatedTipOffset(),
+                driver.statistics().averageFps(),
                 driver.statistics().lastCpuSubmitMillis(),
                 driver.statistics().lastFrameProfile().totalGpuMillis(),
                 window.width(), window.height());

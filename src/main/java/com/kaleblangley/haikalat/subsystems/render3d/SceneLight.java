@@ -64,11 +64,25 @@ public record SceneLight(
                 position, range, 0.0f, 0.0f, false);
     }
 
+    public static SceneLight shadowedPoint(Vector3f position, Vector3f color,
+                                           float intensity, float range) {
+        return new SceneLight(LightType.POINT, color, intensity,
+                new Vector3f(0.0f, -1.0f, 0.0f), position, range,
+                0.0f, 0.0f, true);
+    }
+
     public static SceneLight spot(Vector3f position, Vector3f direction, Vector3f color,
                                   float intensity, float range, float innerConeRadians,
                                   float outerConeRadians) {
         return new SceneLight(LightType.SPOT, color, intensity, direction,
                 position, range, innerConeRadians, outerConeRadians, false);
+    }
+
+    public static SceneLight shadowedSpot(Vector3f position, Vector3f direction, Vector3f color,
+                                          float intensity, float range, float innerConeRadians,
+                                          float outerConeRadians) {
+        return new SceneLight(LightType.SPOT, color, intensity, direction,
+                position, range, innerConeRadians, outerConeRadians, true);
     }
 
     private static void requireFinite(Vector3f value, String name) {

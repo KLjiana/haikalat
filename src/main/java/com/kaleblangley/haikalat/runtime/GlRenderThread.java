@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.runtime;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.GlCapabilityContract;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.core.upload.UploadSystem;
@@ -195,6 +196,7 @@ public final class GlRenderThread implements AutoCloseable {
         try {
             glfwMakeContextCurrent(window);
             createCapabilities();
+            GlCapabilityContract.requireCurrent();
             GlDebug.enableDebugCallback();
             glfwSwapInterval(frameDriver.settings().vsync() ? 1 : 0);
             if (initHook != null) {

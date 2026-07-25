@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.core.command;
 import com.kaleblangley.haikalat.backend.GpuTimer;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.UniformBlock;
+import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
@@ -86,6 +87,12 @@ final class CommandExecutor {
                     Texture2D texture = (Texture2D) stream.objectAt(objectCursor++);
                     ByteBuffer pixels = (ByteBuffer) stream.objectAt(objectCursor++);
                     texture.uploadRegion(x, y, width, height, pixels);
+                }
+                case UPLOAD_BUFFER_REGION -> {
+                    long offset = stream.longAt(longCursor++);
+                    BufferUploadTarget buffer = (BufferUploadTarget) stream.objectAt(objectCursor++);
+                    ByteBuffer data = (ByteBuffer) stream.objectAt(objectCursor++);
+                    buffer.update(offset, data);
                 }
                 case INSERT_GPU_FENCE -> {
                     GpuFenceTarget target = (GpuFenceTarget) stream.objectAt(objectCursor++);
