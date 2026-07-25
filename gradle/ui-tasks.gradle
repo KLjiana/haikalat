@@ -1,0 +1,166 @@
+def uiDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.UiDemo'
+
+tasks.register('runUiDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs the retained-mode v0.11 UI control and layout showcase.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    if (providers.gradleProperty('uiFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('uiFrames').get()}"
+    }
+    if (providers.gradleProperty('uiResize').isPresent()) {
+        args "--resize=${providers.gradleProperty('uiResize').get()}"
+    }
+    if (providers.gradleProperty('uiContentScale').isPresent()) {
+        args "--content-scale=${providers.gradleProperty('uiContentScale').get()}"
+    }
+    if (providers.gradleProperty('uiHidden').getOrElse('false').toBoolean()) {
+        args '--hidden', '--no-vsync'
+    }
+}
+
+tasks.register('runUiIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs UiDemo hidden with visual/layout animation, scripted controls, resize and pixel proof.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args '--deterministic', '--frames=12', '--resize=4:720x480',
+            '--content-scale=1.25x1.5', '--verify-pixels'
+    mustRunAfter 'glSmoke', 'runStressCubeIntegration'
+}
+
+tasks.register('runUiResizeIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs deterministic UI resize, non-integer content scale and nested clipping checks.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args '--deterministic', '--frames=16', '--resize=2:640x400',
+            '--resize=7:1024x640', '--resize=12:800x520',
+            '--content-scale=1.375x1.625', '--verify-pixels'
+    mustRunAfter 'runUiIntegration'
+}
+
+tasks.register('runUiAsyncIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs three-slot async UI snapshot exchange and owner-thread cleanup checks.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.UiAsyncIntegration'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    mustRunAfter 'runUiResizeIntegration'
+}
+
+tasks.register('runUiTextIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs bundled Noto Sans SC FreeType/HarfBuzz shaping, atlas upload and pixel proof.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args '--deterministic', '--frames=10', '--content-scale=1.5x1.5', '--verify-pixels'
+    mustRunAfter 'runUiAsyncIntegration'
+}
+
+tasks.register('runUiBenchmarks', JavaExec) {
+    group = 'application'
+    description = 'Runs five 1080p/4K rounds for the fixed v0.11 UI capacity scenes.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.UiBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    if (providers.gradleProperty('uiBenchmarkRounds').isPresent()) {
+        args "--rounds=${providers.gradleProperty('uiBenchmarkRounds').get()}"
+    }
+    if (providers.gradleProperty('uiBenchmarkWarmup').isPresent()) {
+        args "--warmup=${providers.gradleProperty('uiBenchmarkWarmup').get()}"
+    }
+    if (providers.gradleProperty('uiBenchmarkFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('uiBenchmarkFrames').get()}"
+    }
+}
+
+tasks.register('runUiInteractiveSoak', JavaExec) {
+    group = 'verification'
+    description = 'Runs a visible, time-bounded UiDemo for the manual Windows IME matrix.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = uiDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args "--seconds=${providers.gradleProperty('uiSoakSeconds').getOrElse('60')}",
+            '--script=none', '--vsync'
+}
+
+tasks.register('runUiSyntheticImeSoak', Test) {
+    group = 'verification'
+    description = 'Runs repeated synthetic IME, focus, resize, deletion and popup lifecycles.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.ui.UiImeSyntheticSoakTest'
+    }
+    systemProperty 'haikalat.uiImeSoak', 'true'
+    systemProperty 'haikalat.uiImeSoakCycles',
+            providers.gradleProperty('uiImeSoakCycles').getOrElse('100')
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runUiNativeSoak', Test) {
+    group = 'verification'
+    description = 'Runs at least 50 real Windows GLFW/WndProc hook lifecycles with GC pressure.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.windowing.input.win32.Win32TextInputAdapterNativeSoakTest'
+    }
+    systemProperty 'haikalat.uiNativeSoak', 'true'
+    systemProperty 'haikalat.uiNativeSoakRounds',
+            providers.gradleProperty('uiNativeSoakRounds').getOrElse('50')
+    outputs.upToDateWhen { false }
+    onlyIf { System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win') }
+    mustRunAfter 'runUiSyntheticImeSoak'
+}
+
+tasks.register('localUiVerification') {
+    group = 'verification'
+    description = 'Runs real-GL UI smoke, deterministic, resize, async and text integrations.'
+    dependsOn 'glSmoke', 'runUiIntegration', 'runUiResizeIntegration',
+            'runUiAsyncIntegration', 'runUiTextIntegration',
+            'runUiSyntheticImeSoak', 'runUiNativeSoak'
+}
+
+tasks.named('localGlVerification') {
+    dependsOn 'localUiVerification', 'localPbrVerification', 'localGltfVerification',
+            'localDiagnosticsVerification'
+}
+

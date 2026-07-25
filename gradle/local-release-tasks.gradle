@@ -1,0 +1,31 @@
+def localReleaseTasks = [
+        'check', 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration',
+        'runAnimationIntegration', 'runVfxIntegration', 'runAsyncIntegration',
+        'runShowcaseIntegration', 'runShowcaseStabilityIntegration',
+        'runPbrIntegration', 'runPbrResizeIntegration',
+        'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
+        'runGltfIntegration', 'runGltfResizeIntegration',
+        'runGltfSkinningIntegration', 'runUiIntegration',
+        'runUiResizeIntegration', 'runUiTextIntegration',
+        'runUiSyntheticImeSoak', 'runUiNativeSoak',
+        'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',
+        'runDiagnosticsFailureIntegration', 'runSceneVisibilityIntegration',
+        'runSceneVisibilityResizeIntegration', 'runSceneVisibilityShadowIntegration',
+        'runSceneScalabilityIntegration', 'runGltfSceneScalabilityIntegration',
+        'runGltfSceneScalabilityResizeIntegration',
+        'runGltfSceneScalabilityMotionIntegration',
+        'runSceneSubmissionAllocationIntegration', 'runSceneSubmissionStaticGate'
+]
+
+tasks.register('localReleaseVerification') {
+    group = 'verification'
+    description = 'Runs the complete local desktop/OpenGL release verification gate.'
+    dependsOn localReleaseTasks
+}
+
+localReleaseTasks.collate(2, 1, false).each { pair ->
+    tasks.named(pair[1]) {
+        mustRunAfter pair[0]
+    }
+}
+
