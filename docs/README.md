@@ -16,6 +16,7 @@
 - [v0.18.1 VFX 曲线动画、缓动与过渡实施计划](planning/v0.18.1-vfx-animation-curves.md)
 - [v0.18.2 纹理化 HDR VFX 与 Bloom 合成实施计划](planning/v0.18.2-textured-hdr-vfx-and-bloom.md)
 - [v0.18.2 资源目录整理与打包规范](planning/v0.18.2-resource-layout-and-packaging.md)
+- [v0.18.3 动画运行时、约束与 Morph Target 实施计划](planning/v0.18.3-animation-runtime-graph-and-morph.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构

@@ -1,0 +1,60 @@
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(binding = 0) uniform samplerCube uEnvironment;
+layout(rgba16f, binding = 0) writeonly uniform imageCube uOutput;
+uniform int uSampleCount;
+uniform float uRoughness;
+
+const float PI = 3.14159265358979323846;
+
+vec3 faceDirection(uint face, vec2 p) {
+    if (face == 0u) return normalize(vec3( 1.0, -p.y, -p.x));
+    if (face == 1u) return normalize(vec3(-1.0, -p.y,  p.x));
+    if (face == 2u) return normalize(vec3( p.x,  1.0,  p.y));
+    if (face == 3u) return normalize(vec3( p.x, -1.0, -p.y));
+    if (face == 4u) return normalize(vec3( p.x, -p.y,  1.0));
+    return normalize(vec3(-p.x, -p.y, -1.0));
+}
+
+float radicalInverse(uint bits) {
+    bits = bitfieldReverse(bits);
+    return float(bits) * 2.3283064365386963e-10;
+}
+
+vec2 hammersley(uint i, uint count) {
+    return vec2(float(i) / float(count), radicalInverse(i));
+}
+
+vec3 importanceSampleGgx(vec2 xi, vec3 n, float roughness) {
+    float a = max(roughness * roughness, 0.001);
+    float phi = 2.0 * PI * xi.x;
+    float cosTheta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    vec3 h = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(up, n));
+    return normalize(tangent * h.x + cross(n, tangent) * h.y + n * h.z);
+}
+
+void main() {
+    ivec2 size = imageSize(uOutput);
+    ivec3 pixel = ivec3(gl_GlobalInvocationID);
+    if (pixel.x >= size.x || pixel.y >= size.y || pixel.z >= 6) return;
+    vec2 p = (vec2(pixel.xy) + 0.5) / vec2(size) * 2.0 - 1.0;
+    vec3 n = faceDirection(uint(pixel.z), p);
+    vec3 v = n;
+    vec3 sum = vec3(0.0);
+    float weight = 0.0;
+    uint count = uint(max(uSampleCount, 1));
+    for (uint i = 0u; i < count; ++i) {
+        vec3 h = importanceSampleGgx(hammersley(i, count), n, uRoughness);
+        vec3 l = normalize(2.0 * dot(v, h) * h - v);
+        float nDotL = max(dot(n, l), 0.0);
+        if (nDotL > 0.0) {
+            sum += textureLod(uEnvironment, l, 0.0).rgb * nDotL;
+            weight += nDotL;
+        }
+    }
+    imageStore(uOutput, pixel, vec4(sum / max(weight, 1.0e-4), 1.0));
+}
