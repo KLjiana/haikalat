@@ -6,12 +6,12 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 |---|---|---|---|
 | `EmptyWindowDemo` | 统一分辨率下的 clear/present 基线 | `GlfwWindow`、空 `RenderGraph`、present/CPU/GPU timing、state skip | shader、VAO、buffer、draw |
 | `MinimalDemo` | 最小同步渲染入口和 API 教学 | command buffer、material、texture、framebuffer、mesh、instanced batch、resize | 阴影、异步线程、极限性能 |
-| `AnimationDemo` | CPU 骨架动画基础与层次传播证明 | `Skeleton`、`PoseBuffer`、`AnimationClip`、`AnimationPlayer`、固定步长 | glTF 资产加载、GPU 蒙皮和综合高级动画 |
+| `AnimationDemo` | CPU 动画兼容入口与确定性 runtime 场景 | Player/Clip、Graph、1D Blend、Override/Additive layer、Look-at/FABRIK、诊断与固定步长 | glTF 资产加载和 GPU Morph/skinning |
 | `LearnOpenGlDemo` | 完整功能正确性、正式场景基准与统一诊断入口 | asset、model、sRGB texture、lighting、shadow、HDR/AA/Bloom、camera、F2 diagnostics、capture/export | GPU procedural 极端吞吐、RenderGraph 编辑 |
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
 | `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
-| `GltfDemo` | 静态与蒙皮 glTF 端到端证明 | accessor/node/material/skin/animation、CUBICSPLINE、joint palette、PBR/shadow GPU 蒙皮、资产实例生命周期 | 动画混合、IK、第二组关节权重 |
+| `GltfDemo` | 静态、蒙皮与 Morph glTF 端到端证明 | accessor/node/material/skin/animation/weights、joint palette、per-instance Morph weights、PBR/shadow Morph-before-skin、生命周期 | Graph/IK、第二组关节权重、compute morph |
 | `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
 | `VfxDemo` | 通用效果模拟与透明绘制证明 | `EffectAsset/EffectInstance`、粒子/Ribbon/Decal over-life、纹理 mask、Alpha/Additive、HDR/Bloom/soft particle、双 `BezierPath3f` 闭合无限符号、CPU/GPU/uniform 基线 | Compute 粒子、体积效果、flipbook、Ribbon repeat UV 和曲线编辑器 |
 | `HaikalatShowcaseDemo` | Milestone 4 同帧综合验收与稳定性 | 高级动画、PBR/shadow、Bloom/LUT/fog、HDR CPU VFX、MSAA depth resolve、自动曝光顺序、GPU VFX、volume、UI diagnostics、资源集合 | HaikalatHost、宿主事件/网络；不把受控 GPU 实验声明为完整编辑型系统 |
@@ -21,11 +21,22 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 ```powershell
 .\gradlew.bat runAnimationDemo
 .\gradlew.bat runAnimationIntegration
+.\gradlew.bat runAnimationGraphIntegration
+.\gradlew.bat runAnimationAdditiveIntegration
+.\gradlew.bat runAnimationConstraintIntegration
+.\gradlew.bat localAnimationVerification
 ```
 
-该 Demo 用手工构造的三段关节链证明纯 JVM 动画 subsystem。交互入口按真实帧间隔播放，
-隐藏集成入口使用固定 `1/30 s` 步长运行 8 帧，并断言末端关节发生位移。它只复用现有
-`CommandBuffer` 绘制骨段和关节，不把 OpenGL 调用引入 animation subsystem。
+该 Demo 用手工构造的三段关节链证明纯 JVM 动画 subsystem。`--scenario` 接受
+`clip|graph|additive|constraints|all`，`--characters=N` 可批量求值。交互入口按真实帧间隔播放，
+隐藏兼容入口继续使用固定 `1/30 s` 步长运行 8 帧并断言末端关节发生位移。Graph、layer 和
+constraint 均只写复用的 `PoseBuffer`；OpenGL 命令不进入 animation subsystem。
+
+Morph 专项由 `runGltfMorphIntegration` 解码自有生成 fixture，由
+`runGltfMorphSkinningIntegration` 在隐藏 OpenGL 4.6 窗口中验证非蒙皮/蒙皮实例、PBR、
+directional shadow、per-instance isolation、上传失败回滚和关闭归零。动画 marker 到 VFX 的单向
+编排由 `runAnimationVfxBridgeIntegration` 验证；`runShowcaseAnimationIntegration` 将它与综合
+Showcase 像素入口串联。
 
 ## VfxDemo 与曲线性能入口
 

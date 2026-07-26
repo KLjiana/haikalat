@@ -192,6 +192,26 @@ Color Grading/Fog）先供自动曝光读取，随后将颜色和 geometry depth
 texture switch 跨材质重排 Alpha draw。`ALPHA` 使用 straight-alpha，`ADDITIVE` 将 RGB 乘最终 alpha
 后累加。mask 数据以线性 `R8` 上传，只有 `RGBA_COLOR` 使用 `SRGB8_ALPHA8`。
 
+## Animation Graph, Constraints And Morph
+
+`subsystems.animation` 是无 GL 的确定性运行时。共享 `AnimationGraph`、clip、Blend Tree、mask 和
+marker definition 不持有角色状态；每个 `AnimationController`/`AnimationLayerStack` 独占 parameter、
+trigger、state/layer cursor、signal queue、evaluation scratch、`PoseBuffer` 与
+`MorphWeightBuffer`。Graph 不查询 Scene、Physics、VFX 或 wall clock。Look-at、FABRIK、双手与
+Foot IK 只消费调用方传入的 model-space target/pole/normal；调用方负责 raycast 和角色世界变换。
+
+动画到 VFX 的依赖只存在于 Demo/application orchestration：
+`CharacterEffectBridge` 消费不可变 `AnimationSignal` 并调用 `EffectInstance`，animation 与 VFX
+subsystem 互不引用。Marker/Event 在正放、倒放和跨 loop 时由 controller 决定顺序；VFX 不回写
+Graph state。
+
+glTF Morph CPU delta 属于不可变 `LoadedGltfScene/GltfSceneAsset`，每实例权重属于
+`GltfSceneInstance`。asset-owned delta SSBO 固定使用 binding 8，instance-owned weight SSBO 使用
+binding 9；zero-target 路径不创建或绑定这两个 buffer。vertex shader 的 object-space 顺序固定为
+POSITION/NORMAL/TANGENT Morph、再 skinning；directional shadow 至少执行 POSITION Morph 后再
+skinning。asset 关闭共享 delta，instance 只关闭自身 weight buffer；部分上传失败必须回滚已创建
+buffer 与 library lease，resize 不重建 Morph 资源。
+
 窗口层只发布 `WindowInputSnapshot`、`TextInputAdapter` 和 `TextInputRect` 等 subsystem-neutral
 类型，不引用 UI tree。Windows adapter 使用可恢复的 WndProc hook 观察 composition；GLFW char
 callback 仍是 committed Unicode 的唯一来源，避免 `GCS_RESULTSTR` 重复提交。

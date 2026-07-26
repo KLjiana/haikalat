@@ -54,6 +54,42 @@ class AdvancedAnimationTest {
     }
 
     @Test
+    void poseBufferOnlyRecomputesDirtySubtrees() {
+        Skeleton skeleton = unorderedSkeleton();
+        PoseBuffer pose = skeleton.createPoseBuffer();
+        pose.globalMatrix(0);
+        long initial = pose.globalRecomputeCount();
+        assertEquals(4L, initial);
+
+        pose.setTranslation(3, new Vector3f(1.0f, 0.0f, 0.0f));
+        pose.globalMatrix(0);
+        assertEquals(initial + 1L, pose.globalRecomputeCount());
+        pose.globalMatrix(3);
+        assertEquals(initial + 1L, pose.globalRecomputeCount());
+
+        pose.setTranslation(2, new Vector3f(2.0f, 0.0f, 0.0f));
+        pose.globalMatrix(0);
+        assertEquals(initial + 3L, pose.globalRecomputeCount());
+    }
+
+    @Test
+    void additiveBlendUsesReferencePoseAndSupportsDestinationAliasing() {
+        Skeleton skeleton = oneJointSkeleton();
+        PoseBuffer base = skeleton.createPoseBuffer()
+                .setTranslation(0, new Vector3f(2.0f, 0.0f, 0.0f));
+        PoseBuffer reference = skeleton.createPoseBuffer();
+        PoseBuffer sample = skeleton.createPoseBuffer()
+                .setTranslation(0, new Vector3f(4.0f, 0.0f, 0.0f))
+                .setScale(0, new Vector3f(2.0f));
+
+        PoseBlender.additive(base, sample, reference, 0.5f,
+                BoneMask.all(skeleton), base);
+
+        assertEquals(4.0f, base.localTransform(0).translation().x(), EPSILON);
+        assertEquals(1.5f, base.localTransform(0).scale().x(), EPSILON);
+    }
+
+    @Test
     void playerDispatchesOrderedEventsAcrossLoopBoundaries() {
         Skeleton skeleton = oneJointSkeleton();
         AnimationClip clip = AnimationClip.builder("events", skeleton)

@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.animation.gltf;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
 import com.kaleblangley.haikalat.subsystems.animation.JointTransform;
+import com.kaleblangley.haikalat.subsystems.animation.MorphWeightTrack;
 import com.kaleblangley.haikalat.subsystems.animation.Skeleton;
 import com.kaleblangley.haikalat.subsystems.animation.Skin;
 import org.joml.Quaternionf;
@@ -10,19 +11,25 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Adapts decoded glTF node/skin/channel data to the GL-free animation subsystem. */
 public final class GltfAnimationRig {
     private final Skeleton skeleton;
     private final List<Skin> skins;
     private final List<AnimationClip> clips;
+    private final List<Map<Integer, MorphWeightTrack>> morphTracks;
 
     private GltfAnimationRig(Skeleton skeleton, List<Skin> skins,
-                             List<AnimationClip> clips) {
+                             List<AnimationClip> clips,
+                             List<Map<Integer, MorphWeightTrack>> morphTracks) {
         this.skeleton = skeleton;
         this.skins = List.copyOf(skins);
         this.clips = List.copyOf(clips);
+        this.morphTracks = morphTracks.stream().map(Map::copyOf).toList();
     }
 
     public static GltfAnimationRig from(LoadedGltfScene source) {
@@ -50,14 +57,23 @@ public final class GltfAnimationRig {
         }
 
         List<AnimationClip> clips = new ArrayList<>(scene.animations().size());
+        List<Map<Integer, MorphWeightTrack>> morphTracks =
+                new ArrayList<>(scene.animations().size());
         for (LoadedGltfScene.AnimationDef animation : scene.animations()) {
-            AnimationClip.Builder builder = AnimationClip.builder(animation.name(), skeleton);
+            AnimationClip.Builder builder = AnimationClip.builder(animation.name(), skeleton)
+                    .durationSeconds(animation.durationSeconds());
+            Map<Integer, MorphWeightTrack> animationMorphTracks = new LinkedHashMap<>();
             for (LoadedGltfScene.AnimationChannelDef channel : animation.channels()) {
-                addChannel(builder, channel);
+                if (channel.path() == LoadedGltfScene.AnimationTargetPath.WEIGHTS) {
+                    animationMorphTracks.put(channel.nodeIndex(), morphTrack(channel));
+                } else {
+                    addChannel(builder, channel);
+                }
             }
             clips.add(builder.build());
+            morphTracks.add(Map.copyOf(animationMorphTracks));
         }
-        return new GltfAnimationRig(skeleton, skins, clips);
+        return new GltfAnimationRig(skeleton, skins, clips, morphTracks);
     }
 
     public Skeleton skeleton() {
@@ -70,6 +86,14 @@ public final class GltfAnimationRig {
 
     public List<AnimationClip> clips() {
         return clips;
+    }
+
+    public Optional<MorphWeightTrack> morphWeightTrack(int animationIndex, int nodeIndex) {
+        return Optional.ofNullable(morphTracks.get(animationIndex).get(nodeIndex));
+    }
+
+    public Map<Integer, MorphWeightTrack> morphWeightTracks(int animationIndex) {
+        return morphTracks.get(animationIndex);
     }
 
     private static void addChannel(AnimationClip.Builder builder,
@@ -91,6 +115,8 @@ public final class GltfAnimationRig {
                     vectors(values, times.length, 1, 0));
             case ROTATION -> builder.rotation(node, interpolation, times,
                     rotations(values, times.length, 1, 0));
+            case WEIGHTS -> throw new IllegalArgumentException(
+                    "morph weight channels must use morphTrack");
         }
     }
 
@@ -110,7 +136,20 @@ public final class GltfAnimationRig {
                     rotations(values, times.length, 3, 0),
                     rotations(values, times.length, 3, 1),
                     rotations(values, times.length, 3, 2));
+            case WEIGHTS -> throw new IllegalArgumentException(
+                    "morph weight channels must use morphTrack");
         }
+    }
+
+    private static MorphWeightTrack morphTrack(
+            LoadedGltfScene.AnimationChannelDef channel) {
+        MorphWeightTrack.Interpolation interpolation = switch (channel.interpolation()) {
+            case STEP -> MorphWeightTrack.Interpolation.STEP;
+            case LINEAR -> MorphWeightTrack.Interpolation.LINEAR;
+            case CUBIC_SPLINE -> MorphWeightTrack.Interpolation.CUBIC_SPLINE;
+        };
+        return new MorphWeightTrack(channel.componentCount(), interpolation,
+                channel.timesSeconds(), channel.values());
     }
 
     private static Vector3f[] vectors(float[] values, int keyframes,

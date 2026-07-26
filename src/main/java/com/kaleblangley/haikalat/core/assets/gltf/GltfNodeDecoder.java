@@ -15,6 +15,7 @@ import java.util.ArrayDeque;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.finite;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.index;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.floatArray;
+import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.floats;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.integer;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.integers;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.objects;
@@ -22,6 +23,7 @@ import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.vec3;
 
 /** selected scene、hierarchy 与静态 world transform 解码阶段。 */
 final class GltfNodeDecoder {
+    private static final float MAX_ABSOLUTE_MORPH_WEIGHT = 8.0f;
     private final AssetRef source;
     private final Map<String, Object> root;
     private final GltfLoadOptions options;
@@ -32,10 +34,13 @@ final class GltfNodeDecoder {
         this.options = options;
     }
 
-    Result decode(List<Map<String, Object>> nodeDefinitions, int meshCount, int skinCount) {
+    Result decode(List<Map<String, Object>> nodeDefinitions, int meshCount, int skinCount,
+                  Map<Integer, Integer> meshMorphTargetCounts,
+                  Map<Integer, float[]> meshMorphDefaultWeights) {
         SceneChoice scene = selectScene();
         List<LoadedGltfScene.Node> nodes = decodeNodes(
-                nodeDefinitions, meshCount, skinCount, scene.roots());
+                nodeDefinitions, meshCount, skinCount, scene.roots(),
+                meshMorphTargetCounts, meshMorphDefaultWeights);
         return new Result(scene.index(), scene.name(), scene.roots(), nodes, decodedRigs);
     }
 
@@ -66,22 +71,39 @@ final class GltfNodeDecoder {
 
     private List<LoadedGltfScene.Node> decodeNodes(List<Map<String, Object>> definitions,
                                                    int meshCount, int skinCount,
-                                                   List<Integer> roots) {
+                                                   List<Integer> roots,
+                                                   Map<Integer, Integer> meshMorphTargetCounts,
+                                                   Map<Integer, float[]> meshMorphDefaultWeights) {
         int count = definitions.size();
         for (int rootIndex : roots) index(rootIndex, count, "scene.nodes");
         Matrix4f[] locals = new Matrix4f[count];
         LocalTransform[] localTransforms = new LocalTransform[count];
         List<List<Integer>> children = new ArrayList<>(count);
         int[] declaredParents = new int[count];
+        float[][] morphWeights = new float[count][];
         java.util.Arrays.fill(declaredParents, -1);
         for (int index = 0; index < count; index++) {
             Map<String, Object> definition = definitions.get(index);
             String path = "nodes[" + index + "]";
-            if (definition.containsKey("weights")) {
-                throw fail(path + ".weights", "morph weights are not supported");
-            }
             int mesh = integer(definition, "mesh", false, path + ".mesh", -1);
             if (mesh >= 0) index(mesh, meshCount, path + ".mesh");
+            Integer morphTargetCount = meshMorphTargetCounts.get(mesh);
+            if (definition.containsKey("weights")) {
+                if (morphTargetCount == null) {
+                    throw fail(path + ".weights",
+                            "node weights require a mesh with morph targets");
+                }
+                morphWeights[index] = floats(definition.get("weights"), path + ".weights");
+                if (morphWeights[index].length != morphTargetCount) {
+                    throw fail(path + ".weights",
+                            "weight count must match mesh morph target count");
+                }
+                validateMorphWeights(morphWeights[index], path + ".weights");
+            } else if (morphTargetCount != null) {
+                morphWeights[index] = meshMorphDefaultWeights.get(mesh).clone();
+            } else {
+                morphWeights[index] = new float[0];
+            }
             int skin = integer(definition, "skin", false, path + ".skin", -1);
             if (skin >= 0) index(skin, skinCount, path + ".skin");
             List<Integer> childList = integers(definition.get("children"), path + ".children");
@@ -128,7 +150,8 @@ final class GltfNodeDecoder {
                     locals[index], world, reachable, world.determinant3x3() < 0.0f));
             LocalTransform local = localTransforms[index];
             rigs.add(new LoadedGltfScene.NodeRigDef(index, declaredParents[index], skin,
-                    local.translation(), local.rotation(), local.scale(), local.matrixAuthored()));
+                    local.translation(), local.rotation(), local.scale(), local.matrixAuthored(),
+                    morphWeights[index]));
         }
         decodedRigs = List.copyOf(rigs);
         return List.copyOf(result);
@@ -211,6 +234,15 @@ final class GltfNodeDecoder {
 
     private GltfAssetException fail(String location, String message) {
         return new GltfAssetException(source, GltfAssetException.Phase.DECODE, location, message);
+    }
+
+    private void validateMorphWeights(float[] values, String path) {
+        for (float value : values) {
+            if (!Float.isFinite(value)
+                    || Math.abs(value) > MAX_ABSOLUTE_MORPH_WEIGHT) {
+                throw fail(path, "morph weights exceed the finite runtime safety range");
+            }
+        }
     }
 
     record Result(int sceneIndex, String sceneName, List<Integer> roots,

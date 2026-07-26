@@ -9,8 +9,8 @@
 | 通用资源身份、代次与异步 CPU 解码 | 完整 | `subsystems/resources` | 由后续 glTF skin/animation 接入消费 | `AssetIdTest`、`ResourceSourceTest`、`ResourceGenerationTrackerTest`、`AsyncResourceDecoderTest`、架构边界测试 | 当前只负责编码字节与 CPU 值；GPU 上传必须携带代次票据并在渲染线程再次校验，不在该 subsystem 内调用 GL |
 | 材质与纹理 | 完整 | `TextureColorSpace`、`Texture2D`、`core/material`、`TextureAssetCache` | `LearnOpenGlDemo`、`MinimalDemo` | `MaterialTest`、`AssetPipelineTest`、`RuntimeResourceGlTest` | 旧纹理 API 默认 linear；颜色纹理需在 manifest/API 显式声明 sRGB，数据纹理保持 linear |
 | Metallic-roughness PBR | 完整 | `MaterialModel`、`PbrMaterialProperties`、`TangentGenerator`、`PbrMaterials`、PBR forward shader | `PbrDemo`、`LearnOpenGlDemo` PBR proof | `AssetPipelineTest`、`TangentGeneratorTest`、`PbrBrdfMathTest`、`PbrEnvironmentGlTest`、`runPbrCompatibilityIntegration` | framework material 保持 opaque，glTF scene-asset 可设置 MASK cutoff；单一固定 shader/unit contract；不承诺 PBR instancing、alpha blending/transmission 或高级材质扩展 |
-| glTF 2.0 资产与 GPU 蒙皮 | 完整 | `core/assets/gltf`、`subsystems/render3d/gltf`、`SceneAssetConfig.gltfScenes` | 独立 `GltfDemo` + animated two-joint fixture、主 Demo showcase | `GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runGltfIntegration`、`runGltfSkinningIntegration`、`runGltfResizeIntegration`、`localGltfVerification` | opaque/MASK `.gltf/.glb`、external/data/GLB embedded 资源、skin/inverse-bind/animation、四影响 `JOINTS_0/WEIGHTS_0`、PBR 与 directional-shadow GPU 蒙皮均闭环；BLEND 和第二组关节权重仍不支持 |
-| CPU 骨架动画与 glTF 动画运行时 | 完整 | `subsystems/animation`、`GltfAnimationRig`、`Skin`、`JointPalette` | `AnimationDemo`、`GltfDemo`、`HaikalatShowcaseDemo` | `AdvancedAnimationTest`、`AnimationClipTest`、`AnimationPlayerTest`、`GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runAnimationIntegration`、`runGltfSkinningIntegration`、`runShowcaseIntegration` | 支持任意索引层次、STEP/LINEAR/CUBICSPLINE、双层混合、Bone Mask、归一化同步、基础 clip cross-fade、layer weight fade、动作事件、循环根运动和直接链 Two-bone IK；cross-fade 只发布 incoming 事件并用同一 eased weight 混合根运动，当前不是通用 AnimationGraph |
+| glTF 2.0 资产、GPU 蒙皮与 Morph Target | 完整 | `core/assets/gltf`、`subsystems/render3d/gltf`、`SceneAssetConfig.gltfScenes` | `GltfDemo` + two-joint/morph fixture、主 Demo showcase | `GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runGltfIntegration`、`runGltfSkinningIntegration`、`runGltfMorphIntegration`、`runGltfMorphSkinningIntegration`、`localGltfVerification` | opaque/MASK `.gltf/.glb`、external/data/GLB embedded 资源、四影响 skin、POSITION/NORMAL/TANGENT Morph、mesh/node weights 与 STEP/LINEAR/CUBICSPLINE weights animation；Morph 先于 skin，PBR 与 directional shadow 均闭环；每 primitive 最多 8 targets，不支持 BLEND、第二组关节权重、compute morph 或 GPU animation sampling |
+| 确定性 Animation Graph 与约束运行时 | 完整 | `subsystems/animation`、`GltfAnimationRig`、`Skin`、`JointPalette` | `AnimationDemo --scenario=clip|graph|additive|constraints|all`、`GltfDemo`、`HaikalatShowcaseDemo` | `animationJvmVerification`、`animationGlVerification`、`animationPerformanceVerification`、`runShowcaseAnimationIntegration` | 保留 Player/Mixer 兼容入口；新增 typed parameter/trigger/state/transition/interruption、1D/显式 triangle 2D Blend Tree、最多 8 层 Override/Additive、Marker/Sync/Signal、倒放、Look-at/JointLimit/FABRIK/双手/纯输入 Foot IK，以及 pose 同权重 Morph 合成；Graph 仅 Java Builder，无序列化/编辑器、motion matching、物理/场景查询或 full-body IK |
 | 标量曲线、颜色渐变与空间路径 | 完整 | `core/curve` | `VfxDemo`、`HaikalatShowcaseDemo` | `CurveCoreTest`、`UiAnimationSystemTest`、`runVfxCurveBenchmark` | `Curve1f` 输入限定 `[0,1]`，输出允许 overshoot；支持 cubic preset、spring、正确反解 x 轴的 cubic-bezier、STEP/LINEAR/Hermite `FloatTrack`、线性 HDR RGBA gradient、固定弧长表 BezierPath3f 和 LUT；不包含可视化曲线编辑器 |
 | HDR cubemap 与 GPU IBL | 完整 | `TextureCube`、typed cube commands、`EnvironmentPreprocessor`、`PbrEnvironment` | `PbrDemo` environment/background | `PbrEnvironmentGlTest`、`runPbrIntegration`、`runPbrResizeIntegration`、`runPbrFailureIntegration` | 单一全局 environment；启动期 compute 预计算；生产路径无 readback/glFinish，resize 不重建 environment |
 | 方向光、点光、聚光参数 | 完整 | `SceneLight`、`LightingBinder`、Demo forward shader | `LearnOpenGlDemo` | `RenderPipelineTest`、`ScenePipelineTest`、`GlContextSmokeTest` | shader 数组上限为方向光 2、点光 8、聚光 4；shadow light index 与有界方向光数组使用同一选择结果 |
@@ -39,19 +39,19 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.18.2`；v0.18.1 内部候选已合并进入本次正式发布。
+- 正式稳定版本：`0.18.3`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
 - UI 本地验收：`localUiVerification`，执行 GL smoke、deterministic/resize/async/text 四项 integration、100 轮 synthetic IME soak 与至少 50 轮 Windows native hook soak。
 - PBR 本地验收：`localPbrVerification`，执行 PBR JVM/真实 GL、deterministic、resize、legacy compatibility 与 failure cleanup。
-- glTF 本地验收：`localGltfVerification`，执行 parser/accessor/node/material/skin/animation JVM 测试、真实 GL upload/lifecycle/PBR-shadow 蒙皮，以及 deterministic/skinning/resize 集成。
+- glTF 本地验收：`localGltfVerification`，执行 parser/accessor/node/material/skin/animation/Morph JVM 测试、真实 GL upload/lifecycle/PBR-shadow skinning + Morph，以及 deterministic/skinning/resize 集成。
 - 后处理效果验收：`runPostProcessEffectsIntegration` 与 `PostProcessEffectsGlTest` 验证 LUT、距离/高度雾、像素变化和 resize。
 - UI 动画验收：默认 `test` 验证 easing、visual/layout 插值、取消与线程边界；`runUiIntegration` 验证实际 UI snapshot 和最终像素。
 - VFX 本地验收：默认 `test` 覆盖固定种子、容量、寿命、over-life、材质验证、排序和资产关闭；真实 GL 覆盖 R8/sRGB cache、legacy LDR、fire/smoke Alpha+Additive、impact、trail、HDR/Bloom、soft particle、MSAA depth resolve、自动曝光顺序和 UI 隔离；1080p/4K 入口输出 CPU/GPU/draw/uniform 基线。
 - 多类阴影验收：`LocalShadowMathTest` 验证六面/外锥/级联矩阵，`LocalShadowsGlTest` 做有阴影/无阴影 PBR 像素 A/B，`runLocalShadowsIntegration` 串联方向光、点光与聚光 pass。
 - Milestone 4 验收：`localMilestone4Verification` 汇总高级动画 JVM 测试、GPU effects 真实 GL、24 帧综合像素场景和 3600 帧资源稳定性；`runShowcasePerformanceBaseline` 记录 960×540 / 2048 GPU 粒子基线。
-- 动画基础验收：默认 `test` 执行纯 JVM 层次、姿态、采样和播放合同；`runAnimationIntegration` 使用固定步长和隐藏窗口验证末端关节移动与现有命令绘制路径。
+- 动画验收：默认 `check` 包含 `animationJvmVerification`；`localAnimationVerification` 统一执行 Graph/layer/constraint/VFX bridge、真实 GL Morph 与五轮 1/100/1000 角色、4/8 target 基准；`runAnimationIntegration` 保留 Player 兼容路径。
 - 资源基础验收：默认 `test` 覆盖逻辑路径、source 上限、代次失效和并发解码过期发布；`GlContextSmokeTest` 同时验证生产 OpenGL 4.6 能力契约。
 - diagnostics 本地验收：`localDiagnosticsVerification`，执行 history/export JVM 测试以及 deterministic、resize、failure/recovery 三项真实 GL capture。
 - preview 本地验收：`previewGlVerification` 与 `runPreviewIntegration`；二者已接入 `localGlVerification`。

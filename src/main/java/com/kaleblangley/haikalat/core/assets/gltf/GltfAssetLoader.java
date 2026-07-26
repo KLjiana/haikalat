@@ -130,7 +130,9 @@ public final class GltfAssetLoader {
             List<LoadedGltfScene.SkinDef> skins = new GltfSkinDecoder(source,
                     options.limits(), accessorDecoder).decode(skinDtos, nodeDtos.size());
             GltfNodeDecoder.Result nodeResult = new GltfNodeDecoder(source, root, options)
-                    .decode(nodeDtos, meshDtos.size(), skins.size());
+                    .decode(nodeDtos, meshDtos.size(), skins.size(),
+                            meshResult.meshMorphTargetCounts(),
+                            meshResult.meshMorphDefaultWeights());
             List<LoadedGltfScene.Node> nodes = nodeResult.nodes();
             validateSkinning(nodes, nodeResult.nodeRigs(), primitives,
                     meshResult.primitiveSkinning(), skins);
@@ -143,10 +145,14 @@ public final class GltfAssetLoader {
                     primitives.size(), allMaterials.size(), textures.size(), images.size(), samplers.size(),
                     skins.size(), animations.size(), animationChannels,
                     normalFallbacks, tangentFallbackTriangles, tangentFallbackVertices,
-                    decodedBufferBytes, encodedImageBytes, vertexBytes, indexBytes);
+                    decodedBufferBytes, encodedImageBytes, vertexBytes, indexBytes,
+                    meshResult.primitiveMorphTargets().values().stream()
+                            .mapToInt(value -> value.targets().size()).sum(),
+                    meshResult.morphDeltaBytes());
             return new LoadedGltfScene(source, nodeResult.sceneIndex(), nodeResult.sceneName(),
                     nodeResult.roots(), nodes,
                     primitives, nodeResult.nodeRigs(), meshResult.primitiveSkinning(),
+                    meshResult.primitiveMorphTargets(),
                     skins, animations, allMaterials, textures, images, samplers, warnings, stats);
         }
 

@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import com.kaleblangley.haikalat.core.mesh.NormalGenerator;
 import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
 import org.joml.Vector3f;
@@ -19,6 +20,7 @@ import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.index;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.limit;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.requireCount;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.floatArray;
+import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.floats;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.integer;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.object;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.objects;
@@ -27,6 +29,7 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 
 /** primitive 解码、normal/tangent fallback 与 canonical vertex layout 组装阶段。 */
 final class GltfMeshCanonicalizer {
+    private static final float MAX_ABSOLUTE_MORPH_WEIGHT = 8.0f;
     private final AssetRef source;
     private final GltfAssetLimits limits;
     private final GltfAccessorDecoder accessors;
@@ -49,9 +52,18 @@ final class GltfMeshCanonicalizer {
         long indexBytes = 0L;
         Map<Integer, LoadedGltfScene.PrimitiveSkinning> primitiveSkinning =
                 new LinkedHashMap<>();
+        Map<Integer, LoadedGltfScene.MorphTargetSetDef> primitiveMorphTargets =
+                new LinkedHashMap<>();
+        Map<Integer, Integer> meshMorphTargetCounts = new LinkedHashMap<>();
+        Map<Integer, float[]> meshMorphDefaultWeights = new LinkedHashMap<>();
+        long morphDeltaBytes = 0L;
         for (int meshIndex = 0; meshIndex < meshes.size(); meshIndex++) {
             Map<String, Object> mesh = meshes.get(meshIndex);
             List<Map<String, Object>> definitions = objects(mesh, "primitives");
+            float[] authoredMeshWeights = mesh.containsKey("weights")
+                    ? floats(mesh.get("weights"), "meshes[" + meshIndex + "].weights")
+                    : null;
+            int meshTargetCount = -1;
             limit(source, "primitives", result.size() + definitions.size(),
                     limits.primitives(), "meshes");
             for (int primitiveIndex = 0; primitiveIndex < definitions.size(); primitiveIndex++) {
@@ -60,8 +72,8 @@ final class GltfMeshCanonicalizer {
                 if (integer(definition, "mode", false, path + ".mode", 4) != 4) {
                     throw fail(path + ".mode", "only TRIANGLES mode 4 is supported");
                 }
-                if (definition.containsKey("targets") || definition.containsKey("extensions")) {
-                    throw fail(path, "morph targets and primitive extensions are not supported");
+                if (definition.containsKey("extensions")) {
+                    throw fail(path, "primitive extensions are not supported");
                 }
                 Map<String, Object> attributes = object(definition, "attributes", true,
                         path + ".attributes");
@@ -82,6 +94,19 @@ final class GltfMeshCanonicalizer {
                     throw fail(path, "triangle element count must be divisible by 3");
                 }
                 limit(source, "primitiveIndices", elementCount, limits.primitiveIndices(), path);
+
+                List<Map<String, Object>> targetDefinitions = objects(definition, "targets");
+                limit(source, "morphTargetsPerPrimitive", targetDefinitions.size(),
+                        limits.morphTargetsPerPrimitive(), path + ".targets");
+                if (!targetDefinitions.isEmpty()) {
+                    if (meshTargetCount < 0) meshTargetCount = targetDefinitions.size();
+                    if (meshTargetCount != targetDefinitions.size()) {
+                        throw fail(path + ".targets",
+                                "all morph primitives in a mesh must have the same target count");
+                    }
+                } else if (authoredMeshWeights != null) {
+                    throw fail(path + ".targets", "mesh weights require morph targets");
+                }
 
                 float[] normals;
                 if (attributes.containsKey("NORMAL")) {
@@ -162,11 +187,118 @@ final class GltfMeshCanonicalizer {
                 indexBytes += (long) canonical.indices().length * Integer.BYTES;
                 result.add(new LoadedGltfScene.Primitive(result.size(), meshIndex, primitiveIndex,
                         meshName, canonical, material, colors != null));
+                if (!targetDefinitions.isEmpty()) {
+                    float[] defaultWeights = authoredMeshWeights == null
+                            ? new float[targetDefinitions.size()] : authoredMeshWeights.clone();
+                    if (defaultWeights.length != targetDefinitions.size()) {
+                        throw fail("meshes[" + meshIndex + "].weights",
+                                "weight count must match morph target count");
+                    }
+                    validateMorphWeights(defaultWeights,
+                            "meshes[" + meshIndex + "].weights");
+                    LoadedGltfScene.MorphTargetSetDef morphSet = decodeMorphTargets(
+                            canonicalIndex, positions, vertexCount, targetDefinitions,
+                            defaultWeights, path);
+                    morphDeltaBytes = Math.addExact(morphDeltaBytes, morphSet.deltaBytes());
+                    limit(source, "morphDeltaBytes", morphDeltaBytes,
+                            limits.morphDeltaBytes(), "meshes");
+                    primitiveMorphTargets.put(canonicalIndex, morphSet);
+                }
+            }
+            if (meshTargetCount >= 0) {
+                meshMorphTargetCounts.put(meshIndex, meshTargetCount);
+                meshMorphDefaultWeights.put(meshIndex, authoredMeshWeights == null
+                        ? new float[meshTargetCount] : authoredMeshWeights.clone());
             }
         }
         return new Result(List.copyOf(result), normalFallbacks, tangentFallbackTriangles,
                 tangentFallbackVertices, vertexBytes, indexBytes,
-                Map.copyOf(primitiveSkinning));
+                Map.copyOf(primitiveSkinning), Map.copyOf(primitiveMorphTargets),
+                Map.copyOf(meshMorphTargetCounts), copyWeightMap(meshMorphDefaultWeights),
+                morphDeltaBytes);
+    }
+
+    private LoadedGltfScene.MorphTargetSetDef decodeMorphTargets(
+            int canonicalIndex, float[] positions, int vertexCount,
+            List<Map<String, Object>> definitions, float[] defaultWeights, String path) {
+        List<LoadedGltfScene.MorphTargetDef> targets = new ArrayList<>(definitions.size());
+        long bytes = 0L;
+        for (int targetIndex = 0; targetIndex < definitions.size(); targetIndex++) {
+            Map<String, Object> definition = definitions.get(targetIndex);
+            String targetPath = path + ".targets[" + targetIndex + "]";
+            for (String semantic : definition.keySet()) {
+                if (!semantic.equals("POSITION") && !semantic.equals("NORMAL")
+                        && !semantic.equals("TANGENT")) {
+                    throw fail(targetPath + "." + semantic,
+                            "unsupported morph target semantic " + semantic);
+                }
+            }
+            float[] position = morphDeltas(definition, "POSITION", vertexCount, targetPath);
+            float[] normal = morphDeltas(definition, "NORMAL", vertexCount, targetPath);
+            float[] tangent = morphDeltas(definition, "TANGENT", vertexCount, targetPath);
+            bytes = Math.addExact(bytes, Math.multiplyExact(
+                    (long) position.length + normal.length + tangent.length, Float.BYTES));
+            targets.add(new LoadedGltfScene.MorphTargetDef(position, normal, tangent));
+        }
+        return new LoadedGltfScene.MorphTargetSetDef(canonicalIndex, vertexCount, targets,
+                defaultWeights, conservativeMorphBounds(positions, targets), bytes);
+    }
+
+    private float[] morphDeltas(Map<String, Object> definition, String semantic,
+                                int vertexCount, String path) {
+        if (!definition.containsKey(semantic)) return new float[0];
+        float[] values = accessors.floats(integer(definition, semantic, true,
+                        path + "." + semantic), 3,
+                GltfAccessorDecoder.NO_NORMALIZED_COMPONENTS, path + "." + semantic);
+        requireCount(values.length / 3, vertexCount, path + "." + semantic);
+        return values;
+    }
+
+    private static Bounds3f conservativeMorphBounds(
+            float[] positions, List<LoadedGltfScene.MorphTargetDef> targets) {
+        float minX = Float.POSITIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
+        float maxZ = Float.NEGATIVE_INFINITY;
+        for (int vertex = 0; vertex < positions.length / 3; vertex++) {
+            int offset = vertex * 3;
+            float dx = 0.0f;
+            float dy = 0.0f;
+            float dz = 0.0f;
+            for (LoadedGltfScene.MorphTargetDef target : targets) {
+                float[] delta = target.positionDeltas();
+                if (delta.length == 0) continue;
+                dx += Math.abs(delta[offset]) * MAX_ABSOLUTE_MORPH_WEIGHT;
+                dy += Math.abs(delta[offset + 1]) * MAX_ABSOLUTE_MORPH_WEIGHT;
+                dz += Math.abs(delta[offset + 2]) * MAX_ABSOLUTE_MORPH_WEIGHT;
+            }
+            minX = Math.min(minX, positions[offset] - dx);
+            minY = Math.min(minY, positions[offset + 1] - dy);
+            minZ = Math.min(minZ, positions[offset + 2] - dz);
+            maxX = Math.max(maxX, positions[offset] + dx);
+            maxY = Math.max(maxY, positions[offset + 1] + dy);
+            maxZ = Math.max(maxZ, positions[offset + 2] + dz);
+        }
+        return Bounds3f.of(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    private void validateMorphWeights(float[] values, String path) {
+        for (float value : values) {
+            if (!Float.isFinite(value)
+                    || Math.abs(value) > MAX_ABSOLUTE_MORPH_WEIGHT) {
+                throw fail(path, "morph weights must be finite and in ["
+                        + -MAX_ABSOLUTE_MORPH_WEIGHT + ", "
+                        + MAX_ABSOLUTE_MORPH_WEIGHT + "]");
+            }
+        }
+    }
+
+    private static Map<Integer, float[]> copyWeightMap(Map<Integer, float[]> source) {
+        Map<Integer, float[]> result = new LinkedHashMap<>();
+        source.forEach((key, value) -> result.put(key, value.clone()));
+        return Map.copyOf(result);
     }
 
     private int normalizeWeightsAndFindMaxJoint(int[] joints, float[] weights, String path) {
@@ -360,6 +492,10 @@ final class GltfMeshCanonicalizer {
                   int tangentFallbackVertices,
                   long vertexBytes,
                   long indexBytes,
-                  Map<Integer, LoadedGltfScene.PrimitiveSkinning> primitiveSkinning) {
+                  Map<Integer, LoadedGltfScene.PrimitiveSkinning> primitiveSkinning,
+                  Map<Integer, LoadedGltfScene.MorphTargetSetDef> primitiveMorphTargets,
+                  Map<Integer, Integer> meshMorphTargetCounts,
+                  Map<Integer, float[]> meshMorphDefaultWeights,
+                  long morphDeltaBytes) {
     }
 }

@@ -48,6 +48,15 @@ public final class Skeleton {
         return evaluationOrder[orderIndex];
     }
 
+    boolean descendsFrom(int jointIndex, int ancestorIndex) {
+        int parent = joints.get(jointIndex).parentIndex();
+        while (parent >= 0) {
+            if (parent == ancestorIndex) return true;
+            parent = joints.get(parent).parentIndex();
+        }
+        return false;
+    }
+
     private static int[] validateAndOrder(List<Joint> joints) {
         int jointCount = joints.size();
         List<List<Integer>> children = new ArrayList<>(jointCount);

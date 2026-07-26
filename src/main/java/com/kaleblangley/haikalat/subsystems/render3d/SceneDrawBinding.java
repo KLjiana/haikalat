@@ -19,8 +19,16 @@ public interface SceneDrawBinding {
 
     void record(CommandBuffer commands, ShaderProgram shader, int frameIndex, Pass pass);
 
-    default boolean deformsVertices() {
+    default boolean skinningEnabled() {
         return false;
+    }
+
+    default int morphTargetCount() {
+        return 0;
+    }
+
+    default boolean deformsVertices() {
+        return skinningEnabled() || morphTargetCount() > 0;
     }
 
     enum Pass {

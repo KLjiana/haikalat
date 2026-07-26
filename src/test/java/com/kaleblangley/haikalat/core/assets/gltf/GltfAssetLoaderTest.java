@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import com.kaleblangley.haikalat.testing.SkinnedGltfFixture;
+import com.kaleblangley.haikalat.testing.MorphGltfFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,6 +39,56 @@ class GltfAssetLoaderTest {
         assertEquals(Bounds3f.of(0, 0, 0, 1, 1, 0), primitive.mesh().localBounds());
         assertFalse(primitive.hasVertexColor());
         for (float value : primitive.mesh().vertices()) assertTrue(Float.isFinite(value));
+    }
+
+    @Test
+    void decodesMorphTargetsDefaultsNodeOverridesAndWeightChannels() throws Exception {
+        Files.writeString(temporaryDirectory.resolve("morph.gltf"),
+                MorphGltfFixture.document());
+        LoadedGltfScene scene = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("morph.gltf"));
+
+        LoadedGltfScene.MorphTargetSetDef morph = scene.primitiveMorphTargets(0).orElseThrow();
+        assertEquals(4, morph.targets().size());
+        assertEquals(3, morph.vertexCount());
+        assertEquals(432L, morph.deltaBytes());
+        assertEquals(0.1f, morph.defaultWeights()[0], 1.0e-6f);
+        assertEquals(0.1f, scene.nodeRigs().get(0).morphWeights()[0], 1.0e-6f);
+        assertEquals(0.4f, scene.nodeRigs().get(1).morphWeights()[0], 1.0e-6f);
+        assertTrue(morph.conservativeBounds().minX() < -0.5f);
+        assertTrue(morph.conservativeBounds().maxZ() > 0.0f);
+        assertEquals(8, scene.statistics().morphTargetCount());
+        assertEquals(864L, scene.statistics().morphDeltaBytes());
+
+        assertEquals(3, scene.animations().size());
+        assertEquals(LoadedGltfScene.AnimationTargetPath.WEIGHTS,
+                scene.animations().getFirst().channels().getFirst().path());
+        assertEquals(4, scene.animations().getFirst().channels().getFirst().componentCount());
+        assertEquals(LoadedGltfScene.AnimationInterpolation.CUBIC_SPLINE,
+                scene.animations().get(2).channels().getFirst().interpolation());
+        assertTrue(scene.primitiveSkinning(1).isPresent());
+        assertEquals(4, scene.primitiveMorphTargets(1).orElseThrow().targets().size());
+    }
+
+    @Test
+    void rejectsMorphTargetCountAndIndependentDeltaByteBudget() throws Exception {
+        Files.writeString(temporaryDirectory.resolve("morph-limits.gltf"),
+                MorphGltfFixture.document());
+        GltfAssetLoader loader = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory));
+        GltfLoadOptions defaults = GltfLoadOptions.defaults();
+
+        GltfAssetException targetFailure = assertThrows(GltfAssetException.class,
+                () -> loader.load(AssetRef.of("morph-limits.gltf"),
+                        new GltfLoadOptions(defaults.scene(), defaults.strictExtensions(),
+                                defaults.limits().withMorphLimits(3, 1_024L))));
+        assertTrue(targetFailure.getMessage().contains("morphTargetsPerPrimitive"));
+
+        GltfAssetException byteFailure = assertThrows(GltfAssetException.class,
+                () -> loader.load(AssetRef.of("morph-limits.gltf"),
+                        new GltfLoadOptions(defaults.scene(), defaults.strictExtensions(),
+                                defaults.limits().withMorphLimits(8, 100L))));
+        assertTrue(byteFailure.getMessage().contains("morphDeltaBytes"));
     }
 
     @Test

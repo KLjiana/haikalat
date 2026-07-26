@@ -21,11 +21,28 @@ package com.kaleblangley.haikalat.core.assets.gltf;
  * @param encodedImageBytes 编码图像字节数
  * @param vertexBytes 顶点数据字节数
  * @param indexBytes 索引数据字节数
+ * @param morphTargetCount Morph Target 总数
+ * @param morphDeltaBytes Morph POSITION/NORMAL/TANGENT delta 解码字节数
  */
 public record GltfSceneStatistics(
         int nodeCount, int reachableNodeCount, int meshCount, int primitiveCount,
         int materialCount, int textureCount, int imageCount, int samplerCount,
         int skinCount, int animationCount, int animationChannelCount,
         int generatedNormalVertices, int tangentFallbackTriangles, int tangentFallbackVertices,
-        long decodedBufferBytes, long encodedImageBytes, long vertexBytes, long indexBytes) {
+        long decodedBufferBytes, long encodedImageBytes, long vertexBytes, long indexBytes,
+        int morphTargetCount, long morphDeltaBytes) {
+
+    public GltfSceneStatistics(
+            int nodeCount, int reachableNodeCount, int meshCount, int primitiveCount,
+            int materialCount, int textureCount, int imageCount, int samplerCount,
+            int skinCount, int animationCount, int animationChannelCount,
+            int generatedNormalVertices, int tangentFallbackTriangles,
+            int tangentFallbackVertices, long decodedBufferBytes, long encodedImageBytes,
+            long vertexBytes, long indexBytes) {
+        this(nodeCount, reachableNodeCount, meshCount, primitiveCount, materialCount,
+                textureCount, imageCount, samplerCount, skinCount, animationCount,
+                animationChannelCount, generatedNormalVertices, tangentFallbackTriangles,
+                tangentFallbackVertices, decodedBufferBytes, encodedImageBytes,
+                vertexBytes, indexBytes, 0, 0L);
+    }
 }

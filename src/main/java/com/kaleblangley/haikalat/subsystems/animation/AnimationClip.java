@@ -17,14 +17,17 @@ public final class AnimationClip {
     private final Skeleton skeleton;
     private final List<Channel> channels;
     private final List<AnimationEvent> events;
+    private final List<AnimationMarker> markers;
     private final float durationSeconds;
 
     private AnimationClip(String name, Skeleton skeleton, List<Channel> channels,
-                          List<AnimationEvent> events, float durationSeconds) {
+                          List<AnimationEvent> events, List<AnimationMarker> markers,
+                          float durationSeconds) {
         this.name = name;
         this.skeleton = skeleton;
         this.channels = List.copyOf(channels);
         this.events = List.copyOf(events);
+        this.markers = List.copyOf(markers);
         this.durationSeconds = durationSeconds;
     }
 
@@ -52,6 +55,10 @@ public final class AnimationClip {
         return events;
     }
 
+    public List<AnimationMarker> markers() {
+        return markers;
+    }
+
     /** 采样并返回一张独立的不可变姿态。 */
     public Pose sample(float timeSeconds) {
         PoseBuffer destination = skeleton.createPoseBuffer();
@@ -61,6 +68,10 @@ public final class AnimationClip {
 
     /** 将指定时间的姿态写入可复用缓冲；未被动画驱动的关节分量保持绑定姿态。 */
     public void sample(float timeSeconds, PoseBuffer destination) {
+        sample(timeSeconds, destination, null);
+    }
+
+    void sample(float timeSeconds, PoseBuffer destination, ChannelCursor cursor) {
         requireFiniteNonNegative(timeSeconds, "timeSeconds");
         PoseBuffer target = Objects.requireNonNull(destination, "destination");
         if (target.skeleton() != skeleton) {
@@ -68,9 +79,19 @@ public final class AnimationClip {
         }
         float clampedTime = Math.min(timeSeconds, durationSeconds);
         target.resetToBindPose();
-        for (Channel channel : channels) {
-            channel.sample(clampedTime, target);
+        if (cursor != null && cursor.lowerKeys.length != channels.size()) {
+            throw new IllegalArgumentException("cursor belongs to another clip");
         }
+        for (int index = 0; index < channels.size(); index++) {
+            Channel channel = channels.get(index);
+            int hint = cursor == null ? -1 : cursor.lowerKeys[index];
+            int lower = channel.sample(clampedTime, target, hint);
+            if (cursor != null) cursor.lowerKeys[index] = lower;
+        }
+    }
+
+    ChannelCursor createCursor() {
+        return new ChannelCursor(channels.size());
     }
 
     public enum Interpolation {
@@ -88,6 +109,7 @@ public final class AnimationClip {
         private final Skeleton skeleton;
         private final List<Channel> channels = new ArrayList<>();
         private final List<AnimationEvent> events = new ArrayList<>();
+        private final List<AnimationMarker> markers = new ArrayList<>();
         private final boolean[][] assigned;
         private float durationSeconds;
 
@@ -176,6 +198,23 @@ public final class AnimationClip {
             return this;
         }
 
+        public Builder marker(float timeSeconds, String name) {
+            markers.add(new AnimationMarker(timeSeconds, name));
+            return this;
+        }
+
+        public Builder marker(float timeSeconds, String name, AnimationMarker.Priority priority) {
+            markers.add(new AnimationMarker(timeSeconds, name, priority));
+            return this;
+        }
+
+        /** Ensures the clip timeline covers non-pose outputs such as morph-weight tracks. */
+        public Builder durationSeconds(float minimumDurationSeconds) {
+            requireFiniteNonNegative(minimumDurationSeconds, "minimumDurationSeconds");
+            durationSeconds = Math.max(durationSeconds, minimumDurationSeconds);
+            return this;
+        }
+
         public AnimationClip build() {
             for (AnimationEvent event : events) {
                 if (event.timeSeconds() > durationSeconds) {
@@ -183,9 +222,18 @@ public final class AnimationClip {
                             + "' is after clip duration " + durationSeconds);
                 }
             }
+            for (AnimationMarker marker : markers) {
+                if (marker.timeSeconds() > durationSeconds) {
+                    throw new IllegalArgumentException("marker '" + marker.name()
+                            + "' is after clip duration " + durationSeconds);
+                }
+            }
             List<AnimationEvent> orderedEvents = new ArrayList<>(events);
             orderedEvents.sort(Comparator.comparingDouble(AnimationEvent::timeSeconds));
-            return new AnimationClip(name, skeleton, channels, orderedEvents, durationSeconds);
+            List<AnimationMarker> orderedMarkers = new ArrayList<>(markers);
+            orderedMarkers.sort(Comparator.comparingDouble(AnimationMarker::timeSeconds));
+            return new AnimationClip(name, skeleton, channels, orderedEvents,
+                    orderedMarkers, durationSeconds);
         }
 
         private void validateSlot(int jointIndex, int path, String pathName) {
@@ -203,7 +251,7 @@ public final class AnimationClip {
     private interface Channel {
         float endTime();
 
-        void sample(float timeSeconds, PoseBuffer destination);
+        int sample(float timeSeconds, PoseBuffer destination, int cursor);
     }
 
     private static final class VectorChannel implements Channel {
@@ -248,28 +296,31 @@ public final class AnimationClip {
         }
 
         @Override
-        public void sample(float timeSeconds, PoseBuffer destination) {
-            Segment segment = segment(times, timeSeconds, interpolation);
-            if (segment.first == segment.second || interpolation != Interpolation.CUBIC_SPLINE) {
+        public int sample(float timeSeconds, PoseBuffer destination, int cursor) {
+            long segment = segment(times, timeSeconds, interpolation, cursor);
+            int first = (int) (segment >> 32);
+            int second = (int) segment;
+            float alpha = first == second ? 0.0f
+                    : (timeSeconds - times[first]) / (times[second] - times[first]);
+            if (first == second || interpolation != Interpolation.CUBIC_SPLINE) {
                 if (scale) {
-                    destination.setScaleSample(jointIndex, values[segment.first], values[segment.second],
-                            segment.alpha);
+                    destination.setScaleSample(jointIndex, values[first], values[second], alpha);
                 } else {
-                    destination.setTranslationSample(jointIndex,
-                            values[segment.first], values[segment.second], segment.alpha);
+                    destination.setTranslationSample(jointIndex, values[first], values[second], alpha);
                 }
-                return;
+                return first;
             }
-            float duration = times[segment.second] - times[segment.first];
+            float duration = times[second] - times[first];
             if (scale) {
-                destination.setScaleCubicSample(jointIndex, values[segment.first],
-                        outTangents[segment.first], values[segment.second],
-                        inTangents[segment.second], segment.alpha, duration);
+                destination.setScaleCubicSample(jointIndex, values[first],
+                        outTangents[first], values[second], inTangents[second],
+                        alpha, duration);
             } else {
-                destination.setTranslationCubicSample(jointIndex, values[segment.first],
-                        outTangents[segment.first], values[segment.second],
-                        inTangents[segment.second], segment.alpha, duration);
+                destination.setTranslationCubicSample(jointIndex, values[first],
+                        outTangents[first], values[second], inTangents[second],
+                        alpha, duration);
             }
+            return first;
         }
     }
 
@@ -314,17 +365,21 @@ public final class AnimationClip {
         }
 
         @Override
-        public void sample(float timeSeconds, PoseBuffer destination) {
-            Segment segment = segment(times, timeSeconds, interpolation);
-            if (segment.first == segment.second || interpolation != Interpolation.CUBIC_SPLINE) {
+        public int sample(float timeSeconds, PoseBuffer destination, int cursor) {
+            long segment = segment(times, timeSeconds, interpolation, cursor);
+            int first = (int) (segment >> 32);
+            int second = (int) segment;
+            float alpha = first == second ? 0.0f
+                    : (timeSeconds - times[first]) / (times[second] - times[first]);
+            if (first == second || interpolation != Interpolation.CUBIC_SPLINE) {
                 destination.setRotationSample(jointIndex,
-                        values[segment.first], values[segment.second], segment.alpha);
-                return;
+                        values[first], values[second], alpha);
+                return first;
             }
-            destination.setRotationCubicSample(jointIndex, values[segment.first],
-                    outTangents[segment.first], values[segment.second],
-                    inTangents[segment.second], segment.alpha,
-                    times[segment.second] - times[segment.first]);
+            destination.setRotationCubicSample(jointIndex, values[first],
+                    outTangents[first], values[second], inTangents[second], alpha,
+                    times[second] - times[first]);
+            return first;
         }
     }
 
@@ -396,21 +451,47 @@ public final class AnimationClip {
         return result;
     }
 
-    private static Segment segment(float[] times, float timeSeconds, Interpolation interpolation) {
+    private static long segment(float[] times, float timeSeconds,
+                                Interpolation interpolation, int cursor) {
+        if (cursor >= 0 && cursor < times.length) {
+            int lower = cursor;
+            while (lower > 0 && timeSeconds < times[lower]) lower--;
+            while (lower + 1 < times.length && timeSeconds > times[lower + 1]) lower++;
+            if (Float.floatToIntBits(timeSeconds) == Float.floatToIntBits(times[lower])) {
+                return segment(lower, lower);
+            }
+            if (lower + 1 < times.length
+                    && Float.floatToIntBits(timeSeconds)
+                    == Float.floatToIntBits(times[lower + 1])) {
+                return segment(lower + 1, lower + 1);
+            }
+            if (timeSeconds < times[0]) return segment(0, 0);
+            if (lower + 1 >= times.length) {
+                int last = times.length - 1;
+                return segment(last, last);
+            }
+            if (interpolation == Interpolation.STEP) {
+                return segment(lower, lower);
+            }
+            return segment(lower, lower + 1);
+        }
         int exact = Arrays.binarySearch(times, timeSeconds);
-        if (exact >= 0) return new Segment(exact, exact, 0.0f);
+        if (exact >= 0) return segment(exact, exact);
         int upper = -exact - 1;
-        if (upper <= 0) return new Segment(0, 0, 0.0f);
+        if (upper <= 0) return segment(0, 0);
         if (upper >= times.length) {
             int last = times.length - 1;
-            return new Segment(last, last, 0.0f);
+            return segment(last, last);
         }
         int lower = upper - 1;
         if (interpolation == Interpolation.STEP) {
-            return new Segment(lower, lower, 0.0f);
+            return segment(lower, lower);
         }
-        float alpha = (timeSeconds - times[lower]) / (times[upper] - times[lower]);
-        return new Segment(lower, upper, alpha);
+        return segment(lower, upper);
+    }
+
+    private static long segment(int first, int second) {
+        return ((long) first << 32) | (second & 0xffff_ffffL);
     }
 
     private static void requireFiniteNonNegative(float value, String name) {
@@ -419,6 +500,11 @@ public final class AnimationClip {
         }
     }
 
-    private record Segment(int first, int second, float alpha) {
+    static final class ChannelCursor {
+        private final int[] lowerKeys;
+
+        private ChannelCursor(int channelCount) {
+            lowerKeys = new int[channelCount];
+        }
     }
 }

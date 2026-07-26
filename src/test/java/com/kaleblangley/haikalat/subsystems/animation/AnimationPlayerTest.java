@@ -70,6 +70,48 @@ class AnimationPlayerTest {
                 () -> player.sample(second.createPoseBuffer()));
     }
 
+    @Test
+    void reversePlaybackTraversesLoopsEventsAndRootMotionDeterministically() {
+        Skeleton skeleton = skeleton();
+        AnimationClip clip = AnimationClip.builder("reverse", skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 2.0f},
+                        new Vector3f(), new Vector3f(2.0f, 0.0f, 0.0f))
+                .event(0.5f, "early")
+                .event(1.5f, "late-a")
+                .event(1.5f, "late-b")
+                .build();
+        PoseBuffer pose = skeleton.createPoseBuffer();
+        AnimationPlayer player = new AnimationPlayer(skeleton)
+                .playbackSpeed(-1.0f)
+                .play(clip, LOOP);
+
+        RootMotionDelta delta = player.updateWithRootMotion(2.5f, pose, 0, false);
+
+        assertEquals(1.5f, player.timeSeconds(), 1.0e-6f);
+        assertEquals(-2.5f, delta.translation().x(), 1.0e-5f);
+        assertEquals(List.of("late-a", "late-b", "early", "late-a", "late-b"),
+                player.drainEvents().stream().map(AnimationEvent::name).toList());
+
+        player.play(clip, ONCE).drainEvents();
+        player.update(3.0f, pose);
+        assertEquals(0.0f, player.timeSeconds(), 0.0f);
+        assertFalse(player.isPlaying());
+    }
+
+    @Test
+    void zeroPlaybackSpeedHoldsWithoutStopping() {
+        Skeleton skeleton = skeleton();
+        PoseBuffer pose = skeleton.createPoseBuffer();
+        AnimationPlayer player = new AnimationPlayer(skeleton)
+                .play(clip(skeleton), LOOP)
+                .playbackSpeed(0.0f);
+
+        player.update(1.0f, pose);
+
+        assertEquals(0.0f, player.timeSeconds(), 0.0f);
+        assertTrue(player.isPlaying());
+    }
+
     private static AnimationClip clip(Skeleton skeleton) {
         return AnimationClip.builder("move", skeleton)
                 .translation(0, LINEAR, new float[]{0.0f, 2.0f},

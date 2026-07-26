@@ -18,6 +18,8 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
+def animationBenchmarkMain =
+        'com.kaleblangley.haikalat.demo.animation.AnimationRuntimeBenchmark'
 def vfxMain = 'com.kaleblangley.haikalat.demo.vfx.VfxDemo'
 def vfxCurveBenchmarkMain = 'com.kaleblangley.haikalat.demo.vfx.VfxCurveBenchmark'
 def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
@@ -137,6 +139,92 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
 registerDemoJavaExec('runVfxCurveBenchmark', 'verification',
         'Measures linear and curved 10,000-particle CPU snapshots without OpenGL.',
         vfxCurveBenchmarkMain, [])
+
+registerDemoJavaExec('runAnimationScenarioIntegration', 'verification',
+        'Runs the AnimationDemo graph/additive/constraint composition for 100 characters.',
+        animationMain, ['--deterministic', '--frames=8', '--scenario=all',
+                        '--characters=100'])
+
+registerDemoJavaExec('runAnimationRuntimeBenchmark', 'verification',
+        'Measures five rounds of 1/100/1000-character graph evaluation.',
+        animationBenchmarkMain, ['--mode=runtime'])
+registerDemoJavaExec('runAnimationConstraintBenchmark', 'verification',
+        'Measures five rounds of 1/100/1000-character FABRIK evaluation.',
+        animationBenchmarkMain, ['--mode=constraints'])
+registerDemoJavaExec('runMorphTargetBenchmark', 'verification',
+        'Measures five rounds of per-instance 4/8-target morph-weight sampling.',
+        animationBenchmarkMain, ['--mode=morph'])
+
+def registerAnimationVerificationTest = { taskName, descriptionText, patterns, gl ->
+    tasks.register(taskName, Test) {
+        group = 'verification'
+        description = descriptionText
+        dependsOn testClasses
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        systemProperty 'haikalat.glSmoke', gl ? 'true' : 'false'
+        filter {
+            patterns.each { includeTestsMatching it }
+        }
+    }
+}
+
+registerAnimationVerificationTest('runAnimationGraphIntegration',
+        'Runs deterministic graph, transition, Blend Tree and marker-sync tests.',
+        ['*.AnimationGraphTest'], false)
+registerAnimationVerificationTest('runAnimationAdditiveIntegration',
+        'Runs additive pose and fixed-capacity layer-stack tests.',
+        ['*.AnimationGraphTest', '*.AnimationClipTest', '*.AnimationPlayerTest'], false)
+registerAnimationVerificationTest('runAnimationConstraintIntegration',
+        'Runs Look-at, joint-limit, FABRIK, two-hand and pure-input Foot IK tests.',
+        ['*.AnimationConstraintTest'], false)
+registerAnimationVerificationTest('runAnimationVfxBridgeIntegration',
+        'Runs deterministic one-way animation-signal to VFX orchestration.',
+        ['*.CharacterEffectBridgeTest'], false)
+registerAnimationVerificationTest('runGltfMorphIntegration',
+        'Runs glTF morph decode, weights animation and pure-JVM sampling.',
+        ['*.MorphWeightTrackTest', '*.GltfAnimationRigTest',
+         '*.GltfAssetLoaderTest'], false)
+registerAnimationVerificationTest('runGltfMorphSkinningIntegration',
+        'Runs real-GL per-instance morph, PBR and directional-shadow verification.',
+        ['*.GltfRuntimeGlTest.morphWeightsArePerInstanceAndDeformForwardAndShadowPasses',
+         '*.GltfRuntimeGlTest.injectedMorphUploadFailureRollsBackBuffersAndLibraryLease'],
+        true)
+
+tasks.register('animationJvmVerification') {
+    group = 'verification'
+    description = 'Runs the no-desktop v0.18.3 animation and morph verification matrix.'
+    dependsOn 'runAnimationGraphIntegration', 'runAnimationAdditiveIntegration',
+            'runAnimationConstraintIntegration', 'runAnimationVfxBridgeIntegration',
+            'runGltfMorphIntegration'
+}
+
+tasks.register('animationGlVerification') {
+    group = 'verification'
+    description = 'Runs the real-GL v0.18.3 morph verification matrix.'
+    dependsOn 'runAnimationScenarioIntegration', 'runGltfMorphSkinningIntegration'
+}
+
+tasks.register('runShowcaseAnimationIntegration') {
+    group = 'verification'
+    description = 'Runs animation-signal/VFX orchestration and the combined real-GL showcase.'
+    dependsOn 'runAnimationVfxBridgeIntegration', 'runShowcaseIntegration'
+}
+
+tasks.register('animationPerformanceVerification') {
+    group = 'verification'
+    description = 'Runs the v0.18.3 five-round animation and morph benchmarks.'
+    dependsOn 'runAnimationRuntimeBenchmark', 'runAnimationConstraintBenchmark',
+            'runMorphTargetBenchmark'
+}
+
+tasks.register('localAnimationVerification') {
+    group = 'verification'
+    description = 'Runs all v0.18.3 animation JVM, GL and performance gates.'
+    dependsOn 'animationJvmVerification', 'animationGlVerification',
+            'animationPerformanceVerification'
+}
 
 tasks.register('runStressIntegration') {
     group = 'verification'

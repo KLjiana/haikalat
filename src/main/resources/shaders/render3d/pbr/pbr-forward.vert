@@ -12,6 +12,14 @@ layout(std430, binding = 7) readonly buffer JointPaletteBlock {
     mat4 uJointMatrices[];
 };
 
+layout(std430, binding = 8) readonly buffer MorphDeltaBlock {
+    vec4 uMorphDeltas[];
+};
+
+layout(std430, binding = 9) readonly buffer MorphWeightBlock {
+    float uMorphWeights[];
+};
+
 layout(std140) uniform CameraBlock {
     mat4 uProjection;
     mat4 uView;
@@ -20,6 +28,8 @@ layout(std140) uniform CameraBlock {
 uniform mat4 uModel;
 uniform mat4 uDirectionalLightSpace;
 uniform int uSkinningEnabled;
+uniform int uMorphTargetCount;
+uniform int uMorphVertexCount;
 
 out vec2 vTexCoord;
 out vec3 vWorldPosition;
@@ -43,12 +53,35 @@ mat4 skinMatrix() {
         + uJointMatrices[joints.w] * weights.w;
 }
 
+void applyMorph(inout vec3 position, inout vec3 normal, inout vec3 tangent) {
+    for (int target = 0; target < uMorphTargetCount; target++) {
+        float weight = uMorphWeights[target];
+        if (weight == 0.0) {
+            continue;
+        }
+        int base = (target * uMorphVertexCount + gl_VertexID) * 3;
+        position += uMorphDeltas[base].xyz * weight;
+        normal += uMorphDeltas[base + 1].xyz * weight;
+        tangent += uMorphDeltas[base + 2].xyz * weight;
+    }
+}
+
 void main() {
+    vec3 position = aPosition;
+    vec3 localNormal = aNormal;
+    vec3 localTangent = aTangent.xyz;
+    applyMorph(position, localNormal, localTangent);
+    if (dot(localNormal, localNormal) <= 1.0e-12) {
+        localNormal = aNormal;
+    }
+    if (dot(localTangent, localTangent) <= 1.0e-12) {
+        localTangent = aTangent.xyz;
+    }
     mat4 modelSkin = uModel * skinMatrix();
-    vec4 world = modelSkin * vec4(aPosition, 1.0);
+    vec4 world = modelSkin * vec4(position, 1.0);
     mat3 normalMatrix = transpose(inverse(mat3(modelSkin)));
-    vec3 n = normalize(normalMatrix * aNormal);
-    vec3 t = normalize(normalMatrix * aTangent.xyz);
+    vec3 n = normalize(normalMatrix * localNormal);
+    vec3 t = normalize(normalMatrix * localTangent);
     vTexCoord = aTexCoord;
     vWorldPosition = world.xyz;
     vNormal = n;

@@ -29,11 +29,12 @@ current goals, capabilities, and non-goals.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, the OBJ path exercised by the main demo,
   and glTF 2.0 static/skinned assets exercised by the dedicated glTF demo.
-- A GL-free skeletal-animation subsystem with arbitrary-index hierarchies, bind poses,
-  reusable pose buffers, STEP/LINEAR/CUBICSPLINE TRS sampling, LOOP/ONCE playback,
-  layered/Bone Mask blending, eased base cross-fades and layer fades, normalized action synchronization, ordered action events,
-  loop-aware root motion, Two-bone IK, glTF skins/animations, per-instance joint palettes,
-  and four-weight GPU skinning in both the PBR forward and directional-shadow passes.
+- A deterministic, GL-free animation runtime with reusable pose/morph scratch, reverse playback,
+  typed Graph states/transitions/triggers, 1D and explicit-triangle 2D Blend Trees, up to eight
+  Override/Additive layers, masks, marker synchronization, bounded signals, root motion,
+  Look-at/JointLimit/FABRIK/two-hand/pure-input foot constraints, and a one-way VFX bridge.
+  glTF skins plus POSITION/NORMAL/TANGENT Morph Targets and weights animation are evaluated per
+  instance; Morph runs before four-weight skinning in both PBR forward and directional shadow.
 - A strict OpenGL 4.6 production capability contract covering Core Profile, DSA, SSBO,
   compute, image load/store, buffer storage, MDI, shader draw parameters, and debug output.
   Optional bindless-texture support is reported separately; there is no legacy fallback.
@@ -108,6 +109,10 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 ```powershell
 .\gradlew.bat runDemoResizeIntegration
 .\gradlew.bat runAnimationIntegration
+.\gradlew.bat runAnimationGraphIntegration
+.\gradlew.bat runAnimationConstraintIntegration
+.\gradlew.bat runGltfMorphSkinningIntegration
+.\gradlew.bat localAnimationVerification
 .\gradlew.bat runGltfSkinningIntegration
 .\gradlew.bat runPostProcessEffectsIntegration
 .\gradlew.bat runVfxIntegration

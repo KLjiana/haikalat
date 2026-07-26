@@ -126,6 +126,21 @@ final class GltfJson {
         return result;
     }
 
+    static float[] floats(Object value, String path) {
+        if (!(value instanceof List<?> list)) {
+            throw failure(path, "must be an array");
+        }
+        float[] result = new float[list.size()];
+        for (int index = 0; index < list.size(); index++) {
+            if (!(list.get(index) instanceof Number number)) {
+                throw failure(path, "must contain numbers");
+            }
+            result[index] = number.floatValue();
+            if (!Float.isFinite(result[index])) throw failure(path, "contains non-finite value");
+        }
+        return result;
+    }
+
     static Vector3f vec3(Object value, Vector3f fallback, String path) {
         if (value == null) return new Vector3f(fallback);
         float[] values = floatArray(value, 3, path);

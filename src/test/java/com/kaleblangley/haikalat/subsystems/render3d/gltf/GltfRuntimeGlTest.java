@@ -19,6 +19,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.testing.SkinnedGltfFixture;
+import com.kaleblangley.haikalat.testing.MorphGltfFixture;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -139,6 +140,74 @@ class GltfRuntimeGlTest {
     }
 
     @Test
+    void morphWeightsArePerInstanceAndDeformForwardAndShadowPasses() throws Exception {
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("morph.gltf"),
+                MorphGltfFixture.document());
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("morph.gltf"));
+
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+            GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+            GltfSceneInstance first = asset.instantiateAnimated(new Matrix4f(), true);
+            GltfSceneInstance second = asset.instantiateAnimated(new Matrix4f(), true);
+            try {
+                assertEquals(2, asset.morphTargetBufferCount());
+                assertEquals(1_152L, asset.morphTargetGpuBytes());
+                assertEquals(3, first.morphWeightBufferCount());
+                assertEquals(48L, first.morphWeightGpuBytes());
+                first.setMorphWeight(0, 0, 0.75f);
+                assertEquals(0.75f, first.morphWeight(0, 0), 1.0e-6f);
+                assertEquals(0.0f, second.morphWeight(0, 0), 1.0e-6f,
+                        "instances must not share mutable morph weights");
+
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)));
+                first.objects().forEach(scene::add);
+                scene.addLight(SceneLight.shadowedDirectional(
+                        new Vector3f(0.0f, 0.0f, -1.0f), new Vector3f(1.0f), 3.0f));
+                try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                        "/environments/pbr/studio-small.hdr",
+                        PbrEnvironmentSettings.testQuality())) {
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            RenderSettings.builder()
+                                    .toneMappingMode(ToneMappingMode.ACES)
+                                    .bloomSettings(BloomSettings.disabled())
+                                    .vsync(false)
+                                    .build(), environment);
+                    try {
+                        pipeline.build();
+                        first.play(0, com.kaleblangley.haikalat.subsystems.animation
+                                .AnimationPlayer.LoopMode.ONCE).seek(0.0f);
+                        pipeline.execute(device);
+                        ByteBuffer baseFrame = readFrame(window);
+
+                        first.seek(1.0f);
+                        pipeline.execute(device);
+                        ByteBuffer morphedFrame = readFrame(window);
+
+                        assertEquals(3, pipeline.lastShadowCasterDrawCount(),
+                                "non-skinned and skinned morph nodes must traverse shadow");
+                        assertTrue(frameRgbEnergy(morphedFrame) > 20);
+                        assertTrue(changedRgbPixels(baseFrame, morphedFrame) > 8,
+                                "GPU morph must visibly deform the PBR primitive");
+                        assertEquals(GL_NO_ERROR, glGetError());
+                    } finally {
+                        pipeline.close();
+                    }
+                }
+            } finally {
+                second.close();
+                first.close();
+                asset.close();
+                library.close();
+            }
+        }
+    }
+
+    @Test
     void uploadsEmbeddedMaskedRadioPngAsSrgbTextureVariant() {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
         try (GlfwWindow window = hiddenWindow()) {
@@ -238,6 +307,7 @@ class GltfRuntimeGlTest {
             window.bindContext();
             GL.createCapabilities();
             for (GltfSceneAsset.UploadStage expected : GltfSceneAsset.UploadStage.values()) {
+                if (expected == GltfSceneAsset.UploadStage.MORPH) continue;
                 try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create()) {
                     GltfAssetException failure = assertThrows(GltfAssetException.class,
                             () -> GltfSceneAsset.upload(loaded, library, (stage, index) -> {
@@ -252,6 +322,28 @@ class GltfRuntimeGlTest {
                     recovered.close();
                     assertEquals(0, library.activeAssetCount());
                 }
+            }
+        }
+    }
+
+    @Test
+    void injectedMorphUploadFailureRollsBackBuffersAndLibraryLease() throws Exception {
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("morph-fault.gltf"),
+                MorphGltfFixture.document());
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("morph-fault.gltf"));
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create()) {
+                assertThrows(GltfAssetException.class,
+                        () -> GltfSceneAsset.upload(loaded, library, (stage, index) -> {
+                            if (stage == GltfSceneAsset.UploadStage.MORPH) {
+                                throw new IllegalStateException("injected morph failure");
+                            }
+                        }));
+                assertEquals(0, library.activeAssetCount());
+                assertEquals(GL_NO_ERROR, glGetError());
             }
         }
     }

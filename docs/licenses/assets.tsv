@@ -40,7 +40,7 @@ src/main/resources/shaders/render3d/pbr/environment-background.vert	Runtime shad
 src/main/resources/shaders/render3d/pbr/equirect-to-cube.comp	Runtime shader	Haikalat project	project license	v0.14	e2fa17741618d6d65e89ea0c050a3fc2f130806788fea0c1a34fcb6a935c64eb	project source	yes
 src/main/resources/shaders/render3d/pbr/irradiance.comp	Runtime shader	Haikalat project	project license	v0.14	5db1d09094ed163e3a4068fa7d17130d7d03ce4064c884e70a505c00c0a49190	project source	yes
 src/main/resources/shaders/render3d/pbr/pbr-forward.frag	Runtime shader	Haikalat project	project license	Milestone 3 / 2026-07-25	804526c54ac3bd3357958afbf755dad41d155a48ae61d7d1efe8f9abdc467620	project source	yes
-src/main/resources/shaders/render3d/pbr/pbr-forward.vert	Runtime shader	Haikalat project	project license	Milestone 2 / 2026-07-25	cdb035dcf1e1344a0e392fc1bc428b2ad141f1d4bca8c8f4ed259caa9b9be0df	project source	yes
+src/main/resources/shaders/render3d/pbr/pbr-forward.vert	Runtime shader	Haikalat project	project license	v0.18.3 / 2026-07-27	ddeac0bd6326fed31ad12a5f8389209192057865fe8b90deabfe778d49ca8e00	project source with Morph-before-skin	yes
 src/main/resources/shaders/render3d/pbr/prefilter.comp	Runtime shader	Haikalat project	project license	v0.14	f41c79d6417db1827a5b51ae679a2932bbe1b15217964a802febef6f411236ef	project source	yes
 src/main/resources/shaders/render3d/preview/preview.frag	Runtime shader	Haikalat project	project license	v0.17.1	41499ecf01c77ddfdb3874e37be26ced64a25a899b7bbab7989350effbf58c8f	project source	yes
 src/main/resources/shaders/render3d/preview/preview.vert	Runtime shader	Haikalat project	project license	v0.17.1	6b5df82040888060f340726a05d9419bb2e29ad3f44fe3f10bd5633c3f607abd	project source	yes
@@ -51,7 +51,7 @@ src/main/resources/shaders/render3d/vfx/gpu-particle.vert	Runtime shader	Haikala
 src/main/resources/shaders/render3d/vfx/vfx.frag	Runtime shader	Haikalat project	project license	v0.18.2 / 2026-07-26	cbb4f7e2c6d508d6997d4cf5fcd2303fbb4e6958c98b4654bf2c4ee66a317098	project source	yes
 src/main/resources/shaders/render3d/vfx/vfx.vert	Runtime shader	Haikalat project	project license	v0.18.2 / 2026-07-26	b28e1b94c0fe66abf2a8683219e170952709d98cd9aefe93d204c19f29ee4ef2	project source	yes
 src/main/resources/shaders/shadows/directional-depth.frag	Runtime shader	Haikalat project	project license	v0.14	dda6e324c1f5d0d527eff418ea8089e63859237a9169c9425d73e6ae449e3384	project source	yes
-src/main/resources/shaders/shadows/directional-depth.vert	Runtime shader	Haikalat project	project license	Milestone 2 / 2026-07-25	a31ff3358dc2bf36a0c0587f63983078082880151347e39a478df2b91cb7913d	project source	yes
+src/main/resources/shaders/shadows/directional-depth.vert	Runtime shader	Haikalat project	project license	v0.18.3 / 2026-07-27	2b6ec09928ad6cc7dbd33800e08f6321d3c5136b221db31f40991e557b32bd7a	project source with Morph-before-skin	yes
 src/main/resources/shaders/shadows/instanced-directional-depth.vert	Runtime shader	Haikalat project	project license	v0.14	5c3b3351180b1a200e95b32fba780917ed95e5cdd5f73c50c5e470746c608da8	project source	yes
 src/main/resources/ui/fonts/FONT-MANIFEST.md	Font provenance notice	Haikalat project	project license	v0.14	687845a62e82eb696ebfc4cd14e008e024b4222a86b8223bcf0342f428f74916	project documentation	yes
 src/main/resources/ui/fonts/NotoSansSC-VF.ttf	Default Latin/CJK UI font	notofonts/noto-cjk https://github.com/notofonts/noto-cjk/releases/tag/Sans2.004	OFL-1.1	Sans2.004	763146584cf0710223441356b4395e279021b0806c196614377a7a0174ae074a	upstream full variable TTF	yes

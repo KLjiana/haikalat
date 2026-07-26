@@ -56,7 +56,7 @@ final class SkinSceneDrawBinding implements SceneDrawBinding, AutoCloseable {
     }
 
     @Override
-    public boolean deformsVertices() {
+    public boolean skinningEnabled() {
         return true;
     }
 

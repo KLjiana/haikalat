@@ -83,7 +83,7 @@ public final class AnimationMixer {
             transitionSourceFrozen = false;
         } else {
             refreshCurrentTransitionPose();
-            transitionSourcePose.load(basePose.snapshot());
+            transitionSourcePose.load(basePose);
             transitionSourceFrozen = true;
             transitionPlayer.drainEvents();
         }
@@ -272,7 +272,7 @@ public final class AnimationMixer {
     private void finishLayer(float deltaSeconds, PoseBuffer destination) {
         updateLayerFade(deltaSeconds);
         if (!layerEnabled) {
-            destination.load(basePose.snapshot());
+            destination.load(basePose);
             return;
         }
         if (synchronizeLayer) {

@@ -2,13 +2,32 @@
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationClip
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationConstraint
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationConstraintStack
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationController
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationEvent
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationGraph
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationLayerMode
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationLayerStack
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationMixer
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationMarker
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationMotion
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationSignal
+advanced com.kaleblangley.haikalat.subsystems.animation.BlendTree1D
+advanced com.kaleblangley.haikalat.subsystems.animation.BlendTree2D
 advanced com.kaleblangley.haikalat.subsystems.animation.BoneMask
+advanced com.kaleblangley.haikalat.subsystems.animation.ClipMotion
+advanced com.kaleblangley.haikalat.subsystems.animation.FabrikSolver
+advanced com.kaleblangley.haikalat.subsystems.animation.FootIkSolver
 advanced com.kaleblangley.haikalat.subsystems.animation.gltf.GltfAnimationRig
+advanced com.kaleblangley.haikalat.subsystems.animation.JointLimit
 advanced com.kaleblangley.haikalat.subsystems.animation.JointTransform
 advanced com.kaleblangley.haikalat.subsystems.animation.JointPalette
+advanced com.kaleblangley.haikalat.subsystems.animation.LookAtConstraint
+advanced com.kaleblangley.haikalat.subsystems.animation.MorphWeightBuffer
+advanced com.kaleblangley.haikalat.subsystems.animation.MorphWeightTrack
 advanced com.kaleblangley.haikalat.subsystems.animation.Pose
 advanced com.kaleblangley.haikalat.subsystems.animation.PoseBuffer
 advanced com.kaleblangley.haikalat.subsystems.animation.PoseBlender
@@ -16,3 +35,4 @@ advanced com.kaleblangley.haikalat.subsystems.animation.RootMotionDelta
 advanced com.kaleblangley.haikalat.subsystems.animation.Skeleton
 advanced com.kaleblangley.haikalat.subsystems.animation.Skin
 advanced com.kaleblangley.haikalat.subsystems.animation.TwoBoneIkSolver
+advanced com.kaleblangley.haikalat.subsystems.animation.TwoHandIkConstraint

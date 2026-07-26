@@ -11,6 +11,8 @@ public final class AnimationPlayer {
 
     private final Skeleton skeleton;
     private final ArrayList<AnimationEvent> pendingEvents = new ArrayList<>();
+    private final PoseBuffer rootMotionFirst;
+    private final PoseBuffer rootMotionSecond;
     private AnimationClip clip;
     private LoopMode loopMode = LoopMode.LOOP;
     private float timeSeconds;
@@ -19,6 +21,8 @@ public final class AnimationPlayer {
 
     public AnimationPlayer(Skeleton skeleton) {
         this.skeleton = Objects.requireNonNull(skeleton, "skeleton");
+        rootMotionFirst = skeleton.createPoseBuffer();
+        rootMotionSecond = skeleton.createPoseBuffer();
     }
 
     public Skeleton skeleton() {
@@ -56,10 +60,10 @@ public final class AnimationPlayer {
         }
         this.clip = next;
         this.loopMode = Objects.requireNonNull(loopMode, "loopMode");
-        timeSeconds = 0.0f;
+        timeSeconds = playbackSpeed < 0.0f ? next.durationSeconds() : 0.0f;
         playing = next.durationSeconds() > 0.0f;
         pendingEvents.clear();
-        appendEvents(0.0f, 0.0f, true);
+        appendEventsForward(timeSeconds, timeSeconds, true);
         return this;
     }
 
@@ -70,7 +74,9 @@ public final class AnimationPlayer {
 
     public AnimationPlayer resume() {
         if (clip != null && clip.durationSeconds() > 0.0f
-                && (loopMode == LoopMode.LOOP || timeSeconds < clip.durationSeconds())) {
+                && (loopMode == LoopMode.LOOP
+                || playbackSpeed >= 0.0f && timeSeconds < clip.durationSeconds()
+                || playbackSpeed < 0.0f && timeSeconds > 0.0f)) {
             playing = true;
         }
         return this;
@@ -95,7 +101,9 @@ public final class AnimationPlayer {
     }
 
     public AnimationPlayer playbackSpeed(float playbackSpeed) {
-        requireFiniteNonNegative(playbackSpeed, "playbackSpeed");
+        if (!Float.isFinite(playbackSpeed)) {
+            throw new IllegalArgumentException("playbackSpeed must be finite");
+        }
         this.playbackSpeed = playbackSpeed;
         return this;
     }
@@ -169,17 +177,26 @@ public final class AnimationPlayer {
         float duration = clip.durationSeconds();
         float previous = timeSeconds;
         double advanced = timeSeconds + (double) deltaSeconds * playbackSpeed;
+        if (advanced == timeSeconds) {
+            return new Advance(previous, previous, 0L);
+        }
         long completedLoops = 0L;
         if (loopMode == LoopMode.LOOP) {
             double loopCount = duration == 0.0f ? 0.0 : Math.floor(advanced / duration);
-            completedLoops = loopCount >= Long.MAX_VALUE ? Long.MAX_VALUE : (long) loopCount;
-            if (!clip.events().isEmpty() && completedLoops > MAX_EVENT_CYCLES_PER_UPDATE) {
+            completedLoops = loopCount >= Long.MAX_VALUE ? Long.MAX_VALUE
+                    : loopCount <= Long.MIN_VALUE ? Long.MIN_VALUE : (long) loopCount;
+            if (!clip.events().isEmpty()
+                    && absoluteCycles(completedLoops) > MAX_EVENT_CYCLES_PER_UPDATE) {
                 throw new IllegalArgumentException("update crosses more than "
                         + MAX_EVENT_CYCLES_PER_UPDATE + " event cycles");
             }
-            timeSeconds = duration == 0.0f ? 0.0f : (float) (advanced % duration);
+            timeSeconds = duration == 0.0f ? 0.0f
+                    : (float) (advanced - Math.floor(advanced / duration) * duration);
         } else if (advanced >= duration) {
             timeSeconds = duration;
+            playing = false;
+        } else if (advanced <= 0.0) {
+            timeSeconds = 0.0f;
             playing = false;
         } else {
             timeSeconds = (float) advanced;
@@ -190,17 +207,30 @@ public final class AnimationPlayer {
     private void dispatchEvents(Advance advance) {
         if (clip.events().isEmpty()) return;
         if (advance.completedLoops() == 0L) {
-            appendEvents(advance.previousTime(), advance.currentTime(), false);
+            if (advance.currentTime() > advance.previousTime()) {
+                appendEventsForward(advance.previousTime(), advance.currentTime(), false);
+            } else if (advance.currentTime() < advance.previousTime()) {
+                appendEventsReverse(advance.previousTime(), advance.currentTime(), false);
+            }
             return;
         }
-        appendEvents(advance.previousTime(), clip.durationSeconds(), false);
-        for (long loop = 1L; loop < advance.completedLoops(); loop++) {
-            appendEvents(0.0f, clip.durationSeconds(), true);
+        if (advance.completedLoops() > 0L) {
+            appendEventsForward(advance.previousTime(), clip.durationSeconds(), false);
+            for (long loop = 1L; loop < advance.completedLoops(); loop++) {
+                appendEventsForward(0.0f, clip.durationSeconds(), true);
+            }
+            appendEventsForward(0.0f, advance.currentTime(), true);
+        } else {
+            long cycles = absoluteCycles(advance.completedLoops());
+            appendEventsReverse(advance.previousTime(), 0.0f, false);
+            for (long loop = 1L; loop < cycles; loop++) {
+                appendEventsReverse(clip.durationSeconds(), 0.0f, true);
+            }
+            appendEventsReverse(clip.durationSeconds(), advance.currentTime(), true);
         }
-        appendEvents(0.0f, advance.currentTime(), true);
     }
 
-    private void appendEvents(float start, float end, boolean includeStart) {
+    private void appendEventsForward(float start, float end, boolean includeStart) {
         if (clip == null) return;
         for (AnimationEvent event : clip.events()) {
             float time = event.timeSeconds();
@@ -210,29 +240,59 @@ public final class AnimationPlayer {
         }
     }
 
+    private void appendEventsReverse(float start, float end, boolean includeStart) {
+        if (clip == null) return;
+        List<AnimationEvent> events = clip.events();
+        int groupEnd = events.size();
+        while (groupEnd > 0) {
+            float time = events.get(groupEnd - 1).timeSeconds();
+            int groupStart = groupEnd - 1;
+            while (groupStart > 0
+                    && events.get(groupStart - 1).timeSeconds() == time) {
+                groupStart--;
+            }
+            if ((includeStart ? time <= start : time < start) && time >= end) {
+                for (int index = groupStart; index < groupEnd; index++) {
+                    pendingEvents.add(events.get(index));
+                }
+            }
+            groupEnd = groupStart;
+        }
+    }
+
     private RootMotionDelta rootMotion(Advance advance, int rootJointIndex) {
         if (advance.completedLoops() == 0L) {
             return rootMotionSegment(rootJointIndex,
                     advance.previousTime(), advance.currentTime());
         }
-        RootMotionDelta result = rootMotionSegment(rootJointIndex,
-                advance.previousTime(), clip.durationSeconds());
-        if (advance.completedLoops() > 1L) {
-            RootMotionDelta cycle = rootMotionSegment(rootJointIndex,
-                    0.0f, clip.durationSeconds());
-            result = result.then(cycle.repeated(advance.completedLoops() - 1L));
+        if (advance.completedLoops() > 0L) {
+            RootMotionDelta result = rootMotionSegment(rootJointIndex,
+                    advance.previousTime(), clip.durationSeconds());
+            if (advance.completedLoops() > 1L) {
+                RootMotionDelta cycle = rootMotionSegment(rootJointIndex,
+                        0.0f, clip.durationSeconds());
+                result = result.then(cycle.repeated(advance.completedLoops() - 1L));
+            }
+            return result.then(rootMotionSegment(rootJointIndex, 0.0f, advance.currentTime()));
         }
-        return result.then(rootMotionSegment(rootJointIndex, 0.0f, advance.currentTime()));
+        long cycles = absoluteCycles(advance.completedLoops());
+        RootMotionDelta result = rootMotionSegment(rootJointIndex,
+                advance.previousTime(), 0.0f);
+        if (cycles > 1L) {
+            RootMotionDelta cycle = rootMotionSegment(rootJointIndex,
+                    clip.durationSeconds(), 0.0f);
+            result = result.then(cycle.repeated(cycles - 1L));
+        }
+        return result.then(rootMotionSegment(rootJointIndex,
+                clip.durationSeconds(), advance.currentTime()));
     }
 
     private RootMotionDelta rootMotionSegment(int rootJointIndex, float firstTime, float secondTime) {
         if (firstTime == secondTime) return RootMotionDelta.identity();
-        PoseBuffer first = skeleton.createPoseBuffer();
-        PoseBuffer second = skeleton.createPoseBuffer();
-        clip.sample(firstTime, first);
-        clip.sample(secondTime, second);
-        return RootMotionDelta.between(first.localTransform(rootJointIndex),
-                second.localTransform(rootJointIndex));
+        clip.sample(firstTime, rootMotionFirst);
+        clip.sample(secondTime, rootMotionSecond);
+        return RootMotionDelta.between(rootMotionFirst.localTransform(rootJointIndex),
+                rootMotionSecond.localTransform(rootJointIndex));
     }
 
     private void requireRootJoint(int rootJointIndex) {
@@ -255,6 +315,10 @@ public final class AnimationPlayer {
         if (!Float.isFinite(value) || value < 0.0f) {
             throw new IllegalArgumentException(name + " must be finite and non-negative");
         }
+    }
+
+    private static long absoluteCycles(long cycles) {
+        return cycles == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(cycles);
     }
 
     public enum LoopMode {

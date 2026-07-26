@@ -1,5 +1,23 @@
 # 变更记录
 
+## v0.18.3（2026-07-27）
+
+- 新增确定性 `AnimationGraph/AnimationController`：typed parameter/trigger、state/transition、
+  exit time、queued/interruption、倒放、incoming-only signal，以及 1D 和显式 triangle 2D Blend Tree。
+- 新增最多 8 层的 `AnimationLayerStack`，统一 Override/Additive、Bone Mask、fade、自动移除、
+  root-motion policy 与 Morph additive reference；pose、root motion 和 Morph 使用同一 motion 权重。
+- 新增 Marker/Sync/结构化 `AnimationSignal` 与 Demo 侧 `CharacterEffectBridge`，以单向依赖驱动
+  Particle/Decal/MeshVfx；保留 Player/Mixer 兼容 API。
+- 新增 Look-at、JointLimit、连续链 FABRIK、双手约束与纯输入 Foot IK；constraint 不查询
+  Scene/Physics，PoseBuffer 使用 subtree dirty tracking。
+- glTF 新增 POSITION/NORMAL/TANGENT Morph Target、mesh/node default weights 与
+  STEP/LINEAR/CUBICSPLINE weights animation；每 primitive 上限 8，独立 delta byte budget。
+- asset-owned delta SSBO 与 instance-owned weight SSBO 分离；PBR 和 directional shadow 固定
+  Morph-before-skin，支持 conservative bounds、zero-target 路径、失败回滚和关闭归零。
+- 新增 Animation/Morph JVM、真实 GL、Showcase bridge 和五轮性能入口；Graph steady-state
+  实测 0 B/角色/帧，完整数字见
+  `docs/performance/v0.18.3-animation-runtime-and-morph-2026-07-27.md`。
+
 ## v0.18.2（2026-07-26）
 
 - 合并经内部验收但未独立发布的 v0.18.1 曲线、VFX over-life、动画 cross-fade/layer fade 和

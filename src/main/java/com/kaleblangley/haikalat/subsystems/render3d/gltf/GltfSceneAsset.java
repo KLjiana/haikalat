@@ -31,6 +31,7 @@ public final class GltfSceneAsset implements AutoCloseable {
     private final LoadedGltfScene source;
     private final GltfRuntimeLibrary library;
     private final List<Mesh> meshes;
+    private final Map<Integer, GltfMorphTargetBuffer> morphBuffers;
     private final Map<MaterialKey, Material> materials;
     private final List<Texture2D> textures;
     private final List<Sampler> samplers;
@@ -39,13 +40,15 @@ public final class GltfSceneAsset implements AutoCloseable {
 
     private GltfSceneAsset(LoadedGltfScene source, GltfRuntimeLibrary library,
                            List<Mesh> meshes, Map<MaterialKey, Material> materials,
-                           List<Texture2D> textures, List<Sampler> samplers) {
+                           List<Texture2D> textures, List<Sampler> samplers,
+                           Map<Integer, GltfMorphTargetBuffer> morphBuffers) {
         this.source = source;
         this.library = library;
         this.meshes = List.copyOf(meshes);
         this.materials = Map.copyOf(materials);
         this.textures = List.copyOf(textures);
         this.samplers = List.copyOf(samplers);
+        this.morphBuffers = Map.copyOf(morphBuffers);
     }
 
     public static GltfSceneAsset upload(LoadedGltfScene source, GltfRuntimeLibrary library) {
@@ -62,6 +65,7 @@ public final class GltfSceneAsset implements AutoCloseable {
         List<Sampler> ownedSamplers = new ArrayList<>();
         List<Mesh> ownedMeshes = new ArrayList<>();
         Map<MaterialKey, Material> ownedMaterials = new LinkedHashMap<>();
+        Map<Integer, GltfMorphTargetBuffer> ownedMorphBuffers = new LinkedHashMap<>();
         try (CloseStack rollback = new CloseStack()) {
             rollback.own(new LibraryLease(library));
             Map<SamplerDescriptor, Sampler> samplerCache = createSamplers(source,
@@ -78,12 +82,23 @@ public final class GltfSceneAsset implements AutoCloseable {
             }
             for (LoadedGltfScene.Primitive primitive : source.primitives()) {
                 Bounds3f bounds = source.primitiveSkinning(primitive.index()).isPresent()
-                        ? Bounds3f.unbounded() : primitive.mesh().localBounds();
+                        ? Bounds3f.unbounded()
+                        : source.primitiveMorphTargets(primitive.index())
+                        .map(LoadedGltfScene.MorphTargetSetDef::conservativeBounds)
+                        .orElseGet(() -> primitive.mesh().localBounds());
                 ownedMeshes.add(rollback.own(Mesh.from(primitive.mesh(), bounds)));
                 fault.check(UploadStage.MESH, primitive.index());
             }
+            for (LoadedGltfScene.Primitive primitive : source.primitives()) {
+                source.primitiveMorphTargets(primitive.index()).ifPresent(definition -> {
+                    GltfMorphTargetBuffer buffer =
+                            rollback.own(new GltfMorphTargetBuffer(definition));
+                    ownedMorphBuffers.put(primitive.index(), buffer);
+                    fault.check(UploadStage.MORPH, primitive.index());
+                });
+            }
             GltfSceneAsset asset = new GltfSceneAsset(source, library, ownedMeshes, ownedMaterials,
-                    ownedTextures, ownedSamplers);
+                    ownedTextures, ownedSamplers, ownedMorphBuffers);
             rollback.releaseOwnership();
             return asset;
         } catch (RuntimeException failure) {
@@ -95,6 +110,12 @@ public final class GltfSceneAsset implements AutoCloseable {
     public List<SceneObject> instantiate(Matrix4fc rootTransform, boolean castShadows) {
         ensureOpen();
         Objects.requireNonNull(rootTransform, "rootTransform");
+        if (!morphBuffers.isEmpty()) {
+            throw new GltfAssetException(source.source(),
+                    GltfAssetException.Phase.INSTANTIATE, "meshes",
+                    "morph-target assets require instantiateAnimated so weights remain "
+                            + "instance-owned");
+        }
         if (!Float.isFinite(new Matrix4f(rootTransform).determinant3x3())
                 || Math.abs(new Matrix4f(rootTransform).determinant3x3()) < 1.0e-12f) {
             throw new GltfAssetException(source.source(), GltfAssetException.Phase.INSTANTIATE,
@@ -138,6 +159,14 @@ public final class GltfSceneAsset implements AutoCloseable {
     public int uniqueMeshCount() { return meshes.size(); }
     public int uniqueTextureCount() { return textures.size(); }
     public int uniqueSamplerCount() { return samplers.size() + 1; }
+    public int morphTargetBufferCount() { return morphBuffers.size(); }
+    public long morphTargetGpuBytes() {
+        long bytes = 0L;
+        for (GltfMorphTargetBuffer buffer : morphBuffers.values()) {
+            bytes = Math.addExact(bytes, buffer.byteSize());
+        }
+        return bytes;
+    }
     /** @return 实际上传且可由多个 scene instance 共享的 material 数量 */
     public int uniqueMaterialCount() { return materials.size(); }
 
@@ -147,6 +176,9 @@ public final class GltfSceneAsset implements AutoCloseable {
         for (Texture2D texture : textures) {
             bytes = Math.addExact(bytes, Math.multiplyExact(
                     Math.multiplyExact((long) texture.width(), texture.height()), 4L));
+        }
+        for (GltfMorphTargetBuffer buffer : morphBuffers.values()) {
+            bytes = Math.addExact(bytes, buffer.byteSize());
         }
         return bytes;
     }
@@ -159,7 +191,8 @@ public final class GltfSceneAsset implements AutoCloseable {
                     + activeInstances + " animated instances are active");
         }
         closed = true;
-        RuntimeException failure = closeOwned(meshes, materials.values(), samplers, textures, null);
+        RuntimeException failure = closeOwned(meshes, materials.values(), samplers, textures,
+                morphBuffers.values(), null);
         try { library.releaseAsset(); } catch (RuntimeException error) {
             if (failure == null) failure = error; else failure.addSuppressed(error);
         }
@@ -233,8 +266,10 @@ public final class GltfSceneAsset implements AutoCloseable {
                                                Iterable<Material> materials,
                                                Iterable<Sampler> samplers,
                                                Iterable<Texture2D> textures,
+                                               Iterable<GltfMorphTargetBuffer> morphBuffers,
                                                RuntimeException primary) {
         CloseStack closeStack = new CloseStack();
+        morphBuffers.forEach(closeStack::own);
         textures.forEach(closeStack::own);
         samplers.forEach(closeStack::own);
         materials.forEach(closeStack::own);
@@ -268,6 +303,11 @@ public final class GltfSceneAsset implements AutoCloseable {
                 primitive.hasVertexColor()));
     }
 
+    GltfMorphTargetBuffer morphBuffer(int primitiveIndex) {
+        ensureOpen();
+        return morphBuffers.get(primitiveIndex);
+    }
+
     void retainInstance() {
         ensureOpen();
         activeInstances = Math.incrementExact(activeInstances);
@@ -286,7 +326,7 @@ public final class GltfSceneAsset implements AutoCloseable {
         @Override public void close() { library.releaseAsset(); }
     }
 
-    enum UploadStage { SAMPLER, TEXTURE, MATERIAL, MESH }
+    enum UploadStage { SAMPLER, TEXTURE, MATERIAL, MESH, MORPH }
 
     @FunctionalInterface
     interface UploadFault {

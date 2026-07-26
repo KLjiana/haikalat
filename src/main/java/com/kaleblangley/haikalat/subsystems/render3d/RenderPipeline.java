@@ -440,7 +440,9 @@ public final class RenderPipeline {
                 cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
                 SceneDrawBinding drawBinding = renderer.drawBinding();
                 cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
-                        drawBinding.deformsVertices() ? 1 : 0);
+                        drawBinding.skinningEnabled() ? 1 : 0)
+                        .trySetUniformInt(shadowShader, "uMorphTargetCount",
+                                drawBinding.morphTargetCount());
                 drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
                         SceneDrawBinding.Pass.SHADOW);
                 if (renderer.mesh() != boundMesh) {
@@ -504,7 +506,9 @@ public final class RenderPipeline {
             cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
             SceneDrawBinding drawBinding = renderer.drawBinding();
             cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
-                    drawBinding.deformsVertices() ? 1 : 0);
+                    drawBinding.skinningEnabled() ? 1 : 0)
+                    .trySetUniformInt(shadowShader, "uMorphTargetCount",
+                            drawBinding.morphTargetCount());
             drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
                     SceneDrawBinding.Pass.SHADOW);
             if (renderer.mesh() != boundMesh) {
@@ -568,7 +572,9 @@ public final class RenderPipeline {
             cmd.setUniformMat4(shader, "uModel", model);
             SceneDrawBinding drawBinding = renderer.drawBinding();
             cmd.trySetUniformInt(shader, "uSkinningEnabled",
-                    drawBinding.deformsVertices() ? 1 : 0);
+                    drawBinding.skinningEnabled() ? 1 : 0)
+                    .trySetUniformInt(shader, "uMorphTargetCount",
+                            drawBinding.morphTargetCount());
             drawBinding.record(cmd, shader, (int) frame.frameIndex,
                     SceneDrawBinding.Pass.FORWARD);
             if (renderer.mesh() != boundMesh) {

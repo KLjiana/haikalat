@@ -15,7 +15,15 @@ import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationConstraint;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationConstraintStack;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationController;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationGraph;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationLayerStack;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
+import com.kaleblangley.haikalat.subsystems.animation.BlendTree1D;
+import com.kaleblangley.haikalat.subsystems.animation.BoneMask;
+import com.kaleblangley.haikalat.subsystems.animation.ClipMotion;
 import com.kaleblangley.haikalat.subsystems.animation.JointTransform;
 import com.kaleblangley.haikalat.subsystems.animation.PoseBuffer;
 import com.kaleblangley.haikalat.subsystems.animation.Skeleton;
@@ -57,14 +65,21 @@ public final class AnimationDemo {
 
     private static void run(GlfwWindow window, RenderSettings settings, Options options) {
         Skeleton skeleton = skeleton();
-        PoseBuffer pose = skeleton.createPoseBuffer();
-        AnimationPlayer player = new AnimationPlayer(skeleton).play(animation(skeleton));
+        AnimationConstraint.Context constraintContext = AnimationConstraint.Context.target(
+                new Vector3f(0.8f, 1.4f, 0.0f),
+                new Vector3f(0.0f, 0.0f, 1.0f), 0.65f, FIXED_DELTA_SECONDS);
+        CharacterRuntime[] characters = new CharacterRuntime[options.characters()];
+        for (int index = 0; index < characters.length; index++) {
+            characters[index] = new CharacterRuntime(skeleton, constraintContext);
+        }
+        PoseBuffer pose = characters[0].pose;
         FrameClock clock = new FrameClock();
 
-        try (FrameDriver frameDriver = new FrameDriver(settings);
-             RenderTargetManager targets = new RenderTargetManager();
-             ShaderProgram shader = DemoSupport.loadColorMvpShader(AnimationDemo.class);
-             Mesh cube = Mesh.from(BuiltinMeshData.coloredCube("animation-joint"))) {
+        try {
+            try (FrameDriver frameDriver = new FrameDriver(settings);
+                 RenderTargetManager targets = new RenderTargetManager();
+                 ShaderProgram shader = DemoSupport.loadColorMvpShader(AnimationDemo.class);
+                 Mesh cube = Mesh.from(BuiltinMeshData.coloredCube("animation-joint"))) {
             Material material = Material.builder(shader).blendMode(BlendMode.OPAQUE).build();
             targets.create(SCENE_TARGET, FramebufferDescriptor.builder(window.width(), window.height())
                     .colorTexture(RenderFormat.SRGB8_ALPHA8)
@@ -87,7 +102,9 @@ public final class AnimationDemo {
                 Framebuffer target = targets.get(SCENE_TARGET);
                 float delta = options.deterministic()
                         ? FIXED_DELTA_SECONDS : clock.tick().deltaSeconds();
-                player.update(delta, pose);
+                for (CharacterRuntime character : characters) {
+                    character.update(options.scenario(), delta, constraintContext);
+                }
 
                 float tipX = pose.globalMatrix(skeleton.jointCount() - 1).m30();
                 if (frame == 0) firstTipX = tipX;
@@ -134,6 +151,15 @@ public final class AnimationDemo {
                     && (!Float.isFinite(firstTipX) || Math.abs(lastTipX - firstTipX) < 1.0e-4f)) {
                 throw new IllegalStateException("Animation integration did not move the tip joint");
             }
+            System.out.printf(java.util.Locale.ROOT,
+                    "ANIMATION scenario=%s frames=%d characters=%d tipDelta=%.5f%n",
+                    options.scenario().name().toLowerCase(java.util.Locale.ROOT),
+                    frame, options.characters(), lastTipX - firstTipX);
+            }
+        } finally {
+            for (CharacterRuntime character : characters) {
+                if (character != null) character.close();
+            }
         }
     }
 
@@ -164,6 +190,29 @@ public final class AnimationDemo {
                 .build();
     }
 
+    private static AnimationClip additiveAnimation(Skeleton skeleton) {
+        return AnimationClip.builder("upper-additive", skeleton)
+                .rotation(1, LINEAR, new float[]{0.0f, 1.0f},
+                        new Quaternionf(), new Quaternionf().rotateZ(0.35f))
+                .build();
+    }
+
+    private static AnimationController controller(Skeleton skeleton) {
+        ClipMotion idle = new ClipMotion(animation(skeleton));
+        ClipMotion fast = new ClipMotion(AnimationClip.builder("fast", skeleton)
+                .rotation(0, LINEAR, new float[]{0.0f, 1.0f},
+                        rotation(-0.3f), rotation(0.3f))
+                .rotation(1, LINEAR, new float[]{0.0f, 1.0f},
+                        rotation(-0.7f), rotation(0.7f))
+                .build());
+        return AnimationGraph.builder("animation-demo", skeleton)
+                .floatParameter("speed", 0.6f)
+                .state("locomotion", BlendTree1D.builder("speed")
+                        .child(0.0f, idle).child(1.0f, fast).build(),
+                        AnimationPlayer.LoopMode.LOOP)
+                .entry("locomotion").build().createController();
+    }
+
     private static JointTransform transform(float x, float y, float z) {
         return new JointTransform(new Vector3f(x, y, z), new Quaternionf(), new Vector3f(1.0f));
     }
@@ -172,15 +221,75 @@ public final class AnimationDemo {
         return new Quaternionf().rotateZ(radians);
     }
 
-    private record Options(boolean deterministic, int maxFrames) {
+    private enum Scenario {
+        CLIP, GRAPH, ADDITIVE, CONSTRAINTS, ALL
+    }
+
+    private static final class CharacterRuntime implements AutoCloseable {
+        private final PoseBuffer pose;
+        private final AnimationPlayer player;
+        private final AnimationController controller;
+        private final AnimationLayerStack layers;
+        private final AnimationConstraintStack constraints;
+
+        private CharacterRuntime(Skeleton skeleton,
+                                 AnimationConstraint.Context constraintContext) {
+            pose = skeleton.createPoseBuffer();
+            player = new AnimationPlayer(skeleton).play(animation(skeleton));
+            controller = controller(skeleton);
+            layers = new AnimationLayerStack(controller);
+            layers.playAdditive("upper-additive",
+                    new ClipMotion(additiveAnimation(skeleton)),
+                    AnimationPlayer.LoopMode.LOOP,
+                    BoneMask.builder(skeleton).subtree(1, 1.0f).build(),
+                    0.35f, skeleton.createPoseBuffer().snapshot(), false);
+            constraints = AnimationConstraintStack.builder(skeleton)
+                    .twoBone("arm-target", 0, 1, 2, constraintContext).build();
+        }
+
+        private void update(Scenario scenario, float delta,
+                            AnimationConstraint.Context constraintContext) {
+            switch (scenario) {
+                case CLIP -> player.update(delta, pose);
+                case GRAPH -> controller.update(delta, pose);
+                case ADDITIVE -> layers.update(delta, pose);
+                case CONSTRAINTS -> {
+                    player.update(delta, pose);
+                    constraints.context("arm-target", constraintContext);
+                    constraints.apply(pose);
+                }
+                case ALL -> {
+                    layers.update(delta, pose);
+                    constraints.context("arm-target", constraintContext);
+                    constraints.apply(pose);
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            layers.close();
+        }
+    }
+
+    private record Options(boolean deterministic, int maxFrames,
+                           Scenario scenario, int characters) {
         private static Options parse(String[] arguments) {
             boolean deterministic = false;
             int maxFrames = -1;
+            Scenario scenario = Scenario.CLIP;
+            int characters = 1;
             for (String argument : arguments) {
                 if ("--deterministic".equals(argument) || "--hidden".equals(argument)) {
                     deterministic = true;
                 } else if (argument.startsWith("--frames=")) {
                     maxFrames = Integer.parseInt(argument.substring("--frames=".length()));
+                } else if (argument.startsWith("--scenario=")) {
+                    scenario = Scenario.valueOf(argument.substring("--scenario=".length())
+                            .toUpperCase(java.util.Locale.ROOT));
+                } else if (argument.startsWith("--characters=")) {
+                    characters = Integer.parseInt(
+                            argument.substring("--characters=".length()));
                 } else {
                     throw new IllegalArgumentException("Unknown AnimationDemo argument: " + argument);
                 }
@@ -189,7 +298,10 @@ public final class AnimationDemo {
                 throw new IllegalArgumentException("--frames must be positive");
             }
             if (deterministic && maxFrames < 0) maxFrames = 8;
-            return new Options(deterministic, maxFrames);
+            if (characters <= 0) {
+                throw new IllegalArgumentException("--characters must be positive");
+            }
+            return new Options(deterministic, maxFrames, scenario, characters);
         }
     }
 }

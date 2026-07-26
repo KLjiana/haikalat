@@ -37,6 +37,13 @@ public final class BoneMask {
         return weights[jointIndex];
     }
 
+    public boolean isFullBody() {
+        for (float weight : weights) {
+            if (weight != 1.0f) return false;
+        }
+        return true;
+    }
+
     public static final class Builder {
         private final Skeleton skeleton;
         private final float[] weights;

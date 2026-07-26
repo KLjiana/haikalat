@@ -61,7 +61,14 @@ final class GltfAnimationDecoder {
                 LoadedGltfScene.AnimationTargetPath targetPath = targetPath(
                         string(target, "path", true, channelPath + ".target.path"),
                         channelPath + ".target.path");
-                if (nodes.get(nodeIndex).matrixAuthored()) {
+                int componentCount = targetPath == LoadedGltfScene.AnimationTargetPath.WEIGHTS
+                        ? nodes.get(nodeIndex).morphWeights().length : targetPath.components();
+                if (componentCount == 0) {
+                    throw fail(channelPath + ".target.node",
+                            "weights animation requires a node with morph targets");
+                }
+                if (targetPath != LoadedGltfScene.AnimationTargetPath.WEIGHTS
+                        && nodes.get(nodeIndex).matrixAuthored()) {
                     throw fail(channelPath + ".target.node",
                             "TRS animation cannot target a matrix-authored node");
                 }
@@ -80,12 +87,14 @@ final class GltfAnimationDecoder {
                         GltfAccessorDecoder.NO_NORMALIZED_COMPONENTS, samplerPath + ".input");
                 validateTimes(times, samplerPath + ".input");
                 int output = integer(sampler, "output", true, samplerPath + ".output");
-                float[] values = accessors.floats(output, targetPath.components(),
+                int accessorComponents = targetPath == LoadedGltfScene.AnimationTargetPath.WEIGHTS
+                        ? 1 : componentCount;
+                float[] values = accessors.floats(output, accessorComponents,
                         GltfAccessorDecoder.NO_NORMALIZED_COMPONENTS, samplerPath + ".output");
                 int factor = interpolation == LoadedGltfScene.AnimationInterpolation.CUBIC_SPLINE
                         ? 3 : 1;
                 int expected = Math.multiplyExact(
-                        Math.multiplyExact(times.length, factor), targetPath.components());
+                        Math.multiplyExact(times.length, factor), componentCount);
                 if (values.length != expected) {
                     throw fail(samplerPath + ".output", "output count must be " + factor
                             + " value tuple(s) per input keyframe");
@@ -95,7 +104,7 @@ final class GltfAnimationDecoder {
                         limits.animationKeyframes(), "animations");
                 duration = Math.max(duration, times[times.length - 1]);
                 decoded.add(new LoadedGltfScene.AnimationChannelDef(nodeIndex, targetPath,
-                        interpolation, times, values));
+                        componentCount, interpolation, times, values));
             }
             result.add(new LoadedGltfScene.AnimationDef(animationIndex,
                     Objects.toString(definition.get("name"), ""), decoded, duration));
@@ -117,9 +126,6 @@ final class GltfAnimationDecoder {
     }
 
     private LoadedGltfScene.AnimationTargetPath targetPath(String value, String path) {
-        if ("weights".equals(value)) {
-            throw fail(path, "morph-weight animation is not supported");
-        }
         try {
             return LoadedGltfScene.AnimationTargetPath.valueOf(
                     value.toUpperCase(Locale.ROOT));

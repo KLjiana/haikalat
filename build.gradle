@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.18.2'
+version = '0.18.3'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -218,7 +218,8 @@ tasks.register('dependencyLockGuard') {
 
 tasks.named('check') {
     dependsOn 'quickVerification', 'publicApiGuard', 'architectureGuard',
-            'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard'
+            'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard',
+            'animationJvmVerification'
 }
 
 tasks.withType(JavaCompile).configureEach {

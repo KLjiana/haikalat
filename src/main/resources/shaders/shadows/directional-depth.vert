@@ -7,9 +7,19 @@ layout(std430, binding = 7) readonly buffer JointPaletteBlock {
     mat4 uJointMatrices[];
 };
 
+layout(std430, binding = 8) readonly buffer MorphDeltaBlock {
+    vec4 uMorphDeltas[];
+};
+
+layout(std430, binding = 9) readonly buffer MorphWeightBlock {
+    float uMorphWeights[];
+};
+
 uniform mat4 uLightSpace;
 uniform mat4 uModel;
 uniform int uSkinningEnabled;
+uniform int uMorphTargetCount;
+uniform int uMorphVertexCount;
 
 mat4 skinMatrix() {
     if (uSkinningEnabled == 0) {
@@ -25,6 +35,19 @@ mat4 skinMatrix() {
         + uJointMatrices[joints.w] * weights.w;
 }
 
+vec3 morphPosition() {
+    vec3 position = aPos;
+    for (int target = 0; target < uMorphTargetCount; target++) {
+        float weight = uMorphWeights[target];
+        if (weight == 0.0) {
+            continue;
+        }
+        int base = (target * uMorphVertexCount + gl_VertexID) * 3;
+        position += uMorphDeltas[base].xyz * weight;
+    }
+    return position;
+}
+
 void main() {
-    gl_Position = uLightSpace * uModel * skinMatrix() * vec4(aPos, 1.0);
+    gl_Position = uLightSpace * uModel * skinMatrix() * vec4(morphPosition(), 1.0);
 }

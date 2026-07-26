@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Quaternionf;
@@ -27,6 +28,7 @@ public final class LoadedGltfScene {
     private final List<NodeRigDef> nodeRigs;
     private final List<Primitive> primitives;
     private final Map<Integer, PrimitiveSkinning> primitiveSkinning;
+    private final Map<Integer, MorphTargetSetDef> primitiveMorphTargets;
     private final List<SkinDef> skins;
     private final List<AnimationDef> animations;
     private final List<MaterialDef> materials;
@@ -40,6 +42,7 @@ public final class LoadedGltfScene {
                     List<Integer> rootNodeIndices, List<Node> nodes, List<Primitive> primitives,
                     List<NodeRigDef> nodeRigs,
                     Map<Integer, PrimitiveSkinning> primitiveSkinning,
+                    Map<Integer, MorphTargetSetDef> primitiveMorphTargets,
                     List<SkinDef> skins, List<AnimationDef> animations,
                     List<MaterialDef> materials, List<TextureDef> textures, List<ImageDef> images,
                     List<SamplerDef> samplers, List<String> warnings, GltfSceneStatistics statistics) {
@@ -51,6 +54,7 @@ public final class LoadedGltfScene {
         this.nodeRigs = List.copyOf(nodeRigs);
         this.primitives = List.copyOf(primitives);
         this.primitiveSkinning = Map.copyOf(primitiveSkinning);
+        this.primitiveMorphTargets = Map.copyOf(primitiveMorphTargets);
         this.skins = List.copyOf(skins);
         this.animations = List.copyOf(animations);
         this.materials = List.copyOf(materials);
@@ -70,6 +74,9 @@ public final class LoadedGltfScene {
     public List<Primitive> primitives() { return primitives; }
     public Optional<PrimitiveSkinning> primitiveSkinning(int primitiveIndex) {
         return Optional.ofNullable(primitiveSkinning.get(primitiveIndex));
+    }
+    public Optional<MorphTargetSetDef> primitiveMorphTargets(int primitiveIndex) {
+        return Optional.ofNullable(primitiveMorphTargets.get(primitiveIndex));
     }
     public List<SkinDef> skins() { return skins; }
     public List<AnimationDef> animations() { return animations; }
@@ -104,16 +111,18 @@ public final class LoadedGltfScene {
     /** TRS/parent/skin data kept separate from the legacy static {@link Node} contract. */
     public record NodeRigDef(int nodeIndex, int parentIndex, int skinIndex,
                              Vector3fc translation, Quaternionfc rotation, Vector3fc scale,
-                             boolean matrixAuthored) {
+                             boolean matrixAuthored, float[] morphWeights) {
         public NodeRigDef {
             translation = new Vector3f(Objects.requireNonNull(translation, "translation"));
             rotation = new Quaternionf(Objects.requireNonNull(rotation, "rotation"));
             scale = new Vector3f(Objects.requireNonNull(scale, "scale"));
+            morphWeights = Objects.requireNonNull(morphWeights, "morphWeights").clone();
         }
 
         @Override public Vector3fc translation() { return new Vector3f(translation); }
         @Override public Quaternionfc rotation() { return new Quaternionf(rotation); }
         @Override public Vector3fc scale() { return new Vector3f(scale); }
+        @Override public float[] morphWeights() { return morphWeights.clone(); }
     }
 
     /** Canonical four-influence vertex contract for one primitive. */
@@ -123,6 +132,61 @@ public final class LoadedGltfScene {
                 throw new IllegalArgumentException("primitive and joint indices must be non-negative");
             }
         }
+    }
+
+    /** Delta-only CPU representation for one glTF morph target. Empty arrays mean absent data. */
+    public record MorphTargetDef(float[] positionDeltas, float[] normalDeltas,
+                                 float[] tangentDeltas) {
+        public MorphTargetDef {
+            positionDeltas = copyDeltas(positionDeltas, "positionDeltas");
+            normalDeltas = copyDeltas(normalDeltas, "normalDeltas");
+            tangentDeltas = copyDeltas(tangentDeltas, "tangentDeltas");
+            if (positionDeltas.length == 0 && normalDeltas.length == 0
+                    && tangentDeltas.length == 0) {
+                throw new IllegalArgumentException("morph target must contain at least one delta");
+            }
+        }
+
+        @Override public float[] positionDeltas() { return positionDeltas.clone(); }
+        @Override public float[] normalDeltas() { return normalDeltas.clone(); }
+        @Override public float[] tangentDeltas() { return tangentDeltas.clone(); }
+
+        private static float[] copyDeltas(float[] values, String name) {
+            float[] copy = Objects.requireNonNull(values, name).clone();
+            if (copy.length != 0 && copy.length % 3 != 0) {
+                throw new IllegalArgumentException(name + " must contain VEC3 tuples");
+            }
+            for (float value : copy) {
+                if (!Float.isFinite(value)) {
+                    throw new IllegalArgumentException(name + " must be finite");
+                }
+            }
+            return copy;
+        }
+    }
+
+    /** Morph targets shared by one primitive plus its mesh-authored defaults and safe bounds. */
+    public record MorphTargetSetDef(int primitiveIndex, int vertexCount,
+                                    List<MorphTargetDef> targets, float[] defaultWeights,
+                                    Bounds3f conservativeBounds, long deltaBytes) {
+        public MorphTargetSetDef {
+            if (primitiveIndex < 0 || vertexCount <= 0) {
+                throw new IllegalArgumentException("primitiveIndex/vertexCount are invalid");
+            }
+            targets = List.copyOf(targets);
+            if (targets.isEmpty() || targets.size() > 8) {
+                throw new IllegalArgumentException("morph target count must be in [1, 8]");
+            }
+            defaultWeights = Objects.requireNonNull(defaultWeights, "defaultWeights").clone();
+            if (defaultWeights.length != targets.size()) {
+                throw new IllegalArgumentException("default weight count must match targets");
+            }
+            conservativeBounds = Objects.requireNonNull(conservativeBounds,
+                    "conservativeBounds");
+            if (deltaBytes <= 0) throw new IllegalArgumentException("deltaBytes must be positive");
+        }
+
+        @Override public float[] defaultWeights() { return defaultWeights.clone(); }
     }
 
     public record SkinDef(int index, String name, int skeletonRootNode,
@@ -157,11 +221,14 @@ public final class LoadedGltfScene {
         }
     }
 
-    public record AnimationChannelDef(int nodeIndex, AnimationTargetPath path,
+    public record AnimationChannelDef(int nodeIndex, AnimationTargetPath path, int componentCount,
                                       AnimationInterpolation interpolation,
                                       float[] timesSeconds, float[] values) {
         public AnimationChannelDef {
             Objects.requireNonNull(path, "path");
+            if (componentCount <= 0 || componentCount > 8) {
+                throw new IllegalArgumentException("componentCount must be in [1, 8]");
+            }
             Objects.requireNonNull(interpolation, "interpolation");
             timesSeconds = Objects.requireNonNull(timesSeconds, "timesSeconds").clone();
             values = Objects.requireNonNull(values, "values").clone();
@@ -169,10 +236,16 @@ public final class LoadedGltfScene {
 
         @Override public float[] timesSeconds() { return timesSeconds.clone(); }
         @Override public float[] values() { return values.clone(); }
+
+        public AnimationChannelDef(int nodeIndex, AnimationTargetPath path,
+                                   AnimationInterpolation interpolation,
+                                   float[] timesSeconds, float[] values) {
+            this(nodeIndex, path, path.components(), interpolation, timesSeconds, values);
+        }
     }
 
     public enum AnimationTargetPath {
-        TRANSLATION(3), ROTATION(4), SCALE(3);
+        TRANSLATION(3), ROTATION(4), SCALE(3), WEIGHTS(0);
 
         private final int components;
 
