@@ -8,7 +8,7 @@ import java.time.OffsetDateTime
 def reportDirectory = layout.buildDirectory.dir('reports/release')
 def manifestFile = file('docs/licenses/assets.tsv')
 def releaseScopedRoots = ['src/', 'docs/', 'gradle/', 'config/']
-def rootBuildFiles = ['build.gradle', 'demo-tasks.gradle', 'settings.gradle', 'gradle.lockfile']
+def rootBuildFiles = ['build.gradle', 'gradle/demo-tasks.gradle', 'settings.gradle', 'gradle.lockfile']
 def glPolicyFile = file('config/gl-debug-policy.tsv')
 def glReportDirectory = layout.buildDirectory.dir('reports/gl')
 def performanceBaselineFile = file('docs/performance/baselines/v0.17.2-windows-rtx3050.json')
@@ -32,9 +32,36 @@ def runGit = { List<String> arguments ->
     output
 }
 
+def sha256GitOutput = { List<String> arguments ->
+    List<String> command = ['git', '-c',
+                            "safe.directory=${projectDir.toString().replace('\\', '/')}".toString(),
+                            '-c', 'core.excludesFile=']
+    command.addAll(arguments.collect { it.toString() })
+    Process process = new ProcessBuilder(command).directory(projectDir).start()
+    MessageDigest digest = MessageDigest.getInstance('SHA-256')
+    byte[] buffer = new byte[64 * 1024]
+    int count
+    while ((count = process.inputStream.read(buffer)) != -1) {
+        digest.update(buffer, 0, count)
+    }
+    String error = process.errorStream.getText('UTF-8')
+    int exit = process.waitFor()
+    if (exit != 0) {
+        throw new GradleException("Git command failed (${arguments.join(' ')}):\n${error.trim()}")
+    }
+    digest.digest().encodeHex().toString()
+}
+
+def manifestResourceTree = { String root ->
+    fileTree(root) {
+        // VFX packs use package-level provenance in docs/licenses/vfx-textures.md.
+        if (root == 'src/main/resources') exclude 'vfx/**'
+    }
+}
+
 def resourcePaths = {
     Set<String> result = new TreeSet<>()
-    [fileTree('src/main/resources'), fileTree('src/demo/resources')].each { tree ->
+    [manifestResourceTree('src/main/resources'), fileTree('src/demo/resources')].each { tree ->
         tree.files.each { resource ->
             result.add(project.relativePath(resource).replace('\\', '/'))
         }
@@ -194,7 +221,7 @@ def auditGlFiles = { Map<String, File> inputs ->
 tasks.register('suggestAssetManifestEntries') {
     group = 'verification'
     description = 'Writes non-authoritative TODO rows for resources missing from assets.tsv.'
-    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
+    inputs.files manifestResourceTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
     outputs.file reportDirectory.map { it.file('missing-assets.tsv') }
     doLast {
         Map<String, List<String>> records = parseManifest(manifestFile)
@@ -205,7 +232,7 @@ tasks.register('suggestAssetManifestEntries') {
 tasks.register('assetManifestGuard') {
     group = 'verification'
     description = 'Strictly verifies resource provenance, canonical paths and lowercase SHA-256 values.'
-    inputs.files fileTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
+    inputs.files manifestResourceTree('src/main/resources'), fileTree('src/demo/resources'), manifestFile
     doLast {
         Map<String, List<String>> records = parseManifest(manifestFile)
         Set<String> resources = resourcePaths()
@@ -226,6 +253,93 @@ tasks.register('assetManifestGuard') {
             throw new GradleException('Asset manifest verification failed:\n- ' + failures.join('\n- '))
         }
     }
+}
+
+tasks.register('vfxAssetGuard') {
+    group = 'verification'
+    description = 'Verifies the unified VFX resource tree, naming rules and direct resource references.'
+    dependsOn 'processResources'
+    inputs.files fileTree('src/main/resources/vfx')
+    inputs.files fileTree('src/main/java') { include '**/*.java' },
+            fileTree('src/demo/java') { include '**/*.java' },
+            fileTree('src/main/resources') { include '**/*.properties', '**/*.json' },
+            fileTree('src/demo/resources') { include '**/*.properties', '**/*.json' }
+    doLast {
+        File resources = layout.buildDirectory.dir('resources/main').get().asFile
+        File vfxRoot = file('src/main/resources/vfx')
+        File packagedVfxRoot = new File(resources, 'vfx')
+        ['runtime', 'source'].each { obsoleteLayer ->
+            if (new File(vfxRoot, obsoleteLayer).exists()
+                    || new File(packagedVfxRoot, obsoleteLayer).exists()) {
+                throw new GradleException("Obsolete VFX layer still exists: vfx/${obsoleteLayer}")
+            }
+        }
+
+        List<String> invalidPackages = []
+        if (vfxRoot.isDirectory()) {
+            vfxRoot.eachDirRecurse { directory ->
+                String relativeVfxPath = vfxRoot.toPath()
+                        .relativize(directory.toPath())
+                        .toString()
+                        .replace('\\', '/')
+                if (relativeVfxPath != 'licenses'
+                        && !relativeVfxPath.startsWith('licenses/')
+                        && !(directory.name ==~ /[a-z0-9]+(?:_[a-z0-9]+)*/)) {
+                    invalidPackages.add(project.relativePath(directory))
+                }
+            }
+        }
+        if (!invalidPackages.isEmpty()) {
+            throw new GradleException("VFX package directories must use lowercase snake_case: "
+                    + invalidPackages.sort())
+        }
+
+        List<String> invalidDevelopmentEssentialsImages = fileTree(vfxRoot) {
+            include '**/development_essentials/**/*.png'
+        }.files.findAll { image ->
+            !(image.name ==~ /[a-z0-9]+(?:_[a-z0-9]+)*\.png/)
+        }.collect { project.relativePath(it) }.sort()
+        if (!invalidDevelopmentEssentialsImages.isEmpty()) {
+            throw new GradleException("Development Essentials image files must use lowercase snake_case: "
+                    + invalidDevelopmentEssentialsImages)
+        }
+
+        Set<String> sourceFiles = fileTree(vfxRoot).files.findAll { it.isFile() }.collect {
+            vfxRoot.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+        } as Set<String>
+        Set<String> packagedFiles = packagedVfxRoot.isDirectory()
+                ? fileTree(packagedVfxRoot).files.findAll { it.isFile() }.collect {
+                    packagedVfxRoot.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+                } as Set<String>
+                : [] as Set<String>
+        if (sourceFiles != packagedFiles) {
+            throw new GradleException("Packaged VFX tree differs from source resources: missing="
+                    + (sourceFiles - packagedFiles).sort() + ", unexpected="
+                    + (packagedFiles - sourceFiles).sort())
+        }
+
+        String references = [
+                fileTree('src/main/java') { include '**/*.java' },
+                fileTree('src/demo/java') { include '**/*.java' },
+                fileTree('src/main/resources') { include '**/*.properties', '**/*.json' },
+                fileTree('src/demo/resources') { include '**/*.properties', '**/*.json' }
+        ].collectMany { it.files }.collect { it.getText('UTF-8') }.join('\n')
+        Set<String> directReferences = []
+        def referenceMatcher = references =~ /["'](\/vfx\/[^"']+)["']/
+        referenceMatcher.each { match -> directReferences.add(match[1]) }
+        List<String> missingReferences = directReferences.findAll {
+            !new File(file('src/main/resources'), it.substring(1)).isFile()
+        }.sort()
+        if (!missingReferences.isEmpty()) {
+            throw new GradleException("Missing directly referenced VFX resources: ${missingReferences}")
+        }
+        long packagedBytes = fileTree(packagedVfxRoot).files.findAll { it.isFile() }.sum(0L) { it.length() }
+        logger.lifecycle("Packaged VFX assets: ${packagedFiles.size()} files, ${packagedBytes} bytes")
+    }
+}
+
+tasks.named('jar') {
+    dependsOn 'vfxAssetGuard'
 }
 
 tasks.register('releaseVerificationContracts') {
@@ -785,7 +899,7 @@ tasks.register('releaseGitGuard') {
                 head: runGit(['rev-parse', 'HEAD']).trim(),
                 branch: runGit(['branch', '--show-current']).trim() ?: 'DETACHED',
                 dirty: false,
-                stagedDiffSha256: sha256(runGit(['diff', '--cached', '--binary']).getBytes('UTF-8')),
+                stagedDiffSha256: sha256GitOutput(['diff', '--cached', '--binary']),
                 candidateTreeSha256: sha256(runGit(['ls-files', '--stage']).getBytes('UTF-8')),
                 stagedPaths: staged.sort()
         ]

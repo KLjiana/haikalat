@@ -157,7 +157,7 @@ class RenderPipelineGlTest {
             Framebuffer shadowTarget = Framebuffer.fromDescriptor(shadowMap.descriptor());
             Framebuffer sampleTarget = Framebuffer.colorOnly(32, 32);
             ShaderProgram projectShadowShader = ShaderProgram.fromResource(RenderPipelineGlTest.class,
-                    "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
+                    "/shaders/shadows/directional-depth.vert", "/shaders/shadows/directional-depth.frag");
             ShaderProgram depthWriter = ShaderProgram.fromSources(DEPTH_WRITE_VERTEX_SOURCE, WHITE_FRAGMENT_SOURCE);
             ShaderProgram depthSampler = ShaderProgram.fromSources(
                     DEPTH_SAMPLE_VERTEX_SOURCE, DEPTH_SAMPLE_FRAGMENT_SOURCE);
@@ -816,10 +816,10 @@ class RenderPipelineGlTest {
 
     private static byte[] renderLitShadowScene(GlfwWindow window, boolean lighting, boolean shadows,
                                                 float casterX, Vector3f lightDirection) throws Exception {
-        Path resources = Path.of("src", "demo", "resources", "demo");
+        Path resources = Path.of("src", "demo", "resources", "shaders", "scene");
         ShaderProgram receiverShader = ShaderProgram.fromSources(
-                Files.readString(resources.resolve("color_scene.vert")),
-                Files.readString(resources.resolve("lit_scene.frag")));
+                Files.readString(resources.resolve("color-scene.vert")),
+                Files.readString(resources.resolve("lit-scene.frag")));
         ShaderProgram casterShader = ShaderProgram.fromSources(
                 INVISIBLE_CASTER_VERTEX_SOURCE, INVISIBLE_CASTER_FRAGMENT_SOURCE);
         Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("shadow-receiver"));
@@ -861,13 +861,15 @@ class RenderPipelineGlTest {
 
     private static InstancedShadowResult renderInstancedShadowScene(GlfwWindow window,
                                                                     boolean castShadows) throws Exception {
-        Path resources = Path.of("src", "demo", "resources", "demo");
+        Path resources = Path.of("src", "demo", "resources", "shaders", "scene");
         ShaderProgram receiverShader = ShaderProgram.fromSources(
-                Files.readString(resources.resolve("color_scene.vert")),
-                Files.readString(resources.resolve("lit_scene.frag")));
+                Files.readString(resources.resolve("color-scene.vert")),
+                Files.readString(resources.resolve("lit-scene.frag")));
         ShaderProgram instancedShader = ShaderProgram.fromSources(
-                Files.readString(resources.resolve("instanced_scene.vert")),
-                Files.readString(resources.resolve("vertex_color_unlit.frag")));
+                Files.readString(Path.of("src", "demo", "resources", "shaders", "instancing",
+                        "instanced-scene.vert")),
+                Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
+                        "vertex-color-unlit.frag")));
         Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-receiver"));
         Mesh instancedMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-caster"));
         Material receiverMaterial = Material.builder(receiverShader).build();

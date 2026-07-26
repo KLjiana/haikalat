@@ -192,9 +192,9 @@ class RuntimeResourceGlTest {
             GlDebug.enableDebugCallback();
 
             Texture2D linear = Texture2D.fromResource(RuntimeResourceGlTest.class,
-                    "/wall.png", false, TextureColorSpace.LINEAR);
+                    "/textures/learnopengl/wall.png", false, TextureColorSpace.LINEAR);
             Texture2D srgb = Texture2D.fromResource(RuntimeResourceGlTest.class,
-                    "/wall.png", false, TextureColorSpace.SRGB);
+                    "/textures/learnopengl/wall.png", false, TextureColorSpace.SRGB);
             Framebuffer target = Framebuffer.colorOnly(32, 32);
             ShaderProgram shader = ShaderProgram.fromSources(
                     TEXTURE_SAMPLE_VERTEX_SOURCE, TEXTURE_SAMPLE_FRAGMENT_SOURCE);

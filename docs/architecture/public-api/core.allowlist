@@ -28,6 +28,13 @@ advanced com.kaleblangley.haikalat.core.buffer.InstanceBufferStatistics
 advanced com.kaleblangley.haikalat.core.buffer.InstanceUploadStrategy
 advanced com.kaleblangley.haikalat.core.buffer.PackedInstanceBuffer
 advanced com.kaleblangley.haikalat.core.command.CommandBuffer
+advanced com.kaleblangley.haikalat.core.curve.BezierPath3f
+advanced com.kaleblangley.haikalat.core.curve.ColorGradient
+advanced com.kaleblangley.haikalat.core.curve.CubicBezierEasing
+advanced com.kaleblangley.haikalat.core.curve.Curve1f
+advanced com.kaleblangley.haikalat.core.curve.CurveLut
+advanced com.kaleblangley.haikalat.core.curve.Curves
+advanced com.kaleblangley.haikalat.core.curve.FloatTrack
 advanced com.kaleblangley.haikalat.core.CullMode
 advanced com.kaleblangley.haikalat.core.device.ExecutionModel
 advanced com.kaleblangley.haikalat.core.device.GlRenderDevice

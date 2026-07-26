@@ -19,6 +19,8 @@ current goals, capabilities, and non-goals.
   and error reporting.
 - Core rendering protocols for command recording, render devices, render graphs,
   mesh data, instancing, upload flow, immutable frame snapshots, and materials.
+- GL-free scalar curves, cubic-bezier easing, Hermite property tracks, HDR color gradients,
+  fixed-table cubic Bezier paths, and curve lookup tables shared by UI, animation, and VFX.
 - A forward 3D scene pipeline with basic Blinn-Phong lighting, fixed-size
   directional shadows for ordinary and opt-in instanced casters, 3x3 PCF,
   linear HDR/ACES tone mapping, optional multi-level Bloom, explicit linear/sRGB textures,
@@ -29,7 +31,7 @@ current goals, capabilities, and non-goals.
   and glTF 2.0 static/skinned assets exercised by the dedicated glTF demo.
 - A GL-free skeletal-animation subsystem with arbitrary-index hierarchies, bind poses,
   reusable pose buffers, STEP/LINEAR/CUBICSPLINE TRS sampling, LOOP/ONCE playback,
-  layered/Bone Mask blending, normalized action synchronization, ordered action events,
+  layered/Bone Mask blending, eased base cross-fades and layer fades, normalized action synchronization, ordered action events,
   loop-aware root motion, Two-bone IK, glTF skins/animations, per-instance joint palettes,
   and four-weight GPU skinning in both the PBR forward and directional-shadow passes.
 - A strict OpenGL 4.6 production capability contract covering Core Profile, DSA, SSBO,
@@ -44,7 +46,10 @@ current goals, capabilities, and non-goals.
 - Post-processing color grading through tiled 2D LUTs and depth-reconstructed distance/height fog,
   with deterministic pixel and resize verification.
 - A GL-free deterministic VFX subsystem with bounded particle, Ribbon and Decal simulation,
-  asset/instance lifetime protection and stable transparent sorting, plus a render3d GL adapter.
+  configurable size/color/rotation/width/scale over-life curves,
+  pure-value textured materials and stable transparent sorting. Its render3d adapter supports
+  R8/sRGB masks, alpha/additive emissive rendering, billboard/stretch modes, scene-depth soft
+  particles, and pre-tone-map HDR/Bloom composition while keeping UI outside Bloom.
 - Controlled OpenGL 4.6 experiments for compute/SSBO GPU particles without CPU readback and
   bounded screen-space volumetric spot lighting, with real-pixel and resource-stability checks.
 - Directional, six-face point-atlas and spot shadow passes, with a practical-split,
@@ -106,6 +111,7 @@ Run deterministic resize/async integrations or the complete local GL verificatio
 .\gradlew.bat runGltfSkinningIntegration
 .\gradlew.bat runPostProcessEffectsIntegration
 .\gradlew.bat runVfxIntegration
+.\gradlew.bat runVfxCurveBenchmark
 .\gradlew.bat runShowcaseIntegration
 .\gradlew.bat runShowcaseStabilityIntegration
 .\gradlew.bat runLocalShadowsIntegration

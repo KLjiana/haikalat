@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.18.0'
+version = '0.18.2'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -218,7 +218,7 @@ tasks.register('dependencyLockGuard') {
 
 tasks.named('check') {
     dependsOn 'quickVerification', 'publicApiGuard', 'architectureGuard',
-            'dependencyLockGuard', 'assetManifestGuard'
+            'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -258,8 +258,7 @@ tasks.named('processDemoResources') {
     dependsOn 'generateProceduralShaders'
 }
 
-apply from: 'demo-tasks.gradle'
-
+apply from: 'gradle/demo-tasks.gradle'
 apply from: 'gradle/ui-tasks.gradle'
 apply from: 'gradle/diagnostics-tasks.gradle'
 apply from: 'gradle/scene-tasks.gradle'

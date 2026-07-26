@@ -24,7 +24,7 @@ public final class VolumetricLightPass implements GlResource {
 
     public VolumetricLightPass() {
         program = ShaderProgram.fromResource(VolumetricLightPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/volumetric_light.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/volumetric-light.frag");
         quad = new ScreenQuad();
     }
 

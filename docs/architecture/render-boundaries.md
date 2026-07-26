@@ -175,6 +175,23 @@ GL context 的线程调用 `UiSystem.closeRenderResources()`，再回 update own
 `CommandBuffer`；UI 生产代码不得使用 `custom()`。glyph rasterization 发生在 update 线程，
 render 线程只创建 R8 page、提交 region upload，并在命令执行完成后发布整批成功结果。
 
+## HDR Transparent VFX Composition
+
+`subsystems.vfx` 只保存确定性模拟、不可变 snapshot、逻辑资源引用、CPU `MeshData` 和纯值 `VfxMaterial`；它不引用
+backend、OpenGL handle、纹理缓存或 RenderGraph。`subsystems.render3d.vfx.VfxRenderer` 是唯一的
+GL adapter，并独占 shader、quad mesh、按 `MeshData` 缓存的运行时 mesh、白色 fallback 和按
+`(AssetRef, VfxMaskMode)` 区分的纹理缓存。
+
+`RenderPipeline.hdrVfx(...)` 在 build 前注册受控 recorder。最终顺序固定为：base HDR（含可选
+Color Grading/Fog）先供自动曝光读取，随后将颜色和 geometry depth typed-blit 到单采样
+`RGBA16F` VFX composite；VFX 在该 target 中做深度遮挡和 soft-particle fade，Bloom 再读取 composite，
+最后 tone mapping。MSAA geometry depth 通过同一 typed depth blit resolve，不允许 CPU readback 或
+`CommandBuffer.custom()`。UI 仍只依赖最终 backbuffer anchor，因此不会进入曝光或 Bloom。
+
+透明 primitive 保留 snapshot 的全局稳定顺序；renderer 只能复用连续相同材质的状态，不能为了减少
+texture switch 跨材质重排 Alpha draw。`ALPHA` 使用 straight-alpha，`ADDITIVE` 将 RGB 乘最终 alpha
+后累加。mask 数据以线性 `R8` 上传，只有 `RGBA_COLOR` 使用 `SRGB8_ALPHA8`。
+
 窗口层只发布 `WindowInputSnapshot`、`TextInputAdapter` 和 `TextInputRect` 等 subsystem-neutral
 类型，不引用 UI tree。Windows adapter 使用可恢复的 WndProc hook 观察 composition；GLFW char
 callback 仍是 committed Unicode 的唯一来源，避免 `GCS_RESULTSTR` 重复提交。

@@ -1,6 +1,6 @@
 # glTF scalability fixture 资产状态
 
-- 本地路径：`src/demo/resources/gltf/scalability.gltf`
+- 本地路径：`src/demo/resources/scenes/gltf/scalability.gltf`
 - 所有者：Haikalat project。
 - 许可：project license，可随项目再分发。
 - 生成事实：`tools/generate_gltf_scalability_fixture.py` 生成共享 position/UV 二进制块，节点、primitive 与材质保持为可审查 JSON。

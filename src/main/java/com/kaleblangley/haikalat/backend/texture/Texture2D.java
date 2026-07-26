@@ -143,6 +143,47 @@ public final class Texture2D implements GlResource {
         return createEmpty(width, height, GL_R8);
     }
 
+    /** Creates an immutable mipmapped R8 texture from tightly packed decoded bytes. */
+    public static Texture2D fromR8(int width, int height, ByteBuffer pixels) {
+        Objects.requireNonNull(pixels, "pixels");
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("texture dimensions must be positive");
+        }
+        int required = Math.multiplyExact(width, height);
+        if (!pixels.isDirect() || pixels.remaining() < required) {
+            throw new IllegalArgumentException("R8 pixels must be a direct buffer with at least "
+                    + required + " remaining bytes");
+        }
+        int levels = 1 + (31 - Integer.numberOfLeadingZeros(Math.max(width, height)));
+        int textureId = glCreateTextures(GL_TEXTURE_2D);
+        try {
+            glTextureStorage2D(textureId, levels, GL_R8, width, height);
+            ByteBuffer upload = pixels.duplicate();
+            upload.limit(upload.position() + required);
+            int previousUnpackAlignment = glGetInteger(GL_UNPACK_ALIGNMENT);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            try {
+                glTextureSubImage2D(textureId, 0, 0, 0, width, height,
+                        GL_RED, GL_UNSIGNED_BYTE, upload);
+            } finally {
+                glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+            }
+            glGenerateTextureMipmap(textureId);
+            glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(textureId, GL_TEXTURE_WRAP_S,
+                    org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+            glTextureParameteri(textureId, GL_TEXTURE_WRAP_T,
+                    org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+            Texture2D texture = new Texture2D(textureId, width, height, GL_R8,
+                    TextureColorSpace.LINEAR);
+            textureId = 0;
+            return texture;
+        } finally {
+            if (textureId != 0) glDeleteTextures(textureId);
+        }
+    }
+
     /**
      * 从类路径资源加载纹理，默认垂直翻转。
      *

@@ -76,7 +76,7 @@ class PbrEnvironmentGlTest {
                  Mesh mesh = Mesh.from(pbrTriangle())) {
                 drawCacheProbe(device, shader, texture, mesh);
                 try (PbrEnvironment ignored = PbrEnvironmentLoader.load(device, getClass(),
-                        "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                        "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                     drawCacheProbe(device, shader, texture, mesh);
                     assertEquals(shader.id(), org.lwjgl.opengl.GL11.glGetInteger(
                             org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM));
@@ -98,7 +98,7 @@ class PbrEnvironmentGlTest {
 
             GlRenderDevice device = new GlRenderDevice();
             PbrEnvironment environment = PbrEnvironmentLoader.load(
-                    device, getClass(), "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                    device, getClass(), "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
             TextureCube radiance = environment.radiance();
             TextureCube irradiance = environment.irradiance();
             TextureCube prefiltered = environment.prefilteredSpecular();
@@ -124,11 +124,11 @@ class PbrEnvironmentGlTest {
             GL.createCapabilities();
             GlRenderDevice device = new GlRenderDevice();
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(
-                    device, getClass(), "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                    device, getClass(), "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  ShaderProgram shader = ShaderProgram.fromResource(getClass(),
-                         "/render3d/pbr/pbr_forward.vert",
-                         "/render3d/pbr/pbr_forward.frag");
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
                  Mesh mesh = Mesh.from(pbrTriangle())) {
                 Material material = PbrMaterials.create(shader,
                         new PbrMaterialProperties(new Vector4f(0.9f, 0.12f, 0.04f, 1.0f),
@@ -202,11 +202,11 @@ class PbrEnvironmentGlTest {
             GL.createCapabilities();
             GlRenderDevice device = new GlRenderDevice();
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                    "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                    "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  ShaderProgram shader = ShaderProgram.fromResource(getClass(),
-                         "/render3d/pbr/pbr_forward.vert",
-                         "/render3d/pbr/pbr_forward.frag");
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
                  Mesh mesh = Mesh.from(BuiltinMeshData.texturedQuad("missing-tangent"))) {
                 Material material = PbrMaterials.create(shader, PbrMaterialProperties.defaults(),
                         Map.of(), fallbacks);

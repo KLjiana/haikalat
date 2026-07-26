@@ -43,7 +43,7 @@ final class GltfDemoAssets implements AutoCloseable {
         List<SceneObject> objects = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         try {
-            LoadedGltfScene showcase = loader.load(AssetRef.of("/gltf/showcase.gltf"));
+            LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
             GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);
             assets.add(showcaseGpu);
             Matrix4f showcaseRoot = new Matrix4f().translation(-2.8f, -0.8f, 0.0f)
@@ -51,7 +51,7 @@ final class GltfDemoAssets implements AutoCloseable {
             objects.addAll(showcaseGpu.instantiate(showcaseRoot, false));
             appendInspection(lines, "showcase.gltf", showcase, showcaseGpu);
 
-            LoadedGltfScene radio = loader.load(AssetRef.of("/radio.gltf"));
+            LoadedGltfScene radio = loader.load(AssetRef.of("/scenes/gltf/radio.gltf"));
             GltfSceneAsset radioGpu = GltfSceneAsset.upload(radio, library);
             assets.add(radioGpu);
             Matrix4f radioRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
@@ -59,7 +59,7 @@ final class GltfDemoAssets implements AutoCloseable {
             objects.addAll(radioGpu.instantiate(radioRoot, false));
             appendInspection(lines, "radio.gltf", radio, radioGpu);
 
-            LoadedGltfScene creeper = loader.load(AssetRef.of("/gltf/creeper.gltf"));
+            LoadedGltfScene creeper = loader.load(AssetRef.of("/scenes/gltf/creeper.gltf"));
             GltfSceneAsset creeperGpu = GltfSceneAsset.upload(creeper, library);
             assets.add(creeperGpu);
             Matrix4f creeperRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
@@ -67,7 +67,7 @@ final class GltfDemoAssets implements AutoCloseable {
             objects.addAll(creeperGpu.instantiate(creeperRoot, false));
             appendInspection(lines, "creeper.gltf", creeper, creeperGpu);
 
-            LoadedGltfScene animated = loader.load(AssetRef.of("/gltf/animated-two-joint.gltf"));
+            LoadedGltfScene animated = loader.load(AssetRef.of("/scenes/gltf/animated-two-joint.gltf"));
             GltfSceneAsset animatedGpu = GltfSceneAsset.upload(animated, library);
             assets.add(animatedGpu);
             GltfSceneInstance animatedInstance = animatedGpu.instantiateAnimated(

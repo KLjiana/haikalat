@@ -53,9 +53,9 @@ class PostProcessEffectsGlTest {
             GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
             GltfSceneAsset asset = GltfSceneAsset.upload(
                     new GltfAssetLoader(ResourceLocator.classpath(getClass()))
-                            .load(AssetRef.of("/gltf/minimal.gltf")), library);
+                            .load(AssetRef.of("/fixtures/gltf/minimal.gltf")), library);
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                    "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                    "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                 Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)));
                 asset.instantiate(new Matrix4f().translation(-0.4f, -0.4f, 0.0f), false)
                         .forEach(scene::add);

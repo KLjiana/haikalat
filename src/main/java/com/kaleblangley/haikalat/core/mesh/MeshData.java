@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.mesh;
 
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 
 import java.util.Objects;
 
@@ -41,6 +42,16 @@ public record MeshData(
         return vertices.length / floatsPerVertex(layout);
     }
 
+    /** 查询 POSITION 是否满足指定 shader location 和最小分量数。 */
+    public boolean hasPositionAttribute(int location, int minimumComponents) {
+        return hasAttribute(VertexSemantic.POSITION, location, minimumComponents);
+    }
+
+    /** 查询 TEXCOORD_0 是否满足指定 shader location 和最小分量数。 */
+    public boolean hasTexCoord0Attribute(int location, int minimumComponents) {
+        return hasAttribute(VertexSemantic.TEXCOORD_0, location, minimumComponents);
+    }
+
     /**
      * 按 POSITION semantic 和交错布局计算局部包围盒。
      *
@@ -65,6 +76,17 @@ public record MeshData(
         if (vertices.length == 0 || vertices.length % floatsPerVertex != 0) {
             throw new IllegalArgumentException("vertex data is not divisible by layout stride");
         }
+    }
+
+    private boolean hasAttribute(VertexSemantic semantic, int location, int minimumComponents) {
+        if (location < 0) throw new IllegalArgumentException("location must be non-negative");
+        if (minimumComponents <= 0 || minimumComponents > 4) {
+            throw new IllegalArgumentException("minimumComponents must be in [1, 4]");
+        }
+        return layout.attribute(semantic)
+                .filter(attribute -> attribute.index() == location)
+                .filter(attribute -> attribute.size() >= minimumComponents)
+                .isPresent();
     }
 
     private static int floatsPerVertex(VertexLayout layout) {

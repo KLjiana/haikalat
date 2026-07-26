@@ -5,5 +5,13 @@ advanced com.kaleblangley.haikalat.subsystems.vfx.Decal
 advanced com.kaleblangley.haikalat.subsystems.vfx.EffectAsset
 advanced com.kaleblangley.haikalat.subsystems.vfx.EffectInstance
 advanced com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot
+advanced com.kaleblangley.haikalat.subsystems.vfx.FlipbookConfig
+advanced com.kaleblangley.haikalat.subsystems.vfx.MeshVfx
 advanced com.kaleblangley.haikalat.subsystems.vfx.ParticleEmitter
 advanced com.kaleblangley.haikalat.subsystems.vfx.RibbonEmitter
+advanced com.kaleblangley.haikalat.subsystems.vfx.RibbonMode
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxBillboardMode
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxMaskMode
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxMaterial
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxUvRegion
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxVisualSet

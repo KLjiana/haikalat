@@ -35,7 +35,7 @@ class EnvironmentPreprocessorFailureGlTest {
                         EnvironmentPreprocessor.FailurePoint.AFTER_BRDF_LUT)) {
                     Tracker tracker = new Tracker(false);
                     try (Texture2D source = Texture2D.fromHdrResource(getClass(),
-                            "/pbr/studio-small.hdr", false)) {
+                            "/environments/pbr/studio-small.hdr", false)) {
                         IllegalStateException failure = assertThrows(IllegalStateException.class,
                                 () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
                                         PbrEnvironmentSettings.testQuality(), point, tracker));
@@ -65,7 +65,7 @@ class EnvironmentPreprocessorFailureGlTest {
             try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
                 Tracker tracker = new Tracker(true);
                 try (Texture2D source = Texture2D.fromHdrResource(getClass(),
-                        "/pbr/studio-small.hdr", false)) {
+                        "/environments/pbr/studio-small.hdr", false)) {
                     IllegalStateException failure = assertThrows(IllegalStateException.class,
                             () -> EnvironmentPreprocessor.preprocess(new GlRenderDevice(), source,
                                     PbrEnvironmentSettings.testQuality(),

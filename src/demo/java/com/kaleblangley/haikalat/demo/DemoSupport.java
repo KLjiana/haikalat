@@ -14,10 +14,10 @@ public final class DemoSupport {
     public static final int DEFAULT_HEIGHT = 600;
     public static final String U_PROJECTION_VIEW = "uProjView";
 
-    private static final String INSTANCED_VERTEX_SHADER = "/demo/instanced_projview.vert";
-    private static final String ASYNC_INSTANCED_VERTEX_SHADER = "/demo/async_instanced.vert";
-    private static final String COLOR_MVP_VERTEX_SHADER = "/demo/color_mvp.vert";
-    private static final String VERTEX_COLOR_FRAGMENT_SHADER = "/demo/vertex_color_unlit.frag";
+    private static final String INSTANCED_VERTEX_SHADER = "/shaders/instancing/instanced-projview.vert";
+    private static final String ASYNC_INSTANCED_VERTEX_SHADER = "/shaders/instancing/async-instanced.vert";
+    private static final String COLOR_MVP_VERTEX_SHADER = "/shaders/basic/color-mvp.vert";
+    private static final String VERTEX_COLOR_FRAGMENT_SHADER = "/shaders/basic/vertex-color-unlit.frag";
     private static final float CAMERA_FOV_RADIANS = (float) Math.toRadians(45.0);
     private static final float CAMERA_NEAR = 0.1f;
     private static final float CAMERA_FAR = 1000.0f;

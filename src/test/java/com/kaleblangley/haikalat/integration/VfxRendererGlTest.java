@@ -9,6 +9,8 @@ import com.kaleblangley.haikalat.subsystems.vfx.EffectInstance;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot;
 import com.kaleblangley.haikalat.subsystems.vfx.ParticleEmitter;
 import com.kaleblangley.haikalat.subsystems.vfx.RibbonEmitter;
+import com.kaleblangley.haikalat.subsystems.vfx.MeshVfx;
+import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
@@ -49,6 +51,8 @@ class VfxRendererGlTest {
                 }
                 instance.spawnDecal(new Vector3f(0.0f, -0.55f, -0.05f),
                         new Vector3f(0.0f, 0.0f, 1.0f), new Vector2f(0.8f, 0.35f), 0.15f);
+                instance.spawnMesh(new Matrix4f().translation(0.35f, 0.2f, -0.2f)
+                        .rotateY(0.4f));
                 Vector3f camera = new Vector3f(0.0f, 0.0f, 4.0f);
                 EffectSnapshot snapshot = instance.snapshot(camera);
                 Matrix4f projection = new Matrix4f().perspective((float) Math.toRadians(50.0),
@@ -66,6 +70,7 @@ class VfxRendererGlTest {
                 assertTrue(stats.particles() > 0);
                 assertTrue(stats.ribbonSegments() > 0);
                 assertEquals(1, stats.decals());
+                assertEquals(1, stats.meshes());
                 assertEquals(snapshot.primitiveCount(), stats.drawCalls());
                 assertEquals((long) stats.drawCalls() * 80L, stats.uniformPayloadBytes());
                 assertTrue(nonBlackPixels(readFrame()) > 4);
@@ -108,6 +113,11 @@ class VfxRendererGlTest {
                 .decals(new Decal(4, 2.0f,
                         new Vector4f(0.65f, 0.2f, 1.0f, 0.7f),
                         new Vector4f(0.2f, 0.05f, 0.4f, 0.0f)))
+                .meshes(new MeshVfx(2, 2.0f,
+                        BuiltinMeshData.texturedQuad("gl-mesh-vfx"),
+                        0.7f, 1.2f,
+                        new Vector4f(0.2f, 1.0f, 0.5f, 0.8f),
+                        new Vector4f(0.1f, 0.3f, 1.0f, 0.0f)))
                 .build();
     }
 }

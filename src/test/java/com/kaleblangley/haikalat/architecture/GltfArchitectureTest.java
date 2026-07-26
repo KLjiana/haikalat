@@ -76,8 +76,8 @@ class GltfArchitectureTest {
         assertTrue(source.contains("GltfDemoAssets.load()"));
         String assets = Files.readString(Path.of(
                 "src/demo/java/com/kaleblangley/haikalat/demo/gltf/GltfDemoAssets.java"));
-        assertTrue(assets.contains("/gltf/showcase.gltf"));
-        assertTrue(assets.contains("/radio.gltf"));
+        assertTrue(assets.contains("/scenes/gltf/showcase.gltf"));
+        assertTrue(assets.contains("/scenes/gltf/radio.gltf"));
     }
 
     private static void discover(Path root, Set<String> output) throws IOException {

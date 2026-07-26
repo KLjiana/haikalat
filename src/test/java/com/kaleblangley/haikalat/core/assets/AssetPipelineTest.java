@@ -43,7 +43,7 @@ class AssetPipelineTest {
     void sceneConfigParsesShadersTexturesObjectsAndLights() {
         SceneAssetConfig config = SceneAssetConfig.parse("""
                 shader color /demo/color.vert /demo/color.frag
-                texture wall /wall.png false
+                texture wall /textures/learnopengl/wall.png false
                 material wallMat color alpha false
                 model cube /models/cube.obj
                 object cube01 cube wallMat 1 2 3 0 0 0 1 true
@@ -77,7 +77,7 @@ class AssetPipelineTest {
                 shader.color.fragment=/demo/color.frag
                 shader.textured.vertex=/demo/textured.vert
                 shader.textured.fragment=/demo/textured.frag
-                texture.wall.path=/wall.png
+                texture.wall.path=/textures/learnopengl/wall.png
                 texture.wall.flipVertically=false
                 texture.wall.colorSpace=srgb
                 material.wall.shader=textured
@@ -119,7 +119,7 @@ class AssetPipelineTest {
     void sceneConfigSyntaxesProduceEquivalentDefinitions() {
         SceneAssetConfig text = SceneAssetConfig.parse("""
                 shader color /demo/color.vert /demo/color.frag
-                texture wall /wall.png false
+                texture wall /textures/learnopengl/wall.png false
                 material wallMat color alpha false
                 model cube /models/cube.obj
                 object cube01 cube wallMat 1 2 3 0 0 0 1 true
@@ -128,7 +128,7 @@ class AssetPipelineTest {
         SceneAssetConfig properties = SceneAssetConfig.parseProperties("""
                 shader.color.vertex=/demo/color.vert
                 shader.color.fragment=/demo/color.frag
-                texture.wall.path=/wall.png
+                texture.wall.path=/textures/learnopengl/wall.png
                 texture.wall.flipVertically=false
                 material.wallMat.shader=color
                 material.wallMat.blend=alpha
@@ -418,7 +418,7 @@ class AssetPipelineTest {
     @Test
     void sceneConfigRejectsUnknownTextureColorSpace() {
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
-                texture.wall.path=/wall.png
+                texture.wall.path=/textures/learnopengl/wall.png
                 texture.wall.colorSpace=display-p3
                 """));
     }
@@ -426,7 +426,7 @@ class AssetPipelineTest {
     @Test
     void sceneConfigParsesIndependentGltfInstancesAndRejectsUnknownKeys() {
         SceneAssetConfig config = SceneAssetConfig.parseProperties("""
-                gltf.radio.path=/radio.gltf
+                gltf.radio.path=/scenes/gltf/radio.gltf
                 gltf.radio.scene=showcase
                 gltf.radio.position=1,2,3
                 gltf.radio.rotation=0,1,0
@@ -438,14 +438,14 @@ class AssetPipelineTest {
         assertEquals(-2.0f, def.scale());
         assertFalse(def.castShadows());
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
-                gltf.radio.path=/radio.gltf
+                gltf.radio.path=/scenes/gltf/radio.gltf
                 gltf.radio.material=legacy
                 """));
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
                 gltf.radio.path=/radio.obj
                 """));
         assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
-                gltf.radio.path=/radio.gltf
+                gltf.radio.path=/scenes/gltf/radio.gltf
                 gltf.radio.position=NaN,0,0
                 """));
     }
@@ -461,7 +461,7 @@ class AssetPipelineTest {
         assertTrue(number.getMessage().contains("light.sun.intensity"));
 
         GlException flag = assertThrows(GlException.class, () -> SceneAssetConfig.parseProperties("""
-                gltf.radio.path=/radio.gltf
+                gltf.radio.path=/scenes/gltf/radio.gltf
                 gltf.radio.position=0,0,0
                 gltf.radio.rotation=0,0,0
                 gltf.radio.castShadows=sometimes

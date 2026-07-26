@@ -38,6 +38,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final BloomPass bloom;
     private final AutoExposurePass autoExposure;
     private final FogPass fog;
+    private final RenderGraph.PassExecutor hdrVfx;
     private final Matrix4f fogInverseViewProjection = new Matrix4f();
     private final Matrix4f fogProjection = new Matrix4f();
     private final Matrix4f fogView = new Matrix4f();
@@ -53,7 +54,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                    ToneMappingPass toneMapping,
                                    BloomPass bloom,
                                    AutoExposurePass autoExposure,
-                                   FogPass fog) {
+                                   FogPass fog, RenderGraph.PassExecutor hdrVfx) {
         this.settings = settings;
         this.effects = effects;
         this.window = window;
@@ -64,10 +65,17 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.bloom = bloom;
         this.autoExposure = autoExposure;
         this.fog = fog;
+        this.hdrVfx = hdrVfx;
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
                                          RenderWindow window, int width, int height) {
+        return create(settings, effects, window, width, height, null);
+    }
+
+    static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
+                                         RenderWindow window, int width, int height,
+                                         RenderGraph.PassExecutor hdrVfx) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(window, "window");
@@ -92,7 +100,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     ? new AutoExposurePass() : null;
             fog = effects.fog().enabled() ? new FogPass() : null;
             return new PostProcessPassBuilder(settings, effects, window, fxaa, taa, history, toneMapping,
-                    bloom, autoExposure, fog);
+                    bloom, autoExposure, fog, hdrVfx);
         } catch (RuntimeException failure) {
             closeAfterFailure(fog, failure);
             closeAfterFailure(autoExposure, failure);
@@ -264,10 +272,36 @@ final class PostProcessPassBuilder implements AutoCloseable {
             hdrTexture = PostProcessTargets.FOG_COLOR;
             hdrProducer = PostProcessTargets.FOG_PASS;
         }
-        final String gradedToneInput = hdrTexture;
+        final String exposureInput = hdrTexture;
+        final String exposureProducer = hdrProducer;
         ExposureOutput exposureOutput = settings.exposureMode() == ExposureMode.AUTO
-                ? addAutoExposurePasses(graph, hdrTexture, hdrProducer)
+                ? addAutoExposurePasses(graph, exposureInput, exposureProducer)
                 : ExposureOutput.MANUAL;
+
+        if (hdrVfx != null) {
+            final String baseTexture = hdrTexture;
+            final String baseProducer = hdrProducer;
+            RenderGraph.PassBuilder vfxComposite = graph.addPass(PostProcessTargets.VFX_COMPOSITE_PASS)
+                    .createColor(PostProcessTargets.VFX_COMPOSITE_COLOR, RenderFormat.RGBA16F)
+                    .createDepthTexture(PostProcessTargets.VFX_SCENE_DEPTH)
+                    .noClear()
+                    .dependsOn(baseProducer);
+            if (!PostProcessTargets.GEOMETRY_PASS.equals(baseProducer)) {
+                vfxComposite.dependsOn(PostProcessTargets.GEOMETRY_PASS);
+            }
+            vfxComposite.execute((res, cmd) -> {
+                        Framebuffer source = res.framebufferOfPass(baseProducer);
+                        Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+                        Framebuffer target = res.currentTarget();
+                        if (source != null && geometry != null && target != null) {
+                            cmd.blitColor(source, target).blitDepth(geometry, target);
+                            hdrVfx.execute(res, cmd);
+                        }
+                    });
+            hdrTexture = PostProcessTargets.VFX_COMPOSITE_COLOR;
+            hdrProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
+        }
+        final String gradedToneInput = hdrTexture;
         BloomOutput bloomOutput = settings.bloomSettings().enabled()
                 ? addBloomPasses(graph, hdrTexture, hdrProducer)
                 : BloomOutput.DISABLED;

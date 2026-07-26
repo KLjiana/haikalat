@@ -12,8 +12,10 @@
   新周期的零时刻事件，并限制单次更新最多跨越 4096 个带事件周期。
 - `BoneMask` 使用逐关节 0～1 权重，`subtree(...)` 根据真实父子链选择后代，不依赖数组排列。
 - `PoseBlender` 支持目标缓冲与任一输入别名，平移/缩放线性插值，旋转使用归一化球面插值。
-- `AnimationMixer` 提供 base + layer 双层混合、Bone Mask 和归一化时间同步；动作事件由两个
-  `AnimationPlayer` 收集。
+- `AnimationMixer` 提供 base + layer 双层混合、Bone Mask 和归一化时间同步；v0.18.1 新增
+  eased base cross-fade 与 layer weight fade。过渡期间 outgoing 只维持画面连续性，不发布事件；
+  incoming 从首帧推进并发布事件。根位移和根旋转使用与 pose 相同的 eased weight 混合，
+  `removeFromPose` 只作用于 layer 合成后的最终姿态。
 - `AnimationPlayer.updateWithRootMotion(...)` 返回模型空间 `RootMotionDelta`，支持跨循环累积并可把
   根关节恢复为绑定平移/旋转以进行原地播放。根运动关节必须是骨架根。
 - `TwoBoneIkSolver` 接收模型空间 target、pole 和权重，支持非拓扑索引骨架、不可达距离夹取和部分权重。
@@ -37,6 +39,8 @@
 .\gradlew.bat test
 .\gradlew.bat glSmoke --tests com.kaleblangley.haikalat.integration.GpuEffectsGlTest
 .\gradlew.bat runShowcaseIntegration
+.\gradlew.bat runShowcaseVfxMsaaIntegration
+.\gradlew.bat runShowcaseVfxAutoExposureIntegration
 .\gradlew.bat runShowcasePerformanceBaseline
 .\gradlew.bat runShowcaseStabilityIntegration
 .\gradlew.bat localMilestone4Verification
@@ -45,6 +49,11 @@
 `HaikalatShowcaseDemo` 在同一帧图中执行动画混合/根运动/IK、PBR 与阴影、Bloom/LUT/雾、
 体积光、CPU VFX、Compute 粒子和 retained UI。24 帧隐藏窗口入口还读取最终 backbuffer，要求实际像素、
 每类 VFX、动作事件、根运动、GPU 帧数、体积帧数和 UI quad 同时存在。
+
+v0.18.2 将 CPU VFX 从 tone mapping 后的 overlay 移到正式 HDR transparent composite。自动曝光仍
+读取 base HDR，Bloom 读取加入 VFX 后的 composite；MSAA 入口以 typed depth blit 提供单采样场景深度。
+`VfxMaterial` 是无 GL 纯值，R8 mask、sRGB color、Alpha/Additive、emissive、三种 billboard、velocity
+stretch 和 soft particle 由 render3d adapter 实现。
 
 ## 2026-07-25 实测基线
 
@@ -59,15 +68,31 @@
 
 综合像素入口的 CPU/GPU 时间包含首次运行预热影响；性能与稳定性入口分别排除了 60/120 帧预热。
 `runVfxPerformanceBaseline` 的 512 粒子独立基线仍用于观察逐 primitive CPU VFX adapter 成本。
+`runVfxCurveBenchmark` 使用相同 seed、10,000 粒子、12 次 warmup 和 40 次交替采样做 no-GL A/B；
+2026-07-25 优化后的代表中位数为 linear `0.5720 ms`、curved `0.5278 ms`，未出现时间回归；
+两侧线程分配量均为 `1,241,864` bytes/snapshot。既有不可变 snapshot 值对象占据全部主要分配，
+曲线采样不创建临时集合、装箱值或额外颜色对象；相同出生批次共享完全相同的 `age01` 采样结果。
+纹理化 HDR VFX 的 2026-07-26 详细基线、JAR 和纹理内存预算见
+`docs/performance/v0.18.2-textured-hdr-vfx-2026-07-26.md`。
 
 ## 当前限制
 
 - `AnimationMixer` 当前是双层混合器，不是可编辑状态机或通用 `AnimationGraph`；同步层通过归一化时间
   采样，未发布同步层 seek 过程中跨过的事件。
+- `Curve1f` 只接收 `[0,1]` 归一化时间并允许 spring/cubic-bezier overshoot；alpha/blend weight
+  clamp 到 `[0,1]`，RGB 允许 HDR，size/width/scale 必须为有限正值。`ColorGradient` 在项目现有
+  linear color space 插值，不隐式执行 sRGB decode、tone mapping 或 gamma encode。
+- glTF `STEP/LINEAR/CUBICSPLINE` 采样未映射到通用 easing；cubic-bezier 只用于程序化过渡与属性轨道。
 - 根运动只接受骨架根，返回模型空间平移与旋转；不处理导航碰撞、角色控制器、网络校正或宿主坐标系。
 - Two-bone IK 只旋转直接的 root-middle-tip 链；不处理拉伸、关节角限制、非直接链、全身约束或迭代 IK。
 - GPU 粒子是单 emitter 受控实验，没有透明排序、碰撞、深度软粒子、mesh particle、indirect compact、
   多发射器调度、序列化资产或 CPU fallback；正式通用 VFX 仍以 `EffectAsset/EffectInstance` 为准。
+- CPU VFX 的 `VfxUvRegion` 当前只描述单个 UV 区域，尚无 sprite-sheet flipbook；Ribbon stretch UV
+  以 U 表示横截面、V 表示整条快照路径的反向累计弧长，尚无 repeat UV。相邻段共享 miter 边界但仍
+  按透明顺序逐段提交。`fogInfluence` 已进入纯值材质合同但
+  shader 尚未应用场景雾；Bloom 沿用既有 threshold、
+  soft-knee 与 level 链路，未新增 scatter 或 highlight clamp。透明项保持稳定顺序，仅复用连续相同材质状态，
+  当前仍为逐 primitive draw。
 - 体积光未采样场景深度或阴影图，也没有 temporal reprojection、分辨率缩放、多个 volume 或物理介质管理；
   它证明固定预算积分和组合状态，不等同于完整体积雾系统。
 - UI 动画仍只有 visual/layout 两个互斥通道；没有 sequence graph、共享元素、关键帧编辑器或宿主时间轴。

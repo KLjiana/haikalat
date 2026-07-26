@@ -84,17 +84,17 @@ public final class PbrDemo {
         Throwable primaryFailure = null;
         try (FrameDriver driver = new FrameDriver(settings);
              PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(), PbrDemo.class,
-                     "/pbr/studio-small.hdr", options.environmentSettings());
+                     "/environments/pbr/studio-small.hdr", options.environmentSettings());
              PbrFallbackTextures fallbacks = new PbrFallbackTextures();
              ShaderProgram pbrShader = ShaderProgram.fromResource(PbrDemo.class,
-                     "/render3d/pbr/pbr_forward.vert",
-                     "/render3d/pbr/pbr_forward.frag");
+                     "/shaders/render3d/pbr/pbr-forward.vert",
+                     "/shaders/render3d/pbr/pbr-forward.frag");
              ShaderProgram legacyShader = ShaderProgram.fromResource(PbrDemo.class,
-                     "/demo/color_scene.vert", "/demo/lit_scene.frag")) {
+                     "/shaders/scene/color-scene.vert", "/shaders/scene/lit-scene.frag")) {
             Mesh sphere = Mesh.from(PbrSphereMesh.create(32, 20));
             meshes.add(sphere);
             Mesh pyramid = Mesh.from(new ObjModelLoader(ResourceLocator.classpath(PbrDemo.class))
-                    .load(AssetRef.of("/demo/models/baseline_pyramid.obj"), ObjModelLoader.Options.PBR)
+                    .load(AssetRef.of("/models/obj/baseline-pyramid.obj"), ObjModelLoader.Options.PBR)
                     .firstMesh());
             meshes.add(pyramid);
             Mesh legacyTriangle = Mesh.from(BuiltinMeshData.coloredTriangle("pbr-legacy-proof"));
@@ -248,12 +248,12 @@ public final class PbrDemo {
 
     private static EnumMap<PbrTextureRole, Texture2D> loadTextureSet(List<Texture2D> owner) {
         EnumMap<PbrTextureRole, Texture2D> result = new EnumMap<>(PbrTextureRole.class);
-        result.put(PbrTextureRole.BASE_COLOR, load(owner, "/wall.png", TextureColorSpace.SRGB));
-        result.put(PbrTextureRole.NORMAL, load(owner, "/wall.png", TextureColorSpace.LINEAR));
+        result.put(PbrTextureRole.BASE_COLOR, load(owner, "/textures/learnopengl/wall.png", TextureColorSpace.SRGB));
+        result.put(PbrTextureRole.NORMAL, load(owner, "/textures/learnopengl/wall.png", TextureColorSpace.LINEAR));
         result.put(PbrTextureRole.METALLIC_ROUGHNESS,
-                load(owner, "/awesomeface.png", TextureColorSpace.LINEAR));
-        result.put(PbrTextureRole.OCCLUSION, load(owner, "/wall.png", TextureColorSpace.LINEAR));
-        result.put(PbrTextureRole.EMISSIVE, load(owner, "/awesomeface.png", TextureColorSpace.SRGB));
+                load(owner, "/textures/learnopengl/awesomeface.png", TextureColorSpace.LINEAR));
+        result.put(PbrTextureRole.OCCLUSION, load(owner, "/textures/learnopengl/wall.png", TextureColorSpace.LINEAR));
+        result.put(PbrTextureRole.EMISSIVE, load(owner, "/textures/learnopengl/awesomeface.png", TextureColorSpace.SRGB));
         return result;
     }
 
@@ -271,7 +271,7 @@ public final class PbrDemo {
             System.setProperty(property, point);
             try {
                 try (PbrEnvironment ignored = PbrEnvironmentLoader.load(device, PbrDemo.class,
-                        "/pbr/studio-small.hdr", options.environmentSettings())) {
+                        "/environments/pbr/studio-small.hdr", options.environmentSettings())) {
                     throw new AssertionError("expected environment preprocessing failure at " + point);
                 }
             } catch (RuntimeException expected) {

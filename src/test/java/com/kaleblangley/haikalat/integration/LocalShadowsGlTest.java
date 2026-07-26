@@ -54,12 +54,12 @@ class LocalShadowsGlTest {
             GlDebug.enableDebugCallback();
             GlRenderDevice device = new GlRenderDevice();
             try (ShaderProgram shader = ShaderProgram.fromResource(getClass(),
-                    "/render3d/pbr/pbr_forward.vert", "/render3d/pbr/pbr_forward.frag");
+                    "/shaders/render3d/pbr/pbr-forward.vert", "/shaders/render3d/pbr/pbr-forward.frag");
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  Mesh quad = Mesh.from(TangentGenerator.generate(
                          BuiltinMeshData.texturedQuad("local-shadow-quad")).mesh());
                  PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                         "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                         "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                 Material material = PbrMaterials.create(shader,
                         new PbrMaterialProperties(new Vector4f(0.72f, 0.68f, 0.62f, 1.0f),
                                 0.0f, 0.8f, 1.0f, 1.0f, new Vector3f(), Map.of()),

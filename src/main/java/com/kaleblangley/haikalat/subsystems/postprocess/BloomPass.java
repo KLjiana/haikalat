@@ -21,11 +21,11 @@ public final class BloomPass implements GlResource {
 
     public BloomPass() {
         extractProgram = ShaderProgram.fromResource(BloomPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/bloom_extract.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/bloom-extract.frag");
         downsampleProgram = ShaderProgram.fromResource(BloomPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/bloom_downsample.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/bloom-downsample.frag");
         upsampleProgram = ShaderProgram.fromResource(BloomPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/bloom_upsample.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/bloom-upsample.frag");
         quad = new ScreenQuad();
     }
 

@@ -13,8 +13,8 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 | `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
 | `GltfDemo` | 静态与蒙皮 glTF 端到端证明 | accessor/node/material/skin/animation、CUBICSPLINE、joint palette、PBR/shadow GPU 蒙皮、资产实例生命周期 | 动画混合、IK、第二组关节权重 |
 | `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
-| `VfxDemo` | 通用效果模拟与透明绘制证明 | `EffectAsset/EffectInstance`、粒子、Ribbon、Decal、稳定排序、CPU/GPU/uniform 基线、resize | Compute 粒子和体积效果 |
-| `HaikalatShowcaseDemo` | Milestone 4 同帧综合验收与稳定性 | Mixer/Bone Mask/root motion/event/IK、PBR/shadow、Bloom/LUT/fog、CPU/GPU VFX、volume、UI diagnostics、资源集合 | HaikalatHost、宿主事件/网络；不把受控 GPU 实验声明为完整编辑型系统 |
+| `VfxDemo` | 通用效果模拟与透明绘制证明 | `EffectAsset/EffectInstance`、粒子/Ribbon/Decal over-life、纹理 mask、Alpha/Additive、HDR/Bloom/soft particle、双 `BezierPath3f` 闭合无限符号、CPU/GPU/uniform 基线 | Compute 粒子、体积效果、flipbook、Ribbon repeat UV 和曲线编辑器 |
+| `HaikalatShowcaseDemo` | Milestone 4 同帧综合验收与稳定性 | 高级动画、PBR/shadow、Bloom/LUT/fog、HDR CPU VFX、MSAA depth resolve、自动曝光顺序、GPU VFX、volume、UI diagnostics、资源集合 | HaikalatHost、宿主事件/网络；不把受控 GPU 实验声明为完整编辑型系统 |
 
 ## AnimationDemo
 
@@ -26,6 +26,19 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 该 Demo 用手工构造的三段关节链证明纯 JVM 动画 subsystem。交互入口按真实帧间隔播放，
 隐藏集成入口使用固定 `1/30 s` 步长运行 8 帧，并断言末端关节发生位移。它只复用现有
 `CommandBuffer` 绘制骨段和关节，不把 OpenGL 调用引入 animation subsystem。
+
+## VfxDemo 与曲线性能入口
+
+```powershell
+.\gradlew.bat runVfxIntegration
+.\gradlew.bat runVfxCurveBenchmark
+```
+
+`VfxDemo` 默认展示 curved preset，可通过 `--linear` 切换到 0.18.0 线性属性路径。固定
+`BezierPath3f` 的弧长表把 emitter 的归一化距离映射回参数；两段路径在中心交点保持切线连续，
+使完整闭合的无限符号 Ribbon 近似匀速且不会用直线连接首尾。该路径只在
+Demo/application 层驱动 origin。`runVfxCurveBenchmark` 不创建 GL context，在同一 JVM 内交替测量
+10,000 粒子的 linear/curved snapshot，并输出时间、线程分配量和累计曲线采样数。
 
 ## PbrDemo
 
@@ -68,11 +81,16 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 ```powershell
 .\gradlew.bat runVfxDemo
 .\gradlew.bat runVfxIntegration
-.\gradlew.bat runVfxPerformanceBaseline
+.\gradlew.bat runVfxLegacyIntegration runVfxFireIntegration
+.\gradlew.bat runVfxImpactIntegration runVfxTrailIntegration
+.\gradlew.bat runVfxPerformance1080p runVfxPerformance4k
 ```
 
-模拟逻辑只位于 `subsystems.vfx`，render3d adapter 消费不可变透明排序快照。有限帧入口验证粒子、
-Ribbon、Decal、resize 和关闭顺序；性能入口报告 CPU update、RenderGraph GPU pass、draw 与 uniform payload。
+模拟逻辑和 `VfxMaterial` 只位于无 GL 依赖的 `subsystems.vfx`，render3d adapter 消费不可变透明排序
+snapshot。参数支持 `--effect=legacy|fire|impact|trail|all`、`--hdr=on|off`、`--bloom=on|off`、
+`--soft-particles=on|off` 与 `--size=WxH`。专项入口分别证明 legacy 白 mask LDR、fire/smoke
+Alpha+Additive、impact particle+Decal 和完整闭合 textured Ribbon；性能入口报告 CPU update、
+RenderGraph GPU、draw 和 uniform payload。
 多类阴影场景使用 `PbrDemo --local-shadows=on`，正式入口为 `runLocalShadowsIntegration`。
 
 ## HaikalatShowcaseDemo
@@ -80,12 +98,16 @@ Ribbon、Decal、resize 和关闭顺序；性能入口报告 CPU update、Render
 ```powershell
 .\gradlew.bat runHaikalatShowcaseDemo
 .\gradlew.bat runShowcaseIntegration
+.\gradlew.bat runShowcaseVfxMsaaIntegration
+.\gradlew.bat runShowcaseVfxAutoExposureIntegration
 .\gradlew.bat runShowcasePerformanceBaseline
 .\gradlew.bat runShowcaseStabilityIntegration
 ```
 
-综合场景只使用 Haikalat 本体 API。`RenderPipeline` 先执行 PBR、方向光阴影、Bloom、Color Grading LUT
-和距离/高度雾；最终 backbuffer overlay 依次记录体积光、CPU VFX、Compute/SSBO 粒子与 retained UI。
+综合场景只使用 Haikalat 本体 API。`RenderPipeline` 先执行 PBR、方向光阴影、Color Grading LUT 和
+距离/高度雾；自动曝光从 base HDR 取样，CPU VFX 随后写入带 resolved scene depth 的 HDR composite，
+Bloom 与 tone mapping 消费 composite。最终 backbuffer overlay 只记录体积光、Compute/SSBO 粒子与
+retained UI，CPU VFX 不再位于 LDR overlay。
 动画对象每帧执行双层混合、Bone Mask、根运动、动作事件和 Two-bone IK。24 帧入口读取最终像素并断言
 每个 subsystem 均实际产出；3600 帧入口在第 120 帧冻结 GL 资源序列和估算显存，结束时要求完全一致，
 随后关闭全部资源并要求 live 表归零。详细边界和实测数字见

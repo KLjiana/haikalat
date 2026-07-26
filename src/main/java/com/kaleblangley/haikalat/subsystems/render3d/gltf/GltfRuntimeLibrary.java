@@ -14,7 +14,7 @@ public final class GltfRuntimeLibrary implements AutoCloseable {
 
     private GltfRuntimeLibrary() {
         ShaderProgram createdShader = ShaderProgram.fromResource(GltfRuntimeLibrary.class,
-                "/render3d/pbr/pbr_forward.vert", "/render3d/pbr/pbr_forward.frag");
+                "/shaders/render3d/pbr/pbr-forward.vert", "/shaders/render3d/pbr/pbr-forward.frag");
         PbrFallbackTextures createdFallbacks;
         Sampler createdSampler;
         try (CloseStack rollback = new CloseStack()) {

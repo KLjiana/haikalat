@@ -43,7 +43,7 @@ import java.util.Locale;
  * 实例化继续由正式 glTF API 完成，扩容不会复制 mesh、texture、sampler 或 material。</p>
  */
 public final class GltfSceneScalabilityDemo {
-    private static final String DEFAULT_SCENE = "/gltf/scalability.gltf";
+    private static final String DEFAULT_SCENE = "/scenes/gltf/scalability.gltf";
     private static volatile BenchmarkResult lastBenchmarkResult;
 
     private GltfSceneScalabilityDemo() {
@@ -81,7 +81,7 @@ public final class GltfSceneScalabilityDemo {
                     .load(AssetRef.of(options.scene()));
             try (FrameDriver driver = new FrameDriver(settings, level);
                  PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(),
-                         GltfSceneScalabilityDemo.class, "/pbr/studio-small.hdr",
+                         GltfSceneScalabilityDemo.class, "/environments/pbr/studio-small.hdr",
                          PbrEnvironmentSettings.testQuality());
                  GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
                  GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library)) {

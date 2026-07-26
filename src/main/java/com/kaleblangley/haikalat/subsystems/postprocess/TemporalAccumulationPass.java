@@ -19,7 +19,7 @@ public final class TemporalAccumulationPass implements GlResource {
 
     public TemporalAccumulationPass() {
         this.program = ShaderProgram.fromResource(TemporalAccumulationPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/temporal_accumulation.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/temporal-accumulation.frag");
         this.quad = new ScreenQuad();
         this.uCurrentLoc = program.uniformLocation("uCurrent");
         this.uHistoryLoc = program.uniformLocation("uHistory");

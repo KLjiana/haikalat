@@ -36,7 +36,7 @@ class DemoSceneResourcesGlTest {
             window.bindContext();
             GL.createCapabilities();
             ResourceLocator locator = ResourceLocator.classpath(LearnOpenGlDemo.class);
-            SceneAssetConfig baseline = SceneAssetConfig.load(locator, "/demo/learnopengl.properties");
+            SceneAssetConfig baseline = SceneAssetConfig.load(locator, "/scenes/configurations/learnopengl.properties");
             DemoSceneResources resources = DemoSceneResources.load(locator, baseline);
             ShaderProgram modelShader = resources.shader("model");
             List<Mesh> modelMeshes = resources.meshes("pyramid", MaterialModel.LEGACY);
@@ -114,8 +114,8 @@ class DemoSceneResourcesGlTest {
 
     private static SceneAssetConfig partialFailureConfig() {
         return new SceneAssetConfig(
-                Map.of("valid", ShaderAsset.of("/demo/model_scene.vert", "/demo/lit_scene.frag")),
-                Map.of("wall", new SceneAssetConfig.TextureDef(AssetRef.of("/wall.png"), false)),
+                Map.of("valid", ShaderAsset.of("/shaders/scene/model-scene.vert", "/shaders/scene/lit-scene.frag")),
+                Map.of("wall", new SceneAssetConfig.TextureDef(AssetRef.of("/textures/learnopengl/wall.png"), false)),
                 Map.of("invalid", new MaterialDef("valid", List.of(
                         new MaterialDef.TextureBinding(0, "uTexture", "wall", "unsupportedSampler")),
                         BlendMode.OPAQUE, true)),
@@ -124,10 +124,10 @@ class DemoSceneResourcesGlTest {
 
     private static SceneAssetConfig sharedBuiltinConfig() {
         Map<String, ShaderAsset> shaders = Map.of(
-                "legacy", ShaderAsset.of("/demo/model_scene.vert", "/demo/lit_scene.frag"),
+                "legacy", ShaderAsset.of("/shaders/scene/model-scene.vert", "/shaders/scene/lit-scene.frag"),
                 "pbrForward", ShaderAsset.of(
-                        "/render3d/pbr/pbr_forward.vert",
-                        "/render3d/pbr/pbr_forward.frag"));
+                        "/shaders/render3d/pbr/pbr-forward.vert",
+                        "/shaders/render3d/pbr/pbr-forward.frag"));
         Map<String, MaterialDef> materials = Map.of(
                 "legacy", MaterialDef.of("legacy"),
                 "pbr", MaterialDef.metallicRoughness(

@@ -13,6 +13,9 @@
 - [v0.17 真实场景压力与 CPU 提交收敛实施计划](planning/v0.17-real-scene-cpu-submission-consolidation.md)
 - [v0.17.1 RenderGraph 资源预览与帧调试可视化实施计划](planning/v0.17.1-rendergraph-resource-preview.md)
 - [v0.17.2 发布工程、GL 生命周期与静态提交加固实施计划](planning/v0.17.2-release-lifecycle-static-submission-hardening.md)
+- [v0.18.1 VFX 曲线动画、缓动与过渡实施计划](planning/v0.18.1-vfx-animation-curves.md)
+- [v0.18.2 纹理化 HDR VFX 与 Bloom 合成实施计划](planning/v0.18.2-textured-hdr-vfx-and-bloom.md)
+- [v0.18.2 资源目录整理与打包规范](planning/v0.18.2-resource-layout-and-packaging.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -52,6 +55,10 @@
 - [v0.17 本地发布候选验收报告](releases/v0.17-release-report.md)
 - [v0.17.1 RenderGraph 资源预览正式版验收报告](releases/v0.17.1-release-report.md)
 - [v0.18.0 Haikalat OpenGL 4.6 路线图发布验收报告](releases/v0.18.0-release-report.md)
+- [v0.18.1 VFX 曲线动画、缓动与过渡验收报告](releases/v0.18.1-release-report.md)
+- [v0.18.2 纹理化 HDR VFX 与 Bloom 合成发布验收报告](releases/v0.18.2-release-report.md)
+- [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)
+- [2026-07-25 v0.18.1 VFX 曲线性能记录](performance/v0.18.1-vfx-curves-2026-07-25.md)
 - [2026-07-25 v0.18.0 综合场景性能与稳定性报告](performance/v0.18.0-haikalat-roadmap-2026-07-25.md)
 - [2026-07-20 v0.17.1 RenderGraph 资源预览 1080p/4K 五轮基准](performance/v0.17.1-rendergraph-preview-2026-07-20.md)
 - [2026-07-19 v0.17 真实场景 CPU 提交五轮基准](performance/v0.17-scene-submission-2026-07-19.md)

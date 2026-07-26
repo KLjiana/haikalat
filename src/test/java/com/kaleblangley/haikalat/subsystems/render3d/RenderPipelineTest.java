@@ -176,6 +176,15 @@ class RenderPipelineTest {
     }
 
     @Test
+    void hdrVfxRequiresHdr() {
+        RenderWindowStub window = new RenderWindowStub();
+        RenderPipeline ldr = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().build()).hdrVfx((resources, commands) -> { });
+        assertThrows(IllegalStateException.class, ldr::build);
+
+    }
+
+    @Test
     void hdrUsesFloatTargetsWhileLdrUsesSrgbSceneAndHistoryFormats() {
         RenderSettings ldr = RenderSettings.builder().build();
         RenderSettings hdr = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES).build();

@@ -51,7 +51,7 @@ class GltfRuntimeGlTest {
             window.bindContext();
             GL.createCapabilities();
             LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(GltfRuntimeGlTest.class))
-                    .load(AssetRef.of("/gltf/minimal.gltf"));
+                    .load(AssetRef.of("/fixtures/gltf/minimal.gltf"));
             GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
             GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
             try {
@@ -99,7 +99,7 @@ class GltfRuntimeGlTest {
                 scene.addLight(SceneLight.shadowedDirectional(
                         new Vector3f(0.0f, 0.0f, -1.0f), new Vector3f(1.0f), 3.0f));
                 try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                        "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                        "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                     RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                             RenderSettings.builder()
                                     .toneMappingMode(ToneMappingMode.ACES)
@@ -145,7 +145,7 @@ class GltfRuntimeGlTest {
             window.bindContext();
             GL.createCapabilities();
             LoadedGltfScene loaded = new GltfAssetLoader(classpath)
-                    .load(AssetRef.of("/radio.gltf"));
+                    .load(AssetRef.of("/scenes/gltf/radio.gltf"));
             try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create()) {
                 GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
                 try {
@@ -204,7 +204,7 @@ class GltfRuntimeGlTest {
     @Test
     void sameEncodedImageCreatesDistinctSrgbAndLinearTextureVariants() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
-        String dualRole = classpath.readString(AssetRef.of("/radio.gltf"))
+        String dualRole = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"OPAQUE\"")
                 .replace("\"baseColorTexture\":{\"index\":0}",
                         "\"baseColorTexture\":{\"index\":0},\"metallicRoughnessTexture\":{\"index\":0}");
@@ -229,7 +229,7 @@ class GltfRuntimeGlTest {
     @Test
     void injectedUploadFailuresReleaseEveryOwnedStageAndLibraryLease() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
-        String opaque = classpath.readString(AssetRef.of("/radio.gltf"))
+        String opaque = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"OPAQUE\"");
         java.nio.file.Files.writeString(temporaryDirectory.resolve("radio-faults.gltf"), opaque);
         LoadedGltfScene loaded = new GltfAssetLoader(classpath.addRoot(temporaryDirectory))
@@ -263,11 +263,11 @@ class GltfRuntimeGlTest {
             GL.createCapabilities();
             GlRenderDevice device = new GlRenderDevice();
             LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass()))
-                    .load(AssetRef.of("/gltf/minimal.gltf"));
+                    .load(AssetRef.of("/fixtures/gltf/minimal.gltf"));
             GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
             GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                    "/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
+                    "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                 Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)));
                 asset.instantiate(new Matrix4f().translation(-0.4f, -0.4f, 0.0f), false)
                         .forEach(scene::add);
@@ -303,7 +303,7 @@ class GltfRuntimeGlTest {
     @Test
     void runtimeUploadRestoresPrewarmedDeviceVertexArrayState() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
-        String opaque = classpath.readString(AssetRef.of("/radio.gltf"))
+        String opaque = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"OPAQUE\"");
         java.nio.file.Files.writeString(temporaryDirectory.resolve("radio-state.gltf"), opaque);
         LoadedGltfScene loaded = new GltfAssetLoader(classpath.addRoot(temporaryDirectory))

@@ -28,7 +28,7 @@ public final class GltfBenchmarkSuite {
     public static void main(String[] arguments) throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(GltfBenchmarkSuite.class);
         GltfAssetLoader loader = new GltfAssetLoader(classpath);
-        AssetRef source = AssetRef.of("/radio.gltf");
+        AssetRef source = AssetRef.of("/scenes/gltf/radio.gltf");
 
         for (int index = 0; index < 3; index++) loader.load(source);
         double[] decodeMillis = new double[ROUNDS];

@@ -252,7 +252,7 @@ public final class UiRenderer implements AutoCloseable {
         UiVertexRing createdRing = null;
         try {
             createdShader = ShaderProgram.fromResource(UiRenderer.class,
-                    "/ui/ui.vert", "/ui/ui.frag");
+                    "/shaders/ui/ui.vert", "/shaders/ui/ui.frag");
             createdSampler = Sampler.create(new Sampler.Descriptor(
                     GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE));
             createdIndices = GlBuffer.elementArrayBuffer(GL_STATIC_DRAW)

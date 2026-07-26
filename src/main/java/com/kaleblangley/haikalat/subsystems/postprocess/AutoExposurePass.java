@@ -33,11 +33,11 @@ public final class AutoExposurePass implements GlResource {
         Framebuffer secondHistory = null;
         try {
             luminance = ShaderProgram.fromResource(AutoExposurePass.class,
-                    "/postprocess/screen_quad.vert", "/postprocess/log_luminance.frag");
+                    "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/log-luminance.frag");
             reduction = ShaderProgram.fromResource(AutoExposurePass.class,
-                    "/postprocess/screen_quad.vert", "/postprocess/luminance_reduce.frag");
+                    "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/luminance-reduce.frag");
             adaptation = ShaderProgram.fromResource(AutoExposurePass.class,
-                    "/postprocess/screen_quad.vert", "/postprocess/exposure_adaptation.frag");
+                    "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/exposure-adaptation.frag");
             screenQuad = new ScreenQuad();
             firstHistory = createHistory();
             secondHistory = createHistory();

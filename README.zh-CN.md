@@ -18,16 +18,18 @@
   GPU fence/timer、状态缓存和错误报告。
 - 核心渲染协议：命令记录、渲染设备、RenderGraph、mesh data、instancing、上传流程、
   不可变帧快照和材质系统。
+- 无 GL 依赖的共享曲线基础：cubic-bezier easing、Hermite 属性轨道、HDR 颜色渐变、
+  固定弧长表三次 Bezier 空间路径和曲线 LUT。
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化方向光阴影、3x3 PCF、
   显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom，以及 none、MSAA、FXAA、TAA 路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态/蒙皮 glTF 2.0 链路。
-- 无 GL 依赖的骨架动画 subsystem：任意索引层次、STEP/LINEAR/CUBICSPLINE、双层/Bone Mask 混合、归一化动作同步、有序动作事件、跨循环根运动和 Two-bone IK；glTF skin/animation、每实例 joint palette、PBR forward 与方向光 shadow 四影响 GPU 蒙皮均已闭环。
+- 无 GL 依赖的骨架动画 subsystem：任意索引层次、STEP/LINEAR/CUBICSPLINE、双层/Bone Mask 混合、base cross-fade、layer fade、归一化动作同步、有序动作事件、跨循环根运动和 Two-bone IK；glTF skin/animation、每实例 joint palette、PBR forward 与方向光 shadow 四影响 GPU 蒙皮均已闭环。
 - OpenGL 4.6 启动与提交能力契约：Core Profile、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters 和 debug output 缺一即明确终止，不走旧版降级。
 - 无 GL 依赖的通用资源基础：规范化 `AssetId`、有界 directory/classpath source、逐资源 generation，以及能拒绝过期结果的异步 CPU 解码协议。
 - 后处理新增 tiled 2D Color Grading LUT，以及根据场景深度重建世界坐标的距离/高度雾，并覆盖确定性像素与 resize 验证。
 - UI 新增无 GL 依赖的 visual/layout Tween 与 Transition，支持 linear/cubic/spring easing、延迟、取消和同通道替换。
-- 无 GL 依赖的确定性 VFX subsystem：有界粒子、Ribbon、Decal、`EffectAsset/EffectInstance` 生命周期和透明稳定排序；OpenGL 只存在于 render3d adapter。
+- 无 GL 依赖的确定性 VFX subsystem：有界粒子、Ribbon、Decal、over-life 和纯值纹理材质；render3d adapter 支持 R8/sRGB mask、Alpha/Additive emissive、billboard/stretch、场景深度 soft particle，以及 tone mapping 前的 HDR/Bloom 合成，UI 保持在 Bloom 之外。
 - OpenGL 4.6 受控实验：无 CPU readback 的 Compute/SSBO GPU 粒子，以及固定 4～128 步的屏幕空间体积聚光；真实像素和资源稳定性均有自动验证。
 - 阴影支持方向光、3×2 六面点光 atlas 和聚光 depth map，并提供 practical split、world-texel 稳定的方向光级联方案。
 - Demo 证明路径包括空窗口/present 基线、综合场景管线、最小命令流、CPU 骨架动画、异步更新与渲染线程协作、Milestone 4 动画/PBR/后处理/VFX/UI 同帧场景，以及自动生成 GPU procedural shader 的 100 万实例压力分析。
@@ -76,6 +78,7 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 .\gradlew.bat runGltfSkinningIntegration
 .\gradlew.bat runPostProcessEffectsIntegration
 .\gradlew.bat runVfxIntegration
+.\gradlew.bat runVfxCurveBenchmark
 .\gradlew.bat runShowcaseIntegration
 .\gradlew.bat runShowcaseStabilityIntegration
 .\gradlew.bat runLocalShadowsIntegration

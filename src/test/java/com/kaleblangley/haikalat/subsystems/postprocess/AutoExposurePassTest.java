@@ -14,7 +14,7 @@ class AutoExposurePassTest {
     void reductionShaderCarriesExplicitSumAndWeight() throws IOException {
         String source;
         try (var stream = AutoExposurePassTest.class.getResourceAsStream(
-                "/postprocess/luminance_reduce.frag")) {
+                "/shaders/postprocess/luminance-reduce.frag")) {
             assertTrue(stream != null);
             source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

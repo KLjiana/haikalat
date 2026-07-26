@@ -3,6 +3,9 @@ package com.kaleblangley.haikalat.demo.pbr;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.curve.ColorGradient;
+import com.kaleblangley.haikalat.core.curve.Curves;
+import com.kaleblangley.haikalat.core.curve.FloatTrack;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -41,6 +44,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
@@ -58,6 +62,11 @@ import com.kaleblangley.haikalat.subsystems.vfx.EffectInstance;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot;
 import com.kaleblangley.haikalat.subsystems.vfx.ParticleEmitter;
 import com.kaleblangley.haikalat.subsystems.vfx.RibbonEmitter;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxBillboardMode;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxMaskMode;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxMaterial;
+import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -113,9 +122,9 @@ public final class HaikalatShowcaseDemo {
     private static Summary run(GlfwWindow window, Options options) {
         RenderSettings renderSettings = RenderSettings.builder()
                 .vsync(!options.hidden())
-                .antiAliasingMode(AntiAliasingMode.NONE)
+                .antiAliasingMode(options.antiAliasingMode())
                 .toneMappingMode(ToneMappingMode.ACES)
-                .exposureMode(ExposureMode.MANUAL)
+                .exposureMode(options.autoExposure() ? ExposureMode.AUTO : ExposureMode.MANUAL)
                 .bloomSettings(BloomSettings.builder().enabled(true).maxLevels(3).build())
                 .build();
         Skeleton skeleton = skeleton();
@@ -132,11 +141,11 @@ public final class HaikalatShowcaseDemo {
 
         try (FrameDriver driver = new FrameDriver(renderSettings);
              PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(),
-                     HaikalatShowcaseDemo.class, "/pbr/studio-small.hdr",
+                     HaikalatShowcaseDemo.class, "/environments/pbr/studio-small.hdr",
                      PbrEnvironmentSettings.quality("test"));
              PbrFallbackTextures fallbacks = new PbrFallbackTextures();
              ShaderProgram pbrShader = ShaderProgram.fromResource(HaikalatShowcaseDemo.class,
-                     "/render3d/pbr/pbr_forward.vert", "/render3d/pbr/pbr_forward.frag");
+                     "/shaders/render3d/pbr/pbr-forward.vert", "/shaders/render3d/pbr/pbr-forward.frag");
              Mesh sphere = Mesh.from(PbrSphereMesh.create(24, 16));
              Material material = PbrMaterials.create(pbrShader,
                      new PbrMaterialProperties(new Vector4f(0.24f, 0.62f, 0.92f, 1.0f),
@@ -150,7 +159,15 @@ public final class HaikalatShowcaseDemo {
              VolumetricLightPass volumetric = new VolumetricLightPass()) {
             Scene scene = scene(camera, sphere, material, pose, visualRootMotion);
             RenderPipeline pipeline = new RenderPipeline(window, scene, null,
-                    renderSettings, environment).postProcessSettings(postProcessSettings());
+                    renderSettings, environment).postProcessSettings(postProcessSettings(options.fog()))
+                    .hdrVfx((resources, commands) -> {
+                        EffectSnapshot snapshot = effectSnapshot[0];
+                        if (snapshot != null) {
+                            cpuVfxRenderer.record(commands, snapshot, projection, view,
+                                    resources.depthAttachment(PostProcessTargets.VFX_SCENE_DEPTH),
+                                    window.width(), window.height());
+                        }
+                    });
             try {
                 pipeline.build();
                 try (UiSystem ui = UiSystem.create(window, UiConfig.defaults())) {
@@ -160,10 +177,6 @@ public final class HaikalatShowcaseDemo {
                         commands.bindDefaultFramebuffer().viewport(0, 0, window.width(), window.height());
                         volumetric.recordIntoCurrentTarget(commands, inverseViewProjection,
                                 cameraPosition, volumetricSettings);
-                        EffectSnapshot snapshot = effectSnapshot[0];
-                        if (snapshot != null) {
-                            cpuVfxRenderer.record(commands, snapshot, projection, view);
-                        }
                         gpuParticles.record(commands, FIXED_DELTA_SECONDS, viewProjection,
                                 window.width() / (float) window.height());
                     });
@@ -318,19 +331,53 @@ public final class HaikalatShowcaseDemo {
                 .event(0.1f, "burst", "showcase")
                 .event(1.0f, "step")
                 .build();
+        AnimationClip chargedLocomotion = AnimationClip.builder("charged-locomotion", skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 2.0f},
+                        new Vector3f(-1.2f, -0.25f, 0.0f),
+                        new Vector3f(1.5f, -0.25f, 0.0f))
+                .event(0.0f, "transition-start")
+                .event(0.1f, "transition-burst", "showcase")
+                .event(1.0f, "charged-step")
+                .build();
         AnimationClip layer = AnimationClip.builder("upper-layer", skeleton)
                 .rotation(1, LINEAR, new float[]{0.0f, 1.0f},
                         new Quaternionf().rotateZ(-0.4f), new Quaternionf().rotateZ(0.55f))
                 .build();
         return new AnimationMixer(skeleton)
                 .playBase(locomotion, AnimationPlayer.LoopMode.LOOP)
+                .transitionBase(chargedLocomotion, AnimationPlayer.LoopMode.LOOP,
+                        0.25f, Curves.EASE_IN_OUT_CUBIC)
                 .playLayer(layer, AnimationPlayer.LoopMode.LOOP)
                 .layerMask(BoneMask.builder(skeleton).subtree(1, 1.0f).build())
                 .layerWeight(0.45f)
+                .fadeLayerTo(0.65f, 0.35f, Curves.EASE_OUT_CUBIC)
                 .synchronizeLayer(true);
     }
 
     private static EffectAsset effectAsset() {
+        VfxMaterial fire = VfxMaterial.builder("showcase-fire")
+                .texture(AssetRef.of("/vfx/particles/kenney/particle_pack/fire_01.png"))
+                .maskMode(VfxMaskMode.LUMINANCE)
+                .blendMode(BlendMode.ADDITIVE)
+                .emissiveIntensity(4.5f)
+                .billboardMode(VfxBillboardMode.VELOCITY_ALIGNED)
+                .velocityStretch(0.35f).maximumStretch(2.5f)
+                .softParticleDistance(0.12f)
+                .build();
+        VfxMaterial trail = VfxMaterial.builder("showcase-trail")
+                .texture(AssetRef.of("/vfx/masks/kenney/light_masks/transparent/streaks_composed_a_noise.png"))
+                .maskMode(VfxMaskMode.ALPHA)
+                .blendMode(BlendMode.ADDITIVE)
+                .emissiveIntensity(3.5f)
+                .softParticleDistance(0.06f)
+                .build();
+        VfxMaterial impact = VfxMaterial.builder("showcase-impact")
+                .texture(AssetRef.of("/vfx/decals/kenney/particle_pack/scorch_01.png"))
+                .maskMode(VfxMaskMode.LUMINANCE)
+                .blendMode(BlendMode.ALPHA)
+                .emissiveIntensity(1.0f)
+                .softParticleDistance(0.04f)
+                .build();
         return EffectAsset.builder("showcase-vfx")
                 .particles(new ParticleEmitter(256, 180.0f, 1.8f,
                         new Vector3f(0.0f, 0.8f, 0.0f), 0.45f, 0.35f, 1.25f,
@@ -344,21 +391,47 @@ public final class HaikalatShowcaseDemo {
                 .decals(new Decal(8, 3.0f,
                         new Vector4f(0.55f, 0.16f, 1.0f, 0.58f),
                         new Vector4f(0.2f, 0.04f, 0.45f, 0.0f)))
+                .particleMaterial(fire)
+                .ribbonMaterial(trail)
+                .decalMaterial(impact)
+                .particleSizeOverLife(new FloatTrack(
+                        new FloatTrack.Key(0.0f, 0.13f, FloatTrack.Interpolation.LINEAR),
+                        new FloatTrack.Key(0.2f, 0.24f, FloatTrack.Interpolation.LINEAR),
+                        new FloatTrack.Key(1.0f, 0.025f, FloatTrack.Interpolation.LINEAR)))
+                .particleColorOverLife(new ColorGradient(
+                        new ColorGradient.Stop(0.0f, 1.4f, 0.72f, 0.08f, 0.82f),
+                        new ColorGradient.Stop(0.4f, 0.7f, 0.18f, 1.1f, 0.55f),
+                        new ColorGradient.Stop(1.0f, 0.1f, 0.45f, 1.0f, 0.0f)))
+                .ribbonWidthOverLife(new FloatTrack(
+                        new FloatTrack.Key(0.0f, 0.13f, 0.0f, -0.22f,
+                                FloatTrack.Interpolation.CUBIC_HERMITE),
+                        new FloatTrack.Key(1.0f, 0.02f, 0.0f, 0.0f,
+                                FloatTrack.Interpolation.LINEAR)))
+                .ribbonColorOverLife(new ColorGradient(
+                        new ColorGradient.Stop(0.0f, 0.08f, 0.75f, 1.0f, 0.72f),
+                        new ColorGradient.Stop(1.0f, 0.12f, 0.2f, 0.9f, 0.0f)))
+                .decalScaleOverLife(new FloatTrack(
+                        new FloatTrack.Key(0.0f, 0.85f, FloatTrack.Interpolation.LINEAR),
+                        new FloatTrack.Key(0.2f, 1.1f, FloatTrack.Interpolation.LINEAR),
+                        new FloatTrack.Key(1.0f, 0.72f, FloatTrack.Interpolation.LINEAR)))
+                .decalColorOverLife(new ColorGradient(
+                        new ColorGradient.Stop(0.0f, 0.55f, 0.16f, 1.0f, 0.58f),
+                        new ColorGradient.Stop(1.0f, 0.2f, 0.04f, 0.45f, 0.0f)))
                 .build();
     }
 
-    private static PostProcessSettings postProcessSettings() {
+    private static PostProcessSettings postProcessSettings(boolean fogEnabled) {
         ColorGradingLut lut = ColorGradingLut.generate(16,
                 (red, green, blue) -> new ColorGradingLut.Rgb(
                         Math.min(1.0f, red * 1.04f), green * 0.96f,
                         Math.min(1.0f, blue * 1.08f)));
-        return PostProcessSettings.builder()
-                .colorGrading(ColorGradingSettings.of(lut, 0.55f))
-                .fog(FogSettings.builder().color(0.14f, 0.19f, 0.28f)
+        PostProcessSettings.Builder builder = PostProcessSettings.builder()
+                .colorGrading(ColorGradingSettings.of(lut, 0.55f));
+        if (fogEnabled) builder.fog(FogSettings.builder().color(0.14f, 0.19f, 0.28f)
                         .distanceDensity(0.012f).heightDensity(0.018f)
                         .heightFalloff(0.2f).baseHeight(-1.5f)
-                        .maximumOpacity(0.62f).build())
-                .build();
+                        .maximumOpacity(0.62f).build());
+        return builder.build();
     }
 
     private static VolumetricLightSettings volumetricSettings() {
@@ -459,6 +532,8 @@ public final class HaikalatShowcaseDemo {
     }
 
     private record Options(boolean hidden, int frames, int warmup, int width, int height,
+                           AntiAliasingMode antiAliasingMode, boolean fog,
+                           boolean autoExposure,
                            int gpuParticles, boolean verifyPixels, boolean stability) {
         private static Options parse(String[] arguments) {
             boolean hidden = false;
@@ -467,6 +542,9 @@ public final class HaikalatShowcaseDemo {
             int width = 960;
             int height = 540;
             int gpuParticles = 512;
+            AntiAliasingMode antiAliasingMode = AntiAliasingMode.NONE;
+            boolean fog = true;
+            boolean autoExposure = false;
             boolean verifyPixels = false;
             boolean stability = false;
             for (String argument : arguments) {
@@ -484,6 +562,17 @@ public final class HaikalatShowcaseDemo {
                     height = Integer.parseInt(size[1]);
                 } else if (argument.startsWith("--gpu-particles=")) {
                     gpuParticles = positive(argument, "--gpu-particles=");
+                } else if (argument.startsWith("--aa=")) {
+                    antiAliasingMode = AntiAliasingMode.valueOf(
+                            argument.substring("--aa=".length()).toUpperCase(Locale.ROOT));
+                } else if ("--fog=off".equals(argument)) {
+                    fog = false;
+                } else if ("--fog=on".equals(argument)) {
+                    fog = true;
+                } else if ("--auto-exposure=off".equals(argument)) {
+                    autoExposure = false;
+                } else if ("--auto-exposure=on".equals(argument)) {
+                    autoExposure = true;
                 } else if ("--verify-pixels".equals(argument)) {
                     verifyPixels = true;
                 } else if ("--stability".equals(argument)) {
@@ -501,7 +590,8 @@ public final class HaikalatShowcaseDemo {
             if (stability && warmup == 0) {
                 throw new IllegalArgumentException("--stability requires a positive --warmup");
             }
-            return new Options(hidden, frames, warmup, width, height,
+            return new Options(hidden, frames, warmup, width, height, antiAliasingMode, fog,
+                    autoExposure,
                     gpuParticles, verifyPixels, stability);
         }
 

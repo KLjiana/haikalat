@@ -25,7 +25,7 @@ class GltfAssetLoaderTest {
     @TempDir Path temporaryDirectory;
     @Test
     void decodesDataUriTriangleAndGeneratesCanonicalNormalsAndTangents() {
-        LoadedGltfScene scene = loader().load(AssetRef.of("/gltf/minimal.gltf"));
+        LoadedGltfScene scene = loader().load(AssetRef.of("/fixtures/gltf/minimal.gltf"));
 
         assertEquals(0, scene.selectedSceneIndex());
         assertEquals("default", scene.selectedSceneName());
@@ -44,7 +44,7 @@ class GltfAssetLoaderTest {
     void radioFixturePreservesMaskAndAlphaCutoff() {
         LoadedGltfScene scene = new GltfAssetLoader(
                 ResourceLocator.classpath(GltfAssetLoaderTest.class))
-                .load(AssetRef.of("/radio.gltf"));
+                .load(AssetRef.of("/scenes/gltf/radio.gltf"));
 
         assertEquals(GltfAlphaMode.MASK, scene.materials().getFirst().alphaMode());
         assertEquals(0.05f, scene.materials().getFirst().alphaCutoff());
@@ -56,7 +56,7 @@ class GltfAssetLoaderTest {
     void scalabilityFixtureProvidesSharedMultiMaterialTopology() {
         LoadedGltfScene scene = new GltfAssetLoader(
                 ResourceLocator.classpath(GltfAssetLoaderTest.class))
-                .load(AssetRef.of("/gltf/scalability.gltf"));
+                .load(AssetRef.of("/scenes/gltf/scalability.gltf"));
 
         assertEquals(2, scene.nodes().size());
         assertEquals(8, scene.primitives().size());
@@ -70,7 +70,7 @@ class GltfAssetLoaderTest {
     @Test
     void blendMaterialStillFailsWithPreciseDiagnostic() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
-        String blend = classpath.readString(AssetRef.of("/radio.gltf"))
+        String blend = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"BLEND\"");
         Files.writeString(temporaryDirectory.resolve("radio-blend.gltf"), blend);
 
@@ -84,7 +84,7 @@ class GltfAssetLoaderTest {
     @Test
     void opaqueContractCopyOfRadioDecodesAllEmbeddedGeometryAndImage() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
-        String opaque = classpath.readString(AssetRef.of("/radio.gltf"))
+        String opaque = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"OPAQUE\"");
         Files.writeString(temporaryDirectory.resolve("radio-opaque.gltf"), opaque);
         LoadedGltfScene scene = new GltfAssetLoader(classpath.addRoot(temporaryDirectory))
@@ -98,14 +98,14 @@ class GltfAssetLoaderTest {
     @Test
     void duplicateJsonKeyFailsDuringParse() {
         GltfAssetException failure = assertThrows(GltfAssetException.class,
-                () -> loader().load(AssetRef.of("/gltf/duplicate.gltf")));
+                () -> loader().load(AssetRef.of("/fixtures/gltf/duplicate.gltf")));
         assertEquals(GltfAssetException.Phase.PARSE, failure.phase());
         assertTrue(failure.getMessage().contains("Duplicate field"));
     }
 
     @Test
     void sceneCanBeSelectedByName() {
-        LoadedGltfScene scene = loader().load(AssetRef.of("/gltf/minimal.gltf"),
+        LoadedGltfScene scene = loader().load(AssetRef.of("/fixtures/gltf/minimal.gltf"),
                 new GltfLoadOptions(new SceneSelection.ByName("default"), true,
                         GltfAssetLimits.defaults()));
         assertEquals("default", scene.selectedSceneName());
@@ -218,7 +218,7 @@ class GltfAssetLoaderTest {
     @Test
     void sharedMeshNodesPreserveWorldAndMirroredMetadata() {
         LoadedGltfScene scene = new GltfAssetLoader(ResourceLocator.classpath(getClass()))
-                .load(AssetRef.of("/gltf/showcase.gltf"),
+                .load(AssetRef.of("/scenes/gltf/showcase.gltf"),
                         new GltfLoadOptions(new SceneSelection.ByName("showcase"), true,
                                 GltfAssetLimits.defaults()));
         assertEquals(1, scene.primitives().size());

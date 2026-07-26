@@ -1,8 +1,42 @@
 # 变更记录
 
-## Unreleased
+## v0.18.2（2026-07-26）
 
-当前没有未发布变更。
+- 合并经内部验收但未独立发布的 v0.18.1 曲线、VFX over-life、动画 cross-fade/layer fade 和
+  Ribbon miter 修复；不创建 v0.18.1 release commit/tag。
+- 新增纯值 `VfxMaterial/VfxVisualSet/VfxUvRegion`，以显式 mask、Alpha/Additive、emissive、
+  billboard/stretch 和 soft-particle 参数扩展 `EffectAsset` 与不可变 snapshot，同时保留 legacy constructor。
+- 新增 renderer-owned VFX texture cache；mask 以 mipmapped `R8` 上传，彩色纹理使用 sRGB storage，
+  particle、Ribbon 与平面 Decal 统一使用 textured quad，透明顺序不因材质复用而重排。
+- Ribbon stretch UV 使用整条快照路径的反向累计弧长，约定 U 为横截面、V 为轨迹方向，使最新头部
+  采样方向纹理亮端；相邻段共享同一个 miter offset，不再用 additive overlap 补缝，消除周期性亮接头。
+- 新增 `RenderPipeline.hdrVfx`：自动曝光读取 base HDR，VFX 在带 resolved scene depth 的 `RGBA16F`
+  composite 中完成遮挡和 soft fade，Bloom 读取 composite，UI 保持在 tone mapping 后。
+- VFX 采用“类型 / 作者 / 素材包 / 资源”单层目录，完整素材与许可记录进入 JAR；
+  `vfxAssetGuard` 校验目录命名、打包完整性和代码直接引用。
+- VfxDemo 新增 legacy/fire/impact/trail/all、HDR/Bloom/soft-particle 和尺寸参数；Showcase 新增
+  NONE/MSAA/FXAA/TAA、fog 与 auto-exposure 验证入口。
+- 1080p/4K 的 768 粒子、159 Ribbon、2 Decal 基线分别为 GPU `0.3225 ms` 与 `0.6408 ms`；
+  完整数据见 `docs/performance/v0.18.2-textured-hdr-vfx-2026-07-26.md`。
+
+### v0.18.1 内部候选（待合并发布）
+
+- 新增无 GL 依赖的 `core.curve`：`Curve1f/Curves/CubicBezierEasing`、STEP/LINEAR/Hermite
+  `FloatTrack`、线性 HDR `ColorGradient`、固定弧长表 `BezierPath3f` 和 `CurveLut`；
+  cubic-bezier 先反解 `x(u)=time` 再采样 `y(u)`，Newton 退化时使用固定轮数二分。
+- `UiEasing` 保留原 public enum 与像素语义，内部委托共享 preset；glTF 的 STEP、LINEAR 和
+  CUBICSPLINE sampler 未改变，也不映射 cubic-bezier。
+- `EffectAsset.Builder` 新增 particle size/color/rotation、Ribbon width/color 和 Decal scale/color
+  over-life 配置。原 emitter/decal record constructor 未变，未配置曲线时继续执行 0.18.0 线性路径。
+- `AnimationMixer` 新增 `transitionBase`、`fadeLayerTo` 与 `fadeOutLayer`；支持中途重定向、incoming-only
+  事件语义、同权重根运动混合、零时长立即切换，以及 Bone Mask 同时工作。
+- `VfxDemo` 使用两段切线连续的 `BezierPath3f` 近似匀速驱动闭合无限符号 emitter，完整保留一圈
+  Ribbon 并支持 curved/linear preset；Showcase 在应用层
+  串联 incoming animation event 与 curved VFX，不增加 animation/VFX 反向依赖。
+- Ribbon adapter 按相邻段 camera-facing side 计算有上限的共享 miter offset，两段使用完全相同的接头
+  边界，封闭大曲率楔形缝隙且不产生 additive 重叠，也不增加 draw call 或修改 `EffectSnapshot` 合同。
+- 10,000 粒子 no-GL A/B 在 12 次 warmup、40 次交替采样下测得 linear median `0.5720 ms`、
+  curved median `0.5278 ms`；两侧每次 snapshot 分配量同为 `1,241,864` bytes，无新增分配回归。
 
 ## v0.18.0-haikalat-opengl46-roadmap（0.18.0，2026-07-25）
 

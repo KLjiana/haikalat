@@ -92,12 +92,12 @@ public final class LearnOpenGlDemo {
     private static void run(GlfwWindow window, RenderSettings settings, DemoOptions options) {
         Camera camera = new Camera(new Vector3f(0, 0, 5));
         ResourceLocator assets = ResourceLocator.classpath(LearnOpenGlDemo.class);
-        SceneAssetConfig config = SceneAssetConfig.load(assets, "/demo/learnopengl.properties");
+        SceneAssetConfig config = SceneAssetConfig.load(assets, "/scenes/configurations/learnopengl.properties");
         try (FrameDriver renderLoop = new FrameDriver(settings, options.diagnosticsLevel());
              DemoSceneResources resources = DemoSceneResources.load(assets, config);
              DemoGltfResources gltfResources = DemoGltfResources.load(assets, config);
              PbrEnvironment environment = PbrEnvironmentLoader.load(renderLoop.device(), LearnOpenGlDemo.class,
-                     "/pbr/studio-small.hdr", options.deterministic()
+                     "/environments/pbr/studio-small.hdr", options.deterministic()
                              ? PbrEnvironmentSettings.testQuality()
                              : PbrEnvironmentSettings.defaultQuality())) {
             Scene scene = buildScene(camera, config, resources, gltfResources);

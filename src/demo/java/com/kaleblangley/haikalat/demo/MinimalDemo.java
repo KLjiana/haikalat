@@ -60,9 +60,9 @@ public final class MinimalDemo {
 
         ShaderProgram colorShader = DemoSupport.loadColorMvpShader(MinimalDemo.class);
         ShaderProgram texShader = ShaderProgram.fromResource(MinimalDemo.class,
-                "/demo/textured_mvp.vert", "/demo/textured_unlit.frag");
+                "/shaders/basic/textured-mvp.vert", "/shaders/basic/textured-unlit.frag");
         ShaderProgram instShader = DemoSupport.loadProjectionViewInstancedShader(MinimalDemo.class);
-        Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/wall.png", false,
+        Texture2D wallTexture = Texture2D.fromResource(MinimalDemo.class, "/textures/learnopengl/wall.png", false,
                 TextureColorSpace.SRGB);
 
         Mesh triangle = Mesh.from(BuiltinMeshData.coloredTriangle("minimal-triangle"));

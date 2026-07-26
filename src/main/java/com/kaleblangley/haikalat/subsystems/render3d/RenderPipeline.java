@@ -73,6 +73,7 @@ public final class RenderPipeline {
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private GraphPreviewRenderer previewRenderer;
+    private PassExecutor hdrVfxRecorder;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -142,6 +143,15 @@ public final class RenderPipeline {
         return this;
     }
 
+    /** Adds a controlled HDR VFX recorder before Bloom and tone mapping. */
+    public RenderPipeline hdrVfx(PassExecutor recorder) {
+        if (graph != null) {
+            throw new IllegalStateException("HDR VFX must be configured before build");
+        }
+        hdrVfxRecorder = Objects.requireNonNull(recorder, "recorder");
+        return this;
+    }
+
     public void build() {
         int w = window.width();
         int h = window.height();
@@ -165,17 +175,17 @@ public final class RenderPipeline {
                 environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
             }
             postProcess = PostProcessPassBuilder.create(
-                    settings, postProcessSettings, window, w, h);
+                    settings, postProcessSettings, window, w, h, hdrVfxRecorder);
             boolean hasDirectionalShadow = LightingBinder.shadowDirectionalLight(scene).isPresent();
             boolean hasPointShadow = LightingBinder.shadowPointLight(scene).isPresent();
             boolean hasSpotShadow = LightingBinder.shadowSpotLight(scene).isPresent();
             if (hasDirectionalShadow || hasPointShadow || hasSpotShadow) {
                 shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
-                        "/shadows/directional_depth.vert", "/shadows/directional_depth.frag");
+                        "/shaders/shadows/directional-depth.vert", "/shaders/shadows/directional-depth.frag");
                 if (hasDirectionalShadow && instanced != null && instanced.castShadows()) {
                     instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
-                            "/shadows/instanced_directional_depth.vert",
-                            "/shadows/directional_depth.frag");
+                            "/shaders/shadows/instanced-directional-depth.vert",
+                            "/shaders/shadows/directional-depth.frag");
                 }
             }
 
@@ -206,6 +216,9 @@ public final class RenderPipeline {
         boolean fog = postProcessSettings.fog().enabled();
         if ((colorGrading || fog) && !settings.hdrEnabled()) {
             throw new IllegalStateException("Color grading and fog require HDR tone mapping");
+        }
+        if (hdrVfxRecorder != null && !settings.hdrEnabled()) {
+            throw new IllegalStateException("HDR VFX requires HDR tone mapping");
         }
         if (fog && settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
             throw new IllegalStateException(

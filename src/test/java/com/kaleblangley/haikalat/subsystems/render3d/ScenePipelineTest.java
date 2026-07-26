@@ -19,7 +19,7 @@ class ScenePipelineTest {
     void instancedShadowShaderUsesBatchMatrixAttributeLocations() throws IOException {
         String source;
         try (var stream = ScenePipelineTest.class.getResourceAsStream(
-                "/shadows/instanced_directional_depth.vert")) {
+                "/shaders/shadows/instanced-directional-depth.vert")) {
             assertTrue(stream != null);
             source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

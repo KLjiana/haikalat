@@ -50,14 +50,14 @@ public final class GpuParticleExperiment implements GlResource {
             initial.limit(initial.capacity());
             createdParticles = GlBuffer.shaderStorageBuffer(GL_DYNAMIC_DRAW).upload(initial);
             createdUpdate = ShaderProgram.fromComputeResource(GpuParticleExperiment.class,
-                    "/render3d/vfx/gpu_particle.comp");
+                    "/shaders/render3d/vfx/gpu-particle.comp");
             createdDraw = ShaderProgram.builder()
                     .resource(GpuParticleExperiment.class, ShaderStage.VERTEX,
-                            "/render3d/vfx/gpu_particle.vert")
+                            "/shaders/render3d/vfx/gpu-particle.vert")
                     .resource(GpuParticleExperiment.class, ShaderStage.GEOMETRY,
-                            "/render3d/vfx/gpu_particle.geom")
+                            "/shaders/render3d/vfx/gpu-particle.geom")
                     .resource(GpuParticleExperiment.class, ShaderStage.FRAGMENT,
-                            "/render3d/vfx/gpu_particle.frag")
+                            "/shaders/render3d/vfx/gpu-particle.frag")
                     .link();
             createdVertexArray = new VertexArray();
         } catch (RuntimeException | Error failure) {

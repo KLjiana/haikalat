@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.animation;
 
+import com.kaleblangley.haikalat.core.curve.Curves;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -131,6 +132,135 @@ class AdvancedAnimationTest {
     }
 
     @Test
+    void mixerCrossFadesBasePoseAndSupportsImmediateTransitions() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip idle = constantTranslation("idle", skeleton, 0.0f);
+        AnimationClip run = constantTranslation("run", skeleton, 10.0f);
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(idle, LOOP);
+
+        mixer.transitionBase(run, LOOP, 2.0f, Curves.LINEAR).update(1.0f, result);
+        assertEquals(5.0f, result.localTransform(0).translation().x(), EPSILON);
+        assertEquals(0.5f, mixer.baseTransitionWeight(), EPSILON);
+        mixer.update(1.0f, result);
+        assertEquals(10.0f, result.localTransform(0).translation().x(), EPSILON);
+        assertFalse(mixer.isBaseTransitioning());
+
+        mixer.transitionBase(idle, LOOP, 0.0f, Curves.EASE_IN_OUT_CUBIC).update(0.0f, result);
+        assertEquals(0.0f, result.localTransform(0).translation().x(), EPSILON);
+        assertEquals("idle", mixer.basePlayer().clip().orElseThrow().name());
+    }
+
+    @Test
+    void mixerUsesEasedWeightsAndRetargetsWithoutPoseJump() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip zero = constantTranslation("zero", skeleton, 0.0f);
+        AnimationClip ten = constantTranslation("ten", skeleton, 10.0f);
+        AnimationClip twenty = constantTranslation("twenty", skeleton, 20.0f);
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(zero, LOOP)
+                .transitionBase(ten, LOOP, 1.0f, Curves.EASE_IN_OUT_CUBIC);
+
+        mixer.update(0.25f, result);
+        assertEquals(0.625f, result.localTransform(0).translation().x(), EPSILON);
+        mixer.update(0.25f, result);
+        float beforeRetarget = result.localTransform(0).translation().x();
+        mixer.transitionBase(twenty, LOOP, 1.0f, Curves.LINEAR).update(0.0f, result);
+        assertEquals(beforeRetarget, result.localTransform(0).translation().x(), EPSILON);
+        mixer.update(0.5f, result);
+        assertEquals((beforeRetarget + 20.0f) * 0.5f,
+                result.localTransform(0).translation().x(), EPSILON);
+    }
+
+    @Test
+    void crossFadePublishesOnlyIncomingEventsAndBlendsRootMotion() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip outgoing = AnimationClip.builder("outgoing", skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 2.0f},
+                        new Vector3f(), new Vector3f(2.0f, 0.0f, 0.0f))
+                .event(0.5f, "outgoing-event").build();
+        AnimationClip incoming = AnimationClip.builder("incoming", skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 2.0f},
+                        new Vector3f(), new Vector3f(4.0f, 0.0f, 0.0f))
+                .event(0.5f, "incoming-event").build();
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(outgoing, LOOP);
+        mixer.drainEvents();
+        mixer.transitionBase(incoming, LOOP, 2.0f, Curves.LINEAR);
+
+        RootMotionDelta delta = mixer.updateWithRootMotion(1.0f, result, 0, true);
+
+        assertEquals(1.5f, delta.translation().x(), EPSILON);
+        assertEquals(0.0f, result.localTransform(0).translation().x(), EPSILON);
+        assertEquals(List.of("incoming-event"), names(mixer.drainEvents()));
+        assertEquals(List.of(), names(mixer.drainEvents()));
+    }
+
+    @Test
+    void crossFadeHandlesLargeLoopDeltaAndRetargetedRootMotionDeterministically() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip slow = movingClip("slow", skeleton, 1.0f);
+        AnimationClip fast = movingClip("fast", skeleton, 3.0f);
+        AnimationClip reverse = movingClip("reverse", skeleton, -1.0f);
+        PoseBuffer firstPose = skeleton.createPoseBuffer();
+        PoseBuffer secondPose = skeleton.createPoseBuffer();
+        AnimationMixer first = new AnimationMixer(skeleton).playBase(slow, LOOP)
+                .transitionBase(fast, LOOP, 4.0f, Curves.LINEAR);
+        AnimationMixer second = new AnimationMixer(skeleton).playBase(slow, LOOP)
+                .transitionBase(fast, LOOP, 4.0f, Curves.LINEAR);
+
+        RootMotionDelta firstDelta = first.updateWithRootMotion(2.5f, firstPose, 0, true);
+        RootMotionDelta secondDelta = second.updateWithRootMotion(2.5f, secondPose, 0, true);
+        assertEquals(firstDelta.translation().x(), secondDelta.translation().x(), EPSILON);
+        assertEquals(0.0f, firstPose.localTransform(0).translation().x(), EPSILON);
+
+        first.transitionBase(reverse, LOOP, 1.0f, Curves.LINEAR);
+        RootMotionDelta retargeted = first.updateWithRootMotion(0.5f, firstPose, 0, true);
+        assertTrue(Float.isFinite(retargeted.translation().x()));
+        assertEquals(0.0f, firstPose.localTransform(0).translation().x(), EPSILON);
+    }
+
+    @Test
+    void rootMotionRemovalAppliesAfterLayerComposition() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip base = movingClip("base", skeleton, 2.0f);
+        AnimationClip layer = constantTranslation("root-layer", skeleton, 9.0f);
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(base, LOOP)
+                .playLayer(layer, LOOP).layerWeight(1.0f);
+
+        RootMotionDelta delta = mixer.updateWithRootMotion(0.5f, result, 0, true);
+
+        assertEquals(1.0f, delta.translation().x(), EPSILON);
+        assertEquals(0.0f, result.localTransform(0).translation().x(), EPSILON);
+    }
+
+    @Test
+    void layerFadeCanBeReplacedAndWorksWithBoneMask() {
+        Skeleton skeleton = twoJointSkeleton();
+        AnimationClip base = constantTranslation("base", skeleton, 0.0f);
+        AnimationClip layer = AnimationClip.builder("layer", skeleton)
+                .translation(1, LINEAR, new float[]{0.0f, 1.0f},
+                        transform(1.0f, 2.0f, 0.0f).translation(),
+                        transform(1.0f, 2.0f, 0.0f).translation()).build();
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(base, LOOP)
+                .playLayer(layer, LOOP)
+                .layerMask(BoneMask.builder(skeleton).joint(1, 1.0f).build())
+                .layerWeight(0.0f)
+                .fadeLayerTo(1.0f, 1.0f, Curves.LINEAR);
+
+        mixer.update(0.5f, result);
+        assertEquals(0.5f, mixer.layerWeight(), EPSILON);
+        assertEquals(1.0f, result.localTransform(1).translation().y(), EPSILON);
+        mixer.fadeOutLayer(1.0f, Curves.LINEAR).update(0.5f, result);
+        assertEquals(0.25f, mixer.layerWeight(), EPSILON);
+        assertEquals(0.5f, result.localTransform(1).translation().y(), EPSILON);
+        mixer.clearLayer();
+        assertFalse(mixer.isLayerFading());
+    }
+
+    @Test
     void twoBoneIkReachesTargetsClampsAndHonorsWeight() {
         Skeleton skeleton = ikSkeleton();
         PoseBuffer reachable = skeleton.createPoseBuffer();
@@ -159,6 +289,20 @@ class AdvancedAnimationTest {
 
     private static List<String> names(List<AnimationEvent> events) {
         return events.stream().map(AnimationEvent::name).toList();
+    }
+
+    private static AnimationClip constantTranslation(String name, Skeleton skeleton, float x) {
+        return AnimationClip.builder(name, skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 1.0f},
+                        new Vector3f(x, 0.0f, 0.0f), new Vector3f(x, 0.0f, 0.0f))
+                .build();
+    }
+
+    private static AnimationClip movingClip(String name, Skeleton skeleton, float distance) {
+        return AnimationClip.builder(name, skeleton)
+                .translation(0, LINEAR, new float[]{0.0f, 1.0f},
+                        new Vector3f(), new Vector3f(distance, 0.0f, 0.0f))
+                .build();
     }
 
     private static void assertPosition(PoseBuffer pose, int joint, float x, float y, float z,

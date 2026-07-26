@@ -19,7 +19,7 @@ public final class FxaaPostProcessor implements GlResource {
 
     public FxaaPostProcessor() {
         this.program = ShaderProgram.fromResource(FxaaPostProcessor.class,
-                "/postprocess/screen_quad.vert", "/postprocess/fxaa.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/fxaa.frag");
         this.quad = new ScreenQuad();
         this.uSceneLocation = program.uniformLocation("uScene");
         this.uInvResLocation = program.uniformLocation("uInvResolution");

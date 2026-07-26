@@ -146,7 +146,7 @@ tasks.register('runGltfSceneScalabilityDemo', JavaExec) {
     mainClass = gltfSceneScalabilityMainClass
     javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
     workingDir = projectDir
-    args "--scene=${providers.gradleProperty('gltfScene').getOrElse('/gltf/scalability.gltf')}",
+    args "--scene=${providers.gradleProperty('gltfScene').getOrElse('/scenes/gltf/scalability.gltf')}",
             "--renderers=${providers.gradleProperty('gltfSceneRenderers').getOrElse('1000')}",
             "--layout=${providers.gradleProperty('gltfSceneLayout').getOrElse('mixed')}",
             "--visibility=${providers.gradleProperty('gltfSceneVisibility').getOrElse('enabled')}",

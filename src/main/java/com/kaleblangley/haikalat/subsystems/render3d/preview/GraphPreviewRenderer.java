@@ -385,7 +385,7 @@ public final class GraphPreviewRenderer implements AutoCloseable {
         closeGpuResources();
         try {
             shader = ShaderProgram.fromResource(GraphPreviewRenderer.class,
-                    "/render3d/preview/preview.vert", "/render3d/preview/preview.frag");
+                    "/shaders/render3d/preview/preview.vert", "/shaders/render3d/preview/preview.frag");
             quad = new ScreenQuad();
             linear2d = Sampler.create(new Sampler.Descriptor(GL_LINEAR, GL_LINEAR,
                     GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE));

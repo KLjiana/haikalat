@@ -21,7 +21,7 @@ public final class FogPass implements GlResource {
 
     public FogPass() {
         program = ShaderProgram.fromResource(FogPass.class,
-                "/postprocess/screen_quad.vert", "/postprocess/distance_height_fog.frag");
+                "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/distance-height-fog.frag");
         quad = new ScreenQuad();
     }
 

@@ -1,6 +1,6 @@
 # radio.gltf 资产状态
 
-- 本地路径：`src/demo/resources/radio.gltf`
+- 本地路径：`src/demo/resources/scenes/gltf/radio.gltf`
 - 提供方式：项目维护者于 2026-07-18 放入 Demo resources。
 - 生成器元数据：Blockbench 5.1.4 glTF exporter。
 - 当前文件 SHA-256：`d94b3c152a76de4753e06633dfd3b96dda1d71cb16e8116c5b3a2a7c59d9ea2e`。

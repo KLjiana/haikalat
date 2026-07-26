@@ -1,7 +1,12 @@
 def localReleaseTasks = [
         'check', 'glSmoke', 'runDemoIntegration', 'runDemoResizeIntegration',
-        'runAnimationIntegration', 'runVfxIntegration', 'runAsyncIntegration',
-        'runShowcaseIntegration', 'runShowcaseStabilityIntegration',
+        'runAnimationIntegration', 'runVfxIntegration',
+        'runVfxLegacyIntegration', 'runVfxFireIntegration',
+        'runVfxImpactIntegration', 'runVfxTrailIntegration', 'runVfxCurveBenchmark',
+        'runAsyncIntegration',
+        'runShowcaseIntegration', 'runShowcaseVfxMsaaIntegration',
+        'runShowcaseVfxAutoExposureIntegration',
+        'runShowcaseStabilityIntegration',
         'runPbrIntegration', 'runPbrResizeIntegration',
         'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
         'runGltfIntegration', 'runGltfResizeIntegration',
@@ -28,4 +33,3 @@ localReleaseTasks.collate(2, 1, false).each { pair ->
         mustRunAfter pair[0]
     }
 }
-

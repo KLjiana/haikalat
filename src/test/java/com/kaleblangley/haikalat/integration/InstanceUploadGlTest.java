@@ -53,7 +53,7 @@ class InstanceUploadGlTest {
                     0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
                     PackedInstanceLayout.packRgba8(1.0f, 0.25f, 0.1f, 1.0f));
             try (ShaderProgram shader = ShaderProgram.fromResource(GlContextSmokeTest.class,
-                    cube.indexedSsboShaderResource(), "/demo/vertex_color_unlit.frag");
+                    cube.indexedSsboShaderResource(), "/shaders/basic/vertex-color-unlit.frag");
                  GlBuffer elementBuffer = GlBuffer.elementArrayBuffer(GL_STATIC_DRAW)
                          .upload(DirectBuffers.copyOf(cube.indices()));
                  VertexArray vao = new VertexArray();
@@ -125,10 +125,11 @@ class InstanceUploadGlTest {
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
 
-            Path resources = Path.of("src", "demo", "resources", "demo");
+            Path resources = Path.of("src", "demo", "resources", "shaders", "instancing");
             ShaderProgram shader = ShaderProgram.fromSources(
-                    Files.readString(resources.resolve("instanced_projview.vert")),
-                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+                    Files.readString(resources.resolve("instanced-projview.vert")),
+                    Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
+                            "vertex-color-unlit.frag")));
             VertexLayout layout = VertexLayout.interleaved(6 * Float.BYTES,
                     VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
                     VertexAttribute.builder().index(1).size(3).type(GL_FLOAT)
@@ -175,10 +176,11 @@ class InstanceUploadGlTest {
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
 
-            Path resources = Path.of("src", "demo", "resources", "demo");
+            Path resources = Path.of("src", "demo", "resources", "shaders", "instancing");
             ShaderProgram shader = ShaderProgram.fromSources(
-                    Files.readString(resources.resolve("instanced_projview.vert")),
-                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+                    Files.readString(resources.resolve("instanced-projview.vert")),
+                    Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
+                            "vertex-color-unlit.frag")));
             VertexLayout layout = VertexLayout.interleaved(6 * Float.BYTES,
                     VertexAttribute.builder().index(0).size(3).type(GL_FLOAT).offsetBytes(0).build(),
                     VertexAttribute.builder().index(1).size(3).type(GL_FLOAT)
@@ -229,10 +231,11 @@ class InstanceUploadGlTest {
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
 
-            Path resources = Path.of("src", "demo", "resources", "demo");
+            Path resources = Path.of("src", "demo", "resources", "shaders", "instancing");
             ShaderProgram shader = ShaderProgram.fromSources(
-                    Files.readString(resources.resolve("instanced_projview.vert")),
-                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+                    Files.readString(resources.resolve("instanced-projview.vert")),
+                    Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
+                            "vertex-color-unlit.frag")));
             Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("multi-pass-failure-recovery"));
             InstancedMeshBatch batch = InstancedMeshBatch.of(mesh, 1, 3);
             Framebuffer target = Framebuffer.singleSampled(32, 32);
@@ -322,10 +325,11 @@ class InstanceUploadGlTest {
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
 
-            Path resources = Path.of("src", "demo", "resources", "demo");
+            Path resources = Path.of("src", "demo", "resources", "shaders", "instancing");
             ShaderProgram shader = ShaderProgram.fromSources(
-                    Files.readString(resources.resolve("async_instanced.vert")),
-                    Files.readString(resources.resolve("vertex_color_unlit.frag")));
+                    Files.readString(resources.resolve("async-instanced.vert")),
+                    Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
+                            "vertex-color-unlit.frag")));
             shader.bindUniformBlock("AsyncInstances", 1);
             Mesh mesh = Mesh.from(BuiltinMeshData.named(BuiltinMeshData.QUAD));
             GlBuffer matrices = GlBuffer.uniformBuffer(GL_DYNAMIC_DRAW).allocate(16L * 16 * Float.BYTES);

@@ -31,7 +31,7 @@ public final class ToneMappingPass implements GlResource {
         Texture2D ownedLut = null;
         try {
             ownedProgram = ShaderProgram.fromResource(ToneMappingPass.class,
-                    "/postprocess/screen_quad.vert", "/postprocess/aces_tone_mapping.frag");
+                    "/shaders/postprocess/screen-quad.vert", "/shaders/postprocess/aces-tone-mapping.frag");
             ownedQuad = new ScreenQuad();
             if (colorGrading.enabled()) {
                 ColorGradingLut lut = colorGrading.lut();

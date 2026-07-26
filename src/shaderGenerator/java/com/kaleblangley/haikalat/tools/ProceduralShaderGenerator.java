@@ -39,9 +39,9 @@ public final class ProceduralShaderGenerator {
         }
         Path javaRoot = Path.of(args[0]);
         Path resourceRoot = Path.of(args[1]);
-        String flatTemplate = readTemplate("/stress_procedural.vert.template");
-        String indexedTemplate = readTemplate("/stress_indexed.vert.template");
-        String ssboTemplate = readTemplate("/stress_indexed_ssbo.vert.template");
+        String flatTemplate = readTemplate("/templates/stress/stress-procedural.vert.template");
+        String indexedTemplate = readTemplate("/templates/stress/stress-indexed.vert.template");
+        String ssboTemplate = readTemplate("/templates/stress/stress-indexed-ssbo.vert.template");
         List<Generated> generated = new ArrayList<>();
         for (Definition definition : DEFINITIONS) {
             generated.add(generateShaders(resourceRoot, flatTemplate, indexedTemplate,
@@ -61,11 +61,11 @@ public final class ProceduralShaderGenerator {
                 .replace("@POSITIONS@", formatPositions(expanded))
                 .replace("@ROTATE_LOCAL@", rotation(definition.rotate()))
                 .replace("@DEPTH@", depth(definition.depth())));
-        String indexedPath = writeShader(root, stem + "_indexed.vert", indexedTemplate
+        String indexedPath = writeShader(root, stem + "-indexed.vert", indexedTemplate
                 .replace("@LOCAL_POSITION@", definition.localPosition())
                 .replace("@ROTATE_LOCAL@", rotation(definition.rotate()))
                 .replace("@DEPTH@", depth(definition.depth())));
-        String ssboPath = writeShader(root, stem + "_indexed_ssbo.vert", ssboTemplate
+        String ssboPath = writeShader(root, stem + "-indexed-ssbo.vert", ssboTemplate
                 .replace("@LOCAL_POSITION@", definition.localPosition())
                 .replace("@ROTATE_LOCAL@", packedRotation(definition.rotate())));
         return new Generated(definition, flatPath, indexedPath, ssboPath,
@@ -73,10 +73,10 @@ public final class ProceduralShaderGenerator {
     }
 
     private static String writeShader(Path root, String fileName, String source) throws IOException {
-        Path output = root.resolve("demo/stress/generated").resolve(fileName);
+        Path output = root.resolve("shaders/instancing/stress/generated").resolve(fileName);
         Files.createDirectories(output.getParent());
         Files.writeString(output, source, StandardCharsets.UTF_8);
-        return "/demo/stress/generated/" + fileName;
+        return "/shaders/instancing/stress/generated/" + fileName;
     }
 
     private static List<float[]> expandedPositions(MeshData mesh) {

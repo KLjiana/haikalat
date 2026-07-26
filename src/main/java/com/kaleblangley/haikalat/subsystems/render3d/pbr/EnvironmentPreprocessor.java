@@ -21,7 +21,7 @@ import static org.lwjgl.opengl.GL42.GL_TEXTURE_FETCH_BARRIER_BIT;
 /** 固定的 GPU environment preprocessing 实现，不参与逐帧 RenderGraph。 */
 final class EnvironmentPreprocessor {
     static final String FAILURE_POINT_PROPERTY = "haikalat.pbr.testFailurePoint";
-    private static final String SHADER_ROOT = "/render3d/pbr/";
+    private static final String SHADER_ROOT = "/shaders/render3d/pbr/";
     private static final int VISIBILITY_BARRIER =
             GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT;
 
@@ -46,10 +46,10 @@ final class EnvironmentPreprocessor {
         TextureCube prefiltered = null;
         Texture2D brdfLut = null;
         Throwable primaryFailure = null;
-        try (ShaderProgram equirect = compute("equirect_to_cube.comp");
+        try (ShaderProgram equirect = compute("equirect-to-cube.comp");
              ShaderProgram irradianceProgram = compute("irradiance.comp");
              ShaderProgram prefilterProgram = compute("prefilter.comp");
-             ShaderProgram brdfProgram = compute("brdf_lut.comp");
+             ShaderProgram brdfProgram = compute("brdf-lut.comp");
              Sampler sourceSampler = sampler(GL_LINEAR, GL_LINEAR);
              Sampler cubeSampler = sampler(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR)) {
             environment = TextureCube.create(settings.environmentSize(),

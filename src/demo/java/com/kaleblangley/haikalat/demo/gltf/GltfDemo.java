@@ -62,7 +62,7 @@ public final class GltfDemo {
                 .build();
         try (FrameDriver driver = new FrameDriver(settings);
              PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(), GltfDemo.class,
-                     "/pbr/studio-small.hdr", PbrEnvironmentSettings.quality(options.environmentQuality()));
+                     "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.quality(options.environmentQuality()));
              GltfDemoAssets assets = GltfDemoAssets.load()) {
             Camera camera = new Camera(new Vector3f(0.0f, 0.8f, 8.0f));
             Scene scene = new Scene(camera);

@@ -15,12 +15,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DemoResourceContractTest {
-    private static final Path DEMO_RESOURCES = Path.of("src", "demo", "resources", "demo");
+    private static final Path DEMO_RESOURCES = Path.of("src", "demo", "resources");
+    private static final Path INSTANCING_SHADERS = DEMO_RESOURCES.resolve("shaders/instancing");
+    private static final Path SCENE_SHADERS = DEMO_RESOURCES.resolve("shaders/scene");
+    private static final Path SCENE_CONFIGURATIONS = DEMO_RESOURCES.resolve("scenes/configurations");
 
     @Test
     void instancedShadersMatchTheirBatchBaseAttributeLocations() throws IOException {
-        String projViewShader = Files.readString(DEMO_RESOURCES.resolve("instanced_projview.vert"));
-        String sceneShader = Files.readString(DEMO_RESOURCES.resolve("instanced_scene.vert"));
+        String projViewShader = Files.readString(INSTANCING_SHADERS.resolve("instanced-projview.vert"));
+        String sceneShader = Files.readString(INSTANCING_SHADERS.resolve("instanced-scene.vert"));
 
         String expectedLayout = "layout (location = " + BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE
                 + ") in mat4 aInstanceMatrix;";
@@ -33,7 +36,7 @@ class DemoResourceContractTest {
     @Test
     void groundUsesRadiansAndLiesOnTheXzPlane() throws IOException {
         Properties properties = new Properties();
-        try (var reader = Files.newBufferedReader(DEMO_RESOURCES.resolve("learnopengl.properties"))) {
+        try (var reader = Files.newBufferedReader(SCENE_CONFIGURATIONS.resolve("learnopengl.properties"))) {
             properties.load(reader);
         }
         String[] rotation = properties.getProperty("object.ground.rotation").split(",");
@@ -45,7 +48,7 @@ class DemoResourceContractTest {
 
     @Test
     void litShadersUseTheSelectedShadowDirectionalLightIndex() throws IOException {
-        String shader = Files.readString(DEMO_RESOURCES.resolve("lit_scene.frag"));
+        String shader = Files.readString(SCENE_SHADERS.resolve("lit-scene.frag"));
 
         assertTrue(shader.contains("uniform int uDirectionalShadowLightIndex;"));
         assertTrue(shader.contains("i == uDirectionalShadowLightIndex"));
@@ -55,7 +58,7 @@ class DemoResourceContractTest {
 
     @Test
     void packagedObjBaselineHasRenderablePositionNormalUvData() throws IOException {
-        Path modelPath = DEMO_RESOURCES.resolve("models/baseline_pyramid.obj");
+        Path modelPath = DEMO_RESOURCES.resolve("models/obj/baseline-pyramid.obj");
         LoadedModel loaded = ObjModelLoader.parse(Files.readString(modelPath), modelPath.toString());
         MeshData mesh = loaded.firstMesh();
 
@@ -73,10 +76,10 @@ class DemoResourceContractTest {
         }
 
         Properties properties = new Properties();
-        try (var reader = Files.newBufferedReader(DEMO_RESOURCES.resolve("learnopengl.properties"))) {
+        try (var reader = Files.newBufferedReader(SCENE_CONFIGURATIONS.resolve("learnopengl.properties"))) {
             properties.load(reader);
         }
-        assertEquals("/demo/models/baseline_pyramid.obj", properties.getProperty("model.pyramid.path"));
+        assertEquals("/models/obj/baseline-pyramid.obj", properties.getProperty("model.pyramid.path"));
         assertEquals("pyramid", properties.getProperty("object.pyramid.model"));
     }
 }
