@@ -60,6 +60,7 @@ public final class AnimationController implements AutoCloseable {
     private long droppedSignals;
     private long syncFallbacks;
     private long updateCpuNanos;
+    private String lastTransitionReason = "entry";
     private boolean closed;
 
     AnimationController(AnimationGraph graph) {
@@ -132,6 +133,11 @@ public final class AnimationController implements AutoCloseable {
         return transition == null ? OptionalInt.empty() : OptionalInt.of(transitionTargetState);
     }
 
+    public String targetStateName() {
+        requireOpen();
+        return transition == null ? "" : graph.state(transitionTargetState).name();
+    }
+
     public float transitionWeight() {
         requireOpen();
         return transitionWeight;
@@ -141,6 +147,17 @@ public final class AnimationController implements AutoCloseable {
         requireOpen();
         AnimationGraph.StateDefinition state = graph.state(currentState);
         return normalized(currentTime, state.motion().durationSeconds());
+    }
+
+    /** Current state-local playback time in seconds. */
+    public float currentTimeSeconds() {
+        requireOpen();
+        return currentTime;
+    }
+
+    public String lastTransitionReason() {
+        requireOpen();
+        return lastTransitionReason;
     }
 
     public int morphTargetCount() {
@@ -405,6 +422,7 @@ public final class AnimationController implements AutoCloseable {
             transitionSourceFrozen = false;
         }
         transition = selected;
+        lastTransitionReason = transitionReason(selected, interrupted);
         transitionSourceState = source;
         transitionSourceTime = currentTime;
         transitionSourceLoop = currentLoop;
@@ -479,6 +497,21 @@ public final class AnimationController implements AutoCloseable {
             queuedTransition = null;
             startTransition(queued, false);
         }
+    }
+
+    private String transitionReason(AnimationGraph.TransitionDefinition definition,
+                                    boolean interrupted) {
+        StringBuilder reason = new StringBuilder();
+        if (interrupted) reason.append("interrupted ");
+        else if (definition.queued()) reason.append("queued ");
+        if (definition.conditions().isEmpty()) return reason.append("unconditional").toString();
+        for (int index = 0; index < definition.conditions().size(); index++) {
+            if (index > 0) reason.append(" & ");
+            AnimationGraph.Condition condition = definition.conditions().get(index).condition();
+            reason.append(condition.parameter()).append(':')
+                    .append(condition.comparison().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        return reason.toString();
     }
 
     private AnimationGraph.TransitionDefinition selectTransition(int sourceState,

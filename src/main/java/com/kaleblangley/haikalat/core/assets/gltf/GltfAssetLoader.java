@@ -26,8 +26,35 @@ public final class GltfAssetLoader {
     }
 
     public LoadedGltfScene load(AssetRef ref, GltfLoadOptions options) {
+        return load(ref, options, GltfAnimationMetadata.empty());
+    }
+
+    public LoadedGltfScene loadWithSidecar(AssetRef ref) {
+        return loadWithSidecar(ref, GltfLoadOptions.defaults());
+    }
+
+    /** Loads {@code <asset>.animation.json} or {@code <asset>.markers.json} when present. */
+    public LoadedGltfScene loadWithSidecar(AssetRef ref, GltfLoadOptions options) {
         Objects.requireNonNull(ref, "ref");
         Objects.requireNonNull(options, "options");
+        String path = ref.path();
+        int dot = path.lastIndexOf('.');
+        String base = dot < 0 ? path : path.substring(0, dot);
+        AssetRef sidecar = AssetRef.of(base + ".animation.json");
+        if (!locator.exists(sidecar)) {
+            sidecar = AssetRef.of(base + ".markers.json");
+        }
+        if (!locator.exists(sidecar)) return load(ref, options);
+        String sidecarJson = new String(locator.readBytes(sidecar,
+                options.limits().documentBytes()), java.nio.charset.StandardCharsets.UTF_8);
+        return load(ref, options, GltfAnimationMetadata.fromJson(sidecar, sidecarJson));
+    }
+
+    public LoadedGltfScene load(AssetRef ref, GltfLoadOptions options,
+                                GltfAnimationMetadata metadata) {
+        Objects.requireNonNull(ref, "ref");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(metadata, "metadata");
         if (!ref.extension().equals("gltf") && !ref.extension().equals("glb")) {
             throw error(ref, GltfAssetException.Phase.READ, "source", "expected .gltf or .glb asset");
         }
@@ -43,7 +70,7 @@ public final class GltfAssetLoader {
                 ref.extension().equals("glb"));
         Map<String, Object> root = GltfDocumentReader.parseJson(ref, parsed.json());
         try {
-            return new Decoder(ref, root, parsed.bin(), parsed.warnings(), options).decode();
+            return new Decoder(ref, root, parsed.bin(), parsed.warnings(), options, metadata).decode();
         } catch (GltfAssetException failure) {
             throw failure;
         } catch (GltfDecodeException failure) {
@@ -61,6 +88,7 @@ public final class GltfAssetLoader {
         private final byte[] glbBin;
         private final List<String> warnings;
         private final GltfLoadOptions options;
+        private final GltfAnimationMetadata metadata;
         private final GltfUriResolver uriResolver;
         private List<byte[]> buffers;
         private List<Map<String, Object>> views;
@@ -76,12 +104,14 @@ public final class GltfAssetLoader {
         private long indexBytes;
 
         Decoder(AssetRef source, Map<String, Object> root, byte[] glbBin,
-                List<String> warnings, GltfLoadOptions options) {
+                List<String> warnings, GltfLoadOptions options,
+                GltfAnimationMetadata metadata) {
             this.source = source;
             this.root = root;
             this.glbBin = glbBin;
             this.warnings = new ArrayList<>(warnings);
             this.options = options;
+            this.metadata = metadata;
             this.uriResolver = new GltfUriResolver(locator, source, glbBin, options.limits());
         }
 
@@ -107,7 +137,7 @@ public final class GltfAssetLoader {
             bufferTable.validate();
             accessorDecoder = new GltfAccessorDecoder(source, accessors, bufferTable);
             GltfMaterialDecoder materialDecoder = new GltfMaterialDecoder(source,
-                    options.limits(), uriResolver, bufferTable);
+                    options.limits(), uriResolver, bufferTable, options.strictExtensions());
             GltfMaterialDecoder.Result materialResult = materialDecoder.decode(samplerDtos,
                     textureDtos, imageDtos, materialDtos);
             List<LoadedGltfScene.SamplerDef> samplers = materialResult.samplers();
@@ -137,7 +167,8 @@ public final class GltfAssetLoader {
             validateSkinning(nodes, nodeResult.nodeRigs(), primitives,
                     meshResult.primitiveSkinning(), skins);
             List<LoadedGltfScene.AnimationDef> animations = new GltfAnimationDecoder(source,
-                    options.limits(), accessorDecoder).decode(animationDtos, nodeResult.nodeRigs());
+                    options.limits(), accessorDecoder).decode(animationDtos, nodeResult.nodeRigs(),
+                    metadata);
             int reachable = (int) nodes.stream().filter(LoadedGltfScene.Node::reachable).count();
             int animationChannels = animations.stream()
                     .mapToInt(animation -> animation.channels().size()).sum();

@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.animation.gltf;
 
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationMarker;
 import com.kaleblangley.haikalat.subsystems.animation.JointTransform;
 import com.kaleblangley.haikalat.subsystems.animation.MorphWeightTrack;
 import com.kaleblangley.haikalat.subsystems.animation.Skeleton;
@@ -21,14 +22,17 @@ public final class GltfAnimationRig {
     private final Skeleton skeleton;
     private final List<Skin> skins;
     private final List<AnimationClip> clips;
+    private final List<LoadedGltfScene.AnimationDef> animations;
     private final List<Map<Integer, MorphWeightTrack>> morphTracks;
 
     private GltfAnimationRig(Skeleton skeleton, List<Skin> skins,
                              List<AnimationClip> clips,
+                             List<LoadedGltfScene.AnimationDef> animations,
                              List<Map<Integer, MorphWeightTrack>> morphTracks) {
         this.skeleton = skeleton;
         this.skins = List.copyOf(skins);
         this.clips = List.copyOf(clips);
+        this.animations = List.copyOf(animations);
         this.morphTracks = morphTracks.stream().map(Map::copyOf).toList();
     }
 
@@ -62,6 +66,7 @@ public final class GltfAnimationRig {
         for (LoadedGltfScene.AnimationDef animation : scene.animations()) {
             AnimationClip.Builder builder = AnimationClip.builder(animation.name(), skeleton)
                     .durationSeconds(animation.durationSeconds());
+            addMarkers(builder, animation.markers());
             Map<Integer, MorphWeightTrack> animationMorphTracks = new LinkedHashMap<>();
             for (LoadedGltfScene.AnimationChannelDef channel : animation.channels()) {
                 if (channel.path() == LoadedGltfScene.AnimationTargetPath.WEIGHTS) {
@@ -73,7 +78,7 @@ public final class GltfAnimationRig {
             clips.add(builder.build());
             morphTracks.add(Map.copyOf(animationMorphTracks));
         }
-        return new GltfAnimationRig(skeleton, skins, clips, morphTracks);
+        return new GltfAnimationRig(skeleton, skins, clips, scene.animations(), morphTracks);
     }
 
     public Skeleton skeleton() {
@@ -86,6 +91,51 @@ public final class GltfAnimationRig {
 
     public List<AnimationClip> clips() {
         return clips;
+    }
+
+    /**
+     * Composes animations whose TRS targets do not overlap into one synchronized clip.
+     *
+     * <p>Some DCC exporters emit one glTF animation per object action even though the
+     * actions share a timeline. Morph-weight animations remain separate because their
+     * instance-owned buffers are sampled outside {@link AnimationClip}.</p>
+     */
+    public AnimationClip composePoseClips(String name, List<Integer> animationIndices) {
+        List<Integer> indices = List.copyOf(
+                Objects.requireNonNull(animationIndices, "animationIndices"));
+        if (indices.isEmpty()) {
+            throw new IllegalArgumentException("animationIndices must not be empty");
+        }
+        AnimationClip.Builder builder = AnimationClip.builder(name, skeleton);
+        for (int animationIndex : indices) {
+            LoadedGltfScene.AnimationDef animation = animations.get(animationIndex);
+            builder.durationSeconds(animation.durationSeconds());
+            addMarkers(builder, animation.markers());
+            for (LoadedGltfScene.AnimationChannelDef channel : animation.channels()) {
+                if (channel.path() == LoadedGltfScene.AnimationTargetPath.WEIGHTS) {
+                    throw new IllegalArgumentException("animation[" + animationIndex
+                            + "] contains morph weights and cannot be composed as a pose clip");
+                }
+                addChannel(builder, channel);
+            }
+        }
+        return builder.build();
+    }
+
+    private static void addMarkers(AnimationClip.Builder builder,
+                                   List<LoadedGltfScene.AnimationMarkerDef> markers) {
+        for (LoadedGltfScene.AnimationMarkerDef marker : markers) {
+            builder.marker(marker.timeSeconds(), marker.name(), markerPriority(marker.priority()));
+        }
+    }
+
+    private static AnimationMarker.Priority markerPriority(String value) {
+        if (value == null) return AnimationMarker.Priority.NORMAL;
+        try {
+            return AnimationMarker.Priority.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return AnimationMarker.Priority.NORMAL;
+        }
     }
 
     public Optional<MorphWeightTrack> morphWeightTrack(int animationIndex, int nodeIndex) {

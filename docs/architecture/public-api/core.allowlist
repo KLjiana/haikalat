@@ -67,5 +67,6 @@ advanced com.kaleblangley.haikalat.core.mesh.TangentGenerator
 advanced com.kaleblangley.haikalat.core.mesh.VertexPacking
 advanced com.kaleblangley.haikalat.core.upload.UploadSystem
 advanced com.kaleblangley.haikalat.util.DirectBuffers
+advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationMetadata
 stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader
 stable com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene

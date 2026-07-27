@@ -73,11 +73,13 @@ class GltfArchitectureTest {
                 "src/demo/java/com/kaleblangley/haikalat/demo/gltf/GltfDemo.java"));
         assertFalse(source.contains("import com.kaleblangley.haikalat.demo.LearnOpenGlDemo"));
         assertFalse(source.contains("LearnOpenGlDemo."));
-        assertTrue(source.contains("GltfDemoAssets.load()"));
+        assertTrue(source.contains("GltfDemoAssets.load("));
         String assets = Files.readString(Path.of(
                 "src/demo/java/com/kaleblangley/haikalat/demo/gltf/GltfDemoAssets.java"));
         assertTrue(assets.contains("/scenes/gltf/showcase.gltf"));
         assertTrue(assets.contains("/scenes/gltf/radio.gltf"));
+        assertTrue(assets.contains("/scenes/gltf/zombie.gltf"));
+        assertTrue(assets.contains("/scenes/gltf/crouch_walk.glb"));
     }
 
     private static void discover(Path root, Set<String> output) throws IOException {

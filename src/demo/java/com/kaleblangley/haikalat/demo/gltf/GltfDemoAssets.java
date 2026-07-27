@@ -3,13 +3,18 @@ package com.kaleblangley.haikalat.demo.gltf;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfSceneStatistics;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
+import com.kaleblangley.haikalat.core.assets.gltf.SceneSelection;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneInstance;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,24 +22,31 @@ import java.util.Locale;
 
 /** GltfDemo 独占的场景资产及其 GPU 生命周期。 */
 final class GltfDemoAssets implements AutoCloseable {
+    private static final float CROUCH_WALK_TIME_SCALE = 0.35f;
+
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
     private final List<GltfSceneInstance> animatedInstances;
     private final List<SceneObject> objects;
     private final List<String> inspectionLines;
+    private final AnimationProbe animationProbe;
+    private final float animationTimeScale;
     private boolean closed;
 
     private GltfDemoAssets(GltfRuntimeLibrary library, List<GltfSceneAsset> assets,
                            List<GltfSceneInstance> animatedInstances,
-                           List<SceneObject> objects, List<String> inspectionLines) {
+                           List<SceneObject> objects, List<String> inspectionLines,
+                           AnimationProbe animationProbe, float animationTimeScale) {
         this.library = library;
         this.assets = List.copyOf(assets);
         this.animatedInstances = List.copyOf(animatedInstances);
         this.objects = List.copyOf(objects);
         this.inspectionLines = List.copyOf(inspectionLines);
+        this.animationProbe = animationProbe;
+        this.animationTimeScale = animationTimeScale;
     }
 
-    static GltfDemoAssets load() {
+    static GltfDemoAssets load(GltfDemo.Asset assetMode) {
         ResourceLocator resources = ResourceLocator.classpath(GltfDemo.class);
         GltfAssetLoader loader = new GltfAssetLoader(resources);
         GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
@@ -43,39 +55,84 @@ final class GltfDemoAssets implements AutoCloseable {
         List<SceneObject> objects = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         try {
-            LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
-            GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);
-            assets.add(showcaseGpu);
-            Matrix4f showcaseRoot = new Matrix4f().translation(-2.8f, -0.8f, 0.0f)
-                    .scale(1.5f).translate(-0.5f, -0.5f, 0.0f);
-            objects.addAll(showcaseGpu.instantiate(showcaseRoot, false));
-            appendInspection(lines, "showcase.gltf", showcase, showcaseGpu);
+            AnimationProbe probe;
+            float timeScale;
+            if (assetMode == GltfDemo.Asset.CROUCH_WALK) {
+                LoadedGltfScene crouchWalk = loader.loadWithSidecar(
+                        AssetRef.of("/scenes/gltf/crouch_walk.glb"),
+                        new GltfLoadOptions(new SceneSelection.Default(), false,
+                                GltfAssetLimits.defaults()));
+                GltfSceneAsset crouchWalkGpu = GltfSceneAsset.upload(crouchWalk, library);
+                assets.add(crouchWalkGpu);
+                GltfSceneInstance crouchWalkInstance = crouchWalkGpu.instantiateAnimated(
+                        new Matrix4f().scale(0.55f), true);
+                crouchWalkInstance.playCombined(
+                        animationIndices(crouchWalkInstance.animationCount()),
+                        AnimationPlayer.LoopMode.LOOP);
+                animatedInstances.add(crouchWalkInstance);
+                objects.addAll(crouchWalkInstance.objects());
+                appendInspection(lines, "crouch_walk.glb", crouchWalk, crouchWalkGpu, false);
+                lines.add("  material fallback | optional specular/ior extensions ignored");
+                lines.add("  animation playback | 0.35x");
+                probe = new AnimationProbe(crouchWalkInstance, 1);
+                timeScale = CROUCH_WALK_TIME_SCALE;
+            } else if (assetMode == GltfDemo.Asset.ZOMBIE) {
+                LoadedGltfScene zombie = loader.loadWithSidecar(
+                        AssetRef.of("/scenes/gltf/zombie.gltf"));
+                GltfSceneAsset zombieGpu = GltfSceneAsset.upload(zombie, library);
+                assets.add(zombieGpu);
+                GltfSceneInstance zombieInstance = zombieGpu.instantiateAnimated(
+                        new Matrix4f().translation(0.0f, -1.3f, 0.0f).scale(2.4f), false);
+                int runAnimation = zombieInstance.animationNames().indexOf("run");
+                if (runAnimation < 0) {
+                    throw new IllegalStateException("zombie.gltf has no run animation");
+                }
+                zombieInstance.play(runAnimation, AnimationPlayer.LoopMode.LOOP);
+                animatedInstances.add(zombieInstance);
+                objects.addAll(zombieInstance.objects());
+                appendInspection(lines, "zombie.gltf", zombie, zombieGpu, true);
+                // GeckoLib/Blockbench exports rigid mesh nodes below animated pivot nodes.
+                probe = new AnimationProbe(zombieInstance, 9);
+                timeScale = 1.0f;
+            } else {
+                LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
+                GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);
+                assets.add(showcaseGpu);
+                Matrix4f showcaseRoot = new Matrix4f().translation(-2.8f, -0.8f, 0.0f)
+                        .scale(1.5f).translate(-0.5f, -0.5f, 0.0f);
+                objects.addAll(showcaseGpu.instantiate(showcaseRoot, false));
+                appendInspection(lines, "showcase.gltf", showcase, showcaseGpu, true);
 
-            LoadedGltfScene radio = loader.load(AssetRef.of("/scenes/gltf/radio.gltf"));
-            GltfSceneAsset radioGpu = GltfSceneAsset.upload(radio, library);
-            assets.add(radioGpu);
-            Matrix4f radioRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
-                    .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
-            objects.addAll(radioGpu.instantiate(radioRoot, false));
-            appendInspection(lines, "radio.gltf", radio, radioGpu);
+                LoadedGltfScene radio = loader.load(AssetRef.of("/scenes/gltf/radio.gltf"));
+                GltfSceneAsset radioGpu = GltfSceneAsset.upload(radio, library);
+                assets.add(radioGpu);
+                Matrix4f radioRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
+                        .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
+                objects.addAll(radioGpu.instantiate(radioRoot, false));
+                appendInspection(lines, "radio.gltf", radio, radioGpu, true);
 
-            LoadedGltfScene creeper = loader.load(AssetRef.of("/scenes/gltf/creeper.gltf"));
-            GltfSceneAsset creeperGpu = GltfSceneAsset.upload(creeper, library);
-            assets.add(creeperGpu);
-            Matrix4f creeperRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
-                    .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
-            objects.addAll(creeperGpu.instantiate(creeperRoot, false));
-            appendInspection(lines, "creeper.gltf", creeper, creeperGpu);
+                LoadedGltfScene creeper = loader.load(AssetRef.of("/scenes/gltf/creeper.gltf"));
+                GltfSceneAsset creeperGpu = GltfSceneAsset.upload(creeper, library);
+                assets.add(creeperGpu);
+                Matrix4f creeperRoot = new Matrix4f().translation(1.5f, -0.8f, 0.0f)
+                        .scale(1.8f).translate(-0.81f, -0.42f, -0.15f);
+                objects.addAll(creeperGpu.instantiate(creeperRoot, false));
+                appendInspection(lines, "creeper.gltf", creeper, creeperGpu, true);
 
-            LoadedGltfScene animated = loader.load(AssetRef.of("/scenes/gltf/animated-two-joint.gltf"));
-            GltfSceneAsset animatedGpu = GltfSceneAsset.upload(animated, library);
-            assets.add(animatedGpu);
-            GltfSceneInstance animatedInstance = animatedGpu.instantiateAnimated(
-                    new Matrix4f().translation(-0.45f, -0.7f, 1.0f).scale(1.25f), true);
-            animatedInstances.add(animatedInstance);
-            objects.addAll(animatedInstance.objects());
-            appendInspection(lines, "animated-two-joint.gltf", animated, animatedGpu);
-            return new GltfDemoAssets(library, assets, animatedInstances, objects, lines);
+                LoadedGltfScene animated = loader.load(
+                        AssetRef.of("/scenes/gltf/animated-two-joint.gltf"));
+                GltfSceneAsset animatedGpu = GltfSceneAsset.upload(animated, library);
+                assets.add(animatedGpu);
+                GltfSceneInstance animatedInstance = animatedGpu.instantiateAnimated(
+                        new Matrix4f().translation(-0.45f, -0.7f, 1.0f).scale(1.25f), true);
+                animatedInstances.add(animatedInstance);
+                objects.addAll(animatedInstance.objects());
+                appendInspection(lines, "animated-two-joint.gltf", animated, animatedGpu, true);
+                probe = new AnimationProbe(animatedInstance, 2);
+                timeScale = 1.0f;
+            }
+            return new GltfDemoAssets(library, assets, animatedInstances, objects, lines,
+                    probe, timeScale);
         } catch (RuntimeException failure) {
             RuntimeException primary = closeInstances(animatedInstances, failure);
             primary = closeAssets(assets, primary);
@@ -90,6 +147,12 @@ final class GltfDemoAssets implements AutoCloseable {
         }
     }
 
+    private static List<Integer> animationIndices(int count) {
+        List<Integer> indices = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) indices.add(index);
+        return List.copyOf(indices);
+    }
+
     List<SceneObject> objects() {
         ensureOpen();
         return objects;
@@ -102,13 +165,28 @@ final class GltfDemoAssets implements AutoCloseable {
 
     void update(float deltaSeconds) {
         ensureOpen();
-        animatedInstances.forEach(instance -> instance.update(deltaSeconds));
+        animatedInstances.forEach(instance -> instance.update(deltaSeconds * animationTimeScale));
     }
 
-    float animatedTipOffset() {
+    float animationMotion() {
         ensureOpen();
-        return animatedInstances.isEmpty() ? 0.0f
-                : animatedInstances.getFirst().jointPaletteMatrix(0, 1).m31();
+        return animationProbe.movement();
+    }
+
+    String animationDebugText() {
+        ensureOpen();
+        GltfSceneInstance instance = animationProbe.instance;
+        String target = instance.animationTransitionTarget();
+        return String.format(Locale.ROOT,
+                "Animation | state %s | time %.3fs | phase %.3f | windows %s | "
+                        + "transition %s%.0f%% | %s",
+                instance.currentAnimationState(), instance.animationTimeSeconds(),
+                instance.currentAnimationNormalizedTime(),
+                instance.activeAnimationWindows().isEmpty()
+                        ? "-" : instance.activeAnimationWindows(),
+                target.isEmpty() ? "-" : target + " ",
+                instance.transitionWeight() * 100.0f,
+                instance.animationTransitionReason());
     }
 
     @Override
@@ -127,7 +205,8 @@ final class GltfDemoAssets implements AutoCloseable {
     }
 
     private static void appendInspection(List<String> lines, String name,
-                                         LoadedGltfScene scene, GltfSceneAsset gpu) {
+                                         LoadedGltfScene scene, GltfSceneAsset gpu,
+                                         boolean includeWarnings) {
         GltfSceneStatistics stats = scene.statistics();
         lines.add(String.format(Locale.ROOT,
                 "%s | scene %d:%s | node %d/%d | primitive %d",
@@ -151,7 +230,9 @@ final class GltfDemoAssets implements AutoCloseable {
                 material.index(), material.name().isBlank() ? "unnamed" : material.name(),
                 material.alphaMode(), material.alphaCutoff(), material.textureIndices().keySet())));
         scene.rootNodeIndices().forEach(root -> appendNode(lines, scene, root, 1));
-        scene.warnings().forEach(warning -> lines.add("  warning: " + warning));
+        if (includeWarnings) {
+            scene.warnings().forEach(warning -> lines.add("  warning: " + warning));
+        }
     }
 
     private static void appendNode(List<String> lines, LoadedGltfScene scene,
@@ -192,5 +273,33 @@ final class GltfDemoAssets implements AutoCloseable {
 
     private void ensureOpen() {
         if (closed) throw new IllegalStateException("GltfDemo assets are closed");
+    }
+
+    private static final class AnimationProbe {
+        private final GltfSceneInstance instance;
+        private final int nodeIndex;
+        private final Matrix4f initial;
+
+        private AnimationProbe(GltfSceneInstance instance, int nodeIndex) {
+            this.instance = instance;
+            this.nodeIndex = nodeIndex;
+            this.initial = new Matrix4f(instance.nodeModelMatrix(nodeIndex));
+        }
+
+        private float movement() {
+            Matrix4fc current = instance.nodeModelMatrix(nodeIndex);
+            return Math.abs(current.m00() - initial.m00())
+                    + Math.abs(current.m01() - initial.m01())
+                    + Math.abs(current.m02() - initial.m02())
+                    + Math.abs(current.m10() - initial.m10())
+                    + Math.abs(current.m11() - initial.m11())
+                    + Math.abs(current.m12() - initial.m12())
+                    + Math.abs(current.m20() - initial.m20())
+                    + Math.abs(current.m21() - initial.m21())
+                    + Math.abs(current.m22() - initial.m22())
+                    + Math.abs(current.m30() - initial.m30())
+                    + Math.abs(current.m31() - initial.m31())
+                    + Math.abs(current.m32() - initial.m32());
+        }
     }
 }

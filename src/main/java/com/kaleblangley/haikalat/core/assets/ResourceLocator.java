@@ -75,6 +75,16 @@ public final class ResourceLocator {
         return new String(readBytes(ref), StandardCharsets.UTF_8);
     }
 
+    public boolean exists(AssetRef ref) {
+        Objects.requireNonNull(ref, "ref");
+        if (resolveFile(ref).isPresent()) return true;
+        try (InputStream stream = openClasspath(ref)) {
+            return stream != null;
+        } catch (IOException failure) {
+            return false;
+        }
+    }
+
     /**
      * 相对于拥有者资产解析本地资源 URI，并拒绝远程 scheme、查询参数、片段和根目录逃逸。
      */

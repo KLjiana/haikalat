@@ -15,6 +15,7 @@ import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.limit;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.integer;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.object;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.objects;
+import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.decimal;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.string;
 
 /** animation sampler/channel decoding stage, including CUBICSPLINE payloads. */
@@ -33,6 +34,13 @@ final class GltfAnimationDecoder {
     List<LoadedGltfScene.AnimationDef> decode(
             List<Map<String, Object>> definitions,
             List<LoadedGltfScene.NodeRigDef> nodes) {
+        return decode(definitions, nodes, GltfAnimationMetadata.empty());
+    }
+
+    List<LoadedGltfScene.AnimationDef> decode(
+            List<Map<String, Object>> definitions,
+            List<LoadedGltfScene.NodeRigDef> nodes,
+            GltfAnimationMetadata metadata) {
         limit(source, "animations", definitions.size(), limits.animations(), "animations");
         List<LoadedGltfScene.AnimationDef> result = new ArrayList<>(definitions.size());
         long totalKeyframes = 0L;
@@ -106,10 +114,72 @@ final class GltfAnimationDecoder {
                 decoded.add(new LoadedGltfScene.AnimationChannelDef(nodeIndex, targetPath,
                         componentCount, interpolation, times, values));
             }
+            List<LoadedGltfScene.AnimationMarkerDef> markers = decodeMarkers(definition, duration,
+                    path);
+            String animationName = Objects.toString(definition.get("name"), "");
+            List<LoadedGltfScene.AnimationMarkerDef> sidecar = metadata.markers(animationName);
+            for (LoadedGltfScene.AnimationMarkerDef marker : sidecar) {
+                if (marker.timeSeconds() > duration) {
+                    throw fail(path + ".markers", "sidecar marker '" + marker.name()
+                            + "' is after animation duration " + duration);
+                }
+            }
+            if (!sidecar.isEmpty()) {
+                List<LoadedGltfScene.AnimationMarkerDef> merged =
+                        new ArrayList<>(markers.size() + sidecar.size());
+                merged.addAll(markers);
+                merged.addAll(sidecar);
+                markers = List.copyOf(merged);
+            }
             result.add(new LoadedGltfScene.AnimationDef(animationIndex,
-                    Objects.toString(definition.get("name"), ""), decoded, duration));
+                    animationName, decoded, duration, markers));
         }
         return List.copyOf(result);
+    }
+
+    private List<LoadedGltfScene.AnimationMarkerDef> decodeMarkers(
+            Map<String, Object> definition, float duration, String path) {
+        Map<String, Object> extras = object(definition, "extras", false, path + ".extras");
+        if (extras == null) return List.of();
+        List<Map<String, Object>> markerDtos = objects(extras, "markers");
+        if (markerDtos.isEmpty()) markerDtos = objects(extras, "animation_markers");
+        if (markerDtos.isEmpty()) return List.of();
+        float fps = decimal(extras, "fps", 30.0f, path + ".extras.fps");
+        if (!Float.isFinite(fps) || fps <= 0.0f) {
+            throw fail(path + ".extras.fps", "must be finite and positive");
+        }
+        List<LoadedGltfScene.AnimationMarkerDef> markers = new ArrayList<>(markerDtos.size());
+        for (int index = 0; index < markerDtos.size(); index++) {
+            Map<String, Object> marker = markerDtos.get(index);
+            String markerPath = path + ".extras.markers[" + index + "]";
+            String name = string(marker, "name", true, markerPath + ".name");
+            float time = decimal(marker, "timeSeconds", Float.NaN,
+                    markerPath + ".timeSeconds");
+            if (Float.isNaN(time)) {
+                time = decimal(marker, "time", Float.NaN, markerPath + ".time");
+            }
+            if (Float.isNaN(time)) {
+                float normalized = decimal(marker, "normalizedTime", Float.NaN,
+                        markerPath + ".normalizedTime");
+                if (!Float.isNaN(normalized)) {
+                    if (normalized < 0.0f || normalized > 1.0f) {
+                        throw fail(markerPath + ".normalizedTime",
+                                "must be in [0, 1]");
+                    }
+                    time = normalized * duration;
+                }
+            }
+            if (Float.isNaN(time)) {
+                float frame = decimal(marker, "frame", Float.NaN, markerPath + ".frame");
+                if (!Float.isNaN(frame)) time = frame / fps;
+            }
+            if (!Float.isFinite(time) || time < 0.0f || time > duration) {
+                throw fail(markerPath, "marker time must be within animation duration");
+            }
+            String priority = string(marker, "priority", false, markerPath + ".priority");
+            markers.add(new LoadedGltfScene.AnimationMarkerDef(time, name, priority));
+        }
+        return List.copyOf(markers);
     }
 
     private void validateTimes(float[] times, String path) {

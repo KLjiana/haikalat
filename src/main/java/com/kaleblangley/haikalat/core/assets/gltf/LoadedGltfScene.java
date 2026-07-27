@@ -211,13 +211,37 @@ public final class LoadedGltfScene {
     }
 
     public record AnimationDef(int index, String name, List<AnimationChannelDef> channels,
-                               float durationSeconds) {
+                               float durationSeconds, List<AnimationMarkerDef> markers) {
+        public AnimationDef(int index, String name, List<AnimationChannelDef> channels,
+                            float durationSeconds) {
+            this(index, name, channels, durationSeconds, List.of());
+        }
+
         public AnimationDef {
             name = name == null || name.isBlank() ? "animation[" + index + "]" : name;
             channels = List.copyOf(channels);
+            markers = List.copyOf(markers);
             if (channels.isEmpty() || !Float.isFinite(durationSeconds) || durationSeconds < 0.0f) {
                 throw new IllegalArgumentException("animation must contain channels and finite duration");
             }
+            for (AnimationMarkerDef marker : markers) {
+                if (marker.timeSeconds() > durationSeconds) {
+                    throw new IllegalArgumentException("animation marker '" + marker.name()
+                            + "' is after duration " + durationSeconds);
+                }
+            }
+        }
+    }
+
+    /** Marker metadata imported from animation extras or an external sidecar. */
+    public record AnimationMarkerDef(float timeSeconds, String name, String priority) {
+        public AnimationMarkerDef {
+            if (!Float.isFinite(timeSeconds) || timeSeconds < 0.0f) {
+                throw new IllegalArgumentException("marker time must be finite and non-negative");
+            }
+            name = Objects.requireNonNull(name, "name");
+            if (name.isBlank()) throw new IllegalArgumentException("marker name must not be blank");
+            priority = priority == null || priority.isBlank() ? "NORMAL" : priority;
         }
     }
 

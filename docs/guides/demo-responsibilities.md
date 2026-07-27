@@ -70,12 +70,18 @@ Demo/application 层驱动 origin。`runVfxCurveBenchmark` 不创建 GL context�
 
 ```powershell
 .\gradlew.bat runGltfDemo
+.\gradlew.bat runZombieDemo
+.\gradlew.bat runZombieIntegration
+.\gradlew.bat runCrouchWalkDemo
+.\gradlew.bat runCrouchWalkIntegration
 .\gradlew.bat runGltfSkinningIntegration
 .\gradlew.bat localGltfVerification
 ```
 
 专用 animated two-joint fixture 使用 CUBICSPLINE 通道驱动每实例 `JointPalette`，同一 SSBO 姿态
 分别进入 PBR forward 与方向光 shadow pass；集成入口断言末端位移、画面变化和资产先于实例关闭时的保护。
+`crouch_walk.glb` 额外覆盖 Blender 将同一时间轴拆成多个 object action 的情况；运行时合并目标
+互不重叠的 TRS channel，并让 11 个刚性部件同步播放。
 
 ## UiDemo
 

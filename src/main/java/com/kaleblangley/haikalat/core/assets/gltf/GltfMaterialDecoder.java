@@ -33,13 +33,16 @@ final class GltfMaterialDecoder {
     private final GltfAssetLimits limits;
     private final GltfUriResolver uriResolver;
     private final GltfBufferTable buffers;
+    private final boolean strictExtensions;
 
     GltfMaterialDecoder(AssetRef source, GltfAssetLimits limits,
-                        GltfUriResolver uriResolver, GltfBufferTable buffers) {
+                        GltfUriResolver uriResolver, GltfBufferTable buffers,
+                        boolean strictExtensions) {
         this.source = source;
         this.limits = limits;
         this.uriResolver = uriResolver;
         this.buffers = buffers;
+        this.strictExtensions = strictExtensions;
     }
 
     Result decode(List<Map<String, Object>> samplerDefinitions,
@@ -91,7 +94,7 @@ final class GltfMaterialDecoder {
         for (int index = 0; index < definitions.size(); index++) {
             Map<String, Object> definition = definitions.get(index);
             String path = "textures[" + index + "]";
-            if (definition.containsKey("extensions")) {
+            if (strictExtensions && definition.containsKey("extensions")) {
                 throw fail(path + ".extensions", "texture extensions are not supported");
             }
             int image = integer(definition, "source", true, path + ".source");
@@ -162,7 +165,7 @@ final class GltfMaterialDecoder {
             if (alphaCutoff < 0.0f || alphaCutoff > 1.0f) {
                 throw fail(path + ".alphaCutoff", "must be in [0, 1]");
             }
-            if (definition.containsKey("extensions")) {
+            if (strictExtensions && definition.containsKey("extensions")) {
                 throw fail(path + ".extensions", "material extensions are not supported");
             }
             Map<String, Object> pbr = object(definition, "pbrMetallicRoughness", false,
@@ -227,7 +230,7 @@ final class GltfMaterialDecoder {
             throw fail(path + ".index", "texture index out of range: " + index);
         }
         references.put(role, index);
-        if (info.containsKey("extensions")) {
+        if (strictExtensions && info.containsKey("extensions")) {
             throw fail(path + ".extensions", "texture extensions are unsupported");
         }
     }

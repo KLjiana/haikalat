@@ -17,6 +17,8 @@ import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 import static org.lwjgl.glfw.GLFW.GLFW_CURSOR;
 import static org.lwjgl.glfw.GLFW.GLFW_CURSOR_DISABLED;
@@ -32,12 +34,15 @@ final class GltfDemoOverlay implements AutoCloseable {
     private final UiSystem ui;
     private final Panel inspector;
     private final Label telemetry;
+    private final Label animationTelemetry;
+    private final Supplier<String> animationTelemetrySupplier;
     private final Label scrollStatus;
     private final ScrollView scroll;
     private boolean interactive;
     private int cameraResumeGuard;
 
-    private GltfDemoOverlay(GlfwWindow window, RenderPipeline pipeline, List<String> lines) {
+    private GltfDemoOverlay(GlfwWindow window, RenderPipeline pipeline, List<String> lines,
+                            boolean initiallyVisible, Supplier<String> animationTelemetry) {
         this.window = window;
         ui = UiSystem.create(window, UiConfig.defaults());
         Panel root = ui.document().root();
@@ -45,12 +50,17 @@ final class GltfDemoOverlay implements AutoCloseable {
                 .padding(UiInsets.points(12)).alignItems(UiStyle.AlignItems.FLEX_START).build());
         inspector = new Panel();
         inspector.debugName("GltfDemoInspector");
+        inspector.visibility(initiallyVisible ? UiVisibility.VISIBLE : UiVisibility.COLLAPSED);
         inspector.style(UiStyle.builder().width(UiLength.points(590)).height(UiLength.points(390))
                 .padding(UiInsets.points(9)).gap(5)
                 .flexDirection(UiStyle.FlexDirection.COLUMN).build());
         inspector.add(line("glTF inspector | F1 UI/相机 | F2 隐藏 | 滚轮或 PageUp/PageDown"));
         telemetry = line("FPS -- | CPU -- ms | GPU -- ms");
         inspector.add(telemetry);
+        this.animationTelemetrySupplier = Objects.requireNonNull(animationTelemetry,
+                "animationTelemetry");
+        this.animationTelemetry = line(animationTelemetrySupplier.get());
+        inspector.add(this.animationTelemetry);
         scrollStatus = line("Page 1/1 | Home/End 跳到首尾");
         inspector.add(scrollStatus);
 
@@ -65,8 +75,10 @@ final class GltfDemoOverlay implements AutoCloseable {
         ui.attachTo(pipeline.graph(), pipeline.finalPassName());
     }
 
-    static GltfDemoOverlay attach(GlfwWindow window, RenderPipeline pipeline, List<String> lines) {
-        return new GltfDemoOverlay(window, pipeline, List.copyOf(lines));
+    static GltfDemoOverlay attach(GlfwWindow window, RenderPipeline pipeline, List<String> lines,
+                                  boolean initiallyVisible, Supplier<String> animationTelemetry) {
+        return new GltfDemoOverlay(window, pipeline, List.copyOf(lines), initiallyVisible,
+                animationTelemetry);
     }
 
     void update(WindowInputSnapshot input, float deltaSeconds, DebugOverlaySnapshot statistics) {
@@ -83,6 +95,7 @@ final class GltfDemoOverlay implements AutoCloseable {
                 "FPS %.1f | CPU %.3f ms | GPU %.3f ms | draw %d",
                 statistics.fps(), statistics.cpuSubmitMillis(), statistics.gpuMillis(),
                 statistics.drawCalls()));
+        animationTelemetry.text(animationTelemetrySupplier.get());
         ui.update(input, deltaSeconds);
         updateScrollStatus();
     }

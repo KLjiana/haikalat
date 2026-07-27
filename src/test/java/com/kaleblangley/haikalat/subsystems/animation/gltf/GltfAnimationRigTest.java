@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GltfAnimationRigTest {
     @TempDir
@@ -60,5 +61,46 @@ class GltfAnimationRigTest {
         assertEquals(1.0f, rig.clips().getFirst().durationSeconds(), 1.0e-6f);
         assertEquals(1, rig.clips().getFirst().channelCount());
         assertEquals(1, rig.skins().size());
+    }
+
+    @Test
+    void importsAnimationMarkersFromGltfExtras() throws Exception {
+        String document = SkinnedGltfFixture.document()
+                .replace("\"samplers\":[{\"input\":4",
+                        "\"extras\":{\"markers\":[{\"name\":\"hit_start\","
+                                + "\"normalizedTime\":0.5},{\"name\":\"hit_end\","
+                                + "\"normalizedTime\":1.0}]},\"samplers\":[{\"input\":4");
+        Files.writeString(directory.resolve("marked.gltf"), document);
+        var scene = new GltfAssetLoader(ResourceLocator.classpath(getClass()).addRoot(directory))
+                .load(AssetRef.of("marked.gltf"));
+
+        GltfAnimationRig rig = GltfAnimationRig.from(scene);
+        assertEquals(2, rig.clips().getFirst().markers().size());
+        assertEquals("hit_start", rig.clips().getFirst().markers().getFirst().name());
+        assertEquals(0.5f, rig.clips().getFirst().markers().getFirst().timeSeconds(),
+                1.0e-6f);
+        assertTrue(rig.clips().getFirst().markers().stream()
+                .anyMatch(marker -> marker.name().equals("hit_end")));
+    }
+
+    @Test
+    void importsAnimationMarkersFromAnimationSidecar() throws Exception {
+        Files.writeString(directory.resolve("sidecar.gltf"), SkinnedGltfFixture.document());
+        Files.writeString(directory.resolve("sidecar.animation.json"),
+                "{\"animations\":{\"lift\":{\"markers\":["
+                        + "{\"name\":\"hit_start\",\"timeSeconds\":0.5},"
+                        + "{\"name\":\"hit_end\",\"timeSeconds\":0.6},"
+                        + "{\"name\":\"cancel_open\",\"timeSeconds\":0.7},"
+                        + "{\"name\":\"cancel_close\",\"timeSeconds\":0.8},"
+                        + "{\"name\":\"combo_open\",\"timeSeconds\":0.9},"
+                        + "{\"name\":\"combo_close\",\"timeSeconds\":1.0}]}}}");
+        var scene = new GltfAssetLoader(ResourceLocator.classpath(getClass()).addRoot(directory))
+                .loadWithSidecar(AssetRef.of("sidecar.gltf"));
+
+        GltfAnimationRig rig = GltfAnimationRig.from(scene);
+        assertEquals(6, rig.clips().getFirst().markers().size());
+        assertEquals("hit_start", rig.clips().getFirst().markers().getFirst().name());
+        assertEquals(1.0f, rig.clips().getFirst().markers().getLast().timeSeconds(),
+                1.0e-6f);
     }
 }

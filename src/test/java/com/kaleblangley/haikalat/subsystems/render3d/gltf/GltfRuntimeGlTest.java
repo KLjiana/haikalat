@@ -4,12 +4,19 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
+import com.kaleblangley.haikalat.core.assets.gltf.SceneSelection;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationGraph;
+import com.kaleblangley.haikalat.subsystems.animation.ClipMotion;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationSignal;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -29,6 +36,8 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -393,6 +402,127 @@ class GltfRuntimeGlTest {
     }
 
     @Test
+    void crouchWalkRigidActionsProduceVisiblePbrPixels() {
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(Path.of("src/demo/resources")))
+                .load(AssetRef.of("scenes/gltf/crouch_walk.glb"),
+                        new GltfLoadOptions(new SceneSelection.Default(), false,
+                                GltfAssetLimits.defaults()));
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                     "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                 GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+                 GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+                 GltfSceneInstance instance = asset.instantiateAnimated(
+                         new Matrix4f().scale(0.55f), false)) {
+                instance.playCombined(
+                        IntStream.range(0, instance.animationCount()).boxed().toList(),
+                        AnimationPlayer.LoopMode.LOOP).seek(1.0f / 12.0f);
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.2f, 7.0f)));
+                instance.objects().forEach(scene::add);
+                scene.addLight(SceneLight.directional(new Vector3f(0.0f, 0.0f, -1.0f),
+                        new Vector3f(1.0f), 3.0f));
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        RenderSettings.builder()
+                                .toneMappingMode(ToneMappingMode.ACES)
+                                .bloomSettings(BloomSettings.disabled())
+                                .vsync(false)
+                                .build(), environment);
+                try {
+                    pipeline.build();
+                    pipeline.execute(device);
+                    assertEquals(instance.objects().size(),
+                            pipeline.lastVisibilityStatistics().forwardVisible());
+                    ByteBuffer frame = readFrame(window);
+                    assertTrue(pixelsDifferentFromCorner(frame, window.width()) > 100,
+                            "the animated crouch_walk model must differ from the background");
+                    assertEquals(GL_NO_ERROR, glGetError());
+                } finally {
+                    pipeline.close();
+                }
+            }
+        }
+    }
+
+    @Test
+    void gltfInstanceBridgesGraphParametersTriggersAndTransitionSignals() throws Exception {
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("graph-skin.gltf"),
+                SkinnedGltfFixture.document());
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("graph-skin.animation.json"),
+                "{\"animations\":{\"lift\":{\"markers\":["
+                        + "{\"name\":\"hit_start\",\"timeSeconds\":0.2},"
+                        + "{\"name\":\"hit_end\",\"timeSeconds\":0.3}]}}}");
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).loadWithSidecar(AssetRef.of("graph-skin.gltf"));
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+                 GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+                 GltfSceneInstance instance = asset.instantiateAnimated(
+                         new Matrix4f(), false)) {
+                AnimationGraph graph = AnimationGraph.builder("combat", instance.animationSkeleton())
+                        .booleanParameter("grounded", true)
+                        .floatParameter("speed", 0.0f)
+                        .triggerParameter("attack")
+                        .triggerParameter("hit")
+                        .triggerParameter("dodge")
+                        .triggerParameter("combo")
+                        .state("idle", new ClipMotion(instance.animationClip(0)),
+                                AnimationPlayer.LoopMode.LOOP)
+                        .state("attack", new ClipMotion(instance.animationClip(0)),
+                                AnimationPlayer.LoopMode.LOOP)
+                        .state("hit", new ClipMotion(instance.animationClip(0)),
+                                AnimationPlayer.LoopMode.ONCE)
+                        .state("dodge", new ClipMotion(instance.animationClip(0)),
+                                AnimationPlayer.LoopMode.ONCE)
+                        .state("combo", new ClipMotion(instance.animationClip(0)),
+                                AnimationPlayer.LoopMode.ONCE)
+                        .entry("idle")
+                        .transition("idle", "attack",
+                                AnimationGraph.TransitionSpec.builder()
+                                        .duration(0.1f)
+                                        .when(AnimationGraph.Condition.trigger("attack"))
+                                        .build())
+                        .anyTransition("hit", AnimationGraph.TransitionSpec.builder()
+                                .when(AnimationGraph.Condition.trigger("hit")).build())
+                        .anyTransition("dodge", AnimationGraph.TransitionSpec.builder()
+                                .when(AnimationGraph.Condition.trigger("dodge")).build())
+                        .anyTransition("combo", AnimationGraph.TransitionSpec.builder()
+                                .when(AnimationGraph.Condition.trigger("combo")).build())
+                        .build();
+                instance.attachAnimationGraph(graph);
+                assertTrue(instance.hasAnimationController());
+                assertEquals("idle", instance.currentAnimationState());
+                instance.drainEvents();
+                instance.setBoolean("grounded", true)
+                        .setFloat("speed", 2.5f)
+                        .fireTrigger("attack")
+                        .update(0.05f);
+                assertTrue(instance.drainEvents().stream().anyMatch(signal ->
+                        signal.type() == AnimationSignal.Type.TRANSITION_START));
+                instance.update(0.1f);
+                assertEquals("attack", instance.currentAnimationState());
+                assertTrue(instance.drainEvents().stream().anyMatch(signal ->
+                        signal.type() == AnimationSignal.Type.TRANSITION_COMPLETE));
+                instance.update(0.1f);
+                assertEquals(java.util.List.of("hit"), instance.activeAnimationWindows());
+                instance.update(0.1f);
+                assertTrue(instance.activeAnimationWindows().isEmpty());
+                instance.fireTrigger("hit").update(0.0f);
+                assertEquals("hit", instance.currentAnimationState());
+                instance.fireTrigger("dodge").update(0.0f);
+                assertEquals("dodge", instance.currentAnimationState());
+                instance.fireTrigger("combo").update(0.0f);
+                assertEquals("combo", instance.currentAnimationState());
+            }
+        }
+    }
+
+    @Test
     void runtimeUploadRestoresPrewarmedDeviceVertexArrayState() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
         String opaque = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
@@ -447,6 +577,21 @@ class GltfRuntimeGlTest {
             if (delta > 6) changed++;
         }
         return changed;
+    }
+
+    private static int pixelsDifferentFromCorner(ByteBuffer frame, int width) {
+        int cornerOffset = (width + 1) * 4;
+        int backgroundRed = Byte.toUnsignedInt(frame.get(cornerOffset));
+        int backgroundGreen = Byte.toUnsignedInt(frame.get(cornerOffset + 1));
+        int backgroundBlue = Byte.toUnsignedInt(frame.get(cornerOffset + 2));
+        int distinct = 0;
+        for (int offset = 0; offset < frame.capacity(); offset += 4) {
+            int delta = Math.abs(Byte.toUnsignedInt(frame.get(offset)) - backgroundRed)
+                    + Math.abs(Byte.toUnsignedInt(frame.get(offset + 1)) - backgroundGreen)
+                    + Math.abs(Byte.toUnsignedInt(frame.get(offset + 2)) - backgroundBlue);
+            if (delta > 12) distinct++;
+        }
+        return distinct;
     }
 
     private static int frameRgbEnergy(ByteBuffer pixels) {
