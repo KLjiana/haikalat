@@ -7,6 +7,7 @@
 | OpenGL 4.6 能力契约 | 完整 | `backend/GlCapabilityContract`、`core/device/GlRenderDevice`、`runtime/GlRenderThread` | 所有正式渲染入口共享设备/渲染线程边界 | `GlCapabilityContractTest`、`GlContextSmokeTest.hiddenWindowSatisfiesProductionCapabilityContract` | OpenGL 4.6 Core、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters、debug output 为硬要求；bindless texture 仅报告为可选能力，不提供旧版降级 |
 | RenderGraph 排序与资源生命周期 | 完整 | `core/graph/RenderGraph`、`backend/framebuffer/RenderTargetManager` | 三个 Demo | `RenderGraphTest`、`FramebufferDescriptorTest`、`GlContextSmokeTest` | GPU timing 使用正式 `beginGpuTimer/endGpuTimer` query opcode |
 | 通用资源身份、代次与异步 CPU 解码 | 完整 | `subsystems/resources` | 由后续 glTF skin/animation 接入消费 | `AssetIdTest`、`ResourceSourceTest`、`ResourceGenerationTrackerTest`、`AsyncResourceDecoderTest`、架构边界测试 | 当前只负责编码字节与 CPU 值；GPU 上传必须携带代次票据并在渲染线程再次校验，不在该 subsystem 内调用 GL |
+| 序列化场景 v1、异步 glTF/图片加载与热重载 | 部分完成 | `subsystems/scene`、`SceneAssetService`、`GltfGpuAssetCache`、`RenderPipeline.replaceScene` | 当前提供服务/测试入口，尚未接入正式主 Demo | `sceneJvmVerification`、`localSceneAssetVerification`、`SerializedSceneGlTest`、`GltfRuntimeGlTest` | 已闭环严格 schema、catalog、外部依赖失效、RGBA8 后台解码、分阶段上传、exact-generation lease 和失败保留旧版本；仍缺同拓扑 pipeline fast path、正式 SerializedSceneDemo、长时间 reload soak 与完整 release report |
 | 材质与纹理 | 完整 | `TextureColorSpace`、`Texture2D`、`core/material`、`TextureAssetCache` | `LearnOpenGlDemo`、`MinimalDemo` | `MaterialTest`、`AssetPipelineTest`、`RuntimeResourceGlTest` | 旧纹理 API 默认 linear；颜色纹理需在 manifest/API 显式声明 sRGB，数据纹理保持 linear |
 | Metallic-roughness PBR | 完整 | `MaterialModel`、`PbrMaterialProperties`、`TangentGenerator`、`PbrMaterials`、PBR forward shader | `PbrDemo`、`LearnOpenGlDemo` PBR proof | `AssetPipelineTest`、`TangentGeneratorTest`、`PbrBrdfMathTest`、`PbrEnvironmentGlTest`、`runPbrCompatibilityIntegration` | framework material 保持 opaque，glTF scene-asset 可设置 MASK cutoff；单一固定 shader/unit contract；不承诺 PBR instancing、alpha blending/transmission 或高级材质扩展 |
 | glTF 2.0 资产、GPU 蒙皮与 Morph Target | 完整 | `core/assets/gltf`、`subsystems/render3d/gltf`、`SceneAssetConfig.gltfScenes` | `GltfDemo` + two-joint/morph fixture、主 Demo showcase | `GltfAssetLoaderTest`、`GltfRuntimeGlTest`、`runGltfIntegration`、`runGltfSkinningIntegration`、`runGltfMorphIntegration`、`runGltfMorphSkinningIntegration`、`localGltfVerification` | opaque/MASK `.gltf/.glb`、external/data/GLB embedded 资源、四影响 skin、POSITION/NORMAL/TANGENT Morph、mesh/node weights 与 STEP/LINEAR/CUBICSPLINE weights animation；Morph 先于 skin，PBR 与 directional shadow 均闭环；每 primitive 最多 8 targets，不支持 BLEND、第二组关节权重、compute morph 或 GPU animation sampling |
@@ -39,7 +40,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.18.3`。
+- 正式稳定版本：`0.18.3`；当前 v0.19 开发版本：`0.19.0-SNAPSHOT`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。
@@ -58,6 +59,8 @@
 - scene visibility 本地验收：`localSceneVisibilityVerification`，执行 bounds/frustum/queue JVM 测试、camera/shadow/resize 真实 GL 回归和 10,000 renderer 有限帧门禁。
 - scene submission 本地验收：`localSceneSubmissionVerification`，执行 revision/mat4 arena JVM 测试、
   queue/TAA/像素真实 GL、共享 glTF 100/1k、resize/motion、10k allocation 和静态 all-hidden 门禁。
+- serialized scene 本地验收：`localSceneAssetVerification`，执行严格 JSON/catalog/依赖/图片 CPU
+  解码 JVM 测试，以及 staged upload、generation lease 和事务式场景替换真实 GL 回归。
 - 完整本地验收：`localGlVerification`，包含 `localUiVerification`，并继续运行基准/resize/Bloom/自动曝光/Minimal/Async/空窗口 Demo 和压力入口。
 
 矩阵状态随实现阶段更新；未完成端到端验证的能力不得在 README 中描述为完整效果。

@@ -22,3 +22,15 @@ OpenGL 对象。
 
 `publishIfCurrent` 在单资源代次锁内调用 publisher，以保证检查与发布之间不会插入 invalidate。
 publisher 应保持短小且只做 CPU 状态交换或入队，不能执行阻塞 I/O 或直接调用 OpenGL。
+
+## 序列化场景
+
+`SceneAssetService.open(AssetId)` 将 scene JSON、glTF 和图片 RGBA8 解码放在 executor
+上，生成带 scene generation 的不可变 `SceneBuildPlan`。GL 线程只在
+`pumpUploads` 中推进带同一代次票据的 `GltfGpuAssetCache`，并在
+`applyReadyScenes` 前再次检查 scene generation。
+
+`SceneHandle` 只发布完整的 `SceneVersion`。失效或 GPU/实例化失败的候选会被丢弃，
+当前版本不变；成功候选在 activator 接受后才提交，旧版本随后按 owner 逆序退休。
+`SceneAssetService.snapshot()` 只返回 CPU 诊断值：每个 handle 的 active/candidate
+generation、待上传数、watcher overflow 和有界失败历史，不暴露 OpenGL wrapper 或路径字节。

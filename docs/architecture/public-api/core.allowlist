@@ -3,6 +3,7 @@
 
 advanced com.kaleblangley.haikalat.core.AntiAliasingMode
 advanced com.kaleblangley.haikalat.core.assets.AssetRef
+advanced com.kaleblangley.haikalat.core.assets.AssetByteResolver
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits
@@ -68,5 +69,7 @@ advanced com.kaleblangley.haikalat.core.mesh.VertexPacking
 advanced com.kaleblangley.haikalat.core.upload.UploadSystem
 advanced com.kaleblangley.haikalat.util.DirectBuffers
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationMetadata
+advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageData
+advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageDecoder
 stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader
 stable com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene

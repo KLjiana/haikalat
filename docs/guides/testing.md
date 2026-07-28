@@ -50,6 +50,17 @@ Command:
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
 ```
 
+The v0.19 serialized-scene gate keeps the CPU and focused GL checks explicit:
+
+```powershell
+.\gradlew.bat localSceneAssetVerification --rerun-tasks
+```
+
+It covers the strict `haikalat.scene` parser, catalog and generation
+coalescing, staged glTF upload/lease sharing, and prepare/activate/commit
+scene replacement. It is intentionally not part of the default `check`
+because the GL half needs a desktop context.
+
 ## Integration
 
 Manual or environment-specific checks that exercise full demo or pipeline behavior. These may open visible windows, depend on GPU/driver behavior, or require screenshot/pixel comparison beyond a minimal smoke check.

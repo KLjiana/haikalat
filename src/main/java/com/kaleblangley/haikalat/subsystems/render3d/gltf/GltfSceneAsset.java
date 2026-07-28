@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfImageData;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfSceneStatistics;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.material.Material;
@@ -57,6 +58,299 @@ public final class GltfSceneAsset implements AutoCloseable {
 
     static GltfSceneAsset upload(LoadedGltfScene source, GltfRuntimeLibrary library,
                                  UploadFault fault) {
+        try (UploadSession session = beginUpload(source, library, fault)) {
+            while (!session.isComplete()) session.advance(Integer.MAX_VALUE);
+            return session.finish();
+        }
+    }
+
+    /** Begins a staged GL-thread upload while preserving the synchronous API above. */
+    public static UploadSession beginUpload(LoadedGltfScene source,
+                                            GltfRuntimeLibrary library) {
+        return beginUpload(source, library, UploadFault.NONE);
+    }
+
+    /** Begins a staged upload using pixels decoded before the GL hand-off. */
+    public static UploadSession beginUpload(LoadedGltfScene source,
+                                            GltfRuntimeLibrary library,
+                                            Map<Integer, GltfImageData> decodedImages) {
+        return beginUpload(source, library, decodedImages, UploadFault.NONE);
+    }
+
+    static UploadSession beginUpload(LoadedGltfScene source, GltfRuntimeLibrary library,
+                                     UploadFault fault) {
+        return new UploadSession(source, library, Map.of(), fault);
+    }
+
+    static UploadSession beginUpload(LoadedGltfScene source, GltfRuntimeLibrary library,
+                                     Map<Integer, GltfImageData> decodedImages,
+                                     UploadFault fault) {
+        return new UploadSession(source, library, decodedImages, fault);
+    }
+
+    /**
+     * GL-thread upload state machine. Each successful step creates at most one
+     * sampler, texture, material, mesh or morph buffer.
+     */
+    public static final class UploadSession implements AutoCloseable {
+        private final LoadedGltfScene source;
+        private final GltfRuntimeLibrary library;
+        private final Map<Integer, GltfImageData> decodedImages;
+        private final UploadFault fault;
+        private final List<Texture2D> ownedTextures = new ArrayList<>();
+        private final List<Sampler> ownedSamplers = new ArrayList<>();
+        private final List<Mesh> ownedMeshes = new ArrayList<>();
+        private final Map<MaterialKey, Material> ownedMaterials = new LinkedHashMap<>();
+        private final Map<Integer, GltfMorphTargetBuffer> ownedMorphBuffers =
+                new LinkedHashMap<>();
+        private final Map<SamplerDescriptor, Sampler> samplerCache = new LinkedHashMap<>();
+        private final Map<LoadedGltfScene.ImageVariantKey, Texture2D> textureCache =
+                new LinkedHashMap<>();
+        private final List<LoadedGltfScene.ImageVariantKey> textureOrder;
+        private final List<LoadedGltfScene.Primitive> materialOrder;
+        private UploadPhase phase = UploadPhase.SAMPLER;
+        private int cursor;
+        private boolean transferred;
+        private boolean closed;
+
+        private UploadSession(LoadedGltfScene source, GltfRuntimeLibrary library,
+                              Map<Integer, GltfImageData> decodedImages,
+                              UploadFault fault) {
+            this.source = Objects.requireNonNull(source, "source");
+            this.library = Objects.requireNonNull(library, "library");
+            this.decodedImages = Map.copyOf(Objects.requireNonNull(decodedImages,
+                    "decodedImages"));
+            this.fault = Objects.requireNonNull(fault, "fault");
+            textureOrder = collectTextureOrder(source);
+            materialOrder = collectMaterialOrder(source);
+            library.retainAsset();
+        }
+
+        public UploadPhase phase() {
+            return phase;
+        }
+
+        public boolean isComplete() {
+            return phase == UploadPhase.COMPLETE;
+        }
+
+        /** Conservative byte estimate for the next resource-creation step. */
+        public long estimatedNextBytes() {
+            ensureActive();
+            return switch (phase) {
+                case SAMPLER, MATERIAL, MORPH, COMPLETE -> 0L;
+                case TEXTURE -> {
+                    if (cursor >= textureOrder.size()) yield 0L;
+                    LoadedGltfScene.ImageVariantKey key = textureOrder.get(cursor);
+                    GltfImageData decoded = decodedImages.get(key.imageIndex());
+                    yield decoded == null
+                            ? source.images().get(key.imageIndex()).encoded().length
+                            : (long) decoded.width() * decoded.height() * 4L;
+                }
+                case MESH -> {
+                    if (cursor >= source.primitives().size()) yield 0L;
+                    LoadedGltfScene.Primitive primitive = source.primitives().get(cursor);
+                    yield (long) primitive.mesh().vertexCount()
+                            * primitive.mesh().layout().strideBytes()
+                            + (long) primitive.mesh().indexCount() * Integer.BYTES;
+                }
+            };
+        }
+
+        /**
+         * Advances at most {@code maxSteps} resource-creation steps.
+         *
+         * @return actual resource steps completed
+         */
+        public int advance(int maxSteps) {
+            ensureActive();
+            if (maxSteps <= 0) throw new IllegalArgumentException("maxSteps must be positive");
+            int completed = 0;
+            try {
+                while (completed < maxSteps && phase != UploadPhase.COMPLETE) {
+                    switch (phase) {
+                        case SAMPLER -> {
+                            if (cursor >= source.samplers().size()) {
+                                next(UploadPhase.TEXTURE);
+                                continue;
+                            }
+                            LoadedGltfScene.SamplerDef def = source.samplers().get(cursor++);
+                            SamplerDescriptor descriptor = new SamplerDescriptor(def.minFilter(),
+                                    def.magFilter(), def.wrapS(), def.wrapT());
+                            if (!samplerCache.containsKey(descriptor)) {
+                                Sampler sampler = Sampler.create(new Sampler.Descriptor(
+                                        descriptor.min(), descriptor.mag(), descriptor.wrapS(),
+                                        descriptor.wrapT(), descriptor.wrapT()));
+                                ownedSamplers.add(sampler);
+                                samplerCache.put(descriptor, sampler);
+                                fault.check(UploadStage.SAMPLER, def.index());
+                                completed++;
+                            }
+                        }
+                        case TEXTURE -> {
+                            if (cursor >= textureOrder.size()) {
+                                next(UploadPhase.MATERIAL);
+                                continue;
+                            }
+                            LoadedGltfScene.ImageVariantKey key = textureOrder.get(cursor++);
+                            GltfImageData decoded = decodedImages.get(key.imageIndex());
+                            Texture2D uploaded = decoded == null
+                                    ? Texture2D.fromEncoded(
+                                    source.images().get(key.imageIndex()).encoded(),
+                                    false, key.colorSpace())
+                                    : Texture2D.fromRgba8(decoded.width(), decoded.height(),
+                                    decoded.rgba8(), key.colorSpace());
+                            ownedTextures.add(uploaded);
+                            textureCache.put(key, uploaded);
+                            fault.check(UploadStage.TEXTURE, key.imageIndex());
+                            completed++;
+                        }
+                        case MATERIAL -> {
+                            if (cursor >= materialOrder.size()) {
+                                next(UploadPhase.MESH);
+                                continue;
+                            }
+                            LoadedGltfScene.Primitive primitive = materialOrder.get(cursor++);
+                            MaterialKey key = new MaterialKey(primitive.materialIndex(),
+                                    primitive.hasVertexColor());
+                            Material material = createMaterial(source, primitive, library,
+                                    samplerCache, textureCache);
+                            ownedMaterials.put(key, material);
+                            fault.check(UploadStage.MATERIAL, primitive.materialIndex());
+                            completed++;
+                        }
+                        case MESH -> {
+                            if (cursor >= source.primitives().size()) {
+                                next(UploadPhase.MORPH);
+                                continue;
+                            }
+                            LoadedGltfScene.Primitive primitive =
+                                    source.primitives().get(cursor++);
+                            Bounds3f bounds = source.primitiveSkinning(primitive.index()).isPresent()
+                                    ? Bounds3f.unbounded()
+                                    : source.primitiveMorphTargets(primitive.index())
+                                    .map(LoadedGltfScene.MorphTargetSetDef::conservativeBounds)
+                                    .orElseGet(() -> primitive.mesh().localBounds());
+                            ownedMeshes.add(Mesh.from(primitive.mesh(), bounds));
+                            fault.check(UploadStage.MESH, primitive.index());
+                            completed++;
+                        }
+                        case MORPH -> {
+                            if (cursor >= source.primitives().size()) {
+                                next(UploadPhase.COMPLETE);
+                                continue;
+                            }
+                            LoadedGltfScene.Primitive primitive =
+                                    source.primitives().get(cursor++);
+                            var definition = source.primitiveMorphTargets(primitive.index());
+                            if (definition.isPresent()) {
+                                GltfMorphTargetBuffer buffer =
+                                        new GltfMorphTargetBuffer(definition.orElseThrow());
+                                ownedMorphBuffers.put(primitive.index(), buffer);
+                                fault.check(UploadStage.MORPH, primitive.index());
+                                completed++;
+                            }
+                        }
+                        case COMPLETE -> { }
+                    }
+                }
+                return completed;
+            } catch (RuntimeException failure) {
+                RuntimeException cleanup = closePartial(failure);
+                throw new GltfAssetException(source.source(), GltfAssetException.Phase.UPLOAD,
+                        "$", null, "GPU resource upload failed", cleanup);
+            }
+        }
+
+        public GltfSceneAsset finish() {
+            ensureActive();
+            if (!isComplete()) {
+                throw new IllegalStateException("upload session is not complete: " + phase);
+            }
+            GltfSceneAsset asset = new GltfSceneAsset(source, library, ownedMeshes,
+                    ownedMaterials, ownedTextures, ownedSamplers, ownedMorphBuffers);
+            transferred = true;
+            closed = true;
+            return asset;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            if (!transferred) {
+                RuntimeException failure = closePartial(null);
+                if (failure != null) throw failure;
+            }
+        }
+
+        private void next(UploadPhase next) {
+            phase = next;
+            cursor = 0;
+        }
+
+        private RuntimeException closePartial(RuntimeException primary) {
+            if (closed && transferred) return primary;
+            closed = true;
+            RuntimeException failure = closeOwned(ownedMeshes, ownedMaterials.values(),
+                    ownedSamplers, ownedTextures, ownedMorphBuffers.values(), primary);
+            try {
+                library.releaseAsset();
+            } catch (RuntimeException error) {
+                if (failure == null) failure = error; else failure.addSuppressed(error);
+            }
+            return failure;
+        }
+
+        private void ensureActive() {
+            if (closed) throw new IllegalStateException("upload session is closed");
+        }
+
+        private static List<LoadedGltfScene.ImageVariantKey> collectTextureOrder(
+                LoadedGltfScene source) {
+            LinkedHashMap<LoadedGltfScene.ImageVariantKey, Boolean> order =
+                    new LinkedHashMap<>();
+            for (LoadedGltfScene.MaterialDef material : source.materials()) {
+                for (Map.Entry<PbrTextureRole, Integer> entry
+                        : material.textureIndices().entrySet()) {
+                    LoadedGltfScene.TextureDef texture =
+                            source.textures().get(entry.getValue());
+                    order.putIfAbsent(new LoadedGltfScene.ImageVariantKey(
+                            texture.imageIndex(), entry.getKey().requiredColorSpace()), true);
+                }
+            }
+            return List.copyOf(order.keySet());
+        }
+
+        private static List<LoadedGltfScene.Primitive> collectMaterialOrder(
+                LoadedGltfScene source) {
+            LinkedHashMap<MaterialKey, LoadedGltfScene.Primitive> order =
+                    new LinkedHashMap<>();
+            for (LoadedGltfScene.Primitive primitive : source.primitives()) {
+                order.putIfAbsent(new MaterialKey(primitive.materialIndex(),
+                        primitive.hasVertexColor()), primitive);
+            }
+            return List.copyOf(order.values());
+        }
+    }
+
+    public enum UploadPhase {
+        SAMPLER,
+        TEXTURE,
+        MATERIAL,
+        MESH,
+        MORPH,
+        COMPLETE
+    }
+
+    /*
+     * Legacy direct implementation retained below only as helper source for
+     * single-resource construction. The public synchronous entry now drains
+     * UploadSession above.
+     */
+    private static GltfSceneAsset uploadDirect(LoadedGltfScene source,
+                                               GltfRuntimeLibrary library,
+                                               UploadFault fault) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(library, "library");
         Objects.requireNonNull(fault, "fault");

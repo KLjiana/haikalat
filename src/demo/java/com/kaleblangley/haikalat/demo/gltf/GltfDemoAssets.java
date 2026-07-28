@@ -23,6 +23,7 @@ import java.util.Locale;
 /** GltfDemo 独占的场景资产及其 GPU 生命周期。 */
 final class GltfDemoAssets implements AutoCloseable {
     private static final float CROUCH_WALK_TIME_SCALE = 0.35f;
+    private static final float PLAYER_SLIE_TIME_SCALE = 0.75f;
 
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
@@ -94,6 +95,22 @@ final class GltfDemoAssets implements AutoCloseable {
                 // GeckoLib/Blockbench exports rigid mesh nodes below animated pivot nodes.
                 probe = new AnimationProbe(zombieInstance, 9);
                 timeScale = 1.0f;
+            } else if (assetMode == GltfDemo.Asset.PLAYER_SLIE) {
+                LoadedGltfScene playerSlie = loader.loadWithSidecar(
+                        AssetRef.of("/scenes/gltf/player_slie.gltf"));
+                GltfSceneAsset playerSlieGpu = GltfSceneAsset.upload(playerSlie, library);
+                assets.add(playerSlieGpu);
+                GltfSceneInstance playerSlieInstance = playerSlieGpu.instantiateAnimated(
+                        new Matrix4f().translation(0.0f, -1.0f, 0.0f).scale(2.0f), false);
+                // The exporter stores the visible lower-body movement in animation2;
+                // animation is a static pose clip with the same leg channels.
+                playerSlieInstance.play(1, AnimationPlayer.LoopMode.LOOP);
+                animatedInstances.add(playerSlieInstance);
+                objects.addAll(playerSlieInstance.objects());
+                appendInspection(lines, "player_slie.gltf", playerSlie, playerSlieGpu, true);
+                lines.add("  animation playback | animation2 | 0.75x (animation is the static pose)");
+                probe = new AnimationProbe(playerSlieInstance, 8);
+                timeScale = PLAYER_SLIE_TIME_SCALE;
             } else {
                 LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
                 GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);

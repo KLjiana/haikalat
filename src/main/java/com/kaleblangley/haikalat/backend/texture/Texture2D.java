@@ -184,6 +184,66 @@ public final class Texture2D implements GlResource {
         }
     }
 
+    /** Creates an immutable mipmapped RGBA8 texture from CPU-decoded pixels. */
+    public static Texture2D fromRgba8(int width, int height, byte[] pixels,
+                                      TextureColorSpace colorSpace) {
+        Objects.requireNonNull(pixels, "pixels");
+        Objects.requireNonNull(colorSpace, "colorSpace");
+        int required;
+        try {
+            required = Math.multiplyExact(Math.multiplyExact(width, height), 4);
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("RGBA8 dimensions overflow payload", overflow);
+        }
+        if (pixels.length != required) {
+            throw new IllegalArgumentException("RGBA8 payload length must be " + required
+                    + ", got " + pixels.length);
+        }
+        return fromRgba8(width, height, DirectBuffers.copyOf(pixels), colorSpace);
+    }
+
+    /** Creates an immutable mipmapped RGBA8 texture from a direct pixel buffer. */
+    public static Texture2D fromRgba8(int width, int height, ByteBuffer pixels,
+                                      TextureColorSpace colorSpace) {
+        Objects.requireNonNull(pixels, "pixels");
+        Objects.requireNonNull(colorSpace, "colorSpace");
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("texture dimensions must be positive");
+        }
+        int required = Math.multiplyExact(Math.multiplyExact(width, height), 4);
+        if (!pixels.isDirect() || pixels.remaining() < required) {
+            throw new IllegalArgumentException("RGBA8 pixels must be a direct buffer with at least "
+                    + required + " remaining bytes");
+        }
+        int levels = 1 + (31 - Integer.numberOfLeadingZeros(Math.max(width, height)));
+        int internalFormat = colorSpace == TextureColorSpace.SRGB
+                ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        int textureId = glCreateTextures(GL_TEXTURE_2D);
+        try {
+            glTextureStorage2D(textureId, levels, internalFormat, width, height);
+            ByteBuffer upload = pixels.duplicate();
+            upload.limit(upload.position() + required);
+            int previousUnpackAlignment = glGetInteger(GL_UNPACK_ALIGNMENT);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            try {
+                glTextureSubImage2D(textureId, 0, 0, 0, width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, upload);
+            } finally {
+                glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+            }
+            glGenerateTextureMipmap(textureId);
+            glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(textureId, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(textureId, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            Texture2D texture = new Texture2D(textureId, width, height, internalFormat, colorSpace);
+            textureId = 0;
+            return texture;
+        } finally {
+            if (textureId != 0) glDeleteTextures(textureId);
+        }
+    }
+
     /**
      * 从类路径资源加载纹理，默认垂直翻转。
      *

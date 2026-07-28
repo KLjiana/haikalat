@@ -24,9 +24,15 @@ import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
+import com.kaleblangley.haikalat.subsystems.scene.GltfGpuAssetCache;
+import com.kaleblangley.haikalat.subsystems.scene.SceneUploadBudget;
+import com.kaleblangley.haikalat.subsystems.resources.AssetId;
+import com.kaleblangley.haikalat.subsystems.resources.ResourceGeneration;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.testing.SkinnedGltfFixture;
 import com.kaleblangley.haikalat.testing.MorphGltfFixture;
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -78,6 +84,90 @@ class GltfRuntimeGlTest {
             assertTrue(library.isClosed());
             assertThrows(IllegalStateException.class,
                     () -> asset.instantiate(new Matrix4f(), true));
+        }
+    }
+
+    @Test
+    void uploadsCpuDecodedRgba8PixelsWithoutReenteringImageDecoder() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            Texture2D texture = Texture2D.fromRgba8(1, 1,
+                    new byte[] {(byte) 0xff, 0x40, 0x20, (byte) 0xff},
+                    TextureColorSpace.SRGB);
+            try {
+                assertEquals(1, texture.width());
+                assertEquals(1, texture.height());
+                assertEquals(TextureColorSpace.SRGB, texture.colorSpace());
+                assertEquals(GL_NO_ERROR, glGetError());
+            } finally {
+                texture.close();
+            }
+        }
+    }
+
+    @Test
+    void gpuAssetCacheSharesExactGenerationAndRetiresOnLastLease() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass()))
+                    .load(AssetRef.of("/fixtures/gltf/minimal.gltf"));
+            GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+            GltfGpuAssetCache cache = new GltfGpuAssetCache(library);
+            AssetId id = AssetId.of("test", "fixtures/gltf/minimal.gltf");
+            GltfGpuAssetCache.Lease first = cache.acquire(id, ResourceGeneration.INITIAL,
+                    "default", loaded);
+            GltfGpuAssetCache.Lease second = cache.acquire(id, ResourceGeneration.INITIAL,
+                    "default", loaded);
+            GltfSceneAsset shared = first.asset();
+            try {
+                assertEquals(1, cache.entryCount());
+                assertEquals(2, cache.activeLeaseCount());
+                assertTrue(shared == second.asset());
+                first.close();
+                assertEquals(1, cache.activeLeaseCount());
+                assertFalse(shared.isClosed());
+            } finally {
+                second.close();
+                cache.close();
+                library.close();
+            }
+            assertTrue(shared.isClosed());
+        }
+    }
+
+    @Test
+    void stagedGpuRequestsCoalesceAndRespectOneStepPumpBudget() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass()))
+                    .load(AssetRef.of("/fixtures/gltf/minimal.gltf"));
+            GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+            GltfGpuAssetCache cache = new GltfGpuAssetCache(library);
+            AssetId id = AssetId.of("test", "fixtures/gltf/minimal.gltf");
+            var first = cache.request(id, ResourceGeneration.INITIAL, "default", loaded);
+            var second = cache.request(id, ResourceGeneration.INITIAL, "default", loaded);
+            try {
+                assertEquals(1, cache.pendingUploadCount());
+                assertFalse(first.isDone());
+                int calls = 0;
+                while (!first.isDone()) {
+                    assertTrue(cache.pump(new SceneUploadBudget(1, 1_000_000_000L)) <= 1);
+                    assertTrue(++calls < 10);
+                }
+                GltfGpuAssetCache.Lease firstLease = first.join();
+                GltfGpuAssetCache.Lease secondLease = second.join();
+                assertTrue(firstLease.asset() == secondLease.asset());
+                assertEquals(2, cache.activeLeaseCount());
+                firstLease.close();
+                secondLease.close();
+                assertEquals(0, cache.entryCount());
+            } finally {
+                cache.close();
+                library.close();
+            }
         }
     }
 

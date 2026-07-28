@@ -1,7 +1,7 @@
 package com.kaleblangley.haikalat.core.assets.gltf;
 
 import com.kaleblangley.haikalat.core.assets.AssetRef;
-import com.kaleblangley.haikalat.core.assets.ResourceLocator;
+import com.kaleblangley.haikalat.core.assets.AssetByteResolver;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -18,13 +18,13 @@ import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.string;
 
 /** 解析受 root 约束的 external/data URI，并统一执行容量限制。 */
 final class GltfUriResolver {
-    private final ResourceLocator locator;
+    private final AssetByteResolver locator;
     private final AssetRef source;
     private final byte[] glbBin;
     private final GltfAssetLimits limits;
     private long decodedDataUriBytes;
 
-    GltfUriResolver(ResourceLocator locator, AssetRef source, byte[] glbBin,
+    GltfUriResolver(AssetByteResolver locator, AssetRef source, byte[] glbBin,
                     GltfAssetLimits limits) {
         this.locator = locator;
         this.source = source;

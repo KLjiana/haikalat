@@ -2,6 +2,8 @@
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.subsystems.resources.AssetId
+advanced com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog
+advanced com.kaleblangley.haikalat.subsystems.resources.DirectoryResourceWatcher
 advanced com.kaleblangley.haikalat.subsystems.resources.AsyncResourceDecoder
 advanced com.kaleblangley.haikalat.subsystems.resources.ResourceGeneration
 advanced com.kaleblangley.haikalat.subsystems.resources.ResourceGenerationTracker

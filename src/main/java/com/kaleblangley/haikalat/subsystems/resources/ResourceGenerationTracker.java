@@ -1,6 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.resources;
 
 import java.util.Objects;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -38,6 +40,17 @@ public final class ResourceGenerationTracker {
         synchronized (slot) {
             return slot.generation.equals(ticket.generation());
         }
+    }
+
+    /** Returns a stable CPU snapshot of identities touched by this tracker. */
+    public Map<AssetId, ResourceGeneration> snapshot() {
+        Map<AssetId, ResourceGeneration> result = new HashMap<>();
+        slots.forEach((asset, slot) -> {
+            synchronized (slot) {
+                result.put(asset, slot.generation);
+            }
+        });
+        return Map.copyOf(result);
     }
 
     /** Checks and publishes under the same per-asset generation lock. */

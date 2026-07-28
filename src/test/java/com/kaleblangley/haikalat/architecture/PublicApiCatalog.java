@@ -16,7 +16,7 @@ final class PublicApiCatalog {
     static final Set<String> FILES = Set.of(
             "animation.allowlist", "backend.allowlist", "core.allowlist", "runtime.allowlist",
             "render3d.allowlist", "postprocess.allowlist", "resources.allowlist", "ui.allowlist",
-            "vfx.allowlist", "windowing.allowlist");
+            "vfx.allowlist", "windowing.allowlist", "scene.allowlist");
     static final Set<String> CATEGORIES = Set.of("stable", "advanced", "internal");
     private static final Pattern PACKAGE = Pattern.compile("(?m)^package\\s+([A-Za-z0-9_.]+);");
     private static final Pattern PUBLIC_TOP_LEVEL = Pattern.compile(

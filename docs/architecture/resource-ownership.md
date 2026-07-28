@@ -1,6 +1,6 @@
 # GPU 与 native 资源所有权合同
 
-状态：v0.14 当前有效合同。
+状态：v0.19 当前有效合同。
 
 ## 基本规则
 
@@ -22,6 +22,9 @@
 | `TextureAssetCache`、`HotReloadableShader` | cache 内资源为 owned，返回值为 borrowed | asset/hot-reload 测试 |
 | `GltfRuntimeLibrary` | 独占 shader、fallback texture、sampler；scene asset 持 lease | `CloseStackTest`、active asset 与 upload fault tests |
 | `GltfSceneAsset` | 独占 mesh/material/texture/sampler，借用 runtime library | 四阶段 upload fault、重复 close、lease tests |
+| `GltfGpuAssetCache` | GL 线程独占 staged upload session；lease 持有者共享 exact `(AssetId, generation, variant)` 资产 | staged upload、generation sharing、zero-ref retirement tests |
+| `SceneVersion` | 独占 animated instances 与 cache lease；关闭时先 instance、再 lease | serialized scene publish/reload GL tests |
+| `SceneHandle`、`SceneAssetService` | handle 原子持有 current version；service 取消 CPU future、候选和 watcher | async coalescing、reload failure、重复 close tests |
 | PBR owner | 独占 environment、fallback、binder/background renderer | environment fault injection 与 PBR GL tests |
 | `UiSystem`、`UiDocument` | system 独占 native/render/layout 服务；document 为逻辑 owner | UI integration、async、soak |
 | UI font/atlas/render owner | 独占 FreeType/HarfBuzz handle、atlas page、GPU upload ring | shaping/atlas/renderer close tests |

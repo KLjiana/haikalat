@@ -75,6 +75,17 @@ public class Camera {
     /** @return 缩放/FOV 值 */
     public float zoom() { return zoom; }
 
+    /** Sets the perspective field-of-view used by the scene projection. */
+    public void setZoom(float zoom) {
+        if (!Float.isFinite(zoom) || zoom < 1.0f || zoom > 179.0f) {
+            throw new IllegalArgumentException("zoom must be finite and in [1, 179]");
+        }
+        if (same(this.zoom, zoom)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
+        this.zoom = zoom;
+        visibilityRevision = nextRevision;
+    }
+
     public void setPosition(Vector3f pos) {
         Objects.requireNonNull(pos, "pos");
         if (same(position.x, pos.x) && same(position.y, pos.y) && same(position.z, pos.z)) return;

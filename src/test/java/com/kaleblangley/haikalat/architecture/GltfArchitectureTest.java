@@ -80,6 +80,7 @@ class GltfArchitectureTest {
         assertTrue(assets.contains("/scenes/gltf/radio.gltf"));
         assertTrue(assets.contains("/scenes/gltf/zombie.gltf"));
         assertTrue(assets.contains("/scenes/gltf/crouch_walk.glb"));
+        assertTrue(assets.contains("/scenes/gltf/player_slie.gltf"));
     }
 
     private static void discover(Path root, Set<String> output) throws IOException {

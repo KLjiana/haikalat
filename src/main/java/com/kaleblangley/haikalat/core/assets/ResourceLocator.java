@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-public final class ResourceLocator {
+public final class ResourceLocator implements AssetByteResolver {
     private final Class<?> anchor;
     private final List<Path> roots = new ArrayList<>();
 

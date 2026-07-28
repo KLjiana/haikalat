@@ -1,5 +1,18 @@
 # 变更记录
 
+## v0.19.0-SNAPSHOT（开发中）
+
+- 新增严格 UTF-8 `haikalat.scene` v1 parser、显式 `ResourceCatalog`、`AssetByteResolver` 和
+  scene/glTF 外部依赖追踪；相对引用、重复字段、父节点环和有界输入会在 CPU 阶段拒绝。
+- 新增 `SceneAssetService`/`SceneBuildPlan`/`SceneHandle`/`SceneVersion`：scene、glTF 与图片
+  RGBA8 在后台解码，GPU 资源在 GL 线程以 step/time/byte budget 分阶段上传。
+- 新增 exact `(AssetId, generation, variant)` glTF GPU cache、lease 共享、失效传播、手动 reload、
+  directory watcher、事务式 `RenderPipeline.replaceScene` 和有界结构化诊断。
+- 增加 `sceneJvmVerification`、`sceneAssetGlVerification`、`localSceneAssetVerification`，
+  以及外部依赖、失败保留旧版本、staged upload 和 RGBA8 上传回归。
+- 当前仍是开发快照：未接入正式 SerializedSceneDemo，`RenderPipeline` 同拓扑替换仍走候选
+  graph 重建，尚未冻结 `0.19.0` release metadata。
+
 ## v0.18.3（2026-07-27）
 
 - 新增确定性 `AnimationGraph/AnimationController`：typed parameter/trigger、state/transition、

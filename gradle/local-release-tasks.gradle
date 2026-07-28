@@ -14,7 +14,7 @@ def localReleaseTasks = [
         'runPbrIntegration', 'runPbrResizeIntegration',
         'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
         'runGltfIntegration', 'runGltfResizeIntegration',
-        'runGltfSkinningIntegration', 'runUiIntegration',
+        'runGltfSkinningIntegration', 'runPlayerSlieIntegration', 'runUiIntegration',
         'runUiResizeIntegration', 'runUiTextIntegration',
         'runUiSyntheticImeSoak', 'runUiNativeSoak',
         'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',

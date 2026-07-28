@@ -40,6 +40,9 @@ current goals, capabilities, and non-goals.
   Optional bindless-texture support is reported separately; there is no legacy fallback.
 - A GL-free resource subsystem with normalized `AssetId` values, bounded directory/classpath
   sources, per-resource generations, and asynchronous CPU decoding that rejects stale results.
+- Strict `haikalat.scene` v1 JSON loading with explicit namespace catalogs, background
+  scene/glTF/image decoding, staged GL upload budgets, exact-generation GPU leases,
+  transactional scene replacement, manual reload, and optional debounced directory watching.
 - A retained-mode game UI subsystem with Yoga layout, typed theme/widgets/events,
   virtualized lists, popup/focus/clipboard support, bundled Noto Sans SC shaping through
   FreeType/HarfBuzz, a GPU glyph atlas, typed scissor/texture uploads, Windows IME composition,
@@ -97,6 +100,12 @@ Opt-in GL smoke checks create a hidden GLFW window and verify minimal GL/resourc
 ```
 
 See `docs/guides/testing.md` for the `unit`, `glSmoke`, and `integration` categories.
+
+Run the focused serialized-scene JVM and real-GL gate:
+
+```powershell
+.\gradlew.bat localSceneAssetVerification --rerun-tasks
+```
 
 Run the hidden deterministic baseline scene for eight frames:
 

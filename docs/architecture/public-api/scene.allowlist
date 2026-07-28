@@ -1,0 +1,12 @@
+# v0.19 serialized scene public API classification.
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneDefinition
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneJsonParser
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneBuildPlan
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneAssetService
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneVersion
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneHandle
+advanced com.kaleblangley.haikalat.subsystems.scene.GltfGpuAssetCache
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneAssetSnapshot
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneAssetOptions
+advanced com.kaleblangley.haikalat.subsystems.scene.HotReloadMode
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneUploadBudget

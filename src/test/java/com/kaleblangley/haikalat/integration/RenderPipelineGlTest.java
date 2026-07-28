@@ -718,6 +718,39 @@ class RenderPipelineGlTest {
     }
 
     @Test
+    void sceneReplacementBuildsCandidateBeforeRetiringActiveGraph() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("scene-replace"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE,
+                    PIPELINE_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene oldScene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            oldScene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+            Scene newScene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            newScene.add(new SceneObject(mesh, material,
+                    (model, frame) -> model.identity().translation(0.25f, 0.0f, 0.0f)));
+            RenderPipeline pipeline = new RenderPipeline(window, oldScene, null,
+                    RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                            .vsync(false).build());
+            try {
+                pipeline.build();
+                pipeline.replaceScene(newScene);
+                assertSame(newScene, pipeline.scene());
+                pipeline.execute(new GlRenderDevice());
+                GlDebug.checkError("sceneReplacementBuildsCandidateBeforeRetiringActiveGraph");
+            } finally {
+                pipeline.close();
+                material.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
     void shadowPassDrawsOnlyObjectsMarkedAsCasters() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();

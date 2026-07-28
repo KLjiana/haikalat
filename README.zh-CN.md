@@ -27,6 +27,8 @@
 - 确定性、无 GL 依赖的动画运行时：复用 pose/morph scratch、倒放、typed parameter/trigger/state/transition、1D 与显式 triangle 2D Blend Tree、最多 8 层 Override/Additive、Bone Mask、Marker/Sync/Signal、根运动，以及 Look-at/JointLimit/FABRIK/双手/纯输入 Foot IK；glTF skin、POSITION/NORMAL/TANGENT Morph 与 weights animation 按实例求值，PBR forward 和方向光 shadow 均固定 Morph-before-skin。
 - OpenGL 4.6 启动与提交能力契约：Core Profile、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters 和 debug output 缺一即明确终止，不走旧版降级。
 - 无 GL 依赖的通用资源基础：规范化 `AssetId`、有界 directory/classpath source、逐资源 generation，以及能拒绝过期结果的异步 CPU 解码协议。
+- 严格的 `haikalat.scene` v1 JSON：显式 namespace catalog、后台 scene/glTF/图片解码、分阶段
+  GL 上传预算、精确 generation 的 GPU lease、事务式场景替换、手动 reload 与可选目录监控。
 - 后处理新增 tiled 2D Color Grading LUT，以及根据场景深度重建世界坐标的距离/高度雾，并覆盖确定性像素与 resize 验证。
 - UI 新增无 GL 依赖的 visual/layout Tween 与 Transition，支持 linear/cubic/spring easing、延迟、取消和同通道替换。
 - 无 GL 依赖的确定性 VFX subsystem：有界粒子、Ribbon、Decal、over-life 和纯值纹理材质；render3d adapter 支持 R8/sRGB mask、Alpha/Additive emissive、billboard/stretch、场景深度 soft particle，以及 tone mapping 前的 HDR/Bloom 合成，UI 保持在 Bloom 之外。
@@ -62,6 +64,12 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 
 ```powershell
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
+```
+
+序列化场景的 JVM 与真实 GL 专项门禁：
+
+```powershell
+.\gradlew.bat localSceneAssetVerification --rerun-tasks
 ```
 
 隐藏窗口运行固定 8 帧基准场景：

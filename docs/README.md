@@ -17,6 +17,7 @@
 - [v0.18.2 纹理化 HDR VFX 与 Bloom 合成实施计划](planning/v0.18.2-textured-hdr-vfx-and-bloom.md)
 - [v0.18.2 资源目录整理与打包规范](planning/v0.18.2-resource-layout-and-packaging.md)
 - [v0.18.3 动画运行时、约束与 Morph Target 实施计划](planning/v0.18.3-animation-runtime-graph-and-morph.md)
+- [v0.19 序列化场景、统一资产身份、异步加载与热重载实施计划](planning/v0.19-serialized-scene-assets-async-hot-reload.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -31,6 +32,7 @@
 - [代码职责与重设计评估](architecture/code-design-review.md)
 - [Stress indexed / compact SSBO 渲染路径](architecture/stress-render-path.md)
 - [全项目公共 API 分类](architecture/public-api/README.md)
+- [资源代次与异步解码合同](architecture/resource-generations.md)
 - [GPU 与 native 资源所有权合同](architecture/resource-ownership.md)
 
 ## 指南
@@ -40,6 +42,8 @@
 开发、运行和验证项目时使用的操作指南。
 
 - [测试指南](guides/testing.md)
+- [序列化场景 v1](guides/serialized-scenes.md)
+- [场景异步加载与热重载](guides/scene-asset-loading.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
 - [Milestone 4 API、性能与限制](guides/milestone4-api-performance-limitations.md)
 - [Windows IME 适配与人工验收矩阵](guides/windows-ime.md)

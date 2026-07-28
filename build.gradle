@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.18.3'
+version = '0.19.0-SNAPSHOT'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -193,6 +193,15 @@ tasks.register('architectureGuard', Test) {
     ])
 }
 
+tasks.register('sceneJvmVerification', Test) {
+    description = 'Validates serialized scene schema, catalog identity and async CPU loading.'
+    configureGuardTest(delegate, [
+            '*.SceneJsonParserTest', '*.SceneAssetServiceTest',
+            '*.GltfImageDecoderTest',
+            '*.ResourceCatalogTest'
+    ])
+}
+
 tasks.register('dependencyLockGuard') {
     group = 'verification'
     description = 'Verifies the committed dependency lock and the removed Assimp dependency contract.'
@@ -218,7 +227,7 @@ tasks.register('dependencyLockGuard') {
 
 tasks.named('check') {
     dependsOn 'quickVerification', 'publicApiGuard', 'architectureGuard',
-            'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard',
+            'sceneJvmVerification', 'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard',
             'animationJvmVerification'
 }
 

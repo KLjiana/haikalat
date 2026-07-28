@@ -373,3 +373,29 @@ tasks.named('localGlVerification') {
             'glResourceLifecycleVerification'
 }
 
+tasks.register('sceneAssetGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates staged glTF uploads, exact-generation leases and transactional serialized-scene replacement.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.integration.SerializedSceneGlTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.integration.RenderPipelineGlTest.sceneReplacementBuildsCandidateBeforeRetiringActiveGraph'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeGlTest.gpuAssetCacheSharesExactGenerationAndRetiresOnLastLease'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeGlTest.stagedGpuRequestsCoalesceAndRespectOneStepPumpBudget'
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('localSceneAssetVerification') {
+    group = 'verification'
+    description = 'Runs the v0.19 serialized-scene JVM and focused real-GL gates.'
+    dependsOn 'sceneJvmVerification', 'sceneAssetGlVerification'
+}
+
+tasks.named('localGlVerification') {
+    dependsOn 'localSceneAssetVerification'
+}

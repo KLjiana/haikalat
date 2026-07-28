@@ -41,12 +41,12 @@ public final class RenderPipeline {
     private static final int SPOT_SHADOW_TEXTURE_UNIT = 12;
     private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
     private final RenderWindow window;
-    private final Scene scene;
+    private Scene scene;
     private final InstancedRenderer instanced;
     private final RenderSettings settings;
-    private final DirectionalShadowMap directionalShadowMap = DirectionalShadowMap.defaults();
-    private final PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
-    private final SpotShadowMap spotShadowMap = SpotShadowMap.defaults();
+    private DirectionalShadowMap directionalShadowMap = DirectionalShadowMap.defaults();
+    private PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
+    private SpotShadowMap spotShadowMap = SpotShadowMap.defaults();
     private RenderGraph graph;
     private CameraUniforms cameraUniforms;
     private LightingBinder lightingBinder;
@@ -68,12 +68,13 @@ public final class RenderPipeline {
     private int activeFrameIndex;
     private int pipelineFrameIndex;
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
-    private final GraphPreviewController previewController = new GraphPreviewController();
+    private GraphPreviewController previewController = new GraphPreviewController();
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private GraphPreviewRenderer previewRenderer;
     private PassExecutor hdrVfxRecorder;
+    private boolean executing;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -211,6 +212,58 @@ public final class RenderPipeline {
         return graph;
     }
 
+    /**
+     * Transactionally replaces the scene at a frame boundary.
+     *
+     * <p>A candidate pipeline generation is built while the current generation
+     * remains alive. Only after the candidate succeeds are the old graph and
+     * its GPU resources retired. This method intentionally rebuilds the
+     * candidate graph for both topology-preserving and topology-changing
+     * scenes; a later optimization can specialize the equal-signature path.</p>
+     */
+    public void replaceScene(Scene candidateScene) {
+        Objects.requireNonNull(candidateScene, "candidateScene");
+        if (executing) {
+            throw new IllegalStateException("scene replacement is only allowed at frame start");
+        }
+        if (graph == null) {
+            scene = candidateScene;
+            return;
+        }
+        RenderPipeline candidate = new RenderPipeline(window, candidateScene, instanced,
+                settings, pbrEnvironment);
+        candidate.postProcessSettings = postProcessSettings;
+        candidate.hdrVfxRecorder = hdrVfxRecorder;
+        try {
+            candidate.build();
+            closeGraphResources();
+            scene = candidate.scene;
+            directionalShadowMap = candidate.directionalShadowMap;
+            pointShadowAtlas = candidate.pointShadowAtlas;
+            spotShadowMap = candidate.spotShadowMap;
+            graph = candidate.graph;
+            cameraUniforms = candidate.cameraUniforms;
+            lightingBinder = candidate.lightingBinder;
+            postProcess = candidate.postProcess;
+            shadowShader = candidate.shadowShader;
+            instancedShadowShader = candidate.instancedShadowShader;
+            finalPassName = candidate.finalPassName;
+            pbrMaterialBinder = candidate.pbrMaterialBinder;
+            environmentBackground = candidate.environmentBackground;
+            sceneFrameBuilder = candidate.sceneFrameBuilder;
+            currentSceneFrame = null;
+            previewController = candidate.previewController;
+            previewRenderer = candidate.previewRenderer;
+        } catch (RuntimeException failure) {
+            try {
+                candidate.close();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
     private void validatePostProcessSettings() {
         boolean colorGrading = postProcessSettings.colorGrading().enabled();
         boolean fog = postProcessSettings.fog().enabled();
@@ -316,6 +369,7 @@ public final class RenderPipeline {
         postProcess.beginFrame(deltaSeconds, scene.camera(), window.width(), window.height(),
                 activeFrameIndex);
         if (previewRenderer != null) previewRenderer.prepare(device, previewFrameSequence);
+        executing = true;
         try {
             graph.execute(device);
             long commandRecordNanos = 0L;
@@ -333,6 +387,8 @@ public final class RenderPipeline {
             postProcess.frameFailed();
             if (previewRenderer != null) previewRenderer.frameFailed(failure);
             throw failure;
+        } finally {
+            executing = false;
         }
     }
 

@@ -300,18 +300,24 @@ class ArchitectureBoundaryTest {
     }
 
     private static void assertCatalogDomains(Map<String, PublicApiCatalog.Entry> catalog) {
-        Map<String, Set<String>> prefixes = Map.of(
-                "animation.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.animation."),
-                "backend.allowlist", Set.of("com.kaleblangley.haikalat.backend."),
-                "core.allowlist", Set.of("com.kaleblangley.haikalat.core.",
-                        "com.kaleblangley.haikalat.util."),
-                "runtime.allowlist", Set.of("com.kaleblangley.haikalat.runtime."),
-                "render3d.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.render3d."),
-                "postprocess.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.postprocess."),
-                "resources.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.resources."),
-                "ui.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.ui."),
-                "vfx.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.vfx."),
-                "windowing.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.windowing."));
+        Map<String, Set<String>> prefixes = Map.ofEntries(
+                Map.entry("animation.allowlist",
+                        Set.of("com.kaleblangley.haikalat.subsystems.animation.")),
+                Map.entry("backend.allowlist", Set.of("com.kaleblangley.haikalat.backend.")),
+                Map.entry("core.allowlist", Set.of("com.kaleblangley.haikalat.core.",
+                        "com.kaleblangley.haikalat.util.")),
+                Map.entry("runtime.allowlist", Set.of("com.kaleblangley.haikalat.runtime.")),
+                Map.entry("render3d.allowlist",
+                        Set.of("com.kaleblangley.haikalat.subsystems.render3d.")),
+                Map.entry("postprocess.allowlist",
+                        Set.of("com.kaleblangley.haikalat.subsystems.postprocess.")),
+                Map.entry("resources.allowlist",
+                        Set.of("com.kaleblangley.haikalat.subsystems.resources.")),
+                Map.entry("scene.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.scene.")),
+                Map.entry("ui.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.ui.")),
+                Map.entry("vfx.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.vfx.")),
+                Map.entry("windowing.allowlist",
+                        Set.of("com.kaleblangley.haikalat.subsystems.windowing.")));
         for (PublicApiCatalog.Entry entry : catalog.values()) {
             assertTrue(prefixes.get(entry.file()).stream().anyMatch(entry.type()::startsWith),
                     entry.type() + " is in the wrong allowlist " + entry.file());
@@ -327,6 +333,7 @@ class ArchitectureBoundaryTest {
             case "render3d.allowlist" -> "/subsystems/render3d/";
             case "postprocess.allowlist" -> "/subsystems/postprocess/";
             case "resources.allowlist" -> "/subsystems/resources/";
+            case "scene.allowlist" -> "/subsystems/scene/";
             case "ui.allowlist" -> "/subsystems/ui/";
             case "vfx.allowlist" -> "/subsystems/vfx/";
             case "windowing.allowlist" -> "/subsystems/windowing/";

@@ -137,6 +137,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--deterministic', '--frames=8', '--aa=NONE', '--bloom=off',
                  '--auto-exposure=off', '--environment-quality=test', '--asset=crouch_walk'],
                 'Renders the crouch-walk GLB and verifies synchronized split actions.']
+        ,runPlayerSlieIntegration          : [gltfMain,
+                ['--deterministic', '--frames=8', '--aa=NONE', '--bloom=off',
+                 '--auto-exposure=off', '--environment-quality=test', '--asset=player_slie'],
+                'Renders the user-provided Blockbench player_slie glTF and verifies skinning.']
         ,runGltfResizeIntegration          : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--resize=4:960x540'],
                 'Resizes the glTF/OBJ/legacy compatibility scene without re-uploading assets.']
@@ -347,6 +351,10 @@ registerDemoApplication('runCrouchWalkDemo',
         'Runs the user-provided crouch-walk GLB and its synchronized object actions.',
         gltfMain, ['--asset=crouch_walk'])
 
+registerDemoApplication('runPlayerSlieDemo',
+        'Runs the user-provided Blockbench player_slie glTF and its animations.',
+        gltfMain, ['--asset=player_slie'])
+
 registerDemoApplication('runVfxPerformanceBaseline',
         'Runs a finite VFX CPU/GPU/uniform-payload performance baseline.',
         vfxMain, ['--hidden', '--frames=240', '--warmup=60', '--particles=512'])
@@ -439,7 +447,7 @@ tasks.register('localGltfVerification') {
     description = 'Runs v0.13 glTF JVM/real-GL tests and deterministic scene integrations.'
     dependsOn 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration',
             'runGltfSkinningIntegration', 'runZombieIntegration',
-            'runCrouchWalkIntegration'
+            'runCrouchWalkIntegration', 'runPlayerSlieIntegration'
 }
 
 tasks.named('runGltfIntegration') { mustRunAfter 'glSmoke' }
@@ -447,6 +455,7 @@ tasks.named('runGltfResizeIntegration') { mustRunAfter 'runGltfIntegration' }
 tasks.named('runGltfSkinningIntegration') { mustRunAfter 'runGltfResizeIntegration' }
 tasks.named('runZombieIntegration') { mustRunAfter 'runGltfSkinningIntegration' }
 tasks.named('runCrouchWalkIntegration') { mustRunAfter 'runZombieIntegration' }
+tasks.named('runPlayerSlieIntegration') { mustRunAfter 'runCrouchWalkIntegration' }
 
 tasks.named('runStressDemo', JavaExec) {
     args "--shape=${providers.gradleProperty('stressShape').getOrElse('triangle')}",

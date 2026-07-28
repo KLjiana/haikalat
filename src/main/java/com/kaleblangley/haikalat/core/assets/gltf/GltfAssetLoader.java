@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.core.assets.gltf;
 
 import com.kaleblangley.haikalat.core.assets.AssetRef;
+import com.kaleblangley.haikalat.core.assets.AssetByteResolver;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 
 import java.util.ArrayList;
@@ -15,9 +16,13 @@ import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.*;
 
 /** glTF 2.0 scene、skin 与 animation 的纯 JVM 加载入口。 */
 public final class GltfAssetLoader {
-    private final ResourceLocator locator;
+    private final AssetByteResolver locator;
 
     public GltfAssetLoader(ResourceLocator locator) {
+        this((AssetByteResolver) locator);
+    }
+
+    public GltfAssetLoader(AssetByteResolver locator) {
         this.locator = Objects.requireNonNull(locator, "locator");
     }
 

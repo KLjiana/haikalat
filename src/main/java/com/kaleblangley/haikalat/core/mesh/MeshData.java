@@ -42,6 +42,10 @@ public record MeshData(
         return vertices.length / floatsPerVertex(layout);
     }
 
+    public int indexCount() {
+        return indices.length;
+    }
+
     /** 查询 POSITION 是否满足指定 shader location 和最小分量数。 */
     public boolean hasPositionAttribute(int location, int minimumComponents) {
         return hasAttribute(VertexSemantic.POSITION, location, minimumComponents);
