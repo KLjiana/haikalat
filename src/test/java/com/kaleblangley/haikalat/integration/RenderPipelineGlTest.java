@@ -660,6 +660,7 @@ class RenderPipelineGlTest {
             GlDebug.enableDebugCallback();
 
             List<Integer> depthIds = new ArrayList<>();
+            List<Integer> colorIds = new ArrayList<>();
             RenderGraph graph = new RenderGraph(32, 32);
             graph.addPass("FixedShadow")
                     .createDepthTexture("FixedShadowDepth")
@@ -667,6 +668,10 @@ class RenderPipelineGlTest {
                     .clearDepthOnly()
                     .execute((resources, commands) ->
                             depthIds.add(resources.depthAttachment("FixedShadowDepth")));
+            graph.addPass("WindowColor")
+                    .createColor("WindowColor")
+                    .execute((resources, commands) ->
+                            colorIds.add(resources.colorAttachment("WindowColor")));
             try {
                 GlRenderDevice device = new GlRenderDevice();
                 graph.execute(device);
@@ -675,6 +680,8 @@ class RenderPipelineGlTest {
 
                 assertEquals(depthIds.get(0), depthIds.get(1),
                         "Window resize must not recreate a fixed-size shadow target");
+                assertNotEquals(colorIds.get(0), colorIds.get(1),
+                        "Window resize must recreate a window-sized target");
             } finally {
                 graph.close();
             }

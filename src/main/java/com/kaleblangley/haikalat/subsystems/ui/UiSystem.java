@@ -1,7 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.ui;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
-import com.kaleblangley.haikalat.subsystems.ui.event.UiInputRouter;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSystem;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiTimeline;
 import com.kaleblangley.haikalat.subsystems.ui.layout.LayoutEngine;
@@ -23,16 +22,12 @@ import com.kaleblangley.haikalat.subsystems.ui.text.GlyphAtlasStatistics;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
 import com.kaleblangley.haikalat.subsystems.ui.text.ShapingCache;
 import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
-import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectBridge;
 import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectRenderer;
+import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectSnapshot;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
-import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
-import com.kaleblangley.haikalat.subsystems.windowing.input.MouseButton;
-import com.kaleblangley.haikalat.subsystems.windowing.input.QueuedTextInputClient;
 import com.kaleblangley.haikalat.subsystems.windowing.input.TextInputAdapter;
-import com.kaleblangley.haikalat.subsystems.windowing.input.TextInputRect;
 import com.kaleblangley.haikalat.subsystems.windowing.input.UnavailableTextInputAdapter;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import com.kaleblangley.haikalat.subsystems.windowing.input.win32.Win32TextInputAdapter;
@@ -60,7 +55,7 @@ public final class UiSystem implements AutoCloseable {
     private final UiConfig config;
     private final UiThreadGuard updateThread = new UiThreadGuard("UiSystem update state");
     private final UiDocument document;
-    private final UiInputRouter inputRouter;
+    private final UiUpdateCoordinator updateCoordinator;
     private final UiAnimationSystem animations;
     private final UiTimeline timeline;
     private final UiEffectBridge effects;
@@ -71,26 +66,22 @@ public final class UiSystem implements AutoCloseable {
     private final UiPainter painter;
     private final UiDisplayList displayList;
     private final UiBatcher emptySnapshotBatcher = new UiBatcher();
-    private final UiSnapshotExchange snapshots;
+    private final UiSnapshotPublisher snapshotPublisher;
     private final UiRenderer renderer;
-    private final TextInputAdapter textInputAdapter;
-    private final QueuedTextInputClient textInputClient = new QueuedTextInputClient();
+    private final UiAttachmentController attachments =
+            new UiAttachmentController(OVERLAY_PASS_NAME);
+    private final UiDiagnostics diagnostics = new UiDiagnostics();
     private final Object renderLifecycle = new Object();
     private final Set<Long> submittedGlyphUploads = ConcurrentHashMap.newKeySet();
-    private RenderGraph attachedGraph;
-    private UiCompositor compositor;
     private UiRenderSnapshot lastRenderedSnapshot;
     private UiSnapshotExchange.Lease lastRenderedLease;
-    private volatile UiFrameStats updateStatistics = UiFrameStats.EMPTY;
-    private long snapshotSequence;
-    private TextField activeTextField;
+    private UiBatchBreakStats lastBatchBreaks = UiBatchBreakStats.EMPTY;
+    private long lastVisibleNodes;
+    private long lastPaintGlyphs;
+    private int lastBatchCount;
     private float animationDeltaSeconds;
-    private int previousWindowWidth = -1;
-    private int previousWindowHeight = -1;
-    private double previousContentScaleX = Double.NaN;
-    private double previousContentScaleY = Double.NaN;
-    private volatile long renderRecordNanos;
-    private volatile long renderedDrawCalls;
+    private boolean snapshotPublished;
+    private boolean effectsVisibleLastFrame;
     private volatile boolean closed;
 
     private UiSystem(RenderWindow window, UiConfig config, UiDocument document,
@@ -102,15 +93,14 @@ public final class UiSystem implements AutoCloseable {
         this.layoutEngine = Objects.requireNonNull(layoutEngine, "layoutEngine");
         this.textEngine = Objects.requireNonNull(textEngine, "textEngine");
         this.painter = Objects.requireNonNull(painter, "painter");
-        this.textInputAdapter = Objects.requireNonNull(textInputAdapter, "textInputAdapter");
-        inputRouter = new UiInputRouter(document);
+        updateCoordinator = new UiUpdateCoordinator(document, textInputAdapter);
         animations = new UiAnimationSystem(document);
         timeline = new UiTimeline(document);
         effects = new UiEffectBridge(document);
         stylePass = new UiStylePass(StyleResolver.defaults(config.theme()));
         displayList = new UiDisplayList(config.initialPrimitiveCapacity(),
                 config.initialPrimitiveCapacity());
-        snapshots = new UiSnapshotExchange(config.snapshotSlots());
+        snapshotPublisher = new UiSnapshotPublisher(config.snapshotSlots());
         renderer = new UiRenderer(config.maximumPrimitives(),
                 config.glyphAtlasWidth(), config.glyphAtlasHeight(),
                 config.maximumGlyphAtlasPages(), imageResolver);
@@ -248,14 +238,9 @@ public final class UiSystem implements AutoCloseable {
         }
         float boundedDelta = Math.min(deltaSeconds, config.maximumDeltaSeconds());
         long updateStart = System.nanoTime();
-        applyCompletedGlyphUploads();
+        boolean glyphStateChanged = applyCompletedGlyphUploads();
         textEngine.beginFrame(input.contentScaleX(), input.contentScaleY());
-        invalidateViewportIfChanged(input);
-        long inputEvents = countInputEvents(input);
-        applyComposition(input, false);
-        long dispatched = inputRouter.update(input);
-        applyComposition(input, true);
-        synchronizeTextInput(input);
+        updateCoordinator.routeInput(input);
         stylePass.resolve(document);
         animations.update(boundedDelta);
         timeline.update(boundedDelta);
@@ -273,37 +258,59 @@ public final class UiSystem implements AutoCloseable {
         }
         effects.update(boundedDelta);
 
-        UiRenderSnapshot complete;
-        long paintStart = System.nanoTime();
-        painter.paint(document, displayList);
-        effectRenderer.record(effects.snapshot(), displayList);
-        long paintNanos = System.nanoTime() - paintStart;
-        if (activeTextField != null) updateCandidateRect(activeTextField, input);
-        try {
-            complete = snapshots.captureAndPublish(++snapshotSequence,
-                    input.windowWidth(), input.windowHeight(),
-                    input.framebufferWidth(), input.framebufferHeight(),
-                    input.contentScaleX(), input.contentScaleY(), displayList,
-                    textEngine.pendingUploads());
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("UiSnapshotExchange publication was interrupted", interrupted);
+        List<UiEffectSnapshot> effectSnapshots = effects.snapshot();
+        boolean effectsVisible = !effectSnapshots.isEmpty();
+        boolean repaint = !snapshotPublished || glyphStateChanged
+                || effectsVisibleLastFrame || effectsVisible
+                || hasVisiblePaintDirty(document.root())
+                || hasVisiblePaintDirty(document.overlayRoot());
+        long paintNanos = 0L;
+        if (repaint) {
+            long paintStart = System.nanoTime();
+            try {
+                painter.paint(document, displayList);
+                effectRenderer.record(effectSnapshots, displayList);
+                UiRenderSnapshot complete = snapshotPublisher.publish(
+                        input.windowWidth(), input.windowHeight(),
+                        input.framebufferWidth(), input.framebufferHeight(),
+                        input.contentScaleX(), input.contentScaleY(), displayList,
+                        textEngine.pendingUploads());
+                lastVisibleNodes = countNodes(document.root())
+                        + countNodes(document.overlayRoot());
+                lastPaintGlyphs = textEngine.frameGlyphs();
+                lastBatchCount = complete.batches().size();
+                lastBatchBreaks = complete.batches().breakStatistics();
+                snapshotPublished = true;
+                effectsVisibleLastFrame = effectsVisible;
+            } catch (InterruptedException interrupted) {
+                markPaintRoots();
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "UiSnapshotExchange publication was interrupted", interrupted);
+            } catch (RuntimeException | Error failure) {
+                markPaintRoots();
+                throw failure;
+            } finally {
+                paintNanos = System.nanoTime() - paintStart;
+            }
         }
+        updateCoordinator.updateCandidateRect(input);
 
-        long visibleNodes = countNodes(document.root()) + countNodes(document.overlayRoot());
         long updateNanos = System.nanoTime() - updateStart;
         ShapingCache.Statistics shaping = textEngine.shapingStatistics();
         GlyphAtlasStatistics atlas = textEngine.atlasStatistics();
-        updateStatistics = new UiFrameStats(visibleNodes, layoutNodes, layoutPasses,
+        diagnostics.recordUpdate(new UiFrameStats(lastVisibleNodes, layoutNodes, layoutPasses,
                 textEngine.frameShapedRuns(), shaping.hits(), shaping.misses(),
                 atlas.hits(), atlas.misses(), atlas.pages(), atlas.evictions(),
-                displayList.primitiveCount(), displayList.quadCount(), textEngine.frameGlyphs(),
-                complete.batches().size(), renderedDrawCalls,
+                displayList.primitiveCount(), displayList.quadCount(), lastPaintGlyphs,
+                lastBatchCount, diagnostics.renderedDrawCalls(),
                 (long) displayList.quadCount() * 4L * 20L,
                 (long) displayList.quadCount() * 6L * Short.BYTES,
-                atlas.uploadBytes(), inputEvents, dispatched, updateNanos, layoutNanos,
-                textEngine.frameShapingNanos(), paintNanos, renderRecordNanos, 0,
-                complete.batches().breakStatistics());
+                atlas.uploadBytes(), updateCoordinator.inputEvents(),
+                updateCoordinator.dispatchedEvents(),
+                updateNanos, layoutNanos,
+                textEngine.frameShapingNanos(), paintNanos, diagnostics.renderRecordNanos(), 0,
+                lastBatchBreaks));
         // 后续动画/惯性组件只能接收 boundedDelta，不能重新读取未经裁剪的参数。
         animationDeltaSeconds = boundedDelta;
     }
@@ -323,31 +330,7 @@ public final class UiSystem implements AutoCloseable {
                          RenderGraph.PassExecutor beforeOverlay) {
         updateThread.check();
         ensureOpen("UiSystem graph attachment");
-        Objects.requireNonNull(graph, "graph");
-        Objects.requireNonNull(dependencyPass, "dependencyPass");
-        Objects.requireNonNull(beforeOverlay, "beforeOverlay");
-        if (attachedGraph != null) throw new IllegalStateException("UiSystem is already attached to a RenderGraph");
-        if (graph.isTopologySealed()) throw new IllegalStateException("RenderGraph topology is already sealed");
-        if (!graph.hasPass(dependencyPass)) {
-            throw new IllegalArgumentException("UI dependency pass does not exist: " + dependencyPass);
-        }
-        if (!graph.passWritesToBackbuffer(dependencyPass)) {
-            throw new IllegalArgumentException("UI dependency pass does not write to backbuffer: " + dependencyPass);
-        }
-        if (graph.hasPass(OVERLAY_PASS_NAME)) {
-            throw new IllegalStateException("RenderGraph already contains " + OVERLAY_PASS_NAME);
-        }
-
-        graph.addPass(OVERLAY_PASS_NAME)
-                .writeToBackbuffer()
-                .noClear()
-                .dependsOn(dependencyPass)
-                .execute((resources, commands) -> {
-                    beforeOverlay.execute(resources, commands);
-                    recordOverlay(commands);
-                });
-        graph.sealTopology();
-        attachedGraph = graph;
+        attachments.attach(graph, dependencyPass, beforeOverlay, this::recordOverlay);
     }
 
     /** Attaches the UI with deterministic UI-owned compositor passes. */
@@ -355,70 +338,38 @@ public final class UiSystem implements AutoCloseable {
                          UiAttachmentOptions options) {
         updateThread.check();
         ensureOpen("UiSystem graph attachment");
-        Objects.requireNonNull(graph, "graph");
-        Objects.requireNonNull(dependencyPass, "dependencyPass");
-        Objects.requireNonNull(options, "options");
-        if (attachedGraph != null) {
-            throw new IllegalStateException("UiSystem is already attached to a RenderGraph");
-        }
-        if (graph.isTopologySealed()) throw new IllegalStateException("RenderGraph topology is already sealed");
-        if (!graph.hasPass(dependencyPass)) {
-            throw new IllegalArgumentException("UI dependency pass does not exist: " + dependencyPass);
-        }
-        if (!graph.passWritesToBackbuffer(dependencyPass)) {
-            throw new IllegalArgumentException("UI dependency pass does not write to backbuffer: " + dependencyPass);
-        }
-        if (graph.hasPass(OVERLAY_PASS_NAME)) {
-            throw new IllegalStateException("RenderGraph already contains " + OVERLAY_PASS_NAME);
-        }
-        compositor = new UiCompositor(options);
-        String finalDependency = compositor.registerPasses(graph, dependencyPass);
-        graph.addPass(OVERLAY_PASS_NAME)
-                .writeToBackbuffer()
-                .noClear()
-                .dependsOn(finalDependency)
-                .execute((resources, commands) -> recordOverlay(commands));
-        graph.sealTopology();
-        attachedGraph = graph;
+        attachments.attach(graph, dependencyPass, options, this::recordOverlay);
     }
 
     public UiCompositor.Diagnostics compositorDiagnostics() {
         updateThread.check();
         ensureOpen("UiSystem compositor diagnostics");
-        return compositor == null ? UiCompositor.Diagnostics.EMPTY : compositor.diagnostics();
+        return attachments.diagnostics();
     }
 
     /** 返回最近完成 update 的统计，并合入最近 render record 数据。 */
     public UiFrameStats statistics() {
         ensureOpen("UiFrameStats");
-        UiFrameStats value = updateStatistics;
-        return new UiFrameStats(value.visibleNodes(), value.layoutNodes(), value.layoutPasses(),
-                value.shapedRuns(), value.shapingCacheHits(), value.shapingCacheMisses(),
-                value.glyphAtlasHits(), value.glyphAtlasMisses(), value.glyphAtlasPages(),
-                value.glyphAtlasEvictions(), value.paintPrimitives(), value.quads(), value.glyphs(),
-                value.batches(), renderedDrawCalls, value.vertexBytes(), value.indexBytes(),
-                value.atlasUploadBytes(), value.inputEvents(), value.dispatchedEvents(),
-                value.uiUpdateNanos(), value.layoutNanos(), value.shapingNanos(), value.paintNanos(),
-                renderRecordNanos, renderer.ringWaitNanos(), value.batchBreaks());
+        return diagnostics.snapshot(renderer.ringWaitNanos());
     }
 
-    public boolean isAttached() { return attachedGraph != null; }
+    public boolean isAttached() { return attachments.isAttached(); }
     public boolean isClosed() { return closed; }
 
     /** 返回已经成功发布到 snapshot exchange 的快照总数。 */
     public long publishedSnapshotCount() {
-        return snapshots.publishedCount();
+        return snapshotPublisher.publishedCount();
     }
 
     /** 返回被 latest-wins 覆盖或在关闭时丢弃的未消费快照总数。 */
     public long droppedSnapshotCount() {
-        return snapshots.droppedCount();
+        return snapshotPublisher.droppedCount();
     }
 
     public TextInputAdapter textInputAdapter() {
         updateThread.check();
         ensureOpen("TextInputAdapter");
-        return textInputAdapter;
+        return updateCoordinator.textInputAdapter();
     }
 
     /**
@@ -443,37 +394,32 @@ public final class UiSystem implements AutoCloseable {
         if (closed) return;
         closed = true;
         RuntimeException failure = null;
-        snapshots.close();
+        snapshotPublisher.close();
         synchronized (renderLifecycle) {
             releaseLastRenderedLease();
             if (!renderer.isClosed()) failure = closeCollect(renderer, failure);
             lastRenderedSnapshot = null;
         }
-        if (activeTextField != null) {
-            try {
-                textInputAdapter.deactivate(textInputClient);
-            } catch (RuntimeException deactivateFailure) {
-                failure = appendFailure(failure, deactivateFailure);
-            }
-            activeTextField.cancelComposition();
-            activeTextField = null;
+        try {
+            updateCoordinator.deactivateTextInput();
+        } catch (RuntimeException deactivateFailure) {
+            failure = appendFailure(failure, deactivateFailure);
         }
-        failure = closeCollect(textInputAdapter, failure);
+        failure = closeCollect(updateCoordinator.textInputAdapter(), failure);
         failure = closeCollect(textEngine, failure);
         failure = closeCollect(layoutEngine, failure);
         failure = closeCollect(effects, failure);
         failure = closeCollect(timeline, failure);
         failure = closeCollect(animations, failure);
         failure = closeCollect(document, failure);
-        attachedGraph = null;
-        compositor = null;
+        attachments.close();
         if (failure != null) throw failure;
     }
 
     private void recordOverlay(com.kaleblangley.haikalat.core.command.CommandBuffer commands) {
         ensureOpen("UiRenderer");
         synchronized (renderLifecycle) {
-            UiSnapshotExchange.Lease acquired = snapshots.tryAcquire();
+            UiSnapshotExchange.Lease acquired = snapshotPublisher.tryAcquire();
             if (acquired != null) {
                 UiSnapshotExchange.Lease replaced = lastRenderedLease;
                 lastRenderedLease = acquired;
@@ -500,8 +446,7 @@ public final class UiSystem implements AutoCloseable {
                 releaseGlyphUploadClaims(claimedUploads);
                 throw failure;
             }
-            renderRecordNanos = System.nanoTime() - start;
-            renderedDrawCalls = renderer.lastDrawCalls();
+            diagnostics.recordRender(System.nanoTime() - start, renderer.lastDrawCalls());
         }
     }
 
@@ -515,9 +460,11 @@ public final class UiSystem implements AutoCloseable {
         if (closed) throw new IllegalStateException(resource + " cannot be used after UiSystem.close");
     }
 
-    private void applyCompletedGlyphUploads() {
+    private boolean applyCompletedGlyphUploads() {
+        boolean changed = false;
         for (UiGlyphUploadResult result : renderer.drainCompletedGlyphUploads()) {
             for (GlyphUploadRequest request : result.requests()) {
+                changed = true;
                 submittedGlyphUploads.remove(request.requestId());
                 if (result.succeeded()) {
                     textEngine.publishUpload(request);
@@ -526,6 +473,7 @@ public final class UiSystem implements AutoCloseable {
                 }
             }
         }
+        return changed;
     }
 
     private List<GlyphUploadRequest> claimGlyphUploads(List<GlyphUploadRequest> requests) {
@@ -543,23 +491,6 @@ public final class UiSystem implements AutoCloseable {
         }
     }
 
-    private void invalidateViewportIfChanged(WindowInputSnapshot input) {
-        if (previousWindowWidth == input.windowWidth()
-                && previousWindowHeight == input.windowHeight()
-                && Double.compare(previousContentScaleX, input.contentScaleX()) == 0
-                && Double.compare(previousContentScaleY, input.contentScaleY()) == 0) {
-            return;
-        }
-        previousWindowWidth = input.windowWidth();
-        previousWindowHeight = input.windowHeight();
-        previousContentScaleX = input.contentScaleX();
-        previousContentScaleY = input.contentScaleY();
-        document.root().markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT,
-                UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST);
-        document.overlayRoot().markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT,
-                UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST);
-    }
-
     /** 返回最近一次 update 经裁剪后提供给 UI 动画的 delta。 */
     float animationDeltaSeconds() {
         return animationDeltaSeconds;
@@ -571,6 +502,20 @@ public final class UiSystem implements AutoCloseable {
         return false;
     }
 
+    private static boolean hasVisiblePaintDirty(UiNode node) {
+        if (node.visibility() != UiVisibility.VISIBLE) return false;
+        if (node.isDirty(UiDirtyFlag.PAINT)) return true;
+        for (UiNode child : node.children()) {
+            if (hasVisiblePaintDirty(child)) return true;
+        }
+        return false;
+    }
+
+    private void markPaintRoots() {
+        document.root().markDirty(UiDirtyFlag.PAINT);
+        document.overlayRoot().markDirty(UiDirtyFlag.PAINT);
+    }
+
     private static void invalidateTextLayout(UiNode node) {
         node.markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT, UiDirtyFlag.PAINT);
         for (UiNode child : node.children()) invalidateTextLayout(child);
@@ -580,76 +525,6 @@ public final class UiSystem implements AutoCloseable {
         long count = 1L;
         for (UiNode child : node.children()) count += countNodes(child);
         return count;
-    }
-
-    private static long countInputEvents(WindowInputSnapshot input) {
-        long count = input.cursorDeltaX() != 0.0 || input.cursorDeltaY() != 0.0 ? 1L : 0L;
-        if (input.scrollX() != 0.0 || input.scrollY() != 0.0) count++;
-        for (Key key : Key.values()) {
-            if (input.keyPressed(key)) count++;
-            if (input.keyReleased(key)) count++;
-        }
-        for (MouseButton button : MouseButton.values()) {
-            if (input.mousePressed(button)) count++;
-            if (input.mouseReleased(button)) count++;
-        }
-        count += input.committedCodePoints().remaining();
-        if (input.composition().isPresent()) count++;
-        return count;
-    }
-
-    private void applyComposition(WindowInputSnapshot input, boolean onlyPresent) {
-        UiNode focused = document.focusManager().focused();
-        if (!(focused instanceof TextField field)) return;
-        if (input.composition().isPresent()) {
-            field.updateComposition(input.composition().orElseThrow());
-        } else if (!onlyPresent && field.composition() != null) {
-            // 先清除旧 preedit，再让同一 snapshot 的 GLFW committed-char 成为唯一提交来源。
-            field.cancelComposition();
-        }
-    }
-
-    private void synchronizeTextInput(WindowInputSnapshot input) {
-        TextField focused = input.focused() && document.focusManager().focused() instanceof TextField field
-                ? field : null;
-        if (focused != activeTextField) {
-            if (activeTextField != null) {
-                textInputAdapter.deactivate(textInputClient);
-                if (!activeTextField.isClosed()) {
-                    activeTextField.cancelComposition();
-                }
-            }
-            activeTextField = focused;
-            textInputClient.clear();
-            if (focused != null) textInputAdapter.activate(textInputClient);
-        }
-        if (activeTextField == null) {
-            textInputClient.clear();
-            return;
-        }
-        textInputClient.drain(command -> {
-            if (command instanceof QueuedTextInputClient.Command.Started) {
-                activeTextField.updateComposition(
-                        new com.kaleblangley.haikalat.subsystems.windowing.input.ImeComposition("", 0, 0, 0));
-            } else if (command instanceof QueuedTextInputClient.Command.Updated updated) {
-                activeTextField.updateComposition(updated.composition());
-            } else if (command instanceof QueuedTextInputClient.Command.Committed committed) {
-                activeTextField.commitComposition(committed.text());
-            } else if (command instanceof QueuedTextInputClient.Command.Cancelled) {
-                activeTextField.cancelComposition();
-            }
-        });
-    }
-
-    private void updateCandidateRect(TextField field, WindowInputSnapshot input) {
-        com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox box = document.visualLayoutBox(field);
-        com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox nodeBox = field.layoutBox();
-        com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox contentBox = field.textContentBox();
-        double logicalX = box.x() + contentBox.x() - nodeBox.x() + field.visibleCaretX();
-        textInputAdapter.setCandidateRect(new TextInputRect(
-                logicalX * input.contentScaleX(), box.y() * input.contentScaleY(),
-                Math.max(1.0, input.contentScaleX()),
-                Math.max(1.0, box.height() * input.contentScaleY())));
     }
 
     private static TextInputAdapter defaultTextInputAdapter(RenderWindow window) {

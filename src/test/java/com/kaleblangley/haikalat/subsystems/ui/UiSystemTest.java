@@ -95,6 +95,35 @@ class UiSystemTest {
     }
 
     @Test
+    void staticUpdateReusesPublishedDisplayListUntilPaintBecomesDirty() {
+        try (UiSystem ui = UiSystem.create(new FixedWindow(320, 180), UiConfig.defaults())) {
+            Button button = new Button("Stable");
+            ui.document().root().add(button);
+            WindowInputCollector input = collector(320, 180, 320, 180);
+
+            ui.update(input.snapshot(), 1.0f / 60.0f);
+            long published = ui.publishedSnapshotCount();
+            UiFrameStats first = ui.statistics();
+
+            ui.update(input.snapshot(), 1.0f / 60.0f);
+
+            UiFrameStats stable = ui.statistics();
+            assertEquals(published, ui.publishedSnapshotCount());
+            assertEquals(0L, stable.paintNanos());
+            assertEquals(first.paintPrimitives(), stable.paintPrimitives());
+            assertEquals(first.quads(), stable.quads());
+            assertEquals(first.glyphs(), stable.glyphs());
+            assertEquals(first.batches(), stable.batches());
+
+            button.animatedValue(1.0);
+            ui.update(input.snapshot(), 1.0f / 60.0f);
+
+            assertEquals(published + 1L, ui.publishedSnapshotCount());
+            assertTrue(ui.statistics().paintNanos() > 0L);
+        }
+    }
+
+    @Test
     void attachValidatesBackbufferDependencyAndSealsTopology() {
         try (UiSystem ui = UiSystem.create(new FixedWindow(64, 64), UiConfig.defaults());
              RenderGraph graph = new RenderGraph(64, 64)) {

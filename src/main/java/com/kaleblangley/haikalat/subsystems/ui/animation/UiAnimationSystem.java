@@ -8,8 +8,6 @@ import com.kaleblangley.haikalat.subsystems.ui.style.UiInsets;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 
-import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 
@@ -17,7 +15,7 @@ import java.util.Objects;
 public final class UiAnimationSystem implements AutoCloseable {
     private final UiDocument document;
     private final Thread ownerThread = Thread.currentThread();
-    private final List<Entry> active = new ArrayList<>();
+    private final UiAnimationRunList<Entry> active = new UiAnimationRunList<>();
     private long nextId;
     private long updates;
     private long started;
@@ -105,18 +103,19 @@ public final class UiAnimationSystem implements AutoCloseable {
         if (!Float.isFinite(deltaSeconds) || deltaSeconds < 0.0f) {
             throw new IllegalArgumentException("animation deltaSeconds must be finite and non-negative");
         }
-        Iterator<Entry> iterator = active.iterator();
-        while (iterator.hasNext()) {
-            Entry entry = iterator.next();
+        for (int index = 0; index < active.size();) {
+            Entry entry = active.get(index);
             if (entry.node.isClosed()) {
                 cancelEntry(entry, false);
-                iterator.remove();
+                active.removeAt(index);
             } else if (entry.handle.isPaused()) {
-                continue;
+                index++;
             } else if (entry.advance(deltaSeconds)) {
                 entry.handle.finish();
                 completed = Math.incrementExact(completed);
-                iterator.remove();
+                active.removeAt(index);
+            } else {
+                index++;
             }
         }
         updates = Math.incrementExact(updates);
@@ -134,7 +133,8 @@ public final class UiAnimationSystem implements AutoCloseable {
         int pausedCount = 0;
         int visualCount = 0;
         int layoutCount = 0;
-        for (Entry entry : active) {
+        for (int index = 0; index < active.size(); index++) {
+            Entry entry = active.get(index);
             if (entry.handle.isPaused()) pausedCount++;
             if (entry.channel == Channel.VISUAL) visualCount++;
             else layoutCount++;
@@ -153,10 +153,10 @@ public final class UiAnimationSystem implements AutoCloseable {
     void cancel(UiAnimationHandle handle) {
         checkThread();
         if (closed || !handle.isActive()) return;
-        for (Iterator<Entry> iterator = active.iterator(); iterator.hasNext();) {
-            Entry entry = iterator.next();
+        for (int index = 0; index < active.size(); index++) {
+            Entry entry = active.get(index);
             if (entry.handle == handle) {
-                iterator.remove();
+                active.removeAt(index);
                 cancelEntry(entry, false);
                 return;
             }
@@ -179,7 +179,9 @@ public final class UiAnimationSystem implements AutoCloseable {
     public void close() {
         checkThread();
         if (closed) return;
-        for (Entry entry : active) cancelEntry(entry, false);
+        for (int index = 0; index < active.size(); index++) {
+            cancelEntry(active.get(index), false);
+        }
         active.clear();
         closed = true;
     }
@@ -200,18 +202,20 @@ public final class UiAnimationSystem implements AutoCloseable {
     }
 
     private void cancelMatching(UiNode node, Channel channel) {
-        for (Iterator<Entry> iterator = active.iterator(); iterator.hasNext();) {
-            Entry entry = iterator.next();
+        for (int index = 0; index < active.size();) {
+            Entry entry = active.get(index);
             if (entry.node == node && (channel == null || entry.channel == channel)) {
                 cancelEntry(entry, channel != null);
-                iterator.remove();
+                active.removeAt(index);
+            } else {
+                index++;
             }
         }
     }
 
     private boolean contains(UiAnimationHandle handle) {
-        for (Entry entry : active) {
-            if (entry.handle == handle) return true;
+        for (int index = 0; index < active.size(); index++) {
+            if (active.get(index).handle == handle) return true;
         }
         return false;
     }

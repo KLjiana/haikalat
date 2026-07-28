@@ -4,7 +4,6 @@ import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 
@@ -17,7 +16,7 @@ public final class UiTimeline implements AutoCloseable {
 
     private final UiDocument document;
     private final Thread owner = Thread.currentThread();
-    private final List<GroupRun> active = new ArrayList<>();
+    private final UiAnimationRunList<GroupRun> active = new UiAnimationRunList<>();
     private final List<UiAnimationSignal> signals = new ArrayList<>();
     private long nextSequence;
     private boolean reducedMotion;
@@ -86,11 +85,11 @@ public final class UiTimeline implements AutoCloseable {
     public void cancel(long sequence) {
         check();
         if (closed) return;
-        for (Iterator<GroupRun> iterator = active.iterator(); iterator.hasNext();) {
-            GroupRun run = iterator.next();
+        for (int index = 0; index < active.size(); index++) {
+            GroupRun run = active.get(index);
             if (run.sequence == sequence) {
                 run.cancel();
-                iterator.remove();
+                active.removeAt(index);
                 return;
             }
         }
@@ -106,9 +105,10 @@ public final class UiTimeline implements AutoCloseable {
         do {
             float slice = reducedMotion ? Float.MAX_VALUE
                     : Math.min(remaining, UPDATE_SLICE_SECONDS);
-            for (Iterator<GroupRun> iterator = active.iterator(); iterator.hasNext();) {
-                GroupRun group = iterator.next();
-                if (group.advance(slice)) iterator.remove();
+            for (int index = 0; index < active.size();) {
+                GroupRun group = active.get(index);
+                if (group.advance(slice)) active.removeAt(index);
+                else index++;
             }
             if (reducedMotion) break;
             remaining -= slice;
@@ -134,7 +134,9 @@ public final class UiTimeline implements AutoCloseable {
     public void close() {
         check();
         if (closed) return;
-        for (GroupRun run : active) run.cancel();
+        for (int index = 0; index < active.size(); index++) {
+            active.get(index).cancel();
+        }
         active.clear();
         closed = true;
     }

@@ -19,6 +19,7 @@
 - [v0.18.3 动画运行时、约束与 Morph Target 实施计划](planning/v0.18.3-animation-runtime-graph-and-morph.md)
 - [v0.19 序列化场景、统一资产身份、异步加载与热重载实施计划](planning/v0.19-serialized-scene-assets-async-hot-reload.md)
 - [v0.19.x UI SDF、Compositor、现代动画与 VFX 深化计划](planning/v0.19-ui-sdf-compositor-animation-vfx.md)
+- [v0.20 代码整理与逻辑优化计划](planning/v0.20-code-consolidation-and-logic-optimization.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -31,6 +32,9 @@
 - [AsyncDemo 渲染线程契约](architecture/async-render-thread.md)
 - [抽象密度控制](architecture/abstraction-density.md)
 - [代码职责与重设计评估](architecture/code-design-review.md)
+- [v0.20 UI 内部收敛](architecture/v0.20-ui-consolidation.md)
+- [v0.20 动画运行时收敛](architecture/v0.20-animation-convergence.md)
+- [v0.20 渲染核心与资源生命周期](architecture/v0.20-render-core-lifecycle.md)
 - [Stress indexed / compact SSBO 渲染路径](architecture/stress-render-path.md)
 - [全项目公共 API 分类](architecture/public-api/README.md)
 - [资源代次与异步解码合同](architecture/resource-generations.md)
@@ -65,6 +69,8 @@
 - [v0.18.1 VFX 曲线动画、缓动与过渡验收报告](releases/v0.18.1-release-report.md)
 - [v0.18.2 纹理化 HDR VFX 与 Bloom 合成发布验收报告](releases/v0.18.2-release-report.md)
 - [v0.19.4 UI 深化正式版验收报告](releases/v0.19.4-release-report.md)
+- [v0.20.0-SNAPSHOT 代码收敛验收报告](releases/v0.20-snapshot-report.md)
+- [2026-07-28 v0.20 M7 热路径性能与回归记录](performance/v0.20-m7-2026-07-28.md)
 - [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)
 - [2026-07-25 v0.18.1 VFX 曲线性能记录](performance/v0.18.1-vfx-curves-2026-07-25.md)

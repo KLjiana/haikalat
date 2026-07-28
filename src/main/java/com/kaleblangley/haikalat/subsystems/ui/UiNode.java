@@ -14,9 +14,6 @@ import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiLayerDescription;
 
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -27,12 +24,9 @@ public abstract class UiNode implements AutoCloseable {
     private static final AtomicLong NEXT_ID = new AtomicLong(1L);
 
     private final UiId id = new UiId(NEXT_ID.getAndIncrement());
-    private final List<UiNode> children = new ArrayList<>();
-    private List<UiNode> childrenSnapshot = List.of();
-    private final EnumSet<UiDirtyFlag> dirty = EnumSet.allOf(UiDirtyFlag.class);
-    private final EnumMap<UiEventType, ListenerSet> listeners = new EnumMap<>(UiEventType.class);
-    private UiDocument document;
-    private UiNode parent;
+    private final UiTreeLinks tree = new UiTreeLinks(this);
+    private final UiDirtyState dirty = new UiDirtyState();
+    private final UiEventRegistry events = new UiEventRegistry();
     private UiStyle style = UiStyle.defaults();
     private ComputedStyle computedStyle = defaultComputedStyle();
     private LayoutBox layoutBox = LayoutBox.EMPTY;
@@ -52,7 +46,6 @@ public abstract class UiNode implements AutoCloseable {
     private double animatedShadowStrength;
     private double animatedEffectStrength;
     private UiLayerDescription layerDescription;
-    private boolean root;
     private boolean closed;
 
     protected UiNode() {
@@ -63,39 +56,23 @@ public abstract class UiNode implements AutoCloseable {
     }
 
     public final UiDocument document() {
-        return document;
+        return tree.document();
     }
 
     public final UiNode parent() {
-        return parent;
+        return tree.parent();
     }
 
     public final List<UiNode> children() {
-        if (childrenSnapshot == null) childrenSnapshot = List.copyOf(children);
-        return childrenSnapshot;
+        return tree.children();
     }
 
     public final UiNode add(UiNode child) {
         ensureOpen();
         Objects.requireNonNull(child, "child").ensureOpen();
-        if (child.root) {
-            throw new IllegalArgumentException("UI document roots cannot be reparented");
-        }
-        if (child.parent != null) {
-            throw new IllegalArgumentException("UI node " + child.id + " already has parent " + child.parent.id);
-        }
-        for (UiNode ancestor = this; ancestor != null; ancestor = ancestor.parent) {
-            if (ancestor == child) {
-                throw new IllegalArgumentException("UI reparent would form a cycle at " + child.id);
-            }
-        }
-        if (document != null) {
-            child.attachTo(document);
-        }
+        tree.prepareAdd(child);
         Runnable mutation = () -> {
-            child.parent = this;
-            children.add(child);
-            childrenSnapshot = null;
+            tree.appendPrepared(child);
             markTreeChanged();
         };
         mutate(mutation);
@@ -105,14 +82,10 @@ public abstract class UiNode implements AutoCloseable {
     public final UiNode remove(UiNode child) {
         ensureOpen();
         Objects.requireNonNull(child, "child");
-        if (child.parent != this) {
-            throw new IllegalArgumentException("UI node " + child.id + " is not a child of " + id);
-        }
+        tree.requireChild(child);
         mutate(() -> {
-            if (document != null) document.beforeSubtreeDetached(child);
-            children.remove(child);
-            childrenSnapshot = null;
-            child.parent = null;
+            if (tree.document() != null) tree.document().beforeSubtreeDetached(child);
+            tree.remove(child);
             markTreeChanged();
         });
         return this;
@@ -307,7 +280,7 @@ public abstract class UiNode implements AutoCloseable {
     }
 
     public final Set<UiDirtyFlag> dirtyFlags() {
-        return Set.copyOf(dirty);
+        return dirty.snapshot();
     }
 
     public final boolean isDirty(UiDirtyFlag flag) {
@@ -315,9 +288,7 @@ public abstract class UiNode implements AutoCloseable {
     }
 
     public final void clearDirty(UiDirtyFlag... flags) {
-        for (UiDirtyFlag flag : flags) {
-            dirty.remove(Objects.requireNonNull(flag, "flag"));
-        }
+        dirty.remove(flags);
     }
 
     public MeasureResult measure(MeasureContext context) {
@@ -341,11 +312,7 @@ public abstract class UiNode implements AutoCloseable {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(phase, "phase");
         Objects.requireNonNull(listener, "listener");
-        boolean capture = phase == EventPhase.CAPTURE;
-        ListenerSet set = listeners.computeIfAbsent(type, ignored -> new ListenerSet());
-        List<UiEventListener<? super UiEvent>> target = capture ? set.capture : set.bubble;
-        target.add(listener);
-        return () -> target.remove(listener);
+        return events.add(type, phase, listener);
     }
 
     /** 注册 target/bubble listener。 */
@@ -364,59 +331,46 @@ public abstract class UiNode implements AutoCloseable {
     @Override
     public void close() {
         if (closed) return;
-        if (root && document != null && !document.isClosing()) {
+        if (tree.isRoot() && tree.document() != null && !tree.document().isClosing()) {
             throw new IllegalStateException("UI document root can only be closed by its document");
         }
-        if (document != null && document.dispatching()) {
-            document.enqueueMutation(this::closeNow);
+        if (tree.document() != null && tree.document().dispatching()) {
+            tree.document().enqueueMutation(this::closeNow);
             return;
         }
         closeNow();
     }
 
     final void initializeRoot(UiDocument owner) {
-        root = true;
-        attachTo(owner);
+        tree.initializeRoot(owner);
     }
 
     final List<UiNode> mutableChildren() {
-        return children;
+        return tree.mutableChildren();
     }
 
     final void attachTo(UiDocument owner) {
-        if (document != null && document != owner) {
-            throw new IllegalArgumentException("UI node " + id + " belongs to another document");
-        }
-        document = owner;
-        for (UiNode child : children) {
-            child.attachTo(owner);
-        }
+        tree.attachTo(owner);
+    }
+
+    final UiTreeLinks treeLinks() {
+        return tree;
     }
 
     final void closeSubtree() {
-        for (int index = children.size() - 1; index >= 0; index--) {
-            children.get(index).closeSubtree();
-        }
-        children.clear();
-        listeners.clear();
-        parent = null;
+        tree.closeChildren();
+        events.clear();
         closed = true;
     }
 
     private void closeNow() {
         if (closed) return;
-        if (parent != null) parent.remove(this);
+        if (tree.parent() != null) tree.parent().remove(this);
         closeSubtree();
     }
 
     final void dispatchListeners(UiEvent event, boolean capture) {
-        ListenerSet set = listeners.get(event.type());
-        if (set == null) return;
-        List<UiEventListener<? super UiEvent>> source = capture ? set.capture : set.bubble;
-        if (source.isEmpty()) return;
-        for (UiEventListener<? super UiEvent> listener : List.copyOf(source)) {
-            listener.handle(event);
-        }
+        events.dispatch(event, capture);
     }
 
     final void dispatchDefault(UiEvent event) {
@@ -427,11 +381,11 @@ public abstract class UiNode implements AutoCloseable {
         ensureOpen();
         boolean layoutPropagation = false;
         for (UiDirtyFlag flag : flags) {
-            dirty.add(Objects.requireNonNull(flag, "flag"));
+            dirty.add(flag);
             layoutPropagation |= flag == UiDirtyFlag.MEASURE || flag == UiDirtyFlag.LAYOUT;
         }
-        if (layoutPropagation && parent != null) {
-            parent.markAncestorLayoutDirty();
+        if (layoutPropagation && tree.parent() != null) {
+            tree.parent().markAncestorLayoutDirty();
         }
     }
 
@@ -443,7 +397,7 @@ public abstract class UiNode implements AutoCloseable {
 
     private void markAncestorLayoutDirty() {
         dirty.add(UiDirtyFlag.LAYOUT);
-        if (parent != null) parent.markAncestorLayoutDirty();
+        if (tree.parent() != null) tree.parent().markAncestorLayoutDirty();
     }
 
     private void markTreeChanged() {
@@ -452,8 +406,8 @@ public abstract class UiNode implements AutoCloseable {
     }
 
     private void mutate(Runnable mutation) {
-        if (document != null && document.dispatching()) {
-            document.enqueueMutation(mutation);
+        if (tree.document() != null && tree.document().dispatching()) {
+            tree.document().enqueueMutation(mutation);
         } else {
             mutation.run();
         }
@@ -470,8 +424,4 @@ public abstract class UiNode implements AutoCloseable {
         return value;
     }
 
-    private static final class ListenerSet {
-        private final List<UiEventListener<? super UiEvent>> capture = new ArrayList<>();
-        private final List<UiEventListener<? super UiEvent>> bubble = new ArrayList<>();
-    }
 }

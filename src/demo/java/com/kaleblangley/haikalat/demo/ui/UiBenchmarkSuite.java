@@ -10,6 +10,8 @@ import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
+import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
+import com.kaleblangley.haikalat.subsystems.ui.style.ThemeTokens;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.ListView;
@@ -66,7 +68,7 @@ public final class UiBenchmarkSuite {
         RenderSettings settings = RenderSettings.builder().vsync(false).build();
         try (FrameDriver driver = new FrameDriver(settings);
              RenderGraph graph = createGraph(window);
-             UiSystem ui = UiSystem.create(window, UiConfig.defaults(),
+             UiSystem ui = UiSystem.create(window, benchmarkConfig(),
                      new UnavailableTextInputAdapter("UI benchmark"))) {
             ui.attachTo(graph, UiDemo.PRESENT_PASS);
             graph.compile();
@@ -84,8 +86,10 @@ public final class UiBenchmarkSuite {
             LongSamples paint = new LongSamples(options.measuredFrames());
             LongSamples render = new LongSamples(options.measuredFrames());
             LongSamples gpu = new LongSamples(options.measuredFrames());
+            LongSamples frameCpu = new LongSamples(options.measuredFrames());
             LongSamples draws = new LongSamples(options.measuredFrames());
             LongSamples allocations = new LongSamples(options.measuredFrames());
+            long publishedBefore = ui.publishedSnapshotCount();
             long measurementStart = System.nanoTime();
             for (int frame = 0; frame < options.measuredFrames(); frame++) {
                 FrameSample sample = frame(window, driver, graph, ui, scene, true);
@@ -96,6 +100,7 @@ public final class UiBenchmarkSuite {
                 paint.add(stats.paintNanos());
                 render.add(stats.renderRecordNanos());
                 if (sample.gpuNanos() > 0L) gpu.add(sample.gpuNanos());
+                frameCpu.add(sample.cpuNanos());
                 draws.add(stats.drawCalls());
                 if (sample.allocatedBytes() >= 0L) allocations.add(sample.allocatedBytes());
             }
@@ -109,6 +114,7 @@ public final class UiBenchmarkSuite {
             double hitRate = atlasLookups == 0L ? 1.0 : (double) atlasHits / atlasLookups;
             return new RoundResult(resolution, scenario, round,
                     options.measuredFrames() * 1_000_000_000.0 / measurementNanos,
+                    frameCpu.percentileMillis(0.95),
                     update.medianMillis(), layout.medianMillis(), shaping.medianMillis(),
                     paint.medianMillis(), render.medianMillis(), gpu.medianMillis(),
                     draws.median(),
@@ -121,7 +127,8 @@ public final class UiBenchmarkSuite {
                     cold.statistics().uiUpdateNanos() / 1_000_000.0,
                     cold.statistics().shapingNanos() / 1_000_000.0,
                     baseline.atlasUploadBytes(), end.visibleNodes(), end.quads(),
-                    end.glyphs(), formatBreaks(end.batchBreaks()));
+                    end.glyphs(), ui.publishedSnapshotCount() - publishedBefore,
+                    formatBreaks(end.batchBreaks()));
         }
     }
 
@@ -129,6 +136,7 @@ public final class UiBenchmarkSuite {
                                      RenderGraph graph, UiSystem ui,
                                      BenchmarkScene scene, boolean measureAllocation) {
         window.pollEvents();
+        long cpuStart = System.nanoTime();
         long allocatedBefore = measureAllocation ? AllocationCounter.currentThreadBytes() : -1L;
         ui.update(window.inputSnapshot(), 1.0f / 60.0f);
         scene.afterUpdate();
@@ -139,7 +147,8 @@ public final class UiBenchmarkSuite {
         long allocatedAfter = measureAllocation ? AllocationCounter.currentThreadBytes() : -1L;
         long allocated = allocatedBefore < 0L || allocatedAfter < allocatedBefore
                 ? -1L : allocatedAfter - allocatedBefore;
-        return new FrameSample(statistics, gpuNanos, allocated);
+        return new FrameSample(statistics, gpuNanos, allocated,
+                System.nanoTime() - cpuStart);
     }
 
     private static RenderGraph createGraph(GlfwWindow window) {
@@ -156,12 +165,28 @@ public final class UiBenchmarkSuite {
         return graph;
     }
 
+    /**
+     * Keeps the capacity suite on the ordinary quad path. The product default theme
+     * gained rounded SDF surfaces in v0.19, so inheriting it here silently changed
+     * the historical "10,000 quads" case into 2,000 non-mergeable SDF primitives.
+     */
+    private static UiConfig benchmarkConfig() {
+        Theme defaults = Theme.dark();
+        ThemeTokens token = defaults.tokens();
+        ThemeTokens flat = new ThemeTokens(
+                token.surface(), token.surfaceHover(), token.surfacePressed(),
+                token.accent(), token.text(), token.disabledText(), token.border(),
+                token.spacing(), 0.0f, token.controlHeight(), token.fontSize(),
+                token.fontFamily());
+        return UiConfig.builder().theme(new Theme(flat, defaults.reducedMotion())).build();
+    }
+
     private static void printSummary(List<RoundResult> results) {
-        System.out.println("\n| resolution | scenario | FPS | update ms | layout ms | shape ms | "
+        System.out.println("\n| resolution | scenario | FPS | CPU p95 ms | update ms | layout ms | shape ms | "
                 + "paint ms | render ms | GPU ms | draws | upload B/frame | atlas hit | "
-                + "ring wait ms | allocation KiB/frame | breaks O/S/T/Sm/B/C |");
+                + "ring wait ms | allocation KiB/frame | snapshot publishes | breaks O/S/T/Sm/B/C |");
         System.out.println("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-                + "---: | ---: | ---: | ---: | ---: | --- |");
+                + "---: | ---: | ---: | ---: | ---: | ---: | --- |");
         for (Resolution resolution : RESOLUTIONS) {
             for (Scenario scenario : Scenario.values()) {
                 List<RoundResult> group = results.stream()
@@ -169,15 +194,17 @@ public final class UiBenchmarkSuite {
                                 && value.scenario() == scenario)
                         .toList();
                 System.out.printf(Locale.ROOT,
-                        "| %s | %s | %.1f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | "
-                                + "%.0f | %.0f | %.2f%% | %.4f | %.1f | %s |%n",
+                        "| %s | %s | %.1f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | %.3f | "
+                                + "%.0f | %.0f | %.2f%% | %.4f | %.1f | %.0f | %s |%n",
                         resolution.name(), scenario.label(), median(group, Metric.FPS),
+                        median(group, Metric.CPU_P95),
                         median(group, Metric.UPDATE), median(group, Metric.LAYOUT),
                         median(group, Metric.SHAPE), median(group, Metric.PAINT),
                         median(group, Metric.RENDER), median(group, Metric.GPU),
                         median(group, Metric.DRAWS), median(group, Metric.UPLOAD),
                         median(group, Metric.HIT_RATE) * 100.0,
                         median(group, Metric.RING_WAIT), median(group, Metric.ALLOCATION),
+                        median(group, Metric.PUBLICATIONS),
                         group.get(0).batchBreaks());
             }
         }
@@ -315,29 +342,33 @@ public final class UiBenchmarkSuite {
     private record Resolution(String name, int width, int height) {
     }
 
-    private record FrameSample(UiFrameStats statistics, long gpuNanos, long allocatedBytes) {
+    private record FrameSample(UiFrameStats statistics, long gpuNanos,
+                               long allocatedBytes, long cpuNanos) {
     }
 
     private record RoundResult(Resolution resolution, Scenario scenario, int round,
-                               double fps, double updateMillis, double layoutMillis,
+                               double fps, double cpuP95Millis,
+                               double updateMillis, double layoutMillis,
                                double shapeMillis, double paintMillis, double renderMillis,
                                double gpuMillis, double draws, double uploadBytesPerFrame,
                                double atlasHitRate, double ringWaitMillisPerFrame,
                                double allocationKibPerFrame, double coldUpdateMillis,
                                double coldShapeMillis, double coldUploadBytes,
                                double visibleNodes, double quads, double glyphs,
-                               String batchBreaks) {
+                               double publications, String batchBreaks) {
         private String line() {
             return String.format(Locale.ROOT,
-                    "UI bench %s | %s | round %d | FPS %.1f | update %.3f ms | "
-                            + "GPU %.3f ms | draws %.0f | alloc %.1f KiB/frame | breaks %s",
-                    resolution.name(), scenario.label(), round, fps, updateMillis,
-                    gpuMillis, draws, allocationKibPerFrame, batchBreaks);
+                    "UI bench %s | %s | round %d | FPS %.1f | CPU p95 %.3f ms | "
+                            + "update %.3f ms | GPU %.3f ms | draws %.0f | "
+                            + "alloc %.1f KiB/frame | publishes %.0f | breaks %s",
+                    resolution.name(), scenario.label(), round, fps, cpuP95Millis, updateMillis,
+                    gpuMillis, draws, allocationKibPerFrame, publications, batchBreaks);
         }
     }
 
     private enum Metric {
         FPS { double value(RoundResult value) { return value.fps(); } },
+        CPU_P95 { double value(RoundResult value) { return value.cpuP95Millis(); } },
         UPDATE { double value(RoundResult value) { return value.updateMillis(); } },
         LAYOUT { double value(RoundResult value) { return value.layoutMillis(); } },
         SHAPE { double value(RoundResult value) { return value.shapeMillis(); } },
@@ -354,7 +385,8 @@ public final class UiBenchmarkSuite {
         COLD_UPLOAD { double value(RoundResult value) { return value.coldUploadBytes(); } },
         NODES { double value(RoundResult value) { return value.visibleNodes(); } },
         QUADS { double value(RoundResult value) { return value.quads(); } },
-        GLYPHS { double value(RoundResult value) { return value.glyphs(); } };
+        GLYPHS { double value(RoundResult value) { return value.glyphs(); } },
+        PUBLICATIONS { double value(RoundResult value) { return value.publications(); } };
 
         abstract double value(RoundResult value);
     }
@@ -387,6 +419,17 @@ public final class UiBenchmarkSuite {
 
         private double medianMillis() {
             return median() / 1_000_000.0;
+        }
+
+        private double percentileMillis(double percentile) {
+            if (size == 0) return Double.NaN;
+            if (!Double.isFinite(percentile) || percentile <= 0.0 || percentile > 1.0) {
+                throw new IllegalArgumentException("percentile must be within (0, 1]");
+            }
+            long[] sorted = Arrays.copyOf(values, size);
+            Arrays.sort(sorted);
+            int index = Math.max(0, (int) Math.ceil(percentile * size) - 1);
+            return sorted[index] / 1_000_000.0;
         }
     }
 

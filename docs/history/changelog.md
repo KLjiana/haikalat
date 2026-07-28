@@ -1,5 +1,32 @@
 # 变更记录
 
+## v0.20.0-SNAPSHOT（2026-07-29）
+
+- 在不扩大 public API allowlist 的前提下收敛 UI 内部职责：`UiSystem`、`UiNode`、
+  `UiRenderer` 与 `UiCompositor` 保留 facade，新增 coordinator、dirty/tree/event、
+  snapshot publisher、SDF renderer、compositor plan 和 GL resource owner 等
+  package-private 组件。
+- 静态 UI 现在复用上一张 immutable display-list snapshot；glyph upload 完成、可见
+  paint dirty 和 effect 生命周期变化才触发重录。`UiInputRouter` 缓存稳定 hit-test，
+  `ListView` 对未变化 viewport 采用 no-op fast path。
+- 动画内部新增容量复用的 cursor/run list 与有界优先级 signal queue，统一
+  `AnimationController`、`UiAnimationSystem` 和 `UiTimeline` 的重复时间/删除语义，
+  旧 Player、graph 和 UI animation 入口保持兼容。
+- `RenderGraph`、`RenderTargetManager`、`TaaHistory` 与 UI GL owner 的资源替换采用
+  candidate-first：候选完整成功后才激活，失败保留旧 generation；close 继续逆序清理
+  并聚合 suppressed exception。
+- M7 五轮 UI 容量基准的十个静态测量窗口 snapshot publication 均为零，draw/batch
+  未增加；10,000 quad 的剩余约 `255 KiB/frame` 被明确记录为 render/GL submission
+  预算。静态 all-visible CPU 为 `2.984 ms`，与 `2.977 ms` 原始基线基本持平，
+  不再复现 v0.19.4 的独立 `3.567 ms` 回退。
+- M8 修复窗口 resize 误重建 fixed-size shadow target 的生命周期回归，并让 async UI
+  integration 使用确定性视觉 revision 驱动 36 次 latest-wins publication，不再依赖计时文本
+  四舍五入结果。
+- 最终 703 项 JVM 与 703 项 GL 测试、UI/scene/resource integration、public API、
+  architecture、asset 和 GL debug policy 门禁全部通过；详细性能与 snapshot 验收分别见
+  `docs/performance/v0.20-m7-2026-07-28.md` 和
+  `docs/releases/v0.20-snapshot-report.md`。版本保持 snapshot，正式发布门禁尚未执行。
+
 ## v0.19.4（2026-07-28）
 
 - 完成 0.19.1 UI SDF 基础：`SDF_SHAPE` display-list、独立参数 arena、rounded

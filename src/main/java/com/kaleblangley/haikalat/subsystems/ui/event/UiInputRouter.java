@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui.event;
 
 import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
+import com.kaleblangley.haikalat.subsystems.ui.UiDirtyFlag;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiInteractionState;
 import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
@@ -16,9 +17,15 @@ import java.util.Objects;
 public final class UiInputRouter {
     private final UiDocument document;
     private List<UiNode> hoverPath = List.of();
+    private UiNode hitTarget;
     private long lastSnapshotSequence = -1L;
     private long eventSequence;
     private long dispatchedEvents;
+    private double lastCursorX = Double.NaN;
+    private double lastCursorY = Double.NaN;
+    private boolean lastFocused;
+    private boolean lastCursorInside;
+    private boolean hitStateInitialized;
 
     public UiInputRouter(UiDocument document) {
         this.document = Objects.requireNonNull(document, "document");
@@ -40,10 +47,22 @@ public final class UiInputRouter {
         long before = dispatchedEvents;
         long now = System.nanoTime();
 
-        UiNode hit = input.focused() && input.cursorInside()
-                ? document.hitTest(input.cursorX(), input.cursorY()) : null;
-        List<UiNode> nextHover = hit == null ? List.of() : document.pathTo(hit);
-        updateHoverPath(input, nextHover, now);
+        boolean rebuildHit = mustRebuildHit(input);
+        UiNode hit = hitTarget;
+        if (rebuildHit) {
+            hit = input.focused() && input.cursorInside()
+                    ? document.hitTest(input.cursorX(), input.cursorY()) : null;
+            hitTarget = hit;
+            lastCursorX = input.cursorX();
+            lastCursorY = input.cursorY();
+            lastFocused = input.focused();
+            lastCursorInside = input.cursorInside();
+            hitStateInitialized = true;
+            clearHitTestDirty(document.root());
+            clearHitTestDirty(document.overlayRoot());
+            List<UiNode> nextHover = hit == null ? List.of() : document.pathTo(hit);
+            updateHoverPath(input, nextHover, now);
+        }
 
         if (!input.focused()) {
             UiNode captured = document.pointerCapture().target(PointerEvent.MOUSE_POINTER_ID);
@@ -158,4 +177,31 @@ public final class UiInputRouter {
     }
 
     private long nextEventSequence() { return ++eventSequence; }
+
+    private boolean mustRebuildHit(WindowInputSnapshot input) {
+        return !hitStateInitialized
+                || lastFocused != input.focused()
+                || lastCursorInside != input.cursorInside()
+                || Double.compare(lastCursorX, input.cursorX()) != 0
+                || Double.compare(lastCursorY, input.cursorY()) != 0
+                || hitTarget != null
+                && (hitTarget.isClosed() || hitTarget.document() != document)
+                || hasHitTestDirty(document.root())
+                || hasHitTestDirty(document.overlayRoot());
+    }
+
+    private static boolean hasHitTestDirty(UiNode node) {
+        if (node.isDirty(UiDirtyFlag.HIT_TEST)) {
+            return true;
+        }
+        for (UiNode child : node.children()) {
+            if (hasHitTestDirty(child)) return true;
+        }
+        return false;
+    }
+
+    private static void clearHitTestDirty(UiNode node) {
+        node.clearDirty(UiDirtyFlag.HIT_TEST);
+        for (UiNode child : node.children()) clearHitTestDirty(child);
+    }
 }

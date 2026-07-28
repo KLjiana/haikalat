@@ -207,6 +207,12 @@ public final class UiAsyncIntegration {
             for (int update = 0; update < UPDATES_PER_FRAME; update++) {
                 if (update == 0) scene.applyBuiltinScript(renderFrame);
                 scene.updateStatistics(ui.statistics());
+                // Static snapshot reuse intentionally skips unchanged updates. This integration
+                // exercises three real latest-wins publications per render frame, so give each
+                // producer update a deterministic visual revision instead of relying on rounded
+                // timing text to happen to differ.
+                scene.statisticsLabel().text(scene.statisticsLabel().text()
+                        + " async=" + (renderFrame * UPDATES_PER_FRAME + update));
                 ui.update(inputCollector.snapshot(), DELTA_SECONDS);
                 scene.refreshVirtualizedContent();
             }

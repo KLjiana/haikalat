@@ -3,14 +3,8 @@ package com.kaleblangley.haikalat.subsystems.ui.render;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Builds deterministic UI-owned RenderGraph topology and applies explicit resource budgets.
@@ -37,44 +31,21 @@ public final class UiCompositor {
         Objects.requireNonNull(dependencyPass, "dependencyPass");
         if (registered) throw new IllegalStateException("UI compositor is already registered");
         if (graph.isTopologySealed()) throw new IllegalStateException("RenderGraph topology is sealed");
-        registered = true;
-        if (!options.compositorEnabled() || options.layers().isEmpty()) {
+        UiCompositorPlan plan = UiCompositorPlan.build(options);
+        if (plan == UiCompositorPlan.EMPTY) {
             diagnostics = Diagnostics.EMPTY;
+            registered = true;
             return dependencyPass;
         }
-
-        List<UiLayerDescription> ordered = new ArrayList<>(options.layers());
-        ordered.sort(Comparator.comparingInt(UiLayerDescription::zOrder)
-                .thenComparing(UiLayerDescription::id));
-        validateUniqueTree(ordered);
-        List<String> accepted = new ArrayList<>();
-        List<Fallback> fallbacks = new ArrayList<>();
-        long pixels = 0L;
+        ensurePassNamesAvailable(graph, plan);
         String dependency = dependencyPass;
-        for (UiLayerDescription layer : ordered) {
-            FallbackReason rejected = null;
-            long layerPixels = layer.estimatedPixels();
-            int intermediateCount = layer.effects().contains(UiLayerDescription.Effect.BLUR)
-                    || layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR) ? 3 : 1;
-            long requestedPixels = Math.multiplyExact(layerPixels, intermediateCount);
-            if (accepted.size() >= options.maximumLayers()) {
-                rejected = FallbackReason.LAYER_LIMIT;
-            } else if (layerPixels > 4096L * 4096L
-                    || pixels + requestedPixels > options.maximumIntermediatePixels()) {
-                rejected = FallbackReason.PIXEL_BUDGET;
-            } else if (layer.backdropRequired() && !options.backdropSource().isAvailable()) {
-                rejected = FallbackReason.BACKDROP_SOURCE_UNAVAILABLE;
-            }
-            if (rejected != null) {
-                fallbacks.add(new Fallback(layer.id(), rejected));
-                continue;
-            }
+        for (UiLayerDescription layer : plan.acceptedLayers()) {
             dependency = registerLayer(graph, layer, dependency);
-            pixels += requestedPixels;
-            accepted.add(layer.id());
         }
-        diagnostics = new Diagnostics(List.copyOf(accepted), List.copyOf(fallbacks), pixels,
-                accepted.size(), ordered.size() - accepted.size());
+        diagnostics = new Diagnostics(plan.acceptedIds(), plan.fallbacks(),
+                plan.intermediatePixels(), plan.acceptedLayers().size(),
+                plan.requestedLayers() - plan.acceptedLayers().size());
+        registered = true;
         return dependency;
     }
 
@@ -122,25 +93,21 @@ public final class UiCompositor {
                 || layer.effects().contains(UiLayerDescription.Effect.COLOR_TRANSFORM);
     }
 
-    private static void validateUniqueTree(List<UiLayerDescription> layers) {
-        Map<String, UiLayerDescription> byId = new HashMap<>();
-        for (UiLayerDescription layer : layers) {
-            if (byId.put(layer.id(), layer) != null) {
-                throw new IllegalArgumentException("duplicate UI layer id: " + layer.id());
+    private static void ensurePassNamesAvailable(RenderGraph graph, UiCompositorPlan plan) {
+        for (UiLayerDescription layer : plan.acceptedLayers()) {
+            String id = layer.id();
+            requirePassAvailable(graph, LAYER_PASS_PREFIX + id);
+            if (layer.effects().contains(UiLayerDescription.Effect.BLUR)
+                    || layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)) {
+                requirePassAvailable(graph, BLUR_PASS_PREFIX + id + "/Horizontal");
+                requirePassAvailable(graph, BLUR_PASS_PREFIX + id + "/Vertical");
             }
         }
-        for (UiLayerDescription layer : layers) {
-            if (!layer.parentId().isEmpty() && !byId.containsKey(layer.parentId())) {
-                throw new IllegalArgumentException("missing parent layer: " + layer.parentId());
-            }
-            Set<String> visited = new HashSet<>();
-            UiLayerDescription current = layer;
-            while (!current.parentId().isEmpty()) {
-                if (!visited.add(current.id())) {
-                    throw new IllegalArgumentException("UI layer parent cycle at " + current.id());
-                }
-                current = byId.get(current.parentId());
-            }
+    }
+
+    private static void requirePassAvailable(RenderGraph graph, String name) {
+        if (graph.hasPass(name)) {
+            throw new IllegalArgumentException("UI compositor pass already exists: " + name);
         }
     }
 

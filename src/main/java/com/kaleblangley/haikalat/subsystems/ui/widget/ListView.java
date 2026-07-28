@@ -21,6 +21,9 @@ public final class ListView extends ScrollView {
     private int itemCount;
     private int overscan = 2;
     private float estimatedItemHeight = 24.0f;
+    private int materializedFirst = -1;
+    private int materializedEnd = -1;
+    private float materializedItemHeight = Float.NaN;
 
     public ListView() {
         super.content(cells);
@@ -89,6 +92,11 @@ public final class ListView extends ScrollView {
         int first = Math.max(0, (int) Math.floor(scrollY() / estimatedItemHeight) - overscan);
         int visibleCount = Math.max(1, (int) Math.ceil(layoutBox().height() / estimatedItemHeight));
         int end = Math.min(itemCount, first + visibleCount + overscan * 2);
+        if (first == materializedFirst && end == materializedEnd
+                && Float.compare(estimatedItemHeight, materializedItemHeight) == 0
+                && materializedRangeMatches(first, end)) {
+            return false;
+        }
 
         for (Integer index : new ArrayList<>(visibleCells.keySet())) {
             if (index < first || index >= end) {
@@ -115,7 +123,12 @@ public final class ListView extends ScrollView {
         boolean layoutChanged = !previousIndices.equals(List.copyOf(visibleCells.keySet()))
                 || !cells.style().equals(cellStyle);
         cells.style(cellStyle);
-        markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST, UiDirtyFlag.SEMANTICS);
+        materializedFirst = first;
+        materializedEnd = end;
+        materializedItemHeight = estimatedItemHeight;
+        if (layoutChanged) {
+            markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST, UiDirtyFlag.SEMANTICS);
+        }
         return layoutChanged;
     }
 
@@ -125,6 +138,18 @@ public final class ListView extends ScrollView {
             node.close();
         }
         visibleCells.clear();
+        materializedFirst = -1;
+        materializedEnd = -1;
+        materializedItemHeight = Float.NaN;
+    }
+
+    private boolean materializedRangeMatches(int first, int end) {
+        if (visibleCells.size() != end - first) return false;
+        for (int index = first; index < end; index++) {
+            UiNode node = visibleCells.get(index);
+            if (node == null || node.isClosed()) return false;
+        }
+        return true;
     }
 
     /** 把局部 materialized cell 列表映射回完整逻辑列表中的起始位置。 */

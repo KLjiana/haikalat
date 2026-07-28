@@ -3,7 +3,6 @@ package com.kaleblangley.haikalat.subsystems.animation;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -28,10 +27,9 @@ public final class AnimationController implements AutoCloseable {
     private final MorphWeightBuffer transitionSourceMorph;
     private final MorphWeightBuffer transitionTargetMorph;
     private final BoneMask fullMask;
-    private final ArrayDeque<AnimationSignal> signals;
-    private final int signalCapacity;
-    private final StateAdvance primaryAdvance = new StateAdvance();
-    private final StateAdvance secondaryAdvance = new StateAdvance();
+    private final AnimationSignalQueue signalQueue;
+    private final AnimationCursor primaryAdvance = new AnimationCursor();
+    private final AnimationCursor secondaryAdvance = new AnimationCursor();
 
     private int currentState;
     private float currentTime;
@@ -47,7 +45,6 @@ public final class AnimationController implements AutoCloseable {
     private float transitionElapsed;
     private boolean transitionSourceFrozen;
     private float transitionWeight = 1.0f;
-    private long signalSequence;
     private long evaluatedStates;
     private long evaluatedMotions;
     private long sampledClips;
@@ -56,8 +53,6 @@ public final class AnimationController implements AutoCloseable {
     private long interruptionCount;
     private long eventCount;
     private long markerCount;
-    private long signalCount;
-    private long droppedSignals;
     private long syncFallbacks;
     private long updateCpuNanos;
     private String lastTransitionReason = "entry";
@@ -72,8 +67,7 @@ public final class AnimationController implements AutoCloseable {
         if (signalCapacity < 1) {
             throw new IllegalArgumentException("signalCapacity must be positive");
         }
-        this.signalCapacity = signalCapacity;
-        signals = new ArrayDeque<>(signalCapacity);
+        signalQueue = new AnimationSignalQueue(signalCapacity);
         booleanParameters = new boolean[graph.parameterCount()];
         floatParameters = new float[graph.parameterCount()];
         integerParameters = new int[graph.parameterCount()];
@@ -239,21 +233,20 @@ public final class AnimationController implements AutoCloseable {
 
     public List<AnimationSignal> pendingSignals() {
         requireOpen();
-        return List.copyOf(signals);
+        return signalQueue.pending();
     }
 
     public List<AnimationSignal> drainSignals() {
         requireOpen();
-        List<AnimationSignal> result = List.copyOf(signals);
-        signals.clear();
-        return result;
+        return signalQueue.drain();
     }
 
     public AnimationDiagnostics diagnostics() {
         requireOpen();
         return new AnimationDiagnostics(evaluatedStates, evaluatedMotions, sampledClips,
                 sampledChannels, transitionCount, interruptionCount,
-                0, 0, 0, eventCount, markerCount, signalCount, droppedSignals,
+                0, 0, 0, eventCount, markerCount, signalQueue.emittedCount(),
+                signalQueue.droppedCount(),
                 syncFallbacks, 0, 0, 0.0f, graph.morphTargetCount(),
                 activeMorphWeightCount(),
                 outputPose.globalRecomputeCount(), context.estimatedBytes(), updateCpuNanos);
@@ -263,7 +256,7 @@ public final class AnimationController implements AutoCloseable {
     public void close() {
         if (closed) return;
         closed = true;
-        signals.clear();
+        signalQueue.clear();
     }
 
     float floatParameter(int index) {
@@ -300,7 +293,7 @@ public final class AnimationController implements AutoCloseable {
 
         RootMotionDelta rootMotion;
         if (transition == null) {
-            StateAdvance advance = advanceState(currentState, currentTime,
+            AnimationCursor advance = advanceState(currentState, currentTime,
                     deltaSeconds, primaryAdvance);
             float previousTime = currentTime;
             currentTime = advance.time();
@@ -336,7 +329,7 @@ public final class AnimationController implements AutoCloseable {
         AnimationGraph.StateDefinition sourceState = graph.state(transitionSourceState);
         AnimationGraph.StateDefinition targetState = graph.state(transitionTargetState);
         float sourcePrevious = transitionSourceTime;
-        StateAdvance sourceAdvance = transitionSourceFrozen
+        AnimationCursor sourceAdvance = transitionSourceFrozen
                 ? primaryAdvance.set(transitionSourceTime, 0L)
                 : advanceState(transitionSourceState, transitionSourceTime,
                 deltaSeconds, primaryAdvance);
@@ -345,7 +338,7 @@ public final class AnimationController implements AutoCloseable {
             transitionSourceLoop += sourceAdvance.loops();
         }
         float targetPrevious = transitionTargetTime;
-        StateAdvance targetAdvance = advanceState(transitionTargetState,
+        AnimationCursor targetAdvance = advanceState(transitionTargetState,
                 transitionTargetTime, deltaSeconds, secondaryAdvance);
         transitionTargetTime = targetAdvance.time();
         transitionTargetLoop += targetAdvance.loops();
@@ -581,8 +574,8 @@ public final class AnimationController implements AutoCloseable {
         }
     }
 
-    private StateAdvance advanceState(int stateIndex, float time, float deltaSeconds,
-                                      StateAdvance result) {
+    private AnimationCursor advanceState(int stateIndex, float time, float deltaSeconds,
+                                         AnimationCursor result) {
         AnimationGraph.StateDefinition state = graph.state(stateIndex);
         float duration = state.motion().durationSeconds();
         if (duration == 0.0f) return result.set(0.0f, 0L);
@@ -733,26 +726,10 @@ public final class AnimationController implements AutoCloseable {
                       AnimationMarker.Priority priority) {
         String stateName = graph.state(stateIndex).name();
         String motionName = motionName(graph.state(stateIndex).motion());
-        AnimationSignal signal = new AnimationSignal(signalSequence++, type,
+        AnimationSignal signal = new AnimationSignal(signalQueue.nextSequence(), type,
                 new AnimationSignal.Source(graph.name(), -1), stateName, motionName,
                 normalizedTime, name, payload, loop, priority);
-        if (signals.size() >= signalCapacity) {
-            if (priority == AnimationMarker.Priority.HIGH) {
-                AnimationSignal removable = signals.stream()
-                        .filter(value -> value.priority() == AnimationMarker.Priority.NORMAL)
-                        .findFirst().orElse(null);
-                if (removable != null) signals.remove(removable);
-                else {
-                    droppedSignals++;
-                    return;
-                }
-            } else {
-                droppedSignals++;
-                return;
-            }
-        }
-        signals.addLast(signal);
-        signalCount++;
+        signalQueue.offer(signal);
     }
 
     private MotionNode compile(AnimationMotion motion) {
@@ -1177,25 +1154,6 @@ public final class AnimationController implements AutoCloseable {
             blendWeights[0] = first;
             blendWeights[1] = second;
             blendWeights[2] = 1.0f - first - second;
-        }
-    }
-
-    private static final class StateAdvance {
-        private float time;
-        private long loops;
-
-        private StateAdvance set(float time, long loops) {
-            this.time = time;
-            this.loops = loops;
-            return this;
-        }
-
-        private float time() {
-            return time;
-        }
-
-        private long loops() {
-            return loops;
         }
     }
 

@@ -741,18 +741,8 @@ public final class UiDisplayList {
     }
 
     void validateComplete() {
-        if (glyphRunOpen) {
-            throw new IllegalStateException("glyph run is still active");
-        }
-        if (clipDepth != 0) {
-            throw new IllegalStateException("clip stack is not balanced: depth=" + clipDepth);
-        }
-        if (transformDepth != 0) {
-            throw new IllegalStateException("transform stack is not balanced: depth=" + transformDepth);
-        }
-        if (layerDepth != 0) {
-            throw new IllegalStateException("layer stack is not balanced: depth=" + layerDepth);
-        }
+        UiDisplayListValidator.validateComplete(glyphRunOpen, clipDepth,
+                transformDepth, layerDepth);
     }
 
     private int appendQuad(UiScreenRect bounds, UiUvRect uv, int color) {
@@ -816,34 +806,23 @@ public final class UiDisplayList {
     }
 
     private void ensureRecordable() {
-        ensureMutable();
-        if (glyphRunOpen) {
-            throw new IllegalStateException("finish or abort the active glyph run first");
-        }
+        UiDisplayListValidator.ensureRecordable(frozen, glyphRunOpen);
     }
 
     private void ensureMutable() {
-        if (frozen) {
-            throw new IllegalStateException("frozen UI display list is immutable");
-        }
+        UiDisplayListValidator.ensureMutable(frozen);
     }
 
     private static void requireResource(int id, String name) {
-        if (id < 0) {
-            throw new IllegalArgumentException(name + " must be non-negative");
-        }
+        UiDisplayListValidator.requireResource(id, name);
     }
 
     private void checkPrimitiveIndex(int index) {
-        if (index < 0 || index >= primitiveCount) {
-            throw new IndexOutOfBoundsException("primitive index: " + index);
-        }
+        UiDisplayListValidator.checkIndex(index, primitiveCount, "primitive");
     }
 
     private void checkQuadIndex(int index) {
-        if (index < 0 || index >= quadCount) {
-            throw new IndexOutOfBoundsException("quad index: " + index);
-        }
+        UiDisplayListValidator.checkIndex(index, quadCount, "quad");
     }
 
     private void allocatePrimitives(int capacity) {

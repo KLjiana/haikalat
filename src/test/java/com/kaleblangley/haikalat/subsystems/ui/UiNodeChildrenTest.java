@@ -30,4 +30,19 @@ class UiNodeChildrenTest {
                     "removing a child must not mutate an already returned snapshot");
         }
     }
+
+    @Test
+    void closeClearsCurrentChildViewWithoutMutatingPublishedSnapshots() {
+        Panel parent = new Panel();
+        Panel child = new Panel();
+        parent.add(child);
+        List<UiNode> published = parent.children();
+
+        parent.close();
+
+        assertTrue(parent.children().isEmpty());
+        assertEquals(List.of(child), published,
+                "closing a subtree must not mutate an already returned snapshot");
+        assertTrue(child.isClosed());
+    }
 }

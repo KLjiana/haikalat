@@ -1,33 +1,19 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
-import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
-import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
-import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.joml.Vector4f;
 
-import static org.lwjgl.opengl.GL11.GL_FLOAT;
-import static org.lwjgl.opengl.GL11.GL_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_ONE;
 import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
-import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_SHORT;
-import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
-import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
-import static org.lwjgl.opengl.GL45.glEnableVertexArrayAttrib;
-import static org.lwjgl.opengl.GL45.glVertexArrayAttribBinding;
-import static org.lwjgl.opengl.GL45.glVertexArrayAttribFormat;
 import static org.lwjgl.opengl.GL45.glVertexArrayVertexBuffer;
 
 /**
@@ -47,17 +33,11 @@ public final class UiRenderer implements AutoCloseable {
     private static final int TEXTURE_UNIT = 0;
 
     private final int maximumQuads;
-    private final UiGlyphAtlasGpu glyphAtlas;
+    private final UiRenderResourceOwner resources;
     private final UiImageResolver imageResolver;
-    private final List<VertexArray> vertexArrays = new ArrayList<>();
-    private ShaderProgram shader;
-    private Sampler sampler;
-    private GlBuffer indexBuffer;
-    private UiVertexRing vertexRing;
-    private Thread renderThread;
+    private final UiSdfRenderer sdfRenderer = new UiSdfRenderer();
     private int lastDrawCalls;
     private int lastQuadCount;
-    private boolean initialized;
     private boolean closed;
 
     public UiRenderer() {
@@ -89,7 +69,7 @@ public final class UiRenderer implements AutoCloseable {
         if (maximumQuads <= 0) throw new IllegalArgumentException("maximumQuads must be positive");
         this.maximumQuads = maximumQuads;
         this.imageResolver = Objects.requireNonNull(imageResolver, "imageResolver");
-        glyphAtlas = new UiGlyphAtlasGpu(
+        resources = new UiRenderResourceOwner(maximumQuads,
                 glyphAtlasWidth, glyphAtlasHeight, maximumGlyphAtlasPages);
     }
 
@@ -103,8 +83,8 @@ public final class UiRenderer implements AutoCloseable {
         ensureOpen();
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(commands, "commands");
-        claimOrAssertRenderThread();
-        glyphAtlas.pollGpuCompletions();
+        resources.claimOrAssertRenderThread();
+        resources.pollGlyphGpuCompletions();
         lastDrawCalls = 0;
         lastQuadCount = 0;
         recordPassState(commands, snapshot.framebufferWidth(), snapshot.framebufferHeight());
@@ -122,19 +102,19 @@ public final class UiRenderer implements AutoCloseable {
                     + " quads, renderer capacity is " + maximumQuads);
         }
         int drawCount = validateAndCountDraws(batches);
-        ensureInitialized();
-        assertRenderThread();
+        resources.ensureInitialized();
+        resources.assertRenderThread();
 
-        UiVertexRing.WriteSlice slice = vertexRing.beginWrite(displayList.quadCount());
+        UiVertexRing.WriteSlice slice = resources.vertexRing().beginWrite(displayList.quadCount());
         boolean submitted = false;
         try {
             writeVertices(displayList, slice.bytes());
-            ensureVertexArrayCount(drawCount);
+            resources.ensureVertexArrayCount(drawCount);
 
-            commands.bindShader(shader)
-                    .setUniformVec2(shader, "uViewport",
+            commands.bindShader(resources.shader())
+                    .setUniformVec2(resources.shader(), "uViewport",
                             snapshot.windowWidth(), snapshot.windowHeight())
-                    .setUniformInt(shader, "uTexture", TEXTURE_UNIT);
+                    .setUniformInt(resources.shader(), "uTexture", TEXTURE_UNIT);
 
             int drawIndex = 0;
             int drawnQuads = 0;
@@ -145,11 +125,11 @@ public final class UiRenderer implements AutoCloseable {
                 drawnQuads += remaining;
                 while (remaining > 0) {
                     int part = Math.min(remaining, MAX_QUADS_PER_DRAW);
-                    VertexArray vao = vertexArrays.get(drawIndex++);
+                    VertexArray vao = resources.vertexArray(drawIndex++);
                     long vertexOffset = (long) slice.slotOffsetBytes()
                             + (long) firstQuad * UiVertexRing.VERTICES_PER_QUAD
                             * UiVertexRing.VERTEX_STRIDE_BYTES;
-                    glVertexArrayVertexBuffer(vao.id(), 0, vertexRing.buffer().id(),
+                    glVertexArrayVertexBuffer(vao.id(), 0, resources.vertexRing().buffer().id(),
                             vertexOffset, UiVertexRing.VERTEX_STRIDE_BYTES);
                     commands.bindVertexArray(vao.id())
                             .drawElements(GL_TRIANGLES, part * 6, GL_UNSIGNED_SHORT);
@@ -158,23 +138,23 @@ public final class UiRenderer implements AutoCloseable {
                 }
             }
             commands.enableScissor(false);
-            vertexRing.markSubmitted();
-            commands.insertGpuFence(vertexRing);
+            resources.vertexRing().markSubmitted();
+            commands.insertGpuFence(resources.vertexRing());
             submitted = true;
             lastDrawCalls = drawIndex;
             lastQuadCount = drawnQuads;
         } finally {
-            if (!submitted) vertexRing.abortWrite();
+            if (!submitted) resources.vertexRing().abortWrite();
         }
     }
 
     public boolean isInitialized() {
-        return initialized;
+        return resources.isInitialized();
     }
 
     /** 返回 renderer 是否已完成幂等关闭。 */
     public boolean isClosed() {
-        return closed;
+        return closed || resources.isClosed();
     }
 
     public int maximumQuads() {
@@ -191,8 +171,7 @@ public final class UiRenderer implements AutoCloseable {
 
     /** 返回 persistent vertex ring 等待 GPU slot 的累计纳秒数。 */
     public long ringWaitNanos() {
-        UiVertexRing ring = vertexRing;
-        return ring == null ? 0L : ring.waitNanos();
+        return resources.ringWaitNanos();
     }
 
     /**
@@ -203,101 +182,24 @@ public final class UiRenderer implements AutoCloseable {
     public UiGlyphAtlasGpu.UploadSubmission recordGlyphUploads(
             Iterable<GlyphUploadRequest> requests, CommandBuffer commands) {
         ensureOpen();
-        claimOrAssertRenderThread();
-        return glyphAtlas.recordUploads(requests, commands);
+        return resources.recordGlyphUploads(requests, commands);
     }
 
     /** 由 UI/update 线程安全获取一个完整 glyph 上传结果。 */
     public Optional<UiGlyphUploadResult> pollCompletedGlyphUpload() {
-        return glyphAtlas.pollCompletedResult();
+        return resources.pollCompletedGlyphUpload();
     }
 
     /** 由 UI/update 线程安全获取当前全部完整 glyph 上传结果。 */
     public List<UiGlyphUploadResult> drainCompletedGlyphUploads() {
-        return glyphAtlas.drainCompletedResults();
+        return resources.drainCompletedGlyphUploads();
     }
 
     @Override
     public void close() {
         if (closed) return;
-        if (renderThread != null) assertRenderThread();
-        RuntimeException failure = null;
-        for (int index = vertexArrays.size() - 1; index >= 0; index--) {
-            try {
-                vertexArrays.get(index).close();
-            } catch (RuntimeException exception) {
-                failure = append(failure, exception);
-            }
-        }
-        vertexArrays.clear();
-        failure = close(indexBuffer, failure);
-        failure = close(vertexRing, failure);
-        failure = close(glyphAtlas, failure);
-        failure = close(sampler, failure);
-        failure = close(shader, failure);
-        indexBuffer = null;
-        vertexRing = null;
-        sampler = null;
-        shader = null;
-        initialized = false;
+        resources.close();
         closed = true;
-        if (failure != null) throw failure;
-    }
-
-    private void ensureInitialized() {
-        if (initialized) return;
-        claimOrAssertRenderThread();
-        ShaderProgram createdShader = null;
-        Sampler createdSampler = null;
-        GlBuffer createdIndices = null;
-        UiVertexRing createdRing = null;
-        try {
-            createdShader = ShaderProgram.fromResource(UiRenderer.class,
-                    "/shaders/ui/ui.vert", "/shaders/ui/ui.frag");
-            createdSampler = Sampler.create(new Sampler.Descriptor(
-                    GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE));
-            createdIndices = GlBuffer.elementArrayBuffer(GL_STATIC_DRAW)
-                    .upload(buildIndices());
-            createdRing = new UiVertexRing(maximumQuads);
-            shader = createdShader;
-            sampler = createdSampler;
-            indexBuffer = createdIndices;
-            vertexRing = createdRing;
-            initialized = true;
-        } catch (RuntimeException | Error failure) {
-            closeQuietly(createdRing, failure);
-            closeQuietly(createdIndices, failure);
-            closeQuietly(createdSampler, failure);
-            closeQuietly(createdShader, failure);
-            renderThread = null;
-            throw failure;
-        }
-    }
-
-    private void ensureVertexArrayCount(int required) {
-        while (vertexArrays.size() < required) {
-            VertexArray vao = new VertexArray();
-            try {
-                vao.bindElementBuffer(indexBuffer);
-                configureVertexFormat(vao);
-                vertexArrays.add(vao);
-            } catch (RuntimeException | Error failure) {
-                vao.close();
-                throw failure;
-            }
-        }
-    }
-
-    private static void configureVertexFormat(VertexArray vao) {
-        glEnableVertexArrayAttrib(vao.id(), 0);
-        glVertexArrayAttribFormat(vao.id(), 0, 2, GL_FLOAT, false, 0);
-        glVertexArrayAttribBinding(vao.id(), 0, 0);
-        glEnableVertexArrayAttrib(vao.id(), 1);
-        glVertexArrayAttribFormat(vao.id(), 1, 2, GL_FLOAT, false, 8);
-        glVertexArrayAttribBinding(vao.id(), 1, 0);
-        glEnableVertexArrayAttrib(vao.id(), 2);
-        glVertexArrayAttribFormat(vao.id(), 2, 4, GL_UNSIGNED_BYTE, true, 16);
-        glVertexArrayAttribBinding(vao.id(), 2, 0);
     }
 
     private boolean configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
@@ -309,30 +211,10 @@ public final class UiRenderer implements AutoCloseable {
             if (resolved == null) return false;
             texture = resolved.textureId();
         }
-        commands.setUniformInt(shader, "uMode", shaderMode(batches.shader(batch)));
+        commands.setUniformInt(resources.shader(), "uMode", shaderMode(batches.shader(batch)));
         if (batches.shader(batch) == UiShaderVariant.SDF) {
-            int primitive = batches.firstPrimitive(batch);
-            UiDisplayList list = snapshot.displayList();
-            int quad = list.primitiveFirstQuad(primitive);
-            commands.setUniformInt(shader, "uSdfShape", list.sdfKind(primitive).ordinal())
-                    .setUniformVec2(shader, "uSdfSize",
-                            (float) list.quadWidth(quad), (float) list.quadHeight(quad))
-                    .setUniformVec4(shader, "uSdfRadii", new Vector4f(
-                            list.sdfRadius(primitive, 0), list.sdfRadius(primitive, 1),
-                            list.sdfRadius(primitive, 2), list.sdfRadius(primitive, 3)))
-                    .setUniformVec4(shader, "uSdfParams", new Vector4f(
-                            list.sdfParameter(primitive, 0), list.sdfParameter(primitive, 1),
-                            list.sdfParameter(primitive, 2), list.sdfParameter(primitive, 3)))
-                    .setUniformFloat(shader, "uSdfGradientAngle",
-                            list.sdfGradientAngle(primitive))
-                    .setUniformVec4(shader, "uSdfFillColor",
-                            unpackColor(list.sdfFillColor(primitive)))
-                    .setUniformVec4(shader, "uSdfBorderColor",
-                            unpackColor(list.sdfBorderColor(primitive)))
-                    .setUniformVec4(shader, "uSdfGradientStart",
-                            unpackColor(list.sdfGradientStartColor(primitive)))
-                    .setUniformVec4(shader, "uSdfGradientEnd",
-                            unpackColor(list.sdfGradientEndColor(primitive)));
+            sdfRenderer.recordUniforms(resources.shader(), commands,
+                    snapshot.displayList(), batches, batch);
         }
         if (batches.hasClip(batch)) {
             GlScissorRect scissor = batches.glScissor(batch,
@@ -346,10 +228,10 @@ public final class UiRenderer implements AutoCloseable {
         if (batches.shader(batch) == UiShaderVariant.TEXTURED
                 || batches.shader(batch) == UiShaderVariant.GLYPH) {
             texture = batches.shader(batch) == UiShaderVariant.GLYPH
-                    ? glyphAtlas.renderTextureId(batches.texture(batch))
+                    ? resources.glyphTextureId(batches.texture(batch))
                     : texture;
             commands.bindTexture(TEXTURE_UNIT, texture)
-                    .bindSampler(TEXTURE_UNIT, sampler);
+                    .bindSampler(TEXTURE_UNIT, resources.sampler());
         }
         return true;
     }
@@ -389,14 +271,6 @@ public final class UiRenderer implements AutoCloseable {
             case DEBUG_OUTLINE -> 3;
             case SDF -> 4;
         };
-    }
-
-    private static Vector4f unpackColor(int rgba) {
-        return new Vector4f(
-                ((rgba >>> 24) & 0xff) / 255.0f,
-                ((rgba >>> 16) & 0xff) / 255.0f,
-                ((rgba >>> 8) & 0xff) / 255.0f,
-                (rgba & 0xff) / 255.0f);
     }
 
     private static void writeVertices(UiDisplayList displayList, ByteBuffer target) {
@@ -448,64 +322,7 @@ public final class UiRenderer implements AutoCloseable {
                 .put((byte) rgba);
     }
 
-    private static ByteBuffer buildIndices() {
-        ByteBuffer indices = ByteBuffer.allocateDirect(MAX_QUADS_PER_DRAW * 6 * Short.BYTES)
-                .order(ByteOrder.nativeOrder());
-        for (int quad = 0; quad < MAX_QUADS_PER_DRAW; quad++) {
-            int vertex = quad * 4;
-            indices.putShort((short) vertex);
-            indices.putShort((short) (vertex + 1));
-            indices.putShort((short) (vertex + 2));
-            indices.putShort((short) (vertex + 2));
-            indices.putShort((short) (vertex + 3));
-            indices.putShort((short) vertex);
-        }
-        return indices.flip();
-    }
-
-    private void assertRenderThread() {
-        if (renderThread != Thread.currentThread()) {
-            throw new IllegalStateException("UiRenderer is owned by render thread "
-                    + renderThread.getName() + " but accessed from " + Thread.currentThread().getName());
-        }
-    }
-
-    private void claimOrAssertRenderThread() {
-        if (renderThread == null) {
-            renderThread = Thread.currentThread();
-        } else {
-            assertRenderThread();
-        }
-    }
-
     private void ensureOpen() {
         if (closed) throw new IllegalStateException("UiRenderer is closed");
-    }
-
-    private static RuntimeException close(AutoCloseable resource, RuntimeException failure) {
-        if (resource == null) return failure;
-        try {
-            resource.close();
-            return failure;
-        } catch (RuntimeException exception) {
-            return append(failure, exception);
-        } catch (Exception exception) {
-            return append(failure, new IllegalStateException("Failed to close UI GL resource", exception));
-        }
-    }
-
-    private static void closeQuietly(AutoCloseable resource, Throwable failure) {
-        if (resource == null) return;
-        try {
-            resource.close();
-        } catch (Throwable cleanup) {
-            failure.addSuppressed(cleanup);
-        }
-    }
-
-    private static RuntimeException append(RuntimeException current, RuntimeException next) {
-        if (current == null) return next;
-        current.addSuppressed(next);
-        return current;
     }
 }

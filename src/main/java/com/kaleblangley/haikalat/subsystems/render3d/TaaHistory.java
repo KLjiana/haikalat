@@ -38,11 +38,14 @@ final class TaaHistory implements AutoCloseable {
         if (width <= 0 || height <= 0) {
             return;
         }
-        if (framebuffer != null) {
-            framebuffer.close();
-        }
-        framebuffer = createFramebuffer(width, height);
+        // Allocate the candidate first. If creation fails, the current history remains usable.
+        Framebuffer candidate = createFramebuffer(width, height);
+        Framebuffer previous = framebuffer;
+        framebuffer = candidate;
         valid = false;
+        if (previous != null) {
+            previous.close();
+        }
     }
 
     @Override

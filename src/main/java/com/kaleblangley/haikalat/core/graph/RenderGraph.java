@@ -22,7 +22,8 @@ public final class RenderGraph implements AutoCloseable {
     private final Map<String, Pass> passByName = new HashMap<>();
     private final Map<String, Texture2D> importedTextures = new HashMap<>();
     private final Map<String, Integer> textureAttachmentIds = new HashMap<>();
-    private final RenderTargetManager renderTargets;
+    private RenderTargetManager renderTargets;
+    private final RenderTargetManager fixedRenderTargets;
     private final boolean allocateResources;
     private final PassResources passResources;
     private final CommandBuffer immediateCommands = new CommandBuffer();
@@ -54,6 +55,7 @@ public final class RenderGraph implements AutoCloseable {
         this.height = height;
         this.allocateResources = allocateResources;
         this.renderTargets = allocateResources ? new RenderTargetManager() : null;
+        this.fixedRenderTargets = allocateResources ? new RenderTargetManager() : null;
         this.passResources = new PassResources(this);
     }
 
@@ -115,7 +117,12 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     Framebuffer getPassFramebuffer(String passName) {
-        return renderTargets == null ? null : renderTargets.get(passName);
+        if (renderTargets == null) return null;
+        Pass pass = passByName.get(passName);
+        if (pass != null && isFixedSize(pass)) {
+            return fixedRenderTargets.get(passName);
+        }
+        return renderTargets.get(passName);
     }
 
     Texture2D getTexture(String textureName) {
@@ -318,18 +325,33 @@ public final class RenderGraph implements AutoCloseable {
         if (newWidth <= 0 || newHeight <= 0) {
             return;
         }
+        if (!allocateResources) {
+            width = newWidth;
+            height = newHeight;
+            cachedDescription = null;
+            return;
+        }
+        RenderTargetManager candidate = new RenderTargetManager();
+        try {
+            for (Pass pass : passes) {
+                if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)) continue;
+                candidate.create(pass.name, descriptorFor(pass, newWidth, newHeight));
+            }
+        } catch (RuntimeException | Error failure) {
+            try {
+                candidate.close();
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+        RenderTargetManager previous = renderTargets;
+        renderTargets = candidate;
         width = newWidth;
         height = newHeight;
         cachedDescription = null;
-        if (!allocateResources) {
-            return;
-        }
-        for (Pass pass : passes) {
-            if (!pass.useBackbuffer && !pass.externalTarget && pass.fixedWidth == 0) {
-                allocatePassFramebuffer(pass);
-            }
-        }
         refreshAttachmentLookup();
+        previous.close();
     }
 
     @Override
@@ -337,24 +359,56 @@ public final class RenderGraph implements AutoCloseable {
         if (closed) {
             return;
         }
+        RuntimeException failure = null;
         if (renderTargets != null) {
-            renderTargets.close();
+            try {
+                renderTargets.close();
+            } catch (RuntimeException closeFailure) {
+                failure = closeFailure;
+            }
+        }
+        if (fixedRenderTargets != null) {
+            try {
+                fixedRenderTargets.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
         }
         for (Pass pass : passes) {
-            if (pass.timer != null) pass.timer.close();
+            if (pass.timer != null) {
+                try {
+                    pass.timer.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
+                } finally {
+                    pass.timer = null;
+                }
+            }
         }
         textureAttachmentIds.clear();
         closed = true;
+        if (failure != null) throw failure;
     }
 
     private void allocatePassFramebuffer(Pass pass) {
-        Framebuffer framebuffer = renderTargets.create(pass.name, descriptorFor(pass));
+        RenderTargetManager owner = isFixedSize(pass) ? fixedRenderTargets : renderTargets;
+        Framebuffer framebuffer = owner.create(pass.name, descriptorFor(pass));
         registerPassAttachments(pass, framebuffer);
     }
 
+    private static boolean isFixedSize(Pass pass) {
+        return pass.fixedWidth > 0 && pass.fixedHeight > 0;
+    }
+
     private FramebufferDescriptor descriptorFor(Pass pass) {
-        int targetWidth = targetDimension(width, pass.fixedWidth, pass.relativeWidthScale);
-        int targetHeight = targetDimension(height, pass.fixedHeight, pass.relativeHeightScale);
+        return descriptorFor(pass, width, height);
+    }
+
+    private FramebufferDescriptor descriptorFor(Pass pass, int windowWidth, int windowHeight) {
+        int targetWidth = targetDimension(windowWidth, pass.fixedWidth, pass.relativeWidthScale);
+        int targetHeight = targetDimension(windowHeight, pass.fixedHeight, pass.relativeHeightScale);
         FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(targetWidth, targetHeight)
                 .samples(pass.samples);
         boolean multisampled = pass.samples > 1;

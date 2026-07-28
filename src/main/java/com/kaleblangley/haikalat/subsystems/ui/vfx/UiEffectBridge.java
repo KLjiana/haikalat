@@ -144,6 +144,7 @@ public final class UiEffectBridge implements AutoCloseable {
     public List<UiEffectSnapshot> snapshot() {
         check();
         ensureOpen();
+        if (active.isEmpty()) return List.of();
         List<UiEffectSnapshot> result = new ArrayList<>(active.size());
         for (UiEffectInstance instance : active) {
             UiNode node = targets.get(instance.target());

@@ -4,6 +4,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Owns named framebuffer generations.
+ *
+ * <p>Replacement and resize allocate a complete candidate map before retiring the active
+ * targets. A failed candidate therefore cannot leave callers with a partially rebuilt set.</p>
+ */
 public final class RenderTargetManager implements AutoCloseable {
     private final Map<String, FramebufferDescriptor> descriptors = new LinkedHashMap<>();
     private final Map<String, Framebuffer> targets = new LinkedHashMap<>();
@@ -13,11 +19,13 @@ public final class RenderTargetManager implements AutoCloseable {
         ensureOpen();
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(descriptor, "descriptor");
-        closeTarget(name);
+        // Allocate the replacement before touching the active target. A failed allocation
+        // leaves the previous framebuffer usable.
+        Framebuffer candidate = Framebuffer.fromDescriptor(descriptor);
+        Framebuffer previous = targets.put(name, candidate);
         descriptors.put(name, descriptor);
-        Framebuffer target = Framebuffer.fromDescriptor(descriptor);
-        targets.put(name, target);
-        return target;
+        if (previous != null) previous.close();
+        return candidate;
     }
 
     public Framebuffer get(String name) {
@@ -32,17 +40,18 @@ public final class RenderTargetManager implements AutoCloseable {
 
     public void resize(int width, int height) {
         ensureOpen();
-        closeTargets();
-        descriptors.replaceAll((name, descriptor) -> descriptor.resized(width, height));
+        Map<String, FramebufferDescriptor> candidates = new LinkedHashMap<>();
         for (Map.Entry<String, FramebufferDescriptor> entry : descriptors.entrySet()) {
-            targets.put(entry.getKey(), Framebuffer.fromDescriptor(entry.getValue()));
+            candidates.put(entry.getKey(), entry.getValue().resized(width, height));
         }
+        replaceAll(candidates);
     }
 
     public void clear() {
         ensureOpen();
-        closeTargets();
+        RuntimeException failure = closeTargets();
         descriptors.clear();
+        if (failure != null) throw failure;
     }
 
     @Override
@@ -50,23 +59,58 @@ public final class RenderTargetManager implements AutoCloseable {
         if (closed) {
             return;
         }
-        closeTargets();
+        RuntimeException failure = closeTargets();
         descriptors.clear();
         closed = true;
+        if (failure != null) throw failure;
     }
 
-    private void closeTarget(String name) {
-        Framebuffer old = targets.remove(name);
-        if (old != null) {
-            old.close();
+    private void replaceAll(Map<String, FramebufferDescriptor> nextDescriptors) {
+        Map<String, Framebuffer> candidates = new LinkedHashMap<>();
+        try {
+            for (Map.Entry<String, FramebufferDescriptor> entry : nextDescriptors.entrySet()) {
+                candidates.put(entry.getKey(), Framebuffer.fromDescriptor(entry.getValue()));
+            }
+        } catch (RuntimeException | Error failure) {
+            closeCandidateTargets(candidates, failure);
+            throw failure;
         }
-    }
-
-    private void closeTargets() {
-        for (Framebuffer target : targets.values()) {
-            target.close();
-        }
+        Map<String, Framebuffer> previous = new LinkedHashMap<>(targets);
         targets.clear();
+        targets.putAll(candidates);
+        descriptors.clear();
+        descriptors.putAll(nextDescriptors);
+        RuntimeException failure = closeTargets(previous);
+        if (failure != null) throw failure;
+    }
+
+    private RuntimeException closeTargets() {
+        Map<String, Framebuffer> previous = new LinkedHashMap<>(targets);
+        targets.clear();
+        return closeTargets(previous);
+    }
+
+    private static RuntimeException closeTargets(Map<String, Framebuffer> values) {
+        RuntimeException failure = null;
+        for (Framebuffer target : values.values()) {
+            try {
+                target.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
+        }
+        return failure;
+    }
+
+    private static void closeCandidateTargets(Map<String, Framebuffer> values, Throwable failure) {
+        for (Framebuffer target : values.values()) {
+            try {
+                target.close();
+            } catch (Throwable cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+        }
     }
 
     private void ensureOpen() {

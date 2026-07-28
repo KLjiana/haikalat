@@ -1,6 +1,9 @@
 # 公共 API 分类合同
 
-状态：v0.18 当前有效合同。
+状态：v0.20 M1 当前有效合同。
+
+v0.20 的域统计和包边界快照见
+[v0.20 API 与包边界清单](../v0.20-api-boundary-inventory.md)。
 
 main source set 的每个 public 顶层类型必须恰好出现在一个域清单中。每行格式为
 `<stable|advanced|internal> <fully-qualified-class-name>`。
