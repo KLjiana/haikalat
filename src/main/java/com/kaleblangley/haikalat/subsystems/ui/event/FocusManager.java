@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.ui.event;
 import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.UiVisibility;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiInteractionState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,10 +32,12 @@ public final class FocusManager {
         focused = node;
         long now = System.nanoTime();
         if (previous != null && !previous.isClosed() && previous.document() == document) {
+            previous.interactionState(UiInteractionState.NORMAL);
             document.dispatch(previous, new FocusEvent(UiEventType.FOCUS_LOST, now,
                     ++eventSequence, node));
         }
         if (node != null && !node.isClosed() && node.document() == document) {
+            node.interactionState(UiInteractionState.FOCUSED);
             document.dispatch(node, new FocusEvent(UiEventType.FOCUS_GAINED, now,
                     ++eventSequence, previous));
         }

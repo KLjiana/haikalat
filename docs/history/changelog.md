@@ -1,7 +1,27 @@
 # 变更记录
 
-## v0.19.0-SNAPSHOT（开发中）
+## v0.19.4（2026-07-28）
 
+- 完成 0.19.1 UI SDF 基础：`SDF_SHAPE` display-list、独立参数 arena、rounded
+  rect/pill/ellipse/ring/arc、border/gradient、radius-aware 控件绘制和真实 GL 像素验证；
+  普通 quad/image/glyph 路径保持兼容。
+- 完成 0.19.2 现代 UI 动画：`UiVisualTransform` 同时进入 snapshot 顶点与逆变换命中，
+  `UiPropertyTrack` 覆盖 color/radius/opacity/transform/scroll/value/effect 属性，
+  `UiTimeline` 提供 sequence/group/stagger/repeat/reverse、marker signal、enter/exit、
+  reduced motion 与显式 FLIP。
+- 完成 0.19.3 显式 layer/compositor topology：稳定 layer id/tree、begin/end snapshot 边界、
+  managed sRGB/linear target、双轴 blur target、backdrop source 合同、预算、resize 与 direct
+  fallback；advanced snapshot 暂不把 subtree replay 到 offscreen target。
+- 完成 0.19.4 screen-space UI VFX：固定种子 shimmer/ripple/dissolve/spark/confetti/trail/
+  scanline/glitch、signal 去重 bridge、detach/cancel、容量诊断、reduced-motion fallback 与
+  3,600 帧 soak；VFX 使用 UI SDF/quad path，不进入 scene exposure/Bloom。
+- 新增不依赖 `UiDemo` 的独立 `ModernUiDemo`、首帧 UI GL 资源隐藏预热、延迟显示窗口和
+  60 帧真实 GL 像素证明；确定性入口每 15 帧重触发过渡并限制 active effect 不超过 3。
+  800×520 最终帧为 15 nodes、320 quads、16 draws、3,359 非清屏采样，UI ring 累计等待
+  0.55 ms，最大可见帧 13.67 ms。
+- 新增统一内建字体目录 `BundledUiFonts`，集中管理 Noto Sans SC、Unifont 与
+  JetBrains Mono 2.304 的资源、字体族和确定性 fallback 顺序；ModernUiDemo 使用
+  JetBrains Mono 显示 Latin/数字，CJK 自动回退，UiDemo 不再自行读取字体文件。
 - 新增严格 UTF-8 `haikalat.scene` v1 parser、显式 `ResourceCatalog`、`AssetByteResolver` 和
   scene/glTF 外部依赖追踪；相对引用、重复字段、父节点环和有界输入会在 CPU 阶段拒绝。
 - 新增 `SceneAssetService`/`SceneBuildPlan`/`SceneHandle`/`SceneVersion`：scene、glTF 与图片
@@ -10,8 +30,10 @@
   directory watcher、事务式 `RenderPipeline.replaceScene` 和有界结构化诊断。
 - 增加 `sceneJvmVerification`、`sceneAssetGlVerification`、`localSceneAssetVerification`，
   以及外部依赖、失败保留旧版本、staged upload 和 RGBA8 上传回归。
-- 当前仍是开发快照：未接入正式 SerializedSceneDemo，`RenderPipeline` 同拓扑替换仍走候选
-  graph 重建，尚未冻结 `0.19.0` release metadata。
+- 发布限制：未接入正式 SerializedSceneDemo，`RenderPipeline` 同拓扑替换仍走候选 graph
+  重建；UI offscreen subtree replay/cache reuse 仍保留 direct visual fallback。上述限制已在
+  正式版验收报告中明确记录，不影响已验证的普通 UI、动画、compositor topology 与 screen-space VFX
+  路径。
 
 ## v0.18.3（2026-07-27）
 

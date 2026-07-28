@@ -31,3 +31,23 @@ code-point 清单。若后续为缩小发布包生成子集，必须改用新的
 
 该资源和 Noto Sans SC 一样由 classpath 字体目录统一管理，不再从项目根目录或系统字体目录读取。
 版本、许可选择或二进制内容变化时，必须同步更新本清单和第三方许可归档。
+
+## JetBrainsMono-Regular.ttf
+
+- 用途：ModernUiDemo 的首选等宽字体；Latin、数字和 UI 诊断文本使用该 face，
+  缺少的 CJK glyph 继续由 Noto Sans SC / Unifont fallback 提供。
+- 字体族：JetBrains Mono。
+- 版本：2.304。
+- 上游：`JetBrains/JetBrainsMono`，https://github.com/JetBrains/JetBrainsMono
+- 导入来源：项目维护者提供的官方 `JetBrainsMono-2.304.zip` 中
+  `fonts/ttf/JetBrainsMono-Regular.ttf`，未经修改。
+- 本地资源：`/ui/fonts/JetBrainsMono-Regular.ttf`
+- 文件大小：273,900 bytes。
+- SHA-256：`A0BF60EF0F83C5ED4D7A75D45838548B1F6873372DFAC88F71804491898D138F`。
+- 许可证：SIL Open Font License 1.1。
+- 上游版权：Copyright 2020 The JetBrains Mono Project Authors。
+- 随发行包提供的版权与许可证副本：`JetBrainsMono-OFL.txt`。
+
+三套内建字体的资源路径、字体族和注册/fallback 顺序统一由
+`BundledUiFonts` 管理。`FontManager` 继续只负责 native face 和字体族生命周期；
+Demo 不再自行读取 classpath 字体文件。

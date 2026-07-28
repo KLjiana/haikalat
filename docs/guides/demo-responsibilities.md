@@ -13,6 +13,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 | `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
 | `GltfDemo` | 静态、蒙皮与 Morph glTF 端到端证明 | accessor/node/material/skin/animation/weights、joint palette、per-instance Morph weights、PBR/shadow Morph-before-skin、生命周期 | Graph/IK、第二组关节权重、compute morph |
 | `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
+| `ModernUiDemo` | v0.19 现代 UI 纵向闭环 | SDF 圆角、property timeline、transform hit-test、显式 layer topology、shimmer/ripple/confetti、reduced motion、CJK/Latin、像素证明 | editor timeline、offscreen subtree replay/cache、GPU particle |
 | `VfxDemo` | 通用效果模拟与透明绘制证明 | `EffectAsset/EffectInstance`、粒子/Ribbon/Decal over-life、纹理 mask、Alpha/Additive、HDR/Bloom/soft particle、双 `BezierPath3f` 闭合无限符号、CPU/GPU/uniform 基线 | Compute 粒子、体积效果、flipbook、Ribbon repeat UV 和曲线编辑器 |
 | `HaikalatShowcaseDemo` | Milestone 4 同帧综合验收与稳定性 | 高级动画、PBR/shadow、Bloom/LUT/fog、HDR CPU VFX、MSAA depth resolve、自动曝光顺序、GPU VFX、volume、UI diagnostics、资源集合 | HaikalatHost、宿主事件/网络；不把受控 GPU 实验声明为完整编辑型系统 |
 
@@ -92,6 +93,19 @@ Demo/application 层驱动 origin。`runVfxCurveBenchmark` 不创建 GL context�
 
 确定性脚本在首帧启动 header visual fade 与 controls spring layout transition；动画求值位于样式解析
 和 Yoga layout 之间，集成入口继续验证 snapshot、最终像素和 resize。
+
+## ModernUiDemo
+
+```powershell
+.\gradlew.bat runModernUiDemo
+.\gradlew.bat runModernUiIntegration
+```
+
+支持 `--sdf=on|off --animation=on|off --compositor=on|off --backdrop=on|off`
+` --ui-vfx=on|off --effects=... --frames=N --hidden --size=WxH`
+` --reduced-motion=on|off --no-vsync`。该入口拥有独立窗口、RenderGraph 和小型场景，不依赖或启动
+`UiDemo`；窗口会在首帧 UI GL 资源预热完成后才显示。隐藏集成固定运行 60 帧并执行
+readback；普通 `UiDemo` 仍是兼容与输入/IME 责任入口。
 
 ## VfxDemo
 

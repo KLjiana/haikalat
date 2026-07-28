@@ -42,6 +42,17 @@ Simplified Chinese variable TTF：
 - 上游来源：https://unifoundry.com/unifont/；
 - 完整版本、版权声明和 hash：`src/main/resources/ui/fonts/FONT-MANIFEST.md`。
 
-这些字体未经裁剪，UiDemo、纯 JVM FreeType/HarfBuzz 测试和真实 GL glyph pixel proof
+`JetBrainsMono-Regular.ttf` 来自 JetBrains Mono 2.304 官方发行包：
+
+- 文件大小：273,900 bytes；
+- SHA-256：`A0BF60EF0F83C5ED4D7A75D45838548B1F6873372DFAC88F71804491898D138F`；
+- 许可证：SIL Open Font License 1.1；
+- 上游版权：Copyright 2020 The JetBrains Mono Project Authors；
+- 上游：https://github.com/JetBrains/JetBrainsMono；
+- 完整来源、版本和 hash：`src/main/resources/ui/fonts/FONT-MANIFEST.md`；
+- 发行包内版权与许可证副本：`src/main/resources/ui/fonts/JetBrainsMono-OFL.txt`。
+
+这些字体未经裁剪，统一由 `BundledUiFonts` 目录注册；UiDemo、ModernUiDemo、纯 JVM
+FreeType/HarfBuzz 测试和真实 GL glyph pixel proof
 使用同一 classpath 资源，不依赖开发机字体目录或在线服务。若后续生成子集，必须更新 manifest，
 保存工具版本、命令、Unicode 范围和新 hash，并重新检查 OFL Reserved Font Name 条款。

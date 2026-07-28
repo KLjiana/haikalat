@@ -25,6 +25,7 @@ public final class UiAnimationSystem implements AutoCloseable {
     private long cancelled;
     private long replaced;
     private int peakActive;
+    private boolean reducedMotion;
     private boolean closed;
 
     public UiAnimationSystem(UiDocument document) {
@@ -60,6 +61,42 @@ public final class UiAnimationSystem implements AutoCloseable {
         LayoutEntry entry = new LayoutEntry(newHandle(), checkedNode, checkedSpec,
                 checkedNode.style(), target);
         return start(entry);
+    }
+
+    public UiAnimationHandle animate(UiNode node, UiPropertyTrack track, UiTweenSpec spec) {
+        return animate(node, List.of(Objects.requireNonNull(track, "track")), spec);
+    }
+
+    public UiAnimationHandle animate(UiNode node, List<UiPropertyTrack> tracks,
+                                     UiTweenSpec spec) {
+        UiNode checkedNode = requireNode(node);
+        List<UiPropertyTrack> checkedTracks = List.copyOf(
+                Objects.requireNonNull(tracks, "tracks"));
+        if (checkedTracks.isEmpty()) throw new IllegalArgumentException("tracks must not be empty");
+        PropertyEntry entry = new PropertyEntry(newHandle(), checkedNode,
+                Objects.requireNonNull(spec, "spec"), checkedTracks);
+        return start(entry);
+    }
+
+    public UiAnimationHandle transitionState(UiNode node, UiInteractionState state,
+                                             List<UiPropertyTrack> tracks,
+                                             UiTweenSpec spec) {
+        UiNode checked = requireNode(node);
+        checked.interactionState(Objects.requireNonNull(state, "state"));
+        return animate(checked, tracks, spec);
+    }
+
+    public UiAnimationSystem reducedMotion(boolean value) {
+        checkThread();
+        ensureOpen();
+        reducedMotion = value;
+        return this;
+    }
+
+    public boolean reducedMotion() {
+        checkThread();
+        ensureOpen();
+        return reducedMotion;
     }
 
     public void update(float deltaSeconds) {
@@ -150,7 +187,8 @@ public final class UiAnimationSystem implements AutoCloseable {
     private UiAnimationHandle start(Entry entry) {
         cancelMatching(entry.node, entry.channel);
         started = Math.incrementExact(started);
-        if (entry.spec.durationSeconds() == 0.0f && entry.spec.delaySeconds() == 0.0f) {
+        if (reducedMotion
+                || entry.spec.durationSeconds() == 0.0f && entry.spec.delaySeconds() == 0.0f) {
             entry.apply(1.0f, true);
             entry.handle.finish();
             completed = Math.incrementExact(completed);
@@ -297,6 +335,22 @@ public final class UiAnimationSystem implements AutoCloseable {
                     lerp(start.flexGrow(), target.flexGrow(), progress),
                     lerp(start.flexShrink(), target.flexShrink(), progress),
                     lerp(start.gap(), target.gap(), progress)));
+        }
+    }
+
+    private static final class PropertyEntry extends Entry {
+        private final List<UiPropertyTrack> tracks;
+
+        PropertyEntry(UiAnimationHandle handle, UiNode node, UiTweenSpec spec,
+                      List<UiPropertyTrack> tracks) {
+            super(handle, node, spec, Channel.VISUAL);
+            this.tracks = tracks;
+        }
+
+        @Override
+        void apply(float progress, boolean finished) {
+            double sampled = finished ? 1.0 : progress;
+            for (UiPropertyTrack track : tracks) track.apply(node, sampled);
         }
     }
 

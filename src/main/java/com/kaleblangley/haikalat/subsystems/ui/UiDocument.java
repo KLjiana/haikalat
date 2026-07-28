@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui;
 
 import com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiVisualTransform;
 import com.kaleblangley.haikalat.subsystems.ui.event.EventPhase;
 import com.kaleblangley.haikalat.subsystems.ui.event.FocusManager;
 import com.kaleblangley.haikalat.subsystems.ui.event.PointerCapture;
@@ -113,10 +114,10 @@ public final class UiDocument implements AutoCloseable {
     /** 按 paint order 逆序命中最上层节点，同时服从祖先裁剪。 */
     public UiNode hitTest(double x, double y) {
         ensureOpen();
-        UiNode overlay = hitTest(overlayRoot, x, y, false,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        return overlay != null ? overlay : hitTest(root, x, y, false,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        UiNode overlay = hitTest(overlayRoot, x, y, 0.0, 0.0,
+                UiVisualTransform.Matrix.IDENTITY, List.of());
+        return overlay != null ? overlay : hitTest(root, x, y, 0.0, 0.0,
+                UiVisualTransform.Matrix.IDENTITY, List.of());
     }
 
     /** 返回叠加所有祖先 scroll/transform 后的逻辑可视矩形。 */
@@ -125,15 +126,25 @@ public final class UiDocument implements AutoCloseable {
         if (node == null || node.document() != this || node.isClosed()) {
             throw new IllegalArgumentException("visual layout node must be an open document member");
         }
-        double offsetX = 0.0;
-        double offsetY = 0.0;
-        for (UiNode parent = node.parent(); parent != null; parent = parent.parent()) {
-            offsetX += parent.childVisualOffsetX();
-            offsetY += parent.childVisualOffsetY();
+        List<UiNode> path = pathTo(node);
+        double offsetX = 0.0, offsetY = 0.0;
+        UiVisualTransform.Matrix matrix = UiVisualTransform.Matrix.IDENTITY;
+        for (UiNode current : path) {
+            LayoutBox currentBox = current.layoutBox();
+            double x = currentBox.x() + offsetX;
+            double y = currentBox.y() + offsetY;
+            matrix = matrix.multiply(current.visualTransform().matrix(
+                    x, y, currentBox.width(), currentBox.height()));
+            if (current != node) {
+                offsetX += current.childVisualOffsetX();
+                offsetY += current.childVisualOffsetY();
+            }
         }
         LayoutBox box = node.layoutBox();
-        return new LayoutBox((float) (box.x() + offsetX), (float) (box.y() + offsetY),
+        var transformed = matrix.transformBounds(box.x() + offsetX, box.y() + offsetY,
                 box.width(), box.height());
+        return new LayoutBox((float) transformed.x(), (float) transformed.y(),
+                (float) transformed.width(), (float) transformed.height());
     }
 
     public List<UiNode> pathTo(UiNode node) {
@@ -243,43 +254,41 @@ public final class UiDocument implements AutoCloseable {
         for (UiNode child : node.children()) appendVisible(child, output);
     }
 
-    private static UiNode hitTest(UiNode node, double x, double y, boolean hasClip,
-                                  double clipX, double clipY, double clipWidth, double clipHeight,
-                                  double offsetX, double offsetY) {
+    private static UiNode hitTest(UiNode node, double x, double y,
+                                  double offsetX, double offsetY,
+                                  UiVisualTransform.Matrix parentTransform,
+                                  List<TransformedClip> ancestorClips) {
         if (node.visibility() != UiVisibility.VISIBLE) return null;
         LayoutBox raw = node.layoutBox();
         double boxX = raw.x() + offsetX;
         double boxY = raw.y() + offsetY;
         double boxWidth = raw.width();
         double boxHeight = raw.height();
-        if (node.clipChildren()) {
-            if (hasClip) {
-                double left = Math.max(clipX, boxX);
-                double top = Math.max(clipY, boxY);
-                double right = Math.min(clipX + clipWidth, boxX + boxWidth);
-                double bottom = Math.min(clipY + clipHeight, boxY + boxHeight);
-                clipX = left;
-                clipY = top;
-                clipWidth = Math.max(0.0, right - left);
-                clipHeight = Math.max(0.0, bottom - top);
-            } else {
-                hasClip = true;
-                clipX = boxX;
-                clipY = boxY;
-                clipWidth = boxWidth;
-                clipHeight = boxHeight;
+        UiVisualTransform.Matrix transform = parentTransform.multiply(
+                node.visualTransform().matrix(boxX, boxY, boxWidth, boxHeight));
+        for (TransformedClip clip : ancestorClips) {
+            UiVisualTransform.Point local = clip.transform.inverseTransform(x, y);
+            if (!contains(clip.x, clip.y, clip.width, clip.height, local.x(), local.y())) {
+                return null;
             }
         }
-        if (hasClip && !contains(clipX, clipY, clipWidth, clipHeight, x, y)) return null;
+        List<TransformedClip> childClips = ancestorClips;
+        if (node.clipChildren()) {
+            childClips = new ArrayList<>(ancestorClips.size() + 1);
+            childClips.addAll(ancestorClips);
+            childClips.add(new TransformedClip(transform, boxX, boxY, boxWidth, boxHeight));
+        }
         List<UiNode> children = node.children();
         double childOffsetX = offsetX + node.childVisualOffsetX();
         double childOffsetY = offsetY + node.childVisualOffsetY();
         for (int index = children.size() - 1; index >= 0; index--) {
-            UiNode hit = hitTest(children.get(index), x, y, hasClip,
-                    clipX, clipY, clipWidth, clipHeight, childOffsetX, childOffsetY);
+            UiNode hit = hitTest(children.get(index), x, y,
+                    childOffsetX, childOffsetY, transform, childClips);
             if (hit != null) return hit;
         }
-        return node.hitTestVisible() && contains(boxX, boxY, boxWidth, boxHeight, x, y)
+        UiVisualTransform.Point local = transform.inverseTransform(x, y);
+        return node.hitTestVisible()
+                && contains(boxX, boxY, boxWidth, boxHeight, local.x(), local.y())
                 ? node : null;
     }
 
@@ -297,5 +306,9 @@ public final class UiDocument implements AutoCloseable {
 
     private boolean isOpenMember(UiNode node) {
         return node != null && !node.isClosed() && node.document() == this;
+    }
+
+    private record TransformedClip(UiVisualTransform.Matrix transform,
+                                   double x, double y, double width, double height) {
     }
 }

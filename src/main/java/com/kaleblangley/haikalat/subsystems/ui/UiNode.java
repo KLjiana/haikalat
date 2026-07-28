@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.subsystems.ui;
 import com.kaleblangley.haikalat.subsystems.ui.layout.LayoutBox;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureContext;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureResult;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiInteractionState;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiVisualTransform;
 import com.kaleblangley.haikalat.subsystems.ui.event.EventPhase;
 import com.kaleblangley.haikalat.subsystems.ui.event.UiEvent;
 import com.kaleblangley.haikalat.subsystems.ui.event.UiEventListener;
@@ -10,6 +12,7 @@ import com.kaleblangley.haikalat.subsystems.ui.event.UiEventType;
 import com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle;
 import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiLayerDescription;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -42,6 +45,13 @@ public abstract class UiNode implements AutoCloseable {
     private boolean focusable;
     private boolean hitTestVisible = true;
     private boolean clipChildren;
+    private UiVisualTransform visualTransform = UiVisualTransform.IDENTITY;
+    private UiInteractionState interactionState = UiInteractionState.NORMAL;
+    private double animatedValue;
+    private double animatedGradientOffset;
+    private double animatedShadowStrength;
+    private double animatedEffectStrength;
+    private UiLayerDescription layerDescription;
     private boolean root;
     private boolean closed;
 
@@ -179,6 +189,7 @@ public abstract class UiNode implements AutoCloseable {
         ensureOpen();
         if (enabled != value) {
             enabled = value;
+            interactionState = value ? UiInteractionState.NORMAL : UiInteractionState.DISABLED;
             markDirty(UiDirtyFlag.STYLE, UiDirtyFlag.PAINT);
         }
         return this;
@@ -201,6 +212,77 @@ public abstract class UiNode implements AutoCloseable {
         if (clipChildren != value) {
             clipChildren = value;
             markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST);
+        }
+        return this;
+    }
+
+    public final UiVisualTransform visualTransform() {
+        return visualTransform;
+    }
+
+    public final UiNode visualTransform(UiVisualTransform value) {
+        ensureOpen();
+        value = Objects.requireNonNull(value, "visualTransform");
+        if (!visualTransform.equals(value)) {
+            visualTransform = value;
+            markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.HIT_TEST, UiDirtyFlag.COMPOSITOR);
+        }
+        return this;
+    }
+
+    public final UiInteractionState interactionState() {
+        return interactionState;
+    }
+
+    public final UiNode interactionState(UiInteractionState value) {
+        ensureOpen();
+        value = Objects.requireNonNull(value, "interactionState");
+        if (!enabled && value != UiInteractionState.DISABLED) {
+            return this;
+        }
+        if (interactionState != value) {
+            interactionState = value;
+            markDirty(UiDirtyFlag.STYLE, UiDirtyFlag.PAINT);
+        }
+        return this;
+    }
+
+    public final double animatedValue() { return animatedValue; }
+    public final double animatedGradientOffset() { return animatedGradientOffset; }
+    public final double animatedShadowStrength() { return animatedShadowStrength; }
+    public final double animatedEffectStrength() { return animatedEffectStrength; }
+
+    public final UiNode animatedValue(double value) {
+        animatedValue = requireAnimationScalar(value, "animatedValue");
+        markDirty(UiDirtyFlag.PAINT);
+        return this;
+    }
+
+    public final UiNode animatedGradientOffset(double value) {
+        animatedGradientOffset = requireAnimationScalar(value, "animatedGradientOffset");
+        markDirty(UiDirtyFlag.PAINT);
+        return this;
+    }
+
+    public final UiNode animatedShadowStrength(double value) {
+        animatedShadowStrength = requireAnimationScalar(value, "animatedShadowStrength");
+        markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.COMPOSITOR);
+        return this;
+    }
+
+    public final UiNode animatedEffectStrength(double value) {
+        animatedEffectStrength = requireAnimationScalar(value, "animatedEffectStrength");
+        markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.COMPOSITOR);
+        return this;
+    }
+
+    public final UiLayerDescription layerDescription() { return layerDescription; }
+
+    public final UiNode layerDescription(UiLayerDescription value) {
+        ensureOpen();
+        if (!Objects.equals(layerDescription, value)) {
+            layerDescription = value;
+            markDirty(UiDirtyFlag.PAINT, UiDirtyFlag.COMPOSITOR);
         }
         return this;
     }
@@ -380,6 +462,12 @@ public abstract class UiNode implements AutoCloseable {
     private static ComputedStyle defaultComputedStyle() {
         return com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver
                 .defaults(Theme.dark()).resolve("Node", Set.of(), Set.of(), null);
+    }
+
+    private double requireAnimationScalar(double value, String name) {
+        ensureOpen();
+        if (!Double.isFinite(value)) throw new IllegalArgumentException(name + " must be finite");
+        return value;
     }
 
     private static final class ListenerSet {

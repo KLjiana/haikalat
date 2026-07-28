@@ -8,7 +8,10 @@ import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderSnapshot;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderer;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiScreenRect;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiSdfDecoration;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiSdfShape;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiUvRect;
+import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -173,6 +176,40 @@ class UiRendererGlTest {
                 }
             } finally {
                 glDeleteTextures(texture);
+            }
+        }
+    }
+
+    @Test
+    void sdfRoundedRectProducesAnalyticCoverageAndKeepsQuadPathState() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            clear(device, 0.0f, 0.0f, 0.0f);
+            UiDisplayList list = new UiDisplayList()
+                    .addSdfShape(new UiScreenRect(2, 2, 28, 28),
+                            UiSdfShape.roundedRect(8.0f),
+                            UiSdfDecoration.solid(UiColor.fromSrgbHex(0xff0000ff)),
+                            UiBlendMode.PREMULTIPLIED_ALPHA);
+
+            try (UiRenderer renderer = new UiRenderer(16)) {
+                var commands = device.createCommandBuffer();
+                renderer.record(snapshot(9, list), commands);
+                device.execute(commands);
+
+                int[] center = pixel(16, 16);
+                int[] corner = pixel(2, 2);
+                int[] edge = pixel(16, 3);
+                assertTrue(center[0] > 240 && center[1] < 10 && center[2] < 10,
+                        "SDF center should be filled red");
+                assertTrue(corner[0] < 10 && corner[1] < 10 && corner[2] < 10,
+                        "rounded corner should remain transparent");
+                assertTrue(edge[0] > 100,
+                        "SDF edge should have analytic anti-aliased coverage");
+                assertEquals(1, renderer.lastDrawCalls());
+                assertUiState();
+                GlDebug.assertNoError("UiRenderer SDF rounded rect path");
             }
         }
     }

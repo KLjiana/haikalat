@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiVisualTransform;
+
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -28,6 +30,15 @@ public final class UiDisplayList {
     private double[] primitiveClipY;
     private double[] primitiveClipWidth;
     private double[] primitiveClipHeight;
+    private byte[] primitiveSdfKinds;
+    private float[] primitiveSdfRadii;
+    private float[] primitiveSdfParams;
+    private float[] primitiveSdfGradientAngles;
+    private int[] primitiveSdfFillColors;
+    private int[] primitiveSdfBorderColors;
+    private int[] primitiveSdfGradientStartColors;
+    private int[] primitiveSdfGradientEndColors;
+    private UiLayerDescription[] primitiveLayers;
 
     private double[] quadX;
     private double[] quadY;
@@ -38,10 +49,20 @@ public final class UiDisplayList {
     private float[] quadU1;
     private float[] quadV1;
     private int[] quadColors;
+    private double[] quadTransformM00;
+    private double[] quadTransformM01;
+    private double[] quadTransformM10;
+    private double[] quadTransformM11;
+    private double[] quadTransformX;
+    private double[] quadTransformY;
 
     private int primitiveCount;
     private int quadCount;
     private int clipDepth;
+    private int layerDepth;
+    private UiVisualTransform.Matrix transform = UiVisualTransform.Matrix.IDENTITY;
+    private UiVisualTransform.Matrix[] transformStack = new UiVisualTransform.Matrix[8];
+    private int transformDepth;
     private boolean glyphRunOpen;
     private int glyphFirstQuad;
     private int glyphTexture;
@@ -89,6 +110,17 @@ public final class UiDisplayList {
         primitiveClipY = Arrays.copyOf(source.primitiveClipY, primitiveCount);
         primitiveClipWidth = Arrays.copyOf(source.primitiveClipWidth, primitiveCount);
         primitiveClipHeight = Arrays.copyOf(source.primitiveClipHeight, primitiveCount);
+        primitiveSdfKinds = Arrays.copyOf(source.primitiveSdfKinds, primitiveCount);
+        primitiveSdfRadii = Arrays.copyOf(source.primitiveSdfRadii, primitiveCount * 4);
+        primitiveSdfParams = Arrays.copyOf(source.primitiveSdfParams, primitiveCount * 4);
+        primitiveSdfGradientAngles = Arrays.copyOf(source.primitiveSdfGradientAngles, primitiveCount);
+        primitiveSdfFillColors = Arrays.copyOf(source.primitiveSdfFillColors, primitiveCount);
+        primitiveSdfBorderColors = Arrays.copyOf(source.primitiveSdfBorderColors, primitiveCount);
+        primitiveSdfGradientStartColors = Arrays.copyOf(
+                source.primitiveSdfGradientStartColors, primitiveCount);
+        primitiveSdfGradientEndColors = Arrays.copyOf(
+                source.primitiveSdfGradientEndColors, primitiveCount);
+        primitiveLayers = Arrays.copyOf(source.primitiveLayers, primitiveCount);
         quadX = Arrays.copyOf(source.quadX, quadCount);
         quadY = Arrays.copyOf(source.quadY, quadCount);
         quadWidth = Arrays.copyOf(source.quadWidth, quadCount);
@@ -98,6 +130,12 @@ public final class UiDisplayList {
         quadU1 = Arrays.copyOf(source.quadU1, quadCount);
         quadV1 = Arrays.copyOf(source.quadV1, quadCount);
         quadColors = Arrays.copyOf(source.quadColors, quadCount);
+        quadTransformM00 = Arrays.copyOf(source.quadTransformM00, quadCount);
+        quadTransformM01 = Arrays.copyOf(source.quadTransformM01, quadCount);
+        quadTransformM10 = Arrays.copyOf(source.quadTransformM10, quadCount);
+        quadTransformM11 = Arrays.copyOf(source.quadTransformM11, quadCount);
+        quadTransformX = Arrays.copyOf(source.quadTransformX, quadCount);
+        quadTransformY = Arrays.copyOf(source.quadTransformY, quadCount);
     }
 
     /** 清空记录内容并保留高水位容量。 */
@@ -106,6 +144,9 @@ public final class UiDisplayList {
         primitiveCount = 0;
         quadCount = 0;
         clipDepth = 0;
+        layerDepth = 0;
+        transform = UiVisualTransform.Matrix.IDENTITY;
+        transformDepth = 0;
         glyphRunOpen = false;
         glyphBlend = null;
     }
@@ -134,6 +175,46 @@ public final class UiDisplayList {
                 premultipliedRgba8);
         appendPrimitive(UiPrimitiveKind.SOLID_QUAD, UiShaderVariant.SOLID,
                 -1, -1, blendMode, firstQuad, 1);
+        return this;
+    }
+
+    /** Appends one analytic SDF shape while preserving the ordinary quad path. */
+    public UiDisplayList addSdfShape(UiScreenRect bounds, UiSdfShape shape,
+                                     UiSdfDecoration decoration,
+                                     UiBlendMode blendMode) {
+        Objects.requireNonNull(bounds, "bounds");
+        Objects.requireNonNull(shape, "shape");
+        Objects.requireNonNull(decoration, "decoration");
+        ensureRecordable();
+        Objects.requireNonNull(blendMode, "blendMode");
+        UiSdfShape normalized = shape.normalizedFor((float) bounds.width(),
+                (float) bounds.height());
+        int firstQuad = appendQuad(bounds, UiUvRect.FULL,
+                decoration.fill().color().packedPremultipliedRgba8());
+        int primitive = appendPrimitive(UiPrimitiveKind.SDF_SHAPE, UiShaderVariant.SDF,
+                -1, -1, blendMode, firstQuad, 1);
+        primitiveSdfKinds[primitive] = (byte) normalized.kind().ordinal();
+        int radiusOffset = primitive * 4;
+        primitiveSdfRadii[radiusOffset] = normalized.radiusTopLeft();
+        primitiveSdfRadii[radiusOffset + 1] = normalized.radiusTopRight();
+        primitiveSdfRadii[radiusOffset + 2] = normalized.radiusBottomRight();
+        primitiveSdfRadii[radiusOffset + 3] = normalized.radiusBottomLeft();
+        int paramsOffset = primitive * 4;
+        primitiveSdfParams[paramsOffset] = normalized.innerRadius();
+        primitiveSdfParams[paramsOffset + 1] = normalized.startRadians();
+        primitiveSdfParams[paramsOffset + 2] = normalized.endRadians();
+        primitiveSdfParams[paramsOffset + 3] = normalized.thickness() > 0.0f
+                ? normalized.thickness() : decoration.borderWidth();
+        primitiveSdfGradientAngles[primitive] = decoration.gradient() == null
+                ? 0.0f : decoration.gradient().angleRadians();
+        primitiveSdfFillColors[primitive] = decoration.fill().color().packedPremultipliedRgba8();
+        primitiveSdfBorderColors[primitive] = decoration.border().color().packedPremultipliedRgba8();
+        primitiveSdfGradientStartColors[primitive] = decoration.gradient() == null
+                ? primitiveSdfFillColors[primitive]
+                : decoration.gradient().firstColor().packedPremultipliedRgba8();
+        primitiveSdfGradientEndColors[primitive] = decoration.gradient() == null
+                ? primitiveSdfFillColors[primitive]
+                : decoration.gradient().lastColor().packedPremultipliedRgba8();
         return this;
     }
 
@@ -276,13 +357,41 @@ public final class UiDisplayList {
     public UiDisplayList pushClip(UiScreenRect clip) {
         ensureRecordable();
         Objects.requireNonNull(clip, "clip");
+        UiScreenRect transformed = transform.transformBounds(
+                clip.x(), clip.y(), clip.width(), clip.height());
         int index = appendPrimitive(UiPrimitiveKind.PUSH_CLIP, null,
                 -1, -1, null, -1, 0);
-        primitiveClipX[index] = clip.x();
-        primitiveClipY[index] = clip.y();
-        primitiveClipWidth[index] = clip.width();
-        primitiveClipHeight[index] = clip.height();
+        primitiveClipX[index] = transformed.x();
+        primitiveClipY[index] = transformed.y();
+        primitiveClipWidth[index] = transformed.width();
+        primitiveClipHeight[index] = transformed.height();
         clipDepth++;
+        return this;
+    }
+
+    /**
+     * Applies a layout-independent transform to subsequently recorded quads and clips.
+     * Calls may be nested; child transforms inherit the complete parent matrix.
+     */
+    public UiDisplayList pushTransform(UiVisualTransform value, UiScreenRect bounds) {
+        ensureRecordable();
+        Objects.requireNonNull(value, "value");
+        Objects.requireNonNull(bounds, "bounds");
+        if (transformDepth == transformStack.length) {
+            transformStack = Arrays.copyOf(transformStack,
+                    Math.max(2, transformStack.length << 1));
+        }
+        transformStack[transformDepth++] = transform;
+        transform = transform.multiply(value.matrix(bounds));
+        return this;
+    }
+
+    /** Restores the transform active before the matching {@link #pushTransform}. */
+    public UiDisplayList popTransform() {
+        ensureRecordable();
+        if (transformDepth == 0) throw new IllegalStateException("transform stack underflow");
+        transform = transformStack[--transformDepth];
+        transformStack[transformDepth] = null;
         return this;
     }
 
@@ -299,6 +408,24 @@ public final class UiDisplayList {
         appendPrimitive(UiPrimitiveKind.POP_CLIP, null,
                 -1, -1, null, -1, 0);
         clipDepth--;
+        return this;
+    }
+
+    public UiDisplayList beginLayer(UiLayerDescription description) {
+        ensureRecordable();
+        int primitive = appendPrimitive(UiPrimitiveKind.LAYER_BEGIN, null,
+                -1, -1, null, -1, 0);
+        primitiveLayers[primitive] = Objects.requireNonNull(description, "description");
+        layerDepth++;
+        return this;
+    }
+
+    public UiDisplayList endLayer() {
+        ensureRecordable();
+        if (layerDepth == 0) throw new IllegalStateException("layer stack underflow");
+        appendPrimitive(UiPrimitiveKind.LAYER_END, null,
+                -1, -1, null, -1, 0);
+        layerDepth--;
         return this;
     }
 
@@ -369,6 +496,17 @@ public final class UiDisplayList {
         copy(source.primitiveClipY, primitiveClipY, primitiveCount);
         copy(source.primitiveClipWidth, primitiveClipWidth, primitiveCount);
         copy(source.primitiveClipHeight, primitiveClipHeight, primitiveCount);
+        copy(source.primitiveSdfKinds, primitiveSdfKinds, primitiveCount);
+        copy(source.primitiveSdfRadii, primitiveSdfRadii, primitiveCount * 4);
+        copy(source.primitiveSdfParams, primitiveSdfParams, primitiveCount * 4);
+        copy(source.primitiveSdfGradientAngles, primitiveSdfGradientAngles, primitiveCount);
+        copy(source.primitiveSdfFillColors, primitiveSdfFillColors, primitiveCount);
+        copy(source.primitiveSdfBorderColors, primitiveSdfBorderColors, primitiveCount);
+        copy(source.primitiveSdfGradientStartColors,
+                primitiveSdfGradientStartColors, primitiveCount);
+        copy(source.primitiveSdfGradientEndColors,
+                primitiveSdfGradientEndColors, primitiveCount);
+        copy(source.primitiveLayers, primitiveLayers, primitiveCount);
         copy(source.quadX, quadX, quadCount);
         copy(source.quadY, quadY, quadCount);
         copy(source.quadWidth, quadWidth, quadCount);
@@ -378,7 +516,16 @@ public final class UiDisplayList {
         copy(source.quadU1, quadU1, quadCount);
         copy(source.quadV1, quadV1, quadCount);
         copy(source.quadColors, quadColors, quadCount);
+        copy(source.quadTransformM00, quadTransformM00, quadCount);
+        copy(source.quadTransformM01, quadTransformM01, quadCount);
+        copy(source.quadTransformM10, quadTransformM10, quadCount);
+        copy(source.quadTransformM11, quadTransformM11, quadCount);
+        copy(source.quadTransformX, quadTransformX, quadCount);
+        copy(source.quadTransformY, quadTransformY, quadCount);
         clipDepth = 0;
+        layerDepth = 0;
+        transform = UiVisualTransform.Matrix.IDENTITY;
+        transformDepth = 0;
         glyphRunOpen = false;
         glyphBlend = null;
     }
@@ -456,6 +603,58 @@ public final class UiDisplayList {
                 primitiveClipWidth[primitiveIndex], primitiveClipHeight[primitiveIndex]);
     }
 
+    public UiSdfShape.Kind sdfKind(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return UiSdfShape.Kind.values()[primitiveSdfKinds[primitiveIndex]];
+    }
+
+    public float sdfRadius(int primitiveIndex, int corner) {
+        requireSdfPrimitive(primitiveIndex);
+        if (corner < 0 || corner >= 4) throw new IndexOutOfBoundsException("corner: " + corner);
+        return primitiveSdfRadii[primitiveIndex * 4 + corner];
+    }
+
+    public float sdfParameter(int primitiveIndex, int parameter) {
+        requireSdfPrimitive(primitiveIndex);
+        if (parameter < 0 || parameter >= 4) {
+            throw new IndexOutOfBoundsException("parameter: " + parameter);
+        }
+        return primitiveSdfParams[primitiveIndex * 4 + parameter];
+    }
+
+    public float sdfGradientAngle(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return primitiveSdfGradientAngles[primitiveIndex];
+    }
+
+    public int sdfFillColor(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return primitiveSdfFillColors[primitiveIndex];
+    }
+
+    public int sdfBorderColor(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return primitiveSdfBorderColors[primitiveIndex];
+    }
+
+    public int sdfGradientStartColor(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return primitiveSdfGradientStartColors[primitiveIndex];
+    }
+
+    public int sdfGradientEndColor(int primitiveIndex) {
+        requireSdfPrimitive(primitiveIndex);
+        return primitiveSdfGradientEndColors[primitiveIndex];
+    }
+
+    public UiLayerDescription primitiveLayer(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        if (primitiveKind(primitiveIndex) != UiPrimitiveKind.LAYER_BEGIN) {
+            throw new IllegalArgumentException("primitive is not LAYER_BEGIN");
+        }
+        return primitiveLayers[primitiveIndex];
+    }
+
     /** 返回 quad 的逻辑 X。 */
     public double quadX(int quadIndex) {
         checkQuadIndex(quadIndex);
@@ -510,6 +709,21 @@ public final class UiDisplayList {
         return quadColors[quadIndex];
     }
 
+    public UiVisualTransform.Matrix quadTransform(int quadIndex) {
+        checkQuadIndex(quadIndex);
+        return new UiVisualTransform.Matrix(
+                quadTransformM00[quadIndex], quadTransformM01[quadIndex],
+                quadTransformM10[quadIndex], quadTransformM11[quadIndex],
+                quadTransformX[quadIndex], quadTransformY[quadIndex]);
+    }
+
+    double quadTransformM00(int quadIndex) { return quadTransformM00[quadIndex]; }
+    double quadTransformM01(int quadIndex) { return quadTransformM01[quadIndex]; }
+    double quadTransformM10(int quadIndex) { return quadTransformM10[quadIndex]; }
+    double quadTransformM11(int quadIndex) { return quadTransformM11[quadIndex]; }
+    double quadTransformX(int quadIndex) { return quadTransformX[quadIndex]; }
+    double quadTransformY(int quadIndex) { return quadTransformY[quadIndex]; }
+
     double primitiveClipX(int primitiveIndex) {
         return primitiveClipX[primitiveIndex];
     }
@@ -533,6 +747,12 @@ public final class UiDisplayList {
         if (clipDepth != 0) {
             throw new IllegalStateException("clip stack is not balanced: depth=" + clipDepth);
         }
+        if (transformDepth != 0) {
+            throw new IllegalStateException("transform stack is not balanced: depth=" + transformDepth);
+        }
+        if (layerDepth != 0) {
+            throw new IllegalStateException("layer stack is not balanced: depth=" + layerDepth);
+        }
     }
 
     private int appendQuad(UiScreenRect bounds, UiUvRect uv, int color) {
@@ -555,6 +775,12 @@ public final class UiDisplayList {
         quadU1[index] = u1;
         quadV1[index] = v1;
         quadColors[index] = color;
+        quadTransformM00[index] = transform.m00();
+        quadTransformM01[index] = transform.m01();
+        quadTransformM10[index] = transform.m10();
+        quadTransformM11[index] = transform.m11();
+        quadTransformX[index] = transform.translateX();
+        quadTransformY[index] = transform.translateY();
         return index;
     }
 
@@ -571,7 +797,15 @@ public final class UiDisplayList {
         primitiveImageIds[index] = -1L;
         primitiveFirstQuads[index] = firstQuad;
         primitiveQuadCounts[index] = quadCountValue;
+        primitiveSdfKinds[index] = -1;
         return index;
+    }
+
+    private void requireSdfPrimitive(int primitiveIndex) {
+        requireDrawPrimitive(primitiveIndex);
+        if (primitiveKind(primitiveIndex) != UiPrimitiveKind.SDF_SHAPE) {
+            throw new IllegalArgumentException("primitive is not SDF_SHAPE");
+        }
     }
 
     private void requireDrawPrimitive(int primitiveIndex) {
@@ -626,6 +860,16 @@ public final class UiDisplayList {
         primitiveClipY = new double[capacity];
         primitiveClipWidth = new double[capacity];
         primitiveClipHeight = new double[capacity];
+        primitiveSdfKinds = new byte[capacity];
+        Arrays.fill(primitiveSdfKinds, (byte) -1);
+        primitiveSdfRadii = new float[capacity * 4];
+        primitiveSdfParams = new float[capacity * 4];
+        primitiveSdfGradientAngles = new float[capacity];
+        primitiveSdfFillColors = new int[capacity];
+        primitiveSdfBorderColors = new int[capacity];
+        primitiveSdfGradientStartColors = new int[capacity];
+        primitiveSdfGradientEndColors = new int[capacity];
+        primitiveLayers = new UiLayerDescription[capacity];
     }
 
     private void allocateQuads(int capacity) {
@@ -638,6 +882,12 @@ public final class UiDisplayList {
         quadU1 = new float[capacity];
         quadV1 = new float[capacity];
         quadColors = new int[capacity];
+        quadTransformM00 = new double[capacity];
+        quadTransformM01 = new double[capacity];
+        quadTransformM10 = new double[capacity];
+        quadTransformM11 = new double[capacity];
+        quadTransformX = new double[capacity];
+        quadTransformY = new double[capacity];
     }
 
     private void ensurePrimitiveCapacity(int required) {
@@ -659,6 +909,19 @@ public final class UiDisplayList {
         primitiveClipY = Arrays.copyOf(primitiveClipY, capacity);
         primitiveClipWidth = Arrays.copyOf(primitiveClipWidth, capacity);
         primitiveClipHeight = Arrays.copyOf(primitiveClipHeight, capacity);
+        int previousSdfCapacity = primitiveSdfKinds.length;
+        primitiveSdfKinds = Arrays.copyOf(primitiveSdfKinds, capacity);
+        Arrays.fill(primitiveSdfKinds, previousSdfCapacity, capacity, (byte) -1);
+        primitiveSdfRadii = Arrays.copyOf(primitiveSdfRadii, capacity * 4);
+        primitiveSdfParams = Arrays.copyOf(primitiveSdfParams, capacity * 4);
+        primitiveSdfGradientAngles = Arrays.copyOf(primitiveSdfGradientAngles, capacity);
+        primitiveSdfFillColors = Arrays.copyOf(primitiveSdfFillColors, capacity);
+        primitiveSdfBorderColors = Arrays.copyOf(primitiveSdfBorderColors, capacity);
+        primitiveSdfGradientStartColors = Arrays.copyOf(
+                primitiveSdfGradientStartColors, capacity);
+        primitiveSdfGradientEndColors = Arrays.copyOf(
+                primitiveSdfGradientEndColors, capacity);
+        primitiveLayers = Arrays.copyOf(primitiveLayers, capacity);
     }
 
     private void ensureQuadCapacity(int required) {
@@ -675,6 +938,12 @@ public final class UiDisplayList {
         quadU1 = Arrays.copyOf(quadU1, capacity);
         quadV1 = Arrays.copyOf(quadV1, capacity);
         quadColors = Arrays.copyOf(quadColors, capacity);
+        quadTransformM00 = Arrays.copyOf(quadTransformM00, capacity);
+        quadTransformM01 = Arrays.copyOf(quadTransformM01, capacity);
+        quadTransformM10 = Arrays.copyOf(quadTransformM10, capacity);
+        quadTransformM11 = Arrays.copyOf(quadTransformM11, capacity);
+        quadTransformX = Arrays.copyOf(quadTransformX, capacity);
+        quadTransformY = Arrays.copyOf(quadTransformY, capacity);
     }
 
     private static int grownCapacity(int current, int required) {
@@ -708,6 +977,10 @@ public final class UiDisplayList {
     }
 
     private static void copy(double[] source, double[] target, int count) {
+        System.arraycopy(source, 0, target, 0, count);
+    }
+
+    private static void copy(Object[] source, Object[] target, int count) {
         System.arraycopy(source, 0, target, 0, count);
     }
 }

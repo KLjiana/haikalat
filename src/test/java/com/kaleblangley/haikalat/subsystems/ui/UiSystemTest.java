@@ -38,7 +38,9 @@ class UiSystemTest {
             ui.update(collector(320, 180, 320, 180).snapshot(), 1.0f / 60.0f);
 
             ui.registerFont("Alternate", fontData);
-            assertEquals(java.util.List.of(UiTextEngine.DEFAULT_FONT_FAMILY, "Alternate"),
+            assertEquals(java.util.List.of(UiTextEngine.DEFAULT_FONT_FAMILY,
+                    UiTextEngine.UNIFONT_FONT_FAMILY,
+                    UiTextEngine.MONOSPACE_FONT_FAMILY, "Alternate"),
                     ui.fontFamilies());
             assertTrue(ui.selectFontFamily("Alternate"));
             assertEquals("Alternate", ui.activeFontFamily());

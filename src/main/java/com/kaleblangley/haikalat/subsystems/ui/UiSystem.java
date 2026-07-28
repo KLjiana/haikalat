@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.ui;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.ui.event.UiInputRouter;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSystem;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiTimeline;
 import com.kaleblangley.haikalat.subsystems.ui.layout.LayoutEngine;
 import com.kaleblangley.haikalat.subsystems.ui.layout.YogaLayoutEngine;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBatcher;
@@ -10,6 +11,8 @@ import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiGlyphAtlasGpu;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiGlyphUploadResult;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiImageResolver;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiAttachmentOptions;
+import com.kaleblangley.haikalat.subsystems.ui.render.UiCompositor;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiPainter;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderSnapshot;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderer;
@@ -21,6 +24,8 @@ import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
 import com.kaleblangley.haikalat.subsystems.ui.text.ShapingCache;
 import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
+import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectBridge;
+import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectRenderer;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
@@ -57,6 +62,9 @@ public final class UiSystem implements AutoCloseable {
     private final UiDocument document;
     private final UiInputRouter inputRouter;
     private final UiAnimationSystem animations;
+    private final UiTimeline timeline;
+    private final UiEffectBridge effects;
+    private final UiEffectRenderer effectRenderer = new UiEffectRenderer();
     private final UiStylePass stylePass;
     private final LayoutEngine layoutEngine;
     private final UiTextEngine textEngine;
@@ -70,6 +78,7 @@ public final class UiSystem implements AutoCloseable {
     private final Object renderLifecycle = new Object();
     private final Set<Long> submittedGlyphUploads = ConcurrentHashMap.newKeySet();
     private RenderGraph attachedGraph;
+    private UiCompositor compositor;
     private UiRenderSnapshot lastRenderedSnapshot;
     private UiSnapshotExchange.Lease lastRenderedLease;
     private volatile UiFrameStats updateStatistics = UiFrameStats.EMPTY;
@@ -96,6 +105,8 @@ public final class UiSystem implements AutoCloseable {
         this.textInputAdapter = Objects.requireNonNull(textInputAdapter, "textInputAdapter");
         inputRouter = new UiInputRouter(document);
         animations = new UiAnimationSystem(document);
+        timeline = new UiTimeline(document);
+        effects = new UiEffectBridge(document);
         stylePass = new UiStylePass(StyleResolver.defaults(config.theme()));
         displayList = new UiDisplayList(config.initialPrimitiveCapacity(),
                 config.initialPrimitiveCapacity());
@@ -164,6 +175,18 @@ public final class UiSystem implements AutoCloseable {
         updateThread.check();
         ensureOpen("UiAnimationSystem");
         return animations;
+    }
+
+    public UiTimeline timeline() {
+        updateThread.check();
+        ensureOpen("UiTimeline");
+        return timeline;
+    }
+
+    public UiEffectBridge effects() {
+        updateThread.check();
+        ensureOpen("UiEffectBridge");
+        return effects;
     }
 
     /** 返回当前已注册、可在运行时切换的 UI 字体族。 */
@@ -235,6 +258,8 @@ public final class UiSystem implements AutoCloseable {
         synchronizeTextInput(input);
         stylePass.resolve(document);
         animations.update(boundedDelta);
+        timeline.update(boundedDelta);
+        effects.consume(timeline.drainSignals());
 
         long layoutNanos = 0L;
         long layoutPasses = 0L;
@@ -246,10 +271,12 @@ public final class UiSystem implements AutoCloseable {
             layoutPasses = 1L;
             layoutNodes = countNodes(document.root()) + countNodes(document.overlayRoot());
         }
+        effects.update(boundedDelta);
 
         UiRenderSnapshot complete;
         long paintStart = System.nanoTime();
         painter.paint(document, displayList);
+        effectRenderer.record(effects.snapshot(), displayList);
         long paintNanos = System.nanoTime() - paintStart;
         if (activeTextField != null) updateCandidateRect(activeTextField, input);
         try {
@@ -321,6 +348,44 @@ public final class UiSystem implements AutoCloseable {
                 });
         graph.sealTopology();
         attachedGraph = graph;
+    }
+
+    /** Attaches the UI with deterministic UI-owned compositor passes. */
+    public void attachTo(RenderGraph graph, String dependencyPass,
+                         UiAttachmentOptions options) {
+        updateThread.check();
+        ensureOpen("UiSystem graph attachment");
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(dependencyPass, "dependencyPass");
+        Objects.requireNonNull(options, "options");
+        if (attachedGraph != null) {
+            throw new IllegalStateException("UiSystem is already attached to a RenderGraph");
+        }
+        if (graph.isTopologySealed()) throw new IllegalStateException("RenderGraph topology is already sealed");
+        if (!graph.hasPass(dependencyPass)) {
+            throw new IllegalArgumentException("UI dependency pass does not exist: " + dependencyPass);
+        }
+        if (!graph.passWritesToBackbuffer(dependencyPass)) {
+            throw new IllegalArgumentException("UI dependency pass does not write to backbuffer: " + dependencyPass);
+        }
+        if (graph.hasPass(OVERLAY_PASS_NAME)) {
+            throw new IllegalStateException("RenderGraph already contains " + OVERLAY_PASS_NAME);
+        }
+        compositor = new UiCompositor(options);
+        String finalDependency = compositor.registerPasses(graph, dependencyPass);
+        graph.addPass(OVERLAY_PASS_NAME)
+                .writeToBackbuffer()
+                .noClear()
+                .dependsOn(finalDependency)
+                .execute((resources, commands) -> recordOverlay(commands));
+        graph.sealTopology();
+        attachedGraph = graph;
+    }
+
+    public UiCompositor.Diagnostics compositorDiagnostics() {
+        updateThread.check();
+        ensureOpen("UiSystem compositor diagnostics");
+        return compositor == null ? UiCompositor.Diagnostics.EMPTY : compositor.diagnostics();
     }
 
     /** 返回最近完成 update 的统计，并合入最近 render record 数据。 */
@@ -396,9 +461,12 @@ public final class UiSystem implements AutoCloseable {
         failure = closeCollect(textInputAdapter, failure);
         failure = closeCollect(textEngine, failure);
         failure = closeCollect(layoutEngine, failure);
+        failure = closeCollect(effects, failure);
+        failure = closeCollect(timeline, failure);
         failure = closeCollect(animations, failure);
         failure = closeCollect(document, failure);
         attachedGraph = null;
+        compositor = null;
         if (failure != null) throw failure;
     }
 

@@ -9,17 +9,12 @@ import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
-import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Locale;
 
 import static org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE;
@@ -39,7 +34,6 @@ public final class UiDemo {
     static final String PRESENT_PASS = "Present";
     static final int DEFAULT_WIDTH = 960;
     static final int DEFAULT_HEIGHT = 600;
-    static final String OPTIONAL_UNIFONT = "/ui/fonts/unifont-17.0.05.otf";
     private static final float DETERMINISTIC_DELTA_SECONDS = 1.0f / 60.0f;
 
     private UiDemo() {
@@ -69,7 +63,6 @@ public final class UiDemo {
             try (FrameDriver driver = new FrameDriver(settings);
                  RenderGraph graph = createGraph(window);
                  UiSystem ui = UiSystem.create(window, UiConfig.defaults())) {
-                registerOptionalFonts(ui);
                 ui.attachTo(graph, PRESENT_PASS);
                 graph.compile();
                 try (UiDemoScene scene = UiDemoScene.install(
@@ -77,18 +70,6 @@ public final class UiDemo {
                     return runFrames(window, driver, graph, ui, scene, options);
                 }
             }
-        }
-    }
-
-    private static void registerOptionalFonts(UiSystem ui) {
-        try (InputStream input = UiTextEngine.class.getResourceAsStream(OPTIONAL_UNIFONT)) {
-            if (input == null) {
-                throw new IllegalStateException("Missing bundled UI font " + OPTIONAL_UNIFONT);
-            }
-            ui.registerFont("Unifont", input.readAllBytes());
-        } catch (IOException failure) {
-            throw new IllegalStateException("Failed to load bundled UI font "
-                    + OPTIONAL_UNIFONT, failure);
         }
     }
 

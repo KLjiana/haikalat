@@ -13,7 +13,6 @@ import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -31,8 +30,10 @@ import java.util.Objects;
  * placement 在 render thread 报告整批上传成功前不会进入 display list。</p>
  */
 public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
-    public static final String BUNDLED_FONT_RESOURCE = "/ui/fonts/NotoSansSC-VF.ttf";
-    public static final String DEFAULT_FONT_FAMILY = "Noto Sans SC";
+    public static final String BUNDLED_FONT_RESOURCE = BundledUiFonts.NOTO_SANS_SC_RESOURCE;
+    public static final String DEFAULT_FONT_FAMILY = BundledUiFonts.NOTO_SANS_SC_FAMILY;
+    public static final String UNIFONT_FONT_FAMILY = BundledUiFonts.UNIFONT_FAMILY;
+    public static final String MONOSPACE_FONT_FAMILY = BundledUiFonts.JETBRAINS_MONO_FAMILY;
     private static final int ATLAS_PADDING = 1;
     private static final int MAXIMUM_LAYOUT_CACHE_ENTRIES = 2_048;
     private static final int LOGICAL_GLYPH_SAMPLER = 0;
@@ -67,24 +68,19 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         rebuildFallback();
     }
 
-    /** 从仓库内确定性 Noto Sans SC 资源创建完整文本服务。 */
+    /** 从统一内建字体目录创建完整文本服务。 */
     public static UiTextEngine createBundled(int atlasWidth, int atlasHeight,
                                              int maximumAtlasPages) {
-        byte[] fontData = readBundledFont();
         FontManager fonts = null;
         TextShaper shaper = null;
         GlyphAtlas atlas = null;
         try {
             fonts = new FontManager();
-            FontFamily family = fonts.registerFamily(DEFAULT_FONT_FAMILY);
-            FontFace face = fonts.registerFace(family, fontData, 0)
-                    .variationCoordinate("wght", 400.0f);
+            LinkedHashMap<String, FontFace> faces = BundledUiFonts.registerAll(fonts);
             shaper = new TextShaper(fonts);
             TextLayouter layouter = new TextLayouter(shaper);
             atlas = new GlyphAtlas(atlasWidth, atlasHeight,
                     ATLAS_PADDING, maximumAtlasPages);
-            LinkedHashMap<String, FontFace> faces = new LinkedHashMap<>();
-            faces.put(DEFAULT_FONT_FAMILY, face);
             return new UiTextEngine(fonts, faces, DEFAULT_FONT_FAMILY,
                     shaper, layouter, atlas);
         } catch (RuntimeException | Error failure) {
@@ -468,18 +464,6 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         float result = 0.0f;
         for (TextLine line : layout.lines()) result = Math.max(result, line.width());
         return result;
-    }
-
-    private static byte[] readBundledFont() {
-        try (InputStream input = UiTextEngine.class.getResourceAsStream(BUNDLED_FONT_RESOURCE)) {
-            if (input == null) {
-                throw new IllegalStateException("Missing bundled UI font " + BUNDLED_FONT_RESOURCE);
-            }
-            return input.readAllBytes();
-        } catch (IOException failure) {
-            throw new IllegalStateException("Failed to load bundled UI font "
-                    + BUNDLED_FONT_RESOURCE, failure);
-        }
     }
 
     private void ensureOpen() {

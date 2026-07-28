@@ -89,11 +89,15 @@ class UiTextEngineTest {
         }
         try (UiTextEngine text = UiTextEngine.createBundled(128, 128, 2);
              Label label = new Label("Font 字体")) {
-            assertEquals(List.of(UiTextEngine.DEFAULT_FONT_FAMILY), text.fontFamilies());
+            assertEquals(List.of(UiTextEngine.DEFAULT_FONT_FAMILY,
+                    UiTextEngine.UNIFONT_FONT_FAMILY,
+                    UiTextEngine.MONOSPACE_FONT_FAMILY), text.fontFamilies());
             assertEquals(UiTextEngine.DEFAULT_FONT_FAMILY, text.activeFontFamily());
 
             text.registerFont("Alternate", fontData);
-            assertEquals(List.of(UiTextEngine.DEFAULT_FONT_FAMILY, "Alternate"),
+            assertEquals(List.of(UiTextEngine.DEFAULT_FONT_FAMILY,
+                    UiTextEngine.UNIFONT_FONT_FAMILY,
+                    UiTextEngine.MONOSPACE_FONT_FAMILY, "Alternate"),
                     text.fontFamilies());
             assertTrue(text.selectFontFamily("Alternate"));
             assertFalse(text.selectFontFamily("Alternate"));

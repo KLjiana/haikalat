@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.joml.Vector4f;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
@@ -309,6 +310,30 @@ public final class UiRenderer implements AutoCloseable {
             texture = resolved.textureId();
         }
         commands.setUniformInt(shader, "uMode", shaderMode(batches.shader(batch)));
+        if (batches.shader(batch) == UiShaderVariant.SDF) {
+            int primitive = batches.firstPrimitive(batch);
+            UiDisplayList list = snapshot.displayList();
+            int quad = list.primitiveFirstQuad(primitive);
+            commands.setUniformInt(shader, "uSdfShape", list.sdfKind(primitive).ordinal())
+                    .setUniformVec2(shader, "uSdfSize",
+                            (float) list.quadWidth(quad), (float) list.quadHeight(quad))
+                    .setUniformVec4(shader, "uSdfRadii", new Vector4f(
+                            list.sdfRadius(primitive, 0), list.sdfRadius(primitive, 1),
+                            list.sdfRadius(primitive, 2), list.sdfRadius(primitive, 3)))
+                    .setUniformVec4(shader, "uSdfParams", new Vector4f(
+                            list.sdfParameter(primitive, 0), list.sdfParameter(primitive, 1),
+                            list.sdfParameter(primitive, 2), list.sdfParameter(primitive, 3)))
+                    .setUniformFloat(shader, "uSdfGradientAngle",
+                            list.sdfGradientAngle(primitive))
+                    .setUniformVec4(shader, "uSdfFillColor",
+                            unpackColor(list.sdfFillColor(primitive)))
+                    .setUniformVec4(shader, "uSdfBorderColor",
+                            unpackColor(list.sdfBorderColor(primitive)))
+                    .setUniformVec4(shader, "uSdfGradientStart",
+                            unpackColor(list.sdfGradientStartColor(primitive)))
+                    .setUniformVec4(shader, "uSdfGradientEnd",
+                            unpackColor(list.sdfGradientEndColor(primitive)));
+        }
         if (batches.hasClip(batch)) {
             GlScissorRect scissor = batches.glScissor(batch,
                     snapshot.framebufferScaleX(), snapshot.framebufferScaleY(),
@@ -362,28 +387,56 @@ public final class UiRenderer implements AutoCloseable {
             case TEXTURED -> 1;
             case GLYPH -> 2;
             case DEBUG_OUTLINE -> 3;
+            case SDF -> 4;
         };
+    }
+
+    private static Vector4f unpackColor(int rgba) {
+        return new Vector4f(
+                ((rgba >>> 24) & 0xff) / 255.0f,
+                ((rgba >>> 16) & 0xff) / 255.0f,
+                ((rgba >>> 8) & 0xff) / 255.0f,
+                (rgba & 0xff) / 255.0f);
     }
 
     private static void writeVertices(UiDisplayList displayList, ByteBuffer target) {
         for (int quad = 0; quad < displayList.quadCount(); quad++) {
-            float left = (float) displayList.quadX(quad);
-            float top = (float) displayList.quadY(quad);
-            float right = (float) (displayList.quadX(quad) + displayList.quadWidth(quad));
-            float bottom = (float) (displayList.quadY(quad) + displayList.quadHeight(quad));
+            double left = displayList.quadX(quad);
+            double top = displayList.quadY(quad);
+            double right = left + displayList.quadWidth(quad);
+            double bottom = top + displayList.quadHeight(quad);
+            double m00 = displayList.quadTransformM00(quad);
+            double m01 = displayList.quadTransformM01(quad);
+            double m10 = displayList.quadTransformM10(quad);
+            double m11 = displayList.quadTransformM11(quad);
+            double tx = displayList.quadTransformX(quad);
+            double ty = displayList.quadTransformY(quad);
             float u0 = displayList.quadU0(quad);
             float v0 = displayList.quadV0(quad);
             float u1 = displayList.quadU1(quad);
             float v1 = displayList.quadV1(quad);
             int color = displayList.quadColor(quad);
-            putVertex(target, left, top, u0, v0, color);
-            putVertex(target, right, top, u1, v0, color);
-            putVertex(target, right, bottom, u1, v1, color);
-            putVertex(target, left, bottom, u0, v1, color);
+            putTransformedVertex(target, left, top, m00, m01, m10, m11, tx, ty,
+                    u0, v0, color);
+            putTransformedVertex(target, right, top, m00, m01, m10, m11, tx, ty,
+                    u1, v0, color);
+            putTransformedVertex(target, right, bottom, m00, m01, m10, m11, tx, ty,
+                    u1, v1, color);
+            putTransformedVertex(target, left, bottom, m00, m01, m10, m11, tx, ty,
+                    u0, v1, color);
         }
         if (target.hasRemaining()) {
             throw new IllegalStateException("UI vertex ring write size did not match snapshot quad count");
         }
+    }
+
+    private static void putTransformedVertex(ByteBuffer target, double x, double y,
+                                             double m00, double m01,
+                                             double m10, double m11,
+                                             double tx, double ty,
+                                             float u, float v, int rgba) {
+        putVertex(target, (float) (m00 * x + m01 * y + tx),
+                (float) (m10 * x + m11 * y + ty), u, v, rgba);
     }
 
     private static void putVertex(ByteBuffer target, float x, float y,

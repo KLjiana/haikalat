@@ -18,6 +18,7 @@
 - [v0.18.2 资源目录整理与打包规范](planning/v0.18.2-resource-layout-and-packaging.md)
 - [v0.18.3 动画运行时、约束与 Morph Target 实施计划](planning/v0.18.3-animation-runtime-graph-and-morph.md)
 - [v0.19 序列化场景、统一资产身份、异步加载与热重载实施计划](planning/v0.19-serialized-scene-assets-async-hot-reload.md)
+- [v0.19.x UI SDF、Compositor、现代动画与 VFX 深化计划](planning/v0.19-ui-sdf-compositor-animation-vfx.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -42,6 +43,7 @@
 开发、运行和验证项目时使用的操作指南。
 
 - [测试指南](guides/testing.md)
+- [现代 UI 动画、合成与 VFX](guides/ui-animation-compositor-vfx.md)
 - [序列化场景 v1](guides/serialized-scenes.md)
 - [场景异步加载与热重载](guides/scene-asset-loading.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
@@ -62,6 +64,8 @@
 - [v0.18.0 Haikalat OpenGL 4.6 路线图发布验收报告](releases/v0.18.0-release-report.md)
 - [v0.18.1 VFX 曲线动画、缓动与过渡验收报告](releases/v0.18.1-release-report.md)
 - [v0.18.2 纹理化 HDR VFX 与 Bloom 合成发布验收报告](releases/v0.18.2-release-report.md)
+- [v0.19.4 UI 深化正式版验收报告](releases/v0.19.4-release-report.md)
+- [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)
 - [2026-07-25 v0.18.1 VFX 曲线性能记录](performance/v0.18.1-vfx-curves-2026-07-25.md)
 - [2026-07-25 v0.18.0 综合场景性能与稳定性报告](performance/v0.18.0-haikalat-roadmap-2026-07-25.md)

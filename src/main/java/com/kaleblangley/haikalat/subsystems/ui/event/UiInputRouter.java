@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.ui.event;
 
 import com.kaleblangley.haikalat.subsystems.ui.UiDocument;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
+import com.kaleblangley.haikalat.subsystems.ui.animation.UiInteractionState;
 import com.kaleblangley.haikalat.subsystems.windowing.input.Key;
 import com.kaleblangley.haikalat.subsystems.windowing.input.MouseButton;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
@@ -59,12 +60,17 @@ public final class UiInputRouter {
         if (input.focused()) {
             for (MouseButton button : MouseButton.values()) {
                 if (input.mousePressed(button) && hit != null) {
+                    if (hit.enabled()) hit.interactionState(UiInteractionState.PRESSED);
                     dispatch(hit, pointer(input, UiEventType.POINTER_DOWN, button, 1, now));
                 }
                 if (input.mouseReleased(button)) {
                     UiNode releaseTarget = capturedOr(hit);
                     if (releaseTarget != null) {
                         dispatch(releaseTarget, pointer(input, UiEventType.POINTER_UP, button, 1, now));
+                        if (releaseTarget.enabled()) {
+                            releaseTarget.interactionState(releaseTarget == hit
+                                    ? UiInteractionState.HOVERED : UiInteractionState.NORMAL);
+                        }
                     }
                     document.pointerCapture().release(PointerEvent.MOUSE_POINTER_ID);
                 }
@@ -122,10 +128,13 @@ public final class UiInputRouter {
             UiNode node = hoverPath.get(index);
             if (!node.isClosed() && node.document() == document) {
                 dispatch(node, pointer(input, UiEventType.POINTER_LEAVE, null, 0, now));
+                if (node.enabled()) node.interactionState(UiInteractionState.NORMAL);
             }
         }
         for (int index = common; index < next.size(); index++) {
-            dispatch(next.get(index), pointer(input, UiEventType.POINTER_ENTER, null, 0, now));
+            UiNode node = next.get(index);
+            dispatch(node, pointer(input, UiEventType.POINTER_ENTER, null, 0, now));
+            if (node.enabled()) node.interactionState(UiInteractionState.HOVERED);
         }
         hoverPath = List.copyOf(next);
     }

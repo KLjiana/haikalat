@@ -188,6 +188,12 @@ Color Grading/Fog）先供自动曝光读取，随后将颜色和 geometry depth
 最后 tone mapping。MSAA geometry depth 通过同一 typed depth blit resolve，不允许 CPU readback 或
 `CommandBuffer.custom()`。UI 仍只依赖最终 backbuffer anchor，因此不会进入曝光或 Bloom。
 
+v0.19.2～v0.19.4 保持该边界：visual transform、timeline 和 UI VFX snapshot 均不保存
+GL handle；`UiCompositor` 只使用通用 `RenderGraph`/managed attachment，并以 `UiLayer/*`、
+`UiBlur/*` 命名 UI-owned pass，不引用 render3d/postprocess 常量。UI VFX 继续在 tone mapping
+后的 overlay 记录，不查询 Scene、Camera、depth 或世界 VFX renderer。显式 layer 失败、超预算
+或 backdrop source 不可用时保留 direct UI，不允许单个 effect 使整个 overlay 消失。
+
 透明 primitive 保留 snapshot 的全局稳定顺序；renderer 只能复用连续相同材质的状态，不能为了减少
 texture switch 跨材质重排 Alpha draw。`ALPHA` 使用 straight-alpha，`ADDITIVE` 将 RGB 乘最终 alpha
 后累加。mask 数据以线性 `R8` 上传，只有 `RGBA_COLOR` 使用 `SRGB8_ALPHA8`。

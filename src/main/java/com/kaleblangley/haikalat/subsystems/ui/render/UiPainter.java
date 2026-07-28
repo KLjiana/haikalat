@@ -97,6 +97,12 @@ public final class UiPainter {
         double y = layout.y() + offsetY;
         double width = layout.width();
         double height = layout.height();
+        UiScreenRect transformBounds = new UiScreenRect(x, y, width, height);
+        output.pushTransform(node.visualTransform(), transformBounds);
+        try {
+        boolean layered = node.layerDescription() != null;
+        if (layered) output.beginLayer(node.layerDescription());
+        try {
         boolean clipped = clipsChildren(node);
         boolean scalarPanel = node instanceof Panel
                 && !(node instanceof Slider) && !(node instanceof TextField)
@@ -119,6 +125,12 @@ public final class UiPainter {
             if (clipped) output.popClip();
         }
         node.clearDirty(UiDirtyFlag.PAINT);
+        } finally {
+            if (layered) output.endLayer();
+        }
+        } finally {
+            output.popTransform();
+        }
     }
 
     private void paintVisual(UiDocument document, UiNode node,
@@ -186,6 +198,17 @@ public final class UiPainter {
 
     private static void paintBox(ComputedStyle style, double x, double y,
                                  double width, double height, UiDisplayList output) {
+        if (style.radius() > 0.0f && width > 0.0 && height > 0.0) {
+            UiColor fill = style.background().withAlpha(
+                    style.background().alpha() * style.opacity());
+            UiColor border = style.borderColor().withAlpha(
+                    style.borderColor().alpha() * style.opacity());
+            output.addSdfShape(new UiScreenRect(x, y, width, height),
+                    UiSdfShape.roundedRect(style.radius()),
+                    UiSdfDecoration.solid(fill).withBorder(border, style.borderWidth()),
+                    UiBlendMode.PREMULTIPLIED_ALPHA);
+            return;
+        }
         int background = premultipliedRgba8(style.background(), style.opacity());
         if (width > 0.0 && height > 0.0 && alpha(background) != 0) {
             output.addSolidQuad(x, y, width, height,

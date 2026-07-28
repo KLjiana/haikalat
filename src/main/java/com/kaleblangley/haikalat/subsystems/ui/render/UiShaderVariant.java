@@ -9,5 +9,6 @@ public enum UiShaderVariant {
     /** 单通道 glyph atlas。 */
     GLYPH,
     /** 诊断线框。 */
-    DEBUG_OUTLINE
+    DEBUG_OUTLINE,
+    SDF
 }

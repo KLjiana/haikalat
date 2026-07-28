@@ -14,6 +14,11 @@ public enum UiPrimitiveKind {
     POP_CLIP,
     /** 诊断边框。 */
     DEBUG_OUTLINE,
+    SDF_SHAPE,
+    /** Begins one explicitly described compositor subtree. */
+    LAYER_BEGIN,
+    /** Ends the most recent compositor subtree. */
+    LAYER_END,
     /** 用户 paint 或 layer 的显式顺序屏障。 */
     PAINT_BOUNDARY
 }

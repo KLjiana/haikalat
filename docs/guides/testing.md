@@ -197,12 +197,21 @@ v0.11 UI 的四条有限帧、隐藏窗口验证和聚合入口：
 .\gradlew.bat runUiResizeIntegration
 .\gradlew.bat runUiAsyncIntegration
 .\gradlew.bat runUiTextIntegration
+.\gradlew.bat runModernUiIntegration
 .\gradlew.bat localUiVerification
 ```
 
 其中 async 入口由独立 update owner 连续发布三张 snapshot，再由 GL/window 线程消费最新值；
 验证会断言 12 个 render frame 中发布 36 张、丢弃 24 张 stale snapshot，并按
 render-resource → update/native-resource 顺序等待清理完成。
+
+`runModernUiIntegration` 在不启动 `UiDemo` 的独立小型场景中额外验证 SDF/property
+transform、显式 managed layer/blur topology、backdrop source unavailable direct fallback、
+animation signal bridge、shimmer/ripple/confetti、800×520 framebuffer 与最终像素。纯 JVM
+`UiEffectRuntimeTest` 执行 3,600 帧容量/清理 soak。
+
+该入口还会每 15 帧重触发一次 Play transition，验证上一组 timeline、ripple、shimmer 和
+confetti 被统一取消，连续重播不会累积超过 3 个 active effect。
 
 Run every local check that requires a desktop OpenGL environment:
 

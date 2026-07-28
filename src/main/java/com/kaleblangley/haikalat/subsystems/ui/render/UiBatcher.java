@@ -88,7 +88,9 @@ public final class UiBatcher {
                 mayMergePrevious = false;
                 continue;
             }
-            if (kind == UiPrimitiveKind.PAINT_BOUNDARY) {
+            if (kind == UiPrimitiveKind.PAINT_BOUNDARY
+                    || kind == UiPrimitiveKind.LAYER_BEGIN
+                    || kind == UiPrimitiveKind.LAYER_END) {
                 mayMergePrevious = false;
                 continue;
             }
@@ -102,7 +104,10 @@ public final class UiBatcher {
             int activeClip = clipDepth - 1;
             boolean compatible = mayMergePrevious && batchCount != 0
                     && keyEquals(batchCount - 1, shader, texture, sampler, imageId, blend,
-                    hasClip, activeClip);
+                    hasClip, activeClip)
+                    && (shader != UiShaderVariant.SDF
+                    || displayList.primitiveKind(primitive) != UiPrimitiveKind.SDF_SHAPE
+                    || firstPrimitives[batchCount - 1] == primitive);
             if (compatible) {
                 primitiveCounts[batchCount - 1]++;
                 quadCounts[batchCount - 1] += displayList.primitiveQuadCount(primitive);

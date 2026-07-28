@@ -7,5 +7,6 @@ public enum UiDirtyFlag {
     LAYOUT,
     PAINT,
     HIT_TEST,
+    COMPOSITOR,
     SEMANTICS
 }

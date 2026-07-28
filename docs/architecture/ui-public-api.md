@@ -1,4 +1,4 @@
-# v0.11 UI 公共 API 分层
+# UI 公共 API 分层
 
 v0.11 RC 的 Java 可见性不是兼容性承诺。UI 实现存在跨子包协作，因此部分实现类型暂时仍为
 `public`；兼容边界由 [UI API 清单](public-api/ui.allowlist) 明确分类，并由
@@ -15,6 +15,11 @@ v0.11 RC 的 Java 可见性不是兼容性承诺。UI 实现存在跨子包协�
 
 `WindowInputSnapshot` 和平台文本输入 adapter 位于 windowing subsystem，不属于本 UI 目录的
 allowlist；它们继续作为 UI 的稳定输入边界单独维护。
+
+v0.19.4 新增的 property timeline、visual transform 与 UI effect definition/bridge 保持
+`advanced`。render 包中的 SDF arena、layer/compositor、attachment options、blur kernel 和
+effect renderer 虽因跨包 snapshot 协作保持 Java `public`，但仍分类为 `internal`；它们不承诺
+native texture/framebuffer、ring slot 或任意 GL callback。
 
 ## 修改规则
 
