@@ -87,6 +87,41 @@ public final class LoadedGltfScene {
     public List<String> warnings() { return warnings; }
     public GltfSceneStatistics statistics() { return statistics; }
 
+    LoadedGltfScene withExternalAnimations(List<AnimationDef> mergedAnimations,
+                                           List<String> additionalWarnings,
+                                           long additionalDecodedBufferBytes) {
+        Objects.requireNonNull(mergedAnimations, "mergedAnimations");
+        Objects.requireNonNull(additionalWarnings, "additionalWarnings");
+        if (additionalDecodedBufferBytes < 0L) {
+            throw new IllegalArgumentException(
+                    "additionalDecodedBufferBytes must be non-negative");
+        }
+        int animationChannels = mergedAnimations.stream()
+                .mapToInt(animation -> animation.channels().size()).sum();
+        List<String> mergedWarnings =
+                new java.util.ArrayList<>(warnings.size() + additionalWarnings.size());
+        mergedWarnings.addAll(warnings);
+        mergedWarnings.addAll(additionalWarnings);
+        GltfSceneStatistics mergedStatistics = new GltfSceneStatistics(
+                statistics.nodeCount(), statistics.reachableNodeCount(),
+                statistics.meshCount(), statistics.primitiveCount(),
+                statistics.materialCount(), statistics.textureCount(),
+                statistics.imageCount(), statistics.samplerCount(),
+                statistics.skinCount(), mergedAnimations.size(), animationChannels,
+                statistics.generatedNormalVertices(),
+                statistics.tangentFallbackTriangles(),
+                statistics.tangentFallbackVertices(),
+                Math.addExact(statistics.decodedBufferBytes(),
+                        additionalDecodedBufferBytes),
+                statistics.encodedImageBytes(), statistics.vertexBytes(),
+                statistics.indexBytes(), statistics.morphTargetCount(),
+                statistics.morphDeltaBytes());
+        return new LoadedGltfScene(source, selectedSceneIndex, selectedSceneName,
+                rootNodeIndices, nodes, primitives, nodeRigs, primitiveSkinning,
+                primitiveMorphTargets, skins, mergedAnimations, materials, textures,
+                images, samplers, mergedWarnings, mergedStatistics);
+    }
+
     public record Node(int index, String name, int meshIndex, List<Integer> children,
                        Matrix4fc localTransform, Matrix4fc worldTransform,
                        boolean reachable, boolean mirrored) {

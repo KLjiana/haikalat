@@ -110,8 +110,10 @@ public final class SceneDefinition {
                 throw new IllegalArgumentException("unsupported renderable type: " + type);
             }
             asset = Objects.requireNonNull(asset, "asset");
-            if (!asset.extension().equals("gltf") && !asset.extension().equals("glb")) {
-                throw new IllegalArgumentException("renderable asset must be .gltf or .glb: " + asset);
+            if (!asset.extension().equals("gltf") && !asset.extension().equals("glb")
+                    && !isAnimationLibraryAsset(asset)) {
+                throw new IllegalArgumentException("renderable asset must be .gltf, .glb, "
+                        + "or animation-library.json: " + asset);
             }
             scene = requireText(scene, "scene");
             if (!scene.equals("default") && !scene.startsWith("index:")
@@ -123,6 +125,12 @@ public final class SceneDefinition {
             }
             if (initialAnimation != null) initialAnimation = requireText(initialAnimation, "initialAnimation");
         }
+    }
+
+    static boolean isAnimationLibraryAsset(AssetId asset) {
+        String path = Objects.requireNonNull(asset, "asset").path();
+        return path.equals("animation-library.json")
+                || path.endsWith("/animation-library.json");
     }
 
     public record LightDefinition(

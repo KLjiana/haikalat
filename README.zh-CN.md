@@ -23,7 +23,8 @@
 - Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化方向光阴影、3x3 PCF、
   显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom，以及 none、MSAA、FXAA、TAA 路径。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
-  以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态/蒙皮 glTF 2.0 链路。
+  以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态/蒙皮 glTF 2.0 链路；
+  外部 JSON 动画库支持清单目录与 ZIP 直接加载，并可合并到模型已有动画。
 - 确定性、无 GL 依赖的动画运行时：复用 pose/morph scratch、倒放、typed parameter/trigger/state/transition、1D 与显式 triangle 2D Blend Tree、最多 8 层 Override/Additive、Bone Mask、Marker/Sync/Signal、根运动，以及 Look-at/JointLimit/FABRIK/双手/纯输入 Foot IK；glTF skin、POSITION/NORMAL/TANGENT Morph 与 weights animation 按实例求值，PBR forward 和方向光 shadow 均固定 Morph-before-skin。
 - OpenGL 4.6 启动与提交能力契约：Core Profile、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters 和 debug output 缺一即明确终止，不走旧版降级。
 - 无 GL 依赖的通用资源基础：规范化 `AssetId`、有界 directory/classpath source、逐资源 generation，以及能拒绝过期结果的异步 CPU 解码协议。

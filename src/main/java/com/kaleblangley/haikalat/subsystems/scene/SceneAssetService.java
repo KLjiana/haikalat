@@ -416,6 +416,7 @@ public final class SceneAssetService implements AutoCloseable {
                 new HashMap<>();
         List<SceneBuildPlan.InstancePlan> instances = new ArrayList<>();
         Set<AssetId> dependencies = new HashSet<>();
+        Map<AssetId, Set<AssetId>> assetDependencies = new HashMap<>();
         dependencies.add(key.sceneId());
         for (SceneDefinition.NodeDefinition node : definition.nodes()) {
             SceneDefinition.RenderableDefinition renderable = node.renderable();
@@ -434,6 +435,7 @@ public final class SceneAssetService implements AutoCloseable {
                             assetTicket.generation());
                 }
                 assets.put(variant, decoded);
+                assetDependencies.put(variant.asset(), result.dependencies());
                 try {
                     decodedImages.put(variant, decodeImages(decoded));
                 } catch (RuntimeException failure) {
@@ -454,6 +456,7 @@ public final class SceneAssetService implements AutoCloseable {
                     renderable.castShadows()));
             checkCurrent(ticket);
         }
+        assetDependencies.forEach(this::publishDependencies);
         publishDependencies(key.sceneId(), dependencies);
         return new SceneBuildPlan(key.sceneId(), key.generation(), definition, assets,
                 decodedImages, instances);
@@ -597,8 +600,11 @@ public final class SceneAssetService implements AutoCloseable {
         GltfLoadOptions options = new GltfLoadOptions(parseSceneSelection(variant.scene()),
                 strictExtensions, GltfLoadOptions.defaults().limits());
         try {
-            LoadedGltfScene scene = loader.loadWithSidecar(
-                    com.kaleblangley.haikalat.core.assets.AssetRef.of(asset.path()), options);
+            com.kaleblangley.haikalat.core.assets.AssetRef ref =
+                    com.kaleblangley.haikalat.core.assets.AssetRef.of(asset.path());
+            LoadedGltfScene scene = SceneDefinition.isAnimationLibraryAsset(asset)
+                    ? loader.loadAnimationLibrary(ref, options)
+                    : loader.loadWithSidecar(ref, options);
             for (ResourceGenerationTracker.Ticket ticket : resolver.tickets().values()) {
                 if (!generations.isCurrent(ticket)) {
                     throw new StaleSceneLoadException(ticket.assetId(), ticket.generation());

@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.scene;
 import com.kaleblangley.haikalat.subsystems.resources.AssetId;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceSource;
+import com.kaleblangley.haikalat.testing.GltfAnimationLibraryFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -145,6 +146,7 @@ class SceneAssetServiceTest {
                 .mount("demo", ResourceSource.directory("demo", directory))
                 .build();
         AssetId scene = AssetId.of("demo", "scene.scene.json");
+        AssetId gltf = AssetId.of("demo", "gltf/external.gltf");
         AssetId binary = AssetId.of("demo", "gltf/triangle.bin");
 
         try (SceneAssetService service = new SceneAssetService(catalog)) {
@@ -152,6 +154,48 @@ class SceneAssetServiceTest {
             assertTrue(service.reverseDependencies().get(binary).contains(scene));
             assertTrue(service.invalidate(binary).contains(scene));
             assertEquals(1L, service.currentGeneration(binary).value());
+            assertEquals(1L, service.currentGeneration(gltf).value());
+            assertEquals(1L, service.currentGeneration(scene).value());
+        }
+    }
+
+    @Test
+    void animationLibraryTracksModelAndExternalAnimationDependencies() throws Exception {
+        GltfAnimationLibraryFixture.write(directory.resolve("actors/hero"));
+        Files.writeString(directory.resolve("library.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":10}},
+                 "nodes":[
+                   {"id":"camera"},
+                   {"id":"hero","renderable":{
+                     "type":"gltf",
+                     "asset":"./actors/hero/animation-library.json",
+                     "animated":true,"initialAnimation":"wave"}}
+                 ]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "library.scene.json");
+        AssetId manifest = AssetId.of(
+                "demo", "actors/hero/animation-library.json");
+        AssetId model = AssetId.of("demo", "actors/hero/model/actor.gltf");
+        AssetId animation = AssetId.of(
+                "demo", "actors/hero/animations/wave.animation.gltf.json");
+
+        try (SceneAssetService service = new SceneAssetService(catalog)) {
+            SceneBuildPlan plan = service.loadPlan(scene).join();
+
+            assertEquals(manifest,
+                    plan.gltfAssets().keySet().iterator().next().asset());
+            assertEquals(java.util.List.of("idle", "wave"),
+                    plan.gltfAssets().values().iterator().next().animations().stream()
+                            .map(animationDef -> animationDef.name()).toList());
+            assertTrue(service.reverseDependencies().get(model).contains(scene));
+            assertTrue(service.reverseDependencies().get(animation).contains(scene));
+            assertTrue(service.invalidate(animation).contains(scene));
+            assertEquals(1L, service.currentGeneration(manifest).value());
             assertEquals(1L, service.currentGeneration(scene).value());
         }
     }

@@ -4,12 +4,12 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.AssetByteResolver;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfChecks.*;
 import static com.kaleblangley.haikalat.core.assets.gltf.GltfJson.*;
@@ -53,6 +53,63 @@ public final class GltfAssetLoader {
         String sidecarJson = new String(locator.readBytes(sidecar,
                 options.limits().documentBytes()), java.nio.charset.StandardCharsets.UTF_8);
         return load(ref, options, GltfAnimationMetadata.fromJson(sidecar, sidecarJson));
+    }
+
+    /**
+     * Loads an unpacked {@code haikalat.gltf-animation-library/1} manifest and merges
+     * its external glTF animation sidecars into the referenced model.
+     */
+    public LoadedGltfScene loadAnimationLibrary(AssetRef manifest) {
+        return loadAnimationLibrary(manifest, GltfLoadOptions.defaults());
+    }
+
+    /**
+     * Loads an unpacked {@code haikalat.gltf-animation-library/1} manifest and merges
+     * its external glTF animation sidecars into the referenced model.
+     */
+    public LoadedGltfScene loadAnimationLibrary(AssetRef manifest, GltfLoadOptions options) {
+        return new GltfAnimationLibraryImporter(locator,
+                Objects.requireNonNull(manifest, "manifest"),
+                Objects.requireNonNull(options, "options")).load();
+    }
+
+    /**
+     * Opens a ZIP animation library without extracting it to the filesystem.
+     * The archive must contain exactly one {@code animation-library.json}.
+     */
+    public static LoadedGltfScene loadAnimationLibrary(Path archive) {
+        return loadAnimationLibrary(archive, GltfLoadOptions.defaults());
+    }
+
+    /**
+     * Opens a ZIP animation library without extracting it to the filesystem.
+     * The archive must contain exactly one {@code animation-library.json}.
+     */
+    public static LoadedGltfScene loadAnimationLibrary(Path archive, GltfLoadOptions options) {
+        Objects.requireNonNull(archive, "archive");
+        Objects.requireNonNull(options, "options");
+        AssetRef source = AssetRef.of(archive.toAbsolutePath().normalize().toString());
+        try (GltfAnimationArchiveResolver resolver =
+                     GltfAnimationArchiveResolver.open(archive)) {
+            return new GltfAnimationLibraryImporter(resolver, resolver.manifest(), options)
+                    .load();
+        } catch (GltfAssetException failure) {
+            throw failure;
+        } catch (IOException failure) {
+            throw new GltfAssetException(source, GltfAssetException.Phase.READ,
+                    "archive", null,
+                    failure.getMessage() == null
+                            ? "could not open animation library archive"
+                            : failure.getMessage(),
+                    failure);
+        } catch (RuntimeException failure) {
+            throw new GltfAssetException(source, GltfAssetException.Phase.READ,
+                    "archive", null,
+                    failure.getMessage() == null
+                            ? "could not open animation library archive"
+                            : failure.getMessage(),
+                    failure);
+        }
     }
 
     public LoadedGltfScene load(AssetRef ref, GltfLoadOptions options,
@@ -121,8 +178,8 @@ public final class GltfAssetLoader {
         }
 
         LoadedGltfScene decode() {
-            validateAsset();
-            validateExtensions();
+            warnings.addAll(GltfDocumentValidator.validate(source, root,
+                    options.strictExtensions()));
             List<Map<String, Object>> nodeDtos = objects(root, "nodes");
             List<Map<String, Object>> meshDtos = objects(root, "meshes");
             List<Map<String, Object>> materialDtos = objects(root, "materials");
@@ -211,59 +268,6 @@ public final class GltfAssetLoader {
                                         + " exceeds skin[" + node.skinIndex()
                                         + "] joint count " + skin.joints().size());
                     }
-                }
-            }
-        }
-
-        private void validateAsset() {
-            Map<String, Object> asset = object(root, "asset", true, "asset");
-            String version = string(asset, "version", true, "asset.version");
-            if (!validVersion(version) || !version.startsWith("2.")) {
-                throw fail("asset.version", "only numeric glTF 2.x versions are supported, got " + version);
-            }
-            String min = string(asset, "minVersion", false, "asset.minVersion");
-            if (min != null && (!validVersion(min) || compareVersion(min, "2.0") > 0)) {
-                throw fail("asset.minVersion", "requires unsupported glTF " + min);
-            }
-        }
-
-        private void validateExtensions() {
-            Set<String> required = new HashSet<>(strings(root.get("extensionsRequired"), "extensionsRequired"));
-            if (!required.isEmpty()) throw fail("extensionsRequired", "unsupported required extensions " + required);
-            List<String> used = strings(root.get("extensionsUsed"), "extensionsUsed");
-            if (!used.isEmpty()) warnings.add("ignored optional extensions: " + used);
-            List<String> payloads = new ArrayList<>();
-            collectExtensionPayloads(root, "$", payloads);
-            if (!payloads.isEmpty()) {
-                if (options.strictExtensions()) {
-                    String first = payloads.getFirst();
-                    int separator = first.indexOf(':');
-                    throw fail(first.substring(0, separator),
-                            "unsupported extension payload " + first.substring(separator + 1));
-                }
-                warnings.add("ignored extension payloads by explicit lenient policy: " + payloads);
-            }
-        }
-
-        private void collectExtensionPayloads(Object value, String path, List<String> output) {
-            if (value instanceof Map<?, ?> map) {
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    String key = Objects.toString(entry.getKey());
-                    String childPath = path + "." + key;
-                    if (key.equals("extensions")) {
-                        Map<String, Object> extensions = map(entry.getValue(), childPath);
-                        if (extensions != null) {
-                            for (String extension : extensions.keySet()) {
-                                output.add(childPath + ":" + extension);
-                            }
-                        }
-                    } else {
-                        collectExtensionPayloads(entry.getValue(), childPath, output);
-                    }
-                }
-            } else if (value instanceof List<?> list) {
-                for (int index = 0; index < list.size(); index++) {
-                    collectExtensionPayloads(list.get(index), path + "[" + index + "]", output);
                 }
             }
         }

@@ -28,7 +28,8 @@ current goals, capabilities, and non-goals.
   frustum culling, and primitive render queues that preserve transparent insertion order.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, the OBJ path exercised by the main demo,
-  and glTF 2.0 static/skinned assets exercised by the dedicated glTF demo.
+  and glTF 2.0 static/skinned assets plus manifest/ZIP external JSON animation
+  libraries exercised by the dedicated glTF demo.
 - A deterministic, GL-free animation runtime with reusable pose/morph scratch, reverse playback,
   typed Graph states/transitions/triggers, 1D and explicit-triangle 2D Blend Trees, up to eight
   Override/Additive layers, masks, marker synchronization, bounded signals, root motion,

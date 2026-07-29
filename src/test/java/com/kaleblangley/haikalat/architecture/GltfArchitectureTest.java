@@ -48,7 +48,9 @@ class GltfArchitectureTest {
     void decodeStagesRemainPackagePrivateBehindTheFacade() throws IOException {
         for (String stage : Set.of("GltfDocumentReader", "GltfUriResolver", "GltfBufferTable",
                 "GltfAccessorDecoder", "GltfMaterialDecoder", "GltfNodeDecoder",
-                "GltfMeshCanonicalizer")) {
+                "GltfMeshCanonicalizer", "GltfAnimationArchiveResolver",
+                "GltfAnimationLibraryImporter", "GltfExternalAnimationDecoder",
+                "GltfDocumentValidator")) {
             Path sourceFile = CORE.resolve(stage + ".java");
             assertTrue(Files.isRegularFile(sourceFile), "missing glTF decode stage: " + stage);
             String source = Files.readString(sourceFile);
@@ -57,6 +59,8 @@ class GltfArchitectureTest {
         }
         assertTrue(Files.readString(CORE.resolve("GltfAssetLoader.java"))
                 .contains("public final class GltfAssetLoader"));
+        assertTrue(Files.readString(CORE.resolve("GltfAssetLoader.java"))
+                .contains("loadAnimationLibrary"));
     }
 
     @Test
@@ -81,6 +85,8 @@ class GltfArchitectureTest {
         assertTrue(assets.contains("/scenes/gltf/zombie.gltf"));
         assertTrue(assets.contains("/scenes/gltf/crouch_walk.glb"));
         assertTrue(assets.contains("/scenes/gltf/player_slie.gltf"));
+        assertTrue(assets.contains(
+                "/scenes/gltf/player_wild/animation-library.json"));
     }
 
     private static void discover(Path root, Set<String> output) throws IOException {

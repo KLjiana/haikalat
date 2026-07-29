@@ -270,6 +270,8 @@ public final class GltfDemo {
                     asset = Asset.CROUCH_WALK;
                 } else if (arg.equals("--player-slie") || arg.equals("--player_slie")) {
                     asset = Asset.PLAYER_SLIE;
+                } else if (arg.equals("--player-wild") || arg.equals("--player_wild")) {
+                    asset = Asset.PLAYER_WILD;
                 } else if (arg.startsWith("--asset=")) {
                     asset = Asset.parse(arg.substring(8));
                 } else {
@@ -307,7 +309,8 @@ public final class GltfDemo {
         DEFAULT("default", "Haikalat glTF Demo"),
         ZOMBIE("zombie", "Haikalat GeckoLib glTF Zombie"),
         CROUCH_WALK("crouch_walk", "Haikalat glTF Crouch Walk"),
-        PLAYER_SLIE("player_slie", "Haikalat Blockbench Player Slie");
+        PLAYER_SLIE("player_slie", "Haikalat Blockbench Player Slie"),
+        PLAYER_WILD("player_wild", "Haikalat External Animation Player Wild");
 
         private final String cliName;
         private final String windowTitle;
@@ -330,7 +333,7 @@ public final class GltfDemo {
                 if (asset.cliName.equals(value)) return asset;
             }
             throw new IllegalArgumentException(
-                    "--asset must be default, zombie, crouch_walk, or player_slie");
+                    "--asset must be default, zombie, crouch_walk, player_slie, or player_wild");
         }
     }
 

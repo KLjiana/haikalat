@@ -1,6 +1,6 @@
 # 变更记录
 
-## v0.20.0-SNAPSHOT（2026-07-29）
+## v0.20.0（2026-07-29）
 
 - 在不扩大 public API allowlist 的前提下收敛 UI 内部职责：`UiSystem`、`UiNode`、
   `UiRenderer` 与 `UiCompositor` 保留 facade，新增 coordinator、dirty/tree/event、
@@ -22,10 +22,18 @@
 - M8 修复窗口 resize 误重建 fixed-size shadow target 的生命周期回归，并让 async UI
   integration 使用确定性视觉 revision 驱动 36 次 latest-wins publication，不再依赖计时文本
   四舍五入结果。
-- 最终 703 项 JVM 与 703 项 GL 测试、UI/scene/resource integration、public API、
+- glTF 新增 `haikalat.gltf-animation-library/1` 外部动画库：支持直接加载导出 ZIP，或从
+  classpath/资源目录读取解包后的 `animation-library.json`；模型已有动画与多个外部
+  `.animation.gltf.json` clip 会按清单合并，并严格校验节点索引、名称绑定、唯一动画名、
+  相对 URI、归档重复条目和资源上限。序列化场景会追踪主模型、动画 JSON 与外部 buffer，
+  使任一依赖变化都能触发正确的 generation 失效和热重载。
+- 新增 `player_wild` 外部动画 Demo 与 `runPlayerWildDemo` /
+  `runPlayerWildIntegration`：真实 Blockbench 模型的 1 个 skin、外部 `animation`
+  clip 和 11 条 rotation channel 已通过运行时映射、GPU 蒙皮、可见性及循环播放验证。
+- 最终 710 项 JVM 与 710 项 GL 测试、UI/scene/resource integration、public API、
   architecture、asset 和 GL debug policy 门禁全部通过；详细性能与 snapshot 验收分别见
   `docs/performance/v0.20-m7-2026-07-28.md` 和
-  `docs/releases/v0.20-snapshot-report.md`。版本保持 snapshot，正式发布门禁尚未执行。
+  `docs/releases/v0.20.0-release-report.md`。正式发布门禁在完整 staged candidate 上执行。
 
 ## v0.19.4（2026-07-28）
 

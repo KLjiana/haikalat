@@ -69,7 +69,7 @@
 - [v0.18.1 VFX 曲线动画、缓动与过渡验收报告](releases/v0.18.1-release-report.md)
 - [v0.18.2 纹理化 HDR VFX 与 Bloom 合成发布验收报告](releases/v0.18.2-release-report.md)
 - [v0.19.4 UI 深化正式版验收报告](releases/v0.19.4-release-report.md)
-- [v0.20.0-SNAPSHOT 代码收敛验收报告](releases/v0.20-snapshot-report.md)
+- [v0.20.0 代码收敛与外部 glTF 动画正式版验收报告](releases/v0.20.0-release-report.md)
 - [2026-07-28 v0.20 M7 热路径性能与回归记录](performance/v0.20-m7-2026-07-28.md)
 - [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)

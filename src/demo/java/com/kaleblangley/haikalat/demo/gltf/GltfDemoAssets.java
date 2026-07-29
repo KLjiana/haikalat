@@ -24,6 +24,7 @@ import java.util.Locale;
 final class GltfDemoAssets implements AutoCloseable {
     private static final float CROUCH_WALK_TIME_SCALE = 0.35f;
     private static final float PLAYER_SLIE_TIME_SCALE = 0.75f;
+    private static final float PLAYER_WILD_TIME_SCALE = 0.65f;
 
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
@@ -111,6 +112,26 @@ final class GltfDemoAssets implements AutoCloseable {
                 lines.add("  animation playback | animation2 | 0.75x (animation is the static pose)");
                 probe = new AnimationProbe(playerSlieInstance, 8);
                 timeScale = PLAYER_SLIE_TIME_SCALE;
+            } else if (assetMode == GltfDemo.Asset.PLAYER_WILD) {
+                LoadedGltfScene playerWild = loader.loadAnimationLibrary(
+                        AssetRef.of("/scenes/gltf/player_wild/animation-library.json"));
+                GltfSceneAsset playerWildGpu = GltfSceneAsset.upload(playerWild, library);
+                assets.add(playerWildGpu);
+                GltfSceneInstance playerWildInstance = playerWildGpu.instantiateAnimated(
+                        new Matrix4f().translation(0.0f, -1.0f, 0.0f).scale(2.0f), false);
+                int animation = playerWildInstance.animationNames().indexOf("animation");
+                if (animation < 0) {
+                    throw new IllegalStateException(
+                            "player_wild animation library has no animation clip");
+                }
+                playerWildInstance.play(animation, AnimationPlayer.LoopMode.LOOP);
+                animatedInstances.add(playerWildInstance);
+                objects.addAll(playerWildInstance.objects());
+                appendInspection(lines, "player_wild animation library",
+                        playerWild, playerWildGpu, true);
+                lines.add("  external animation | animation | 1.708s | 11 channels | 0.65x");
+                probe = new AnimationProbe(playerWildInstance, 21);
+                timeScale = PLAYER_WILD_TIME_SCALE;
             } else {
                 LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
                 GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);

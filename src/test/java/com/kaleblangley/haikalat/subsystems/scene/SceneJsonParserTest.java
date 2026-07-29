@@ -50,6 +50,27 @@ class SceneJsonParserTest {
     }
 
     @Test
+    void acceptsAnimationLibraryManifestAsAGltfRenderable() {
+        String json = """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":100}},
+                 "nodes":[
+                   {"id":"camera"},
+                   {"id":"hero","renderable":{"type":"gltf",
+                     "asset":"./gltf/hero/animation-library.json",
+                     "animated":true,"initialAnimation":"idle"}}
+                 ]}
+                """;
+
+        SceneDefinition scene = SceneJsonParser.parse(
+                SOURCE, json.getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(SOURCE.resolve("./gltf/hero/animation-library.json"),
+                scene.nodes().get(1).renderable().asset());
+    }
+
+    @Test
     void rejectsUnknownFieldsDuplicateFieldsAmbiguousReferencesAndCycles() {
         assertMessageContains("""
                 {"format":"haikalat.scene","version":1,"unknown":true,
