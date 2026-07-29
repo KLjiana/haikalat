@@ -2,12 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是一个基于 Java、LWJGL 和 OpenGL 的学习型实时渲染项目，内部划分为 `backend`、
+这是一个基于 Java、LWJGL 和 OpenGL 的实时渲染项目，内部划分为 `backend`、
 `core`、`subsystems` 和 `runtime` 四个主要区域。
 依赖方向固定为 `subsystems/runtime -> core -> backend`，底层不反向引用上层。
 
-项目目标是在“教学实验”和“工程约束”之间保持平衡：它需要足够稳定，以验证渲染架构和资源生命周期；
-同时保持规模可控，不扩张成完整游戏引擎。当前目标、能力边界和非目标参见
+当前目标、能力边界和非目标参见
 [`docs/planning/project-goals.md`](docs/planning/project-goals.md)，后续工作参见
 [`docs/planning/future-plans.md`](docs/planning/future-plans.md)。核心能力的实现状态和验证入口参见
 [`docs/planning/capability-matrix.md`](docs/planning/capability-matrix.md)。

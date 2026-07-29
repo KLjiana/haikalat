@@ -2,14 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Java/LWJGL OpenGL learning renderer with a small layered rendering framework:
+Java/LWJGL OpenGL renderer with a small layered rendering framework:
 `backend`, `core`, `subsystems`, and `runtime`.
 Dependencies flow from `subsystems/runtime` to `core` to `backend`; lower layers
 do not import higher layers.
 
-The project goal is to keep a learning-oriented but engineering-constrained
-OpenGL renderer: stable enough to validate rendering architecture, small enough
-to avoid becoming a full game engine. See `docs/planning/project-goals.md` for the
+See `docs/planning/project-goals.md` for the
 current goals, capabilities, and non-goals.
 
 ## Current Capabilities
