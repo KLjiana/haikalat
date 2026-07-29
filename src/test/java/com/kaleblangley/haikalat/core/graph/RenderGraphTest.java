@@ -3,6 +3,14 @@ package com.kaleblangley.haikalat.core.graph;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.RenderFormat;
+import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
+import com.kaleblangley.haikalat.core.presentation.PresentationResult;
+import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.core.device.ExecutionModel;
+import com.kaleblangley.haikalat.core.device.RenderBackendKind;
+import com.kaleblangley.haikalat.core.device.RenderDevice;
+import com.kaleblangley.haikalat.core.device.ResourceBarrier;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -12,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class RenderGraphTest {
     @Test
@@ -148,6 +157,61 @@ class RenderGraphTest {
         assertThrows(IllegalStateException.class, () -> graph.addPass("Invalid")
                 .writeToExternalTarget()
                 .execute((res, cmd) -> {}));
+    }
+
+    @Test
+    void borrowedExternalImportsCanBeReplacedWithoutChangingTopology() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Present")
+                .writeToPresentationTarget("host")
+                .noClear()
+                .execute((res, cmd) -> {});
+        long revision = graph.description().topologyRevision();
+
+        ExternalAttachment firstColor = ExternalAttachment.borrowedColor(
+                11, RenderFormat.RGBA8, 800, 600);
+        graph.importExternalColor("hostColor", firstColor);
+        graph.importPresentationTarget("host", PresentationTarget.borrowed(
+                21, firstColor, null, 800, 600, 1));
+        assertEquals(11, new PassResources(graph).colorAttachment("hostColor"));
+        assertEquals(800, graph.description().passes().get(0).width());
+
+        ExternalAttachment secondColor = ExternalAttachment.borrowedColor(
+                12, RenderFormat.RGBA8, 1024, 768);
+        graph.importExternalColor("hostColor", secondColor);
+        graph.importPresentationTarget("host", PresentationTarget.borrowed(
+                22, secondColor, null, 1024, 768, 2));
+
+        assertEquals(12, new PassResources(graph).colorAttachment("hostColor"));
+        assertEquals(1024, graph.description().passes().get(0).width());
+        assertEquals(revision, graph.description().topologyRevision());
+        graph.close();
+        assertTrue(firstColor.ownership()
+                == com.kaleblangley.haikalat.core.material.ResourceOwnership.BORROWED);
+    }
+
+    @Test
+    void zeroExtentSkipsBeforeAllocatingTimersOrSubmittingCommands() {
+        RenderGraph graph = new RenderGraph(800, 600, false);
+        graph.addPass("Present").writeToBackbuffer().noClear()
+                .execute((resources, commands) -> fail("zero extent must not record passes"));
+        CountingDevice device = new CountingDevice();
+
+        assertEquals(PresentationResult.SKIPPED_ZERO_EXTENT,
+                graph.execute(device, PresentationTarget.defaultFramebuffer(0, 0)));
+        assertEquals(0, device.executions);
+        assertEquals(0, graph.lastRecordedCommandCount());
+    }
+
+    private static final class CountingDevice implements RenderDevice {
+        int executions;
+
+        @Override public RenderBackendKind backendKind() { return RenderBackendKind.OPENGL; }
+        @Override public ExecutionModel executionModel() { return ExecutionModel.EXPLICIT; }
+        @Override public CommandBuffer createCommandBuffer() { return new CommandBuffer(); }
+        @Override public void execute(CommandBuffer buffer) { executions++; }
+        @Override public void invalidateState() {}
+        @Override public void transition(ResourceBarrier... barriers) {}
     }
 
     @Test

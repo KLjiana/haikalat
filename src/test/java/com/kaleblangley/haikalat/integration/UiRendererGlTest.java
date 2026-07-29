@@ -2,6 +2,9 @@ package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.backend.RenderFormat;
+import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBatcher;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBlendMode;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
@@ -44,13 +47,58 @@ import static org.lwjgl.opengl.GL14.GL_BLEND_DST_RGB;
 import static org.lwjgl.opengl.GL14.GL_BLEND_SRC_RGB;
 import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER_BINDING;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_SRGB;
+import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.opengl.GL45.glCreateTextures;
+import static org.lwjgl.opengl.GL45.glCreateFramebuffers;
+import static org.lwjgl.opengl.GL45.glNamedFramebufferTexture;
+import static org.lwjgl.opengl.GL45.glCheckNamedFramebufferStatus;
+import static org.lwjgl.opengl.GL45.glClearNamedFramebufferfv;
 import static org.lwjgl.opengl.GL45.glTextureStorage2D;
 import static org.lwjgl.opengl.GL45.glTextureSubImage2D;
 
 /** UI renderer 的真实默认 framebuffer、混合、裁剪和 persistent ring 回归。 */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class UiRendererGlTest {
+    @Test
+    void explicitPresentationTargetReceivesUiWithoutTouchingDefaultFramebuffer() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            clear(device, 0.0f, 0.0f, 0.0f);
+
+            int texture = glCreateTextures(GL_TEXTURE_2D);
+            glTextureStorage2D(texture, 1, GL_RGBA8, 16, 16);
+            int framebuffer = glCreateFramebuffers();
+            glNamedFramebufferTexture(framebuffer, GL_COLOR_ATTACHMENT0, texture, 0);
+            assertEquals(GL_FRAMEBUFFER_COMPLETE,
+                    glCheckNamedFramebufferStatus(framebuffer, GL_FRAMEBUFFER));
+            glClearNamedFramebufferfv(framebuffer, GL_COLOR, 0,
+                    new float[]{0.0f, 0.0f, 0.0f, 1.0f});
+            PresentationTarget target = PresentationTarget.borrowed(framebuffer,
+                    ExternalAttachment.borrowedColor(texture, RenderFormat.RGBA8, 16, 16),
+                    null, 16, 16, 1);
+            UiDisplayList list = new UiDisplayList().addSolidQuad(
+                    new UiScreenRect(0, 0, 32, 32), 0xff0000ff,
+                    UiBlendMode.PREMULTIPLIED_ALPHA);
+
+            try (UiRenderer renderer = new UiRenderer(16)) {
+                var commands = device.createCommandBuffer();
+                renderer.record(snapshot(14, list), commands, target);
+                device.execute(commands);
+
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+                assertColor(pixel(8, 8), 255, 0, 0);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+                assertColor(pixel(8, 8), 0, 0, 0);
+            }
+            assertTrue(org.lwjgl.opengl.GL11.glIsTexture(texture));
+            assertTrue(org.lwjgl.opengl.GL30.glIsFramebuffer(framebuffer));
+            glDeleteFramebuffers(framebuffer);
+            glDeleteTextures(texture);
+        }
+    }
+
     @Test
     void multipleBatchesKeepTheirOwnVertexOffsetsAndClipRectangles() {
         try (GlfwWindow window = hiddenWindow()) {

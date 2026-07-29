@@ -51,7 +51,7 @@ advanced com.kaleblangley.haikalat.core.graph.PassResources
 advanced com.kaleblangley.haikalat.core.graph.RenderGraph
 advanced com.kaleblangley.haikalat.core.material.Material
 advanced com.kaleblangley.haikalat.core.material.MaterialInstance
-advanced com.kaleblangley.haikalat.core.material.ResourceOwnership
+stable com.kaleblangley.haikalat.core.material.ResourceOwnership
 advanced com.kaleblangley.haikalat.core.material.UniformKey
 advanced com.kaleblangley.haikalat.core.material.UniformType
 advanced com.kaleblangley.haikalat.core.material.UniformValue
@@ -66,6 +66,11 @@ advanced com.kaleblangley.haikalat.core.mesh.NormalGenerator
 advanced com.kaleblangley.haikalat.core.mesh.PackedInstanceLayout
 advanced com.kaleblangley.haikalat.core.mesh.TangentGenerator
 advanced com.kaleblangley.haikalat.core.mesh.VertexPacking
+stable com.kaleblangley.haikalat.core.presentation.AttachmentRole
+stable com.kaleblangley.haikalat.core.presentation.ExternalAttachment
+advanced com.kaleblangley.haikalat.core.presentation.OwnedPresentationTarget
+stable com.kaleblangley.haikalat.core.presentation.PresentationResult
+stable com.kaleblangley.haikalat.core.presentation.PresentationTarget
 advanced com.kaleblangley.haikalat.core.upload.UploadSystem
 advanced com.kaleblangley.haikalat.util.DirectBuffers
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationMetadata

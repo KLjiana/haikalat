@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
+import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import org.joml.Matrix4f;
 
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
@@ -27,7 +28,9 @@ public final class EnvironmentBackgroundRenderer implements AutoCloseable {
     }
 
     public void render(CommandBuffer cmd, Camera camera, int width, int height) {
-        Matrix4f inverseProjection = new Matrix4f().perspective((float) Math.toRadians(camera.zoom()),
+        Matrix4f inverseProjection = camera instanceof ExternalCamera external
+                ? external.inverseProjection()
+                : new Matrix4f().perspective((float) Math.toRadians(camera.zoom()),
                 width / (float) Math.max(1, height), 0.1f, 100.0f).invert();
         Matrix4f inverseViewRotation = camera.getViewMatrix().m30(0.0f).m31(0.0f).m32(0.0f).invert();
         cmd.bindShader(shader)

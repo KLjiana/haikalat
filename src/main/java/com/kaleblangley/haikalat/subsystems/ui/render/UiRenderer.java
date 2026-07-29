@@ -2,6 +2,8 @@ package com.kaleblangley.haikalat.subsystems.ui.render;
 
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
 
@@ -80,19 +82,37 @@ public final class UiRenderer implements AutoCloseable {
      * CommandExecutor 到达该命令后才进入 GPU 所有权状态，不依赖 pass callback 的执行时机。</p>
      */
     public void record(UiRenderSnapshot snapshot, CommandBuffer commands) {
+        record(snapshot, commands, null);
+    }
+
+    /**
+     * Records UI into an explicit host target without presenting it.
+     * Target dimensions, rather than GLFW dimensions, drive viewport and scissor conversion.
+     */
+    public void record(UiRenderSnapshot snapshot, CommandBuffer commands,
+                       PresentationTarget target) {
         ensureOpen();
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(commands, "commands");
+        int framebufferWidth = target == null
+                ? snapshot.framebufferWidth() : target.width();
+        int framebufferHeight = target == null
+                ? snapshot.framebufferHeight() : target.height();
+        if (target != null && !target.isRenderable()) {
+            lastDrawCalls = 0;
+            lastQuadCount = 0;
+            return;
+        }
         resources.claimOrAssertRenderThread();
         resources.pollGlyphGpuCompletions();
         lastDrawCalls = 0;
         lastQuadCount = 0;
-        recordPassState(commands, snapshot.framebufferWidth(), snapshot.framebufferHeight());
+        recordPassState(commands, target, framebufferWidth, framebufferHeight);
 
         UiDisplayList displayList = snapshot.displayList();
         UiBatcher.Result batches = snapshot.batches();
         if (displayList.quadCount() == 0 || batches.size() == 0
-                || snapshot.framebufferWidth() == 0 || snapshot.framebufferHeight() == 0
+                || framebufferWidth == 0 || framebufferHeight == 0
                 || snapshot.windowWidth() == 0 || snapshot.windowHeight() == 0) {
             commands.enableScissor(false);
             return;
@@ -119,7 +139,8 @@ public final class UiRenderer implements AutoCloseable {
             int drawIndex = 0;
             int drawnQuads = 0;
             for (int batch = 0; batch < batches.size(); batch++) {
-                if (!configureBatchState(commands, batches, batch, snapshot)) continue;
+                if (!configureBatchState(commands, batches, batch, snapshot,
+                        framebufferWidth, framebufferHeight)) continue;
                 int firstQuad = batches.firstQuad(batch);
                 int remaining = batches.quadCount(batch);
                 drawnQuads += remaining;
@@ -203,7 +224,8 @@ public final class UiRenderer implements AutoCloseable {
     }
 
     private boolean configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
-                                        int batch, UiRenderSnapshot snapshot) {
+                                        int batch, UiRenderSnapshot snapshot,
+                                        int framebufferWidth, int framebufferHeight) {
         int texture = batches.texture(batch);
         if (batches.shader(batch) == UiShaderVariant.TEXTURED && batches.imageId(batch) >= 0L) {
             UiImageRegion resolved = imageResolver.resolve(new UiImageId(batches.imageId(batch)))
@@ -217,9 +239,12 @@ public final class UiRenderer implements AutoCloseable {
                     snapshot.displayList(), batches, batch);
         }
         if (batches.hasClip(batch)) {
+            double scaleX = snapshot.windowWidth() == 0 ? 1.0
+                    : (double) framebufferWidth / snapshot.windowWidth();
+            double scaleY = snapshot.windowHeight() == 0 ? 1.0
+                    : (double) framebufferHeight / snapshot.windowHeight();
             GlScissorRect scissor = batches.glScissor(batch,
-                    snapshot.framebufferScaleX(), snapshot.framebufferScaleY(),
-                    snapshot.framebufferWidth(), snapshot.framebufferHeight());
+                    scaleX, scaleY, framebufferWidth, framebufferHeight);
             commands.scissor(scissor.x(), scissor.y(), scissor.width(), scissor.height())
                     .enableScissor(true);
         } else {
@@ -236,10 +261,18 @@ public final class UiRenderer implements AutoCloseable {
         return true;
     }
 
-    private static void recordPassState(CommandBuffer commands, int width, int height) {
-        commands.bindDefaultFramebuffer()
+    private static void recordPassState(CommandBuffer commands, PresentationTarget target,
+                                        int width, int height) {
+        if (target == null) {
+            commands.bindDefaultFramebuffer();
+        } else {
+            commands.bindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER,
+                    target.drawFramebufferId());
+        }
+        commands
                 .viewport(0, 0, width, height)
-                .enableFramebufferSrgb(true)
+                .enableFramebufferSrgb(target == null
+                        || target.colorFormat() == RenderFormat.SRGB8_ALPHA8)
                 .enableBlend(true)
                 .blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
                 .enableDepthTest(false)

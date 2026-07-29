@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.20.0'
+version = '0.20.1'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -274,3 +274,40 @@ apply from: 'gradle/diagnostics-tasks.gradle'
 apply from: 'gradle/scene-tasks.gradle'
 apply from: 'gradle/local-release-tasks.gradle'
 apply from: 'gradle/release-verification.gradle'
+
+tasks.register('embeddedJvmVerification', Test) {
+    description = 'Validates embedded runtime, presentation contracts, external camera and graph imports.'
+    configureGuardTest(delegate, [
+            '*.PresentationTargetTest',
+            '*.ExternalCameraTest',
+            '*.HaikalatRuntimeTest',
+            '*.RenderGraphTest.importedPresentationTargetCanBeReplacedWithoutRecompilingTopology',
+            '*.RenderGraphTest.zeroSizedPresentationTargetSkipsBeforeRecordingOrSubmission',
+            '*.ArchitectureBoundaryTest.embeddedRenderingContractsStayHostAgnostic',
+            '*.ArchitectureBoundaryTest.embeddedRuntimeAndPipelineNeverSwapHostBuffers'
+    ])
+}
+
+tasks.register('embeddedGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates non-zero host FBO rendering, ownership, resize, camera and GL state restoration.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter {
+        includeTestsMatching '*.EmbeddedPresentationGlTest'
+        includeTestsMatching '*.UiRendererGlTest.explicitPresentationTargetReceivesUiWithoutTouchingDefaultFramebuffer'
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'embeddedJvmVerification'
+}
+tasks.named('localGlVerification') {
+    dependsOn 'embeddedGlVerification'
+}
+tasks.named('embeddedGlVerification') {
+    mustRunAfter 'glSmoke'
+}

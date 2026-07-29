@@ -1,5 +1,26 @@
 # 变更记录
 
+## v0.20.1（2026-07-29）
+
+- 新增宿主无关的 `PresentationTarget`、`ExternalAttachment`、`AttachmentRole` 和
+  `PresentationResult`，显式描述 draw/read FBO、color/depth/stencil、尺寸、采样、
+  generation 与 `OWNED` / `BORROWED` 生命周期；borrowed 资源不会被删除、重分配或修改采样参数。
+- RenderGraph 支持导入和逐帧替换 borrowed color/depth/stencil/presentation target，
+  pass 可写入命名或当前 presentation target；`0×0` 目标在录制、上传和提交前安全跳过。
+- `RenderPipeline` 新增 `ExternalCamera + PresentationTarget` 显式入口，几何、可见性、
+  PBR、阴影、雾、HDR VFX 和最终 LDR/HDR/FXAA 输出使用宿主相机与目标；旧窗口和
+  framebuffer `0` 路径保持兼容，pipeline 不 present 或 swap。
+- `UiRenderer` 可显式写入宿主 FBO 和尺寸；Bloom、tone mapping、FXAA、HDR VFX 与 UI
+  已通过同一非零目标的真实像素验证。
+- 新增无窗口、无线程、无主循环的 `HaikalatRuntime.createEmbedded(RenderDevice)`，
+  对宿主提供的 RenderDevice 保持 borrowed 语义并强制创建线程调用。
+- 新增嵌入渲染 GL state scope，在成功和异常路径恢复宿主 framebuffer、viewport/scissor、
+  program/VAO、buffer/texture/sampler/image binding 与 blend/depth/cull/stencil 等状态。
+- 新增 `embeddedJvmVerification` 和 `embeddedGlVerification`：验证宿主 raw 非零 FBO、
+  color 输出、真实 depth 遮挡、resize/replacement、zero extent、重复 close、
+  borrowed deletion sentinel、外部相机以及 UI/VFX/postprocess 同目标；Minecraft/NeoForge
+  适配和客户端烟雾测试仍留在 HaikalatHost。
+
 ## v0.20.0（2026-07-29）
 
 - 在不扩大 public API allowlist 的前提下收敛 UI 内部职责：`UiSystem`、`UiNode`、

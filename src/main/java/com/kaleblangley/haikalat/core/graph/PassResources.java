@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.core.graph;
 
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 
 import java.util.Objects;
 
@@ -39,6 +40,22 @@ public final class PassResources {
      */
     public Framebuffer currentTarget() {
         return graph.currentPassFramebuffer();
+    }
+
+    /**
+     * Returns the explicit presentation target bound for the current pass, or
+     * {@code null} for a managed offscreen pass.
+     */
+    public PresentationTarget presentationTarget() {
+        return graph.currentPresentationTarget();
+    }
+
+    /**
+     * Returns the host target supplied for this graph execution, including
+     * during managed offscreen passes.
+     */
+    public PresentationTarget framePresentationTarget() {
+        return graph.framePresentationTarget();
     }
 
     /**

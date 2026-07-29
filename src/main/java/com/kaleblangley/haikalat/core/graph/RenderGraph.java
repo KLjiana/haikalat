@@ -8,6 +8,11 @@ import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
+import com.kaleblangley.haikalat.core.material.ResourceOwnership;
+import com.kaleblangley.haikalat.core.presentation.AttachmentRole;
+import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
+import com.kaleblangley.haikalat.core.presentation.PresentationResult;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.backend.GpuTimer;
 
 import java.util.ArrayList;
@@ -21,6 +26,8 @@ public final class RenderGraph implements AutoCloseable {
     private final List<Pass> passes = new ArrayList<>();
     private final Map<String, Pass> passByName = new HashMap<>();
     private final Map<String, Texture2D> importedTextures = new HashMap<>();
+    private final Map<String, ExternalAttachment> importedExternalAttachments = new HashMap<>();
+    private final Map<String, PresentationTarget> importedPresentationTargets = new HashMap<>();
     private final Map<String, Integer> textureAttachmentIds = new HashMap<>();
     private RenderTargetManager renderTargets;
     private final RenderTargetManager fixedRenderTargets;
@@ -35,6 +42,8 @@ public final class RenderGraph implements AutoCloseable {
     private int width;
     private int height;
     private Framebuffer currentFbo;
+    private PresentationTarget currentPresentationTarget;
+    private PresentationTarget framePresentationTarget;
     private long[] cpuRecordNanos = new long[0];
     private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
     private boolean topologySealed;
@@ -111,8 +120,63 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     public void importTexture(String name, Texture2D texture) {
+        ensureOpen();
         importedTextures.put(Objects.requireNonNull(name, "name"),
                 Objects.requireNonNull(texture, "texture"));
+        cachedDescription = null;
+    }
+
+    public void importExternalColor(String name, ExternalAttachment attachment) {
+        importExternalAttachment(name, attachment, AttachmentRole.COLOR);
+    }
+
+    public void importExternalDepth(String name, ExternalAttachment attachment) {
+        ExternalAttachment required = Objects.requireNonNull(attachment, "attachment");
+        if (!required.hasDepth()) {
+            throw new IllegalArgumentException("external depth import requires a depth attachment");
+        }
+        importExternalAttachment(name, required, required.role());
+    }
+
+    public void importExternalStencil(String name, ExternalAttachment attachment) {
+        ExternalAttachment required = Objects.requireNonNull(attachment, "attachment");
+        if (!required.hasStencil()) {
+            throw new IllegalArgumentException(
+                    "external stencil import requires a stencil attachment");
+        }
+        importExternalAttachment(name, required, required.role());
+    }
+
+    /**
+     * Imports or replaces a host presentation target without changing graph topology.
+     * Imported targets are always borrowed and are never closed by the graph.
+     */
+    public void importPresentationTarget(String name, PresentationTarget target) {
+        ensureOpen();
+        String requiredName = requireLogicalName(name, "presentation target name");
+        PresentationTarget required = Objects.requireNonNull(target, "target");
+        requireBorrowed(required.framebufferOwnership(), "presentation framebuffer");
+        required.color().ifPresent(attachment ->
+                requireBorrowed(attachment.ownership(), "presentation color"));
+        required.depth().ifPresent(attachment ->
+                requireBorrowed(attachment.ownership(), "presentation depth"));
+        required.stencil().ifPresent(attachment ->
+                requireBorrowed(attachment.ownership(), "presentation stencil"));
+        importedPresentationTargets.put(requiredName, required);
+        cachedDescription = null;
+    }
+
+    public PresentationTarget importedPresentationTarget(String name) {
+        ensureOpen();
+        return importedPresentationTargets.get(
+                Objects.requireNonNull(name, "presentation target name"));
+    }
+
+    /** Removes one borrowed attachment import without touching its native object. */
+    public void removeExternalAttachment(String name) {
+        ensureOpen();
+        importedExternalAttachments.remove(
+                Objects.requireNonNull(name, "external attachment name"));
         cachedDescription = null;
     }
 
@@ -130,11 +194,21 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     int getTextureAttachmentId(String textureName) {
+        ExternalAttachment external = importedExternalAttachments.get(textureName);
+        if (external != null) return external.textureId();
         return textureAttachmentIds.getOrDefault(textureName, 0);
     }
 
     Framebuffer currentPassFramebuffer() {
         return currentFbo;
+    }
+
+    PresentationTarget currentPresentationTarget() {
+        return currentPresentationTarget;
+    }
+
+    PresentationTarget framePresentationTarget() {
+        return framePresentationTarget;
     }
 
     FramebufferDescriptor passFramebufferDescriptor(String passName) {
@@ -179,8 +253,24 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     public void execute(RenderDevice device) {
+        execute(device, PresentationTarget.defaultFramebuffer(width, height));
+    }
+
+    /**
+     * Executes the graph into an explicit host target. No presentation or swap is performed.
+     *
+     * @return whether commands were executed or skipped because the host extent is zero
+     */
+    public PresentationResult execute(RenderDevice device, PresentationTarget target) {
         ensureOpen();
         Objects.requireNonNull(device, "device");
+        PresentationTarget frameTarget = Objects.requireNonNull(target, "target");
+        if (!frameTarget.isRenderable()) {
+            currentPresentationTarget = null;
+            currentFbo = null;
+            return PresentationResult.SKIPPED_ZERO_EXTENT;
+        }
+        framePresentationTarget = frameTarget;
         if (sortedPasses == null) {
             compile();
         }
@@ -203,18 +293,22 @@ public final class RenderGraph implements AutoCloseable {
                 long passCpuStart = System.nanoTime();
                 Framebuffer framebuffer = getPassFramebuffer(pass.name);
                 currentFbo = framebuffer;
+                PresentationTarget passTarget = targetFor(pass, frameTarget);
+                currentPresentationTarget = passTarget;
                 if (pass.timer == null) pass.timer = new GpuTimer();
                 GpuTimer timer = pass.timer;
                 cmd.pushDebugGroup("RenderGraph/" + pass.name);
                 cmd.enableScissor(false);
                 cmd.beginGpuTimer(timer, currentFrameSequence);
 
-                if (pass.useBackbuffer) {
+                if (passTarget != null) {
                     cmd.enableBlend(false);
                     cmd.depthMask(true);
-                    cmd.enableFramebufferSrgb(false);
-                    cmd.bindDefaultFramebuffer()
-                            .viewport(0, 0, width, height);
+                    cmd.enableFramebufferSrgb(
+                            passTarget.colorFormat() == RenderFormat.SRGB8_ALPHA8);
+                    cmd.bindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER,
+                                    passTarget.drawFramebufferId())
+                            .viewport(0, 0, passTarget.width(), passTarget.height());
                 } else if (!pass.externalTarget && framebuffer != null) {
                     cmd.enableFramebufferSrgb(pass.colorFormats.contains(RenderFormat.SRGB8_ALPHA8));
                     cmd.bindFramebuffer(framebuffer)
@@ -252,9 +346,14 @@ public final class RenderGraph implements AutoCloseable {
                         sample.sampleAgeFrames(), sample.skippedSubmissions()));
             }
             lastFrameProfile = new FrameProfile(0L, passProfiles, currentFrameSequence);
+            return PresentationResult.RENDERED;
         } catch (RuntimeException | Error failure) {
             lastFrameProfile = failedProfile(currentFrameSequence);
             throw failure;
+        } finally {
+            currentPresentationTarget = null;
+            currentFbo = null;
+            framePresentationTarget = null;
         }
     }
 
@@ -295,9 +394,13 @@ public final class RenderGraph implements AutoCloseable {
         for (Pass pass : sortedPasses) {
             TargetKind kind = pass.useBackbuffer ? TargetKind.BACKBUFFER
                     : pass.externalTarget ? TargetKind.EXTERNAL : TargetKind.MANAGED;
-            int targetWidth = kind == TargetKind.EXTERNAL ? 0
+            PresentationTarget importedTarget = pass.presentationTargetName == null ? null
+                    : importedPresentationTargets.get(pass.presentationTargetName);
+            int targetWidth = importedTarget != null ? importedTarget.width()
+                    : kind == TargetKind.EXTERNAL ? 0
                     : targetDimension(width, pass.fixedWidth, pass.relativeWidthScale);
-            int targetHeight = kind == TargetKind.EXTERNAL ? 0
+            int targetHeight = importedTarget != null ? importedTarget.height()
+                    : kind == TargetKind.EXTERNAL ? 0
                     : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale);
             List<AttachmentDescription> colors = new ArrayList<>(pass.colorFormats.size());
             for (int index = 0; index < pass.colorFormats.size(); index++) {
@@ -388,6 +491,9 @@ public final class RenderGraph implements AutoCloseable {
             }
         }
         textureAttachmentIds.clear();
+        importedExternalAttachments.clear();
+        importedPresentationTargets.clear();
+        importedTextures.clear();
         closed = true;
         if (failure != null) throw failure;
     }
@@ -472,6 +578,51 @@ public final class RenderGraph implements AutoCloseable {
         }
     }
 
+    private void importExternalAttachment(String name, ExternalAttachment attachment,
+                                          AttachmentRole requiredRole) {
+        ensureOpen();
+        String requiredName = requireLogicalName(name, "external attachment name");
+        ExternalAttachment required = Objects.requireNonNull(attachment, "attachment");
+        if (requiredRole == AttachmentRole.COLOR && required.role() != AttachmentRole.COLOR) {
+            throw new IllegalArgumentException("external color import requires COLOR role");
+        }
+        requireBorrowed(required.ownership(), "external attachment");
+        importedExternalAttachments.put(requiredName, required);
+        cachedDescription = null;
+    }
+
+    private PresentationTarget targetFor(Pass pass, PresentationTarget frameTarget) {
+        if (pass.useBackbuffer) return frameTarget;
+        if (pass.presentationTargetName == null) return null;
+        PresentationTarget target = importedPresentationTargets.get(pass.presentationTargetName);
+        if (target == null) {
+            throw new IllegalStateException("RenderGraph pass '" + pass.name
+                    + "' references missing presentation target '"
+                    + pass.presentationTargetName + "'");
+        }
+        if (!target.isRenderable()) {
+            throw new IllegalStateException("RenderGraph pass '" + pass.name
+                    + "' references zero-extent presentation target '"
+                    + pass.presentationTargetName + "'");
+        }
+        return target;
+    }
+
+    private static String requireLogicalName(String name, String label) {
+        String required = Objects.requireNonNull(name, label);
+        if (required.isBlank()) {
+            throw new IllegalArgumentException(label + " must not be blank");
+        }
+        return required;
+    }
+
+    private static void requireBorrowed(ResourceOwnership ownership, String label) {
+        if (ownership != ResourceOwnership.BORROWED) {
+            throw new IllegalArgumentException(label
+                    + " imported into RenderGraph must be BORROWED");
+        }
+    }
+
     private static PassProfile.GpuTimingStatus mapStatus(GpuTimer.Status status) {
         return PassProfile.GpuTimingStatus.valueOf(status.name());
     }
@@ -534,6 +685,7 @@ public final class RenderGraph implements AutoCloseable {
         final float clearA;
         final boolean useBackbuffer;
         final boolean externalTarget;
+        final String presentationTargetName;
         final List<String> dependencies;
         final PassExecutor executor;
         GpuTimer timer;
@@ -542,7 +694,7 @@ public final class RenderGraph implements AutoCloseable {
              int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
              boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
-             boolean externalTarget,
+             boolean externalTarget, String presentationTargetName,
              List<String> dependencies, PassExecutor executor) {
             this.name = name;
             this.colorTextureNames = colorTextureNames;
@@ -562,6 +714,7 @@ public final class RenderGraph implements AutoCloseable {
             this.clearA = clearA;
             this.useBackbuffer = useBackbuffer;
             this.externalTarget = externalTarget;
+            this.presentationTargetName = presentationTargetName;
             this.dependencies = dependencies;
             this.executor = executor;
         }
@@ -587,6 +740,7 @@ public final class RenderGraph implements AutoCloseable {
         private float clearA = 1.0f;
         private boolean useBackbuffer;
         private boolean externalTarget;
+        private String presentationTargetName;
         private final List<String> dependencies = new ArrayList<>();
         private PassExecutor executor;
 
@@ -735,6 +889,22 @@ public final class RenderGraph implements AutoCloseable {
                 throw new IllegalStateException("external target and backbuffer are mutually exclusive");
             }
             externalTarget = true;
+            presentationTargetName = null;
+            return this;
+        }
+
+        /**
+         * Writes this pass to a borrowed target imported by logical name.
+         * The imported native handles may be replaced between frames.
+         */
+        public PassBuilder writeToPresentationTarget(String targetName) {
+            if (useBackbuffer) {
+                throw new IllegalStateException(
+                        "presentation target and backbuffer are mutually exclusive");
+            }
+            externalTarget = true;
+            presentationTargetName = requireLogicalName(targetName,
+                    "presentation target name");
             return this;
         }
 
@@ -771,7 +941,8 @@ public final class RenderGraph implements AutoCloseable {
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
                     fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
                     createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
-                    useBackbuffer, externalTarget, List.copyOf(dependencies), executor);
+                    useBackbuffer, externalTarget, presentationTargetName,
+                    List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
             return graph;
         }

@@ -20,6 +20,7 @@ advanced com.kaleblangley.haikalat.backend.RenderFormat
 advanced com.kaleblangley.haikalat.backend.shader.ShaderProgram
 advanced com.kaleblangley.haikalat.backend.shader.ShaderStage
 advanced com.kaleblangley.haikalat.backend.state.PipelineStateSink
+advanced com.kaleblangley.haikalat.backend.state.HostGlState
 advanced com.kaleblangley.haikalat.backend.state.StateCache
 advanced com.kaleblangley.haikalat.backend.sync.GpuFence
 advanced com.kaleblangley.haikalat.backend.sync.GpuFenceTarget

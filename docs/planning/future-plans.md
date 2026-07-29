@@ -6,15 +6,18 @@
 
 ## 当前重点
 
-v0.18.0 已完成 Haikalat OpenGL 4.6 路线图：骨骼动画与 glTF 蒙皮、资源代次、后处理、UI 动画、
-CPU VFX、局部阴影、高级动画和受控 GPU 特效实验均具备测试、真实像素 Demo 与稳定性证据。
-下一阶段先收敛这些新增 API 的实际使用反馈、跨平台 CI 和实验能力边界，不启动 HaikalatHost、
-Minecraft 接入或缺乏性能证据的 GPU-driven 扩张。
+v0.20.1 已完成可嵌入渲染契约、非零 FBO 输出、宿主生命周期和正式发布验收。
+Haikalat 主工程继续保持宿主无关，不直接依赖 Minecraft/NeoForge。下一阶段以实际
+HaikalatHost 集成反馈为输入，不预先把宿主适配写回通用引擎；缺乏性能证据的
+GPU-driven 扩张继续暂缓。
 
 ### 近期
 
+- [x] 完成 v0.20.1 `PresentationTarget`、external attachment、external camera 和 embedded runtime 公共契约。
+- [x] 完成非零 FBO、borrowed 生命周期、zero extent、target replacement 与 GL 状态恢复真实测试。
+- [x] HaikalatHost 的维护者已确认 v0.20.1 可发布；宿主侧 Minecraft 客户端验收日志不纳入 Haikalat 主仓库。
 - [ ] 在每个正式版候选上重新运行 `runUiNativeSoak` 与 `runUiSyntheticImeSoak`，保留失败日志；当前候选已分别通过 50 轮真实 native 生命周期和 100 轮 synthetic IME 生命周期。
-- [ ] 在正式版前复核 advanced 列表；新增 UI public 类型必须通过 allowlist 架构测试，不得无意扩大 stable 兼容面。
+- [x] 正式版前已复核 advanced 列表；新增 public 类型已通过 allowlist 架构测试，未无意扩大 stable 兼容面。
 - [ ] 对 10,000 quad 剩余约 600 KiB/frame 做 allocation profile，优先消除 retained-tree 遍历与 record 热路径分配；目标仍为 256 KiB/frame 以下。
 - [ ] 在可用的远端仓库中确认 Windows/Linux CI 实际运行并保持通过。
 - [ ] 运行 `runPbrBenchmarks` 的完整四 AA 五轮矩阵并归档，而不只保留代表性 FXAA 组合。

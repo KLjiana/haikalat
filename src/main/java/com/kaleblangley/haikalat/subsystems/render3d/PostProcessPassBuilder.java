@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
@@ -211,8 +212,11 @@ final class PostProcessPassBuilder implements AutoCloseable {
                 .dependsOn(sourcePass)
                 .execute((res, cmd) -> {
                     Framebuffer source = res.framebufferOfPass(sourcePass);
-                    if (source != null) {
-                        cmd.blitToDefault(source, window.width(), window.height());
+                    PresentationTarget target = res.presentationTarget();
+                    if (source != null && target != null) {
+                        cmd.blitFramebuffer(source.id(), target.drawFramebufferId(),
+                                source.width(), source.height(),
+                                target.width(), target.height());
                     }
                 });
         recordFinalPass(PostProcessTargets.PRESENT_PASS);
@@ -294,7 +298,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
                         Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
                         Framebuffer target = res.currentTarget();
                         if (source != null && geometry != null && target != null) {
-                            cmd.blitColor(source, target).blitDepth(geometry, target);
+                            cmd.blitColor(source, target)
+                                    .blitDepth(geometry, target)
+                                    .bindFramebuffer(target)
+                                    .viewport(0, 0, target.width(), target.height());
                             hdrVfx.execute(res, cmd);
                         }
                     });
@@ -344,8 +351,11 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     .dependsOn(PostProcessTargets.TONE_MAPPING_PASS)
                     .execute((res, cmd) -> {
                         Framebuffer source = res.framebufferOfPass(PostProcessTargets.TONE_MAPPING_PASS);
-                        if (source != null) {
-                            cmd.blitToDefault(source, window.width(), window.height());
+                        PresentationTarget target = res.presentationTarget();
+                        if (source != null && target != null) {
+                            cmd.blitFramebuffer(source.id(), target.drawFramebufferId(),
+                                    source.width(), source.height(),
+                                    target.width(), target.height());
                         }
                     });
             recordFinalPass(PostProcessTargets.PRESENT_PASS);

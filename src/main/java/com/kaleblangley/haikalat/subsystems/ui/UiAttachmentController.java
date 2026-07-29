@@ -6,7 +6,7 @@ import com.kaleblangley.haikalat.subsystems.ui.render.UiAttachmentOptions;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiCompositor;
 
 import java.util.Objects;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 /**
  * Owns the UI → RenderGraph attachment lifecycle.
@@ -25,7 +25,8 @@ final class UiAttachmentController implements AutoCloseable {
 
     void attach(RenderGraph graph, String dependencyPass,
                 RenderGraph.PassExecutor beforeOverlay,
-                Consumer<CommandBuffer> overlayRecorder) {
+                BiConsumer<com.kaleblangley.haikalat.core.graph.PassResources,
+                        CommandBuffer> overlayRecorder) {
         validate(graph, dependencyPass);
         Objects.requireNonNull(beforeOverlay, "beforeOverlay");
         Objects.requireNonNull(overlayRecorder, "overlayRecorder");
@@ -35,7 +36,7 @@ final class UiAttachmentController implements AutoCloseable {
                 .dependsOn(dependencyPass)
                 .execute((resources, commands) -> {
                     beforeOverlay.execute(resources, commands);
-                    overlayRecorder.accept(commands);
+                    overlayRecorder.accept(resources, commands);
                 });
         graph.sealTopology();
         attachedGraph = graph;
@@ -43,7 +44,8 @@ final class UiAttachmentController implements AutoCloseable {
 
     void attach(RenderGraph graph, String dependencyPass,
                 UiAttachmentOptions options,
-                Consumer<CommandBuffer> overlayRecorder) {
+                BiConsumer<com.kaleblangley.haikalat.core.graph.PassResources,
+                        CommandBuffer> overlayRecorder) {
         validate(graph, dependencyPass);
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(overlayRecorder, "overlayRecorder");
@@ -53,7 +55,7 @@ final class UiAttachmentController implements AutoCloseable {
                 .writeToBackbuffer()
                 .noClear()
                 .dependsOn(finalDependency)
-                .execute((resources, commands) -> overlayRecorder.accept(commands));
+                .execute(overlayRecorder::accept);
         graph.sealTopology();
         attachedGraph = graph;
     }

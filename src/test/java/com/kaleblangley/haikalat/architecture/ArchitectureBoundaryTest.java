@@ -155,6 +155,34 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void embeddedRenderingContractsRemainHostIndependentAndSwapFree() throws IOException {
+        Path presentation = HAIKALAT.resolve(Path.of("core", "presentation"));
+        Path embeddedRuntime = HAIKALAT.resolve(Path.of("runtime", "HaikalatRuntime.java"));
+        Path pipeline = HAIKALAT.resolve(
+                Path.of("subsystems", "render3d", "RenderPipeline.java"));
+        for (String forbidden : Set.of(
+                "net.minecraft.", "net.neoforged.", "ResourceLocation",
+                "org.hismeo.haikalathost")) {
+            assertTrue(filesContaining(presentation, forbidden).isEmpty(),
+                    "presentation contracts must remain host-independent: " + forbidden);
+            assertFalse(Files.readString(embeddedRuntime).contains(forbidden),
+                    "embedded runtime must remain host-independent: " + forbidden);
+        }
+        for (Path source : Set.of(embeddedRuntime, pipeline)) {
+            String code = Files.readString(source);
+            assertFalse(code.contains("glfwSwapBuffers"),
+                    source + " must not swap host buffers");
+            assertFalse(code.contains(".swapBuffers("),
+                    source + " must not invoke a platform swap method");
+        }
+        String runtimeCode = Files.readString(embeddedRuntime);
+        assertFalse(runtimeCode.contains("GlfwWindow"),
+                "embedded runtime must not create a GLFW window");
+        assertFalse(runtimeCode.contains("GlRenderThread"),
+                "embedded runtime must not create a render thread");
+    }
+
+    @Test
     void animationSubsystemRemainsGlFree() throws IOException {
         Path animation = HAIKALAT.resolve(Path.of("subsystems", "animation"));
         Set<String> backendImports = importsUnder(animation,

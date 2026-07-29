@@ -17,6 +17,11 @@ final class LightingBinder {
     }
 
     void bind(ShaderProgram shader, CommandBuffer cmd, Matrix4f directionalLightSpace) {
+        bind(shader, cmd, directionalLightSpace, scene.camera());
+    }
+
+    void bind(ShaderProgram shader, CommandBuffer cmd, Matrix4f directionalLightSpace,
+              Camera camera) {
         LightCounts counts = count(scene);
         int directionalCount = 0;
         int pointCount = 0;
@@ -63,7 +68,7 @@ final class LightingBinder {
         cmd.trySetUniformInt(shader, "uDirectionalLightCount", counts.directional());
         cmd.trySetUniformInt(shader, "uPointLightCount", counts.point());
         cmd.trySetUniformInt(shader, "uSpotLightCount", counts.spot());
-        cmd.trySetUniformVec3(shader, "uCameraPosition", scene.camera().position());
+        cmd.trySetUniformVec3(shader, "uCameraPosition", camera.position());
         cmd.trySetUniformMat4(shader, "uDirectionalLightSpace", directionalLightSpace);
         cmd.trySetUniformInt(shader, "uDirectionalShadowLightIndex",
                 shadowDirectionalLight(scene).map(ShadowDirectionalLight::shaderIndex).orElse(-1));

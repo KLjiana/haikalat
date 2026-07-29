@@ -1,10 +1,11 @@
 # 核心能力矩阵
 
-本矩阵记录当前实现事实。`完整` 表示已具备运行行为和自动化验证入口；`部分完成` 表示主路径可用但仍缺少端到端证明；`骨架` 表示接口或 pass 已存在，但最终渲染行为尚未闭环。
+本矩阵记录当前实现事实。`完整` 表示已具备运行行为和自动化验证入口；`部分完成` 表示主路径可用但仍缺少端到端证明；`骨架` 表示接口或 pass 已存在，但最终渲染行为尚未闭环；`计划中` 表示已经进入明确版本范围，但尚未把计划当作实现事实。
 
 | 能力 | 状态 | 源码入口 | Demo 入口 | 自动化验证 | 当前限制 |
 | --- | --- | --- | --- | --- | --- |
 | OpenGL 4.6 能力契约 | 完整 | `backend/GlCapabilityContract`、`core/device/GlRenderDevice`、`runtime/GlRenderThread` | 所有正式渲染入口共享设备/渲染线程边界 | `GlCapabilityContractTest`、`GlContextSmokeTest.hiddenWindowSatisfiesProductionCapabilityContract` | OpenGL 4.6 Core、DSA、SSBO、Compute、Image Load/Store、Buffer Storage、MDI、Shader Draw Parameters、debug output 为硬要求；bindless texture 仅报告为可选能力，不提供旧版降级 |
+| 外部宿主可嵌入渲染 | 引擎侧完整 | `PresentationTarget`、`ExternalAttachment`、`ExternalCamera`、`HaikalatRuntime`、`RenderGraph`、`RenderPipeline`、`UiRenderer` | Haikalat 主工程不新增窗口 Demo；`EmbeddedPresentationGlTest` 以隐藏 GL context 模拟宿主 raw FBO，HaikalatHost 负责 Minecraft 烟雾测试 | `embeddedJvmVerification`、`embeddedGlVerification`、`ArchitectureBoundaryTest`、原有 `RenderPipelineGlTest` / `UiRendererGlTest` | 非零 FBO、宿主 color/depth、target replacement、zero extent、borrowed 生命周期、UI/VFX/postprocess 同目标、外部相机和成功/异常 GL 状态恢复已验证；Minecraft/Blaze3D Java 状态同步与真实客户端烟雾仍由 HaikalatHost 完成 |
 | RenderGraph 排序与资源生命周期 | 完整 | `core/graph/RenderGraph`、`backend/framebuffer/RenderTargetManager` | 三个 Demo | `RenderGraphTest`、`FramebufferDescriptorTest`、`RenderPipelineGlTest`、`GlContextSmokeTest` | framebuffer/target 重建采用 candidate-first；窗口 resize 只替换 window/relative target，fixed-size shadow target 保持；失败时旧 generation 可用；GPU timing 使用正式 query opcode |
 | 通用资源身份、代次与异步 CPU 解码 | 完整 | `subsystems/resources` | 由后续 glTF skin/animation 接入消费 | `AssetIdTest`、`ResourceSourceTest`、`ResourceGenerationTrackerTest`、`AsyncResourceDecoderTest`、架构边界测试 | 当前只负责编码字节与 CPU 值；GPU 上传必须携带代次票据并在渲染线程再次校验，不在该 subsystem 内调用 GL |
 | 序列化场景 v1、异步 glTF/图片加载与热重载 | 部分完成 | `subsystems/scene`、`SceneAssetService`、`GltfGpuAssetCache`、`RenderPipeline.replaceScene` | 当前提供服务/测试入口，尚未接入正式主 Demo | `sceneJvmVerification`、`localSceneAssetVerification`、`SerializedSceneGlTest`、`GltfRuntimeGlTest` | 已闭环严格 schema、catalog、`.gltf/.glb/animation-library.json` 外部依赖失效、RGBA8 后台解码、分阶段上传、exact-generation lease 和失败保留旧版本；仍缺同拓扑 pipeline fast path、正式 SerializedSceneDemo 与长时间 reload soak |
@@ -41,7 +42,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.20.0`；上一正式稳定版本为 `0.19.4`。
+- 当前版本与正式稳定版本：`0.20.1`；上一正式稳定版本为 `0.20.0`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。

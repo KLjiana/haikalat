@@ -416,7 +416,8 @@ public final class UiSystem implements AutoCloseable {
         if (failure != null) throw failure;
     }
 
-    private void recordOverlay(com.kaleblangley.haikalat.core.command.CommandBuffer commands) {
+    private void recordOverlay(com.kaleblangley.haikalat.core.graph.PassResources passResources,
+                               com.kaleblangley.haikalat.core.command.CommandBuffer commands) {
         ensureOpen("UiRenderer");
         synchronized (renderLifecycle) {
             UiSnapshotExchange.Lease acquired = snapshotPublisher.tryAcquire();
@@ -440,7 +441,8 @@ public final class UiSystem implements AutoCloseable {
                 if (!claimedUploads.isEmpty()) {
                     uploadSubmission = renderer.recordGlyphUploads(claimedUploads, commands);
                 }
-                renderer.record(lastRenderedSnapshot, commands);
+                renderer.record(lastRenderedSnapshot, commands,
+                        passResources.presentationTarget());
             } catch (RuntimeException | Error failure) {
                 if (uploadSubmission != null) uploadSubmission.executionFailed(failure);
                 releaseGlyphUploadClaims(claimedUploads);

@@ -14,6 +14,9 @@ final class CameraProjection {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("camera projection requires a positive framebuffer extent");
         }
+        if (camera instanceof ExternalCamera external) {
+            return external.projection(destination);
+        }
         return destination.identity().perspective((float) Math.toRadians(camera.zoom()),
                 width / (float) height, NEAR_PLANE, FAR_PLANE);
     }

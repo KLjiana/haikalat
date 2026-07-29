@@ -100,6 +100,12 @@ rebuild、多 context 隔离和无 context 查询。`glDebugPolicyGuard` 同时�
 已经 staged、版本/报告/changelog/capability matrix 一致，并把实际 gate outcome 写入
 `build/reports/release/readiness.json` 与 `readiness.md`。它不挂到默认 `check`，也不代替远端 CI 和人工 GL 检查。
 
+混合架构 CPU 上必须先确认性能任务没有在较慢核心之间迁移。若 Windows
+`Kernel-Processor-Power` 事件 37 只指向 E-core，且相同 Git 候选的 CPU median
+随轮次大幅漂移，可用 `start /affinity` 将一次性 `--no-daemon` Gradle 进程限定到
+已确认的 P-core mask；不要修改 baseline、回退阈值或性能结果。affinity mask 是机器相关值，
+必须按本机逻辑处理器拓扑确定并在 release report 中记录，不能复制其他机器的 mask。
+
 The deterministic baseline integration uses a hidden 1280x720 window, fixed camera and frame indices, disabled VSync, and exits after eight frames:
 
 ```powershell

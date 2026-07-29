@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.state.HostGlState;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
@@ -11,6 +12,9 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
+import com.kaleblangley.haikalat.core.material.ResourceOwnership;
+import com.kaleblangley.haikalat.core.presentation.PresentationResult;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.FrontFace;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -36,6 +40,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class RenderPipeline {
+    private static final String HOST_COLOR_IMPORT = "HaikalatHostColor";
+    private static final String HOST_DEPTH_IMPORT = "HaikalatHostDepth";
+    private static final String HOST_STENCIL_IMPORT = "HaikalatHostStencil";
     private static final int SHADOW_TEXTURE_UNIT = 7;
     private static final int POINT_SHADOW_TEXTURE_UNIT = 11;
     private static final int SPOT_SHADOW_TEXTURE_UNIT = 12;
@@ -74,7 +81,12 @@ public final class RenderPipeline {
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private GraphPreviewRenderer previewRenderer;
     private PassExecutor hdrVfxRecorder;
+    private CameraPassExecutor cameraAwareHdrVfxRecorder;
+    private Camera activeCamera;
+    private int activeWidth;
+    private int activeHeight;
     private boolean executing;
+    private boolean embedded;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -106,6 +118,25 @@ public final class RenderPipeline {
         this.instanced = instanced;
         this.settings = Objects.requireNonNull(settings, "settings");
         this.pbrEnvironment = pbrEnvironment;
+    }
+
+    /**
+     * Creates a pipeline without a platform window. The target only supplies
+     * the initial managed RenderGraph extent and may be replaced per frame.
+     */
+    public RenderPipeline(PresentationTarget initialTarget, Scene scene,
+                          InstancedRenderer instanced, RenderSettings settings) {
+        this(initialTarget, scene, instanced, settings, null);
+    }
+
+    /**
+     * Creates a pipeline without a platform window and with an optional PBR environment.
+     */
+    public RenderPipeline(PresentationTarget initialTarget, Scene scene,
+                          InstancedRenderer instanced, RenderSettings settings,
+                          PbrEnvironment pbrEnvironment) {
+        this(initialExtent(initialTarget), scene, instanced, settings, pbrEnvironment);
+        embedded = true;
     }
 
     public static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -149,11 +180,40 @@ public final class RenderPipeline {
         if (graph != null) {
             throw new IllegalStateException("HDR VFX must be configured before build");
         }
+        if (cameraAwareHdrVfxRecorder != null) {
+            throw new IllegalStateException("camera-aware HDR VFX is already configured");
+        }
         hdrVfxRecorder = Objects.requireNonNull(recorder, "recorder");
         return this;
     }
 
+    /**
+     * Adds an HDR VFX recorder that receives the exact camera used by the pipeline frame.
+     */
+    public RenderPipeline hdrVfxWithCamera(CameraPassExecutor recorder) {
+        if (graph != null) {
+            throw new IllegalStateException("HDR VFX must be configured before build");
+        }
+        if (hdrVfxRecorder != null) {
+            throw new IllegalStateException("legacy HDR VFX is already configured");
+        }
+        cameraAwareHdrVfxRecorder = Objects.requireNonNull(recorder, "recorder");
+        hdrVfxRecorder = (resources, commands) ->
+                cameraAwareHdrVfxRecorder.execute(resources, commands, externalFrameCamera());
+        return this;
+    }
+
     public void build() {
+        if (embedded) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                buildInternal();
+            }
+            return;
+        }
+        buildInternal();
+    }
+
+    private void buildInternal() {
         int w = window.width();
         int h = window.height();
         closeGraphResources();
@@ -232,8 +292,10 @@ public final class RenderPipeline {
         }
         RenderPipeline candidate = new RenderPipeline(window, candidateScene, instanced,
                 settings, pbrEnvironment);
+        candidate.embedded = embedded;
         candidate.postProcessSettings = postProcessSettings;
         candidate.hdrVfxRecorder = hdrVfxRecorder;
+        candidate.cameraAwareHdrVfxRecorder = cameraAwareHdrVfxRecorder;
         try {
             candidate.build();
             closeGraphResources();
@@ -354,10 +416,63 @@ public final class RenderPipeline {
      * @param deltaSeconds 本帧秒数，必须有限且非负
      */
     public void execute(RenderDevice device, float deltaSeconds) {
+        executeFrame(device, deltaSeconds, scene.camera(),
+                PresentationTarget.defaultFramebuffer(
+                        Math.max(0, window.width()), Math.max(0, window.height())));
+    }
+
+    public PresentationResult execute(RenderDevice device, ExternalCamera camera,
+                                      PresentationTarget target) {
+        return execute(device, camera, target, 1.0f / 60.0f);
+    }
+
+    /**
+     * Executes one host-directed frame without presenting or swapping buffers.
+     */
+    public PresentationResult execute(RenderDevice device, ExternalCamera camera,
+                                      PresentationTarget target, float deltaSeconds) {
+        RenderDevice requiredDevice = Objects.requireNonNull(device, "device");
+        ExternalCamera requiredCamera = Objects.requireNonNull(camera, "camera");
+        PresentationTarget requiredTarget = Objects.requireNonNull(target, "target");
+        if (!requiredTarget.isRenderable()) {
+            return PresentationResult.SKIPPED_ZERO_EXTENT;
+        }
+        try (HostGlState ignored = HostGlState.captureReadFramebuffer(
+                requiredTarget.readFramebufferId())) {
+            requiredDevice.invalidateState();
+            try {
+                return executeFrame(requiredDevice, deltaSeconds,
+                        requiredCamera, requiredTarget);
+            } finally {
+                requiredDevice.invalidateState();
+            }
+        } finally {
+            requiredDevice.invalidateState();
+        }
+    }
+
+    /** Alias matching host-oriented rendering terminology. */
+    public PresentationResult render(RenderDevice device, ExternalCamera camera,
+                                     PresentationTarget target, float deltaSeconds) {
+        return execute(device, camera, target, deltaSeconds);
+    }
+
+    private PresentationResult executeFrame(RenderDevice device, float deltaSeconds,
+                                            Camera camera, PresentationTarget target) {
         if (graph == null || postProcess == null) {
             throw new IllegalStateException("RenderPipeline must be built before execute");
         }
+        if (!target.isRenderable()) {
+            return PresentationResult.SKIPPED_ZERO_EXTENT;
+        }
+        if (graph.width() != target.width() || graph.height() != target.height()) {
+            resize(target.width(), target.height());
+        }
+        synchronizeHostImports(target);
         usedDevices.add(Objects.requireNonNull(device, "device"));
+        activeCamera = Objects.requireNonNull(camera, "camera");
+        activeWidth = target.width();
+        activeHeight = target.height();
         currentSceneFrame = null;
         lastShadowCasterDrawCount = 0;
         lastPointShadowCasterDrawCount = 0;
@@ -366,12 +481,12 @@ public final class RenderPipeline {
         long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
-        postProcess.beginFrame(deltaSeconds, scene.camera(), window.width(), window.height(),
+        postProcess.beginFrame(deltaSeconds, activeCamera, activeWidth, activeHeight,
                 activeFrameIndex);
         if (previewRenderer != null) previewRenderer.prepare(device, previewFrameSequence);
         executing = true;
         try {
-            graph.execute(device);
+            PresentationResult result = graph.execute(device, target);
             long commandRecordNanos = 0L;
             for (var pass : graph.lastFrameProfile().passes()) {
                 commandRecordNanos = Math.addExact(commandRecordNanos, pass.cpuRecordNanos());
@@ -383,16 +498,30 @@ public final class RenderPipeline {
             }
             postProcess.frameSucceeded();
             if (previewRenderer != null) previewRenderer.frameSucceeded(previewFrameSequence);
+            return result;
         } catch (RuntimeException | Error failure) {
             postProcess.frameFailed();
             if (previewRenderer != null) previewRenderer.frameFailed(failure);
             throw failure;
         } finally {
             executing = false;
+            activeCamera = null;
+            activeWidth = 0;
+            activeHeight = 0;
         }
     }
 
     public void resize(int w, int h) {
+        if (embedded) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                resizeInternal(w, h);
+            }
+            return;
+        }
+        resizeInternal(w, h);
+    }
+
+    private void resizeInternal(int w, int h) {
         if (graph != null) {
             graph.resize(w, h);
         }
@@ -402,7 +531,13 @@ public final class RenderPipeline {
     }
 
     public void close() {
-        closeGraphResources();
+        if (embedded) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                closeGraphResources();
+            }
+        } else {
+            closeGraphResources();
+        }
     }
 
     private void closeGraphResources() {
@@ -470,13 +605,66 @@ public final class RenderPipeline {
     }
 
     private PassExecutor geometryExecutor() {
-        return (res, cmd) -> renderScene(cmd,
+        return (res, cmd) -> {
+            copyHostAttachments(res, cmd);
+            renderScene(cmd,
                 LightingBinder.shadowDirectionalLight(scene).isPresent()
                         ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
                 LightingBinder.shadowPointLight(scene).isPresent()
                         ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
                 LightingBinder.shadowSpotLight(scene).isPresent()
                         ? res.depthAttachment(SpotShadowMap.TEXTURE_NAME) : 0);
+        };
+    }
+
+    private void copyHostAttachments(com.kaleblangley.haikalat.core.graph.PassResources resources,
+                                     CommandBuffer commands) {
+        PresentationTarget target = resources.framePresentationTarget();
+        com.kaleblangley.haikalat.backend.framebuffer.Framebuffer geometry =
+                resources.currentTarget();
+        if (target == null || geometry == null
+                || target.framebufferOwnership() != ResourceOwnership.BORROWED
+                || target.readFramebufferId() == 0) {
+            return;
+        }
+        if (target.color().isPresent()) {
+            commands.blitFramebuffer(target.readFramebufferId(), geometry.id(),
+                    target.width(), target.height(), geometry.width(), geometry.height());
+        }
+        if (target.hasDepth()) {
+            int geometrySamples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
+                    ? Math.max(2, settings.msaaSamples()) : 1;
+            if (target.samples() != geometrySamples) {
+                throw new IllegalArgumentException("host depth samples " + target.samples()
+                        + " do not match geometry samples " + geometrySamples);
+            }
+            commands.blitFramebuffer(target.readFramebufferId(), geometry.id(),
+                    target.width(), target.height(), geometry.width(), geometry.height(),
+                    org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT,
+                    org.lwjgl.opengl.GL11.GL_NEAREST);
+        }
+        // Typed blits deliberately leave the command executor at framebuffer 0.
+        // Re-establish this managed pass target before geometry recording continues.
+        commands.bindFramebuffer(geometry)
+                .viewport(0, 0, geometry.width(), geometry.height());
+    }
+
+    private void synchronizeHostImports(PresentationTarget target) {
+        if (target.framebufferOwnership() == ResourceOwnership.OWNED) {
+            graph.removeExternalAttachment(HOST_COLOR_IMPORT);
+            graph.removeExternalAttachment(HOST_DEPTH_IMPORT);
+            graph.removeExternalAttachment(HOST_STENCIL_IMPORT);
+            return;
+        }
+        target.color().ifPresentOrElse(
+                attachment -> graph.importExternalColor(HOST_COLOR_IMPORT, attachment),
+                () -> graph.removeExternalAttachment(HOST_COLOR_IMPORT));
+        target.depth().ifPresentOrElse(
+                attachment -> graph.importExternalDepth(HOST_DEPTH_IMPORT, attachment),
+                () -> graph.removeExternalAttachment(HOST_DEPTH_IMPORT));
+        target.stencil().ifPresentOrElse(
+                attachment -> graph.importExternalStencil(HOST_STENCIL_IMPORT, attachment),
+                () -> graph.removeExternalAttachment(HOST_STENCIL_IMPORT));
     }
 
     private PassExecutor shadowExecutor() {
@@ -580,10 +768,11 @@ public final class RenderPipeline {
     private void renderScene(CommandBuffer cmd, int shadowTexture,
                              int pointShadowTexture, int spotShadowTexture) {
         SceneFrame frame = sceneFrame();
-        cameraUniforms.update(cmd, scene.camera(), window.width(), window.height(),
+        Camera camera = frameCamera();
+        cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
                 settings.antiAliasingMode(), activeFrameIndex);
         if (environmentBackground != null) {
-            environmentBackground.render(cmd, scene.camera(), window.width(), window.height());
+            environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
         }
 
         ShaderProgram boundShader = null;
@@ -654,7 +843,7 @@ public final class RenderPipeline {
         var shadow = LightingBinder.shadowDirectionalLight(scene);
         if (shadow.isPresent()) {
             lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
-                    shadow.orElseThrow().light(), scene.camera().position()));
+                    shadow.orElseThrow().light(), frameCamera().position()));
         } else {
             lastDirectionalLightSpaceMatrix.identity();
         }
@@ -668,8 +857,8 @@ public final class RenderPipeline {
         } else {
             lastSpotLightSpaceMatrix.identity();
         }
-        SceneFrame built = sceneFrameBuilder.build(scene, Math.max(1, window.width()),
-                Math.max(1, window.height()), lastDirectionalLightSpaceMatrix,
+        SceneFrame built = sceneFrameBuilder.build(scene, frameCamera(),
+                Math.max(1, frameWidth()), Math.max(1, frameHeight()), lastDirectionalLightSpaceMatrix,
                 shadow.isPresent(), settings.sceneVisibility(), activeFrameIndex);
         currentSceneFrame = built;
         return built;
@@ -678,7 +867,7 @@ public final class RenderPipeline {
     private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
                                 int pointShadowTexture, int spotShadowTexture) {
         cameraUniforms.bind(shader);
-        lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix);
+        lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix, frameCamera());
         boolean hasShadow = shadowTexture != 0;
         cmd.trySetUniformInt(shader, "uHasDirectionalShadow", hasShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uShadowMap", SHADOW_TEXTURE_UNIT)
@@ -793,6 +982,12 @@ public final class RenderPipeline {
         }
     }
 
+    @FunctionalInterface
+    public interface CameraPassExecutor {
+        void execute(com.kaleblangley.haikalat.core.graph.PassResources resources,
+                     CommandBuffer commands, ExternalCamera camera);
+    }
+
     /** 仅在材质确实覆盖引擎逐帧 binding 时，才需要在材质之后重新提交 frame state。 */
     private boolean invalidatesFrameState(MaterialInstance instance) {
         Material material = instance.material();
@@ -849,5 +1044,48 @@ public final class RenderPipeline {
                 || unit == PbrMaterialBinder.IRRADIANCE_UNIT
                 || unit == PbrMaterialBinder.PREFILTERED_SPECULAR_UNIT
                 || unit == PbrMaterialBinder.BRDF_LUT_UNIT;
+    }
+
+    private Camera frameCamera() {
+        return activeCamera == null ? scene.camera() : activeCamera;
+    }
+
+    private ExternalCamera externalFrameCamera() {
+        Camera camera = frameCamera();
+        if (camera instanceof ExternalCamera external) {
+            return external;
+        }
+        Matrix4f view = camera.getViewMatrix(new Matrix4f());
+        Matrix4f projection = CameraProjection.stable(
+                camera, frameWidth(), frameHeight(), new Matrix4f());
+        return new ExternalCamera(view, projection,
+                new Matrix4f(projection).mul(view), camera.position(), 0.0f,
+                CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE,
+                camera.visibilityRevision());
+    }
+
+    private int frameWidth() {
+        return activeWidth > 0 ? activeWidth : Math.max(1, window.width());
+    }
+
+    private int frameHeight() {
+        return activeHeight > 0 ? activeHeight : Math.max(1, window.height());
+    }
+
+    private static RenderWindow initialExtent(PresentationTarget target) {
+        PresentationTarget required = Objects.requireNonNull(target, "initialTarget");
+        int width = Math.max(1, required.width());
+        int height = Math.max(1, required.height());
+        return new RenderWindow() {
+            @Override
+            public int width() {
+                return width;
+            }
+
+            @Override
+            public int height() {
+                return height;
+            }
+        };
     }
 }

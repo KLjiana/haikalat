@@ -79,12 +79,18 @@ final class SceneFrameBuilder {
 
     SceneFrame build(Scene scene, int width, int height, Matrix4fc shadowMatrix,
                      boolean shadowEnabled, boolean cullingEnabled, int frameIndex) {
+        return build(scene, scene.camera(), width, height, shadowMatrix,
+                shadowEnabled, cullingEnabled, frameIndex);
+    }
+
+    SceneFrame build(Scene scene, Camera camera, int width, int height,
+                     Matrix4fc shadowMatrix, boolean shadowEnabled,
+                     boolean cullingEnabled, int frameIndex) {
         long totalStart = System.nanoTime();
         frame.available = false;
         try {
             syncMembership(scene);
             long sceneRevision = scene.membershipRevision();
-            Camera camera = scene.camera();
             if (canReuseImmutableFrame(camera, sceneRevision, width, height, shadowMatrix,
                     shadowEnabled, cullingEnabled)) {
                 return reuseImmutableFrame(sceneRevision, cullingEnabled, frameIndex, totalStart);

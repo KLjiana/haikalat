@@ -5,6 +5,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.Camera
 advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalShadowMap
 advanced com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadePlan
+stable com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera
 advanced com.kaleblangley.haikalat.subsystems.render3d.LightType
 advanced com.kaleblangley.haikalat.subsystems.render3d.LocalShadowSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer

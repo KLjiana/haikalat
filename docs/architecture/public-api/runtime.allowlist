@@ -9,6 +9,7 @@ advanced com.kaleblangley.haikalat.runtime.FrameBenchmarkSession
 advanced com.kaleblangley.haikalat.runtime.FrameClock
 advanced com.kaleblangley.haikalat.runtime.FrameDriver
 advanced com.kaleblangley.haikalat.runtime.FrameTimingAccumulator
+stable com.kaleblangley.haikalat.runtime.HaikalatRuntime
 advanced com.kaleblangley.haikalat.runtime.GlRenderThread
 advanced com.kaleblangley.haikalat.runtime.LatestFrameMailbox
 advanced com.kaleblangley.haikalat.runtime.PassBenchmarkAccumulator
