@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.scene;
 
 import com.kaleblangley.haikalat.subsystems.resources.AssetId;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog;
+import com.kaleblangley.haikalat.subsystems.resources.ResourceGenerationTracker;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceSource;
 import com.kaleblangley.haikalat.testing.GltfAnimationLibraryFixture;
 import org.junit.jupiter.api.Test;
@@ -10,8 +11,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -46,11 +49,15 @@ class SceneAssetServiceTest {
                 .mount("demo", ResourceSource.directory("demo", directory))
                 .build();
         AssetId sceneId = AssetId.of("demo", "scenes/showcase.scene.json");
+        ArrayDeque<Runnable> queuedTasks = new ArrayDeque<>();
+        Executor queuedExecutor = queuedTasks::addLast;
 
-        try (SceneAssetService service = new SceneAssetService(catalog)) {
+        try (SceneAssetService service = new SceneAssetService(
+                catalog, new ResourceGenerationTracker(), queuedExecutor)) {
             CompletableFuture<SceneBuildPlan> first = service.loadPlan(sceneId);
             CompletableFuture<SceneBuildPlan> second = service.loadPlan(sceneId);
             assertSame(first, second);
+            queuedTasks.removeFirst().run();
             SceneBuildPlan plan = first.join();
 
             assertEquals(sceneId, plan.sceneId());
