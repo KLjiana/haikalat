@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.ui;
 
+import com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver;
 import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
 
 import java.time.Duration;
@@ -8,6 +9,7 @@ import java.util.Objects;
 /** 一个窗口对应的一份不可变 UI 子系统配置。 */
 public final class UiConfig {
     private final Theme theme;
+    private final StyleResolver styleResolver;
     private final float maximumDeltaSeconds;
     private final long doubleClickNanos;
     private final float doubleClickDistance;
@@ -22,6 +24,8 @@ public final class UiConfig {
 
     private UiConfig(Builder builder) {
         theme = builder.theme;
+        styleResolver = builder.styleResolver == null
+                ? StyleResolver.defaults(theme) : builder.styleResolver;
         maximumDeltaSeconds = builder.maximumDeltaSeconds;
         doubleClickNanos = builder.doubleClickNanos;
         doubleClickDistance = builder.doubleClickDistance;
@@ -38,6 +42,7 @@ public final class UiConfig {
     public static UiConfig defaults() { return builder().build(); }
     public static Builder builder() { return new Builder(); }
     public Theme theme() { return theme; }
+    public StyleResolver styleResolver() { return styleResolver; }
     public float maximumDeltaSeconds() { return maximumDeltaSeconds; }
     public long doubleClickNanos() { return doubleClickNanos; }
     public float doubleClickDistance() { return doubleClickDistance; }
@@ -53,6 +58,7 @@ public final class UiConfig {
     /** 使用保守资源上限的配置 builder。 */
     public static final class Builder {
         private Theme theme = Theme.dark();
+        private StyleResolver styleResolver;
         private float maximumDeltaSeconds = 0.1f;
         private long doubleClickNanos = Duration.ofMillis(500).toNanos();
         private float doubleClickDistance = 5.0f;
@@ -66,6 +72,10 @@ public final class UiConfig {
         private UiDebugOptions debugOptions = UiDebugOptions.NONE;
 
         public Builder theme(Theme value) { theme = Objects.requireNonNull(value, "theme"); return this; }
+        public Builder styleResolver(StyleResolver value) {
+            styleResolver = Objects.requireNonNull(value, "styleResolver");
+            return this;
+        }
         public Builder maximumDeltaSeconds(float value) {
             if (!Float.isFinite(value) || value <= 0.0f) {
                 throw new IllegalArgumentException("maximumDeltaSeconds must be finite and positive");

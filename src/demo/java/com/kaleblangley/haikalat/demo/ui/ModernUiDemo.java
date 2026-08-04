@@ -5,34 +5,24 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.FrameClock;
 import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
-import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
 import com.kaleblangley.haikalat.subsystems.ui.UiFrameStats;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
-import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSequence;
-import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationSignal;
-import com.kaleblangley.haikalat.subsystems.ui.animation.UiAnimationTrigger;
-import com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing;
-import com.kaleblangley.haikalat.subsystems.ui.animation.UiPropertyTrack;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiAttachmentOptions;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBackdropSource;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiCompositor;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiLayerDescription;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiScreenRect;
-import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
-import com.kaleblangley.haikalat.subsystems.ui.style.UiInsets;
-import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
-import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
-import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
-import com.kaleblangley.haikalat.subsystems.ui.style.ThemeTokens;
-import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
-import com.kaleblangley.haikalat.subsystems.ui.vfx.UiEffectDefinition;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.WindowInputSnapshot;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -46,16 +36,15 @@ import static org.lwjgl.opengl.GL11.glReadBuffer;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 
 /**
- * 独立的 v0.19 UI 展示，不创建或调用旧版 UiDemo 场景。
+ * 独立的现代游戏主界面，不创建或调用旧版 UiDemo 场景。
  *
- * <p>场景刻意保持很小：一个 layer、两张卡片、一个按钮和少量文本，用来让
- * SDF、property timeline、interaction state、compositor topology 和 UI VFX 的启动
- * 成本可见且可控。</p>
+ * <p>场景使用 retained layout、typed theme、SDF、timeline、compositor 与 UI VFX，
+ * 同时提供战役总览和可交互设置页。</p>
  */
 public final class ModernUiDemo {
     static final String PRESENT_PASS = "ModernUiPresent";
-    private static final int DEFAULT_WIDTH = 800;
-    private static final int DEFAULT_HEIGHT = 520;
+    private static final int DEFAULT_WIDTH = 1280;
+    private static final int DEFAULT_HEIGHT = 720;
     private static final float FIXED_DELTA = 1.0f / 60.0f;
 
     private ModernUiDemo() {
@@ -72,7 +61,7 @@ public final class ModernUiDemo {
         RenderSettings settings = RenderSettings.builder().vsync(options.vsync()).build();
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(options.width(), options.height())
-                .title("Haikalat Modern UI")
+                .title("Haikalat // Ashen Horizon")
                 // Keep the native window hidden while font/shader/managed-target initialization runs.
                 // Showing it only after the first graph is ready avoids a "frozen" blank window.
                 .visible(false)
@@ -85,8 +74,9 @@ public final class ModernUiDemo {
 
             try (FrameDriver driver = new FrameDriver(settings);
                  RenderGraph graph = createGraph(window);
-                 UiSystem ui = UiSystem.create(window, compactConfig(options))) {
-                Scene scene = Scene.install(ui, options);
+                 UiSystem ui = UiSystem.create(window, ModernGameTheme.config(options.sdf()))) {
+                ModernGameMenuScene scene = ModernGameMenuScene.install(
+                        ui, options, window::requestClose);
                 if (options.compositor()) {
                     ui.attachTo(graph, PRESENT_PASS, UiAttachmentOptions.builder()
                             .enableCompositor(true)
@@ -117,22 +107,6 @@ public final class ModernUiDemo {
         driver.frame(graph);
     }
 
-    private static UiConfig compactConfig(Options options) {
-        Theme baseTheme = Theme.dark();
-        ThemeTokens tokens = baseTheme.tokens();
-        Theme theme = new Theme(new ThemeTokens(tokens.surface(), tokens.surfaceHover(),
-                tokens.surfacePressed(), tokens.accent(), tokens.text(),
-                tokens.disabledText(), tokens.border(), tokens.spacing(),
-                options.sdf() ? 18.0f : 0.0f,
-                tokens.controlHeight(), tokens.fontSize(), UiTextEngine.MONOSPACE_FONT_FAMILY),
-                baseTheme.reducedMotion());
-        return UiConfig.builder()
-                .theme(theme)
-                .primitiveCapacity(256, 8_192)
-                .glyphAtlas(512, 512, 2)
-                .build();
-    }
-
     private static RenderGraph createGraph(GlfwWindow window) {
         RenderGraph graph = new RenderGraph(window.width(), window.height());
         graph.addPass(PRESENT_PASS)
@@ -148,7 +122,8 @@ public final class ModernUiDemo {
     }
 
     private static RunSummary runFrames(GlfwWindow window, FrameDriver driver,
-                                        RenderGraph graph, UiSystem ui, Scene scene,
+                                        RenderGraph graph, UiSystem ui,
+                                        ModernGameMenuScene scene,
                                         Options options) {
         FrameClock clock = new FrameClock();
         int frame = 0;
@@ -169,9 +144,7 @@ public final class ModernUiDemo {
             if (window.consumeResize()) graph.resize(window.width(), window.height());
             WindowInputSnapshot input = window.inputSnapshot();
             float delta = options.deterministic() ? FIXED_DELTA : clock.tick().deltaSeconds();
-            if (options.deterministic() && frame > 0 && frame % 15 == 0) {
-                scene.replay();
-            }
+            if (options.deterministic()) scene.runDeterministicScript(frame);
             ui.update(input, delta);
             if (options.deterministic()
                     && ui.effects().diagnostics().activeEffects() > 3) {
@@ -184,6 +157,10 @@ public final class ModernUiDemo {
             if (options.verifyPixels() && options.frames() > 0
                     && frame + 1 == options.frames()) {
                 nonClearSamples = countNonClearSamples(window.width(), window.height());
+            }
+            if (options.capturePath() != null && options.frames() > 0
+                    && frame + 1 == options.frames()) {
+                captureFrame(window.width(), window.height(), options.capturePath());
             }
             driver.present(window::swapBuffers);
             long frameNanos = System.nanoTime() - frameStartNanos;
@@ -238,9 +215,41 @@ public final class ModernUiDemo {
         return changed;
     }
 
-    private static UiLayerDescription layer(int width, int height) {
-        return UiLayerDescription.builder("modern_header",
-                        new UiScreenRect(24.0, 24.0, Math.max(1.0, width - 48.0), 82.0))
+    private static void captureFrame(int width, int height, String capturePath) {
+        ByteBuffer pixels = BufferUtils.createByteBuffer(Math.multiplyExact(
+                Math.multiplyExact(width, height), 4));
+        glReadBuffer(GL_BACK);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int offset = (y * width + x) * 4;
+                int red = Byte.toUnsignedInt(pixels.get(offset));
+                int green = Byte.toUnsignedInt(pixels.get(offset + 1));
+                int blue = Byte.toUnsignedInt(pixels.get(offset + 2));
+                int alpha = Byte.toUnsignedInt(pixels.get(offset + 3));
+                image.setRGB(x, height - 1 - y,
+                        alpha << 24 | red << 16 | green << 8 | blue);
+            }
+        }
+        Path output = Path.of(capturePath).toAbsolutePath().normalize();
+        try {
+            Path parent = output.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            if (!ImageIO.write(image, "png", output.toFile())) {
+                throw new IllegalStateException("PNG writer is unavailable");
+            }
+        } catch (IOException failure) {
+            throw new IllegalStateException("failed to capture ModernUiDemo to " + output,
+                    failure);
+        }
+    }
+
+    static UiLayerDescription layer(int width, int height) {
+        return UiLayerDescription.builder("game_main_shell",
+                        new UiScreenRect(24.0, 24.0,
+                                Math.max(1.0, width - 48.0),
+                                Math.max(1.0, height - 48.0)))
                 .mask(UiLayerDescription.MaskMode.ROUNDED)
                 .effect(UiLayerDescription.Effect.DROP_SHADOW)
                 .effect(UiLayerDescription.Effect.GLOW)
@@ -276,7 +285,7 @@ public final class ModernUiDemo {
                           int frames, int width, int height, boolean sdf,
                           boolean animation, boolean compositor, boolean backdrop,
                           boolean uiVfx, String effects, boolean reducedMotion,
-                          boolean verifyPixels) {
+                          boolean verifyPixels, String capturePath) {
         public static Options parse(String... arguments) {
             boolean deterministic = false;
             boolean hidden = false;
@@ -292,11 +301,18 @@ public final class ModernUiDemo {
             String effects = "all";
             boolean reducedMotion = false;
             boolean verifyPixels = false;
+            String capturePath = null;
             for (String argument : Objects.requireNonNull(arguments, "arguments")) {
                 if (argument.equals("--deterministic")) deterministic = true;
                 else if (argument.equals("--hidden")) hidden = true;
                 else if (argument.equals("--no-vsync")) vsync = false;
                 else if (argument.equals("--verify-pixels")) verifyPixels = true;
+                else if (argument.startsWith("--capture=")) {
+                    capturePath = argument.substring("--capture=".length());
+                    if (capturePath.isBlank()) {
+                        throw new IllegalArgumentException("--capture path must not be blank");
+                    }
+                }
                 else if (argument.startsWith("--frames=")) frames =
                         positive(argument.substring(9), "--frames");
                 else if (argument.startsWith("--size=")) {
@@ -325,8 +341,12 @@ public final class ModernUiDemo {
             }
             if (hidden && frames < 0) frames = 180;
             if (frames > 0) verifyPixels = verifyPixels || deterministic;
+            if (capturePath != null && frames <= 0) {
+                throw new IllegalArgumentException("--capture requires a positive --frames value");
+            }
             return new Options(deterministic, hidden, vsync, frames, width, height, sdf,
-                    animation, compositor, backdrop, uiVfx, effects, reducedMotion, verifyPixels);
+                    animation, compositor, backdrop, uiVfx, effects, reducedMotion,
+                    verifyPixels, capturePath);
         }
 
         private static int positive(String value, String name) {
@@ -353,7 +373,7 @@ public final class ModernUiDemo {
             };
         }
 
-        private boolean effectEnabled(String name) {
+        boolean effectEnabled(String name) {
             if (effects.equalsIgnoreCase("all")) {
                 return true;
             }
@@ -363,197 +383,6 @@ public final class ModernUiDemo {
                 }
             }
             return false;
-        }
-    }
-
-    private static final class Scene {
-        private final UiSystem ui;
-        private final Options options;
-        private final com.kaleblangley.haikalat.subsystems.ui.widget.Label diagnostics;
-        private final com.kaleblangley.haikalat.subsystems.ui.widget.Button action;
-        private final com.kaleblangley.haikalat.subsystems.ui.widget.Label interactionState;
-        private final Runnable replay;
-        private String previousInteractionState = "";
-
-        private Scene(UiSystem ui, Options options,
-                      com.kaleblangley.haikalat.subsystems.ui.widget.Label diagnostics,
-                      com.kaleblangley.haikalat.subsystems.ui.widget.Button action,
-                      com.kaleblangley.haikalat.subsystems.ui.widget.Label interactionState,
-                      Runnable replay) {
-            this.ui = ui;
-            this.options = options;
-            this.diagnostics = diagnostics;
-            this.action = action;
-            this.interactionState = interactionState;
-            this.replay = replay;
-        }
-
-        private static Scene install(UiSystem ui, Options options) {
-            ui.selectFontFamily(UiTextEngine.MONOSPACE_FONT_FAMILY);
-            var document = ui.document();
-            var root = document.root();
-            root.style(UiStyle.builder().width(UiLength.percent(100.0f))
-                    .height(UiLength.percent(100.0f)).padding(UiInsets.points(24.0f))
-                    .flexDirection(UiStyle.FlexDirection.COLUMN).gap(14.0f).build());
-
-            var header = new com.kaleblangley.haikalat.subsystems.ui.widget.Panel();
-            header.debugName("ModernHeader");
-            header.style(UiStyle.builder().width(UiLength.percent(100.0f))
-                    .height(UiLength.points(82.0f)).padding(UiInsets.points(14.0f))
-                    .flexDirection(UiStyle.FlexDirection.COLUMN).gap(4.0f).build());
-            header.layerDescription(layer(options.width(), options.height()));
-            var title = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "0.19 Modern UI / 现代界面");
-            title.style(UiStyle.builder().height(UiLength.points(28.0f)).build());
-            var subtitle = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "SDF · Transform · Timeline · Compositor · Screen-space VFX");
-            header.add(title).add(subtitle);
-
-            var body = new com.kaleblangley.haikalat.subsystems.ui.widget.Panel();
-            body.style(UiStyle.builder().width(UiLength.percent(100.0f)).flexGrow(1.0f)
-                    .flexDirection(UiStyle.FlexDirection.ROW).gap(14.0f).build());
-            var card = new com.kaleblangley.haikalat.subsystems.ui.widget.Panel();
-            card.debugName("ModernCard");
-            card.style(UiStyle.builder().width(UiLength.percent(62.0f)).height(UiLength.percent(100.0f))
-                    .padding(UiInsets.points(18.0f)).flexDirection(UiStyle.FlexDirection.COLUMN)
-                    .gap(10.0f).build());
-            var cardTitle = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "Analytic surfaces / 动态卡片");
-            cardTitle.style(UiStyle.builder().height(UiLength.points(30.0f)).build());
-            var cardText = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "Hover or click the action button to emit a ripple and reward effect.");
-            cardText.style(UiStyle.builder().flexGrow(1.0f).build());
-            var action = new com.kaleblangley.haikalat.subsystems.ui.widget.Button(
-                    "Play transition / 播放过渡");
-            action.debugName("ModernAction");
-            action.style(UiStyle.builder().width(UiLength.percent(100.0f))
-                    .height(UiLength.points(42.0f)).build());
-            card.add(cardTitle).add(cardText).add(action);
-
-            var side = new com.kaleblangley.haikalat.subsystems.ui.widget.Panel();
-            side.style(UiStyle.builder().flexGrow(1.0f).height(UiLength.percent(100.0f))
-                    .padding(UiInsets.points(14.0f)).flexDirection(UiStyle.FlexDirection.COLUMN)
-                    .gap(8.0f).build());
-            side.add(new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "Interaction state / 交互状态"));
-            var interactionState = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "CURRENT · NORMAL  |  hover=0  pressed=0  focused=0");
-            interactionState.style(UiStyle.builder().height(UiLength.points(30.0f)).build());
-            side.add(interactionState);
-            body.add(card).add(side);
-
-            var diagnostics = new com.kaleblangley.haikalat.subsystems.ui.widget.Label(
-                    "ModernUiDemo starting…");
-            diagnostics.debugName("ModernDiagnostics");
-            diagnostics.style(UiStyle.builder().width(UiLength.percent(100.0f))
-                    .height(UiLength.points(24.0f)).build());
-            root.add(header).add(body).add(diagnostics);
-
-            ui.timeline().reducedMotion(options.reducedMotion());
-            ui.effects().reducedMotion(options.reducedMotion())
-                    .register(header).register(card).register(action);
-            boolean shimmerEnabled = options.uiVfx() && options.effectEnabled("shimmer");
-            boolean rippleEnabled = options.uiVfx() && options.effectEnabled("ripple");
-            boolean confettiEnabled = options.uiVfx() && options.effectEnabled("confetti");
-            UiAnimationSequence transition = transition(card, options.sdf() ? 18.0 : 0.0);
-            long[] transitionSequence = {0L};
-            if (options.animation()) {
-                if (shimmerEnabled) {
-                    ui.effects().bind(UiAnimationSignal.Type.START, "",
-                            effect(UiEffectDefinition.Type.SHIMMER, 0x5348494d4d45524cL));
-                }
-                if (confettiEnabled) {
-                    ui.effects().bindMarker("reward",
-                            effect(UiEffectDefinition.Type.CONFETTI, 0x434f4e4645545449L));
-                }
-                transitionSequence[0] = ui.timeline().play(transition);
-            }
-            long[] effectSequence = {1L};
-            if (rippleEnabled) {
-                long initialSequence = transitionSequence[0] > 0L
-                        ? transitionSequence[0] : effectSequence[0];
-                ui.effects().start(effect(UiEffectDefinition.Type.RIPPLE, 0x524950504c45L),
-                        action, initialSequence);
-            }
-            Runnable replay = () -> {
-                long next;
-                if (options.animation()) {
-                    if (transitionSequence[0] > 0L) {
-                        ui.timeline().cancel(transitionSequence[0]);
-                    }
-                    transitionSequence[0] = ui.timeline().play(transition);
-                    next = transitionSequence[0];
-                } else {
-                    next = ++effectSequence[0];
-                }
-                if (rippleEnabled) {
-                    ui.effects().start(effect(UiEffectDefinition.Type.RIPPLE, next),
-                            action, next);
-                }
-                if (!options.animation() && confettiEnabled) {
-                    ui.effects().start(effect(UiEffectDefinition.Type.CONFETTI, next),
-                            card, next);
-                }
-            };
-            action.onClick(replay);
-            return new Scene(ui, options, diagnostics, action, interactionState, replay);
-        }
-
-        private static UiAnimationSequence transition(
-                com.kaleblangley.haikalat.subsystems.ui.UiNode target, double baseRadius) {
-            double peakRadius = baseRadius > 0.0 ? baseRadius + 12.0 : 0.0;
-            return UiAnimationSequence.builder()
-                    .then(target, 0.32f, UiEasing.EASE_OUT_CUBIC,
-                            List.of(new UiAnimationTrigger(0.55f, "reward")),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.TRANSLATION_Y, 0.0, -10.0),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.SCALE_X, 1.0, 1.025),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.SCALE_Y, 1.0, 1.025),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.RADIUS,
-                                    baseRadius, peakRadius))
-                    .then(target, 0.52f, UiEasing.EASE_IN_OUT_CUBIC,
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.TRANSLATION_Y, -10.0, 0.0),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.SCALE_X, 1.025, 1.0),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.SCALE_Y, 1.025, 1.0),
-                            UiPropertyTrack.numeric(UiPropertyTrack.Property.RADIUS,
-                                    peakRadius, baseRadius))
-                    .build();
-        }
-
-        private static UiEffectDefinition effect(UiEffectDefinition.Type type, long seed) {
-            var builder = UiEffectDefinition.builder(type)
-                    .duration(type == UiEffectDefinition.Type.CONFETTI ? 1.6f : 1.0f)
-                    .particleLifetime(type == UiEffectDefinition.Type.CONFETTI ? 1.6f : 1.0f)
-                    .seed(seed)
-                    .colors(UiColor.fromSrgbHex(0x7dd3fcff), UiColor.TRANSPARENT);
-            if (type == UiEffectDefinition.Type.CONFETTI) builder.maximumParticles(48);
-            return builder.build();
-        }
-
-        private void update(UiFrameStats stats, boolean updateStatistics) {
-            String state = action.pressed() ? "PRESSED"
-                    : action.hovered() ? "HOVERED"
-                    : action.focused() ? "FOCUSED" : "NORMAL";
-            if (!state.equals(previousInteractionState)) {
-                previousInteractionState = state;
-                interactionState.text("CURRENT · " + state
-                        + "  |  hover=" + (action.hovered() ? "1" : "0")
-                        + "  pressed=" + (action.pressed() ? "1" : "0")
-                        + "  focused=" + (action.focused() ? "1" : "0"));
-            }
-            if (updateStatistics) {
-                diagnostics.text(String.format(Locale.ROOT,
-                        "nodes=%d  quads=%d  batches=%d  effects=%s",
-                        stats.visibleNodes(), stats.quads(), stats.batches(), effectSummary()));
-            }
-        }
-
-        private void replay() {
-            replay.run();
-        }
-
-        private String effectSummary() {
-            if (!options.uiVfx()) return "off";
-            return ui.effects().diagnostics().activeEffects() + " active";
         }
     }
 

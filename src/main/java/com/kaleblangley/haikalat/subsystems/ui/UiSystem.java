@@ -16,7 +16,6 @@ import com.kaleblangley.haikalat.subsystems.ui.render.UiPainter;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderSnapshot;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderer;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiSnapshotExchange;
-import com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStylePass;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphAtlasStatistics;
 import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
@@ -97,7 +96,7 @@ public final class UiSystem implements AutoCloseable {
         animations = new UiAnimationSystem(document);
         timeline = new UiTimeline(document);
         effects = new UiEffectBridge(document);
-        stylePass = new UiStylePass(StyleResolver.defaults(config.theme()));
+        stylePass = new UiStylePass(config.styleResolver());
         displayList = new UiDisplayList(config.initialPrimitiveCapacity(),
                 config.initialPrimitiveCapacity());
         snapshotPublisher = new UiSnapshotPublisher(config.snapshotSlots());

@@ -5,6 +5,21 @@
 - 简单资源继续使用 `play(...)`、`playCombined(...)` 和 `update(...)`。
 - 角色与战斗动画通过 `attachAnimationGraph(...)` 接入 `AnimationController`。
 
+## 直接动画平滑过渡
+
+不需要完整状态机时，`transitionTo(...)` 会在代码中从当前可见姿势生成过渡，混合所有骨骼的
+translation、rotation 与 scale。默认过渡为 `0.18` 秒 ease-in-out，也可以显式传入时长：
+
+```java
+instance.play(idleIndex, AnimationPlayer.LoopMode.LOOP);
+instance.transitionTo("move", AnimationPlayer.LoopMode.LOOP);        // 默认 0.18s
+instance.transitionTo(attackIndex, AnimationPlayer.LoopMode.ONCE, 0.12f);
+```
+
+过渡过程中再次调用 `transitionTo(...)` 会从当时已经混合出的屏幕姿势继续，不会跳回前一个
+clip。由 Graph Controller 切回直接播放时也可以使用同一接口平滑衔接。`play(...)` 仍保留
+立即切换语义，供需要精确瞬切的调用使用。
+
 ## 接入状态机
 
 Graph 必须使用实例暴露的同一个 skeleton 和 clip：

@@ -1,0 +1,291 @@
+{
+  "schema": "haikalat.animation-clip/1",
+  "name": "idle_sword",
+  "duration": 1,
+  "loop": "loop",
+  "fps": 24,
+  "tracks": [
+    {
+      "node": "torso",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "time": 0.041667,
+          "value": [
+            0.000429,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "time": 0.083333,
+          "value": [
+            0.001616,
+            0,
+            0,
+            0.999999
+          ]
+        },
+        {
+          "time": 0.125,
+          "value": [
+            0.003409,
+            0,
+            0,
+            0.999994
+          ]
+        },
+        {
+          "time": 0.208333,
+          "value": [
+            0.008206,
+            0,
+            0,
+            0.999966
+          ]
+        },
+        {
+          "time": 0.291667,
+          "value": [
+            0.01361,
+            0,
+            0,
+            0.999907
+          ]
+        },
+        {
+          "time": 0.333333,
+          "value": [
+            0.01616,
+            0,
+            0,
+            0.999869
+          ]
+        },
+        {
+          "time": 0.375,
+          "value": [
+            0.018407,
+            0,
+            0,
+            0.999831
+          ]
+        },
+        {
+          "time": 0.416667,
+          "value": [
+            0.020199,
+            0,
+            0,
+            0.999796
+          ]
+        },
+        {
+          "time": 0.5,
+          "value": [
+            0.021815,
+            0,
+            0,
+            0.999762
+          ]
+        },
+        {
+          "time": 0.583333,
+          "value": [
+            0.020199,
+            0,
+            0,
+            0.999796
+          ]
+        },
+        {
+          "time": 0.666667,
+          "value": [
+            0.01616,
+            0,
+            0,
+            0.999869
+          ]
+        },
+        {
+          "time": 0.75,
+          "value": [
+            0.010908,
+            0,
+            0,
+            0.999941
+          ]
+        },
+        {
+          "time": 0.833333,
+          "value": [
+            0.005656,
+            0,
+            0,
+            0.999984
+          ]
+        },
+        {
+          "time": 0.916667,
+          "value": [
+            0.001616,
+            0,
+            0,
+            0.999999
+          ]
+        },
+        {
+          "time": 1,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "node": "chest",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "time": 0.5,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "time": 1,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_leg",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.979852,
+            -0.042781,
+            -0.194904,
+            -0.008509
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_leg",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.99311,
+            0.04336,
+            0.108764,
+            -0.004748
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_arm",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.992404,
+            0.007596,
+            -0.086824,
+            -0.086824
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_arm",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.976296,
+            0,
+            0,
+            0.21644
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_hand",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0.001901,
+            0.087135,
+            -0.021732,
+            0.995958
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_hand",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            -0.152123,
+            0.988362
+          ]
+        }
+      ]
+    }
+  ],
+  "events": []
+}

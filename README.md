@@ -159,6 +159,8 @@ Run the interactive Bloom scene or the formal five-round post-v0.8 benchmark sui
 
 The documentation index is available at [`docs/README.md`](docs/README.md).
 
+New contributors can start with the [Chinese newcomer guide](docs/guides/newcomer-guide.md), which walks through the window loop, core rendering APIs, and runnable code examples.
+
 ## Run Demos
 
 Import the Gradle project in your IDE, then run the demo `main` method directly from

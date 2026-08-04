@@ -27,7 +27,7 @@ tasks.register('runUiDemo', JavaExec) {
 
 tasks.register('runModernUiDemo', JavaExec) {
     group = 'application'
-    description = 'Runs the v0.19 modern SDF, animation, compositor and UI-VFX showcase.'
+    description = 'Runs the standalone modern game main menu and UI feature showcase.'
     dependsOn demoClasses
     classpath = sourceSets.demo.runtimeClasspath
     mainClass = modernUiDemoMainClass
@@ -51,7 +51,7 @@ tasks.register('runModernUiDemo', JavaExec) {
 
 tasks.register('runModernUiIntegration', JavaExec) {
     group = 'verification'
-    description = 'Runs ModernUiDemo hidden with deterministic SDF, layer and VFX pixel proof.'
+    description = 'Runs the modern game menu with deterministic interaction and pixel proof.'
     dependsOn demoClasses
     classpath = sourceSets.demo.runtimeClasspath
     mainClass = modernUiDemoMainClass
@@ -59,7 +59,7 @@ tasks.register('runModernUiIntegration', JavaExec) {
         languageVersion = JavaLanguageVersion.of(21)
     }
     workingDir = projectDir
-    args '--deterministic', '--frames=60', '--size=800x520',
+    args '--deterministic', '--frames=90', '--size=1280x720',
             '--compositor=on', '--backdrop=off', '--ui-vfx=on'
     mustRunAfter 'runUiResizeIntegration'
 }

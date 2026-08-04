@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.ui;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
+import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiTweenSpec;
@@ -23,6 +24,32 @@ class UiSystemTest {
     void configUsesDoubleBufferForSyncAndTripleBufferForAsync() {
         assertEquals(2, UiConfig.defaults().snapshotSlots());
         assertEquals(3, UiConfig.builder().asynchronousSnapshots(true).build().snapshotSlots());
+    }
+
+    @Test
+    void configuredResolverReceivesNodeStyleClasses() {
+        UiColor hot = UiColor.fromSrgbHex(0x36e4daff);
+        var fallback = com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver.defaults(
+                com.kaleblangley.haikalat.subsystems.ui.style.Theme.dark());
+        UiConfig config = UiConfig.builder().styleResolver((widget, classes, states, inherited) -> {
+            var resolved = fallback.resolve(widget, classes, states, inherited);
+            if (!classes.contains("hot")) return resolved;
+            return new com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle(
+                    hot, resolved.foreground(), resolved.borderColor(), resolved.borderWidth(),
+                    resolved.radius(), resolved.opacity(), resolved.fontSize(),
+                    resolved.fontFamily());
+        }).build();
+        try (UiSystem ui = UiSystem.create(new FixedWindow(320, 180), config)) {
+            Button button = new Button("Styled");
+            button.addStyleClass("hot");
+            ui.document().root().add(button);
+
+            ui.update(collector(320, 180, 320, 180).snapshot(), 1.0f / 60.0f);
+
+            assertEquals(hot, button.computedStyle().background());
+            assertEquals(java.util.Set.of("hot"), button.styleClasses());
+            assertThrows(IllegalArgumentException.class, () -> button.addStyleClass("two words"));
+        }
     }
 
     @Test

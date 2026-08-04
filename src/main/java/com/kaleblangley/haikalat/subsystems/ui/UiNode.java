@@ -14,6 +14,7 @@ import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiLayerDescription;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -27,6 +28,7 @@ public abstract class UiNode implements AutoCloseable {
     private final UiTreeLinks tree = new UiTreeLinks(this);
     private final UiDirtyState dirty = new UiDirtyState();
     private final UiEventRegistry events = new UiEventRegistry();
+    private final LinkedHashSet<String> styleClasses = new LinkedHashSet<>();
     private UiStyle style = UiStyle.defaults();
     private ComputedStyle computedStyle = defaultComputedStyle();
     private LayoutBox layoutBox = LayoutBox.EMPTY;
@@ -93,6 +95,31 @@ public abstract class UiNode implements AutoCloseable {
 
     public final UiStyle style() {
         return style;
+    }
+
+    /** Returns the immutable style-class set consumed by the configured StyleResolver. */
+    public final Set<String> styleClasses() {
+        return Set.copyOf(styleClasses);
+    }
+
+    /** Adds one non-blank style class and invalidates only style and paint state. */
+    public final UiNode addStyleClass(String value) {
+        ensureOpen();
+        String styleClass = requireStyleClass(value);
+        if (styleClasses.add(styleClass)) {
+            markDirty(UiDirtyFlag.STYLE, UiDirtyFlag.PAINT);
+        }
+        return this;
+    }
+
+    /** Removes one style class when present. */
+    public final UiNode removeStyleClass(String value) {
+        ensureOpen();
+        String styleClass = requireStyleClass(value);
+        if (styleClasses.remove(styleClass)) {
+            markDirty(UiDirtyFlag.STYLE, UiDirtyFlag.PAINT);
+        }
+        return this;
     }
 
     public final UiNode style(UiStyle value) {
@@ -416,6 +443,15 @@ public abstract class UiNode implements AutoCloseable {
     private static ComputedStyle defaultComputedStyle() {
         return com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver
                 .defaults(Theme.dark()).resolve("Node", Set.of(), Set.of(), null);
+    }
+
+    private static String requireStyleClass(String value) {
+        String result = Objects.requireNonNull(value, "styleClass").trim();
+        if (result.isEmpty() || result.codePoints().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException(
+                    "styleClass must be non-blank and contain no whitespace");
+        }
+        return result;
     }
 
     private double requireAnimationScalar(double value, String name) {

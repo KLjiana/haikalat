@@ -9,7 +9,6 @@ import com.kaleblangley.haikalat.subsystems.ui.widget.Toggle;
 
 import java.util.EnumSet;
 import java.util.Objects;
-import java.util.Set;
 
 /** 按控件状态解析 typed theme，并只让实际字段差异触发节点失效。 */
 public final class UiStylePass {
@@ -49,7 +48,7 @@ public final class UiStylePass {
             if (node instanceof Toggle toggle && toggle.value()) states.add(StyleResolver.PseudoState.CHECKED);
             if (node instanceof Slider slider && slider.dragging()) states.add(StyleResolver.PseudoState.PRESSED);
 
-            resolved = resolver.resolve(node.widgetType(), Set.of(), states, inherited);
+            resolved = resolver.resolve(node.widgetType(), node.styleClasses(), states, inherited);
             if (root) {
                 resolved = new ComputedStyle(UiColor.TRANSPARENT, resolved.foreground(),
                         UiColor.TRANSPARENT, 0.0f, 0.0f, resolved.opacity(),

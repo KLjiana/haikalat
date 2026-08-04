@@ -48,9 +48,9 @@ class GltfArchitectureTest {
     void decodeStagesRemainPackagePrivateBehindTheFacade() throws IOException {
         for (String stage : Set.of("GltfDocumentReader", "GltfUriResolver", "GltfBufferTable",
                 "GltfAccessorDecoder", "GltfMaterialDecoder", "GltfNodeDecoder",
-                "GltfMeshCanonicalizer", "GltfAnimationArchiveResolver",
-                "GltfAnimationLibraryImporter", "GltfExternalAnimationDecoder",
-                "GltfDocumentValidator")) {
+                 "GltfMeshCanonicalizer", "GltfAnimationArchiveResolver",
+                 "GltfAnimationLibraryImporter", "GltfExternalAnimationDecoder",
+                 "HaikalatAnimationClipDecoder", "GltfDocumentValidator")) {
             Path sourceFile = CORE.resolve(stage + ".java");
             assertTrue(Files.isRegularFile(sourceFile), "missing glTF decode stage: " + stage);
             String source = Files.readString(sourceFile);

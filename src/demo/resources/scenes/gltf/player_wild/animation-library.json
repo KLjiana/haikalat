@@ -7,66 +7,44 @@
   "nodeBinding": "name",
   "animations": [
     {
-      "name": "animation",
-      "file": "animations/animation.animation.gltf.json",
-      "selfContained": true,
-      "nodeBindings": [
-        {
-          "sidecarNode": 0,
-          "sourceNode": 19,
-          "name": "torso"
-        },
-        {
-          "sidecarNode": 1,
-          "sourceNode": 18,
-          "name": "chest"
-        },
-        {
-          "sidecarNode": 2,
-          "sourceNode": 13,
-          "name": "head"
-        },
-        {
-          "sidecarNode": 3,
-          "sourceNode": 21,
-          "name": "right_leg"
-        },
-        {
-          "sidecarNode": 4,
-          "sourceNode": 23,
-          "name": "left_leg"
-        },
-        {
-          "sidecarNode": 5,
-          "sourceNode": 20,
-          "name": "right_shin"
-        },
-        {
-          "sidecarNode": 6,
-          "sourceNode": 22,
-          "name": "left_shin"
-        },
-        {
-          "sidecarNode": 7,
-          "sourceNode": 15,
-          "name": "right_arm"
-        },
-        {
-          "sidecarNode": 8,
-          "sourceNode": 17,
-          "name": "left_arm"
-        },
-        {
-          "sidecarNode": 9,
-          "sourceNode": 14,
-          "name": "right_hand"
-        },
-        {
-          "sidecarNode": 10,
-          "sourceNode": 16,
-          "name": "left_hand"
-        }
-      ]
+      "name": "stand",
+      "file": "animations/idle_default.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "move",
+      "file": "animations/move_default.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "run",
+      "file": "animations/run_default.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "idle_sword",
+      "file": "animations/idle_sword.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "attack_light",
+      "file": "animations/attack_light.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "start",
+      "file": "animations/start_dash.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "idle_dash",
+      "file": "animations/idle_dash.animation.json",
+      "selfContained": true
+    },
+    {
+      "name": "end",
+      "file": "animations/end_dash.animation.json",
+      "selfContained": true
     }
   ]
 }

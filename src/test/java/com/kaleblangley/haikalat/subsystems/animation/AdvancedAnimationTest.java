@@ -209,6 +209,25 @@ class AdvancedAnimationTest {
     }
 
     @Test
+    void mixerCanGenerateTransitionFromAnExternalSampledPose() {
+        Skeleton skeleton = oneJointSkeleton();
+        AnimationClip stale = constantTranslation("stale", skeleton, -10.0f);
+        AnimationClip target = constantTranslation("target", skeleton, 10.0f);
+        PoseBuffer externalPose = skeleton.createPoseBuffer()
+                .setTranslation(0, new Vector3f(2.0f, 0.0f, 0.0f));
+        PoseBuffer result = skeleton.createPoseBuffer();
+        AnimationMixer mixer = new AnimationMixer(skeleton).playBase(stale, LOOP);
+
+        mixer.transitionBaseFromPose(externalPose, target, LOOP, 2.0f, Curves.LINEAR)
+                .update(0.0f, result);
+        assertEquals(2.0f, result.localTransform(0).translation().x(), EPSILON);
+
+        externalPose.setTranslation(0, new Vector3f(99.0f, 0.0f, 0.0f));
+        mixer.update(1.0f, result);
+        assertEquals(6.0f, result.localTransform(0).translation().x(), EPSILON);
+    }
+
+    @Test
     void crossFadePublishesOnlyIncomingEventsAndBlendsRootMotion() {
         Skeleton skeleton = oneJointSkeleton();
         AnimationClip outgoing = AnimationClip.builder("outgoing", skeleton)

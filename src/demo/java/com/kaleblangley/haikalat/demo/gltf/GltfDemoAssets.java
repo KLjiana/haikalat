@@ -25,6 +25,7 @@ final class GltfDemoAssets implements AutoCloseable {
     private static final float CROUCH_WALK_TIME_SCALE = 0.35f;
     private static final float PLAYER_SLIE_TIME_SCALE = 0.75f;
     private static final float PLAYER_WILD_TIME_SCALE = 0.65f;
+    private static final float PLAYER_WILD_TRANSITION_SECONDS = 0.22f;
 
     private final GltfRuntimeLibrary library;
     private final List<GltfSceneAsset> assets;
@@ -33,12 +34,14 @@ final class GltfDemoAssets implements AutoCloseable {
     private final List<String> inspectionLines;
     private final AnimationProbe animationProbe;
     private final float animationTimeScale;
+    private final AnimationPlaylist animationPlaylist;
     private boolean closed;
 
     private GltfDemoAssets(GltfRuntimeLibrary library, List<GltfSceneAsset> assets,
                            List<GltfSceneInstance> animatedInstances,
                            List<SceneObject> objects, List<String> inspectionLines,
-                           AnimationProbe animationProbe, float animationTimeScale) {
+                           AnimationProbe animationProbe, float animationTimeScale,
+                           AnimationPlaylist animationPlaylist) {
         this.library = library;
         this.assets = List.copyOf(assets);
         this.animatedInstances = List.copyOf(animatedInstances);
@@ -46,6 +49,7 @@ final class GltfDemoAssets implements AutoCloseable {
         this.inspectionLines = List.copyOf(inspectionLines);
         this.animationProbe = animationProbe;
         this.animationTimeScale = animationTimeScale;
+        this.animationPlaylist = animationPlaylist;
     }
 
     static GltfDemoAssets load(GltfDemo.Asset assetMode) {
@@ -59,6 +63,7 @@ final class GltfDemoAssets implements AutoCloseable {
         try {
             AnimationProbe probe;
             float timeScale;
+            AnimationPlaylist playlist = null;
             if (assetMode == GltfDemo.Asset.CROUCH_WALK) {
                 LoadedGltfScene crouchWalk = loader.loadWithSidecar(
                         AssetRef.of("/scenes/gltf/crouch_walk.glb"),
@@ -119,18 +124,24 @@ final class GltfDemoAssets implements AutoCloseable {
                 assets.add(playerWildGpu);
                 GltfSceneInstance playerWildInstance = playerWildGpu.instantiateAnimated(
                         new Matrix4f().translation(0.0f, -1.0f, 0.0f).scale(2.0f), false);
-                int animation = playerWildInstance.animationNames().indexOf("animation");
-                if (animation < 0) {
-                    throw new IllegalStateException(
-                            "player_wild animation library has no animation clip");
-                }
-                playerWildInstance.play(animation, AnimationPlayer.LoopMode.LOOP);
+                playlist = AnimationPlaylist.create(playerWildInstance, List.of(
+                        new PlaylistClip("stand", AnimationPlayer.LoopMode.LOOP, 2.5f),
+                        new PlaylistClip("move", AnimationPlayer.LoopMode.LOOP, 2.5f),
+                        new PlaylistClip("run", AnimationPlayer.LoopMode.LOOP, 2.5f),
+                        new PlaylistClip("idle_sword", AnimationPlayer.LoopMode.LOOP, 2.0f),
+                        new PlaylistClip("attack_light", AnimationPlayer.LoopMode.ONCE, 1.5f),
+                        new PlaylistClip("start", AnimationPlayer.LoopMode.ONCE, 1.0f),
+                        new PlaylistClip("idle_dash", AnimationPlayer.LoopMode.ONCE, 1.0f),
+                        new PlaylistClip("end", AnimationPlayer.LoopMode.ONCE, 1.0f)));
                 animatedInstances.add(playerWildInstance);
                 objects.addAll(playerWildInstance.objects());
                 appendInspection(lines, "player_wild animation library",
                         playerWild, playerWildGpu, true);
-                lines.add("  external animation | animation | 1.708s | 11 channels | 0.65x");
-                probe = new AnimationProbe(playerWildInstance, 21);
+                lines.add("  compact external clips | stand, move, run, idle_sword, "
+                        + "attack_light, start, idle_dash, end | 0.65x playlist");
+                lines.add("  generated transitions | 0.22s pose cross-fade");
+                lines.add("  texture | steve.png | nearest sampling");
+                probe = new AnimationProbe(playerWildInstance, 2);
                 timeScale = PLAYER_WILD_TIME_SCALE;
             } else {
                 LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
@@ -170,7 +181,7 @@ final class GltfDemoAssets implements AutoCloseable {
                 timeScale = 1.0f;
             }
             return new GltfDemoAssets(library, assets, animatedInstances, objects, lines,
-                    probe, timeScale);
+                    probe, timeScale, playlist);
         } catch (RuntimeException failure) {
             RuntimeException primary = closeInstances(animatedInstances, failure);
             primary = closeAssets(assets, primary);
@@ -203,7 +214,9 @@ final class GltfDemoAssets implements AutoCloseable {
 
     void update(float deltaSeconds) {
         ensureOpen();
-        animatedInstances.forEach(instance -> instance.update(deltaSeconds * animationTimeScale));
+        float animationDelta = deltaSeconds * animationTimeScale;
+        if (animationPlaylist != null) animationPlaylist.update(animationDelta);
+        animatedInstances.forEach(instance -> instance.update(animationDelta));
     }
 
     float animationMotion() {
@@ -339,5 +352,71 @@ final class GltfDemoAssets implements AutoCloseable {
                     + Math.abs(current.m31() - initial.m31())
                     + Math.abs(current.m32() - initial.m32());
         }
+    }
+
+    private record PlaylistClip(String name, AnimationPlayer.LoopMode loopMode,
+                                float displaySeconds) {
+        private PlaylistClip {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("playlist clip name must not be blank");
+            }
+            if (!Float.isFinite(displaySeconds) || displaySeconds <= 0.0f) {
+                throw new IllegalArgumentException("playlist displaySeconds must be positive");
+            }
+        }
+    }
+
+    private static final class AnimationPlaylist {
+        private final GltfSceneInstance instance;
+        private final List<ResolvedPlaylistClip> clips;
+        private int current;
+        private float elapsedSeconds;
+
+        private AnimationPlaylist(GltfSceneInstance instance,
+                                  List<ResolvedPlaylistClip> clips) {
+            this.instance = instance;
+            this.clips = List.copyOf(clips);
+            playCurrent(false);
+        }
+
+        private static AnimationPlaylist create(GltfSceneInstance instance,
+                                                List<PlaylistClip> clips) {
+            List<String> names = instance.animationNames();
+            List<ResolvedPlaylistClip> resolved = new ArrayList<>(clips.size());
+            for (PlaylistClip clip : clips) {
+                int index = names.indexOf(clip.name());
+                if (index < 0) {
+                    throw new IllegalStateException(
+                            "player_wild animation library has no '" + clip.name() + "' clip");
+                }
+                resolved.add(new ResolvedPlaylistClip(index, clip.loopMode(),
+                        clip.displaySeconds()));
+            }
+            return new AnimationPlaylist(instance, resolved);
+        }
+
+        private void update(float deltaSeconds) {
+            elapsedSeconds += deltaSeconds;
+            while (elapsedSeconds >= clips.get(current).displaySeconds()) {
+                elapsedSeconds -= clips.get(current).displaySeconds();
+                current = (current + 1) % clips.size();
+                playCurrent(true);
+            }
+        }
+
+        private void playCurrent(boolean transition) {
+            ResolvedPlaylistClip clip = clips.get(current);
+            if (transition) {
+                instance.transitionTo(clip.animationIndex(), clip.loopMode(),
+                        PLAYER_WILD_TRANSITION_SECONDS);
+            } else {
+                instance.play(clip.animationIndex(), clip.loopMode());
+            }
+        }
+    }
+
+    private record ResolvedPlaylistClip(int animationIndex,
+                                        AnimationPlayer.LoopMode loopMode,
+                                        float displaySeconds) {
     }
 }

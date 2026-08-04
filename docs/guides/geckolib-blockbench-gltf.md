@@ -67,7 +67,8 @@ player.gltf-animations.zip
 │   └── player.gltf
 └── animations/
     ├── idle.animation.gltf.json
-    └── attack.animation.gltf.json
+    ├── attack.animation.gltf.json
+    └── move.animation.json
 ```
 
 ZIP 可以直接按需读取，不会先整体解压到临时目录：
@@ -92,6 +93,12 @@ LoadedGltfScene scene = loader.loadAnimationLibrary(
 `GltfAnimationRig.from(scene)`、`GltfSceneAsset.upload(...)` 与
 `GltfSceneInstance.play(...)` 无需使用另一套 API。
 
+外部动画也可以使用 `haikalat.animation-clip/1` 紧凑 JSON。该格式直接保存节点名、
+translation / rotation / scale / weights 轨道、关键帧和 events，不需要 glTF accessor 或
+base64 buffer。清单项省略 `nodeBindings` 时，加载器会按精确且唯一的模型节点名绑定；节点缺失、
+重名、重复目标、越界时间和非法四元数都会在 CPU 解码阶段失败。普通
+`.animation.gltf.json` 仍要求显式 `sidecarNode` / `sourceNode` 绑定。
+
 序列化场景也可以直接把它作为 `gltf` renderable；异步场景服务会把清单、主模型和每个外部
 动画 sidecar 都登记为热重载依赖：
 
@@ -104,15 +111,18 @@ LoadedGltfScene scene = loader.loadAnimationLibrary(
 }
 ```
 
-`selfContained: true` 要求动画 JSON 的 buffer 使用 data URI；设为 `false` 时也允许 sidecar
-引用资源库内的相对 buffer 文件。目录与 ZIP 两种入口都会拒绝绝对 URI、根目录逃逸、ZIP
-重复条目和超出 `GltfAssetLimits` 的输入。
+对于 animation-only glTF，`selfContained: true` 要求 buffer 使用 data URI；设为 `false` 时
+也允许 sidecar 引用资源库内的相对 buffer 文件。紧凑 clip JSON 不含外部 buffer，因此可直接
+标记为 `selfContained: true`。目录与 ZIP 两种入口都会拒绝绝对 URI、根目录逃逸、ZIP 重复
+条目和超出 `GltfAssetLimits` 的输入。
 
-`player_wild.gltf-animations.zip` 已作为真实导出物验证：25 个模型节点、1 个 skin，以及
-重映射后的 1 个 animation / 11 条 rotation channel 均可转换为运行时 clip。
+当前 `player_wild` 真实资产包含 12 个模型节点、1 个 skin、`steve.png` 像素纹理，以及
+8 个紧凑外部 clip（`stand`、`move`、`run`、`idle_sword`、`attack_light`、`start`、
+`idle_dash`、`end`），合计 98 条 TRS channel，均可转换为运行时 clip。
 
-仓库内的解包副本可由专用 Demo 直接加载。Demo 循环播放外部 `animation` clip，并以
-`0.65x` 速度展示，便于观察动作：
+仓库内的解包副本可由专用 Demo 直接加载。Demo 以 `0.65x` 速度按顺序展示全部 8 个 clip，
+每次切换使用运行时生成的 `0.22` 秒姿势过渡；循环动画保持循环，攻击与 dash 阶段在末帧
+停留后切换：
 
 ```powershell
 .\gradlew.bat runPlayerWildDemo
@@ -137,7 +147,8 @@ pivot 节点，并把对应网格作为子节点。`GltfSceneInstance` 原本就
 - `run` 默认循环播放。
 - 原 GeckoLib `.animation.json` 中的 Molang、声音、粒子、timeline 和自定义 easing 不会由
   glTF 运行时重新解释；当前资产由 Blockbench 导出为标准 `LINEAR` channel。
-- `haikalat.gltf-animation-library/1` 的 `.animation.gltf.json` 已支持；它与 GeckoLib 原始
-  `.animation.json` 不是同一种格式。
+- `haikalat.gltf-animation-library/1` 同时支持 `.animation.gltf.json` 和带
+  `haikalat.animation-clip/1` schema 的紧凑 `.animation.json`；后者仍不是 GeckoLib 原始
+  Molang 动画格式。
 - 若需要完全复刻 GeckoLib easing 或事件，应在导出阶段烘焙采样；不应把
   GeckoLib/Minecraft 运行时耦合进渲染核心。

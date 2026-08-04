@@ -96,6 +96,36 @@ public final class AnimationMixer {
         return this;
     }
 
+    /**
+     * Cross-fades from an explicitly sampled pose to an incoming base clip.
+     *
+     * <p>The source pose is copied and frozen, so callers can bridge from another animation
+     * system without constructing a temporary clip. A zero duration keeps the immediate
+     * semantics of {@link #playBase(AnimationClip, AnimationPlayer.LoopMode)}.</p>
+     */
+    public AnimationMixer transitionBaseFromPose(PoseBuffer sourcePose, AnimationClip clip,
+                                                   AnimationPlayer.LoopMode loopMode,
+                                                   float durationSeconds, Curve1f curve) {
+        PoseBuffer source = Objects.requireNonNull(sourcePose, "sourcePose");
+        requireDestination(source);
+        AnimationClip next = requireClip(clip);
+        AnimationPlayer.LoopMode nextLoop = Objects.requireNonNull(loopMode, "loopMode");
+        Curve1f easing = Objects.requireNonNull(curve, "curve");
+        requireFiniteNonNegative(durationSeconds, "durationSeconds");
+        if (durationSeconds == 0.0f) return playBase(next, nextLoop);
+
+        if (transitionPlayer != null) transitionPlayer.drainEvents();
+        basePlayer.drainEvents();
+        transitionSourcePose.load(source);
+        transitionSourceFrozen = true;
+        transitionPlayer = new AnimationPlayer(skeleton).play(next, nextLoop);
+        transitionPlayer.sample(transitionTargetPose);
+        baseTransitionCurve = easing;
+        baseTransitionElapsed = 0.0f;
+        baseTransitionDuration = durationSeconds;
+        return this;
+    }
+
     public boolean isBaseTransitioning() {
         return transitionPlayer != null;
     }

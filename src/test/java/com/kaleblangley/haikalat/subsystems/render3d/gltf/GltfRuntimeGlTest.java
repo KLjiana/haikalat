@@ -8,11 +8,13 @@ import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.assets.gltf.SceneSelection;
+import com.kaleblangley.haikalat.core.curve.Curves;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationGraph;
 import com.kaleblangley.haikalat.subsystems.animation.ClipMotion;
@@ -234,6 +236,52 @@ class GltfRuntimeGlTest {
                 assertTrue(instance.isClosed());
                 asset.close();
                 library.close();
+            }
+        }
+    }
+
+    @Test
+    void directAnimationTransitionStartsAtVisibleGraphPoseAndBlendsToImportedClip()
+            throws Exception {
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("transition-skin.gltf"),
+                SkinnedGltfFixture.document());
+        LoadedGltfScene loaded = new GltfAssetLoader(ResourceLocator.classpath(getClass())
+                .addRoot(temporaryDirectory)).load(AssetRef.of("transition-skin.gltf"));
+
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+                 GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+                 GltfSceneInstance instance = asset.instantiateAnimated(new Matrix4f(), false)) {
+                AnimationClip external = AnimationClip.builder(
+                                "external", instance.animationSkeleton())
+                        .translation(2, AnimationClip.Interpolation.LINEAR,
+                                new float[]{0.0f, 1.0f},
+                                new Vector3f(0.0f, 3.0f, 0.0f),
+                                new Vector3f(0.0f, 3.0f, 0.0f))
+                        .build();
+                instance.attachAnimationGraph(AnimationGraph.builder(
+                                "external-source", instance.animationSkeleton())
+                        .state("external", new ClipMotion(external),
+                                AnimationPlayer.LoopMode.LOOP)
+                        .entry("external")
+                        .build());
+                assertEquals(3.0f, instance.pose().localTransform(2).translation().y(), 1.0e-5f);
+
+                instance.transitionTo("lift", AnimationPlayer.LoopMode.ONCE,
+                        1.0f, Curves.LINEAR);
+                assertFalse(instance.hasAnimationController());
+                assertEquals("lift", instance.animationTransitionTarget());
+                assertEquals(0.0f, instance.transitionWeight(), 1.0e-5f);
+                assertEquals(3.0f, instance.pose().localTransform(2).translation().y(), 1.0e-5f,
+                        "starting a generated transition must not change the visible pose");
+
+                instance.update(0.5f);
+                assertEquals(0.5f, instance.transitionWeight(), 1.0e-5f);
+                assertEquals(2.25f, instance.pose().localTransform(2).translation().y(), 1.0e-5f,
+                        "the midpoint must blend the external pose and imported clip");
+                assertEquals("generated pose transition", instance.animationTransitionReason());
             }
         }
     }

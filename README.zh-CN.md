@@ -140,6 +140,8 @@ Demo 源码位于 `src/demo/java`，资源位于 `src/demo/resources`。
 - `docs/guides`：测试与开发指南。
 - `docs/history`：变更记录。
 
+新人建议从 [`docs/guides/newcomer-guide.md`](docs/guides/newcomer-guide.md) 开始，按“空窗口 → 最小渲染 → 完整场景”的顺序熟悉项目。
+
 ## 发布制品与许可证
 
 执行 `./gradlew jar` 会在 `build/libs` 同时生成 `haikalat-<version>.jar` 和

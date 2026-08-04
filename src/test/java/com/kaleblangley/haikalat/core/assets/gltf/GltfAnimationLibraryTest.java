@@ -52,6 +52,105 @@ class GltfAnimationLibraryTest {
     }
 
     @Test
+    void compactAnimationClipUsesExactModelNodeNamesWithoutRepeatedBindings()
+            throws Exception {
+        Path library = GltfAnimationLibraryFixture.write(
+                temporaryDirectory.resolve("compact"));
+        Files.writeString(library.resolve("animations/wave.animation.json"), """
+                {
+                  "schema":"haikalat.animation-clip/1",
+                  "name":"wave",
+                  "duration":1.0,
+                  "loop":"loop",
+                  "fps":24,
+                  "tracks":[{
+                    "node":"arm",
+                    "path":"rotation",
+                    "interpolation":"linear",
+                    "keyframes":[
+                      {"time":0.0,"value":[0,0,0,1]},
+                      {"time":1.0,"value":[0,0,0.70710677,0.70710677]}
+                    ]
+                  }],
+                  "events":[{"time":0.5,"name":"hit_start","priority":"high"}]
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(library.resolve("animation-library.json"), """
+                {
+                  "schema":"haikalat.gltf-animation-library/1",
+                  "generatedBy":"test",
+                  "pluginVersion":"1.4.0",
+                  "gltfVersion":"2.0",
+                  "model":"model/actor.gltf",
+                  "nodeBinding":"name",
+                  "animations":[{
+                    "name":"wave",
+                    "file":"animations/wave.animation.json",
+                    "selfContained":true
+                  }]
+                }
+                """, StandardCharsets.UTF_8);
+
+        LoadedGltfScene scene = new GltfAssetLoader(
+                ResourceLocator.classpath(getClass()).addRoot(temporaryDirectory))
+                .loadAnimationLibrary(AssetRef.of(temporaryDirectory.relativize(
+                        library.resolve("animation-library.json")).toString()));
+
+        LoadedGltfScene.AnimationDef clip = scene.animations().get(1);
+        assertEquals("wave", clip.name());
+        assertEquals(1, clip.channels().getFirst().nodeIndex());
+        assertEquals(1.0f, clip.durationSeconds());
+        assertEquals("hit_start", clip.markers().getFirst().name());
+        assertEquals("high", clip.markers().getFirst().priority());
+        assertEquals(40L, scene.statistics().decodedBufferBytes());
+    }
+
+    @Test
+    void compactAnimationClipRejectsUnknownModelNode() throws Exception {
+        Path library = GltfAnimationLibraryFixture.write(
+                temporaryDirectory.resolve("unknown-node"));
+        Files.writeString(library.resolve("animations/wave.animation.json"), """
+                {
+                  "schema":"haikalat.animation-clip/1",
+                  "name":"wave",
+                  "duration":0,
+                  "loop":"once",
+                  "fps":24,
+                  "tracks":[{
+                    "node":"missing_arm",
+                    "path":"rotation",
+                    "interpolation":"linear",
+                    "keyframes":[{"time":0,"value":[0,0,0,1]}]
+                  }],
+                  "events":[]
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(library.resolve("animation-library.json"), """
+                {
+                  "schema":"haikalat.gltf-animation-library/1",
+                  "gltfVersion":"2.0",
+                  "model":"model/actor.gltf",
+                  "nodeBinding":"name",
+                  "animations":[{
+                    "name":"wave",
+                    "file":"animations/wave.animation.json",
+                    "selfContained":true
+                  }]
+                }
+                """, StandardCharsets.UTF_8);
+        GltfAssetLoader loader = new GltfAssetLoader(
+                ResourceLocator.classpath(getClass()).addRoot(temporaryDirectory));
+
+        GltfAssetException failure = assertThrows(GltfAssetException.class,
+                () -> loader.loadAnimationLibrary(AssetRef.of(
+                        temporaryDirectory.relativize(library.resolve(
+                                "animation-library.json")).toString())));
+
+        assertEquals("tracks[0].node", failure.location());
+        assertTrue(failure.getMessage().contains("missing_arm"));
+    }
+
+    @Test
     void zipLibraryLoadsWithoutExtraction() throws Exception {
         Path library = GltfAnimationLibraryFixture.write(
                 temporaryDirectory.resolve("source"),

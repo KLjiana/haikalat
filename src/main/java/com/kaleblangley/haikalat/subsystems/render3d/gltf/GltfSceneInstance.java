@@ -3,9 +3,12 @@ package com.kaleblangley.haikalat.subsystems.render3d.gltf;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
+import com.kaleblangley.haikalat.core.curve.Curve1f;
+import com.kaleblangley.haikalat.core.curve.Curves;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationController;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationGraph;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationMixer;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationSignal;
 import com.kaleblangley.haikalat.subsystems.animation.ClipMotion;
@@ -28,21 +31,27 @@ import java.util.Objects;
 
 /** Mutable playback instance for one uploaded glTF asset. */
 public final class GltfSceneInstance implements AutoCloseable {
+    /** Default duration used by the convenience direct-animation transition API. */
+    public static final float DEFAULT_TRANSITION_SECONDS = 0.18f;
+
     private final GltfSceneAsset asset;
     private final GltfAnimationRig rig;
     private final PoseBuffer pose;
-    private final AnimationPlayer player;
+    private final AnimationMixer mixer;
     private final Matrix4f rootTransform;
     private final Matrix4f[] nodeGlobals;
     private final Matrix4f[] nodeModels;
     private final Map<Integer, SkinSceneDrawBinding> skinBindings;
     private final Map<Integer, MorphWeightBuffer> morphWeights;
+    private final Map<Integer, MorphWeightBuffer> morphTransitionSources;
+    private final Map<Integer, MorphWeightBuffer> morphTransitionTargets;
     private final List<MorphSceneDrawBinding> morphBindings = new ArrayList<>();
     private final List<SceneObject> objects;
     private final LinkedHashSet<String> activeAnimationWindows = new LinkedHashSet<>();
     private AnimationController controller;
     private long processedSignalSequence = -1L;
     private int currentAnimationIndex = -1;
+    private boolean directMorphTransition;
     private boolean closed;
 
     private GltfSceneInstance(GltfSceneAsset asset, Matrix4fc rootTransform,
@@ -55,13 +64,15 @@ public final class GltfSceneInstance implements AutoCloseable {
         }
         rig = GltfAnimationRig.from(asset.sourceData());
         pose = rig.skeleton().createPoseBuffer();
-        player = new AnimationPlayer(rig.skeleton());
+        mixer = new AnimationMixer(rig.skeleton());
         morphWeights = createMorphWeights();
+        morphTransitionSources = copyMorphWeightBuffers(morphWeights);
+        morphTransitionTargets = copyMorphWeightBuffers(morphWeights);
         if (!rig.clips().isEmpty()) {
             currentAnimationIndex = 0;
-            player.play(rig.clips().getFirst());
+            mixer.playBase(rig.clips().getFirst(), AnimationPlayer.LoopMode.LOOP);
         }
-        player.sample(pose);
+        mixer.update(0.0f, pose);
         sampleMorphWeights();
         nodeGlobals = new Matrix4f[rig.skeleton().jointCount()];
         nodeModels = new Matrix4f[nodeGlobals.length];
@@ -154,6 +165,7 @@ public final class GltfSceneInstance implements AutoCloseable {
         detachAnimationGraph();
         controller = graph.createController();
         currentAnimationIndex = -1;
+        directMorphTransition = false;
         controller.update(0.0f, pose);
         processAnimationWindows();
         copyControllerMorphWeights();
@@ -230,36 +242,123 @@ public final class GltfSceneInstance implements AutoCloseable {
 
     public float currentAnimationNormalizedTime() {
         ensureOpen();
-        return controller == null ? player.timeSeconds() /
-                Math.max(1.0e-6f, player.clip().map(AnimationClip::durationSeconds).orElse(0.0f))
+        AnimationPlayer directPlayer = mixer.basePlayer();
+        return controller == null ? directPlayer.timeSeconds() /
+                Math.max(1.0e-6f, directPlayer.clip()
+                        .map(AnimationClip::durationSeconds).orElse(0.0f))
                 : controller.currentNormalizedTime();
     }
 
     public float transitionWeight() {
         ensureOpen();
-        return controller == null ? 1.0f : controller.transitionWeight();
+        return controller == null ? mixer.baseTransitionWeight() : controller.transitionWeight();
     }
 
     public String animationTransitionTarget() {
         ensureOpen();
-        return controller == null ? "" : controller.targetStateName();
+        if (controller != null) return controller.targetStateName();
+        return mixer.isBaseTransitioning()
+                ? mixer.basePlayer().clip().map(AnimationClip::name).orElse("") : "";
     }
 
     public String animationTransitionReason() {
         ensureOpen();
-        return controller == null ? "direct playback" : controller.lastTransitionReason();
+        if (controller != null) return controller.lastTransitionReason();
+        return mixer.isBaseTransitioning() ? "generated pose transition" : "direct playback";
     }
 
     public GltfSceneInstance play(int animationIndex, AnimationPlayer.LoopMode loopMode) {
         ensureOpen();
         detachAnimationGraph();
         currentAnimationIndex = animationIndex;
-        player.play(rig.clips().get(animationIndex), loopMode);
-        player.sample(pose);
+        mixer.playBase(rig.clips().get(animationIndex), loopMode);
+        mixer.update(0.0f, pose);
+        directMorphTransition = false;
         resetMorphWeights();
         sampleMorphWeights();
         refreshPoseDependents();
         return this;
+    }
+
+    /**
+     * Generates a smooth direct transition to an imported animation using the default duration.
+     * Translation, rotation and scale are blended from the currently visible pose.
+     */
+    public GltfSceneInstance transitionTo(int animationIndex,
+                                          AnimationPlayer.LoopMode loopMode) {
+        return transitionTo(animationIndex, loopMode, DEFAULT_TRANSITION_SECONDS);
+    }
+
+    /** Generates a smooth direct transition using an ease-in-out curve. */
+    public GltfSceneInstance transitionTo(int animationIndex,
+                                          AnimationPlayer.LoopMode loopMode,
+                                          float durationSeconds) {
+        return transitionTo(animationIndex, loopMode, durationSeconds,
+                Curves.EASE_IN_OUT_CUBIC);
+    }
+
+    /** Generates a smooth direct transition using the supplied duration and easing curve. */
+    public GltfSceneInstance transitionTo(int animationIndex,
+                                          AnimationPlayer.LoopMode loopMode,
+                                          float durationSeconds, Curve1f curve) {
+        ensureOpen();
+        AnimationClip target = rig.clips().get(animationIndex);
+        Objects.requireNonNull(loopMode, "loopMode");
+        Objects.requireNonNull(curve, "curve");
+        if (!Float.isFinite(durationSeconds) || durationSeconds < 0.0f) {
+            throw new IllegalArgumentException(
+                    "durationSeconds must be finite and non-negative");
+        }
+        boolean bridgeFromController = controller != null;
+        copyMorphWeights(morphWeights, morphTransitionSources);
+        detachAnimationGraph();
+        if (bridgeFromController) {
+            mixer.transitionBaseFromPose(pose, target, loopMode, durationSeconds, curve);
+        } else {
+            mixer.transitionBase(target, loopMode, durationSeconds, curve);
+        }
+        currentAnimationIndex = animationIndex;
+        if (durationSeconds == 0.0f) {
+            directMorphTransition = false;
+            mixer.update(0.0f, pose);
+            resetMorphWeights();
+            sampleMorphWeights();
+        } else {
+            directMorphTransition = true;
+            resetMorphTransitionTargets();
+            sampleMorphWeights(morphTransitionTargets);
+            sampleDirectMorphTransition();
+        }
+        refreshPoseDependents();
+        return this;
+    }
+
+    /** Resolves an exact imported animation name and generates a smooth direct transition. */
+    public GltfSceneInstance transitionTo(String animationName,
+                                          AnimationPlayer.LoopMode loopMode) {
+        return transitionTo(animationName, loopMode, DEFAULT_TRANSITION_SECONDS);
+    }
+
+    /** Resolves an exact imported animation name and generates a smooth direct transition. */
+    public GltfSceneInstance transitionTo(String animationName,
+                                          AnimationPlayer.LoopMode loopMode,
+                                          float durationSeconds) {
+        return transitionTo(animationName, loopMode, durationSeconds,
+                Curves.EASE_IN_OUT_CUBIC);
+    }
+
+    /** Resolves an exact imported animation name and uses the supplied easing curve. */
+    public GltfSceneInstance transitionTo(String animationName,
+                                          AnimationPlayer.LoopMode loopMode,
+                                          float durationSeconds, Curve1f curve) {
+        ensureOpen();
+        String name = Objects.requireNonNull(animationName, "animationName");
+        int animationIndex = animationNames().indexOf(name);
+        if (animationIndex < 0) {
+            throw new IllegalArgumentException("glTF asset contains no animation named '"
+                    + name + "'");
+        }
+        return transitionTo(animationIndex, loopMode, durationSeconds, curve);
     }
 
     /**
@@ -275,8 +374,9 @@ public final class GltfSceneInstance implements AutoCloseable {
         detachAnimationGraph();
         AnimationClip combined = rig.composePoseClips("combined", animationIndices);
         currentAnimationIndex = -1;
-        player.play(combined, loopMode);
-        player.sample(pose);
+        mixer.playBase(combined, loopMode);
+        mixer.update(0.0f, pose);
+        directMorphTransition = false;
         resetMorphWeights();
         refreshPoseDependents();
         return this;
@@ -288,8 +388,10 @@ public final class GltfSceneInstance implements AutoCloseable {
             throw new IllegalStateException("seek is unavailable while an AnimationGraph "
                     + "controller is attached; use graph state offsets");
         }
-        player.seek(timeSeconds).sample(pose);
-        sampleMorphWeights();
+        mixer.basePlayer().seek(timeSeconds);
+        mixer.update(0.0f, pose);
+        if (directMorphTransition) sampleDirectMorphTransition();
+        else sampleMorphWeights();
         refreshPoseDependents();
         return this;
     }
@@ -302,8 +404,9 @@ public final class GltfSceneInstance implements AutoCloseable {
             processAnimationWindows();
             copyControllerMorphWeights();
         } else {
-            player.update(deltaSeconds, pose);
-            sampleMorphWeights();
+            mixer.update(deltaSeconds, pose);
+            if (directMorphTransition) sampleDirectMorphTransition();
+            else sampleMorphWeights();
         }
         refreshPoseDependents();
         return this;
@@ -311,7 +414,8 @@ public final class GltfSceneInstance implements AutoCloseable {
 
     public float animationTimeSeconds() {
         ensureOpen();
-        return controller == null ? player.timeSeconds() : controller.currentTimeSeconds();
+        return controller == null ? mixer.basePlayer().timeSeconds()
+                : controller.currentTimeSeconds();
     }
 
     public Pose pose() {
@@ -481,10 +585,33 @@ public final class GltfSceneInstance implements AutoCloseable {
     }
 
     private void sampleMorphWeights() {
+        sampleMorphWeights(morphWeights);
+    }
+
+    private void sampleMorphWeights(Map<Integer, MorphWeightBuffer> destination) {
         if (currentAnimationIndex < 0) return;
-        float time = player.timeSeconds();
+        float time = mixer.basePlayer().timeSeconds();
         rig.morphWeightTracks(currentAnimationIndex).forEach((nodeIndex, track) ->
-                track.sample(time, requireMorphWeights(nodeIndex)));
+                track.sample(time, requireMorphWeights(destination, nodeIndex)));
+    }
+
+    private void sampleDirectMorphTransition() {
+        resetMorphTransitionTargets();
+        sampleMorphWeights(morphTransitionTargets);
+        float weight = mixer.baseTransitionWeight();
+        for (Map.Entry<Integer, MorphWeightBuffer> entry : morphWeights.entrySet()) {
+            int nodeIndex = entry.getKey();
+            entry.getValue().blend(requireMorphWeights(morphTransitionSources, nodeIndex),
+                    requireMorphWeights(morphTransitionTargets, nodeIndex), weight);
+        }
+        if (!mixer.isBaseTransitioning()) directMorphTransition = false;
+    }
+
+    private void resetMorphTransitionTargets() {
+        LoadedGltfScene source = asset.sourceData();
+        for (Map.Entry<Integer, MorphWeightBuffer> entry : morphTransitionTargets.entrySet()) {
+            entry.getValue().set(source.nodeRigs().get(entry.getKey()).morphWeights());
+        }
     }
 
     private void updateNodeMatrices() {
@@ -548,12 +675,31 @@ public final class GltfSceneInstance implements AutoCloseable {
     }
 
     private MorphWeightBuffer requireMorphWeights(int nodeIndex) {
-        MorphWeightBuffer result = morphWeights.get(nodeIndex);
+        return requireMorphWeights(morphWeights, nodeIndex);
+    }
+
+    private static MorphWeightBuffer requireMorphWeights(
+            Map<Integer, MorphWeightBuffer> buffers, int nodeIndex) {
+        MorphWeightBuffer result = buffers.get(nodeIndex);
         if (result == null) {
             throw new IllegalArgumentException("node " + nodeIndex
                     + " has no morph targets");
         }
         return result;
+    }
+
+    private static Map<Integer, MorphWeightBuffer> copyMorphWeightBuffers(
+            Map<Integer, MorphWeightBuffer> source) {
+        Map<Integer, MorphWeightBuffer> result = new LinkedHashMap<>();
+        source.forEach((nodeIndex, weights) ->
+                result.put(nodeIndex, new MorphWeightBuffer(weights.toArray())));
+        return Map.copyOf(result);
+    }
+
+    private static void copyMorphWeights(Map<Integer, MorphWeightBuffer> source,
+                                         Map<Integer, MorphWeightBuffer> destination) {
+        source.forEach((nodeIndex, weights) ->
+                requireMorphWeights(destination, nodeIndex).set(weights));
     }
 
     private void ensureOpen() {

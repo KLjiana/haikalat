@@ -36,6 +36,10 @@ final class GltfExternalAnimationDecoder {
         }
         Map<String, Object> root = GltfDocumentReader.parseJson(source, bytes);
         try {
+            if (HaikalatAnimationClipDecoder.matches(root)) {
+                return HaikalatAnimationClipDecoder.decode(
+                        entry, model, animationIndex, options, root);
+            }
             return decodeRoot(resolver, entry, model, animationIndex, options, root);
         } catch (GltfAssetException failure) {
             throw failure;
@@ -122,6 +126,10 @@ final class GltfExternalAnimationDecoder {
             AssetRef source,
             GltfAnimationLibraryImporter.AnimationEntry entry,
             List<Map<String, Object>> sidecarNodes, LoadedGltfScene model) {
+        if (entry.bindings().isEmpty()) {
+            throw fail(entry.manifest(), "animations.nodeBindings",
+                    "animation-only glTF sidecars require explicit node bindings");
+        }
         if (model.nodeRigs().size() != model.nodes().size()) {
             throw fail(source, "model.nodes",
                     "model node and rig tables are not aligned");

@@ -43,6 +43,7 @@
 
 ## 指南
 
+- [新人快速上手：从第一个窗口到渲染管线](guides/newcomer-guide.md)
 - [调试与诊断指南](guides/diagnostics.md)
 - [可嵌入渲染接入指南](guides/embedded-rendering.md)
 

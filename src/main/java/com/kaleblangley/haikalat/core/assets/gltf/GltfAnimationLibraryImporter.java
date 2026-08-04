@@ -154,10 +154,6 @@ final class GltfAnimationLibraryImporter {
         boolean selfContained = bool(definition, "selfContained", false,
                 path + ".selfContained");
         List<Map<String, Object>> bindingDtos = objects(definition, "nodeBindings");
-        if (bindingDtos.isEmpty()) {
-            throw fail(path + ".nodeBindings",
-                    "name binding requires at least one explicit node binding");
-        }
         limit(manifest, "nodeBindings", bindingDtos.size(),
                 options.limits().nodes(), path + ".nodeBindings");
         List<NodeBinding> bindings = new ArrayList<>(bindingDtos.size());

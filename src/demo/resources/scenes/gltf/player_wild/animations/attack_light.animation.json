@@ -1,0 +1,479 @@
+{
+  "schema": "haikalat.animation-clip/1",
+  "name": "attack_light",
+  "duration": 0.5,
+  "loop": "hold",
+  "fps": 24,
+  "tracks": [
+    {
+      "node": "torso",
+      "path": "translation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0.5625,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "node": "torso",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "node": "chest",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_leg",
+      "path": "translation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0.125,
+            0.6875,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_leg",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.995836,
+            -0.018552,
+            -0.046335,
+            -0.076287
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_leg",
+      "path": "translation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.125,
+            0.5625,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_leg",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.929907,
+            0.039306,
+            0.070064,
+            0.358913
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_shin",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.258819,
+            0,
+            0,
+            0.965926
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_shin",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.402747,
+            0,
+            0,
+            0.915311
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_arm",
+      "path": "translation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0.1875,
+            0.1875,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_arm",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.616449,
+            -0.436643,
+            -0.277548,
+            -0.593549
+          ]
+        },
+        {
+          "time": 0.041667,
+          "value": [
+            -0.661564,
+            -0.456178,
+            -0.241836,
+            -0.543829
+          ]
+        },
+        {
+          "time": 0.083333,
+          "value": [
+            -0.718244,
+            -0.477819,
+            -0.189315,
+            -0.469014
+          ]
+        },
+        {
+          "time": 0.125,
+          "value": [
+            -0.773974,
+            -0.496029,
+            -0.125229,
+            -0.373144
+          ]
+        },
+        {
+          "time": 0.208333,
+          "value": [
+            -0.845493,
+            -0.511883,
+            0.012552,
+            -0.151525
+          ]
+        },
+        {
+          "time": 0.25,
+          "value": [
+            -0.854316,
+            -0.512153,
+            0.073654,
+            -0.049182
+          ]
+        },
+        {
+          "time": 0.333333,
+          "value": [
+            -0.826342,
+            -0.508822,
+            0.194351,
+            0.143131
+          ]
+        },
+        {
+          "time": 0.375,
+          "value": [
+            -0.793149,
+            -0.501076,
+            0.256932,
+            0.232
+          ]
+        },
+        {
+          "time": 0.416667,
+          "value": [
+            -0.75331,
+            -0.48833,
+            0.315309,
+            0.307633
+          ]
+        },
+        {
+          "time": 0.5,
+          "value": [
+            -0.682463,
+            -0.456989,
+            0.399847,
+            0.406851
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_arm",
+      "path": "translation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.1875,
+            0.25,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_arm",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            -0.737277,
+            0,
+            0,
+            0.67559
+          ]
+        },
+        {
+          "time": 0.041667,
+          "value": [
+            -0.752885,
+            0.071372,
+            0.106204,
+            0.645593
+          ]
+        },
+        {
+          "time": 0.083333,
+          "value": [
+            -0.754878,
+            0.162139,
+            0.264654,
+            0.577778
+          ]
+        },
+        {
+          "time": 0.125,
+          "value": [
+            -0.729627,
+            0.235163,
+            0.419964,
+            0.48577
+          ]
+        },
+        {
+          "time": 0.16667,
+          "value": [
+            -0.695758,
+            0.274527,
+            0.520478,
+            0.411895
+          ]
+        }
+      ]
+    },
+    {
+      "node": "right_hand",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0.001901,
+            0.087135,
+            -0.021732,
+            0.995958
+          ]
+        },
+        {
+          "time": 0.041667,
+          "value": [
+            0.01533,
+            0.086834,
+            -0.022905,
+            0.995841
+          ]
+        },
+        {
+          "time": 0.083333,
+          "value": [
+            0.033281,
+            0.086407,
+            -0.024467,
+            0.995403
+          ]
+        },
+        {
+          "time": 0.125,
+          "value": [
+            0.054837,
+            0.085857,
+            -0.026333,
+            0.994449
+          ]
+        },
+        {
+          "time": 0.208333,
+          "value": [
+            0.105067,
+            0.084415,
+            -0.030642,
+            0.990402
+          ]
+        },
+        {
+          "time": 0.291667,
+          "value": [
+            0.158604,
+            0.08263,
+            -0.035173,
+            0.98325
+          ]
+        },
+        {
+          "time": 0.333333,
+          "value": [
+            0.184317,
+            0.081679,
+            -0.037326,
+            0.978755
+          ]
+        },
+        {
+          "time": 0.375,
+          "value": [
+            0.208134,
+            0.080745,
+            -0.039307,
+            0.973969
+          ]
+        },
+        {
+          "time": 0.416667,
+          "value": [
+            0.229185,
+            0.079874,
+            -0.041047,
+            0.969231
+          ]
+        },
+        {
+          "time": 0.5,
+          "value": [
+            0.259609,
+            0.078541,
+            -0.043544,
+            0.961529
+          ]
+        }
+      ]
+    },
+    {
+      "node": "left_hand",
+      "path": "rotation",
+      "interpolation": "linear",
+      "keyframes": [
+        {
+          "time": 0,
+          "value": [
+            0,
+            0,
+            -0.461749,
+            0.887011
+          ]
+        },
+        {
+          "time": 0.041667,
+          "value": [
+            0,
+            0,
+            -0.504421,
+            0.863458
+          ]
+        },
+        {
+          "time": 0.083333,
+          "value": [
+            0,
+            0,
+            -0.564604,
+            0.825362
+          ]
+        },
+        {
+          "time": 0.125,
+          "value": [
+            0,
+            0,
+            -0.621925,
+            0.783077
+          ]
+        },
+        {
+          "time": 0.16667,
+          "value": [
+            0,
+            0,
+            -0.659346,
+            0.75184
+          ]
+        }
+      ]
+    }
+  ],
+  "events": []
+}
