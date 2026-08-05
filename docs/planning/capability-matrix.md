@@ -42,7 +42,7 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 当前版本与正式稳定版本：`0.20.1`；上一正式稳定版本为 `0.20.0`。
+- 当前版本与正式稳定版本：`0.20.2`；上一正式稳定版本为 `0.20.1`。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。

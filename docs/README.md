@@ -21,6 +21,7 @@
 - [v0.19.x UI SDF、Compositor、现代动画与 VFX 深化计划](planning/v0.19-ui-sdf-compositor-animation-vfx.md)
 - [v0.20 代码整理与逻辑优化计划](planning/v0.20-code-consolidation-and-logic-optimization.md)
 - [v0.20.1 可嵌入渲染与外部宿主契约实施计划](planning/v0.20.1-embedded-rendering.md)
+- [v0.21 序列化游戏场景与角色内容管线](planning/v0.21-serialized-gameplay-scene-character-pipeline.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -75,6 +76,8 @@
 - [v0.20.0 代码收敛与外部 glTF 动画正式版验收报告](releases/v0.20.0-release-report.md)
 - [v0.20.1 可嵌入渲染正式版验收报告](releases/v0.20.1-release-report.md)
 - [v0.20.1 可嵌入渲染 snapshot 验收报告](releases/v0.20.1-snapshot-report.md)
+- [v0.20.2 外部动画与现代游戏 UI 正式版验收报告](releases/v0.20.2-release-report.md)
+- [2026-08-06 v0.20.2 外部动画与现代 UI 性能记录](performance/v0.20.2-modern-ui-2026-08-06.md)
 - [2026-07-28 v0.20 M7 热路径性能与回归记录](performance/v0.20-m7-2026-07-28.md)
 - [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)

@@ -1,5 +1,24 @@
 # 变更记录
 
+## v0.20.2（2026-08-06）
+
+- 新增 `haikalat.animation-clip/1` 紧凑外部动画格式：按模型节点名绑定
+  translation / rotation / scale / weights 轨道、STEP/LINEAR 关键帧和事件标记；无须
+  glTF accessor 或 base64 buffer，缺失节点、重名、重复目标、越界时间和非法四元数会在
+  CPU 解码阶段拒绝。原有 `.animation.gltf.json` sidecar 仍要求显式节点绑定。
+- `player_wild` Demo 接入 8 个外部动画 clip 和 `steve.png` 纹理，覆盖 stand、move、run、
+  idle_sword、attack_light、start、idle_dash、end，共 98 条 TRS channel；Demo 按 0.65x
+  播放并在 clip 切换时使用 0.22 秒运行时姿势过渡。
+- `GltfSceneInstance` / `AnimationMixer` 支持从当前可见姿势生成直接 cross-fade；过渡期间
+  再次切换会从已混合姿势继续，保留 `play(...)` 的立即切换语义，供状态机和外部动画调用。
+- 新增独立现代游戏主界面 `ModernUiDemo`：双语战役菜单、玩家档案、任务进度、设置页、
+  音量/显示/动态效果/界面缩放控件、页面切换、按钮反馈、呼吸动画、UI VFX 与 reduced-motion
+  路径均由 retained UI 组件和正式 runtime 驱动，不依赖旧 `UiDemo`。
+- UI 节点新增 style class，`UiConfig` 支持注入 `StyleResolver`；现代主题集中管理 SDF 圆角、
+  CJK/Latin/JetBrains Mono 字体和控件状态样式。新增现代主界面 JVM 场景测试、90 帧确定性
+  交互脚本和 1280×720 真实 GL framebuffer 像素证明。
+- 补充外部动画导入、模型纹理、动画平滑过渡和现代 UI 的使用指南、Demo 职责矩阵与新人文档。
+
 ## v0.20.1（2026-07-29）
 
 - 新增宿主无关的 `PresentationTarget`、`ExternalAttachment`、`AttachmentRole` 和
