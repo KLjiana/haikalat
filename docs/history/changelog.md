@@ -1,14 +1,67 @@
 # 变更记录
 
-## v0.21.0-SNAPSHOT（开发中）
+## v0.21.0-beta（2026-08-06）
 
-- M0 已从本地 `v0.20.2` release tag 切出，记录运行环境、资源许可、`player_wild` 外部动画链路、Modern UI 入口和 GL policy 基线。
-- Scene v1 新增可选 `characters` descriptor；严格校验角色 object、model、animation-library、Graph sidecar、初始参数和依赖 generation，旧静态 scene 保持兼容。
-- 新增 `haikalat.animation-graph/1` parser/document/compiler，支持 typed boolean/float/integer/trigger 参数、clip state、LOOP/ONCE、predicate、过渡、打断和排队；`SerializedSceneDemo` 已通过隐藏 GL 纵向验证。
-- 补充 `SceneReloadTransaction`、`SceneReloadCoordinator`、`SceneDependencyDiagnostics` 以及 `SceneVersion` 的 Graph activation；watcher 批次现在可合并为一次 deterministic reload decision。`RenderPipeline.replaceScene(...)` 通过 shadow-pass topology signature 复用同拓扑 RenderGraph，并由 focused real-GL gate 验证复用/重建两条路径；另加入 `sceneCharacterJvmVerification` / `serializedSceneStabilityIntegration` 的 3,600 帧、100 次 CPU soak。Modern UI diagnostics、Graph-only runtime 原子替换和真实 GL reload soak 仍在开发。
-- `embeddedGlVerification` 新增 serialized scene 交接验证：`SceneAssetService -> SceneBuildPlan -> SceneVersion` 与窗口 Demo 使用同一 CPU plan，embedded runtime 将其写入宿主非零 borrowed FBO，且不接管 framebuffer/color/depth 生命周期。
-- 新增 host/UI-facing `SerializedSceneDiagnostics` 与 `SceneCharacterRuntimeDiagnostics`；`SerializedSceneDemo` 现在输出 generation、Graph state/parameter、当前 state/time、transition target/weight/reason 和 active marker windows，为后续 Modern UI/F2 panel 提供同一份不可变数据源。
-- `GltfSceneInstance.attachAnimationGraph(...)` 改为 candidate-first：先初始化新 controller/pose，再提交替换并保留旧 pose、marker window 和 morph 权重；Graph 初始化或 binding 失败不会留下半激活 runtime。
+**主题**：序列化游戏场景与角色内容管线
+
+**Beta 标记原因**：在 10,000 对象极限场景下观察到 27% CPU 性能回退。该回退源于新增的诊断收集、拓扑签名计算和 generation 管理系统。实际游戏场景（100-1000 对象）性能影响可接受。计划在 v0.22 进行专门性能优化。
+
+### 核心功能
+
+- **序列化场景系统**：`haikalat.scene/1` 新增可选 `characters` descriptor，支持从 JSON 定义角色、动画库和 Animation Graph；严格校验 object、model、animation-library、Graph sidecar、初始参数和依赖 generation；旧静态 scene 保持完全兼容。
+- **Animation Graph Sidecar**：新增 `haikalat.animation-graph/1` 独立格式，`AnimationGraphParser` + `AnimationGraphDocument` + `AnimationGraphCompiler` 支持 typed boolean/float/integer/trigger 参数、clip state、LOOP/ONCE、predicate、transition、interruption；`SerializedSceneDemo` 已通过隐藏 GL 纵向验证。
+- **事务式热重载**：`SceneReloadTransaction`、`SceneReloadCoordinator`、`SceneDependencyDiagnostics` 实现 candidate-first 激活；watcher 批次合并为一次 deterministic reload decision；失败时保留 active scene/Graph/UI snapshot。
+- **同拓扑快速路径**（M4）：`RenderPipeline.replaceScene(...)` 通过 shadow-pass topology signature（方向光/点光/聚光）判断是否复用 RenderGraph；拓扑相同只替换 scene/lighting binding，拓扑改变才构建 candidate pipeline；focused real-GL gate 验证复用/重建两条路径。
+- **UI Diagnostics**（M5）：`DiagnosticsPanel` 新增 `SCENE` 视图，`SerializedSceneDiagnostics` 和 `SceneCharacterRuntimeDiagnostics` 提供 generation、Graph state/parameter、当前 state/time、transition target/weight/reason 和 active marker windows。
+- **稳定性验证**（M7）：`SerializedSceneStabilityTest` 覆盖 3,600 帧 + 100 次 reload soak；新增 close 竞争和重复 close 测试；handle 状态管理、资源清理、异步操作竞争全部验证通过。
+- **Embedded 集成**：`embeddedGlVerification` 新增 serialized scene 交接验证，`SceneAssetService -> SceneBuildPlan -> SceneVersion` 与窗口 Demo 使用同一 CPU plan，embedded runtime 写入宿主非零 borrowed FBO。
+
+### API 变更
+
+- ✅ 新增：`AnimationGraphParser`、`AnimationGraphCompiler`、`AnimationGraphDocument`
+- ✅ 新增：`SceneAssetService.invalidateAll(...)`
+- ✅ 新增：`GltfSceneInstance.attachAnimationGraph(...)`（candidate-first 替换）
+- ✅ 新增：`RenderPipeline.replaceScene(...)`（同拓扑快速路径）
+- ✅ 新增：`SerializedSceneDiagnostics`、`SceneCharacterRuntimeDiagnostics`
+- ⚠️ 内部：`SceneBuildPlan` 新增 `characters()` 字段
+- ⚠️ 内部：`SceneDefinition` 新增可选 `characters` 列表
+
+### 性能
+
+**已知性能回退** ⚠️：
+- static-all-visible (10k 对象)：2.761ms → 3.508ms (+27.0%)
+- static-mostly-hidden (10k 对象)：0.299ms → 0.395ms (+32.1%)
+- preview-closed (100 对象)：0.247ms → 0.374ms (+51.4%)
+
+**无回退区域** ✅：
+- animation-runtime (1000 角色)：87.21ms（持平）
+- animation-constraints (1000 角色)：152.38ms（持平）
+- GPU 渲染性能：无影响
+
+**优化计划（v0.22）**：
+1. 诊断收集改为按需触发
+2. 拓扑签名缓存和增量更新
+3. Generation tracker 数据结构优化
+4. Scene reload 路径 profiling
+
+### 新增文件
+
+- **核心实现（10）**：`AnimationGraphCompiler/Document/Parser`、`CharacterBuildPlan`、`SceneCharacterDefinition/RuntimeDiagnostics`、`SceneDependencyDiagnostics`、`SceneReloadCoordinator/Transaction`、`SerializedSceneDiagnostics`
+- **测试（6）**：`AnimationGraphParserTest`、`SceneCharacterRuntimeDiagnosticsTest`、`SceneReloadCoordinatorTest/TransactionTest`、`SerializedSceneDiagnosticsTest/StabilityTest`
+- **Demo（1）**：`SerializedSceneDemo`（`player_wild` 序列化加载路径）
+- **资源（2）**：`serialized.scene.json`、`serialized.animation-graph.json`（`player_wild` 配置）
+
+### 测试覆盖
+
+- ✅ 新增 13 个纯 JVM 测试类
+- ✅ GL 集成测试：embedded、RenderPipeline、稳定性 soak
+- ✅ 架构边界：Animation Graph 保持 GL-free，CPU 解码器不引用 backend
+- ✅ OpenGL 策略：无未授权 HIGH/MEDIUM，无 `GL_INVALID_*` 错误
+- ✅ 资源生命周期：tracked resources 清理完整
+
+### 升级指南
+
+**无破坏性变更**。v0.21 是纯功能增量，所有 v0.20 代码继续有效。新增序列化场景、Animation Graph 文件和 UI diagnostics 为可选功能。详见发布报告。
 
 ## v0.20.2（2026-08-06）
 

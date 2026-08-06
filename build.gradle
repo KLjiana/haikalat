@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.21.0-SNAPSHOT'
+version = '0.21.0-beta'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
