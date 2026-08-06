@@ -20,12 +20,13 @@ public final class SceneBuildPlan {
     private final Map<AssetVariant, LoadedGltfScene> gltfAssets;
     private final Map<AssetVariant, Map<Integer, GltfImageData>> decodedImages;
     private final List<InstancePlan> instances;
+    private final List<CharacterBuildPlan> characters;
 
     public SceneBuildPlan(AssetId sceneId, ResourceGeneration generation,
                           SceneDefinition definition,
                           Map<AssetVariant, LoadedGltfScene> gltfAssets,
                           List<InstancePlan> instances) {
-        this(sceneId, generation, definition, gltfAssets, Map.of(), instances);
+        this(sceneId, generation, definition, gltfAssets, Map.of(), instances, List.of());
     }
 
     public SceneBuildPlan(AssetId sceneId, ResourceGeneration generation,
@@ -33,6 +34,15 @@ public final class SceneBuildPlan {
                           Map<AssetVariant, LoadedGltfScene> gltfAssets,
                           Map<AssetVariant, Map<Integer, GltfImageData>> decodedImages,
                           List<InstancePlan> instances) {
+        this(sceneId, generation, definition, gltfAssets, decodedImages, instances, List.of());
+    }
+
+    public SceneBuildPlan(AssetId sceneId, ResourceGeneration generation,
+                          SceneDefinition definition,
+                          Map<AssetVariant, LoadedGltfScene> gltfAssets,
+                          Map<AssetVariant, Map<Integer, GltfImageData>> decodedImages,
+                          List<InstancePlan> instances,
+                          List<CharacterBuildPlan> characters) {
         this.sceneId = Objects.requireNonNull(sceneId, "sceneId");
         this.generation = Objects.requireNonNull(generation, "generation");
         this.definition = Objects.requireNonNull(definition, "definition");
@@ -44,6 +54,7 @@ public final class SceneBuildPlan {
                 Map.copyOf(Objects.requireNonNull(images, "decoded images"))));
         this.decodedImages = Map.copyOf(imageCopy);
         this.instances = List.copyOf(Objects.requireNonNull(instances, "instances"));
+        this.characters = List.copyOf(Objects.requireNonNull(characters, "characters"));
     }
 
     public AssetId sceneId() {
@@ -68,6 +79,10 @@ public final class SceneBuildPlan {
 
     public List<InstancePlan> instances() {
         return instances;
+    }
+
+    public List<CharacterBuildPlan> characters() {
+        return characters;
     }
 
     public record AssetVariant(AssetId asset, ResourceGeneration generation,

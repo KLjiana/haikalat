@@ -13,11 +13,18 @@ public final class SceneDefinition {
     private final AssetId source;
     private final CameraDefinition camera;
     private final List<NodeDefinition> nodes;
+    private final List<SceneCharacterDefinition> characters;
 
     public SceneDefinition(AssetId source, CameraDefinition camera, List<NodeDefinition> nodes) {
+        this(source, camera, nodes, List.of());
+    }
+
+    public SceneDefinition(AssetId source, CameraDefinition camera, List<NodeDefinition> nodes,
+                           List<SceneCharacterDefinition> characters) {
         this.source = Objects.requireNonNull(source, "source");
         this.camera = Objects.requireNonNull(camera, "camera");
         this.nodes = List.copyOf(Objects.requireNonNull(nodes, "nodes"));
+        this.characters = List.copyOf(Objects.requireNonNull(characters, "characters"));
     }
 
     public AssetId source() {
@@ -30,6 +37,10 @@ public final class SceneDefinition {
 
     public List<NodeDefinition> nodes() {
         return nodes;
+    }
+
+    public List<SceneCharacterDefinition> characters() {
+        return characters;
     }
 
     public record TransformDefinition(

@@ -142,3 +142,22 @@ gradlew embeddedGlVerification
 
 第二个任务需要本地 OpenGL 4.6 桌面环境，覆盖非零 FBO、color/depth、目标替换、
 borrowed 生命周期、zero extent、UI/VFX/postprocess 和 GL 状态恢复。
+
+## v0.21 序列化场景
+
+embedded host 不需要另一套场景装配入口。CPU 阶段继续通过 `SceneAssetService` 获得同一份
+`SceneBuildPlan`，在宿主渲染线程创建 `SceneVersion`，再把 `version.scene()` 交给
+`RenderPipeline`：
+
+```java
+SceneBuildPlan plan = sceneAssets.loadPlan(sceneId).join(); // CPU executor
+SceneVersion version = runtime.execute(() -> SceneVersion.build(plan, gpuLibrary));
+RenderPipeline pipeline = runtime.execute(() ->
+        new RenderPipeline(hostTarget, version.scene(), null, settings));
+runtime.execute(pipeline::build);
+```
+
+随后仍按每帧显式传入 `ExternalCamera` 与最新 `PresentationTarget`。关闭时先关闭 pipeline，
+再关闭 `SceneVersion`；borrowed FBO/texture 最后由 Host 自己释放。此路径由
+`EmbeddedPresentationGlTest.embeddedRuntimeRendersTheSameSerializedScenePlanIntoBorrowedTarget`
+覆盖。

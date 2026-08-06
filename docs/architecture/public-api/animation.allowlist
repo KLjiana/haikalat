@@ -8,6 +8,9 @@ advanced com.kaleblangley.haikalat.subsystems.animation.AnimationController
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationEvent
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationGraph
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationGraphCompiler
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationGraphDocument
+advanced com.kaleblangley.haikalat.subsystems.animation.AnimationGraphParser
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationLayerMode
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationLayerStack
 advanced com.kaleblangley.haikalat.subsystems.animation.AnimationMixer

@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -75,6 +76,49 @@ class SceneAssetServiceTest {
     }
 
     @Test
+    void characterDependenciesAreReadAndPublishedWithTheSceneGeneration() throws Exception {
+        Files.createDirectories(directory.resolve("gltf/hero"));
+        Files.writeString(directory.resolve("gltf/hero/model.gltf"),
+                Files.readString(Path.of("src/test/resources/fixtures/gltf/minimal.gltf")),
+                StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("gltf/hero/animation-library.json"),
+                "{\"schema\":\"haikalat.gltf-animation-library/1\"}",
+                StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("gltf/hero/player.animation-graph.json"),
+                "{\"format\":\"haikalat.animation-graph/1\",\"skeleton\":\"hero\","
+                        + "\"parameters\":[],\"states\":[{\"id\":\"idle\","
+                        + "\"clip\":\"idle\",\"loop\":\"LOOP\"}],"
+                        + "\"entry\":\"idle\",\"transitions\":[]}",
+                StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("character.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":100}},
+                 "nodes":[{"id":"camera"},{"id":"hero","renderable":{
+                   "type":"gltf","asset":"./gltf/hero/model.gltf"}}],
+                 "characters":[{"id":"hero-character","object":"hero",
+                   "animationLibrary":"./gltf/hero/animation-library.json",
+                   "animationGraph":"./gltf/hero/player.animation-graph.json",
+                   "initialState":"idle","parameters":{"grounded":true}}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "character.scene.json");
+        AssetId library = AssetId.of("demo", "gltf/hero/animation-library.json");
+        AssetId graph = AssetId.of("demo", "gltf/hero/player.animation-graph.json");
+
+        try (SceneAssetService service = new SceneAssetService(catalog)) {
+            SceneBuildPlan plan = service.loadPlan(scene).join();
+            assertEquals(1, plan.characters().size());
+            assertEquals(library, plan.characters().getFirst().animationLibrary());
+            assertTrue(service.reverseDependencies().get(library).contains(scene));
+            assertTrue(service.reverseDependencies().get(graph).contains(scene));
+            assertTrue(service.invalidate(graph).contains(scene));
+        }
+    }
+
+    @Test
     void dependencyInvalidationAdvancesSceneGeneration() throws Exception {
         Files.writeString(directory.resolve("scene.scene.json"), """
                 {"format":"haikalat.scene","version":1,
@@ -92,6 +136,29 @@ class SceneAssetServiceTest {
             assertEquals(0L, plan.generation().value());
             assertEquals(1, service.invalidate(scene).size());
             assertEquals(1L, service.currentGeneration(scene).value());
+        }
+    }
+
+    @Test
+    void batchInvalidationAdvancesEachTransitiveDependencyOnlyOnce() throws Exception {
+        Files.writeString(directory.resolve("scene.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":10}},
+                 "nodes":[{"id":"camera"}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "scene.scene.json");
+        AssetId graph = AssetId.of("demo", "graph.animation-graph.json");
+
+        try (SceneAssetService service = new SceneAssetService(catalog)) {
+            service.loadPlan(scene).join();
+            var affected = service.invalidateAll(List.of(scene, scene, graph));
+            assertEquals(2, affected.size());
+            assertEquals(1L, service.currentGeneration(scene).value());
+            assertEquals(1L, service.currentGeneration(graph).value());
         }
     }
 
@@ -224,6 +291,104 @@ class SceneAssetServiceTest {
             assertEquals(scene, snapshot.lastFailureAsset());
             assertEquals(1, snapshot.recentFailures().size());
             assertEquals("PARSE_SCENE", snapshot.recentFailures().getFirst().phase());
+        }
+    }
+
+    @Test
+    void handleRepeatedCloseIsIdempotent() throws Exception {
+        Files.writeString(directory.resolve("scene.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":10}},
+                 "nodes":[{"id":"camera"}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "scene.scene.json");
+
+        try (SceneAssetService service = new SceneAssetService(catalog)) {
+            SceneHandle handle = service.open(scene);
+            assertEquals(SceneHandle.Status.LOADING, handle.status());
+            
+            handle.close();
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
+            
+            // Repeated close should be idempotent
+            handle.close();
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
+            
+            // Snapshot should show handle is no longer active
+            assertTrue(service.snapshot().handles().isEmpty());
+        }
+    }
+
+    @Test
+    void handleCloseBeforeLoadCompletionTransitionsCorrectly() throws Exception {
+        Files.writeString(directory.resolve("scene.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":10}},
+                 "nodes":[{"id":"camera"}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "scene.scene.json");
+        
+        ArrayDeque<Runnable> queuedTasks = new ArrayDeque<>();
+        Executor queuedExecutor = queuedTasks::addLast;
+
+        try (SceneAssetService service = new SceneAssetService(
+                catalog, new ResourceGenerationTracker(), queuedExecutor)) {
+            SceneHandle handle = service.open(scene);
+            assertEquals(SceneHandle.Status.LOADING, handle.status());
+            
+            // Close before CPU decode completes
+            handle.close();
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
+            
+            // Complete the decode task
+            queuedTasks.removeFirst().run();
+            
+            // Handle should remain CLOSED
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
+            assertTrue(service.snapshot().handles().isEmpty());
+        }
+    }
+
+    @Test
+    void reloadWhileHandleIsClosingCompletesCleanly() throws Exception {
+        Files.writeString(directory.resolve("scene.scene.json"), """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":10}},
+                 "nodes":[{"id":"camera"}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("demo", ResourceSource.directory("demo", directory))
+                .build();
+        AssetId scene = AssetId.of("demo", "scene.scene.json");
+
+        try (SceneAssetService service = new SceneAssetService(catalog)) {
+            SceneHandle handle = service.open(scene);
+            SceneBuildPlan first = service.loadPlan(scene).join();
+            assertEquals(0L, first.generation().value());
+            
+            // Trigger reload
+            service.reload(scene);
+            assertEquals(SceneHandle.Status.LOADING, handle.status());
+            
+            // Close while reload is in progress
+            handle.close();
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
+            
+            // Reload should still complete without error
+            SceneBuildPlan second = service.loadPlan(scene).join();
+            assertEquals(1L, second.generation().value());
+            
+            // The closed handle should remain CLOSED
+            assertEquals(SceneHandle.Status.CLOSED, handle.status());
         }
     }
 }

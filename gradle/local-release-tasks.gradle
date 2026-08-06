@@ -15,7 +15,7 @@ def localReleaseTasks = [
         'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
         'runGltfIntegration', 'runGltfResizeIntegration',
         'runGltfSkinningIntegration', 'runPlayerSlieIntegration',
-        'runPlayerWildIntegration', 'runUiIntegration',
+        'runPlayerWildIntegration', 'runSerializedSceneIntegration', 'runUiIntegration',
         'runUiSdfIntegration',
         'runUiResizeIntegration', 'runModernUiIntegration', 'runUiTextIntegration',
         'runUiSyntheticImeSoak', 'runUiNativeSoak',
@@ -24,7 +24,8 @@ def localReleaseTasks = [
         'runSceneVisibilityResizeIntegration', 'runSceneVisibilityShadowIntegration',
         'runSceneScalabilityIntegration', 'runGltfSceneScalabilityIntegration',
         'runGltfSceneScalabilityResizeIntegration',
-        'runGltfSceneScalabilityMotionIntegration',
+        'runGltfSceneScalabilityMotionIntegration', 'sceneCharacterJvmVerification',
+        'serializedSceneStabilityIntegration',
         'runSceneSubmissionAllocationIntegration', 'runSceneSubmissionStaticGate'
 ]
 

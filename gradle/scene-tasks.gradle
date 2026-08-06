@@ -44,6 +44,38 @@ tasks.register('sceneVisibilityJvmVerification', Test) {
     outputs.upToDateWhen { false }
 }
 
+tasks.register('sceneCharacterJvmVerification', Test) {
+    group = 'verification'
+    description = 'Validates serialized character descriptors, Graph sidecars and reload transactions.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneJsonParserTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneAssetServiceTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneReloadTransactionTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneReloadCoordinatorTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SerializedSceneDiagnosticsTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneCharacterRuntimeDiagnosticsTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SerializedSceneStabilityTest'
+        includeTestsMatching 'com.kaleblangley.haikalat.subsystems.animation.AnimationGraphParserTest'
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('serializedSceneStabilityIntegration', Test) {
+    group = 'verification'
+    description = 'Runs the bounded 3,600-frame/100-reload serialized-scene CPU soak.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SerializedSceneStabilityTest' }
+    outputs.upToDateWhen { false }
+    mustRunAfter 'sceneCharacterJvmVerification'
+}
+
 tasks.register('sceneVisibilityGlVerification', Test) {
     group = 'verification'
     description = 'Validates real-GL camera/shadow queues, resize and SceneFrame recovery.'
@@ -383,7 +415,7 @@ tasks.register('sceneAssetGlVerification', Test) {
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.integration.SerializedSceneGlTest'
-        includeTestsMatching 'com.kaleblangley.haikalat.integration.RenderPipelineGlTest.sceneReplacementBuildsCandidateBeforeRetiringActiveGraph'
+        includeTestsMatching 'com.kaleblangley.haikalat.integration.RenderPipelineGlTest.sceneReplacementUsesFastPathAndRebuildsOnTopologyChange'
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeGlTest.gpuAssetCacheSharesExactGenerationAndRetiresOnLastLease'
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeGlTest.stagedGpuRequestsCoalesceAndRespectOneStepPumpBudget'
     }

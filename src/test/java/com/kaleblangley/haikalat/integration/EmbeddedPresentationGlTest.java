@@ -20,15 +20,25 @@ import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
+import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary;
+import com.kaleblangley.haikalat.subsystems.resources.AssetId;
+import com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog;
+import com.kaleblangley.haikalat.subsystems.resources.ResourceSource;
+import com.kaleblangley.haikalat.subsystems.scene.SceneAssetService;
+import com.kaleblangley.haikalat.subsystems.scene.SceneVersion;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.io.TempDir;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.kaleblangley.haikalat.integration.GlTestSupport.hiddenWindow;
@@ -40,6 +50,9 @@ import static org.lwjgl.opengl.GL45.*;
 
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class EmbeddedPresentationGlTest {
+    @TempDir
+    Path directory;
+
     @Test
     void ownedPresentationTargetDeletesExactlyItsOwnResources() {
         try (GlfwWindow context = hiddenWindow()) {
@@ -188,6 +201,71 @@ class EmbeddedPresentationGlTest {
                 mesh.close();
                 second.close();
                 first.close();
+            }
+        }
+    }
+
+    @Test
+    void embeddedRuntimeRendersTheSameSerializedScenePlanIntoBorrowedTarget() throws Exception {
+        Files.writeString(directory.resolve("embedded.scene.json"), """
+                {"format":"haikalat.scene/1","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":100}},
+                 "nodes":[{"id":"camera","transform":{"translation":[0,0,3]}}]}
+                """, StandardCharsets.UTF_8);
+        ResourceCatalog catalog = ResourceCatalog.builder()
+                .mount("host", ResourceSource.directory("host", directory))
+                .build();
+        AssetId sceneId = AssetId.of("host", "embedded.scene.json");
+
+        try (GlfwWindow context = hiddenWindow()) {
+            context.bindContext();
+            GL.createCapabilities();
+            RawHostTarget host = RawHostTarget.create(20, 16, 30);
+            GlRenderDevice device = new GlRenderDevice();
+            try (SceneAssetService assets = new SceneAssetService(catalog);
+                 GltfRuntimeLibrary library = GltfRuntimeLibrary.create()) {
+                var plan = assets.loadPlan(sceneId).join();
+                try (SceneVersion version = SceneVersion.build(plan, library);
+                     HaikalatRuntime runtime = HaikalatRuntime.createEmbedded(device)) {
+                    Mesh probeMesh = Mesh.from(BuiltinMeshData.coloredTriangle(
+                            "serialized-embedded-target"));
+                    ShaderProgram probeShader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                    Material probeMaterial = Material.builder(probeShader).build();
+                    version.scene().add(new SceneObject(probeMesh, probeMaterial,
+                            (model, frame) -> model.identity()));
+                    RenderSettings settings = RenderSettings.builder()
+                            .antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build();
+                    RenderPipeline pipeline = new RenderPipeline(host.target,
+                            version.scene(), null, settings);
+                    try {
+                        pipeline.build();
+                        ExternalCamera camera = ExternalCamera.of(
+                                new Matrix4f().lookAt(0, 0, 3, 0, 0, 0, 0, 1, 0),
+                                new Matrix4f().perspective((float) Math.toRadians(60),
+                                        20.0f / 16.0f, 0.1f, 100.0f),
+                                new Vector3f(0, 0, 3), 0.25f);
+                        host.clear(1.0f, 0.0f, 1.0f, 1.0f);
+                        assertEquals(PresentationResult.RENDERED, runtime.execute(() ->
+                                pipeline.render(device, camera, host.target, 1.0f / 60.0f)));
+                        int[] pixel = host.readCenter();
+                        assertTrue(pixel[0] < 240 || pixel[2] < 240,
+                                "serialized scene output must replace the host magenta clear");
+                        assertTrue(glIsFramebuffer(host.framebuffer));
+                        assertTrue(glIsTexture(host.color));
+                        assertEquals(sceneId, plan.sceneId());
+                        GlDebug.checkError("embedded serialized scene plan");
+                    } finally {
+                        pipeline.close();
+                        probeMaterial.close();
+                        probeShader.close();
+                        probeMesh.close();
+                    }
+                }
+            } finally {
+                assertTrue(glIsFramebuffer(host.framebuffer));
+                assertTrue(glIsTexture(host.color));
+                host.close();
             }
         }
     }

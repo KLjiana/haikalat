@@ -71,6 +71,8 @@ public final class RenderPipeline {
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
     private SceneFrameBuilder sceneFrameBuilder;
+    private long sceneFastPathReplacementCount;
+    private long sceneGraphRebuildCount;
     private SceneFrame currentSceneFrame;
     private int activeFrameIndex;
     private int pipelineFrameIndex;
@@ -275,11 +277,10 @@ public final class RenderPipeline {
     /**
      * Transactionally replaces the scene at a frame boundary.
      *
-     * <p>A candidate pipeline generation is built while the current generation
-     * remains alive. Only after the candidate succeeds are the old graph and
-     * its GPU resources retired. This method intentionally rebuilds the
-     * candidate graph for both topology-preserving and topology-changing
-     * scenes; a later optimization can specialize the equal-signature path.</p>
+     * <p>When the shadow-pass topology is unchanged, the existing RenderGraph
+     * and render targets are retained and only the scene/lighting bindings are
+     * replaced. A topology change still builds a complete candidate while the
+     * active graph remains alive, then retires the old graph after success.</p>
      */
     public void replaceScene(Scene candidateScene) {
         Objects.requireNonNull(candidateScene, "candidateScene");
@@ -288,6 +289,15 @@ public final class RenderPipeline {
         }
         if (graph == null) {
             scene = candidateScene;
+            return;
+        }
+        if (SceneTopologySignature.of(scene).equals(
+                SceneTopologySignature.of(candidateScene))) {
+            scene = candidateScene;
+            lightingBinder = new LightingBinder(candidateScene);
+            currentSceneFrame = null;
+            activeCamera = null;
+            sceneFastPathReplacementCount++;
             return;
         }
         RenderPipeline candidate = new RenderPipeline(window, candidateScene, instanced,
@@ -316,6 +326,7 @@ public final class RenderPipeline {
             currentSceneFrame = null;
             previewController = candidate.previewController;
             previewRenderer = candidate.previewRenderer;
+            sceneGraphRebuildCount++;
         } catch (RuntimeException failure) {
             try {
                 candidate.close();
@@ -358,6 +369,16 @@ public final class RenderPipeline {
 
     public Scene scene() {
         return scene;
+    }
+
+    /** Number of topology-preserving scene swaps that reused the active graph. */
+    public long sceneFastPathReplacementCount() {
+        return sceneFastPathReplacementCount;
+    }
+
+    /** Number of scene swaps that required a new graph topology. */
+    public long sceneGraphRebuildCount() {
+        return sceneGraphRebuildCount;
     }
 
     /** @return 当前 pipeline 的逻辑预览协调器；不暴露 source native handle */
@@ -935,6 +956,17 @@ public final class RenderPipeline {
     }
 
     /** 不暴露 renderer/queue 引用的每帧可见性值快照。 */
+    private record SceneTopologySignature(boolean directionalShadow,
+                                          boolean pointShadow,
+                                          boolean spotShadow) {
+        private static SceneTopologySignature of(Scene scene) {
+            return new SceneTopologySignature(
+                    LightingBinder.shadowDirectionalLight(scene).isPresent(),
+                    LightingBinder.shadowPointLight(scene).isPresent(),
+                    LightingBinder.shadowSpotLight(scene).isPresent());
+        }
+    }
+
     public record VisibilityStatistics(boolean available, boolean cullingEnabled,
                                        long sceneRevision, int candidateRenderers,
                                        int finiteBoundsRenderers, int unboundedRenderers,

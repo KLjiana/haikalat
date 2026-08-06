@@ -78,3 +78,28 @@ diagnostics.recentFailures(); // 最多保留最近 16 条结构化失败
 diagnostics.lastFailurePhase();
 diagnostics.lastFailureAsset();
 ```
+
+## v0.21 watcher 批次与 Graph fast path
+
+目录 watcher 可能在一次保存操作中同时报告 scene、animation library 和 Graph 文件。使用
+`SceneReloadCoordinator` 先合并事件，再决定需要替换的层级：
+
+```java
+SceneReloadCoordinator reloads = new SceneReloadCoordinator();
+reloads.submit(graphId, SceneReloadCoordinator.ChangeKind.GRAPH_DEFINITION)
+        .submit(graphId, SceneReloadCoordinator.ChangeKind.GRAPH_PARAMETERS);
+SceneReloadCoordinator.ReloadDecision decision = reloads.drain();
+if (decision.graphOnly()) {
+    // 仅替换 Graph runtime；mesh、texture 和 RenderGraph topology 保持不变。
+}
+```
+
+如果 watcher 已经给出一批 `AssetId`，服务层可以直接调用
+`service.invalidateAll(changedAssets)`。同一批次的重复资源只推进一次 generation，且每个受
+影响的 `SceneHandle` 只安排一次候选构建。`SceneReloadTransaction` 仍负责 candidate 的
+prepare/activate/commit；解析、上传或 Graph 编译失败时，active scene 不会被替换。
+
+发布新的 `SceneVersion` 时，`RenderPipeline.replaceScene(...)` 会比较方向光、点光和聚光
+阴影 pass 的 topology signature。signature 相同则复用当前 RenderGraph/target，只更新 scene
+与 lighting binding；signature 改变才使用 candidate-first 完整重建。可以通过
+`sceneFastPathReplacementCount()` 和 `sceneGraphRebuildCount()` 将两条路径写入诊断。

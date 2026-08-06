@@ -22,6 +22,7 @@ public final class SceneJsonParser {
     public static final int MAX_NODES = 10_000;
     public static final int MAX_PARENT_DEPTH = 256;
     public static final int MAX_GLTF_RENDERABLES = 2_048;
+    public static final int MAX_CHARACTERS = 512;
     public static final int MAX_DIRECTIONAL_LIGHTS = 2;
     public static final int MAX_POINT_LIGHTS = 8;
     public static final int MAX_SPOT_LIGHTS = 4;
@@ -82,6 +83,7 @@ public final class SceneJsonParser {
             Integer version = null;
             SceneDefinition.CameraDefinition camera = null;
             List<SceneDefinition.NodeDefinition> nodes = null;
+            List<SceneCharacterDefinition> characters = List.of();
             while (parser.nextToken() != JsonToken.END_OBJECT) {
                 String field = field("$");
                 switch (field) {
@@ -89,12 +91,16 @@ public final class SceneJsonParser {
                     case "version" -> version = integer("$.version");
                     case "camera" -> camera = parseCamera("$.camera");
                     case "nodes" -> nodes = parseNodes("$.nodes");
+                    case "characters" -> characters = parseCharacters("$.characters");
                     default -> throw fail("$." + field, "unknown field");
                 }
             }
             depth--;
-            if (!SceneDefinition.FORMAT.equals(format)) {
-                throw fail("$.format", "must be \"" + SceneDefinition.FORMAT + "\"");
+            if (!SceneDefinition.FORMAT.equals(format)
+                    && !(SceneDefinition.FORMAT + "/" + SceneDefinition.VERSION).equals(format)) {
+                throw fail("$.format", "must be \"" + SceneDefinition.FORMAT
+                        + "\" or \"" + SceneDefinition.FORMAT + "/"
+                        + SceneDefinition.VERSION + "\"");
             }
             if (!Integer.valueOf(SceneDefinition.VERSION).equals(version)) {
                 throw fail("$.version", "must be integer 1");
@@ -102,7 +108,94 @@ public final class SceneJsonParser {
             if (camera == null) throw fail("$.camera", "is required");
             if (nodes == null) throw fail("$.nodes", "is required");
             validateNodes(camera, nodes);
-            return new SceneDefinition(source, camera, nodes);
+            validateCharacters(nodes, characters);
+            return new SceneDefinition(source, camera, nodes, characters);
+        }
+
+        private List<SceneCharacterDefinition> parseCharacters(String path) throws IOException {
+            expect(JsonToken.START_ARRAY, path);
+            List<SceneCharacterDefinition> characters = new ArrayList<>();
+            while (parser.nextToken() != JsonToken.END_ARRAY) {
+                if (characters.size() >= MAX_CHARACTERS) {
+                    throw fail(path, "character count exceeds " + MAX_CHARACTERS);
+                }
+                characters.add(parseCharacter(path + "[" + characters.size() + "]"));
+            }
+            return List.copyOf(characters);
+        }
+
+        private SceneCharacterDefinition parseCharacter(String path) throws IOException {
+            expectStartObject(path);
+            String id = null;
+            String object = null;
+            String animationLibrary = null;
+            String animationGraph = null;
+            String initialState = null;
+            Map<String, SceneCharacterDefinition.ParameterValue> parameters = new HashMap<>();
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String field = field(path);
+                switch (field) {
+                    case "id" -> id = string(path + ".id");
+                    case "object" -> object = string(path + ".object");
+                    case "animationLibrary" -> animationLibrary = string(path + ".animationLibrary");
+                    case "animationGraph" -> animationGraph = string(path + ".animationGraph");
+                    case "initialState" -> initialState = string(path + ".initialState");
+                    case "parameters" -> parameters = parseCharacterParameters(path + ".parameters");
+                    default -> throw fail(path + "." + field, "unknown field");
+                }
+            }
+            depth--;
+            if (id == null) throw fail(path + ".id", "is required");
+            if (object == null) throw fail(path + ".object", "is required");
+            if (animationLibrary == null) {
+                throw fail(path + ".animationLibrary", "is required");
+            }
+            if (animationGraph == null) throw fail(path + ".animationGraph", "is required");
+            if (initialState == null) throw fail(path + ".initialState", "is required");
+            try {
+                return new SceneCharacterDefinition(id, object,
+                        parseAssetReference(path + ".animationLibrary", animationLibrary),
+                        parseAssetReference(path + ".animationGraph", animationGraph),
+                        initialState, parameters);
+            } catch (IllegalArgumentException failure) {
+                throw fail(path, failure.getMessage());
+            }
+        }
+
+        private Map<String, SceneCharacterDefinition.ParameterValue> parseCharacterParameters(
+                String path) throws IOException {
+            expectStartObject(path);
+            Map<String, SceneCharacterDefinition.ParameterValue> parameters = new HashMap<>();
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String name = field(path);
+                if (parameters.size() >= SceneCharacterDefinition.MAX_PARAMETERS) {
+                    throw fail(path, "parameter count exceeds "
+                            + SceneCharacterDefinition.MAX_PARAMETERS);
+                }
+                if (parameters.put(name, parseCharacterParameter(path + "." + name)) != null) {
+                    throw fail(path + "." + name, "duplicate parameter");
+                }
+            }
+            depth--;
+            return Map.copyOf(parameters);
+        }
+
+        private SceneCharacterDefinition.ParameterValue parseCharacterParameter(String path)
+                throws IOException {
+            return switch (parser.currentToken()) {
+                case VALUE_TRUE, VALUE_FALSE ->
+                        SceneCharacterDefinition.ParameterValue.ofBoolean(parser.getBooleanValue());
+                case VALUE_NUMBER_INT -> {
+                    long value = parser.getLongValue();
+                    if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                        throw fail(path, "integer parameter is outside 32-bit range");
+                    }
+                    yield SceneCharacterDefinition.ParameterValue.ofInteger((int) value);
+                }
+                case VALUE_NUMBER_FLOAT ->
+                        SceneCharacterDefinition.ParameterValue.ofFloat(number(path));
+                default -> throw fail(path, "parameter must be boolean or finite number");
+            };
         }
 
         private SceneDefinition.CameraDefinition parseCamera(String path) throws IOException {
@@ -343,6 +436,46 @@ public final class SceneJsonParser {
             }
             int[] marks = new int[nodes.size()];
             for (int i = 0; i < nodes.size(); i++) visitParent(i, nodes, indexes, marks, 0);
+        }
+
+        private void validateCharacters(List<SceneDefinition.NodeDefinition> nodes,
+                                        List<SceneCharacterDefinition> characters) {
+            if (characters.isEmpty()) return;
+            Map<String, Integer> nodeIndexes = new HashMap<>();
+            for (int i = 0; i < nodes.size(); i++) nodeIndexes.put(nodes.get(i).id(), i);
+            Set<String> ids = new HashSet<>();
+            Set<String> objects = new HashSet<>();
+            for (int i = 0; i < characters.size(); i++) {
+                SceneCharacterDefinition character = characters.get(i);
+                String path = "$.characters[" + i + "]";
+                if (!ids.add(character.id())) {
+                    throw fail(path + ".id", "duplicate character id: " + character.id());
+                }
+                Integer nodeIndex = nodeIndexes.get(character.object());
+                if (nodeIndex == null) {
+                    throw fail(path + ".object", "unknown node: " + character.object());
+                }
+                if (!objects.add(character.object())) {
+                    throw fail(path + ".object", "object already has an active character: "
+                            + character.object());
+                }
+                SceneDefinition.NodeDefinition node = nodes.get(nodeIndex);
+                if (node.renderable() == null) {
+                    throw fail(path + ".object", "character object must have a glTF renderable: "
+                            + character.object());
+                }
+                if (!node.renderable().type().equals("gltf")) {
+                    throw fail(path + ".object", "character object must use type gltf");
+                }
+                String libraryPath = character.animationLibrary().path();
+                if (!libraryPath.endsWith("animation-library.json")) {
+                    throw fail(path + ".animationLibrary",
+                            "must reference animation-library.json: " + libraryPath);
+                }
+                if (!character.animationGraph().extension().equals("json")) {
+                    throw fail(path + ".animationGraph", "must reference a JSON sidecar");
+                }
+            }
         }
 
         private void visitParent(int index, List<SceneDefinition.NodeDefinition> nodes,

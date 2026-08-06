@@ -1,0 +1,23 @@
+{
+  "format": "haikalat.animation-graph/1",
+  "skeleton": "player",
+  "parameters": [
+    {"name": "grounded", "type": "BOOLEAN", "default": true},
+    {"name": "speed", "type": "FLOAT", "default": 0.0},
+    {"name": "attack", "type": "TRIGGER"}
+  ],
+  "states": [
+    {"id": "idle", "clip": "stand", "loop": "LOOP"},
+    {"id": "run", "clip": "run", "loop": "LOOP"},
+    {"id": "attack", "clip": "attack_light", "loop": "ONCE"}
+  ],
+  "entry": "idle",
+  "transitions": [
+    {"from": "idle", "to": "run", "duration": 0.12,
+     "when": {"float": "speed", "greaterThan": 0.1}},
+    {"from": "run", "to": "idle", "duration": 0.12,
+     "when": {"float": "speed", "lessOrEqual": 0.1}},
+    {"from": "ANY", "to": "attack", "duration": 0.08,
+     "interrupt": "ANY", "when": {"trigger": "attack"}}
+  ]
+}

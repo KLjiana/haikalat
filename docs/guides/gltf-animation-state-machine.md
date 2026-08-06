@@ -123,3 +123,37 @@ glTF Demo 的 `F2` 检查面板会显示状态、时间、归一化相位、活�
 
 当前 Graph morph 输出仅支持模型中恰好一个 morph 节点；多 morph 节点仍使用现有
 `play(...)` 路径。
+
+## v0.21 JSON Graph sidecar
+
+`haikalat.animation-graph/1` 是一个受约束的 JSON sidecar。它只描述 typed 参数、
+clip-backed states、entry state 和 transition predicates，不包含脚本表达式或宿主查询。
+
+```json
+{
+  "format": "haikalat.animation-graph/1",
+  "skeleton": "player",
+  "parameters": [
+    {"name": "grounded", "type": "BOOLEAN", "default": true},
+    {"name": "speed", "type": "FLOAT", "default": 0.0},
+    {"name": "attack", "type": "TRIGGER"}
+  ],
+  "states": [
+    {"id": "idle", "clip": "stand", "loop": "LOOP"},
+    {"id": "attack", "clip": "attack_light", "loop": "ONCE"}
+  ],
+  "entry": "idle",
+  "transitions": [{"from": "ANY", "to": "attack", "duration": 0.08,
+    "interrupt": "ANY", "when": {"trigger": "attack"}}]
+}
+```
+
+使用顺序是 `AnimationGraphParser.parse` → `AnimationGraphCompiler.compile` →
+`GltfSceneInstance.attachAnimationGraph`。compiler 只接受当前 instance skeleton 和
+clip map；缺 clip、骨架对象不一致、参数类型不一致、未知 state 或 predicate 会在
+candidate activation 前失败。
+
+已支持的 predicate：boolean equals、float greater/greaterOrEqual/less/lessOrEqual、
+integer equals/notEquals/less/greater 和 trigger。支持 LOOP/ONCE、transition duration、
+exit time、destination offset、interrupt 和 queued；不支持 motion matching、脚本、
+physics/scene query、runtime 新增骨骼或跨 topology 混合。

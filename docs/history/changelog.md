@@ -1,5 +1,15 @@
 # 变更记录
 
+## v0.21.0-SNAPSHOT（开发中）
+
+- M0 已从本地 `v0.20.2` release tag 切出，记录运行环境、资源许可、`player_wild` 外部动画链路、Modern UI 入口和 GL policy 基线。
+- Scene v1 新增可选 `characters` descriptor；严格校验角色 object、model、animation-library、Graph sidecar、初始参数和依赖 generation，旧静态 scene 保持兼容。
+- 新增 `haikalat.animation-graph/1` parser/document/compiler，支持 typed boolean/float/integer/trigger 参数、clip state、LOOP/ONCE、predicate、过渡、打断和排队；`SerializedSceneDemo` 已通过隐藏 GL 纵向验证。
+- 补充 `SceneReloadTransaction`、`SceneReloadCoordinator`、`SceneDependencyDiagnostics` 以及 `SceneVersion` 的 Graph activation；watcher 批次现在可合并为一次 deterministic reload decision。`RenderPipeline.replaceScene(...)` 通过 shadow-pass topology signature 复用同拓扑 RenderGraph，并由 focused real-GL gate 验证复用/重建两条路径；另加入 `sceneCharacterJvmVerification` / `serializedSceneStabilityIntegration` 的 3,600 帧、100 次 CPU soak。Modern UI diagnostics、Graph-only runtime 原子替换和真实 GL reload soak 仍在开发。
+- `embeddedGlVerification` 新增 serialized scene 交接验证：`SceneAssetService -> SceneBuildPlan -> SceneVersion` 与窗口 Demo 使用同一 CPU plan，embedded runtime 将其写入宿主非零 borrowed FBO，且不接管 framebuffer/color/depth 生命周期。
+- 新增 host/UI-facing `SerializedSceneDiagnostics` 与 `SceneCharacterRuntimeDiagnostics`；`SerializedSceneDemo` 现在输出 generation、Graph state/parameter、当前 state/time、transition target/weight/reason 和 active marker windows，为后续 Modern UI/F2 panel 提供同一份不可变数据源。
+- `GltfSceneInstance.attachAnimationGraph(...)` 改为 candidate-first：先初始化新 controller/pose，再提交替换并保留旧 pose、marker window 和 morph 权重；Graph 初始化或 binding 失败不会留下半激活 runtime。
+
 ## v0.20.2（2026-08-06）
 
 - 新增 `haikalat.animation-clip/1` 紧凑外部动画格式：按模型节点名绑定

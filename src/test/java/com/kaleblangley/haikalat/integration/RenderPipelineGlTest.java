@@ -725,7 +725,7 @@ class RenderPipelineGlTest {
     }
 
     @Test
-    void sceneReplacementBuildsCandidateBeforeRetiringActiveGraph() {
+    void sceneReplacementUsesFastPathAndRebuildsOnTopologyChange() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
             GL.createCapabilities();
@@ -745,10 +745,24 @@ class RenderPipelineGlTest {
                             .vsync(false).build());
             try {
                 pipeline.build();
+                var activeGraph = pipeline.graph();
                 pipeline.replaceScene(newScene);
                 assertSame(newScene, pipeline.scene());
+                assertSame(activeGraph, pipeline.graph());
+                assertEquals(1L, pipeline.sceneFastPathReplacementCount());
+                assertEquals(0L, pipeline.sceneGraphRebuildCount());
+                Scene shadowScene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+                shadowScene.add(new SceneObject(mesh, material,
+                        (model, frame) -> model.identity()));
+                shadowScene.addLight(SceneLight.shadowedDirectional(
+                        new Vector3f(-0.3f, -1.0f, -0.4f), new Vector3f(1.0f), 1.0f));
+                pipeline.replaceScene(shadowScene);
+                assertSame(shadowScene, pipeline.scene());
+                assertNotSame(activeGraph, pipeline.graph());
+                assertEquals(1L, pipeline.sceneFastPathReplacementCount());
+                assertEquals(1L, pipeline.sceneGraphRebuildCount());
                 pipeline.execute(new GlRenderDevice());
-                GlDebug.checkError("sceneReplacementBuildsCandidateBeforeRetiringActiveGraph");
+                GlDebug.checkError("sceneReplacementUsesFastPathAndRebuildsOnTopologyChange");
             } finally {
                 pipeline.close();
                 material.close();

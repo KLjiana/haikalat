@@ -158,18 +158,57 @@ public final class GltfSceneInstance implements AutoCloseable {
             throw new IllegalArgumentException(
                     "AnimationGraph skeleton must be the instance animationSkeleton()");
         }
-        if (graph.morphTargetCount() > 0 && morphWeights.size() != 1) {
-            throw new IllegalArgumentException(
-                    "graph-driven morph output currently requires exactly one glTF morph node");
+        if (graph.morphTargetCount() > 0) {
+            if (morphWeights.size() != 1) {
+                throw new IllegalArgumentException(
+                        "graph-driven morph output currently requires exactly one glTF morph node");
+            }
+            int instanceTargetCount = morphWeights.values().iterator().next().targetCount();
+            if (graph.morphTargetCount() != instanceTargetCount) {
+                throw new IllegalArgumentException("AnimationGraph morph target count "
+                        + graph.morphTargetCount() + " does not match instance count "
+                        + instanceTargetCount);
+            }
         }
-        detachAnimationGraph();
-        controller = graph.createController();
-        currentAnimationIndex = -1;
-        directMorphTransition = false;
-        controller.update(0.0f, pose);
-        processAnimationWindows();
-        copyControllerMorphWeights();
-        refreshPoseDependents();
+        AnimationController candidate = graph.createController();
+        PoseBuffer candidatePose = rig.skeleton().createPoseBuffer();
+        try {
+            candidate.update(0.0f, candidatePose);
+        } catch (RuntimeException | Error failure) {
+            candidate.close();
+            throw failure;
+        }
+        AnimationController retired = controller;
+        Pose retiredPose = pose.snapshot();
+        Map<Integer, MorphWeightBuffer> retiredMorphs = copyMorphWeightBuffers(morphWeights);
+        List<String> retiredWindows = List.copyOf(activeAnimationWindows);
+        long retiredSignalSequence = processedSignalSequence;
+        try {
+            controller = candidate;
+            pose.load(candidatePose);
+            currentAnimationIndex = -1;
+            directMorphTransition = false;
+            processedSignalSequence = -1L;
+            activeAnimationWindows.clear();
+            processAnimationWindows();
+            copyControllerMorphWeights();
+            refreshPoseDependents();
+        } catch (RuntimeException | Error failure) {
+            controller = retired;
+            pose.load(retiredPose);
+            copyMorphWeights(retiredMorphs, morphWeights);
+            processedSignalSequence = retiredSignalSequence;
+            activeAnimationWindows.clear();
+            activeAnimationWindows.addAll(retiredWindows);
+            try {
+                refreshPoseDependents();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            candidate.close();
+            throw failure;
+        }
+        if (retired != null) retired.close();
         return this;
     }
 

@@ -6,6 +6,8 @@ import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnostics;
 import com.kaleblangley.haikalat.runtime.diagnostics.FrozenDiagnostics;
+import com.kaleblangley.haikalat.subsystems.scene.SceneCharacterRuntimeDiagnostics;
+import com.kaleblangley.haikalat.subsystems.scene.SerializedSceneDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewOptions;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewSourceDescription;
@@ -33,6 +35,7 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /** 主 Demo 使用同一 UiSystem 树的只读诊断工具面板。 */
 final class DiagnosticsPanel {
@@ -60,6 +63,8 @@ final class DiagnosticsPanel {
     private int selectionAnchor = -1;
     private float bodyHeight = 1200.0f;
     private String notice = "Click a row, then Ctrl+C to copy / 点击一行后按 Ctrl+C 复制";
+    private Supplier<SerializedSceneDiagnostics> sceneSnapshotProvider;
+    private Supplier<List<SceneCharacterRuntimeDiagnostics>> characterRuntimeProvider;
 
     DiagnosticsPanel(FrameDiagnostics diagnostics, Path exportPath,
                      ClipboardService clipboard, GraphPreviewController preview) {
@@ -173,6 +178,7 @@ final class DiagnosticsPanel {
             case PASSES -> passes(snapshot);
             case RESOURCES -> resources(resources);
             case MESSAGES -> messages(messages);
+            case SCENE -> sceneView();
             case GRAPH -> throw new AssertionError();
         }, List.of());
         status.text((frozen == null ? "LIVE" : "FROZEN") + " | epoch " + snapshot.epoch()
@@ -514,6 +520,60 @@ final class DiagnosticsPanel {
         return text.toString();
     }
 
+    private String sceneView() {
+        StringBuilder text = new StringBuilder("Scene / 场景\n\n");
+        if (sceneSnapshotProvider == null) {
+            text.append("No serialized scene loaded / 未加载序列化场景");
+            return text.toString();
+        }
+        SerializedSceneDiagnostics sceneSnapshot = sceneSnapshotProvider.get();
+        if (sceneSnapshot == null) {
+            text.append("Scene snapshot unavailable / 场景快照不可用");
+            return text.toString();
+        }
+        text.append("Scene ID: ").append(sceneSnapshot.scene()).append('\n');
+        text.append("Generation: ").append(sceneSnapshot.generation()).append('\n');
+        text.append("Characters: ").append(sceneSnapshot.characters().size()).append("\n\n");
+        for (SerializedSceneDiagnostics.CharacterDiagnostics character : sceneSnapshot.characters()) {
+            text.append("Character: ").append(character.id()).append('\n');
+            text.append("  Object: ").append(character.object()).append('\n');
+            text.append("  Initial State: ").append(character.initialState()).append('\n');
+            text.append("  Animation Library: ").append(character.animationLibrary()).append('\n');
+            text.append("  Animation Graph: ").append(character.animationGraph()).append('\n');
+            text.append("  Graph States: ").append(character.graphStateCount()).append('\n');
+            text.append("  Parameters: ").append(String.join(", ", character.parameterNames())).append("\n\n");
+        }
+        if (characterRuntimeProvider != null) {
+            List<SceneCharacterRuntimeDiagnostics> runtimeList = characterRuntimeProvider.get();
+            if (runtimeList != null && !runtimeList.isEmpty()) {
+                text.append("Runtime State / 运行时状态\n\n");
+                for (SceneCharacterRuntimeDiagnostics runtime : runtimeList) {
+                    text.append("Character: ").append(runtime.character()).append('\n');
+                    text.append("  Generation: ").append(runtime.generation()).append('\n');
+                    text.append("  State: ").append(runtime.state()).append('\n');
+                    text.append("  Time: ").append(String.format(Locale.ROOT, "%.3f s", runtime.timeSeconds())).append('\n');
+                    text.append("  Normalized Time: ").append(String.format(Locale.ROOT, "%.3f", runtime.normalizedTime())).append('\n');
+                    if (runtime.transitioning()) {
+                        text.append("  Transition Target: ").append(runtime.transitionTarget()).append('\n');
+                        text.append("  Transition Weight: ").append(String.format(Locale.ROOT, "%.3f", runtime.transitionWeight())).append('\n');
+                        text.append("  Transition Reason: ").append(runtime.transitionReason()).append('\n');
+                    }
+                    if (!runtime.activeWindows().isEmpty()) {
+                        text.append("  Active Windows: ").append(String.join(", ", runtime.activeWindows())).append('\n');
+                    }
+                    text.append('\n');
+                }
+            }
+        }
+        return text.toString();
+    }
+
+    void setSceneDiagnostics(Supplier<SerializedSceneDiagnostics> sceneProvider,
+                             Supplier<List<SceneCharacterRuntimeDiagnostics>> runtimeProvider) {
+        this.sceneSnapshotProvider = sceneProvider;
+        this.characterRuntimeProvider = runtimeProvider;
+    }
+
     private boolean resourceVisible(String kind) {
         return filterIndex == 0 || filterIndex == 1 && kind.equals("TEXTURE")
                 || filterIndex == 2 && (kind.equals("BUFFER") || kind.equals("VAO"));
@@ -602,7 +662,7 @@ final class DiagnosticsPanel {
 
     private enum View {
         OVERVIEW("Overview"), PASSES("Passes"), GRAPH("Graph"),
-        RESOURCES("Resources"), MESSAGES("Messages");
+        RESOURCES("Resources"), MESSAGES("Messages"), SCENE("Scene");
         final String label;
         View(String label) { this.label = label; }
     }

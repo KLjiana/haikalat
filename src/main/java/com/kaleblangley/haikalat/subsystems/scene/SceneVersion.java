@@ -1,6 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.scene;
 
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationClip;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationGraphCompiler;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationPlayer;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -52,6 +54,7 @@ public final class SceneVersion implements AutoCloseable {
         Objects.requireNonNull(library, "library");
         Map<SceneBuildPlan.AssetVariant, GltfSceneAsset> uploaded = new LinkedHashMap<>();
         List<GltfSceneInstance> animated = new ArrayList<>();
+        Map<String, GltfSceneInstance> animatedByNode = new HashMap<>();
         try {
             for (Map.Entry<SceneBuildPlan.AssetVariant, LoadedGltfScene> entry
                     : plan.gltfAssets().entrySet()) {
@@ -80,6 +83,7 @@ public final class SceneVersion implements AutoCloseable {
                                 ? AnimationPlayer.LoopMode.LOOP : AnimationPlayer.LoopMode.ONCE);
                     }
                     animated.add(animatedInstance);
+                    animatedByNode.put(instance.nodeId(), animatedInstance);
                     for (SceneObject object : animatedInstance.objects()) scene.add(object);
                 } else {
                     for (SceneObject object : asset.instantiate(world, instance.castShadows())) {
@@ -87,6 +91,7 @@ public final class SceneVersion implements AutoCloseable {
                     }
                 }
             }
+            attachCharacterGraphs(plan, animatedByNode);
             return new SceneVersion(plan.generation(), scene, animated,
                     new ArrayList<>(uploaded.values()), List.of());
         } catch (RuntimeException failure) {
@@ -102,6 +107,7 @@ public final class SceneVersion implements AutoCloseable {
         Objects.requireNonNull(cache, "cache");
         Map<SceneBuildPlan.AssetVariant, GltfGpuAssetCache.Lease> leases = new LinkedHashMap<>();
         List<GltfSceneInstance> animated = new ArrayList<>();
+        Map<String, GltfSceneInstance> animatedByNode = new HashMap<>();
         try {
             for (Map.Entry<SceneBuildPlan.AssetVariant, LoadedGltfScene> entry
                     : plan.gltfAssets().entrySet()) {
@@ -133,6 +139,7 @@ public final class SceneVersion implements AutoCloseable {
                                 ? AnimationPlayer.LoopMode.LOOP : AnimationPlayer.LoopMode.ONCE);
                     }
                     animated.add(animatedInstance);
+                    animatedByNode.put(instance.nodeId(), animatedInstance);
                     for (SceneObject object : animatedInstance.objects()) scene.add(object);
                 } else {
                     for (SceneObject object : asset.instantiate(world, instance.castShadows())) {
@@ -140,6 +147,7 @@ public final class SceneVersion implements AutoCloseable {
                     }
                 }
             }
+            attachCharacterGraphs(plan, animatedByNode);
             return new SceneVersion(plan.generation(), scene, animated, List.of(),
                     new ArrayList<>(leases.values()));
         } catch (RuntimeException failure) {
@@ -199,6 +207,35 @@ public final class SceneVersion implements AutoCloseable {
             }
         }
         if (failure != null) throw failure;
+    }
+
+    private static void attachCharacterGraphs(SceneBuildPlan plan,
+                                              Map<String, GltfSceneInstance> instances) {
+        for (CharacterBuildPlan character : plan.characters()) {
+            if (character.graphDocument() == null) continue;
+            GltfSceneInstance instance = instances.get(character.definition().object());
+            if (instance == null) {
+                throw new IllegalArgumentException("character object is not an animated instance: "
+                        + character.definition().object());
+            }
+            Map<String, AnimationClip> clips = new HashMap<>();
+            for (int i = 0; i < instance.animationCount(); i++) {
+                clips.put(instance.animationNames().get(i), instance.animationClip(i));
+            }
+            instance.attachAnimationGraph(AnimationGraphCompiler.compile(
+                    character.definition().id(), character.graphDocument(),
+                    instance.animationSkeleton(), clips));
+            character.definition().parameters().forEach((name, value) -> {
+                switch (value.type()) {
+                    case BOOLEAN -> instance.animationController().setBoolean(name,
+                            value.booleanValue());
+                    case FLOAT -> instance.animationController().setFloat(name,
+                            value.floatValue());
+                    case INTEGER -> instance.animationController().setInteger(name,
+                            value.intValue());
+                }
+            });
+        }
     }
 
     private static Map<String, Matrix4f> worldTransforms(SceneDefinition definition) {

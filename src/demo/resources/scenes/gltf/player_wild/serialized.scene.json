@@ -1,0 +1,26 @@
+{
+  "format": "haikalat.scene",
+  "version": 1,
+  "camera": {
+    "node": "camera",
+    "projection": {"type": "perspective", "fovYDegrees": 60, "near": 0.1, "far": 100}
+  },
+  "nodes": [
+    {"id": "camera"},
+    {"id": "player", "renderable": {
+      "type": "gltf",
+      "asset": "./animation-library.json",
+      "animated": true,
+      "initialAnimation": "stand",
+      "loop": true,
+      "castShadows": false
+    }}
+  ],
+  "characters": [
+    {"id": "player-character", "object": "player",
+     "animationLibrary": "./animation-library.json",
+     "animationGraph": "./serialized.animation-graph.json",
+     "initialState": "idle",
+     "parameters": {"grounded": true, "speed": 0.0}}
+  ]
+}

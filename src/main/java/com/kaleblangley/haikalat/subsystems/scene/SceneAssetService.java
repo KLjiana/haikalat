@@ -6,6 +6,8 @@ import com.kaleblangley.haikalat.core.assets.gltf.GltfImageDecoder;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.assets.gltf.SceneSelection;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationGraphDocument;
+import com.kaleblangley.haikalat.subsystems.animation.AnimationGraphParser;
 import com.kaleblangley.haikalat.subsystems.resources.AssetId;
 import com.kaleblangley.haikalat.subsystems.resources.DirectoryResourceWatcher;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog;
@@ -17,6 +19,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -158,9 +161,23 @@ public final class SceneAssetService implements AutoCloseable {
     public Set<AssetId> invalidate(AssetId changedAsset) {
         ensureOpen();
         Objects.requireNonNull(changedAsset, "changedAsset");
+        return invalidateAll(List.of(changedAsset));
+    }
+
+    /**
+     * Invalidates a coalesced batch of changed resources and schedules each
+     * affected scene at most once. This is the watcher fast path: a save that
+     * touches a graph, its library and its texture does not create a chain of
+     * intermediate scene generations.
+     */
+    public Set<AssetId> invalidateAll(Collection<AssetId> changedAssets) {
+        ensureOpen();
+        Objects.requireNonNull(changedAssets, "changedAssets");
         Set<AssetId> affected = new HashSet<>();
         ArrayDeque<AssetId> queue = new ArrayDeque<>();
-        queue.add(changedAsset);
+        for (AssetId changedAsset : changedAssets) {
+            queue.add(Objects.requireNonNull(changedAsset, "changed asset"));
+        }
         while (!queue.isEmpty()) {
             AssetId current = queue.removeFirst();
             if (!affected.add(current)) continue;
@@ -190,7 +207,7 @@ public final class SceneAssetService implements AutoCloseable {
         DirectoryResourceWatcher watcher = new DirectoryResourceWatcher(namespace, root,
                 debounce, changed -> {
                     if (closed.get()) return;
-                    changed.forEach(this::invalidate);
+                    invalidateAll(changed);
                 });
         watchers.add(watcher);
         return watcher;
@@ -415,6 +432,7 @@ public final class SceneAssetService implements AutoCloseable {
         Map<SceneBuildPlan.AssetVariant, Map<Integer, GltfImageData>> decodedImages =
                 new HashMap<>();
         List<SceneBuildPlan.InstancePlan> instances = new ArrayList<>();
+        List<CharacterBuildPlan> characters = new ArrayList<>();
         Set<AssetId> dependencies = new HashSet<>();
         Map<AssetId, Set<AssetId>> assetDependencies = new HashMap<>();
         dependencies.add(key.sceneId());
@@ -456,10 +474,56 @@ public final class SceneAssetService implements AutoCloseable {
                     renderable.castShadows()));
             checkCurrent(ticket);
         }
+        if (!definition.characters().isEmpty()) {
+            Map<String, SceneDefinition.NodeDefinition> nodesById = new HashMap<>();
+            definition.nodes().forEach(node -> nodesById.put(node.id(), node));
+            for (SceneCharacterDefinition character : definition.characters()) {
+                SceneDefinition.NodeDefinition node = nodesById.get(character.object());
+                // SceneJsonParser has already validated this binding; keep the
+                // guard here because CharacterBuildPlan is also an independent
+                // CPU boundary for callers constructing definitions directly.
+                if (node == null || node.renderable() == null) {
+                    throw failure("VALIDATE_CHARACTER", key.sceneId(),
+                            new IllegalArgumentException("character object is not renderable: "
+                                    + character.object()));
+                }
+                AssetId library = character.animationLibrary();
+                AssetId graph = character.animationGraph();
+                readCharacterDependency(key.sceneId(), library, "animation library");
+                byte[] graphBytes = readCharacterDependency(key.sceneId(), graph,
+                        "animation graph");
+                AnimationGraphDocument graphDocument;
+                try {
+                    graphDocument = AnimationGraphParser.parse(graph, graphBytes);
+                } catch (RuntimeException failure) {
+                    throw failure("PARSE_CHARACTER_GRAPH", graph, failure);
+                }
+                dependencies.add(library);
+                dependencies.add(graph);
+                Set<AssetId> characterDependencies = new HashSet<>();
+                characterDependencies.add(node.renderable().asset());
+                characterDependencies.add(library);
+                characterDependencies.add(graph);
+                characters.add(new CharacterBuildPlan(character,
+                        node.renderable().asset(), library, graph,
+                        List.copyOf(characterDependencies), graphDocument));
+                checkCurrent(ticket);
+            }
+        }
         assetDependencies.forEach(this::publishDependencies);
         publishDependencies(key.sceneId(), dependencies);
         return new SceneBuildPlan(key.sceneId(), key.generation(), definition, assets,
-                decodedImages, instances);
+                decodedImages, instances, characters);
+    }
+
+    private byte[] readCharacterDependency(AssetId sceneId, AssetId dependency, String kind) {
+        try {
+            return catalog.readBytes(dependency, maxSceneBytes);
+        } catch (IOException failure) {
+            throw failure("READ_CHARACTER_DEPENDENCY", dependency,
+                    new IOException("could not read " + kind + " for scene " + sceneId,
+                            failure));
+        }
     }
 
     private static Map<Integer, GltfImageData> decodeImages(LoadedGltfScene scene) {

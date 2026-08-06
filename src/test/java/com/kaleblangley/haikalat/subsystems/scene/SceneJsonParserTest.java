@@ -71,6 +71,59 @@ class SceneJsonParserTest {
     }
 
     @Test
+    void parsesOptionalCharacterDescriptorsWithoutChangingStaticScenes() {
+        String json = """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":100}},
+                 "nodes":[
+                   {"id":"camera"},
+                   {"id":"hero","renderable":{"type":"gltf",
+                     "asset":"./gltf/hero/model.gltf"}}
+                 ],
+                 "characters":[{"id":"hero-character","object":"hero",
+                   "animationLibrary":"./gltf/hero/animation-library.json",
+                   "animationGraph":"./gltf/hero/player.animation-graph.json",
+                   "initialState":"idle",
+                   "parameters":{"grounded":true,"speed":2.5,"combo":1}}]}
+                """;
+
+        SceneDefinition scene = SceneJsonParser.parse(
+                SOURCE, json.getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(1, scene.characters().size());
+        SceneCharacterDefinition character = scene.characters().getFirst();
+        assertEquals("hero", character.object());
+        assertEquals(SOURCE.resolve("./gltf/hero/animation-library.json"),
+                character.animationLibrary());
+        assertEquals(SceneCharacterDefinition.ParameterValue.Type.BOOLEAN,
+                character.parameters().get("grounded").type());
+        assertEquals(SceneCharacterDefinition.ParameterValue.Type.FLOAT,
+                character.parameters().get("speed").type());
+        assertEquals(SceneCharacterDefinition.ParameterValue.Type.INTEGER,
+                character.parameters().get("combo").type());
+    }
+
+    @Test
+    void rejectsCharacterObjectAndIdentityConflictsWithFieldContext() {
+        String base = """
+                {"format":"haikalat.scene","version":1,
+                 "camera":{"node":"camera","projection":{
+                   "type":"perspective","fovYDegrees":60,"near":0.1,"far":100}},
+                 "nodes":[{"id":"camera"},{"id":"hero"}],
+                 "characters":[{"id":"hero-character","object":"hero",
+                   "animationLibrary":"./animation-library.json",
+                   "animationGraph":"./hero.animation-graph.json","initialState":"idle"}]}
+                """;
+        assertMessageContains(base, "must have a glTF renderable");
+
+        String duplicate = base.replace("{\"id\":\"hero\"}",
+                "{\"id\":\"hero\",\"renderable\":{\"type\":\"gltf\",\"asset\":\"./hero.glb\"}}")
+                .replace("\"characters\":[{", "\"characters\":[{\"id\":\"other\",\"object\":\"hero\",\"animationLibrary\":\"./animation-library.json\",\"animationGraph\":\"./hero.animation-graph.json\",\"initialState\":\"idle\"},{");
+        assertMessageContains(duplicate, "object already has an active character");
+    }
+
+    @Test
     void rejectsUnknownFieldsDuplicateFieldsAmbiguousReferencesAndCycles() {
         assertMessageContains("""
                 {"format":"haikalat.scene","version":1,"unknown":true,

@@ -1,5 +1,12 @@
 # v0.19 serialized scene public API classification.
 advanced com.kaleblangley.haikalat.subsystems.scene.SceneDefinition
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneCharacterDefinition
+advanced com.kaleblangley.haikalat.subsystems.scene.CharacterBuildPlan
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneReloadTransaction
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneReloadCoordinator
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneDependencyDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.scene.SerializedSceneDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.scene.SceneCharacterRuntimeDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.scene.SceneJsonParser
 advanced com.kaleblangley.haikalat.subsystems.scene.SceneBuildPlan
 advanced com.kaleblangley.haikalat.subsystems.scene.SceneAssetService
