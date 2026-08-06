@@ -34,6 +34,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -47,6 +48,40 @@ public final class RenderPipeline {
     private static final int POINT_SHADOW_TEXTURE_UNIT = 11;
     private static final int SPOT_SHADOW_TEXTURE_UNIT = 12;
     private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
+    
+    // O2: Replace 26 string comparisons with O(1) HashSet lookup
+    private static final Set<String> FRAME_OWNED_UNIFORMS = Set.of(
+        "uDirectionalLightCount",
+        "uPointLightCount",
+        "uSpotLightCount",
+        "uCameraPosition",
+        "uDirectionalLightSpace",
+        "uDirectionalShadowLightIndex",
+        "uPointShadowLightIndex",
+        "uSpotShadowLightIndex",
+        "uHasDirectionalShadow",
+        "uShadowMap",
+        "uShadowBias",
+        "uHasPointShadow",
+        "uPointShadowMap",
+        "uPointShadowBias",
+        "uHasSpotShadow",
+        "uSpotShadowMap",
+        "uSpotShadowBias",
+        "uSpotShadowMatrix",
+        "uIrradianceMap",
+        "uPrefilteredMap",
+        "uBrdfLut",
+        "uEnvironmentIntensity",
+        "uEnvironmentRotation",
+        "uPrefilterMaxLod"
+    );
+    private static final Set<String> FRAME_OWNED_UNIFORM_PREFIXES = Set.of(
+        "uDirectionalLights[",
+        "uPointLights[",
+        "uSpotLights[",
+        "uPointShadowMatrices["
+    );
     private final RenderWindow window;
     private Scene scene;
     private final InstancedRenderer instanced;
@@ -90,6 +125,11 @@ public final class RenderPipeline {
     private int activeHeight;
     private boolean executing;
     private boolean embedded;
+    
+    // O1: Cached light query results to avoid per-frame scene.lights() traversal
+    private Optional<LightingBinder.ShadowDirectionalLight> cachedShadowDirectional;
+    private Optional<LightingBinder.ShadowPointLight> cachedShadowPoint;
+    private Optional<LightingBinder.ShadowSpotLight> cachedShadowSpot;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -262,6 +302,11 @@ public final class RenderPipeline {
             previewRenderer = new GraphPreviewRenderer(previewController, graph, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet());
             cachedSceneTopology = SceneTopologySignature.of(scene);
+            
+            // O1: Cache light query results once at build time
+            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(scene);
+            cachedShadowPoint = LightingBinder.shadowPointLight(scene);
+            cachedShadowSpot = LightingBinder.shadowSpotLight(scene);
         } catch (RuntimeException failure) {
             try {
                 closeGraphResources();
@@ -300,6 +345,12 @@ public final class RenderPipeline {
             lightingBinder = new LightingBinder(candidateScene);
             currentSceneFrame = null;
             activeCamera = null;
+            
+            // O1: Update light caches on fast-path scene replacement
+            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(candidateScene);
+            cachedShadowPoint = LightingBinder.shadowPointLight(candidateScene);
+            cachedShadowSpot = LightingBinder.shadowSpotLight(candidateScene);
+            
             sceneFastPathReplacementCount++;
             return;
         }
@@ -330,6 +381,12 @@ public final class RenderPipeline {
             previewController = candidate.previewController;
             previewRenderer = candidate.previewRenderer;
             cachedSceneTopology = candidateTopology;
+            
+            // O1: Update light caches after graph rebuild
+            cachedShadowDirectional = candidate.cachedShadowDirectional;
+            cachedShadowPoint = candidate.cachedShadowPoint;
+            cachedShadowSpot = candidate.cachedShadowSpot;
+            
             sceneGraphRebuildCount++;
         } catch (RuntimeException failure) {
             try {
@@ -865,17 +922,19 @@ public final class RenderPipeline {
 
     private SceneFrame sceneFrame() {
         if (currentSceneFrame != null) return currentSceneFrame;
-        var shadow = LightingBinder.shadowDirectionalLight(scene);
+        
+        // O1: Use cached light queries instead of traversing scene.lights() every frame
+        var shadow = cachedShadowDirectional;
         if (shadow.isPresent()) {
             lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
                     shadow.orElseThrow().light(), frameCamera().position()));
         } else {
             lastDirectionalLightSpaceMatrix.identity();
         }
-        var pointShadow = LightingBinder.shadowPointLight(scene);
+        var pointShadow = cachedShadowPoint;
         lastPointLightSpaceMatrices = pointShadow.isPresent()
                 ? pointShadowAtlas.faceMatrices(pointShadow.orElseThrow().light()) : List.of();
-        var spotShadow = LightingBinder.shadowSpotLight(scene);
+        var spotShadow = cachedShadowSpot;
         if (spotShadow.isPresent()) {
             lastSpotLightSpaceMatrix.set(
                     spotShadowMap.lightSpaceMatrix(spotShadow.orElseThrow().light()));
@@ -963,11 +1022,29 @@ public final class RenderPipeline {
     private record SceneTopologySignature(boolean directionalShadow,
                                           boolean pointShadow,
                                           boolean spotShadow) {
+        // O4: Merge 3 separate light traversals into 1 single pass with early exit
         private static SceneTopologySignature of(Scene scene) {
-            return new SceneTopologySignature(
-                    LightingBinder.shadowDirectionalLight(scene).isPresent(),
-                    LightingBinder.shadowPointLight(scene).isPresent(),
-                    LightingBinder.shadowSpotLight(scene).isPresent());
+            boolean hasDirectional = false;
+            boolean hasPoint = false;
+            boolean hasSpot = false;
+            
+            for (SceneLight light : scene.lights()) {
+                if (!hasDirectional && light.type() == LightType.DIRECTIONAL && light.castShadows()) {
+                    hasDirectional = true;
+                }
+                if (!hasPoint && light.type() == LightType.POINT && light.castShadows()) {
+                    hasPoint = true;
+                }
+                if (!hasSpot && light.type() == LightType.SPOT && light.castShadows()) {
+                    hasSpot = true;
+                }
+                // Early exit if all shadow types found
+                if (hasDirectional && hasPoint && hasSpot) {
+                    break;
+                }
+            }
+            
+            return new SceneTopologySignature(hasDirectional, hasPoint, hasSpot);
         }
     }
 
@@ -1027,11 +1104,22 @@ public final class RenderPipeline {
     /** 仅在材质确实覆盖引擎逐帧 binding 时，才需要在材质之后重新提交 frame state。 */
     private boolean invalidatesFrameState(MaterialInstance instance) {
         Material material = instance.material();
-        boolean templateInvalidates = frameStateInvalidationByMaterial.computeIfAbsent(material,
-                candidate -> candidate.defaultUniforms().keySet().stream()
-                        .anyMatch(key -> isFrameOwnedUniform(key.name()))
-                        || candidate.defaultTextures().stream()
-                        .anyMatch(binding -> isFrameOwnedTextureUnit(binding.unit())));
+        
+        // O3: Replace Stream API with direct iteration to reduce object allocation
+        boolean templateInvalidates = frameStateInvalidationByMaterial.computeIfAbsent(material, candidate -> {
+            for (var key : candidate.defaultUniforms().keySet()) {
+                if (isFrameOwnedUniform(key.name())) {
+                    return true;
+                }
+            }
+            for (var binding : candidate.defaultTextures()) {
+                if (isFrameOwnedTextureUnit(binding.unit())) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        
         if (templateInvalidates || !instance.hasOverrides()) return templateInvalidates;
         for (var key : instance.uniformOverrides().keySet()) {
             if (isFrameOwnedUniform(key.name())) return true;
@@ -1043,34 +1131,16 @@ public final class RenderPipeline {
     }
 
     static boolean isFrameOwnedUniform(String name) {
-        return name.startsWith("uDirectionalLights[")
-                || name.startsWith("uPointLights[")
-                || name.startsWith("uSpotLights[")
-                || name.equals("uDirectionalLightCount")
-                || name.equals("uPointLightCount")
-                || name.equals("uSpotLightCount")
-                || name.equals("uCameraPosition")
-                || name.equals("uDirectionalLightSpace")
-                || name.equals("uDirectionalShadowLightIndex")
-                || name.equals("uPointShadowLightIndex")
-                || name.equals("uSpotShadowLightIndex")
-                || name.equals("uHasDirectionalShadow")
-                || name.equals("uShadowMap")
-                || name.equals("uShadowBias")
-                || name.equals("uHasPointShadow")
-                || name.equals("uPointShadowMap")
-                || name.equals("uPointShadowBias")
-                || name.startsWith("uPointShadowMatrices[")
-                || name.equals("uHasSpotShadow")
-                || name.equals("uSpotShadowMap")
-                || name.equals("uSpotShadowBias")
-                || name.equals("uSpotShadowMatrix")
-                || name.equals("uIrradianceMap")
-                || name.equals("uPrefilteredMap")
-                || name.equals("uBrdfLut")
-                || name.equals("uEnvironmentIntensity")
-                || name.equals("uEnvironmentRotation")
-                || name.equals("uPrefilterMaxLod");
+        // O2: Use HashSet lookup (O(1)) instead of 26 string comparisons
+        if (FRAME_OWNED_UNIFORMS.contains(name)) {
+            return true;
+        }
+        for (String prefix : FRAME_OWNED_UNIFORM_PREFIXES) {
+            if (name.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isFrameOwnedTextureUnit(int unit) {
