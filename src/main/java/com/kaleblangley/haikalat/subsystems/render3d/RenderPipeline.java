@@ -74,6 +74,7 @@ public final class RenderPipeline {
     private long sceneFastPathReplacementCount;
     private long sceneGraphRebuildCount;
     private SceneFrame currentSceneFrame;
+    private SceneTopologySignature cachedSceneTopology;
     private int activeFrameIndex;
     private int pipelineFrameIndex;
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
@@ -260,6 +261,7 @@ public final class RenderPipeline {
             finalPassName = postProcess.finalPassName();
             previewRenderer = new GraphPreviewRenderer(previewController, graph, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet());
+            cachedSceneTopology = SceneTopologySignature.of(scene);
         } catch (RuntimeException failure) {
             try {
                 closeGraphResources();
@@ -289,10 +291,11 @@ public final class RenderPipeline {
         }
         if (graph == null) {
             scene = candidateScene;
+            cachedSceneTopology = SceneTopologySignature.of(candidateScene);
             return;
         }
-        if (SceneTopologySignature.of(scene).equals(
-                SceneTopologySignature.of(candidateScene))) {
+        SceneTopologySignature candidateTopology = SceneTopologySignature.of(candidateScene);
+        if (cachedSceneTopology != null && cachedSceneTopology.equals(candidateTopology)) {
             scene = candidateScene;
             lightingBinder = new LightingBinder(candidateScene);
             currentSceneFrame = null;
@@ -326,6 +329,7 @@ public final class RenderPipeline {
             currentSceneFrame = null;
             previewController = candidate.previewController;
             previewRenderer = candidate.previewRenderer;
+            cachedSceneTopology = candidateTopology;
             sceneGraphRebuildCount++;
         } catch (RuntimeException failure) {
             try {
