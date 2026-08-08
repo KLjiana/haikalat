@@ -13,6 +13,7 @@ public final class Scene {
     private List<MeshRenderer> forwardDrawOrder;
     private List<MeshRenderer> shadowDrawOrder;
     private long membershipRevision;
+    private long lightingRevision;
 
     public Scene(Camera camera) {
         this.camera = Objects.requireNonNull(camera, "camera");
@@ -48,6 +49,7 @@ public final class Scene {
 
     public Scene addLight(SceneLight light) {
         lights.add(Objects.requireNonNull(light, "light"));
+        lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
 
@@ -68,6 +70,7 @@ public final class Scene {
                     + "; rebuild the pipeline");
         }
         lights.set(index, replacement);
+        lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
 
@@ -78,6 +81,11 @@ public final class Scene {
     /** @return renderer membership 的单调修订号；灯光参数变化不会修改它 */
     public long membershipRevision() {
         return membershipRevision;
+    }
+
+    /** @return monotonic revision for light additions and parameter replacements */
+    public long lightingRevision() {
+        return lightingRevision;
     }
 
     int rendererCount() {

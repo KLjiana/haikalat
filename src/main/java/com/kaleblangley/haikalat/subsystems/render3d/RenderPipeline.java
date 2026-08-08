@@ -130,6 +130,7 @@ public final class RenderPipeline {
     private Optional<LightingBinder.ShadowDirectionalLight> cachedShadowDirectional;
     private Optional<LightingBinder.ShadowPointLight> cachedShadowPoint;
     private Optional<LightingBinder.ShadowSpotLight> cachedShadowSpot;
+    private long cachedLightingRevision = Long.MIN_VALUE;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -307,6 +308,7 @@ public final class RenderPipeline {
             cachedShadowDirectional = LightingBinder.shadowDirectionalLight(scene);
             cachedShadowPoint = LightingBinder.shadowPointLight(scene);
             cachedShadowSpot = LightingBinder.shadowSpotLight(scene);
+            cachedLightingRevision = scene.lightingRevision();
         } catch (RuntimeException failure) {
             try {
                 closeGraphResources();
@@ -350,6 +352,7 @@ public final class RenderPipeline {
             cachedShadowDirectional = LightingBinder.shadowDirectionalLight(candidateScene);
             cachedShadowPoint = LightingBinder.shadowPointLight(candidateScene);
             cachedShadowSpot = LightingBinder.shadowSpotLight(candidateScene);
+            cachedLightingRevision = candidateScene.lightingRevision();
             
             sceneFastPathReplacementCount++;
             return;
@@ -386,6 +389,7 @@ public final class RenderPipeline {
             cachedShadowDirectional = candidate.cachedShadowDirectional;
             cachedShadowPoint = candidate.cachedShadowPoint;
             cachedShadowSpot = candidate.cachedShadowSpot;
+            cachedLightingRevision = candidate.cachedLightingRevision;
             
             sceneGraphRebuildCount++;
         } catch (RuntimeException failure) {
@@ -922,8 +926,15 @@ public final class RenderPipeline {
 
     private SceneFrame sceneFrame() {
         if (currentSceneFrame != null) return currentSceneFrame;
-        
-        // O1: Use cached light queries instead of traversing scene.lights() every frame
+
+        // Light parameters can change without changing renderable membership. Refresh the
+        // derived shadow selections only when Scene reports a lighting revision.
+        if (cachedLightingRevision != scene.lightingRevision()) {
+            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(scene);
+            cachedShadowPoint = LightingBinder.shadowPointLight(scene);
+            cachedShadowSpot = LightingBinder.shadowSpotLight(scene);
+            cachedLightingRevision = scene.lightingRevision();
+        }
         var shadow = cachedShadowDirectional;
         if (shadow.isPresent()) {
             lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
