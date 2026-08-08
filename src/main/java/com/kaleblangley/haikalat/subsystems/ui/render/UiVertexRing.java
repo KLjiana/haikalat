@@ -18,7 +18,7 @@ import static org.lwjgl.opengl.GL44.GL_MAP_PERSISTENT_BIT;
 final class UiVertexRing implements AutoCloseable, GpuFenceTarget {
     static final int SLOT_COUNT = 3;
     static final int VERTICES_PER_QUAD = 4;
-    static final int VERTEX_STRIDE_BYTES = 20;
+    static final int VERTEX_STRIDE_BYTES = 28;
     private static final long FENCE_TIMEOUT_NANOS = 1_000_000_000L;
 
     private final GlBuffer buffer;

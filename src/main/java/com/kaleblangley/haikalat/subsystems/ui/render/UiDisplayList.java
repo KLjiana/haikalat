@@ -40,6 +40,16 @@ public final class UiDisplayList {
     private int[] primitiveSdfGradientEndColors;
     private UiLayerDescription[] primitiveLayers;
 
+    // Text effect arrays
+    private byte[] primitiveTextEffectTypes;
+    private int[] primitiveTextEffectColor1;
+    private int[] primitiveTextEffectColor2;
+    private float[] primitiveTextEffectThickness;
+    private float[] primitiveTextEffectOffsetX;
+    private float[] primitiveTextEffectOffsetY;
+    private float[] primitiveTextEffectBlur;
+    private float[] primitiveTextEffectAngle;
+
     private double[] quadX;
     private double[] quadY;
     private double[] quadWidth;
@@ -68,6 +78,22 @@ public final class UiDisplayList {
     private int glyphTexture;
     private int glyphSampler;
     private UiBlendMode glyphBlend;
+    private byte glyphTextEffectType;
+    private int glyphTextEffectColor1;
+    private int glyphTextEffectColor2;
+    private float glyphTextEffectThickness;
+    private float glyphTextEffectOffsetX;
+    private float glyphTextEffectOffsetY;
+    private float glyphTextEffectBlur;
+    private float glyphTextEffectAngle;
+    private byte currentTextEffectType;
+    private int currentTextEffectColor1;
+    private int currentTextEffectColor2;
+    private float currentTextEffectThickness;
+    private float currentTextEffectOffsetX;
+    private float currentTextEffectOffsetY;
+    private float currentTextEffectBlur;
+    private float currentTextEffectAngle;
     private final boolean frozen;
 
     /** 使用默认容量创建可复用的 display list。 */
@@ -121,6 +147,17 @@ public final class UiDisplayList {
         primitiveSdfGradientEndColors = Arrays.copyOf(
                 source.primitiveSdfGradientEndColors, primitiveCount);
         primitiveLayers = Arrays.copyOf(source.primitiveLayers, primitiveCount);
+
+        // Text effect arrays
+        primitiveTextEffectTypes = Arrays.copyOf(source.primitiveTextEffectTypes, primitiveCount);
+        primitiveTextEffectColor1 = Arrays.copyOf(source.primitiveTextEffectColor1, primitiveCount);
+        primitiveTextEffectColor2 = Arrays.copyOf(source.primitiveTextEffectColor2, primitiveCount);
+        primitiveTextEffectThickness = Arrays.copyOf(source.primitiveTextEffectThickness, primitiveCount);
+        primitiveTextEffectOffsetX = Arrays.copyOf(source.primitiveTextEffectOffsetX, primitiveCount);
+        primitiveTextEffectOffsetY = Arrays.copyOf(source.primitiveTextEffectOffsetY, primitiveCount);
+        primitiveTextEffectBlur = Arrays.copyOf(source.primitiveTextEffectBlur, primitiveCount);
+        primitiveTextEffectAngle = Arrays.copyOf(source.primitiveTextEffectAngle, primitiveCount);
+
         quadX = Arrays.copyOf(source.quadX, quadCount);
         quadY = Arrays.copyOf(source.quadY, quadCount);
         quadWidth = Arrays.copyOf(source.quadWidth, quadCount);
@@ -149,6 +186,7 @@ public final class UiDisplayList {
         transformDepth = 0;
         glyphRunOpen = false;
         glyphBlend = null;
+        resetCurrentTextEffect();
     }
 
     /**
@@ -295,6 +333,7 @@ public final class UiDisplayList {
         glyphTexture = atlasPage;
         glyphSampler = samplerId;
         glyphBlend = blendMode;
+        copyCurrentTextEffectToGlyphRun();
     }
 
     /**
@@ -330,8 +369,17 @@ public final class UiDisplayList {
         }
         int count = quadCount - glyphFirstQuad;
         if (count != 0) {
-            appendPrimitive(UiPrimitiveKind.GLYPH_RUN, UiShaderVariant.GLYPH,
+            int primitiveIndex = appendPrimitive(UiPrimitiveKind.GLYPH_RUN, UiShaderVariant.GLYPH,
                     glyphTexture, glyphSampler, glyphBlend, glyphFirstQuad, count);
+            // Store text effect data
+            primitiveTextEffectTypes[primitiveIndex] = glyphTextEffectType;
+            primitiveTextEffectColor1[primitiveIndex] = glyphTextEffectColor1;
+            primitiveTextEffectColor2[primitiveIndex] = glyphTextEffectColor2;
+            primitiveTextEffectThickness[primitiveIndex] = glyphTextEffectThickness;
+            primitiveTextEffectOffsetX[primitiveIndex] = glyphTextEffectOffsetX;
+            primitiveTextEffectOffsetY[primitiveIndex] = glyphTextEffectOffsetY;
+            primitiveTextEffectBlur[primitiveIndex] = glyphTextEffectBlur;
+            primitiveTextEffectAngle[primitiveIndex] = glyphTextEffectAngle;
         }
         glyphRunOpen = false;
         glyphBlend = null;
@@ -346,6 +394,82 @@ public final class UiDisplayList {
         quadCount = glyphFirstQuad;
         glyphRunOpen = false;
         glyphBlend = null;
+    }
+
+    /**
+     * 为当前 glyph run 设置文本特效。
+     * 必须在 {@link #beginGlyphRun} 之后、{@link #endGlyphRun} 之前调用。
+     *
+     * @param effectType 特效类型 (0-5)
+     * @param color1 主颜色 (RGBA8)
+     * @param color2 次颜色 (RGBA8, 用于渐变)
+     * @param thickness 描边粗细或发光半径
+     * @param offsetX 阴影X偏移
+     * @param offsetY 阴影Y偏移
+     * @param blur 模糊半径
+     * @param angle 渐变角度
+     */
+    /** Records a glyph effect; the gradient angle is expressed in degrees. */
+    public void setGlyphTextEffect(byte effectType, int color1, int color2,
+                                   float thickness, float offsetX, float offsetY,
+                                   float blur, float angleDegrees) {
+        ensureMutable();
+        if (!glyphRunOpen) {
+            throw new IllegalStateException("no glyph run is active");
+        }
+        glyphTextEffectType = effectType;
+        glyphTextEffectColor1 = color1;
+        glyphTextEffectColor2 = color2;
+        glyphTextEffectThickness = thickness;
+        glyphTextEffectOffsetX = offsetX;
+        glyphTextEffectOffsetY = offsetY;
+        glyphTextEffectBlur = blur;
+        glyphTextEffectAngle = angleDegrees;
+    }
+
+    /**
+     * 为当前活动的glyph run设置文本特效（便捷方法）。
+     *
+     * @param effect 文本特效
+     */
+    public void setTextEffect(com.kaleblangley.haikalat.subsystems.ui.text.TextEffect effect) {
+        ensureMutable();
+        if (effect == null) {
+            effect = com.kaleblangley.haikalat.subsystems.ui.text.TextEffect.none();
+        }
+        currentTextEffectType = (byte) effect.type().ordinal();
+        currentTextEffectColor1 = effect.primaryColor().packedPremultipliedRgba8();
+        currentTextEffectColor2 = effect.secondaryColor().packedPremultipliedRgba8();
+        currentTextEffectThickness = effect.thickness();
+        currentTextEffectOffsetX = effect.offsetX();
+        currentTextEffectOffsetY = effect.offsetY();
+        currentTextEffectBlur = effect.blur();
+        currentTextEffectAngle = effect.angleDegrees();
+        if (glyphRunOpen) {
+            copyCurrentTextEffectToGlyphRun();
+        }
+    }
+
+    private void copyCurrentTextEffectToGlyphRun() {
+        glyphTextEffectType = currentTextEffectType;
+        glyphTextEffectColor1 = currentTextEffectColor1;
+        glyphTextEffectColor2 = currentTextEffectColor2;
+        glyphTextEffectThickness = currentTextEffectThickness;
+        glyphTextEffectOffsetX = currentTextEffectOffsetX;
+        glyphTextEffectOffsetY = currentTextEffectOffsetY;
+        glyphTextEffectBlur = currentTextEffectBlur;
+        glyphTextEffectAngle = currentTextEffectAngle;
+    }
+
+    private void resetCurrentTextEffect() {
+        currentTextEffectType = 0;
+        currentTextEffectColor1 = 0;
+        currentTextEffectColor2 = 0;
+        currentTextEffectThickness = 0.0f;
+        currentTextEffectOffsetX = 0.0f;
+        currentTextEffectOffsetY = 0.0f;
+        currentTextEffectBlur = 0.0f;
+        currentTextEffectAngle = 0.0f;
     }
 
     /**
@@ -507,6 +631,14 @@ public final class UiDisplayList {
         copy(source.primitiveSdfGradientEndColors,
                 primitiveSdfGradientEndColors, primitiveCount);
         copy(source.primitiveLayers, primitiveLayers, primitiveCount);
+        copy(source.primitiveTextEffectTypes, primitiveTextEffectTypes, primitiveCount);
+        copy(source.primitiveTextEffectColor1, primitiveTextEffectColor1, primitiveCount);
+        copy(source.primitiveTextEffectColor2, primitiveTextEffectColor2, primitiveCount);
+        copy(source.primitiveTextEffectThickness, primitiveTextEffectThickness, primitiveCount);
+        copy(source.primitiveTextEffectOffsetX, primitiveTextEffectOffsetX, primitiveCount);
+        copy(source.primitiveTextEffectOffsetY, primitiveTextEffectOffsetY, primitiveCount);
+        copy(source.primitiveTextEffectBlur, primitiveTextEffectBlur, primitiveCount);
+        copy(source.primitiveTextEffectAngle, primitiveTextEffectAngle, primitiveCount);
         copy(source.quadX, quadX, quadCount);
         copy(source.quadY, quadY, quadCount);
         copy(source.quadWidth, quadWidth, quadCount);
@@ -653,6 +785,54 @@ public final class UiDisplayList {
             throw new IllegalArgumentException("primitive is not LAYER_BEGIN");
         }
         return primitiveLayers[primitiveIndex];
+    }
+
+    /** 返回文本特效类型 (0=none, 1=outline, 2=shadow, 3=glow, 4=inner_glow, 5=gradient)。 */
+    public byte textEffectType(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectTypes[primitiveIndex];
+    }
+
+    /** 返回文本特效主颜色 (RGBA8)。 */
+    public int textEffectColor1(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectColor1[primitiveIndex];
+    }
+
+    /** 返回文本特效次颜色 (RGBA8)，用于渐变。 */
+    public int textEffectColor2(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectColor2[primitiveIndex];
+    }
+
+    /** 返回文本特效粗细或半径。 */
+    public float textEffectThickness(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectThickness[primitiveIndex];
+    }
+
+    /** 返回文本特效X偏移。 */
+    public float textEffectOffsetX(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectOffsetX[primitiveIndex];
+    }
+
+    /** 返回文本特效Y偏移。 */
+    public float textEffectOffsetY(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectOffsetY[primitiveIndex];
+    }
+
+    /** 返回文本特效模糊半径。 */
+    public float textEffectBlur(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectBlur[primitiveIndex];
+    }
+
+    /** 返回文本特效角度（用于渐变）。 */
+    public float textEffectAngle(int primitiveIndex) {
+        checkPrimitiveIndex(primitiveIndex);
+        return primitiveTextEffectAngle[primitiveIndex];
     }
 
     /** 返回 quad 的逻辑 X。 */
@@ -849,6 +1029,16 @@ public final class UiDisplayList {
         primitiveSdfGradientStartColors = new int[capacity];
         primitiveSdfGradientEndColors = new int[capacity];
         primitiveLayers = new UiLayerDescription[capacity];
+
+        // Text effect arrays
+        primitiveTextEffectTypes = new byte[capacity];
+        primitiveTextEffectColor1 = new int[capacity];
+        primitiveTextEffectColor2 = new int[capacity];
+        primitiveTextEffectThickness = new float[capacity];
+        primitiveTextEffectOffsetX = new float[capacity];
+        primitiveTextEffectOffsetY = new float[capacity];
+        primitiveTextEffectBlur = new float[capacity];
+        primitiveTextEffectAngle = new float[capacity];
     }
 
     private void allocateQuads(int capacity) {
@@ -901,6 +1091,16 @@ public final class UiDisplayList {
         primitiveSdfGradientEndColors = Arrays.copyOf(
                 primitiveSdfGradientEndColors, capacity);
         primitiveLayers = Arrays.copyOf(primitiveLayers, capacity);
+
+        // Text effect arrays
+        primitiveTextEffectTypes = Arrays.copyOf(primitiveTextEffectTypes, capacity);
+        primitiveTextEffectColor1 = Arrays.copyOf(primitiveTextEffectColor1, capacity);
+        primitiveTextEffectColor2 = Arrays.copyOf(primitiveTextEffectColor2, capacity);
+        primitiveTextEffectThickness = Arrays.copyOf(primitiveTextEffectThickness, capacity);
+        primitiveTextEffectOffsetX = Arrays.copyOf(primitiveTextEffectOffsetX, capacity);
+        primitiveTextEffectOffsetY = Arrays.copyOf(primitiveTextEffectOffsetY, capacity);
+        primitiveTextEffectBlur = Arrays.copyOf(primitiveTextEffectBlur, capacity);
+        primitiveTextEffectAngle = Arrays.copyOf(primitiveTextEffectAngle, capacity);
     }
 
     private void ensureQuadCapacity(int required) {

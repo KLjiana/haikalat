@@ -4,7 +4,7 @@ import com.kaleblangley.haikalat.backend.sync.GpuFence;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;

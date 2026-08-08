@@ -3,7 +3,7 @@ package com.kaleblangley.haikalat.subsystems.ui;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiRenderSnapshot;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiSnapshotExchange;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 
 import java.util.List;
 import java.util.Objects;

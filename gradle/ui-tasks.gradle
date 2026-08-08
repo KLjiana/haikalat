@@ -1,5 +1,6 @@
 def uiDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.UiDemo'
 def modernUiDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.ModernUiDemo'
+def markdownTextDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.MarkdownTextDemoMain'
 
 tasks.register('runUiDemo', JavaExec) {
     group = 'application'
@@ -47,6 +48,38 @@ tasks.register('runModernUiDemo', JavaExec) {
     if (providers.gradleProperty('uiGcLog').getOrElse('false').toBoolean()) {
         jvmArgs '-Xlog:gc'
     }
+}
+
+tasks.register('runMarkdownTextDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs the Markdown block and text-effect showcase.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = markdownTextDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    if (providers.gradleProperty('uiFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('uiFrames').get()}"
+    }
+    if (providers.gradleProperty('uiHidden').getOrElse('false').toBoolean()) {
+        args '--hidden', '--no-vsync'
+    }
+}
+
+tasks.register('runMarkdownTextIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the hidden deterministic Markdown and text-effect pixel proof.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = markdownTextDemoMainClass
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    args '--deterministic', '--frames=30', '--size=1180x760', '--verify-pixels'
+    mustRunAfter 'runUiTextIntegration'
 }
 
 tasks.register('runModernUiIntegration', JavaExec) {
@@ -211,6 +244,7 @@ tasks.register('localUiVerification') {
     description = 'Runs real-GL UI smoke, deterministic, resize, async and text integrations.'
     dependsOn 'glSmoke', 'runUiSdfIntegration', 'runUiIntegration', 'runUiResizeIntegration',
             'runModernUiIntegration', 'runUiAsyncIntegration', 'runUiTextIntegration',
+            'runMarkdownTextIntegration',
             'runUiSyntheticImeSoak', 'runUiNativeSoak'
 }
 

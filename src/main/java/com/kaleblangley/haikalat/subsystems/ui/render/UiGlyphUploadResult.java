@@ -1,6 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;

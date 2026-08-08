@@ -1,0 +1,47 @@
+# Shared text subsystem public API classification.
+# Format: <stable|advanced|internal> <fully-qualified-class-name>
+
+advanced com.kaleblangley.haikalat.subsystems.text.BundledFonts
+advanced com.kaleblangley.haikalat.subsystems.text.FontFace
+advanced com.kaleblangley.haikalat.subsystems.text.FontFaceId
+advanced com.kaleblangley.haikalat.subsystems.text.FontFallbackChain
+advanced com.kaleblangley.haikalat.subsystems.text.FontFamily
+advanced com.kaleblangley.haikalat.subsystems.text.FontFamilyId
+advanced com.kaleblangley.haikalat.subsystems.text.FontGeneration
+advanced com.kaleblangley.haikalat.subsystems.text.FontManager
+advanced com.kaleblangley.haikalat.subsystems.text.FontMetrics
+advanced com.kaleblangley.haikalat.subsystems.text.FontNativeException
+advanced com.kaleblangley.haikalat.subsystems.text.FontVariationAxis
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlas
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlasGenerationLease
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlasGlyph
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlasLookup
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlasPlacement
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphAtlasStatistics
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphBitmap
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphHinting
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphKey
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphRasterizer
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphRasterMode
+advanced com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest
+advanced com.kaleblangley.haikalat.subsystems.text.OpenTypeFeature
+advanced com.kaleblangley.haikalat.subsystems.text.PositionedGlyph
+advanced com.kaleblangley.haikalat.subsystems.text.ShapedGlyph
+advanced com.kaleblangley.haikalat.subsystems.text.ShapingCache
+advanced com.kaleblangley.haikalat.subsystems.text.TextAlignment
+advanced com.kaleblangley.haikalat.subsystems.text.TextBoundaryService
+advanced com.kaleblangley.haikalat.subsystems.text.TextDirection
+advanced com.kaleblangley.haikalat.subsystems.text.TextLayout
+advanced com.kaleblangley.haikalat.subsystems.text.TextLayouter
+advanced com.kaleblangley.haikalat.subsystems.text.TextLine
+advanced com.kaleblangley.haikalat.subsystems.text.TextRange
+advanced com.kaleblangley.haikalat.subsystems.text.TextRun
+advanced com.kaleblangley.haikalat.subsystems.text.TextShaper
+advanced com.kaleblangley.haikalat.subsystems.text.TextSystem
+advanced com.kaleblangley.haikalat.subsystems.text.TextWrapMode
+advanced com.kaleblangley.haikalat.subsystems.text.markdown.MarkdownDocument
+advanced com.kaleblangley.haikalat.subsystems.text.markdown.MarkdownParser
+internal com.kaleblangley.haikalat.subsystems.text.GlyphAtlasAllocator
+internal com.kaleblangley.haikalat.subsystems.text.GlyphAtlasCapacityException
+internal com.kaleblangley.haikalat.subsystems.text.GlyphAtlasFullException
+internal com.kaleblangley.haikalat.subsystems.text.ShapingCacheKey

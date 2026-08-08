@@ -52,7 +52,7 @@ public final class UiStylePass {
             if (root) {
                 resolved = new ComputedStyle(UiColor.TRANSPARENT, resolved.foreground(),
                         UiColor.TRANSPARENT, 0.0f, 0.0f, resolved.opacity(),
-                        resolved.fontSize(), resolved.fontFamily());
+                        resolved.fontSize(), resolved.fontFamily(), resolved.textEffect());
             }
             changed = !resolved.equals(node.computedStyle());
             node.computedStyle(resolved);

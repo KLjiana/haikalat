@@ -13,7 +13,7 @@ main source set 的每个 public 顶层类型必须恰好出现在一个域清�
 - `internal`：因跨包实现暂时 public，不构成兼容承诺，只允许本域或 Demo 证明调用。
 
 清单按 `animation`、`backend`、`core`、`runtime`、`render3d`、`postprocess`、`resources`、
-`ui`、`vfx`、`windowing` 十个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免
+`ui`、`text`、`vfx`、`windowing` 十一个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免
 backend public 类型逃出穷尽校验。`animation` 在引擎演进阶段作为无 GL 调用的兄弟
 subsystem 独立管理；`resources` 保存宿主无关的资源身份、代次和 CPU 解码协议，两者均由
 架构测试禁止引用 backend 或直接调用 OpenGL；`vfx` 同样只保存效果资产、实例模拟和帧快照，

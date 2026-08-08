@@ -334,7 +334,7 @@ final class UiDemoScene implements AutoCloseable {
         ComputedStyle style = header.computedStyle();
         header.computedStyle(new ComputedStyle(style.background(), style.foreground(),
                 style.borderColor(), style.borderWidth(), style.radius(), 0.0f,
-                style.fontSize(), style.fontFamily()));
+                style.fontSize(), style.fontFamily(), style.textEffect()));
         ui.animations().tweenOpacity(header, 1.0f,
                 new UiTweenSpec(0.5f, UiEasing.EASE_IN_OUT_CUBIC));
         ui.animations().transitionLayout(controls,

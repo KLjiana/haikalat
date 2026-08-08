@@ -131,7 +131,7 @@ public final class UiPropertyTrack {
                                        UiColor foreground, UiColor border, float borderWidth,
                                        float radius, float opacity) {
         return new ComputedStyle(background, foreground, border, borderWidth, radius,
-                opacity, base.fontSize(), base.fontFamily());
+                opacity, base.fontSize(), base.fontFamily(), base.textEffect());
     }
 
     private static void applyTransform(UiNode node, Property property, double value) {

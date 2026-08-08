@@ -1,5 +1,19 @@
 package com.kaleblangley.haikalat.subsystems.ui.text;
 
+import com.kaleblangley.haikalat.subsystems.text.BundledFonts;
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlasGenerationLease;
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlasGlyph;
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlasPlacement;
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlasStatistics;
+import com.kaleblangley.haikalat.subsystems.text.GlyphKey;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.PositionedGlyph;
+import com.kaleblangley.haikalat.subsystems.text.ShapingCache;
+import com.kaleblangley.haikalat.subsystems.text.TextAlignment;
+import com.kaleblangley.haikalat.subsystems.text.TextLayout;
+import com.kaleblangley.haikalat.subsystems.text.TextLine;
+import com.kaleblangley.haikalat.subsystems.text.TextSystem;
+import com.kaleblangley.haikalat.subsystems.text.TextWrapMode;
 import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureContext;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureResult;
@@ -13,14 +27,9 @@ import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -30,65 +39,30 @@ import java.util.Objects;
  * placement 在 render thread 报告整批上传成功前不会进入 display list。</p>
  */
 public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
-    public static final String BUNDLED_FONT_RESOURCE = BundledUiFonts.NOTO_SANS_SC_RESOURCE;
-    public static final String DEFAULT_FONT_FAMILY = BundledUiFonts.NOTO_SANS_SC_FAMILY;
-    public static final String UNIFONT_FONT_FAMILY = BundledUiFonts.UNIFONT_FAMILY;
-    public static final String MONOSPACE_FONT_FAMILY = BundledUiFonts.JETBRAINS_MONO_FAMILY;
-    private static final int ATLAS_PADDING = 1;
-    private static final int MAXIMUM_LAYOUT_CACHE_ENTRIES = 2_048;
+    public static final String BUNDLED_FONT_RESOURCE = BundledFonts.NOTO_SANS_SC_RESOURCE;
+    public static final String DEFAULT_FONT_FAMILY = BundledFonts.NOTO_SANS_SC_FAMILY;
+    public static final String UNIFONT_FONT_FAMILY = BundledFonts.UNIFONT_FAMILY;
+    public static final String MONOSPACE_FONT_FAMILY = BundledFonts.JETBRAINS_MONO_FAMILY;
+    private static final int ATLAS_PADDING = (int) TextEffect.MAXIMUM_EXTENT;
     private static final int LOGICAL_GLYPH_SAMPLER = 0;
 
-    private final FontManager fonts;
-    private final LinkedHashMap<String, FontFace> fontFaces;
-    private final TextShaper shaper;
-    private final TextLayouter layouter;
-    private final GlyphAtlas atlas;
-    private final LinkedHashMap<LayoutKey, TextLayout> layoutCache =
-            new LinkedHashMap<>(64, 0.75f, true);
+    private final TextSystem text;
     private float contentScale = 1.0f;
     private long frameShapedRuns;
     private long frameGlyphs;
     private long frameShapingNanos;
-    private long layoutCacheHits;
-    private long layoutCacheMisses;
-    private FontFallbackChain fallback;
-    private String activeFontFamily;
     private GlyphAtlasGlyph[] resolvedGlyphs = new GlyphAtlasGlyph[64];
     private boolean closed;
 
-    private UiTextEngine(FontManager fonts, LinkedHashMap<String, FontFace> fontFaces,
-                         String activeFontFamily, TextShaper shaper,
-                         TextLayouter layouter, GlyphAtlas atlas) {
-        this.fonts = fonts;
-        this.fontFaces = fontFaces;
-        this.activeFontFamily = activeFontFamily;
-        this.shaper = shaper;
-        this.layouter = layouter;
-        this.atlas = atlas;
-        rebuildFallback();
+    private UiTextEngine(TextSystem text) {
+        this.text = Objects.requireNonNull(text, "text");
     }
 
     /** 从统一内建字体目录创建完整文本服务。 */
     public static UiTextEngine createBundled(int atlasWidth, int atlasHeight,
                                              int maximumAtlasPages) {
-        FontManager fonts = null;
-        TextShaper shaper = null;
-        GlyphAtlas atlas = null;
-        try {
-            fonts = new FontManager();
-            LinkedHashMap<String, FontFace> faces = BundledUiFonts.registerAll(fonts);
-            shaper = new TextShaper(fonts);
-            TextLayouter layouter = new TextLayouter(shaper);
-            atlas = new GlyphAtlas(atlasWidth, atlasHeight,
-                    ATLAS_PADDING, maximumAtlasPages);
-            return new UiTextEngine(fonts, faces, DEFAULT_FONT_FAMILY,
-                    shaper, layouter, atlas);
-        } catch (RuntimeException | Error failure) {
-            closeSuppressed(atlas, failure);
-            closeSuppressed(shaper, failure);
-            closeSuppressed(fonts, failure);
-            throw failure;
-        }
+        return new UiTextEngine(TextSystem.createBundled(atlasWidth, atlasHeight,
+                ATLAS_PADDING, maximumAtlasPages));
     }
 
     /** 开始一帧 update，并选择实际 raster ppem 使用的 DPI 缩放。 */
@@ -107,19 +81,19 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
     /** 按注册顺序返回可供 UI 选择的字体族。 */
     public List<String> fontFamilies() {
         ensureOpen();
-        return List.copyOf(fontFaces.keySet());
+        return text.fontFamilies();
     }
 
     /** 返回当前作为 fallback chain 首选项的字体族。 */
     public String activeFontFamily() {
         ensureOpen();
-        return activeFontFamily;
+        return text.activeFontFamily();
     }
 
-    /** 从文件注册一个运行时字体；字体数据会由 {@link FontManager} 独立持有。 */
+    /** 从文件注册一个运行时字体；字体数据会由共享 {@link TextSystem} 独立持有。 */
     public void registerFont(String familyName, Path path) throws IOException {
-        Objects.requireNonNull(path, "path");
-        registerFont(familyName, Files.readAllBytes(path), 0);
+        ensureOpen();
+        text.registerFont(familyName, path);
     }
 
     /** 从内存注册 face index 0 的运行时字体。 */
@@ -132,21 +106,7 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
      */
     public void registerFont(String familyName, byte[] fontData, int faceIndex) {
         ensureOpen();
-        String normalized = normalizeFamilyName(familyName);
-        Objects.requireNonNull(fontData, "fontData");
-        if (fontFaces.containsKey(normalized)) {
-            throw new IllegalArgumentException("UI font family is already registered: " + normalized);
-        }
-        FontFamily family = fonts.registerFamily(normalized);
-        try {
-            FontFace face = fonts.registerFace(family, fontData, faceIndex);
-            fontFaces.put(normalized, face);
-        } catch (RuntimeException | Error failure) {
-            // registerFamily 已推进 generation；重建旧 face 的 chain，避免留下 stale fallback。
-            rebuildFallback();
-            throw failure;
-        }
-        rebuildFallback();
+        text.registerFont(familyName, fontData, faceIndex);
     }
 
     /**
@@ -156,16 +116,7 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
      */
     public boolean selectFontFamily(String familyName) {
         ensureOpen();
-        String normalized = normalizeFamilyName(familyName);
-        if (!fontFaces.containsKey(normalized)) {
-            throw new IllegalArgumentException("Unknown UI font family: " + normalized);
-        }
-        if (activeFontFamily.equals(normalized)) {
-            return false;
-        }
-        activeFontFamily = normalized;
-        rebuildFallback();
-        return true;
+        return text.selectFontFamily(familyName);
     }
 
     /** Yoga 固有尺寸入口；非文本节点仍使用节点自己的 measure 合同。 */
@@ -207,15 +158,8 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         boolean allReady = true;
         for (TextLine line : layout.lines()) {
             for (PositionedGlyph positioned : line.glyphs()) {
-                FontFace face = fonts.face(positioned.faceId()).orElseThrow(() ->
-                        new IllegalStateException("Text layout references missing face "
-                                + positioned.faceId().value()));
                 GlyphKey key = positioned.glyphKey();
-                GlyphAtlasGlyph glyph = atlas.readyGlyph(key);
-                if (glyph == null) {
-                    GlyphAtlasLookup lookup = atlas.lookup(face, key);
-                    glyph = lookup.ready() ? lookup.glyph().orElseThrow() : null;
-                }
+                GlyphAtlasGlyph glyph = this.text.resolveGlyph(key);
                 resolvedGlyphs[resolvedCount++] = glyph;
                 if (glyph == null) {
                     allReady = false;
@@ -230,6 +174,7 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         double logicalLayoutHeight = layout.height() / contentScale;
         double originY = bounds.y() + Math.max(0.0,
                 (bounds.height() - logicalLayoutHeight) * 0.5);
+        boolean paddedGlyphs = usesEffectPadding(node);
         int activePage = -1;
         boolean runOpen = false;
         try {
@@ -248,11 +193,21 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
                 }
                 double x = bounds.x() + (positioned.x() + glyph.bearingX()) / contentScale;
                 double y = originY + (positioned.y() - glyph.bearingY()) / contentScale;
-                displayList.addGlyph(x, y,
-                        (double) placement.width() / contentScale,
-                        (double) placement.height() / contentScale,
-                        placement.u0(), placement.v0(), placement.u1(), placement.v1(),
-                        premultipliedRgba8);
+                if (paddedGlyphs) {
+                    double padding = (double) placement.padding() / contentScale;
+                    displayList.addGlyph(x - padding, y - padding,
+                            (double) placement.allocatedWidth() / contentScale,
+                            (double) placement.allocatedHeight() / contentScale,
+                            placement.allocatedU0(), placement.allocatedV0(),
+                            placement.allocatedU1(), placement.allocatedV1(),
+                            premultipliedRgba8);
+                } else {
+                    displayList.addGlyph(x, y,
+                            (double) placement.width() / contentScale,
+                            (double) placement.height() / contentScale,
+                            placement.u0(), placement.v0(), placement.u1(), placement.v1(),
+                            premultipliedRgba8);
+                }
                 frameGlyphs++;
                 }
             }
@@ -270,6 +225,14 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         if (required <= resolvedGlyphs.length) return;
         int capacity = Math.max(required, resolvedGlyphs.length + (resolvedGlyphs.length >> 1));
         resolvedGlyphs = Arrays.copyOf(resolvedGlyphs, capacity);
+    }
+
+    private static boolean usesEffectPadding(UiNode node) {
+        if (!(node instanceof Label label)) return false;
+        return switch (label.textEffect().type()) {
+            case OUTLINE, DROP_SHADOW, GLOW -> true;
+            case NONE, INNER_GLOW, GRADIENT -> false;
+        };
     }
 
     @Override
@@ -301,34 +264,34 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
     /** 返回当前全部待 render thread 上传的稳定请求。 */
     public List<GlyphUploadRequest> pendingUploads() {
         ensureOpen();
-        return atlas.pendingUploads();
+        return text.pendingUploads();
     }
 
     /** 发布 render thread 已完整执行并确认成功的单个请求。 */
     public void publishUpload(GlyphUploadRequest request) {
         ensureOpen();
-        atlas.publishUpload(request);
+        text.publishUpload(request);
     }
 
     /** 保留失败请求及 placement，供后续帧原样重试。 */
     public void uploadFailed(GlyphUploadRequest request) {
         ensureOpen();
-        atlas.uploadFailed(request);
+        text.uploadFailed(request);
     }
 
     public GlyphAtlasGenerationLease acquireAtlasGeneration() {
         ensureOpen();
-        return atlas.acquireGeneration();
+        return text.acquireAtlasGeneration();
     }
 
     public ShapingCache.Statistics shapingStatistics() {
         ensureOpen();
-        return shaper.cacheStatistics();
+        return text.shapingStatistics();
     }
 
     public GlyphAtlasStatistics atlasStatistics() {
         ensureOpen();
-        return atlas.statistics();
+        return text.atlasStatistics();
     }
 
     public long frameShapedRuns() {
@@ -345,23 +308,20 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
     }
 
     public long layoutCacheHits() {
-        return layoutCacheHits;
+        ensureOpen();
+        return text.layoutStatistics().cacheHits();
     }
 
     public long layoutCacheMisses() {
-        return layoutCacheMisses;
+        ensureOpen();
+        return text.layoutStatistics().cacheMisses();
     }
 
     @Override
     public void close() {
         if (closed) return;
-        RuntimeException failure = null;
-        failure = closeCollect(atlas, failure);
-        failure = closeCollect(shaper, failure);
-        failure = closeCollect(fonts, failure);
-        layoutCache.clear();
+        text.close();
         closed = true;
-        if (failure != null) throw failure;
     }
 
     private TextLayout layout(UiNode node, String text, float logicalAvailableWidth) {
@@ -376,59 +336,23 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         TextWrapMode wrapMode = node instanceof Label label
                 && label.wrap() == Label.Wrap.GRAPHEME
                 ? TextWrapMode.GRAPHEME : TextWrapMode.LINE_BREAK;
-        LayoutKey key = new LayoutKey(fonts.generation(), text, ppem,
-                Float.floatToIntBits(physicalWidth), mode, alignment,
-                maximumLines, ellipsis, wrapMode);
-        TextLayout cached = layoutCache.get(key);
-        if (cached != null) {
-            layoutCacheHits++;
-            return cached;
-        }
-        layoutCacheMisses++;
-        TextLayout result;
-        long shapingStart = System.nanoTime();
-        try {
-            if (mode == LayoutMode.SINGLE_LINE) {
-                result = layouter.layoutSingleLine(fallback, ppem, text, physicalWidth,
-                        alignment, ellipsis);
-            } else {
-                result = layouter.layout(fallback, ppem, text, physicalWidth, alignment,
+        String familyName = effectiveFamily(node.computedStyle().fontFamily());
+        TextSystem.LayoutStatistics before = this.text.layoutStatistics();
+        TextLayout result = mode == LayoutMode.SINGLE_LINE
+                ? this.text.layoutSingleLine(familyName, ppem, text, physicalWidth,
+                        alignment, ellipsis)
+                : this.text.layout(familyName, ppem, text, physicalWidth, alignment,
                         maximumLines, ellipsis, wrapMode);
-            }
-        } finally {
-            frameShapingNanos += System.nanoTime() - shapingStart;
-        }
-        frameShapedRuns += result.lines().size();
-        layoutCache.put(key, result);
-        if (layoutCache.size() > MAXIMUM_LAYOUT_CACHE_ENTRIES) {
-            Iterator<Map.Entry<LayoutKey, TextLayout>> iterator = layoutCache.entrySet().iterator();
-            iterator.next();
-            iterator.remove();
-        }
+        TextSystem.LayoutStatistics after = this.text.layoutStatistics();
+        frameShapingNanos += after.layoutNanos() - before.layoutNanos();
+        frameShapedRuns += after.shapedRuns() - before.shapedRuns();
         return result;
     }
 
-    private void rebuildFallback() {
-        FontFace active = fontFaces.get(activeFontFamily);
-        if (active == null) {
-            throw new IllegalStateException("Active UI font is not registered: " + activeFontFamily);
-        }
-        ArrayList<FontFace> ordered = new ArrayList<>(fontFaces.size());
-        ordered.add(active);
-        for (FontFace face : fontFaces.values()) {
-            if (face != active) ordered.add(face);
-        }
-        fallback = fonts.fallbackChain(ordered);
-        layoutCache.clear();
-        shaper.clearCache();
-    }
-
-    private static String normalizeFamilyName(String familyName) {
-        String normalized = Objects.requireNonNull(familyName, "familyName").trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("font family name must not be blank");
-        }
-        return normalized;
+    /** Maps the theme's default family to the currently selected UI family. */
+    private String effectiveFamily(String requestedFamily) {
+        return DEFAULT_FONT_FAMILY.equals(requestedFamily)
+                ? text.activeFontFamily() : requestedFamily;
     }
 
     private static LayoutMode layoutMode(UiNode node) {
@@ -470,36 +394,6 @@ public final class UiTextEngine implements UiGlyphPainter, AutoCloseable {
         if (closed) throw new IllegalStateException("UiTextEngine is closed");
     }
 
-    private static RuntimeException closeCollect(AutoCloseable closeable,
-                                                 RuntimeException current) {
-        if (closeable == null) return current;
-        try {
-            closeable.close();
-        } catch (RuntimeException failure) {
-            if (current == null) return failure;
-            current.addSuppressed(failure);
-        } catch (Exception failure) {
-            RuntimeException wrapped = new IllegalStateException("UI text resource close failed", failure);
-            if (current == null) return wrapped;
-            current.addSuppressed(wrapped);
-        }
-        return current;
-    }
-
-    private static void closeSuppressed(AutoCloseable closeable, Throwable primary) {
-        if (closeable == null) return;
-        try {
-            closeable.close();
-        } catch (Exception | LinkageError cleanup) {
-            primary.addSuppressed(cleanup);
-        }
-    }
-
     private enum LayoutMode { SINGLE_LINE, MULTI_LINE }
-
-    private record LayoutKey(FontGeneration generation, String text, int ppem,
-                             int widthBits, LayoutMode mode, TextAlignment alignment,
-                             int maximumLines, boolean ellipsis, TextWrapMode wrapMode) {
-    }
 
 }

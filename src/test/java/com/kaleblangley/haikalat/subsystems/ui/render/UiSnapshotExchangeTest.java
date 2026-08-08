@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
+import com.kaleblangley.haikalat.subsystems.ui.text.TextEffectType;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -81,6 +82,41 @@ class UiSnapshotExchangeTest {
                     first.snapshot().displayList()::clear);
             first.close();
             second.close();
+        }
+    }
+
+    @Test
+    void captureIntoSlotPreservesTextEffectsAndTheirBatchBoundary() throws InterruptedException {
+        UiDisplayList builder = new UiDisplayList();
+        builder.beginGlyphRun(7, 3, UiBlendMode.PREMULTIPLIED_ALPHA);
+        builder.setGlyphTextEffect((byte) TextEffectType.GRADIENT.ordinal(),
+                0x10203040, 0x50607080, 1.25f, 2.5f, -3.5f, 4.75f, 37.5f);
+        builder.addGlyph(new UiScreenRect(0.0, 0.0, 4.0, 6.0),
+                UiUvRect.FULL, 0xffffffff);
+        builder.endGlyphRun();
+        builder.beginGlyphRun(7, 3, UiBlendMode.PREMULTIPLIED_ALPHA);
+        builder.addGlyph(new UiScreenRect(4.0, 0.0, 4.0, 6.0),
+                UiUvRect.FULL, 0xffffffff);
+        builder.endGlyphRun();
+
+        try (UiSnapshotExchange exchange = new UiSnapshotExchange(2)) {
+            exchange.captureAndPublish(1, 32, 32, 32, 32, 1.0, 1.0,
+                    builder, List.of());
+            try (UiSnapshotExchange.Lease lease = exchange.acquire()) {
+                UiRenderSnapshot snapshot = lease.snapshot();
+                UiDisplayList captured = snapshot.displayList();
+
+                assertEquals(TextEffectType.GRADIENT.ordinal(), captured.textEffectType(0));
+                assertEquals(0x10203040, captured.textEffectColor1(0));
+                assertEquals(0x50607080, captured.textEffectColor2(0));
+                assertEquals(1.25f, captured.textEffectThickness(0));
+                assertEquals(2.5f, captured.textEffectOffsetX(0));
+                assertEquals(-3.5f, captured.textEffectOffsetY(0));
+                assertEquals(4.75f, captured.textEffectBlur(0));
+                assertEquals(37.5f, captured.textEffectAngle(0));
+                assertEquals(TextEffectType.NONE.ordinal(), captured.textEffectType(1));
+                assertEquals(2, snapshot.batches().size());
+            }
         }
     }
 

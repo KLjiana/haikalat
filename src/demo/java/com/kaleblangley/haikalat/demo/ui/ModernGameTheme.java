@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver;
 import com.kaleblangley.haikalat.subsystems.ui.style.Theme;
 import com.kaleblangley.haikalat.subsystems.ui.style.ThemeTokens;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
+import com.kaleblangley.haikalat.subsystems.ui.text.TextEffect;
 import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
 
 import java.util.Set;
@@ -208,7 +209,7 @@ final class ModernGameTheme {
                                        UiColor border, float borderWidth, float radius,
                                        float opacity, float fontSize, String fontFamily) {
         return new ComputedStyle(background, foreground, border, borderWidth, radius,
-                opacity, fontSize, fontFamily);
+                opacity, fontSize, fontFamily, TextEffect.none());
     }
 
     private static UiColor color(int rgba) {

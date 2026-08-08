@@ -5,7 +5,7 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -238,6 +238,10 @@ public final class UiRenderer implements AutoCloseable {
             sdfRenderer.recordUniforms(resources.shader(), commands,
                     snapshot.displayList(), batches, batch);
         }
+        if (batches.shader(batch) == UiShaderVariant.GLYPH) {
+            // Set text effect uniforms for glyph rendering
+            recordTextEffectUniforms(commands, snapshot.displayList(), batches, batch);
+        }
         if (batches.hasClip(batch)) {
             double scaleX = snapshot.windowWidth() == 0 ? 1.0
                     : (double) framebufferWidth / snapshot.windowWidth();
@@ -306,6 +310,38 @@ public final class UiRenderer implements AutoCloseable {
         };
     }
 
+    private void recordTextEffectUniforms(CommandBuffer commands, UiDisplayList displayList,
+                                         UiBatcher.Result batches, int batch) {
+        int primitiveIndex = batches.firstPrimitive(batch);
+        byte effectType = displayList.textEffectType(primitiveIndex);
+        int color1 = displayList.textEffectColor1(primitiveIndex);
+        int color2 = displayList.textEffectColor2(primitiveIndex);
+        float thickness = displayList.textEffectThickness(primitiveIndex);
+        float offsetX = displayList.textEffectOffsetX(primitiveIndex);
+        float offsetY = displayList.textEffectOffsetY(primitiveIndex);
+        float blur = displayList.textEffectBlur(primitiveIndex);
+        // TextEffect exposes user-facing degrees; GLSL trigonometry uses radians.
+        float angle = (float) Math.toRadians(displayList.textEffectAngle(primitiveIndex));
+
+        commands.setUniformInt(resources.shader(), "uTextEffectType", effectType)
+                .setUniformVec4(resources.shader(), "uTextEffectColor1",
+                        new org.joml.Vector4f(
+                                ((color1 >>> 24) & 0xFF) / 255.0f,
+                                ((color1 >>> 16) & 0xFF) / 255.0f,
+                                ((color1 >>> 8) & 0xFF) / 255.0f,
+                                (color1 & 0xFF) / 255.0f))
+                .setUniformVec4(resources.shader(), "uTextEffectColor2",
+                        new org.joml.Vector4f(
+                                ((color2 >>> 24) & 0xFF) / 255.0f,
+                                ((color2 >>> 16) & 0xFF) / 255.0f,
+                                ((color2 >>> 8) & 0xFF) / 255.0f,
+                                (color2 & 0xFF) / 255.0f))
+                .setUniformFloat(resources.shader(), "uTextEffectThickness", thickness)
+                .setUniformVec2(resources.shader(), "uTextEffectOffset", offsetX, offsetY)
+                .setUniformFloat(resources.shader(), "uTextEffectBlur", blur)
+                .setUniformFloat(resources.shader(), "uTextEffectAngle", angle);
+    }
+
     private static void writeVertices(UiDisplayList displayList, ByteBuffer target) {
         for (int quad = 0; quad < displayList.quadCount(); quad++) {
             double left = displayList.quadX(quad);
@@ -324,13 +360,13 @@ public final class UiRenderer implements AutoCloseable {
             float v1 = displayList.quadV1(quad);
             int color = displayList.quadColor(quad);
             putTransformedVertex(target, left, top, m00, m01, m10, m11, tx, ty,
-                    u0, v0, color);
+                    u0, v0, 0.0f, 0.0f, color);
             putTransformedVertex(target, right, top, m00, m01, m10, m11, tx, ty,
-                    u1, v0, color);
+                    u1, v0, 1.0f, 0.0f, color);
             putTransformedVertex(target, right, bottom, m00, m01, m10, m11, tx, ty,
-                    u1, v1, color);
+                    u1, v1, 1.0f, 1.0f, color);
             putTransformedVertex(target, left, bottom, m00, m01, m10, m11, tx, ty,
-                    u0, v1, color);
+                    u0, v1, 0.0f, 1.0f, color);
         }
         if (target.hasRemaining()) {
             throw new IllegalStateException("UI vertex ring write size did not match snapshot quad count");
@@ -339,20 +375,22 @@ public final class UiRenderer implements AutoCloseable {
 
     private static void putTransformedVertex(ByteBuffer target, double x, double y,
                                              double m00, double m01,
-                                             double m10, double m11,
-                                             double tx, double ty,
-                                             float u, float v, int rgba) {
+                                              double m10, double m11,
+                                              double tx, double ty,
+                                              float u, float v,
+                                              float localU, float localV, int rgba) {
         putVertex(target, (float) (m00 * x + m01 * y + tx),
-                (float) (m10 * x + m11 * y + ty), u, v, rgba);
+                (float) (m10 * x + m11 * y + ty), u, v, localU, localV, rgba);
     }
 
     private static void putVertex(ByteBuffer target, float x, float y,
-                                  float u, float v, int rgba) {
+                                  float u, float v, float localU, float localV, int rgba) {
         target.putFloat(x).putFloat(y).putFloat(u).putFloat(v)
                 .put((byte) (rgba >>> 24))
                 .put((byte) (rgba >>> 16))
                 .put((byte) (rgba >>> 8))
-                .put((byte) rgba);
+                .put((byte) rgba)
+                .putFloat(localU).putFloat(localV);
     }
 
     private void ensureOpen() {

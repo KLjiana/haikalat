@@ -6,6 +6,7 @@ com.fasterxml.jackson:jackson-bom:2.18.3=compileClasspath,demoCompileClasspath,d
 net.java.dev.jna:jna-platform:5.18.1=compileClasspath,demoCompileClasspath,demoRuntimeClasspath,runtimeClasspath,shaderGeneratorCompileClasspath,shaderGeneratorRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
 net.java.dev.jna:jna:5.18.1=compileClasspath,demoCompileClasspath,demoRuntimeClasspath,runtimeClasspath,shaderGeneratorCompileClasspath,shaderGeneratorRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.apiguardian:apiguardian-api:1.1.2=testCompileClasspath
+org.commonmark:commonmark:0.24.0=compileClasspath,demoCompileClasspath,demoRuntimeClasspath,runtimeClasspath,shaderGeneratorCompileClasspath,shaderGeneratorRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.joml:joml:1.10.9=compileClasspath,demoCompileClasspath,demoRuntimeClasspath,runtimeClasspath,shaderGeneratorCompileClasspath,shaderGeneratorRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.junit.jupiter:junit-jupiter-api:5.10.0=testCompileClasspath,testRuntimeClasspath
 org.junit.jupiter:junit-jupiter-engine:5.10.0=testRuntimeClasspath

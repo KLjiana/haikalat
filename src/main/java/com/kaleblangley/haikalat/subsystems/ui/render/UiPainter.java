@@ -340,6 +340,11 @@ public final class UiPainter {
         int color = premultipliedRgba8(node.computedStyle().foreground(), opacity);
         if (alpha(color) == 0) return;
 
+        // Set text effect if the node is a Label
+        if (node instanceof Label label) {
+            output.setTextEffect(label.textEffect());
+        }
+
         if (clipText) output.pushClip(textClip(clipBounds));
         try {
             if (!glyphPainter.paint(output, node, text, bounds, color)) {
@@ -347,6 +352,11 @@ public final class UiPainter {
             }
         } finally {
             if (clipText) output.popClip();
+        }
+
+        // Reset text effect after painting
+        if (node instanceof Label) {
+            output.setTextEffect(com.kaleblangley.haikalat.subsystems.ui.text.TextEffect.none());
         }
     }
 

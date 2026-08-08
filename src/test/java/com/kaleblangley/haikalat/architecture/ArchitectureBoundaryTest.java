@@ -246,6 +246,21 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void textRemainsRendererNeutralAndUiIndependent() throws IOException {
+        Path text = HAIKALAT.resolve(Path.of("subsystems", "text"));
+        Set<String> forbiddenImports = new java.util.HashSet<>();
+        forbiddenImports.addAll(importsUnder(text,
+                "com.kaleblangley.haikalat.subsystems.ui."));
+        forbiddenImports.addAll(importsUnder(text,
+                "com.kaleblangley.haikalat.backend."));
+
+        assertTrue(forbiddenImports.isEmpty(),
+                "text must remain renderer-neutral and UI-independent: " + forbiddenImports);
+        assertTrue(filesContaining(text, "org.lwjgl.opengl.").isEmpty(),
+                "text must not issue OpenGL calls");
+    }
+
+    @Test
     void nativeUiLibrariesStayInsideTheirAdapters() throws IOException {
         assertFilesUnder(filesContaining(MAIN_JAVA, "org.lwjgl.util.yoga."),
                 "com/kaleblangley/haikalat/subsystems/ui/layout/", "Yoga");
@@ -253,7 +268,7 @@ class ArchitectureBoundaryTest {
         fontNativeFiles.addAll(filesContaining(MAIN_JAVA, "org.lwjgl.util.freetype."));
         fontNativeFiles.addAll(filesContaining(MAIN_JAVA, "org.lwjgl.util.harfbuzz."));
         assertFilesUnder(fontNativeFiles,
-                "com/kaleblangley/haikalat/subsystems/ui/text/", "FreeType/HarfBuzz");
+                "com/kaleblangley/haikalat/subsystems/text/", "FreeType/HarfBuzz");
         assertFilesUnder(filesContaining(MAIN_JAVA, "com.sun.jna."),
                 "com/kaleblangley/haikalat/subsystems/windowing/input/win32/", "JNA/Win32");
     }
@@ -342,6 +357,7 @@ class ArchitectureBoundaryTest {
                 Map.entry("resources.allowlist",
                         Set.of("com.kaleblangley.haikalat.subsystems.resources.")),
                 Map.entry("scene.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.scene.")),
+                Map.entry("text.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.text.")),
                 Map.entry("ui.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.ui.")),
                 Map.entry("vfx.allowlist", Set.of("com.kaleblangley.haikalat.subsystems.vfx.")),
                 Map.entry("windowing.allowlist",
@@ -362,6 +378,7 @@ class ArchitectureBoundaryTest {
             case "postprocess.allowlist" -> "/subsystems/postprocess/";
             case "resources.allowlist" -> "/subsystems/resources/";
             case "scene.allowlist" -> "/subsystems/scene/";
+            case "text.allowlist" -> "/subsystems/text/";
             case "ui.allowlist" -> "/subsystems/ui/";
             case "vfx.allowlist" -> "/subsystems/vfx/";
             case "windowing.allowlist" -> "/subsystems/windowing/";

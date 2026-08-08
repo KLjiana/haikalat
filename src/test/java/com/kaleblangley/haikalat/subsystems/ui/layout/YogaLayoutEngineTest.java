@@ -61,7 +61,7 @@ class YogaLayoutEngineTest {
         ComputedStyle rootStyle = root.computedStyle();
         root.computedStyle(new ComputedStyle(rootStyle.background(), rootStyle.foreground(),
                 rootStyle.borderColor(), 2.0f, rootStyle.radius(), rootStyle.opacity(),
-                rootStyle.fontSize(), rootStyle.fontFamily()));
+                rootStyle.fontSize(), rootStyle.fontFamily(), rootStyle.textEffect()));
         root.style(UiStyle.builder()
                 .flexDirection(UiStyle.FlexDirection.ROW)
                 .alignItems(UiStyle.AlignItems.FLEX_START)
@@ -305,7 +305,7 @@ class YogaLayoutEngineTest {
         ComputedStyle style = node.computedStyle();
         node.computedStyle(new ComputedStyle(style.background(), style.foreground(),
                 style.borderColor(), 0.0f, style.radius(), style.opacity(),
-                style.fontSize(), style.fontFamily()));
+                style.fontSize(), style.fontFamily(), style.textEffect()));
     }
 
     private static void assertBox(UiNode node, float x, float y, float width, float height) {

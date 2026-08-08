@@ -18,6 +18,7 @@ def localReleaseTasks = [
         'runPlayerWildIntegration', 'runSerializedSceneIntegration', 'runUiIntegration',
         'runUiSdfIntegration',
         'runUiResizeIntegration', 'runModernUiIntegration', 'runUiTextIntegration',
+        'runMarkdownTextIntegration',
         'runUiSyntheticImeSoak', 'runUiNativeSoak',
         'runDiagnosticsIntegration', 'runDiagnosticsResizeIntegration',
         'runDiagnosticsFailureIntegration', 'runSceneVisibilityIntegration',

@@ -103,7 +103,8 @@ public final class UiBatcher {
             boolean hasClip = clipDepth != 0;
             int activeClip = clipDepth - 1;
             boolean compatible = mayMergePrevious && batchCount != 0
-                    && keyEquals(batchCount - 1, shader, texture, sampler, imageId, blend,
+                    && keyEquals(displayList, batchCount - 1, primitive, shader, texture,
+                    sampler, imageId, blend,
                     hasClip, activeClip)
                     && (shader != UiShaderVariant.SDF
                     || displayList.primitiveKind(primitive) != UiPrimitiveKind.SDF_SHAPE
@@ -119,6 +120,10 @@ public final class UiBatcher {
                             || imageIds[batchCount - 1] != imageId) textureChanges++;
                     else if (samplers[batchCount - 1] != sampler) samplerChanges++;
                     else if (blends[batchCount - 1] != (byte) blend.ordinal()) blendChanges++;
+                    else if (shader == UiShaderVariant.GLYPH
+                            && !sameTextEffect(displayList, firstPrimitives[batchCount - 1], primitive)) {
+                        shaderChanges++;
+                    }
                     else clipChanges++;
                 }
                 ensureBatchCapacity(batchCount + 1);
@@ -151,8 +156,8 @@ public final class UiBatcher {
         return batchCount == 0 ? Result.EMPTY : new Result(this, batchCount, breakStats);
     }
 
-    private boolean keyEquals(int batch, UiShaderVariant shader, int texture, int sampler,
-                              long imageId,
+    private boolean keyEquals(UiDisplayList displayList, int batch, int primitive,
+                              UiShaderVariant shader, int texture, int sampler, long imageId,
                               UiBlendMode blend, boolean hasClip, int activeClip) {
         if (shaders[batch] != (byte) shader.ordinal()
                 || textures[batch] != texture
@@ -160,6 +165,10 @@ public final class UiBatcher {
                 || imageIds[batch] != imageId
                 || blends[batch] != (byte) blend.ordinal()
                 || clipEnabled[batch] != hasClip) {
+            return false;
+        }
+        if (shader == UiShaderVariant.GLYPH
+                && !sameTextEffect(displayList, firstPrimitives[batch], primitive)) {
             return false;
         }
         return !hasClip
@@ -171,6 +180,22 @@ public final class UiBatcher {
 
     private static boolean equal(double first, double second) {
         return Double.doubleToLongBits(first) == Double.doubleToLongBits(second);
+    }
+
+    private static boolean sameTextEffect(UiDisplayList displayList, int first, int second) {
+        return displayList.textEffectType(first) == displayList.textEffectType(second)
+                && displayList.textEffectColor1(first) == displayList.textEffectColor1(second)
+                && displayList.textEffectColor2(first) == displayList.textEffectColor2(second)
+                && Float.compare(displayList.textEffectThickness(first),
+                        displayList.textEffectThickness(second)) == 0
+                && Float.compare(displayList.textEffectOffsetX(first),
+                        displayList.textEffectOffsetX(second)) == 0
+                && Float.compare(displayList.textEffectOffsetY(first),
+                        displayList.textEffectOffsetY(second)) == 0
+                && Float.compare(displayList.textEffectBlur(first),
+                        displayList.textEffectBlur(second)) == 0
+                && Float.compare(displayList.textEffectAngle(first),
+                        displayList.textEffectAngle(second)) == 0;
     }
 
     private void ensureBatchCapacity(int required) {

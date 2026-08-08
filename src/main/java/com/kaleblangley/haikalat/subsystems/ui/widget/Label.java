@@ -5,6 +5,8 @@ import com.kaleblangley.haikalat.subsystems.ui.UiNode;
 import com.kaleblangley.haikalat.subsystems.ui.UiSemanticRole;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureContext;
 import com.kaleblangley.haikalat.subsystems.ui.layout.MeasureResult;
+import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
+import com.kaleblangley.haikalat.subsystems.ui.text.TextEffect;
 
 import java.util.Objects;
 
@@ -18,6 +20,7 @@ public class Label extends UiNode {
     private Alignment alignment = Alignment.START;
     private int maximumLines = Integer.MAX_VALUE;
     private boolean ellipsis;
+    private TextEffect textEffect = TextEffect.none();
 
     public Label() {
         this("");
@@ -82,6 +85,42 @@ public class Label extends UiNode {
             markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.PAINT);
         }
         return this;
+    }
+
+    public TextEffect textEffect() { return textEffect; }
+    public Label textEffect(TextEffect value) {
+        ensureOpen();
+        value = Objects.requireNonNull(value, "textEffect");
+        if (!textEffect.equals(value)) {
+            textEffect = value;
+            markDirty(UiDirtyFlag.PAINT);
+        }
+        return this;
+    }
+
+    /** 便捷方法：设置描边特效。 */
+    public Label outline(UiColor color, float thickness) {
+        return textEffect(TextEffect.outline(color, thickness));
+    }
+
+    /** 便捷方法：设置投影特效。 */
+    public Label dropShadow(UiColor color, float offsetX, float offsetY, float blur) {
+        return textEffect(TextEffect.dropShadow(color, offsetX, offsetY, blur));
+    }
+
+    /** 便捷方法：设置外发光特效。 */
+    public Label glow(UiColor color, float radius) {
+        return textEffect(TextEffect.glow(color, radius));
+    }
+
+    /** 便捷方法：设置内发光特效。 */
+    public Label innerGlow(UiColor color) {
+        return textEffect(TextEffect.innerGlow(color));
+    }
+
+    /** 便捷方法：设置渐变色特效。 */
+    public Label gradient(UiColor startColor, UiColor endColor, float angleDegrees) {
+        return textEffect(TextEffect.gradient(startColor, endColor, angleDegrees));
     }
 
     @Override

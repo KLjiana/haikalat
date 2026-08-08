@@ -176,6 +176,7 @@ the `learnopengl.demo` module.
 - Combined animation/PBR/postprocess/CPU+GPU VFX/UI showcase: `com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo`
 - Async/upload demo: `com.kaleblangley.haikalat.demo.async.AsyncDemo`
 - Retained UI demo: `com.kaleblangley.haikalat.demo.ui.UiDemo`
+- Markdown block parsing and text effects: `com.kaleblangley.haikalat.demo.ui.MarkdownTextDemoMain`
 - Ordinary-renderer visibility benchmark: `com.kaleblangley.haikalat.demo.SceneScalabilityDemo`
 
 The demo source set lives in `src/demo/java` and uses resources from `src/demo/resources`.

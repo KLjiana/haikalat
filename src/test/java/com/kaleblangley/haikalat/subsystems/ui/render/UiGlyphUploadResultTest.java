@@ -1,10 +1,10 @@
 package com.kaleblangley.haikalat.subsystems.ui.render;
 
-import com.kaleblangley.haikalat.subsystems.ui.text.FontFaceId;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphAtlas;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphBitmap;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphKey;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.FontFaceId;
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlas;
+import com.kaleblangley.haikalat.subsystems.text.GlyphBitmap;
+import com.kaleblangley.haikalat.subsystems.text.GlyphKey;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

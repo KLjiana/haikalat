@@ -37,7 +37,7 @@ public final class UiAnimationSystem implements AutoCloseable {
         ComputedStyle start = requireNode(node).computedStyle();
         return transitionVisual(node, new ComputedStyle(start.background(), start.foreground(),
                 start.borderColor(), start.borderWidth(), start.radius(), targetOpacity,
-                start.fontSize(), start.fontFamily()), spec);
+                start.fontSize(), start.fontFamily(), start.textEffect()), spec);
     }
 
     public UiAnimationHandle transitionVisual(UiNode node, ComputedStyle target,
@@ -304,7 +304,8 @@ public final class UiAnimationSystem implements AutoCloseable {
                     lerp(start.radius(), target.radius(), progress),
                     lerp(start.opacity(), target.opacity(), progress),
                     lerp(start.fontSize(), target.fontSize(), progress),
-                    start.fontFamily()));
+                    start.fontFamily(),
+                    start.textEffect()));
         }
     }
 

@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui.text;
 
+import com.kaleblangley.haikalat.subsystems.text.GlyphAtlasPlacement;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiDisplayList;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiScreenRect;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiShaderVariant;
@@ -10,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -81,6 +84,33 @@ class UiTextEngineTest {
     }
 
     @Test
+    void paintedGlyphUsesItsZeroFilledAtlasPadding() {
+        try (UiTextEngine text = UiTextEngine.createBundled(128, 128, 2);
+             Label label = new Label("I").textEffect(
+                     TextEffect.glow(com.kaleblangley.haikalat.subsystems.ui.style.UiColor.WHITE,
+                             4.0f))) {
+            text.beginFrame(1.0, 1.0);
+            UiDisplayList displayList = new UiDisplayList();
+            assertFalse(text.paint(displayList, label, label.text(),
+                    new UiScreenRect(0.0, 0.0, 32.0, 32.0), 0xffffffff));
+            GlyphUploadRequest request = text.pendingUploads().get(0);
+            GlyphAtlasPlacement placement = request.glyphPlacement();
+            text.publishUpload(request);
+
+            displayList.clear();
+            assertTrue(text.paint(displayList, label, label.text(),
+                    new UiScreenRect(0.0, 0.0, 32.0, 32.0), 0xffffffff));
+
+            assertEquals(placement.allocatedWidth(), displayList.quadWidth(0), 0.001);
+            assertEquals(placement.allocatedHeight(), displayList.quadHeight(0), 0.001);
+            assertEquals(placement.allocatedU0(), displayList.quadU0(0), 0.000001f);
+            assertEquals(placement.allocatedV0(), displayList.quadV0(0), 0.000001f);
+            assertEquals(placement.allocatedU1(), displayList.quadU1(0), 0.000001f);
+            assertEquals(placement.allocatedV1(), displayList.quadV1(0), 0.000001f);
+        }
+    }
+
+    @Test
     void runtimeFontCatalogRegistersSelectsAndRebuildsFallback() throws Exception {
         byte[] fontData;
         try (var input = UiTextEngineTest.class.getResourceAsStream(
@@ -94,6 +124,13 @@ class UiTextEngineTest {
                     UiTextEngine.MONOSPACE_FONT_FAMILY), text.fontFamilies());
             assertEquals(UiTextEngine.DEFAULT_FONT_FAMILY, text.activeFontFamily());
 
+            text.beginFrame(1.0, 1.0);
+            double defaultWidth = text.measureLine(label, label.text()).width();
+            assertTrue(text.selectFontFamily(UiTextEngine.MONOSPACE_FONT_FAMILY));
+            double monospaceWidth = text.measureLine(label, label.text()).width();
+            assertNotEquals(defaultWidth, monospaceWidth, 0.01,
+                    "default-family labels must follow the selected UI font");
+
             text.registerFont("Alternate", fontData);
             assertEquals(List.of(UiTextEngine.DEFAULT_FONT_FAMILY,
                     UiTextEngine.UNIFONT_FONT_FAMILY,
@@ -103,8 +140,8 @@ class UiTextEngineTest {
             assertFalse(text.selectFontFamily("Alternate"));
             assertEquals("Alternate", text.activeFontFamily());
 
-            text.beginFrame(1.0, 1.0);
-            assertTrue(text.measureLine(label, label.text()).width() > 0.0);
+            var alternateLayout = text.measureLine(label, label.text());
+            assertTrue(alternateLayout.width() > 0.0);
             assertThrows(IllegalArgumentException.class,
                     () -> text.registerFont("Alternate", fontData));
             assertThrows(IllegalArgumentException.class,

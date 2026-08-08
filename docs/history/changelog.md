@@ -1,5 +1,29 @@
 # 变更记录
 
+## v0.22.0（2026-08-08）
+
+**主题**：共享文本子系统、CommonMark Markdown 与可验证字体特效
+
+### 核心功能
+
+- **共享文本子系统**：新增 renderer-neutral 的 `subsystems/text`，统一管理字体注册、FreeType rasterization、HarfBuzz shaping、fallback、布局、Unicode 边界和 glyph atlas；UI 仅保留适配层，其他子系统可复用同一文本服务。
+- **CommonMark 支持**：引入 `org.commonmark:commonmark:0.24.0`，由共享 `MarkdownParser` 输出 `MarkdownDocument`，避免 UI 和 Demo 各自遍历 Markdown AST。
+- **Markdown 文本 Demo**：新增 `MarkdownTextDemoMain`，展示标题、段落、列表、引用、代码块、`strong`、强调和行内 code 的实际渲染，并提供确定性 30 帧 OpenGL 集成入口。
+- **字体与文本特效**：支持 Noto Sans SC、Unifont、JetBrains Mono 的全局切换、字体大小滑块、gradient、outline、drop shadow、outer glow 和 inner glow；字体切换会使继承默认字体的 UI 节点重新测量。
+- **inner glow 稳定性**：shader 使用邻域覆盖率范围识别内部边缘，兼容接近二值覆盖的字形，避免切换字体后效果退化为普通文本或整字染色。
+
+### 架构与验证
+
+- 文本子系统保持 UI、backend 和 OpenGL 独立，新增架构边界与 public API allowlist。
+- glyph atlas 的特效 padding、字体切换布局失效和 Markdown inline effect 均有回归覆盖。
+- `runMarkdownTextIntegration` 纳入 `localUiVerification` 和完整本地发布任务。
+
+### 兼容性与限制
+
+- 现有 `Label`、`TextField`、UI glyph upload 和显示列表接口保持兼容；显式指定的字体族不会被全局字体选择覆盖。
+- 正式承诺 Latin/CJK 文本；完整 BiDi、彩色 emoji 和 variable-axis UI 仍不在本版本承诺范围内。
+
+
 ## v0.21.0-beta（2026-08-06）
 
 **主题**：序列化游戏场景与角色内容管线

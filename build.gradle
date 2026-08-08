@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.21.0-beta'
+version = '0.22.0'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -136,6 +136,8 @@ dependencies {
     implementation "net.java.dev.jna:jna:${jnaVersion}"
     implementation "net.java.dev.jna:jna-platform:${jnaVersion}"
 
+    implementation "org.commonmark:commonmark:0.24.0"
+
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
@@ -184,6 +186,7 @@ tasks.register('architectureGuard', Test) {
             '*.ArchitectureBoundaryTest.coreAndRuntimeDoNotDependOnSubsystems',
             '*.ArchitectureBoundaryTest.coreDoesNotDependOnRuntime',
             '*.ArchitectureBoundaryTest.uiRemainsASiblingSubsystemWithoutReverseDependencies',
+            '*.ArchitectureBoundaryTest.textRemainsRendererNeutralAndUiIndependent',
             '*.ArchitectureBoundaryTest.nativeUiLibrariesStayInsideTheirAdapters',
             '*.ArchitectureBoundaryTest.uiLogicPackagesDoNotIssueOpenGlCalls',
             '*.ArchitectureBoundaryTest.productionCodeDoesNotUseCustomCommandEscapeHatch',
@@ -217,7 +220,8 @@ tasks.register('dependencyLockGuard') {
             throw new GradleException('Assimp must not re-enter the v0.14 dependency graph')
         }
         ['org.lwjgl:lwjgl-opengl:3.3.3', 'org.joml:joml:1.10.9',
-         'com.fasterxml.jackson.core:jackson-core:2.18.3'].each { coordinate ->
+         'com.fasterxml.jackson.core:jackson-core:2.18.3',
+         'org.commonmark:commonmark:0.24.0'].each { coordinate ->
             if (!lockText.contains(coordinate)) {
                 throw new GradleException("Dependency lock is missing $coordinate")
             }

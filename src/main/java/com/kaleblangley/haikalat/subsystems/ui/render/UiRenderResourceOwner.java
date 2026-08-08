@@ -5,7 +5,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.vertex.VertexArray;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.subsystems.ui.text.GlyphUploadRequest;
+import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -197,6 +197,9 @@ final class UiRenderResourceOwner implements AutoCloseable {
         glEnableVertexArrayAttrib(vao.id(), 2);
         glVertexArrayAttribFormat(vao.id(), 2, 4, GL_UNSIGNED_BYTE, true, 16);
         glVertexArrayAttribBinding(vao.id(), 2, 0);
+        glEnableVertexArrayAttrib(vao.id(), 3);
+        glVertexArrayAttribFormat(vao.id(), 3, 2, GL_FLOAT, false, 20);
+        glVertexArrayAttribBinding(vao.id(), 3, 0);
     }
 
     private static ByteBuffer buildIndices() {

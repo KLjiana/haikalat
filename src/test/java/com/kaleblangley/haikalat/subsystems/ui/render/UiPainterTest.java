@@ -10,6 +10,7 @@ import com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiInsets;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
+import com.kaleblangley.haikalat.subsystems.ui.text.TextEffect;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Image;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.ListView;
@@ -37,7 +38,7 @@ class UiPainterTest {
             slider.computedStyle(new ComputedStyle(
                     UiColor.TRANSPARENT, UiColor.WHITE,
                     new UiColor(0.25f, 0.25f, 0.25f, 1.0f),
-                    1.0f, 0.0f, 1.0f, 10.0f, "TestFont"));
+                    1.0f, 0.0f, 1.0f, 10.0f, "TestFont", TextEffect.none()));
             layout(slider, 10, 20, 100, 28);
             document.root().add(slider);
 
@@ -309,7 +310,7 @@ class UiPainterTest {
     private static ComputedStyle style(UiColor background, UiColor foreground,
                                        float borderWidth, float opacity) {
         return new ComputedStyle(background, foreground, UiColor.WHITE,
-                borderWidth, 0.0f, opacity, 10.0f, "TestFont");
+                borderWidth, 0.0f, opacity, 10.0f, "TestFont", TextEffect.none());
     }
 
     private static void layout(UiNode node, float x, float y, float width, float height) {

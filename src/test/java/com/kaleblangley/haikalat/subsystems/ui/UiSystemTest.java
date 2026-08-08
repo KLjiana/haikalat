@@ -37,7 +37,7 @@ class UiSystemTest {
             return new com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle(
                     hot, resolved.foreground(), resolved.borderColor(), resolved.borderWidth(),
                     resolved.radius(), resolved.opacity(), resolved.fontSize(),
-                    resolved.fontFamily());
+                    resolved.fontFamily(), resolved.textEffect());
         }).build();
         try (UiSystem ui = UiSystem.create(new FixedWindow(320, 180), config)) {
             Button button = new Button("Styled");
