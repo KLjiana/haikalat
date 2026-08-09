@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.22.0'
+version = '0.22.1'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -187,6 +187,8 @@ tasks.register('architectureGuard', Test) {
             '*.ArchitectureBoundaryTest.coreDoesNotDependOnRuntime',
             '*.ArchitectureBoundaryTest.uiRemainsASiblingSubsystemWithoutReverseDependencies',
             '*.ArchitectureBoundaryTest.textRemainsRendererNeutralAndUiIndependent',
+            '*.ArchitectureBoundaryTest.markdownDocumentDoesNotExposeCommonMarkImplementationTypes',
+            '*.ArchitectureBoundaryTest.uiCreatesTheSharedTextSystemOnlyThroughItsTextAdapter',
             '*.ArchitectureBoundaryTest.nativeUiLibrariesStayInsideTheirAdapters',
             '*.ArchitectureBoundaryTest.uiLogicPackagesDoNotIssueOpenGlCalls',
             '*.ArchitectureBoundaryTest.productionCodeDoesNotUseCustomCommandEscapeHatch',

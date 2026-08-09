@@ -1,5 +1,22 @@
 # 变更记录
 
+## v0.22.1（2026-08-09）
+
+**主题**：文本与灯光缓存纯加固
+
+- 为 `Scene.lightingRevision()` 增加 add/set/非法 topology/单调递增 JVM 回归，并强化真实 GL
+  方向光替换测试：shadow cache 与 light-space matrix 更新，RenderGraph target identity 保持。
+- 将 Markdown 正式描述为“CommonMark parser 驱动的受控显示子集”，补齐 link 文本、image 忽略、
+  nested/ordered list、H4-H6、fence/indented code、空文档、unsupported top-level 与 1 Mi 字符容量测试。
+- 新增 `runTextBenchmarks`，记录 Markdown parse、1k/10k 冷/热布局、字体切换、atlas 与全部现有
+  文字效果在 1080p/4K 的 CPU/GPU、allocation、cache、upload、batch/state-break 和 GL 消息。
+- 普通文字 batch 不再写入颜色/厚度/偏移/模糊/角度等特效 uniform，也不再创建临时颜色向量；
+  有特效路径复用 renderer-owned 向量。
+- UI 全局字体切换只使继承默认字体的节点重新测量；显式字体节点保持稳定。字体注册失败回滚、
+  初始化失败恢复、重复 close 和 atlas lease 延迟 close 均有测试。
+- 清理 future/optimization 文档：v0.21 回退明确标为已由 v0.21.1 解决，UI allocation 更新为
+  约 `255 KiB/frame`，RenderGraph preview 从待办移除，GPU-driven/Vulkan/延迟渲染恢复为候选。
+
 ## v0.22.0（2026-08-08）
 
 **主题**：共享文本子系统、CommonMark Markdown 与可验证字体特效

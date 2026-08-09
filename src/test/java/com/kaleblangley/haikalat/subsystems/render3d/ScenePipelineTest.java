@@ -43,6 +43,58 @@ class ScenePipelineTest {
     }
 
     @Test
+    void addingALightAdvancesLightingRevision() {
+        Scene scene = new Scene(new Camera());
+        long before = scene.lightingRevision();
+
+        scene.addLight(SceneLight.directional(new Vector3f(0, -1, 0),
+                new Vector3f(1), 1.0f));
+
+        assertEquals(before + 1, scene.lightingRevision());
+    }
+
+    @Test
+    void successfulLightReplacementAdvancesLightingRevision() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.directional(
+                new Vector3f(0, -1, 0), new Vector3f(1), 1.0f));
+        long before = scene.lightingRevision();
+
+        scene.setLight(0, SceneLight.directional(new Vector3f(1, -1, 0),
+                new Vector3f(0.5f), 2.0f));
+
+        assertEquals(before + 1, scene.lightingRevision());
+    }
+
+    @Test
+    void rejectedTopologyChangesDoNotAdvanceLightingRevision() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.directional(
+                new Vector3f(0, -1, 0), new Vector3f(1), 1.0f));
+        long before = scene.lightingRevision();
+
+        assertThrows(IllegalArgumentException.class, () -> scene.setLight(0,
+                SceneLight.point(new Vector3f(), new Vector3f(1), 1.0f, 4.0f)));
+        assertEquals(before, scene.lightingRevision());
+        assertThrows(IllegalArgumentException.class, () -> scene.setLight(0,
+                SceneLight.shadowedDirectional(new Vector3f(0, -1, 0),
+                        new Vector3f(1), 1.0f)));
+        assertEquals(before, scene.lightingRevision());
+    }
+
+    @Test
+    void repeatedLightReplacementsKeepLightingRevisionMonotonic() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.directional(
+                new Vector3f(0, -1, 0), new Vector3f(1), 1.0f));
+        long previous = scene.lightingRevision();
+
+        for (int index = 1; index <= 8; index++) {
+            scene.setLight(0, SceneLight.directional(new Vector3f(index, -1, 0),
+                    new Vector3f(1), index));
+            assertTrue(scene.lightingRevision() > previous);
+            previous = scene.lightingRevision();
+        }
+    }
+
+    @Test
     void sceneLightReplacementAllowsOnlyTopologyPreservingChanges() {
         Scene scene = new Scene(new Camera());
         SceneLight original = SceneLight.directional(new Vector3f(-1, -2, -1),

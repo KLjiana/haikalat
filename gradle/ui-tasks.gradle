@@ -191,6 +191,32 @@ tasks.register('runUiBenchmarks', JavaExec) {
     }
 }
 
+tasks.register('runTextBenchmarks', JavaExec) {
+    group = 'verification'
+    description = 'Runs the v0.22.1 Markdown, layout, glyph-atlas and text-effect baseline.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.TextBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    workingDir = projectDir
+    systemProperty 'haikalat.glSmoke', 'true'
+    if (providers.gradleProperty('textBenchmarkRounds').isPresent()) {
+        args "--rounds=${providers.gradleProperty('textBenchmarkRounds').get()}"
+    }
+    if (providers.gradleProperty('textBenchmarkWarmup').isPresent()) {
+        args "--warmup=${providers.gradleProperty('textBenchmarkWarmup').get()}"
+    }
+    if (providers.gradleProperty('textBenchmarkFrames').isPresent()) {
+        args "--frames=${providers.gradleProperty('textBenchmarkFrames').get()}"
+    }
+    if (providers.gradleProperty('textBenchmarkParseSamples').isPresent()) {
+        args "--parse-samples=${providers.gradleProperty('textBenchmarkParseSamples').get()}"
+    }
+    mustRunAfter 'runMarkdownTextIntegration'
+}
+
 tasks.register('runUiInteractiveSoak', JavaExec) {
     group = 'verification'
     description = 'Runs a visible, time-bounded UiDemo for the manual Windows IME matrix.'

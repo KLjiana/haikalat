@@ -389,12 +389,22 @@ class SceneVisibilityGlTest {
                 pipeline.execute(device);
                 assertTrue(pipeline.lastVisibilityStatistics().forwardQueueReused());
                 assertTrue(pipeline.lastVisibilityStatistics().shadowQueueReused());
+                var graphBeforeReplacement = pipeline.graph();
+                long graphRebuildsBeforeReplacement = pipeline.sceneGraphRebuildCount();
+                var lightMatrixBeforeReplacement = pipeline.lastDirectionalLightSpaceMatrix();
 
                 scene.setLight(0, SceneLight.shadowedDirectional(
                         new Vector3f(1, -2, -1), new Vector3f(1), 1.0f));
                 pipeline.execute(device);
                 assertTrue(pipeline.lastVisibilityStatistics().forwardQueueReused());
                 assertTrue(pipeline.lastVisibilityStatistics().shadowQueueRebuilt());
+                assertNotEquals(lightMatrixBeforeReplacement,
+                        pipeline.lastDirectionalLightSpaceMatrix(),
+                        "directional shadow cache must follow the replacement light");
+                assertSame(graphBeforeReplacement, pipeline.graph(),
+                        "a topology-preserving light replacement must keep RenderGraph targets");
+                assertEquals(graphRebuildsBeforeReplacement, pipeline.sceneGraphRebuildCount(),
+                        "a topology-preserving light replacement must not rebuild the graph");
 
                 camera.setYaw(-82.0f);
                 pipeline.execute(device);

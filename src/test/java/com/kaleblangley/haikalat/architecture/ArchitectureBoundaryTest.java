@@ -261,6 +261,22 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void markdownDocumentDoesNotExposeCommonMarkImplementationTypes() throws IOException {
+        Path document = HAIKALAT.resolve(Path.of("subsystems", "text", "markdown",
+                "MarkdownDocument.java"));
+        assertFalse(Files.readString(document).contains("org.commonmark"),
+                "MarkdownDocument must remain a renderer-neutral value model");
+    }
+
+    @Test
+    void uiCreatesTheSharedTextSystemOnlyThroughItsTextAdapter() throws IOException {
+        Path ui = HAIKALAT.resolve(Path.of("subsystems", "ui"));
+        Set<String> creationSites = filesContaining(ui, "TextSystem.createBundled(");
+        assertEquals(Set.of("com/kaleblangley/haikalat/subsystems/ui/text/UiTextEngine.java"),
+                creationSites, "UI must acquire the shared text system through UiTextEngine");
+    }
+
+    @Test
     void nativeUiLibrariesStayInsideTheirAdapters() throws IOException {
         assertFilesUnder(filesContaining(MAIN_JAVA, "org.lwjgl.util.yoga."),
                 "com/kaleblangley/haikalat/subsystems/ui/layout/", "Yoga");

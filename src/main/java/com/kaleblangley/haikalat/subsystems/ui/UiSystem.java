@@ -219,8 +219,8 @@ public final class UiSystem implements AutoCloseable {
         updateThread.check();
         ensureOpen("UiSystem.selectFontFamily");
         if (!textEngine.selectFontFamily(familyName)) return false;
-        invalidateTextLayout(document.root());
-        invalidateTextLayout(document.overlayRoot());
+        invalidateDefaultFontTextLayout(document.root());
+        invalidateDefaultFontTextLayout(document.overlayRoot());
         return true;
     }
 
@@ -512,14 +512,21 @@ public final class UiSystem implements AutoCloseable {
         return false;
     }
 
+    private static void invalidateTextLayout(UiNode node) {
+        node.markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT, UiDirtyFlag.PAINT);
+        for (UiNode child : node.children()) invalidateTextLayout(child);
+    }
+
     private void markPaintRoots() {
         document.root().markDirty(UiDirtyFlag.PAINT);
         document.overlayRoot().markDirty(UiDirtyFlag.PAINT);
     }
 
-    private static void invalidateTextLayout(UiNode node) {
-        node.markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT, UiDirtyFlag.PAINT);
-        for (UiNode child : node.children()) invalidateTextLayout(child);
+    private static void invalidateDefaultFontTextLayout(UiNode node) {
+        if (UiTextEngine.DEFAULT_FONT_FAMILY.equals(node.computedStyle().fontFamily())) {
+            node.markDirty(UiDirtyFlag.MEASURE, UiDirtyFlag.LAYOUT, UiDirtyFlag.PAINT);
+        }
+        for (UiNode child : node.children()) invalidateDefaultFontTextLayout(child);
     }
 
     private static long countNodes(UiNode node) {

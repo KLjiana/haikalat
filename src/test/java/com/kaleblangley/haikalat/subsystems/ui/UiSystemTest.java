@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.subsystems.ui.animation.UiEasing;
 import com.kaleblangley.haikalat.subsystems.ui.animation.UiTweenSpec;
 import com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine;
 import com.kaleblangley.haikalat.subsystems.ui.widget.Button;
+import com.kaleblangley.haikalat.subsystems.ui.widget.Label;
 import com.kaleblangley.haikalat.subsystems.ui.widget.TextField;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import com.kaleblangley.haikalat.subsystems.windowing.input.ImeComposition;
@@ -74,6 +75,40 @@ class UiSystemTest {
             assertTrue(button.isDirty(UiDirtyFlag.MEASURE));
             assertTrue(button.isDirty(UiDirtyFlag.LAYOUT));
             assertTrue(button.isDirty(UiDirtyFlag.PAINT));
+        }
+    }
+
+    @Test
+    void fontSwitchLeavesExplicitFontNodesStable() {
+        var fallback = com.kaleblangley.haikalat.subsystems.ui.style.StyleResolver.defaults(
+                com.kaleblangley.haikalat.subsystems.ui.style.Theme.dark());
+        UiConfig config = UiConfig.builder().styleResolver((widget, classes, states, inherited) -> {
+            var resolved = fallback.resolve(widget, classes, states, inherited);
+            if (!classes.contains("explicit-font")) return resolved;
+            return new com.kaleblangley.haikalat.subsystems.ui.style.ComputedStyle(
+                    resolved.background(), resolved.foreground(), resolved.borderColor(),
+                    resolved.borderWidth(), resolved.radius(), resolved.opacity(),
+                    resolved.fontSize(), UiTextEngine.MONOSPACE_FONT_FAMILY,
+                    resolved.textEffect());
+        }).build();
+        try (UiSystem ui = UiSystem.create(new FixedWindow(320, 180), config)) {
+            Button inherited = new Button("Inherited font");
+            Label explicit = new Label("Explicit font");
+            explicit.addStyleClass("explicit-font");
+            ui.document().root().add(inherited).add(explicit);
+            ui.update(collector(320, 180, 320, 180).snapshot(), 1.0f / 60.0f);
+
+            assertEquals(UiTextEngine.MONOSPACE_FONT_FAMILY,
+                    explicit.computedStyle().fontFamily());
+            assertFalse(explicit.isDirty(UiDirtyFlag.MEASURE));
+            assertTrue(ui.selectFontFamily(UiTextEngine.MONOSPACE_FONT_FAMILY));
+
+            assertTrue(inherited.isDirty(UiDirtyFlag.MEASURE));
+            assertTrue(inherited.isDirty(UiDirtyFlag.LAYOUT));
+            assertTrue(inherited.isDirty(UiDirtyFlag.PAINT));
+            assertFalse(explicit.isDirty(UiDirtyFlag.MEASURE));
+            assertFalse(explicit.isDirty(UiDirtyFlag.LAYOUT));
+            assertFalse(explicit.isDirty(UiDirtyFlag.PAINT));
         }
     }
 

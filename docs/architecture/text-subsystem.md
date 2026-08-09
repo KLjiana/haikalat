@@ -20,10 +20,19 @@ registration order. `MarkdownParser` is the single CommonMark adapter; demos and
 subsystems should consume its document model instead of traversing CommonMark nodes or
 reimplementing inline-run merging.
 
+The Markdown contract is a controlled display subset rather than complete rich text. It covers
+H1-H3, paragraphs, quotes, flat list text, fenced/indented code, strong/emphasis/inline code and
+line breaks. H4-H6 map to H3; links keep only display text; images, URL behavior, list hierarchy,
+ordered numbers, fence languages, HTML, tables and thematic breaks are not promised. The parser
+rejects sources above its configured capacity before invoking CommonMark.
+
 `TextSystem.layout(...)` accepts an optional family name and builds a family-specific
 fallback chain, so UI styles such as the bundled JetBrains Mono code face are honored
 without each consumer maintaining its own font selection logic.
 
 The architecture tests enforce that the text package cannot import UI/backend types or
-issue OpenGL calls. Public types are classified in
+issue OpenGL calls, that `MarkdownDocument` does not expose CommonMark types, and that UI creates
+the shared service only through `UiTextEngine`. Font registration uses rollback on face failure;
+`TextSystem.close()` is idempotent and remains retryable while an atlas generation lease is live.
+Public types are classified in
 `docs/architecture/public-api/text.allowlist`.

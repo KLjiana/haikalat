@@ -1,147 +1,61 @@
-# Haikalat 架构优化计划
+# Haikalat 架构与性能调查记录
 
-## 概述
+## 当前结论
 
-本文档记录了 v0.21+ 版本的架构优化和性能调优计划。
+v0.21.0-beta 的场景提交回退已由 v0.21.1 解决。当前性能不再是 `5.6～7.5 ms`；该范围只属于
+2026-08-06 的原始调查样本，不得作为当前状态引用。正式 v0.21.1 同机结果中，10,000 对象
+programmatic large 为 `0.552 ms`，10,000 glTF mostly-hidden 为 `1.509 ms`，稳定帧分配约
+`2.6 KiB/frame`。完整环境、场景和各组数据见
+[`releases/v0.21.1-release-report.md`](releases/v0.21.1-release-report.md)。
 
-## 当前状态
+## 已解决项
 
-**项目评分**: 8.5/10（优秀）
+v0.21.1 采用以下内部优化恢复并超过 v0.20 基线，未改变公共 API：
 
-**性能基线**:
-- v0.20.0: 2.761ms (SceneScalabilityDemo static-all-visible)
-- v0.21.0-beta (预期): 3.508ms (+27%)
-- v0.21.0-beta (实测): 5.6-7.5ms (+100-170%)
+1. 缓存 SceneFrame 所需的 shadow light 查询；
+2. 以集合和前缀表替代 frame-owned uniform 的长字符串比较链；
+3. 移除提交热路径中的 Stream/lambda 分配；
+4. 合并 topology signature 的灯光遍历并允许提前退出；
+5. 缓存 scene topology signature，同拓扑替换继续走 fast path。
 
-**关键发现**: v0.21 存在显著的未预期性能回退。
+v0.22.1 进一步为可变灯光增加 `Scene.lightingRevision()` 回归和真实 GL cache invalidation
+证明，避免 topology 不变时沿用过期方向光，同时确认不重建无关 RenderGraph target。
 
-## 优化里程碑
+## 历史调查数据（保留，不代表当前性能）
 
-### M1: 拓扑签名缓存 ✅
+最初的 v0.21 调查记录如下，用于解释为什么启动专项优化：
 
-**问题**: `RenderPipeline.replaceScene()` 每次都计算两次 `SceneTopologySignature.of()`
+| 样本 | 当时观测 |
+| --- | ---: |
+| v0.20.0 static-all-visible | `2.761 ms` |
+| v0.21.0-beta 报告 | `3.508 ms` |
+| 未受控的补充样本 | `5.6～7.5 ms` |
 
-**解决方案**: 在 `RenderPipeline` 中缓存拓扑签名
-- 在 `build()` 和 `replaceScene()` 成功后更新缓存
-- 避免在 `Scene` 对象中添加 volatile 字段（会影响内存布局）
+最后一组受 CPU 频率、后台负载、预热和测量口径影响，只是问题定位输入。v0.21.1 使用固定场景、
+预热、轮次与 allocation 统计重新验收，因此后续比较必须使用正式报告的同口径数据。
 
-**状态**: 已实现 (commit e7939af)
+## 当前基准策略
 
-**影响范围**: 仅影响 `replaceScene()` 调用，不影响常规渲染帧
+- correctness 先由 JVM、真实 GL、资源生命周期和 GL debug policy 门禁证明；
+- 性能任务固定场景、分辨率、warmup、samples 与 rounds，并记录完整硬件/驱动身份；
+- 同环境超过 5% 的回退需要复测和 profile，跨机器结果不可直接作为硬门槛；
+- JFR、ThreadMXBean allocation 与 GPU timer 分别用于定位，不混写为同一个指标；
+- v0.22 文本路径使用 `runTextBenchmarks` 覆盖 Markdown parse、1k/10k 冷/热布局、字体切换、
+  glyph atlas、普通文字与所有现有特效，以及 1080p/4K 稳定帧。
 
-**下一步**: 需要性能基准测试验证效果
+## 未来优化候选
 
----
+以下均为有条件候选，不是版本承诺或既定路线：
 
-### M2: 诊断收集按需触发 ❌
+- 空间分区、GPU culling、indirect submission；
+- 延迟渲染、SSAO、SSR；
+- bindless texture、texture array、虚拟纹理；
+- Vulkan 或其他第二后端；
+- 动态全局光照。
 
-**问题**: SerializedSceneDiagnostics 在每帧收集数据
-
-**调查结果**: 
-- 诊断收集仅在 DiagnosticsPanel 可见时触发（每10帧）
-- SceneScalabilityDemo 不使用 DiagnosticsPanel
-- 不是性能瓶颈
-
-**状态**: 取消，不需要优化
-
----
-
-### M3: 调查 v0.21 性能回退根本原因 🔄
-
-**发现的问题**:
-1. **预期回退**: v0.21.0-beta 报告显示 +27% 回退（2.761ms → 3.508ms）
-2. **实际回退**: 实测显示 +100-170% 回退（2.761ms → 5.6-7.5ms）
-3. **差异原因**: 未知
-
-**可能原因**:
-- [ ] RenderGraph 结构变化
-- [ ] 着色器编译开销
-- [ ] 内存分配模式变化
-- [ ] JIT 编译器优化失效
-- [ ] 测试环境差异（CPU 频率、后台进程）
-
-**下一步行动**:
-1. 分析 v0.20.0 → v0.21.0-beta 的代码变更
-2. 逐个回滚关键变更进行二分查找
-3. 使用性能分析工具（JFR/VisualVM）定位热点
-
-**状态**: 待调查
+候选只有在现有 OpenGL 路径出现可复现瓶颈、具备对照基线并能保持 public/architecture 合同后，
+才进入具体版本计划。
 
 ---
 
-### M4: 性能基准测试验证 ⏳
-
-**任务**: 运行完整的性能基准测试套件
-- `./gradlew runSceneSubmissionStaticBenchmarks`
-- 对比 M1 优化前后的性能数据
-
-**问题**: 基准测试运行时间过长（>3分钟），多次超时
-
-**状态**: 待完成
-
----
-
-## 架构优化方向
-
-### 短期优化（v0.21.x）
-
-1. **修复性能回退** (M3) - 最高优先级
-2. **视锥剔除优化**
-   - 当前实现: 每帧遍历所有对象
-   - 优化方向: 空间分区（Octree/BVH）
-3. **阴影渲染优化**
-   - 当前: 每帧重新收集阴影投射物
-   - 优化: 缓存静态阴影投射物列表
-
-### 中期优化（v0.22-v0.23）
-
-1. **延迟渲染管线**
-   - 减少光照计算复杂度
-   - 支持更多动态光源
-2. **GPU Driven Rendering**
-   - Indirect Draw Calls
-   - GPU Culling
-3. **高级后处理**
-   - SSAO（屏幕空间环境光遮蔽）
-   - SSR（屏幕空间反射）
-
-### 长期优化（v0.24+）
-
-1. **Vulkan 后端**
-   - 多线程命令录制
-   - 更精细的资源控制
-2. **虚拟纹理系统**
-   - 减少显存占用
-   - 支持超大场景
-3. **动态全局光照**
-   - 光线追踪/探针系统
-
----
-
-## 测试策略
-
-### 性能回归测试
-- 每个 PR 运行基准测试
-- 自动标记 >5% 的性能回退
-- 在 CI/CD 中集成性能监控
-
-### 性能分析工具
-- JFR (Java Flight Recorder) - 生产级性能分析
-- VisualVM - 实时监控
-- Async-profiler - 低开销采样
-
----
-
-## 结论
-
-当前项目在架构设计和代码质量上表现优秀（8.5/10），但存在未预期的性能回退需要紧急处理。M1 优化已完成，但需要性能测试验证效果。下一步重点是调查 v0.21 的性能回退根本原因。
-
-**关键指标**:
-- 目标: 恢复到 v0.20.0 性能水平（2.761ms）
-- 可接受范围: <3.5ms（+27% 以内）
-- 当前状态: 5.6-7.5ms（不可接受）
-
----
-
-*最后更新: 2026-08-06*
-*作者: OpenCode 优化分析*
+最后更新：2026-08-09

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,8 +53,36 @@ class TextSystemTest {
     void rejectsUseAfterClose() {
         TextSystem text = TextSystem.createBundled(64, 64, 2, 1);
         text.close();
+        text.close();
 
         assertThrows(IllegalStateException.class, text::fontFamilies);
+    }
+
+    @Test
+    void failedFontRegistrationRollsBackTheFamilyCompletely() {
+        try (TextSystem text = TextSystem.createBundled(64, 64, 2, 1)) {
+            var before = text.fontFamilies();
+
+            RuntimeException first = assertThrows(RuntimeException.class,
+                    () -> text.registerFont("Broken", new byte[]{0, 1, 2, 3}));
+
+            assertNotNull(first.getMessage());
+            assertEquals(before, text.fontFamilies());
+            RuntimeException retry = assertThrows(RuntimeException.class,
+                    () -> text.registerFont("Broken", new byte[]{0, 1, 2, 3}));
+            assertFalse(String.valueOf(retry.getMessage()).contains("already registered"));
+            assertEquals(before, text.fontFamilies());
+        }
+    }
+
+    @Test
+    void initializationFailureDoesNotPoisonSubsequentTextSystemCreation() {
+        assertThrows(IllegalArgumentException.class,
+                () -> TextSystem.createBundled(0, 64, 2, 1));
+
+        try (TextSystem text = TextSystem.createBundled(64, 64, 2, 1)) {
+            assertTrue(text.fontFamilies().contains(BundledFonts.NOTO_SANS_SC_FAMILY));
+        }
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.ui.UiImageId;
 import com.kaleblangley.haikalat.subsystems.text.GlyphUploadRequest;
+import org.joml.Vector4f;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -38,6 +39,8 @@ public final class UiRenderer implements AutoCloseable {
     private final UiRenderResourceOwner resources;
     private final UiImageResolver imageResolver;
     private final UiSdfRenderer sdfRenderer = new UiSdfRenderer();
+    private final Vector4f textEffectColor1 = new Vector4f();
+    private final Vector4f textEffectColor2 = new Vector4f();
     private int lastDrawCalls;
     private int lastQuadCount;
     private boolean closed;
@@ -314,6 +317,12 @@ public final class UiRenderer implements AutoCloseable {
                                          UiBatcher.Result batches, int batch) {
         int primitiveIndex = batches.firstPrimitive(batch);
         byte effectType = displayList.textEffectType(primitiveIndex);
+        commands.setUniformInt(resources.shader(), "uTextEffectType", effectType);
+        if (effectType == 0) {
+            // Plain text only has to reset the discriminator. It must not pay for
+            // effect colors, geometry parameters, or temporary vector allocation.
+            return;
+        }
         int color1 = displayList.textEffectColor1(primitiveIndex);
         int color2 = displayList.textEffectColor2(primitiveIndex);
         float thickness = displayList.textEffectThickness(primitiveIndex);
@@ -323,23 +332,21 @@ public final class UiRenderer implements AutoCloseable {
         // TextEffect exposes user-facing degrees; GLSL trigonometry uses radians.
         float angle = (float) Math.toRadians(displayList.textEffectAngle(primitiveIndex));
 
-        commands.setUniformInt(resources.shader(), "uTextEffectType", effectType)
-                .setUniformVec4(resources.shader(), "uTextEffectColor1",
-                        new org.joml.Vector4f(
-                                ((color1 >>> 24) & 0xFF) / 255.0f,
-                                ((color1 >>> 16) & 0xFF) / 255.0f,
-                                ((color1 >>> 8) & 0xFF) / 255.0f,
-                                (color1 & 0xFF) / 255.0f))
-                .setUniformVec4(resources.shader(), "uTextEffectColor2",
-                        new org.joml.Vector4f(
-                                ((color2 >>> 24) & 0xFF) / 255.0f,
-                                ((color2 >>> 16) & 0xFF) / 255.0f,
-                                ((color2 >>> 8) & 0xFF) / 255.0f,
-                                (color2 & 0xFF) / 255.0f))
+        unpackColor(color1, textEffectColor1);
+        unpackColor(color2, textEffectColor2);
+        commands.setUniformVec4(resources.shader(), "uTextEffectColor1", textEffectColor1)
+                .setUniformVec4(resources.shader(), "uTextEffectColor2", textEffectColor2)
                 .setUniformFloat(resources.shader(), "uTextEffectThickness", thickness)
                 .setUniformVec2(resources.shader(), "uTextEffectOffset", offsetX, offsetY)
                 .setUniformFloat(resources.shader(), "uTextEffectBlur", blur)
                 .setUniformFloat(resources.shader(), "uTextEffectAngle", angle);
+    }
+
+    private static void unpackColor(int packedRgba8, Vector4f target) {
+        target.set(((packedRgba8 >>> 24) & 0xFF) / 255.0f,
+                ((packedRgba8 >>> 16) & 0xFF) / 255.0f,
+                ((packedRgba8 >>> 8) & 0xFF) / 255.0f,
+                (packedRgba8 & 0xFF) / 255.0f);
     }
 
     private static void writeVertices(UiDisplayList displayList, ByteBuffer target) {

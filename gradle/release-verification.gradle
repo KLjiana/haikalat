@@ -355,11 +355,23 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 6
+        assert policies.size() == 7
+        def textBenchmarkPolicy = policies.find { it.owner == 'text/rendering' }
+        assert textBenchmarkPolicy != null
+        assert textBenchmarkPolicy.id == 131218
+        assert textBenchmarkPolicy.severity == 'MEDIUM'
+        assert textBenchmarkPolicy.entry == '.*runTextBenchmarks.*'
+        assert textBenchmarkPolicy.maximum == 120
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
                 'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
                         + 'OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive', policies)
         assert allowed.violations.isEmpty()
+        def allowedTextBenchmark = auditGlText('runTextBenchmarks',
+                'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+                        + 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: '
+                        + 'Program/shader state performance warning: Vertex shader in program 12 '
+                        + 'is being recompiled based on GL state.', policies)
+        assert allowedTextBenchmark.violations.isEmpty()
         def rejected = auditGlText('runUnknownIntegration',
                 'OpenGL PERFORMANCE [MEDIUM] source=API id=424242: unknown', policies)
         assert rejected.violations.size() == 1

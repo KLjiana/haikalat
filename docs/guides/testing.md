@@ -23,6 +23,10 @@ Default command:
 .\gradlew.bat test
 ```
 
+v0.22.1 文本专项的 JVM 合同集中在 `MarkdownParserTest`、`TextSystemTest`、`UiSystemTest`
+与 `ArchitectureBoundaryTest`。它们覆盖 Markdown 子集/容量、字体注册失败回滚、重复或延迟 close、
+默认/显式字体失效范围，以及 GL-free/适配层边界。
+
 ## GL Smoke
 
 Opt-in tests that create a hidden GLFW window and a minimal OpenGL context. These verify that the local graphics stack can execute basic GL work and that runtime GL resources enforce their lifecycle boundaries.
@@ -50,6 +54,15 @@ Command:
 .\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
 ```
 
+灯光缓存的聚焦真实 GL 回归可单独执行：
+
+```powershell
+.\gradlew.bat glSmoke --tests "*SceneVisibilityGlTest.lightAndCameraChangesInvalidateTheRequiredQueues" --rerun-tasks
+```
+
+它会在 pipeline build 后替换方向光，验证 shadow queue/matrix 更新且 RenderGraph identity 与
+scene graph rebuild count 不变，并由 GL debug 门禁检查错误与未授权消息。
+
 The v0.19 serialized-scene gate keeps the CPU and focused GL checks explicit:
 
 ```powershell
@@ -75,6 +88,18 @@ Use this category for:
 Naming/package convention: `*IntegrationTest` under `com.kaleblangley.haikalat.integration`, or manual demo entry points in `src/demo/java`. Integration tests must remain opt-in through a system property or a separate Gradle task if they are automated later.
 
 CI should run only the default unit path unless the environment explicitly provides a desktop GL context.
+
+## Text performance baseline
+
+```powershell
+.\gradlew.bat runTextBenchmarks
+```
+
+默认口径为三轮、30 帧 warmup、120 帧测量和 100 次 Markdown parse sample，覆盖 1080p/4K、
+1,000/10,000 glyph、字体切换、atlas cold/stable、普通文字、gradient、outline、drop shadow、
+outer glow、inner glow 与组合 runs。报告包含 parse/CPU/GPU p50/p95、allocation、shape/layout
+cache、glyph upload request/bytes/pages、draw/batch/state break 与 GL 消息。稳定帧若再次 shaping、
+layout 或 upload 会直接失败；GL 消息由 `config/gl-debug-policy.tsv` 的精确规则审计。
 
 ## v0.17.2 发布与 GL 生命周期门禁
 

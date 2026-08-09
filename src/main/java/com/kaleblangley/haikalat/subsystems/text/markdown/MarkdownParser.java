@@ -8,6 +8,7 @@ import org.commonmark.node.FencedCodeBlock;
 import org.commonmark.node.HardLineBreak;
 import org.commonmark.node.Heading;
 import org.commonmark.node.IndentedCodeBlock;
+import org.commonmark.node.Image;
 import org.commonmark.node.ListItem;
 import org.commonmark.node.Node;
 import org.commonmark.node.OrderedList;
@@ -28,14 +29,35 @@ import static com.kaleblangley.haikalat.subsystems.text.markdown.MarkdownDocumen
 
 /** Converts CommonMark syntax into the renderer-neutral text document model. */
 public final class MarkdownParser {
+    /** Default upper bound for one Markdown source document (UTF-16 code units). */
+    public static final int DEFAULT_MAX_SOURCE_CHARACTERS = 1_048_576;
+
     private final Parser parser;
+    private final int maximumSourceCharacters;
 
     public MarkdownParser() {
+        this(DEFAULT_MAX_SOURCE_CHARACTERS);
+    }
+
+    /**
+     * Creates a parser with an explicit input-capacity contract.
+     *
+     * @param maximumSourceCharacters maximum accepted UTF-16 code units
+     */
+    public MarkdownParser(int maximumSourceCharacters) {
+        if (maximumSourceCharacters <= 0) {
+            throw new IllegalArgumentException("maximumSourceCharacters must be > 0");
+        }
         parser = Parser.builder().build();
+        this.maximumSourceCharacters = maximumSourceCharacters;
     }
 
     public MarkdownDocument parse(String markdown) {
         Objects.requireNonNull(markdown, "markdown");
+        if (markdown.length() > maximumSourceCharacters) {
+            throw new IllegalArgumentException("Markdown source exceeds the "
+                    + maximumSourceCharacters + " character limit");
+        }
         Node root = parser.parse(markdown);
         List<Block> blocks = new ArrayList<>();
         boolean firstGroup = true;
@@ -63,14 +85,26 @@ public final class MarkdownParser {
         }
         if (node instanceof BulletList || node instanceof OrderedList) {
             List<Block> result = new ArrayList<>();
-            for (Node item = node.getFirstChild(); item != null; item = item.getNext()) {
-                if (item instanceof ListItem) result.addAll(inlineBlocks(BlockKind.LIST, item));
-            }
+            appendFlattenedList(node, result);
             return List.copyOf(result);
         }
         if (node instanceof FencedCodeBlock fenced) return codeBlocks(fenced.getLiteral());
         if (node instanceof IndentedCodeBlock indented) return codeBlocks(indented.getLiteral());
         return List.of();
+    }
+
+    /** Nested lists intentionally become sibling LIST blocks; hierarchy and numbers are not retained. */
+    private static void appendFlattenedList(Node list, List<Block> result) {
+        for (Node item = list.getFirstChild(); item != null; item = item.getNext()) {
+            if (!(item instanceof ListItem)) continue;
+            for (Node child = item.getFirstChild(); child != null; child = child.getNext()) {
+                if (child instanceof Paragraph paragraph) {
+                    result.addAll(inlineBlocks(BlockKind.LIST, paragraph));
+                } else if (child instanceof BulletList || child instanceof OrderedList) {
+                    appendFlattenedList(child, result);
+                }
+            }
+        }
     }
 
     private static List<Block> codeBlocks(String literal) {
@@ -99,6 +133,9 @@ public final class MarkdownParser {
 
     private static void appendInline(Node node, InlineKind inherited,
                                      List<List<Inline>> lines) {
+        if (node instanceof Image) {
+            return;
+        }
         if (node instanceof Text text) {
             appendRun(lines.getLast(), inherited, text.getLiteral());
             return;
