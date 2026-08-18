@@ -192,11 +192,12 @@ class SceneVisibilityGlTest {
                 IllegalStateException failure = assertThrows(IllegalStateException.class,
                         () -> pipeline.execute(new GlRenderDevice()));
                 assertTrue(failure.getMessage().contains("renderer[0]"));
-                assertEquals(0, pipeline.graph().lastFrameProfile().frameSequence());
+                assertEquals(-1, pipeline.graph().lastFrameProfile().frameSequence(),
+                        "snapshot failure must occur before RenderGraph execution begins");
                 assertFalse(pipeline.lastVisibilityStatistics().available());
 
                 pipeline.execute(new GlRenderDevice());
-                assertEquals(1, pipeline.graph().lastFrameProfile().frameSequence());
+                assertEquals(0, pipeline.graph().lastFrameProfile().frameSequence());
                 assertTrue(pipeline.lastVisibilityStatistics().available());
                 assertEquals(1, pipeline.lastVisibilityStatistics().forwardVisible());
                 assertEquals(2, updates.get());

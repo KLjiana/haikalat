@@ -5,6 +5,7 @@ public final class PostProcessTargets {
     public static final String FXAA_PASS = "FxaaPass";
     public static final String TAA_PASS = "TaaPass";
     public static final String HDR_RESOLVE_PASS = "HdrResolvePass";
+    public static final String DEPTH_RESOLVE_PASS = "DepthResolvePass";
     public static final String FOG_PASS = "FogPass";
     public static final String VFX_COMPOSITE_PASS = "VfxCompositePass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
@@ -22,6 +23,7 @@ public final class PostProcessTargets {
     public static final String TAA_COLOR = "taaColor";
     public static final String HDR_RESOLVED_COLOR = "hdrResolvedColor";
     public static final String SCENE_DEPTH = "sceneDepth";
+    public static final String RESOLVED_SCENE_DEPTH = "resolvedSceneDepth";
     public static final String FOG_COLOR = "fogColor";
     public static final String VFX_COMPOSITE_COLOR = "vfxCompositeColor";
     public static final String VFX_SCENE_DEPTH = "vfxSceneDepth";

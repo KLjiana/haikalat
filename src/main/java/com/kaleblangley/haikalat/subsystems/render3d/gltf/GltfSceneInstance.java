@@ -595,12 +595,6 @@ public final class GltfSceneInstance implements AutoCloseable {
                 if (primitive.meshIndex() != node.meshIndex()) continue;
                 LoadedGltfScene.MaterialDef material = source.materials()
                         .get(primitive.materialIndex());
-                if (castShadows && material.alphaMode() == GltfAlphaMode.MASK) {
-                    throw new GltfAssetException(source.source(),
-                            GltfAssetException.Phase.INSTANTIATE,
-                            "nodes[" + node.index() + "].mesh", "MASK materials require "
-                            + "castShadows=false until masked shadow depth is supported");
-                }
                 SceneDrawBinding drawBinding = rigNode.skinIndex() >= 0
                         && source.primitiveSkinning(primitive.index()).isPresent()
                         ? nodeBinding : SceneDrawBinding.NONE;
@@ -615,7 +609,7 @@ public final class GltfSceneInstance implements AutoCloseable {
                 result.add(new SceneObject(asset.mesh(primitive.index()),
                         asset.material(primitive),
                         (destination, frameIndex) -> destination.set(nodeModels[nodeIndex]),
-                        castShadows, drawBinding));
+                        castShadows && material.alphaMode() != GltfAlphaMode.BLEND, drawBinding));
             }
         }
         return List.copyOf(result);

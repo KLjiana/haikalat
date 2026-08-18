@@ -428,16 +428,11 @@ public final class GltfSceneAsset implements AutoCloseable {
                 if (primitive.meshIndex() != node.meshIndex()) continue;
                 LoadedGltfScene.MaterialDef materialDef = source.materials()
                         .get(primitive.materialIndex());
-                if (castShadows && materialDef.alphaMode() == GltfAlphaMode.MASK) {
-                    throw new GltfAssetException(source.source(), GltfAssetException.Phase.INSTANTIATE,
-                            "nodes[" + node.index() + "].mesh[" + primitive.meshIndex()
-                                    + "].primitives[" + primitive.primitiveIndex() + "]",
-                            "MASK materials require castShadows=false until masked shadow depth is supported");
-                }
                 Mesh mesh = meshes.get(primitive.index());
                 Material material = materials.get(new MaterialKey(primitive.materialIndex(),
                         primitive.hasVertexColor()));
-                result.add(SceneObject.fixed(mesh, material, model, castShadows));
+                result.add(SceneObject.fixed(mesh, material, model,
+                        castShadows && materialDef.alphaMode() != GltfAlphaMode.BLEND));
             }
         }
         return List.copyOf(result);
@@ -566,7 +561,10 @@ public final class GltfSceneAsset implements AutoCloseable {
         return PbrMaterials.createWithBindings(library.shader(), def.properties(), bindings,
                 library.fallbacks(), def.doubleSided() ? CullMode.NONE : CullMode.BACK,
                 def.doubleSided(), primitive.hasVertexColor(),
-                def.alphaMode() == GltfAlphaMode.MASK ? def.alphaCutoff() : 0.0f);
+                def.alphaMode() == GltfAlphaMode.MASK ? def.alphaCutoff() : 0.0f,
+                def.alphaMode() == GltfAlphaMode.BLEND
+                        ? com.kaleblangley.haikalat.core.BlendMode.ALPHA
+                        : com.kaleblangley.haikalat.core.BlendMode.OPAQUE);
     }
 
     private static RuntimeException closeOwned(Iterable<Mesh> meshes,

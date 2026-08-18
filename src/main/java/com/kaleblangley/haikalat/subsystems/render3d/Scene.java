@@ -4,9 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 
 public final class Scene {
+    private static final AtomicLong NEXT_GENERATION = new AtomicLong(1L);
+
+    private final long generation = NEXT_GENERATION.getAndIncrement();
     private final Camera camera;
     private final List<MeshRenderer> renderers = new ArrayList<>();
     private final List<SceneLight> lights = new ArrayList<>();
@@ -86,6 +90,11 @@ public final class Scene {
     /** @return monotonic revision for light additions and parameter replacements */
     public long lightingRevision() {
         return lightingRevision;
+    }
+
+    /** Stable process-local lifecycle ID; deliberately not part of the public scene API. */
+    long generation() {
+        return generation;
     }
 
     int rendererCount() {

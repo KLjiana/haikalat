@@ -13,6 +13,8 @@ in vec3 vNormal;
 in vec3 vTangent;
 in float vTangentHandedness;
 in vec4 vDirectionalLightPosition;
+in vec4 vDirectionalCascadePosition[4];
+in float vViewDepth;
 in vec4 vVertexColor;
 layout(location = 0) out vec4 FragColor;
 
@@ -47,6 +49,9 @@ uniform SpotLight uSpotLights[4];
 uniform int uHasDirectionalShadow;
 uniform int uDirectionalShadowLightIndex;
 uniform float uShadowBias;
+uniform int uDirectionalCascadeCount;
+uniform float uDirectionalCascadeSplits[4];
+uniform float uDirectionalCascadeBlendRange;
 uniform int uHasPointShadow;
 uniform int uPointShadowLightIndex;
 uniform mat4 uPointShadowMatrices[6];
@@ -62,6 +67,7 @@ uniform int uEnableNormalMap;
 uniform int uHasVertexColor;
 uniform int uDoubleSided;
 uniform float uAlphaCutoff;
+uniform int uAlphaMode; // 0 OPAQUE, 1 MASK, 2 BLEND
 
 const float PI = 3.14159265358979323846;
 
@@ -100,14 +106,20 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
             * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-float shadowFactor(vec3 n, vec3 l) {
-    if (uHasDirectionalShadow == 0) return 0.0;
-    vec3 projected = vDirectionalLightPosition.xyz / vDirectionalLightPosition.w;
+float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
+    vec4 lightPosition = uDirectionalCascadeCount > 1
+        ? vDirectionalCascadePosition[cascade] : vDirectionalLightPosition;
+    vec3 projected = lightPosition.xyz / lightPosition.w;
     projected = projected * 0.5 + 0.5;
     if (projected.z <= 0.0 || projected.z >= 1.0
             || any(lessThanEqual(projected.xy, vec2(0.0)))
             || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
     float bias = max(uShadowBias * (1.0 - dot(n, l)), uShadowBias * 0.25);
+    int columns = uDirectionalCascadeCount == 2 || uDirectionalCascadeCount > 2 ? 2 : 1;
+    int rows = uDirectionalCascadeCount > 2 ? 2 : 1;
+    vec2 scale = vec2(1.0 / float(columns), 1.0 / float(rows));
+    vec2 offset = vec2(float(cascade % columns), float(cascade / columns)) * scale;
+    projected.xy = projected.xy * scale + offset;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
     float shadow = 0.0;
     for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
@@ -115,6 +127,23 @@ float shadowFactor(vec3 n, vec3 l) {
         shadow += projected.z - bias > closest ? 1.0 : 0.0;
     }
     return shadow / 9.0;
+}
+
+float shadowFactor(vec3 n, vec3 l) {
+    if (uHasDirectionalShadow == 0) return 0.0;
+    int count = max(uDirectionalCascadeCount, 1);
+    int cascade = count - 1;
+    for (int index = 0; index < count; index++) {
+        if (vViewDepth <= uDirectionalCascadeSplits[index]) { cascade = index; break; }
+    }
+    float current = sampleDirectionalCascade(cascade, n, l);
+    if (cascade >= count - 1 || uDirectionalCascadeBlendRange <= 0.0) return current;
+    float nearSplit = cascade == 0 ? 0.0 : uDirectionalCascadeSplits[cascade - 1];
+    float blendWidth = max((uDirectionalCascadeSplits[cascade] - nearSplit)
+            * uDirectionalCascadeBlendRange, 1.0e-4);
+    float blendStart = uDirectionalCascadeSplits[cascade] - blendWidth;
+    float weight = smoothstep(blendStart, uDirectionalCascadeSplits[cascade], vViewDepth);
+    return mix(current, sampleDirectionalCascade(cascade + 1, n, l), weight);
 }
 
 int pointShadowFace(vec3 direction) {
@@ -194,7 +223,7 @@ float rangeInverseSquareAttenuation(float distanceToLight, float range) {
 void main() {
     vec4 vertexColor = uHasVertexColor != 0 ? vVertexColor : vec4(1.0);
     vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor * vertexColor;
-    if (uAlphaCutoff > 0.0 && baseSample.a < uAlphaCutoff) discard;
+    if (uAlphaMode == 1 && baseSample.a < uAlphaCutoff) discard;
     vec2 mr = texture(uMetallicRoughnessMap, vTexCoord).gb;
     float roughness = clamp(mr.x * uRoughnessFactor, 0.045, 1.0);
     float metallic = clamp(mr.y * uMetallicFactor, 0.0, 1.0);
@@ -261,5 +290,6 @@ void main() {
     if (uEnableSpecularIbl != 0) indirect += specularIbl;
     indirect *= ao * uEnvironmentIntensity;
     vec3 emissive = texture(uEmissiveMap, vTexCoord).rgb * uEmissiveFactor;
-    FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)), baseSample.a);
+    FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)),
+            uAlphaMode == 2 ? baseSample.a : 1.0);
 }

@@ -22,6 +22,7 @@
 - [v0.20 代码整理与逻辑优化计划](planning/v0.20-code-consolidation-and-logic-optimization.md)
 - [v0.20.1 可嵌入渲染与外部宿主契约实施计划](planning/v0.20.1-embedded-rendering.md)
 - [v0.21 序列化游戏场景与角色内容管线](planning/v0.21-serialized-gameplay-scene-character-pipeline.md)
+- [v0.23 Render3D 框架加固与能力扩展计划](planning/v0.23-render3d-framework-hardening-and-capability-expansion.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -34,6 +35,15 @@
 - [AsyncDemo 渲染线程契约](architecture/async-render-thread.md)
 - [抽象密度控制](architecture/abstraction-density.md)
 - [代码职责与重设计评估](architecture/code-design-review.md)
+- [v0.23 Render3D M0 基线与合同清单](architecture/v0.23-render3d-m0-contract-inventory.md)
+- [v0.23 Render3D M1 revision 与 frame context 合同](architecture/v0.23-render3d-m1-frame-context.md)
+- [v0.23 Render3D M2 PipelineGeneration 合同](architecture/v0.23-render3d-m2-pipeline-generation.md)
+- [v0.23 Render3D M3 Render Queue 合同](architecture/v0.23-render3d-m3-render-queues.md)
+- [v0.23 Render3D M4 glTF alpha 与 MASK shadow 合同](architecture/v0.23-render3d-m4-gltf-alpha-shadow.md)
+- [v0.23 Render3D M5 MSAA depth resolve 合同](architecture/v0.23-render3d-m5-depth-resolve.md)
+- [v0.23 Render3D M6 阴影与 CSM 合同](architecture/v0.23-render3d-m6-cascaded-shadows.md)
+- [v0.23 Render3D M7 可见性与诊断合同](architecture/v0.23-render3d-m7-visibility-diagnostics.md)
+- [v0.23 Render3D M7 可见性与空间索引结论](performance/v0.23-render3d-visibility-index-decision-2026-08-18.md)
 - [v0.20 UI 内部收敛](architecture/v0.20-ui-consolidation.md)
 - [v0.20 动画运行时收敛](architecture/v0.20-animation-convergence.md)
 - [v0.20 渲染核心与资源生命周期](architecture/v0.20-render-core-lifecycle.md)

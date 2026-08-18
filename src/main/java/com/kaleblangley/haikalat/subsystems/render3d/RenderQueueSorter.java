@@ -6,20 +6,27 @@ final class RenderQueueSorter {
     }
 
     static void forward(int[] indices, int count, int[] scratch,
-                        int[] blend, int[] shader, int[] material, int[] mesh) {
-        stableSortForward(indices, count, scratch, blend, shader, material, mesh);
+                        int[] queueClass, float[] depth,
+                        int[] shader, int[] material, int[] mesh) {
+        stableSortForward(indices, count, scratch, queueClass, depth, shader, material, mesh);
     }
 
     static void shadow(int[] indices, int count, int[] scratch, int[] mesh) {
         stableSortShadow(indices, count, scratch, mesh);
     }
 
-    private static int compareForward(int left, int right, int[] blend, int[] shader,
-                                      int[] material, int[] mesh) {
-        int compared = Integer.compare(blend[left], blend[right]);
+    private static int compareForward(int left, int right, int[] queueClass, float[] depth,
+                                      int[] shader, int[] material, int[] mesh) {
+        int compared = Integer.compare(queueClass[left], queueClass[right]);
         if (compared != 0) return compared;
-        // Alpha 保持用户 insertion order。
-        if (blend[left] == 2) return Integer.compare(left, right);
+        if (queueClass[left] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()) {
+            compared = Float.compare(depth[right], depth[left]);
+            return compared != 0 ? compared : Integer.compare(left, right);
+        }
+        // Additive compositing is order independent; preserve author insertion order.
+        if (queueClass[left] == RenderQueueClass.TRANSPARENT_ADDITIVE.ordinal()) {
+            return Integer.compare(left, right);
+        }
         compared = Integer.compare(shader[left], shader[right]);
         if (compared != 0) return compared;
         compared = Integer.compare(material[left], material[right]);
@@ -29,7 +36,8 @@ final class RenderQueueSorter {
     }
 
     private static void stableSortForward(int[] values, int count, int[] scratch,
-                                          int[] blend, int[] shader, int[] material, int[] mesh) {
+                                          int[] queueClass, float[] depth,
+                                          int[] shader, int[] material, int[] mesh) {
         if (count < 2) return;
         int[] source = values;
         int[] destination = scratch;
@@ -41,7 +49,8 @@ final class RenderQueueSorter {
                 int right = middle;
                 int output = start;
                 while (left < middle && right < end) {
-                    if (compareForward(source[left], source[right], blend, shader, material, mesh) <= 0) {
+                    if (compareForward(source[left], source[right], queueClass, depth,
+                            shader, material, mesh) <= 0) {
                         destination[output++] = source[left++];
                     } else {
                         destination[output++] = source[right++];

@@ -27,6 +27,10 @@ final class SceneFrame {
         return renderers[entry];
     }
 
+    int rendererCount() {
+        return statistics.candidateRenderers();
+    }
+
     org.joml.Matrix4f model(int entry) {
         return models[entry];
     }
@@ -46,13 +50,17 @@ final class SceneFrame {
                       boolean shadowQueueReused, boolean shadowQueueRebuilt,
                       long modelUpdateNanos, long boundsTransformNanos,
                       long frustumTestNanos, long queueSortNanos,
-                      long totalQueueBuildNanos, int opaqueDraws,
+                      long totalQueueBuildNanos, int opaqueDraws, int maskedDraws,
                       int additiveDraws, int alphaDraws, int shaderChanges,
                       int materialChanges, int meshChanges, int blendChanges,
-                      int mirroredChanges) {
+                      int mirroredChanges, int visibilityScanned,
+                      int boundsUpdated, int missingBounds, int layerExcluded,
+                      int transparentVisible, long transparentSortNanos,
+                      int transparentStableTies) {
         static final Statistics UNAVAILABLE = new Statistics(false, 0L,
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, false, false, false, false,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0L, 0);
     }
 }

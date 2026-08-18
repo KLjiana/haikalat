@@ -240,6 +240,18 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     });
             hdrTexture = PostProcessTargets.HDR_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.HDR_RESOLVE_PASS;
+            if (effects.fog().enabled()) {
+                graph.addPass(PostProcessTargets.DEPTH_RESOLVE_PASS)
+                        .createDepthTexture(PostProcessTargets.RESOLVED_SCENE_DEPTH)
+                        .noClear()
+                        .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                        .execute((res, cmd) -> {
+                            Framebuffer geometry = res.framebufferOfPass(
+                                    PostProcessTargets.GEOMETRY_PASS);
+                            Framebuffer target = res.currentTarget();
+                            if (geometry != null && target != null) cmd.blitDepth(geometry, target);
+                        });
+            }
         } else if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
             graph.addPass(PostProcessTargets.TAA_PASS)
                     .createColor(PostProcessTargets.TAA_COLOR, RenderFormat.RGBA16F)
@@ -264,13 +276,19 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (effects.fog().enabled()) {
             final String fogInputTexture = hdrTexture;
             final String fogInputPass = hdrProducer;
-            graph.addPass(PostProcessTargets.FOG_PASS)
+            final String fogDepthTexture = settings.antiAliasingMode() == AntiAliasingMode.MSAA
+                    ? PostProcessTargets.RESOLVED_SCENE_DEPTH : PostProcessTargets.SCENE_DEPTH;
+            RenderGraph.PassBuilder fogBuilder = graph.addPass(PostProcessTargets.FOG_PASS)
                     .createColor(PostProcessTargets.FOG_COLOR, RenderFormat.RGBA16F)
                     .noClear()
-                    .dependsOn(fogInputPass)
+                    .dependsOn(fogInputPass);
+            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+                fogBuilder.dependsOn(PostProcessTargets.DEPTH_RESOLVE_PASS);
+            }
+            fogBuilder
                     .execute((res, cmd) -> fog.recordIntoCurrentTarget(cmd,
                             res.colorAttachment(fogInputTexture),
-                            res.depthAttachment(PostProcessTargets.SCENE_DEPTH),
+                            res.depthAttachment(fogDepthTexture),
                             fogInverseViewProjection, fogCameraPosition,
                             effects.fog()));
             hdrTexture = PostProcessTargets.FOG_COLOR;

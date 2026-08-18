@@ -1,6 +1,6 @@
 # 公共 API 分类合同
 
-状态：v0.20 M1 当前有效合同。
+状态：v0.23 M7 当前有效合同。
 
 v0.20 的域统计和包边界快照见
 [v0.20 API 与包边界清单](../v0.20-api-boundary-inventory.md)。
@@ -31,3 +31,6 @@ Milestone 4 的 `AnimationMixer/BoneMask/RootMotionDelta/TwoBoneIkSolver`、
 
 成员级新增 API 如果承担诊断合同，还必须在对应的成员合同文档中记录统计边界。v0.17 新增的
 `CommandBuffer` 录制计数见 [command-buffer-diagnostics.md](command-buffer-diagnostics.md)。
+v0.23 新增的 optional cascade settings 与 bounded Render3D diagnostics 均分类为
+`advanced`，合同见 [M6 CSM](../v0.23-render3d-m6-cascaded-shadows.md) 与
+[M7 可见性诊断](../v0.23-render3d-m7-visibility-diagnostics.md)。

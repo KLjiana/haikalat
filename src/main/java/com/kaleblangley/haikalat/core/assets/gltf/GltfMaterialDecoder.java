@@ -156,8 +156,7 @@ final class GltfMaterialDecoder {
             GltfAlphaMode alphaMode = switch (alpha == null ? "OPAQUE" : alpha) {
                 case "OPAQUE" -> GltfAlphaMode.OPAQUE;
                 case "MASK" -> GltfAlphaMode.MASK;
-                case "BLEND" -> throw fail(path + ".alphaMode",
-                        "BLEND is not supported by the static glTF path");
+                case "BLEND" -> GltfAlphaMode.BLEND;
                 default -> throw fail(path + ".alphaMode", "unknown alpha mode " + alpha);
             };
             float alphaCutoff = alphaMode == GltfAlphaMode.MASK

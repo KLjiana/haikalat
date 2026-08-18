@@ -27,6 +27,7 @@ layout(std140) uniform CameraBlock {
 
 uniform mat4 uModel;
 uniform mat4 uDirectionalLightSpace;
+uniform mat4 uDirectionalCascadeMatrices[4];
 uniform int uSkinningEnabled;
 uniform int uMorphTargetCount;
 uniform int uMorphVertexCount;
@@ -37,6 +38,8 @@ out vec3 vNormal;
 out vec3 vTangent;
 out float vTangentHandedness;
 out vec4 vDirectionalLightPosition;
+out vec4 vDirectionalCascadePosition[4];
+out float vViewDepth;
 out vec4 vVertexColor;
 
 mat4 skinMatrix() {
@@ -89,5 +92,9 @@ void main() {
     vTangentHandedness = aTangent.w * sign(determinant(mat3(modelSkin)));
     vVertexColor = aColor;
     vDirectionalLightPosition = uDirectionalLightSpace * world;
+    for (int cascade = 0; cascade < 4; cascade++) {
+        vDirectionalCascadePosition[cascade] = uDirectionalCascadeMatrices[cascade] * world;
+    }
+    vViewDepth = -(uView * world).z;
     gl_Position = uProjection * uView * world;
 }

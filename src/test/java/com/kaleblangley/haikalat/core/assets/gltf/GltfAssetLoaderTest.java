@@ -119,17 +119,16 @@ class GltfAssetLoaderTest {
     }
 
     @Test
-    void blendMaterialStillFailsWithPreciseDiagnostic() throws Exception {
+    void blendMaterialDecodesWithGltfAlphaSemantics() throws Exception {
         ResourceLocator classpath = ResourceLocator.classpath(getClass());
         String blend = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
                 .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"BLEND\"");
         Files.writeString(temporaryDirectory.resolve("radio-blend.gltf"), blend);
 
-        GltfAssetException failure = assertThrows(GltfAssetException.class,
-                () -> new GltfAssetLoader(classpath.addRoot(temporaryDirectory))
-                        .load(AssetRef.of("radio-blend.gltf")));
-        assertTrue(failure.getMessage().contains("materials[0].alphaMode"));
-        assertTrue(failure.getMessage().contains("BLEND"));
+        LoadedGltfScene scene = new GltfAssetLoader(classpath.addRoot(temporaryDirectory))
+                .load(AssetRef.of("radio-blend.gltf"));
+        assertEquals(GltfAlphaMode.BLEND, scene.materials().get(0).alphaMode());
+        assertEquals(0.0f, scene.materials().get(0).alphaCutoff());
     }
 
     @Test

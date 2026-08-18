@@ -18,8 +18,11 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
+import com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
+import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfRuntimeLibrary;
 import com.kaleblangley.haikalat.subsystems.resources.AssetId;
 import com.kaleblangley.haikalat.subsystems.resources.ResourceCatalog;
@@ -359,6 +362,33 @@ class EmbeddedPresentationGlTest {
                 assertTrue(glIsFramebuffer(host.framebuffer));
                 assertTrue(glIsTexture(host.color));
                 assertTrue(glIsTexture(host.depthStencil));
+                Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
+                assertEquals("pass-callback", diagnostics.failureStage());
+            } finally {
+                pipeline.close();
+                host.close();
+            }
+        }
+    }
+
+    @Test
+    void embeddedFogMsaaRejectsIncompatibleHostDepthDuringGenerationBuild() {
+        try (GlfwWindow context = hiddenWindow()) {
+            context.bindContext();
+            GL.createCapabilities();
+            RawHostTarget host = RawHostTarget.create(16, 16, 29);
+            RenderPipeline pipeline = new RenderPipeline(host.target,
+                    new Scene(new com.kaleblangley.haikalat.subsystems.render3d.Camera()), null,
+                    RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                            .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                            .vsync(false).build())
+                    .postProcessSettings(PostProcessSettings.builder()
+                            .fog(FogSettings.builder().build()).build());
+            try {
+                IllegalStateException failure = assertThrows(IllegalStateException.class,
+                        pipeline::build);
+                assertTrue(failure.getMessage().contains("embedded depth samples"));
+                assertTrue(failure.getMessage().contains("MSAA geometry samples"));
             } finally {
                 pipeline.close();
                 host.close();

@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.CullMode;
+import com.kaleblangley.haikalat.core.BlendMode;
 
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +40,7 @@ public final class PbrMaterials {
                 .setInt("uHasVertexColor", 0)
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
+        builder.setInt("uAlphaMode", 0);
         bind(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR, supplied, fallbacks);
         bind(builder, 1, "uNormalMap", PbrTextureRole.NORMAL, supplied, fallbacks);
         bind(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
@@ -69,6 +71,16 @@ public final class PbrMaterials {
                                                PbrFallbackTextures fallbacks, CullMode cullMode,
                                                boolean doubleSided, boolean hasVertexColor,
                                                float alphaCutoff) {
+        return createWithBindings(shader, properties, supplied, fallbacks, cullMode,
+                doubleSided, hasVertexColor, alphaCutoff, BlendMode.OPAQUE);
+    }
+
+    /** Creates a glTF PBR material with an explicit raster alpha policy. */
+    public static Material createWithBindings(ShaderProgram shader, PbrMaterialProperties properties,
+                                               Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                               PbrFallbackTextures fallbacks, CullMode cullMode,
+                                               boolean doubleSided, boolean hasVertexColor,
+                                               float alphaCutoff, BlendMode blendMode) {
         if (!Float.isFinite(alphaCutoff) || alphaCutoff < 0.0f || alphaCutoff > 1.0f) {
             throw new IllegalArgumentException("alphaCutoff must be finite and in [0, 1]");
         }
@@ -78,9 +90,12 @@ public final class PbrMaterials {
         Objects.requireNonNull(fallbacks, "fallbacks");
         Material.Builder builder = baseBuilder(shader, properties)
                 .cullMode(cullMode)
+                .blendMode(Objects.requireNonNull(blendMode, "blendMode"))
                 .setInt("uDoubleSided", doubleSided ? 1 : 0)
                 .setInt("uHasVertexColor", hasVertexColor ? 1 : 0)
-                .setFloat("uAlphaCutoff", alphaCutoff);
+                .setFloat("uAlphaCutoff", alphaCutoff)
+                .setInt("uAlphaMode", blendMode == BlendMode.ALPHA ? 2
+                        : alphaCutoff > 0.0f ? 1 : 0);
         bindWithSampler(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR, supplied, fallbacks);
         bindWithSampler(builder, 1, "uNormalMap", PbrTextureRole.NORMAL, supplied, fallbacks);
         bindWithSampler(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);

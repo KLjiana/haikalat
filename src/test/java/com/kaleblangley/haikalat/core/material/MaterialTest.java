@@ -37,6 +37,29 @@ class MaterialTest {
     }
 
     @Test
+    void materialInstanceRevisionAdvancesOncePerEffectiveMutation() {
+        MaterialInstance instance = materialInstance();
+        assertEquals(0L, instance.revision());
+
+        instance.setFloat("uValue", 1.0f);
+        assertEquals(1L, instance.revision());
+        instance.setFloat("uValue", 1.0f);
+        assertEquals(1L, instance.revision(), "equal override must not invalidate caches");
+
+        Texture2D texture = texture(13);
+        instance.texture(3, "uTexture", texture);
+        assertEquals(2L, instance.revision(),
+                "one texture call changes binding and sampler uniform as one domain mutation");
+        instance.texture(3, "uTexture", texture);
+        assertEquals(2L, instance.revision());
+
+        instance.clearOverrides();
+        assertEquals(3L, instance.revision());
+        instance.clearOverrides();
+        assertEquals(3L, instance.revision(), "clearing an empty instance is not a mutation");
+    }
+
+    @Test
     void materialDefaultsAreImmutableTemplateState() {
         UniformKey<UniformValue.FloatVal> roughness = UniformKey.float1("uRoughness");
         UniformKey<UniformValue.BoolVal> enabled = UniformKey.bool("uEnabled");

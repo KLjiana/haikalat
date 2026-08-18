@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -129,7 +130,7 @@ class RenderPipelineTest {
     }
 
     @Test
-    void optionalPostEffectsRequireHdrAndResolvedDepth() {
+    void optionalPostEffectsRequireHdrAndFogAllowsManagedMsaaDepthResolve() {
         RenderWindowStub window = new RenderWindowStub();
         PostProcessSettings grading = PostProcessSettings.builder()
                 .colorGrading(ColorGradingSettings.of(ColorGradingLut.identity(4), 1.0f))
@@ -142,11 +143,11 @@ class RenderPipelineTest {
                 RenderSettings.builder().build()).postProcessSettings(grading);
         assertThrows(IllegalStateException.class, ldr::build);
 
-        RenderPipeline unresolved = new RenderPipeline(window, new Scene(new Camera()), null,
-                RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
-                        .antiAliasingMode(AntiAliasingMode.MSAA).build())
-                .postProcessSettings(fog);
-        assertThrows(IllegalStateException.class, unresolved::build);
+        RenderSettings msaa = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                .antiAliasingMode(AntiAliasingMode.MSAA).build();
+        PipelineTopology topology = PipelineTopology.capture(new Scene(new Camera()), msaa,
+                fog, 640, 480, false, false, DirectionalCascadeSettings.disabled());
+        assertDoesNotThrow(() -> new PipelineFeaturePolicy(topology, false).validate());
     }
 
     @Test

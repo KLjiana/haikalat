@@ -20,6 +20,7 @@ public final class MaterialInstance {
     private boolean uniformOverridesDirty;
     private boolean textureOverridesDirty;
     private boolean hasOverrides;
+    private long revision;
 
     MaterialInstance(Material material) {
         this.material = Objects.requireNonNull(material, "material");
@@ -102,10 +103,11 @@ public final class MaterialInstance {
 
     public MaterialInstance texture(int unit, String samplerName, Texture2D texture, Sampler sampler) {
         Material.TextureBinding binding = new Material.TextureBinding(unit, samplerName, texture, sampler);
-        textureOverrides.put(unit, binding);
-        textureOverridesDirty = true;
-        hasOverrides = true;
-        put(binding.samplerKey(), new UniformValue.IntVal(unit));
+        Material.TextureBinding previous = textureOverrides.put(unit, binding);
+        boolean changed = !binding.equals(previous);
+        if (changed) textureOverridesDirty = true;
+        changed |= putOverride(binding.samplerKey(), new UniformValue.IntVal(unit));
+        if (changed) revision++;
         return this;
     }
 
@@ -129,6 +131,14 @@ public final class MaterialInstance {
         return hasOverrides;
     }
 
+    /**
+     * Change token for this instance's effective uniform/texture overrides.
+     * Equality is only meaningful for the same {@code MaterialInstance} lifecycle.
+     */
+    public long revision() {
+        return revision;
+    }
+
     public Map<UniformKey<?>, UniformValue> uniformOverrides() {
         if (uniformOverridesDirty) {
             uniformOverridesSnapshot = Map.copyOf(uniformOverrides);
@@ -146,6 +156,7 @@ public final class MaterialInstance {
     }
 
     public void clearOverrides() {
+        if (!hasOverrides) return;
         uniformOverrides.clear();
         textureOverrides.clear();
         uniformOverridesSnapshot = Map.of();
@@ -153,12 +164,19 @@ public final class MaterialInstance {
         uniformOverridesDirty = false;
         textureOverridesDirty = false;
         hasOverrides = false;
+        revision++;
     }
 
     private void put(UniformKey<?> key, UniformValue value) {
+        if (putOverride(key, value)) revision++;
+    }
+
+    private boolean putOverride(UniformKey<?> key, UniformValue value) {
         key.validate(value);
-        uniformOverrides.put(key, value);
-        uniformOverridesDirty = true;
+        UniformValue previous = uniformOverrides.put(key, value);
+        boolean changed = !value.equals(previous);
+        if (changed) uniformOverridesDirty = true;
         hasOverrides = true;
+        return changed;
     }
 }

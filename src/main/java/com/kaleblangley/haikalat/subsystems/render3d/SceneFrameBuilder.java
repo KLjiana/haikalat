@@ -1,6 +1,5 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
-import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
@@ -32,6 +31,7 @@ final class SceneFrameBuilder {
     private Bounds3f[] cachedLocalBounds = new Bounds3f[0];
     private long[] cachedModelRevisions = new long[0];
     private long[] requestedModelRevisions = new long[0];
+    private long[] cachedDeformationRevisions = new long[0];
     private boolean[] cacheValid = new boolean[0];
     private boolean[] modelMiss = new boolean[0];
     private boolean[] boundsMiss = new boolean[0];
@@ -39,12 +39,15 @@ final class SceneFrameBuilder {
     private int[] forward = new int[0];
     private int[] shadow = new int[0];
     private int[] scratch = new int[0];
-    private int[] blend = new int[0];
+    private int[] queueClass = new int[0];
+    private float[] cameraDepth = new float[0];
+    private long[] materialRevisions = new long[0];
     private int[] shader = new int[0];
     private int[] material = new int[0];
     private int[] mesh = new int[0];
     private boolean[] mirrored = new boolean[0];
     private boolean[] castsShadow = new boolean[0];
+    private Scene cachedScene;
     private long cachedRevision = Long.MIN_VALUE;
     private long boundsRevision;
     private int entryCount;
@@ -62,6 +65,7 @@ final class SceneFrameBuilder {
     private boolean forwardCullingEnabled;
     private int forwardCount;
     private int forwardOpaque;
+    private int forwardMasked;
     private int forwardAdditive;
     private int forwardAlpha;
     private int forwardShaderChanges;
@@ -69,6 +73,7 @@ final class SceneFrameBuilder {
     private int forwardMeshChanges;
     private int forwardBlendChanges;
     private int forwardMirroredChanges;
+    private int forwardTransparentStableTies;
 
     private boolean shadowCacheValid;
     private long shadowSceneRevision;
@@ -86,13 +91,22 @@ final class SceneFrameBuilder {
     SceneFrame build(Scene scene, Camera camera, int width, int height,
                      Matrix4fc shadowMatrix, boolean shadowEnabled,
                      boolean cullingEnabled, int frameIndex) {
+        return build(scene, camera, width, height, shadowMatrix, shadowEnabled,
+                cullingEnabled, cullingEnabled, frameIndex);
+    }
+
+    SceneFrame build(Scene scene, Camera camera, int width, int height,
+                     Matrix4fc shadowMatrix, boolean shadowEnabled,
+                     boolean cullingEnabled, boolean shadowCulling,
+                     int frameIndex) {
         long totalStart = System.nanoTime();
         frame.available = false;
         try {
             syncMembership(scene);
+            syncMaterialState();
             long sceneRevision = scene.membershipRevision();
             if (canReuseImmutableFrame(camera, sceneRevision, width, height, shadowMatrix,
-                    shadowEnabled, cullingEnabled)) {
+                    shadowEnabled, cullingEnabled, shadowCulling)) {
                 return reuseImmutableFrame(sceneRevision, cullingEnabled, frameIndex, totalStart);
             }
 
@@ -120,9 +134,11 @@ final class SceneFrameBuilder {
                     boolean revisioned = renderer.revisionedModel();
                     if (revisioned) staticRenderers++; else dynamicRenderers++;
                     long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
+                    long deformationRevision = renderer.drawBinding().boundsRevision();
                     requestedModelRevisions[index] = revision;
                     boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
-                            && cachedModelRevisions[index] == revision;
+                            && cachedModelRevisions[index] == revision
+                            && cachedDeformationRevisions[index] == deformationRevision;
                     modelMiss[index] = !hit;
                     if (hit) {
                         modelHits++;
@@ -170,6 +186,7 @@ final class SceneFrameBuilder {
                     models[index].set(pendingModels[index]);
                     mirrored[index] = models[index].determinant3x3() < 0.0f;
                     cachedModelRevisions[index] = requestedModelRevisions[index];
+                    cachedDeformationRevisions[index] = renderers[index].drawBinding().boundsRevision();
                 }
                 if (boundsMiss[index]) {
                     bounds[index].set(pendingBounds[index]);
@@ -185,20 +202,29 @@ final class SceneFrameBuilder {
 
             long frustumNanos = 0L;
             long sortNanos = 0L;
+            long transparentSortNanos = 0L;
             boolean forwardReused = forwardCacheMatches(sceneRevision, cullingEnabled);
             if (!forwardReused) {
                 stageStart = System.nanoTime();
                 cameraFrustum.set(clip);
                 forwardCount = 0;
+                int transparentAlphaCount = 0;
                 for (int index = 0; index < entryCount; index++) {
                     if (!cullingEnabled || !cameraFrustum.outside(bounds[index])) {
+                        if (queueClass[index] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()) {
+                            cameraDepth[index] = cameraDepth(index);
+                            transparentAlphaCount++;
+                        }
                         forward[forwardCount++] = index;
                     }
                 }
                 frustumNanos += System.nanoTime() - stageStart;
                 stageStart = System.nanoTime();
-                RenderQueueSorter.forward(forward, forwardCount, scratch, blend, shader, material, mesh);
-                sortNanos += System.nanoTime() - stageStart;
+                RenderQueueSorter.forward(forward, forwardCount, scratch, queueClass,
+                        cameraDepth, shader, material, mesh);
+                long elapsedSort = System.nanoTime() - stageStart;
+                sortNanos += elapsedSort;
+                if (transparentAlphaCount > 1) transparentSortNanos = elapsedSort;
                 updateForwardStatistics();
                 forwardKeyMatrix.set(clip);
                 forwardSceneRevision = sceneRevision;
@@ -208,14 +234,14 @@ final class SceneFrameBuilder {
             }
 
             boolean shadowReused = shadowCacheMatches(sceneRevision, shadowMatrix,
-                    shadowEnabled, cullingEnabled);
+                    shadowEnabled, shadowCulling);
             if (!shadowReused) {
                 stageStart = System.nanoTime();
-                if (shadowEnabled) shadowFrustum.set(shadowMatrix);
+                if (shadowEnabled && shadowCulling) shadowFrustum.set(shadowMatrix);
                 shadowCount = 0;
                 for (int index = 0; index < entryCount; index++) {
                     if (castsShadow[index] && shadowEnabled
-                            && (!cullingEnabled || !shadowFrustum.outside(bounds[index]))) {
+                            && (!shadowCulling || !shadowFrustum.outside(bounds[index]))) {
                         shadow[shadowCount++] = index;
                     }
                 }
@@ -226,7 +252,7 @@ final class SceneFrameBuilder {
                 shadowKeyMatrix.set(shadowMatrix);
                 shadowSceneRevision = sceneRevision;
                 shadowBoundsRevision = boundsRevision;
-                shadowCullingEnabled = cullingEnabled;
+                shadowCullingEnabled = shadowCulling;
                 shadowEnabledKey = shadowEnabled;
                 shadowCacheValid = true;
             }
@@ -249,9 +275,12 @@ final class SceneFrameBuilder {
                     modelHits, modelMisses, boundsHits, boundsMisses,
                     forwardReused, !forwardReused, shadowReused, !shadowReused,
                     modelNanos, boundsNanos, frustumNanos, sortNanos, totalNanos,
-                    forwardOpaque, forwardAdditive, forwardAlpha, forwardShaderChanges,
+                    forwardOpaque, forwardMasked, forwardAdditive, forwardAlpha,
+                    forwardShaderChanges,
                     forwardMaterialChanges, forwardMeshChanges, forwardBlendChanges,
-                    forwardMirroredChanges);
+                    forwardMirroredChanges, forwardReused ? 0 : entryCount, changedCount,
+                    entryCount - finite, 0, forwardAlpha + forwardAdditive,
+                    transparentSortNanos, forwardTransparentStableTies);
             cachedCameraRevision = camera.visibilityRevision();
             cachedWidth = width;
             cachedHeight = height;
@@ -265,7 +294,7 @@ final class SceneFrameBuilder {
 
     private boolean canReuseImmutableFrame(Camera camera, long sceneRevision, int width, int height,
                                            Matrix4fc shadowMatrix, boolean shadowEnabled,
-                                           boolean cullingEnabled) {
+                                           boolean cullingEnabled, boolean shadowCulling) {
         // Camera is extensible. A subclass can override matrix generation without updating the
         // base revision, so the O(1) shortcut is deliberately limited to the built-in camera.
         return camera.getClass() == Camera.class
@@ -278,7 +307,7 @@ final class SceneFrameBuilder {
                 && forwardSceneRevision == sceneRevision
                 && forwardBoundsRevision == boundsRevision
                 && forwardCullingEnabled == cullingEnabled
-                && shadowCacheMatches(sceneRevision, shadowMatrix, shadowEnabled, cullingEnabled);
+                && shadowCacheMatches(sceneRevision, shadowMatrix, shadowEnabled, shadowCulling);
     }
 
     private SceneFrame reuseImmutableFrame(long sceneRevision, boolean cullingEnabled,
@@ -293,9 +322,11 @@ final class SceneFrameBuilder {
                 entryCount, 0, entryCount, 0,
                 true, false, true, false,
                 0L, 0L, 0L, 0L, totalNanos,
-                forwardOpaque, forwardAdditive, forwardAlpha, forwardShaderChanges,
+                forwardOpaque, forwardMasked, forwardAdditive, forwardAlpha,
+                forwardShaderChanges,
                 forwardMaterialChanges, forwardMeshChanges, forwardBlendChanges,
-                forwardMirroredChanges);
+                forwardMirroredChanges, 0, 0, entryCount - immutableFiniteCount, 0,
+                forwardAlpha + forwardAdditive, 0L, forwardTransparentStableTies);
         frame.available = true;
         return frame;
     }
@@ -319,29 +350,40 @@ final class SceneFrameBuilder {
     }
 
     private void updateForwardStatistics() {
-        forwardOpaque = forwardAdditive = forwardAlpha = 0;
+        forwardOpaque = forwardMasked = forwardAdditive = forwardAlpha = 0;
         forwardShaderChanges = forwardMaterialChanges = forwardMeshChanges = 0;
         forwardBlendChanges = forwardMirroredChanges = 0;
+        forwardTransparentStableTies = 0;
         for (int queue = 0; queue < forwardCount; queue++) {
             int index = forward[queue];
-            switch (blend[index]) {
+            switch (queueClass[index]) {
                 case 0 -> forwardOpaque++;
-                case 1 -> forwardAdditive++;
-                default -> forwardAlpha++;
+                case 1 -> forwardMasked++;
+                case 2 -> forwardAlpha++;
+                default -> forwardAdditive++;
             }
             if (queue == 0) continue;
             int previous = forward[queue - 1];
+            if (queueClass[index] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()
+                    && queueClass[previous] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()
+                    && Float.floatToIntBits(cameraDepth[index])
+                    == Float.floatToIntBits(cameraDepth[previous])) {
+                forwardTransparentStableTies++;
+            }
             if (shader[index] != shader[previous]) forwardShaderChanges++;
             if (material[index] != material[previous]) forwardMaterialChanges++;
             if (mesh[index] != mesh[previous]) forwardMeshChanges++;
-            if (blend[index] != blend[previous]) forwardBlendChanges++;
+            if (queueClass[index] != queueClass[previous]) forwardBlendChanges++;
             if (mirrored[index] != mirrored[previous]) forwardMirroredChanges++;
         }
     }
 
     private void syncMembership(Scene scene) {
         long revision = scene.membershipRevision();
-        if (cachedRevision == revision) return;
+        // A freshly published Scene can legitimately have the same local revision as the
+        // previous Scene. Revision equality only proves that one Scene did not change; it is
+        // not a cross-Scene content identity.
+        if (cachedScene == scene && cachedRevision == revision) return;
         entryCount = scene.rendererCount();
         ensureCapacity(entryCount);
         IdentityHashMap<Object, Integer> materialOrdinals = new IdentityHashMap<>();
@@ -353,8 +395,9 @@ final class SceneFrameBuilder {
         for (int index = 0; index < entryCount; index++) {
             MeshRenderer renderer = scene.rendererAt(index);
             renderers[index] = renderer;
-            allModelsImmutable &= renderer.immutableModel();
-            blend[index] = blendRank(renderer.material().material().blendMode());
+            allModelsImmutable &= renderer.immutableModel() && !renderer.drawBinding().deformsVertices();
+            queueClass[index] = RenderQueueClass.classify(renderer.material()).ordinal();
+            materialRevisions[index] = renderer.material().revision();
             shader[index] = renderer.material().material().shader().id();
             // 排序只按不可变 Material 模板分组。独立 MaterialInstance 的 override 仍由
             // RenderPipeline binding cursor 逐实例判断，不能让可变实例身份破坏默认材质批次。
@@ -376,6 +419,7 @@ final class SceneFrameBuilder {
         Arrays.fill(cacheValid, entryCount, cacheValid.length, false);
         forwardCacheValid = false;
         shadowCacheValid = false;
+        cachedScene = scene;
         cachedRevision = revision;
     }
 
@@ -398,6 +442,7 @@ final class SceneFrameBuilder {
         cachedLocalBounds = Arrays.copyOf(cachedLocalBounds, capacity);
         cachedModelRevisions = Arrays.copyOf(cachedModelRevisions, capacity);
         requestedModelRevisions = Arrays.copyOf(requestedModelRevisions, capacity);
+        cachedDeformationRevisions = Arrays.copyOf(cachedDeformationRevisions, capacity);
         cacheValid = Arrays.copyOf(cacheValid, capacity);
         modelMiss = Arrays.copyOf(modelMiss, capacity);
         boundsMiss = Arrays.copyOf(boundsMiss, capacity);
@@ -405,7 +450,9 @@ final class SceneFrameBuilder {
         forward = Arrays.copyOf(forward, capacity);
         shadow = Arrays.copyOf(shadow, capacity);
         scratch = Arrays.copyOf(scratch, capacity);
-        blend = Arrays.copyOf(blend, capacity);
+        queueClass = Arrays.copyOf(queueClass, capacity);
+        cameraDepth = Arrays.copyOf(cameraDepth, capacity);
+        materialRevisions = Arrays.copyOf(materialRevisions, capacity);
         shader = Arrays.copyOf(shader, capacity);
         material = Arrays.copyOf(material, capacity);
         mesh = Arrays.copyOf(mesh, capacity);
@@ -439,11 +486,24 @@ final class SceneFrameBuilder {
                 + "] failed during " + stage, cause);
     }
 
-    private static int blendRank(BlendMode mode) {
-        return switch (mode) {
-            case OPAQUE -> 0;
-            case ADDITIVE -> 1;
-            case ALPHA -> 2;
-        };
+    private void syncMaterialState() {
+        for (int index = 0; index < entryCount; index++) {
+            long revision = renderers[index].material().revision();
+            if (materialRevisions[index] == revision) continue;
+            materialRevisions[index] = revision;
+            queueClass[index] = RenderQueueClass.classify(renderers[index].material()).ordinal();
+            forwardCacheValid = false;
+            immutableSceneCacheReady = false;
+        }
+    }
+
+    private float cameraDepth(int index) {
+        WorldBounds world = bounds[index];
+        float x = world.unbounded ? models[index].m30() : (world.minX + world.maxX) * 0.5f;
+        float y = world.unbounded ? models[index].m31() : (world.minY + world.maxY) * 0.5f;
+        float z = world.unbounded ? models[index].m32() : (world.minZ + world.maxZ) * 0.5f;
+        // Camera looks down -Z. Bounds-center sorting cannot order intersecting geometry inside
+        // one mesh; applications must split those meshes when exact ordering is required.
+        return -(view.m02() * x + view.m12() * y + view.m22() * z + view.m32());
     }
 }

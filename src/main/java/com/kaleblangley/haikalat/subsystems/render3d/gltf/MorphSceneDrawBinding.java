@@ -68,6 +68,11 @@ final class MorphSceneDrawBinding implements SceneDrawBinding, AutoCloseable {
         return targets.targetCount();
     }
 
+    @Override
+    public long boundsRevision() {
+        return 31L * skin.boundsRevision() + weights.revision();
+    }
+
     long weightByteSize() {
         return bytes.capacity();
     }

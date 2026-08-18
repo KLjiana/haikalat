@@ -13,6 +13,8 @@ import com.kaleblangley.haikalat.core.graph.RenderGraph.PassExecutor;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.material.ResourceOwnership;
+import com.kaleblangley.haikalat.core.material.UniformKey;
+import com.kaleblangley.haikalat.core.material.UniformValue;
 import com.kaleblangley.haikalat.core.presentation.PresentationResult;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
@@ -28,13 +30,13 @@ import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewControl
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -87,29 +89,23 @@ public final class RenderPipeline {
     private final InstancedRenderer instanced;
     private final RenderSettings settings;
     private DirectionalShadowMap directionalShadowMap = DirectionalShadowMap.defaults();
+    private DirectionalCascadeSettings directionalCascadeSettings =
+            DirectionalCascadeSettings.disabled();
     private PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
     private SpotShadowMap spotShadowMap = SpotShadowMap.defaults();
-    private RenderGraph graph;
-    private CameraUniforms cameraUniforms;
-    private LightingBinder lightingBinder;
-    private PostProcessPassBuilder postProcess;
-    private ShaderProgram shadowShader;
-    private ShaderProgram instancedShadowShader;
-    private String finalPassName;
+    private PipelineGeneration activeGeneration;
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
+    private List<Matrix4f> lastDirectionalCascadeMatrices = List.of();
+    private float[] lastDirectionalCascadeSplits = new float[0];
     private List<Matrix4f> lastPointLightSpaceMatrices = List.of();
     private Matrix4f lastSpotLightSpaceMatrix = new Matrix4f();
     private int lastShadowCasterDrawCount;
     private int lastPointShadowCasterDrawCount;
     private int lastSpotShadowCasterDrawCount;
     private final PbrEnvironment pbrEnvironment;
-    private PbrMaterialBinder pbrMaterialBinder;
-    private EnvironmentBackgroundRenderer environmentBackground;
-    private SceneFrameBuilder sceneFrameBuilder;
     private long sceneFastPathReplacementCount;
     private long sceneGraphRebuildCount;
     private SceneFrame currentSceneFrame;
-    private SceneTopologySignature cachedSceneTopology;
     private int activeFrameIndex;
     private int pipelineFrameIndex;
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
@@ -117,20 +113,23 @@ public final class RenderPipeline {
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
-    private GraphPreviewRenderer previewRenderer;
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
-    private Camera activeCamera;
-    private int activeWidth;
-    private int activeHeight;
+    private RenderFrameContext activeFrameContext;
+    private RenderFrameContext lastFrameContext;
+    private RenderFrameContext lastFailedFrameContext;
+    private long topologySettingsRevision;
     private boolean executing;
     private boolean embedded;
-    
-    // O1: Cached light query results to avoid per-frame scene.lights() traversal
-    private Optional<LightingBinder.ShadowDirectionalLight> cachedShadowDirectional;
-    private Optional<LightingBinder.ShadowPointLight> cachedShadowPoint;
-    private Optional<LightingBinder.ShadowSpotLight> cachedShadowSpot;
-    private long cachedLightingRevision = Long.MIN_VALUE;
+    private PresentationTarget initialEmbeddedTarget;
+    private long lastCandidateGenerationId;
+    private long lastRetiredGenerationId;
+    private long generationBuildCount;
+    private long generationFailureCount;
+    private long generationReuseCount;
+    private boolean topologyRebuiltPending;
+    private boolean lastFrameTopologyRebuilt;
+    private String lastFailureStage = "";
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -181,6 +180,7 @@ public final class RenderPipeline {
                           PbrEnvironment pbrEnvironment) {
         this(initialExtent(initialTarget), scene, instanced, settings, pbrEnvironment);
         embedded = true;
+        initialEmbeddedTarget = Objects.requireNonNull(initialTarget, "initialTarget");
     }
 
     public static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -212,16 +212,26 @@ public final class RenderPipeline {
 
     /** Configures subsystem-owned optional effects before the pipeline is built. */
     public RenderPipeline postProcessSettings(PostProcessSettings value) {
-        if (graph != null) {
+        if (activeGeneration != null) {
             throw new IllegalStateException("post-process settings must be configured before build");
         }
         postProcessSettings = Objects.requireNonNull(value, "postProcessSettings");
         return this;
     }
 
+    /** Configures the fixed directional cascade atlas before generation creation. */
+    public RenderPipeline directionalCascades(DirectionalCascadeSettings value) {
+        if (activeGeneration != null) {
+            throw new IllegalStateException("directional cascades must be configured before build");
+        }
+        directionalCascadeSettings = Objects.requireNonNull(value, "directionalCascadeSettings");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
     /** Adds a controlled HDR VFX recorder before Bloom and tone mapping. */
     public RenderPipeline hdrVfx(PassExecutor recorder) {
-        if (graph != null) {
+        if (activeGeneration != null) {
             throw new IllegalStateException("HDR VFX must be configured before build");
         }
         if (cameraAwareHdrVfxRecorder != null) {
@@ -235,7 +245,7 @@ public final class RenderPipeline {
      * Adds an HDR VFX recorder that receives the exact camera used by the pipeline frame.
      */
     public RenderPipeline hdrVfxWithCamera(CameraPassExecutor recorder) {
-        if (graph != null) {
+        if (activeGeneration != null) {
             throw new IllegalStateException("HDR VFX must be configured before build");
         }
         if (hdrVfxRecorder != null) {
@@ -258,60 +268,74 @@ public final class RenderPipeline {
     }
 
     private void buildInternal() {
-        int w = window.width();
-        int h = window.height();
-        closeGraphResources();
+        int w = Math.max(1, window.width());
+        int h = Math.max(1, window.height());
+        if (embedded && settings.antiAliasingMode() == AntiAliasingMode.MSAA
+                && initialEmbeddedTarget != null && initialEmbeddedTarget.hasDepth()
+                && initialEmbeddedTarget.samples() != Math.max(2, settings.msaaSamples())) {
+            throw new IllegalStateException("embedded depth samples "
+                    + initialEmbeddedTarget.samples() + " do not match MSAA geometry samples "
+                    + Math.max(2, settings.msaaSamples())
+                    + "; provide a matching resolvable host depth target");
+        }
+        PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
+                postProcessSettings, w, h, hdrVfxRecorder != null, embedded,
+                directionalCascadeSettings);
+        PipelineGeneration candidate = createGeneration(scene, candidateTopology);
+        activateGeneration(candidate);
+    }
 
+    private PipelineGeneration createGeneration(Scene generationScene,
+                                                PipelineTopology topology) {
+        PipelineGeneration candidate = new PipelineGeneration(topology);
+        lastCandidateGenerationId = candidate.id;
         try {
-            validatePostProcessSettings();
-            validatePbrVertexLayouts();
-            graph = new RenderGraph(w, h);
-            cameraUniforms = new CameraUniforms();
-            sceneFrameBuilder = new SceneFrameBuilder();
-            lightingBinder = new LightingBinder(scene);
-            if (hasPbrMaterials()) {
-                if (!settings.hdrEnabled()) {
-                    throw new IllegalStateException("metallic-roughness PBR requires HDR/ACES output");
-                }
-                if (pbrEnvironment == null) {
-                    throw new IllegalStateException("PBR scene requires an explicit borrowed PbrEnvironment");
-                }
-                pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
-                environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
+            new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
+            validatePbrVertexLayouts(generationScene);
+            candidate.graph = new RenderGraph(topology.width(), topology.height());
+            candidate.cameraUniforms = new CameraUniforms();
+            if (topology.pbrMaterials()) {
+                candidate.pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
+                candidate.environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
             }
-            postProcess = PostProcessPassBuilder.create(
-                    settings, postProcessSettings, window, w, h, hdrVfxRecorder);
-            boolean hasDirectionalShadow = LightingBinder.shadowDirectionalLight(scene).isPresent();
-            boolean hasPointShadow = LightingBinder.shadowPointLight(scene).isPresent();
-            boolean hasSpotShadow = LightingBinder.shadowSpotLight(scene).isPresent();
+            candidate.postProcess = PostProcessPassBuilder.create(
+                    settings, postProcessSettings, window, topology.width(), topology.height(),
+                    hdrVfxRecorder);
+            boolean hasDirectionalShadow = topology.directionalShadow();
+            boolean hasPointShadow = topology.pointShadow();
+            boolean hasSpotShadow = topology.spotShadow();
             if (hasDirectionalShadow || hasPointShadow || hasSpotShadow) {
-                shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                candidate.shadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                         "/shaders/shadows/directional-depth.vert", "/shaders/shadows/directional-depth.frag");
+                candidate.maskedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                        "/shaders/shadows/masked-directional-depth.vert",
+                        "/shaders/shadows/masked-directional-depth.frag");
                 if (hasDirectionalShadow && instanced != null && instanced.castShadows()) {
-                    instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
+                    candidate.instancedShadowShader = ShaderProgram.fromResource(RenderPipeline.class,
                             "/shaders/shadows/instanced-directional-depth.vert",
                             "/shaders/shadows/directional-depth.frag");
                 }
             }
 
-            ForwardPassBuilder.addForwardPasses(graph, settings, scene, postProcessSettings,
-                    directionalShadowMap, pointShadowAtlas, spotShadowMap,
+            ForwardPassBuilder.addForwardPasses(candidate.graph, settings, generationScene,
+                    postProcessSettings,
+                    directionalShadowMap, directionalCascadeSettings,
+                    pointShadowAtlas, spotShadowMap,
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
                     geometryExecutor());
-            postProcess.addFinalPass(graph);
-            finalPassName = postProcess.finalPassName();
-            previewRenderer = new GraphPreviewRenderer(previewController, graph, pbrEnvironment,
+            candidate.postProcess.addFinalPass(candidate.graph);
+            candidate.finalPassName = candidate.postProcess.finalPassName();
+            candidate.previewRenderer = new GraphPreviewRenderer(
+                    previewController, candidate.graph, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet());
-            cachedSceneTopology = SceneTopologySignature.of(scene);
-            
-            // O1: Cache light query results once at build time
-            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(scene);
-            cachedShadowPoint = LightingBinder.shadowPointLight(scene);
-            cachedShadowSpot = LightingBinder.shadowSpotLight(scene);
-            cachedLightingRevision = scene.lightingRevision();
+            generationBuildCount++;
+            lastFailureStage = "";
+            return candidate;
         } catch (RuntimeException failure) {
+            generationFailureCount++;
+            lastFailureStage = "candidate-build";
             try {
-                closeGraphResources();
+                candidate.close();
             } catch (RuntimeException cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
             }
@@ -320,7 +344,8 @@ public final class RenderPipeline {
     }
 
     public RenderGraph graph() {
-        return graph;
+        PipelineGeneration generation = activeGeneration;
+        return generation == null ? null : generation.graph;
     }
 
     /**
@@ -336,85 +361,27 @@ public final class RenderPipeline {
         if (executing) {
             throw new IllegalStateException("scene replacement is only allowed at frame start");
         }
-        if (graph == null) {
+        PipelineGeneration generation = activeGeneration;
+        if (generation == null) {
             scene = candidateScene;
-            cachedSceneTopology = SceneTopologySignature.of(candidateScene);
             return;
         }
-        SceneTopologySignature candidateTopology = SceneTopologySignature.of(candidateScene);
-        if (cachedSceneTopology != null && cachedSceneTopology.equals(candidateTopology)) {
+        PipelineTopology candidateTopology = PipelineTopology.capture(candidateScene, settings,
+                postProcessSettings, generation.graph.width(), generation.graph.height(),
+                hdrVfxRecorder != null, embedded, directionalCascadeSettings);
+        if (generation.topology.equals(candidateTopology)) {
             scene = candidateScene;
-            lightingBinder = new LightingBinder(candidateScene);
             currentSceneFrame = null;
-            activeCamera = null;
-            
-            // O1: Update light caches on fast-path scene replacement
-            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(candidateScene);
-            cachedShadowPoint = LightingBinder.shadowPointLight(candidateScene);
-            cachedShadowSpot = LightingBinder.shadowSpotLight(candidateScene);
-            cachedLightingRevision = candidateScene.lightingRevision();
-            
+            activeFrameContext = null;
+            frameStateInvalidationByMaterial.clear();
             sceneFastPathReplacementCount++;
             return;
         }
-        RenderPipeline candidate = new RenderPipeline(window, candidateScene, instanced,
-                settings, pbrEnvironment);
-        candidate.embedded = embedded;
-        candidate.postProcessSettings = postProcessSettings;
-        candidate.hdrVfxRecorder = hdrVfxRecorder;
-        candidate.cameraAwareHdrVfxRecorder = cameraAwareHdrVfxRecorder;
-        try {
-            candidate.build();
-            closeGraphResources();
-            scene = candidate.scene;
-            directionalShadowMap = candidate.directionalShadowMap;
-            pointShadowAtlas = candidate.pointShadowAtlas;
-            spotShadowMap = candidate.spotShadowMap;
-            graph = candidate.graph;
-            cameraUniforms = candidate.cameraUniforms;
-            lightingBinder = candidate.lightingBinder;
-            postProcess = candidate.postProcess;
-            shadowShader = candidate.shadowShader;
-            instancedShadowShader = candidate.instancedShadowShader;
-            finalPassName = candidate.finalPassName;
-            pbrMaterialBinder = candidate.pbrMaterialBinder;
-            environmentBackground = candidate.environmentBackground;
-            sceneFrameBuilder = candidate.sceneFrameBuilder;
-            currentSceneFrame = null;
-            previewController = candidate.previewController;
-            previewRenderer = candidate.previewRenderer;
-            cachedSceneTopology = candidateTopology;
-            
-            // O1: Update light caches after graph rebuild
-            cachedShadowDirectional = candidate.cachedShadowDirectional;
-            cachedShadowPoint = candidate.cachedShadowPoint;
-            cachedShadowSpot = candidate.cachedShadowSpot;
-            cachedLightingRevision = candidate.cachedLightingRevision;
-            
-            sceneGraphRebuildCount++;
-        } catch (RuntimeException failure) {
-            try {
-                candidate.close();
-            } catch (RuntimeException cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
-            }
-            throw failure;
-        }
-    }
-
-    private void validatePostProcessSettings() {
-        boolean colorGrading = postProcessSettings.colorGrading().enabled();
-        boolean fog = postProcessSettings.fog().enabled();
-        if ((colorGrading || fog) && !settings.hdrEnabled()) {
-            throw new IllegalStateException("Color grading and fog require HDR tone mapping");
-        }
-        if (hdrVfxRecorder != null && !settings.hdrEnabled()) {
-            throw new IllegalStateException("HDR VFX requires HDR tone mapping");
-        }
-        if (fog && settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
-            throw new IllegalStateException(
-                    "Fog cannot sample multisampled depth until depth resolve is enabled");
-        }
+        PipelineGeneration candidate = createGeneration(candidateScene, candidateTopology);
+        scene = candidateScene;
+        currentSceneFrame = null;
+        activateGeneration(candidate);
+        sceneGraphRebuildCount++;
     }
 
     /**
@@ -424,7 +391,8 @@ public final class RenderPipeline {
      * @throws IllegalStateException 管线尚未成功 build 或已经 close 时抛出
      */
     public String finalPassName() {
-        String passName = finalPassName;
+        PipelineGeneration generation = activeGeneration;
+        String passName = generation == null ? null : generation.finalPassName;
         if (passName == null) {
             throw new IllegalStateException(
                     "RenderPipeline must be built and open before querying finalPassName");
@@ -456,7 +424,8 @@ public final class RenderPipeline {
      * 该入口不会改变 RenderGraph topology。
      */
     public PassExecutor previewOverlayRecorder() {
-        GraphPreviewRenderer renderer = previewRenderer;
+        PipelineGeneration generation = activeGeneration;
+        GraphPreviewRenderer renderer = generation == null ? null : generation.previewRenderer;
         if (renderer == null) {
             throw new IllegalStateException("RenderPipeline must be built before preview attachment");
         }
@@ -484,6 +453,67 @@ public final class RenderPipeline {
     /** @return 最近一次成功构建的普通 scene visibility/queue 统计 */
     public VisibilityStatistics lastVisibilityStatistics() {
         return lastVisibilityStatistics;
+    }
+
+    /** Builds a bounded diagnostic snapshot on demand; the render hot path stores only scalars. */
+    public Render3dDiagnostics lastRender3dDiagnostics() {
+        RenderFrameContext context = lastFailureStage.isEmpty() || lastFailedFrameContext == null
+                ? lastFrameContext : lastFailedFrameContext;
+        VisibilityStatistics visibility = lastVisibilityStatistics;
+        PipelineGeneration generation = activeGeneration;
+        if (context == null || generation == null) {
+            if (lastFailureStage.isEmpty()) return Render3dDiagnostics.UNAVAILABLE;
+            return new Render3dDiagnostics(false,
+                    Render3dDiagnostics.RevisionSummary.EMPTY, 0, List.of(),
+                    generation == null ? 0L : generation.id, lastCandidateGenerationId,
+                    lastRetiredGenerationId, generation == null ? "" : generation.topology.toString(),
+                    false, Render3dDiagnostics.QueueSummary.EMPTY,
+                    Render3dDiagnostics.VisibilitySummary.EMPTY,
+                    Render3dDiagnostics.ShadowSummary.EMPTY,
+                    Render3dDiagnostics.DepthResolveSummary.EMPTY,
+                    Render3dDiagnostics.CacheSummary.EMPTY, lastFailureStage);
+        }
+        SceneRevisionSnapshot revision = context.revisions();
+        var revisions = new Render3dDiagnostics.RevisionSummary(revision.membershipRevision(),
+                revision.transformModelRevision(), revision.lightingRevision(),
+                revision.materialRenderStateRevision(), revision.cameraRevision(),
+                revision.topologySettingsRevision());
+        List<String> reasons = context.invalidation().reasons().stream().map(Enum::name).toList();
+        var queues = new Render3dDiagnostics.QueueSummary(visibility.opaqueDraws(),
+                visibility.maskedDraws(), visibility.alphaDraws(), visibility.additiveDraws(),
+                visibility.transparentSortNanos(), visibility.transparentStableTies());
+        var visible = new Render3dDiagnostics.VisibilitySummary(visibility.visibilityScanned(),
+                visibility.forwardVisible(), visibility.forwardCulled(), visibility.missingBounds(),
+                visibility.layerExcluded(), visibility.boundsUpdated(),
+                visibility.transparentVisible(), visibility.frustumTestNanos(),
+                visibility.totalQueueBuildNanos());
+        int cascadeCount = lastDirectionalCascadeMatrices.size();
+        List<Float> splits = new java.util.ArrayList<>(lastDirectionalCascadeSplits.length);
+        for (float split : lastDirectionalCascadeSplits) splits.add(split);
+        List<Integer> cascadeCasters = cascadeCount == 0 ? List.of()
+                : java.util.Collections.nCopies(cascadeCount,
+                        cascadeCount == 0 ? 0 : lastShadowCasterDrawCount / cascadeCount);
+        List<SceneLight> lights = context.lights();
+        var shadows = new Render3dDiagnostics.ShadowSummary(
+                LightingBinder.shadowDirectionalLight(lights).isPresent() ? "selected" : "none",
+                LightingBinder.shadowPointLight(lights).isPresent() ? "selected" : "none",
+                LightingBinder.shadowSpotLight(lights).isPresent() ? "selected" : "none",
+                cascadeCount, splits, cascadeCasters);
+        boolean depthResolved = generation.topology.fog()
+                && generation.topology.antiAliasingMode() == AntiAliasingMode.MSAA;
+        var depth = new Render3dDiagnostics.DepthResolveSummary(depthResolved,
+                depthResolved ? generation.topology.sampleCount() : 1, 1,
+                generation.topology.width(), generation.topology.height());
+        var caches = new Render3dDiagnostics.CacheSummary(visibility.forwardQueueReused(),
+                visibility.shadowQueueReused(), visibility.modelCacheHits(),
+                visibility.modelCacheMisses(), visibility.boundsCacheHits(),
+                visibility.boundsCacheMisses(), generationBuildCount, generationFailureCount,
+                generationReuseCount, generationBuildCount + generationFailureCount);
+        return new Render3dDiagnostics(visibility.available(), revisions,
+                context.invalidation().bits(), reasons,
+                generation.id, lastCandidateGenerationId, lastRetiredGenerationId,
+                generation.topology.toString(), lastFrameTopologyRebuilt, queues, visible,
+                shadows, depth, caches, lastFailureStage);
     }
 
     /** @return 最近一次 shadow pass 绘制的实例 caster 数量 */
@@ -545,59 +575,90 @@ public final class RenderPipeline {
 
     private PresentationResult executeFrame(RenderDevice device, float deltaSeconds,
                                             Camera camera, PresentationTarget target) {
-        if (graph == null || postProcess == null) {
+        PipelineGeneration generation = activeGeneration;
+        if (generation == null) {
             throw new IllegalStateException("RenderPipeline must be built before execute");
         }
         if (!target.isRenderable()) {
             return PresentationResult.SKIPPED_ZERO_EXTENT;
         }
-        if (graph.width() != target.width() || graph.height() != target.height()) {
+        if (generation.graph.width() != target.width()
+                || generation.graph.height() != target.height()) {
             resize(target.width(), target.height());
+            generation = requireGeneration();
         }
-        synchronizeHostImports(target);
+        synchronizeHostImports(generation.graph, target);
         usedDevices.add(Objects.requireNonNull(device, "device"));
-        activeCamera = Objects.requireNonNull(camera, "camera");
-        activeWidth = target.width();
-        activeHeight = target.height();
         currentSceneFrame = null;
         lastShadowCasterDrawCount = 0;
         lastPointShadowCasterDrawCount = 0;
         lastSpotShadowCasterDrawCount = 0;
-        lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
         long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
-        postProcess.beginFrame(deltaSeconds, activeCamera, activeWidth, activeHeight,
-                activeFrameIndex);
-        if (previewRenderer != null) previewRenderer.prepare(device, previewFrameSequence);
+        activeFrameContext = RenderFrameContext.capture(scene,
+                Objects.requireNonNull(camera, "camera"), target.width(), target.height(),
+                deltaSeconds, activeFrameIndex, previewFrameSequence,
+                topologySettingsRevision, lastFrameContext);
         executing = true;
+        boolean postProcessFrameStarted = false;
+        String frameStage = "frame-setup";
         try {
-            PresentationResult result = graph.execute(device, target);
+            generation.postProcess.beginFrame(
+                    activeFrameContext.deltaSeconds(), activeFrameContext.camera(),
+                    activeFrameContext.width(), activeFrameContext.height(),
+                    activeFrameContext.frameIndex());
+            postProcessFrameStarted = true;
+            if (generation.previewRenderer != null) {
+                generation.previewRenderer.prepare(device, previewFrameSequence);
+            }
+            // Freeze renderer membership, model matrices, bounds and queues before any graph
+            // callback can observe mutable Scene inputs.
+            frameStage = "frame-snapshot";
+            sceneFrame();
+            activeFrameContext.verifySceneStable(scene, topologySettingsRevision);
+            frameStage = "pass-callback";
+            PresentationResult result = generation.graph.execute(device, target);
+            frameStage = "frame-finalize";
             long commandRecordNanos = 0L;
-            for (var pass : graph.lastFrameProfile().passes()) {
+            for (var pass : generation.graph.lastFrameProfile().passes()) {
                 commandRecordNanos = Math.addExact(commandRecordNanos, pass.cpuRecordNanos());
             }
             if (currentSceneFrame != null) {
                 lastVisibilityStatistics = VisibilityStatistics.from(currentSceneFrame.statistics,
-                        commandRecordNanos, graph.lastRecordedCommandCount(),
-                        graph.lastRecordedMatrixSnapshots(), graph.lastRecordedObjectPayloads());
+                        commandRecordNanos, generation.graph.lastRecordedCommandCount(),
+                        generation.graph.lastRecordedMatrixSnapshots(),
+                        generation.graph.lastRecordedObjectPayloads());
             }
-            postProcess.frameSucceeded();
-            if (previewRenderer != null) previewRenderer.frameSucceeded(previewFrameSequence);
+            generation.postProcess.frameSucceeded();
+            if (generation.previewRenderer != null) {
+                generation.previewRenderer.frameSucceeded(previewFrameSequence);
+            }
+            lastFrameContext = activeFrameContext;
+            lastFailedFrameContext = null;
+            lastFrameTopologyRebuilt = topologyRebuiltPending;
+            if (!topologyRebuiltPending) generationReuseCount++;
+            topologyRebuiltPending = false;
+            lastFailureStage = "";
             return result;
         } catch (RuntimeException | Error failure) {
-            postProcess.frameFailed();
-            if (previewRenderer != null) previewRenderer.frameFailed(failure);
+            lastFailureStage = frameStage;
+            lastFailedFrameContext = activeFrameContext;
+            if (postProcessFrameStarted) generation.postProcess.frameFailed();
+            if (generation.previewRenderer != null) {
+                generation.previewRenderer.frameFailed(failure);
+            }
             throw failure;
         } finally {
             executing = false;
-            activeCamera = null;
-            activeWidth = 0;
-            activeHeight = 0;
+            activeFrameContext = null;
         }
     }
 
     public void resize(int w, int h) {
+        if (executing) {
+            throw new IllegalStateException("pipeline resize is only allowed at frame start");
+        }
         if (embedded) {
             try (HostGlState ignored = HostGlState.capture()) {
                 resizeInternal(w, h);
@@ -608,12 +669,16 @@ public final class RenderPipeline {
     }
 
     private void resizeInternal(int w, int h) {
-        if (graph != null) {
-            graph.resize(w, h);
-        }
-        if (postProcess != null) {
-            postProcess.resize(w, h);
-        }
+        if (w <= 0 || h <= 0) return;
+        PipelineGeneration current = activeGeneration;
+        if (current == null || current.graph.width() == w && current.graph.height() == h) return;
+        current.resize(w, h);
+        currentSceneFrame = null;
+        topologySettingsRevision++;
+    }
+
+    public List<Matrix4f> lastDirectionalCascadeMatrices() {
+        return lastDirectionalCascadeMatrices.stream().map(Matrix4f::new).toList();
     }
 
     public void close() {
@@ -627,40 +692,16 @@ public final class RenderPipeline {
     }
 
     private void closeGraphResources() {
-        ShaderProgram localInstancedShadow = instancedShadowShader;
-        ShaderProgram localShadow = shadowShader;
-        PostProcessPassBuilder localPostProcess = postProcess;
-        CameraUniforms localCameraUniforms = cameraUniforms;
-        RenderGraph localGraph = graph;
-        PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
-        EnvironmentBackgroundRenderer localBackground = environmentBackground;
-        GraphPreviewRenderer localPreviewRenderer = previewRenderer;
+        PipelineGeneration generation = activeGeneration;
+        activeGeneration = null;
         List<RenderDevice> localDevices = List.copyOf(usedDevices);
         usedDevices.clear();
         frameStateInvalidationByMaterial.clear();
-        instancedShadowShader = null;
-        shadowShader = null;
-        postProcess = null;
-        cameraUniforms = null;
-        graph = null;
-        lightingBinder = null;
-        pbrMaterialBinder = null;
-        environmentBackground = null;
-        previewRenderer = null;
-        sceneFrameBuilder = null;
         currentSceneFrame = null;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
-        finalPassName = null;
 
         RuntimeException failure = null;
-        failure = closeCollecting(localPreviewRenderer, failure);
-        failure = closeCollecting(localInstancedShadow, failure);
-        failure = closeCollecting(localShadow, failure);
-        failure = closeCollecting(localPostProcess, failure);
-        failure = closeCollecting(localCameraUniforms, failure);
-        failure = closeCollecting(localPbrBinder, failure);
-        failure = closeCollecting(localBackground, failure);
-        failure = closeCollecting(localGraph, failure);
+        failure = closeCollecting(generation, failure);
         for (RenderDevice device : localDevices) {
             try {
                 device.invalidateState();
@@ -672,6 +713,44 @@ public final class RenderPipeline {
         if (failure != null) {
             throw failure;
         }
+    }
+
+    private void activateGeneration(PipelineGeneration candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        if (candidate.isClosed()) {
+            throw new IllegalArgumentException("cannot activate a closed PipelineGeneration");
+        }
+        PipelineGeneration retired = activeGeneration;
+        activeGeneration = candidate;
+        currentSceneFrame = null;
+        frameStateInvalidationByMaterial.clear();
+        topologySettingsRevision++;
+        topologyRebuiltPending = true;
+        if (retired != null) lastRetiredGenerationId = retired.id;
+        retireGeneration(retired);
+    }
+
+    private void retireGeneration(PipelineGeneration generation) {
+        if (generation == null) return;
+        RuntimeException failure = null;
+        failure = closeCollecting(generation, failure);
+        for (RenderDevice device : List.copyOf(usedDevices)) {
+            try {
+                device.invalidateState();
+            } catch (RuntimeException invalidateFailure) {
+                if (failure == null) failure = invalidateFailure;
+                else failure.addSuppressed(invalidateFailure);
+            }
+        }
+        if (failure != null) throw failure;
+    }
+
+    private PipelineGeneration requireGeneration() {
+        PipelineGeneration generation = activeGeneration;
+        if (generation == null || generation.isClosed()) {
+            throw new IllegalStateException("RenderPipeline must be built and open");
+        }
+        return generation;
     }
 
     private static RuntimeException closeCollecting(AutoCloseable resource, RuntimeException failure) {
@@ -693,12 +772,13 @@ public final class RenderPipeline {
     private PassExecutor geometryExecutor() {
         return (res, cmd) -> {
             copyHostAttachments(res, cmd);
+            List<SceneLight> lights = requireFrameContext().lights();
             renderScene(cmd,
-                LightingBinder.shadowDirectionalLight(scene).isPresent()
+                LightingBinder.shadowDirectionalLight(lights).isPresent()
                         ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
-                LightingBinder.shadowPointLight(scene).isPresent()
+                LightingBinder.shadowPointLight(lights).isPresent()
                         ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
-                LightingBinder.shadowSpotLight(scene).isPresent()
+                LightingBinder.shadowSpotLight(lights).isPresent()
                         ? res.depthAttachment(SpotShadowMap.TEXTURE_NAME) : 0);
         };
     }
@@ -735,7 +815,7 @@ public final class RenderPipeline {
                 .viewport(0, 0, geometry.width(), geometry.height());
     }
 
-    private void synchronizeHostImports(PresentationTarget target) {
+    private void synchronizeHostImports(RenderGraph graph, PresentationTarget target) {
         if (target.framebufferOwnership() == ResourceOwnership.OWNED) {
             graph.removeExternalAttachment(HOST_COLOR_IMPORT);
             graph.removeExternalAttachment(HOST_DEPTH_IMPORT);
@@ -754,45 +834,71 @@ public final class RenderPipeline {
     }
 
     private PassExecutor shadowExecutor() {
-        return (res, cmd) -> LightingBinder.shadowDirectionalLight(scene).ifPresent(selection -> {
+        return (res, cmd) -> LightingBinder.shadowDirectionalLight(
+                requireFrameContext().lights()).ifPresent(selection -> {
+            PipelineGeneration generation = requireGeneration();
+            ShaderProgram shadowShader = generation.shadowShader;
             SceneFrame frame = sceneFrame();
             cmd.bindShader(shadowShader)
                     .enableBlend(false)
                     .enableDepthTest(true)
                     .depthMask(true)
                     // 基准场景包含双面平面，因此阴影 pass 显式关闭剔除。
-                    .enableCullFace(false)
-                    .setUniformMat4(shadowShader, "uLightSpace", lastDirectionalLightSpaceMatrix);
-            com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
-            for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
-                int entry = frame.shadowEntry(queueIndex);
-                MeshRenderer renderer = frame.renderer(entry);
-                cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
-                SceneDrawBinding drawBinding = renderer.drawBinding();
-                cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
-                        drawBinding.skinningEnabled() ? 1 : 0)
-                        .trySetUniformInt(shadowShader, "uMorphTargetCount",
-                                drawBinding.morphTargetCount());
-                drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
-                        SceneDrawBinding.Pass.SHADOW);
-                if (renderer.mesh() != boundMesh) {
-                    cmd.bindMesh(renderer.mesh());
-                    boundMesh = renderer.mesh();
+                    .enableCullFace(false);
+            int count = 0;
+            List<Matrix4f> matrices = lastDirectionalCascadeMatrices.isEmpty()
+                    ? List.of(lastDirectionalLightSpaceMatrix) : lastDirectionalCascadeMatrices;
+            for (int cascade = 0; cascade < matrices.size(); cascade++) {
+                int tile = directionalCascadeSettings.enabled()
+                        ? directionalCascadeSettings.tileSize()
+                        : directionalShadowMap.settings().resolution();
+                int columns = directionalCascadeSettings.enabled()
+                        ? directionalCascadeSettings.columns() : 1;
+                cmd.viewport((cascade % columns) * tile, (cascade / columns) * tile, tile, tile);
+                count += recordDirectionalShadowCasters(cmd, frame, matrices.get(cascade));
+                if (instanced != null && instanced.castShadows()) {
+                    ShaderProgram instancedShadowShader = generation.instancedShadowShader;
+                    cmd.bindShader(instancedShadowShader)
+                            .setUniformMat4(instancedShadowShader, "uLightSpace", matrices.get(cascade));
+                    instanced.renderShadow(cmd);
                 }
-                cmd.drawMesh(renderer.mesh());
             }
-            lastShadowCasterDrawCount = frame.shadowCount;
-            if (instanced != null && instanced.castShadows()) {
-                cmd.bindShader(instancedShadowShader)
-                        .setUniformMat4(instancedShadowShader, "uLightSpace",
-                                lastDirectionalLightSpaceMatrix);
-                instanced.renderShadow(cmd);
-            }
+            lastShadowCasterDrawCount = count;
         });
     }
 
+    private int recordDirectionalShadowCasters(CommandBuffer cmd, SceneFrame frame,
+                                                Matrix4f lightSpace) {
+        ShaderProgram boundShader = requireGeneration().shadowShader;
+        cmd.bindShader(boundShader).setUniformMat4(boundShader, "uLightSpace", lightSpace);
+        com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+        for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
+            int entry = frame.shadowEntry(queueIndex);
+            MeshRenderer renderer = frame.renderer(entry);
+            ShaderProgram shader = shadowShaderFor(renderer);
+            if (shader != boundShader) {
+                cmd.bindShader(shader).setUniformMat4(shader, "uLightSpace", lightSpace);
+                boundShader = shader;
+            }
+            bindMaskedShadowMaterial(cmd, shader, renderer.material());
+            cmd.setUniformMat4(shader, "uModel", frame.model(entry));
+            SceneDrawBinding binding = renderer.drawBinding();
+            cmd.trySetUniformInt(shader, "uSkinningEnabled", binding.skinningEnabled() ? 1 : 0)
+                    .trySetUniformInt(shader, "uMorphTargetCount", binding.morphTargetCount());
+            binding.record(cmd, shader, (int) frame.frameIndex, SceneDrawBinding.Pass.SHADOW);
+            if (renderer.mesh() != boundMesh) {
+                cmd.bindMesh(renderer.mesh());
+                boundMesh = renderer.mesh();
+            }
+            cmd.drawMesh(renderer.mesh());
+        }
+        return frame.shadowCount;
+    }
+
     private PassExecutor pointShadowExecutor() {
-        return (res, cmd) -> LightingBinder.shadowPointLight(scene).ifPresent(selection -> {
+        return (res, cmd) -> LightingBinder.shadowPointLight(
+                requireFrameContext().lights()).ifPresent(selection -> {
+            ShaderProgram shadowShader = requireGeneration().shadowShader;
             SceneFrame frame = sceneFrame();
             cmd.bindShader(shadowShader)
                     .enableBlend(false)
@@ -806,14 +912,17 @@ public final class RenderPipeline {
                         pointShadowAtlas.settings().resolution())
                         .setUniformMat4(shadowShader, "uLightSpace",
                                 lastPointLightSpaceMatrices.get(face));
-                draws += recordAllShadowCasters(cmd, frame);
+                draws += recordAllShadowCasters(cmd, frame,
+                        lastPointLightSpaceMatrices.get(face));
             }
             lastPointShadowCasterDrawCount = draws;
         });
     }
 
     private PassExecutor spotShadowExecutor() {
-        return (res, cmd) -> LightingBinder.shadowSpotLight(scene).ifPresent(selection -> {
+        return (res, cmd) -> LightingBinder.shadowSpotLight(
+                requireFrameContext().lights()).ifPresent(selection -> {
+            ShaderProgram shadowShader = requireGeneration().shadowShader;
             SceneFrame frame = sceneFrame();
             cmd.bindShader(shadowShader)
                     .enableBlend(false)
@@ -823,23 +932,31 @@ public final class RenderPipeline {
                     .viewport(0, 0, spotShadowMap.settings().resolution(),
                             spotShadowMap.settings().resolution())
                     .setUniformMat4(shadowShader, "uLightSpace", lastSpotLightSpaceMatrix);
-            lastSpotShadowCasterDrawCount = recordAllShadowCasters(cmd, frame);
+            lastSpotShadowCasterDrawCount = recordAllShadowCasters(cmd, frame,
+                    lastSpotLightSpaceMatrix);
         });
     }
 
-    private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame) {
+    private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame, Matrix4f lightSpace) {
+        ShaderProgram boundShader = requireGeneration().shadowShader;
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
         int draws = 0;
-        for (int entry = 0; entry < scene.rendererCount(); entry++) {
+        for (int entry = 0; entry < frame.rendererCount(); entry++) {
             MeshRenderer renderer = frame.renderer(entry);
             if (!renderer.castShadows()) continue;
-            cmd.setUniformMat4(shadowShader, "uModel", frame.model(entry));
+            ShaderProgram entryShader = shadowShaderFor(renderer);
+            if (entryShader != boundShader) {
+                cmd.bindShader(entryShader).setUniformMat4(entryShader, "uLightSpace", lightSpace);
+                boundShader = entryShader;
+            }
+            bindMaskedShadowMaterial(cmd, entryShader, renderer.material());
+            cmd.setUniformMat4(entryShader, "uModel", frame.model(entry));
             SceneDrawBinding drawBinding = renderer.drawBinding();
-            cmd.trySetUniformInt(shadowShader, "uSkinningEnabled",
+            cmd.trySetUniformInt(entryShader, "uSkinningEnabled",
                     drawBinding.skinningEnabled() ? 1 : 0)
-                    .trySetUniformInt(shadowShader, "uMorphTargetCount",
+                    .trySetUniformInt(entryShader, "uMorphTargetCount",
                             drawBinding.morphTargetCount());
-            drawBinding.record(cmd, shadowShader, (int) frame.frameIndex,
+            drawBinding.record(cmd, entryShader, (int) frame.frameIndex,
                     SceneDrawBinding.Pass.SHADOW);
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
@@ -851,14 +968,43 @@ public final class RenderPipeline {
         return draws;
     }
 
+    private ShaderProgram shadowShaderFor(MeshRenderer renderer) {
+        return RenderQueueClass.classify(renderer.material()) == RenderQueueClass.MASKED
+                ? requireGeneration().maskedShadowShader : requireGeneration().shadowShader;
+    }
+
+    private void bindMaskedShadowMaterial(CommandBuffer cmd, ShaderProgram shader,
+                                          MaterialInstance instance) {
+        if (shader != requireGeneration().maskedShadowShader) return;
+        Material material = instance.material();
+        Material.TextureBinding baseColor = instance.textureOverrides().get(0);
+        if (baseColor == null) {
+            for (Material.TextureBinding binding : material.defaultTextures()) {
+                if (binding.unit() == 0) { baseColor = binding; break; }
+            }
+        }
+        if (baseColor != null) cmd.bindTexture(0, baseColor.texture(), baseColor.sampler());
+        UniformValue cutoff = instance.uniformOverrides().get(UniformKey.float1("uAlphaCutoff"));
+        if (cutoff == null) cutoff = material.defaultUniforms().get(UniformKey.float1("uAlphaCutoff"));
+        UniformValue factor = instance.uniformOverrides().get(UniformKey.vec4("uBaseColorFactor"));
+        if (factor == null) factor = material.defaultUniforms().get(UniformKey.vec4("uBaseColorFactor"));
+        float cutoffValue = cutoff instanceof UniformValue.FloatVal value ? value.value() : 0.5f;
+        Vector4f factorValue = factor instanceof UniformValue.Vec4Val value
+                ? value.value() : new Vector4f(1.0f);
+        cmd.setUniformInt(shader, "uBaseColorMap", 0)
+                .setUniformFloat(shader, "uAlphaCutoff", cutoffValue)
+                .setUniformVec4(shader, "uBaseColorFactor", factorValue);
+    }
+
     private void renderScene(CommandBuffer cmd, int shadowTexture,
                              int pointShadowTexture, int spotShadowTexture) {
+        PipelineGeneration generation = requireGeneration();
         SceneFrame frame = sceneFrame();
         Camera camera = frameCamera();
-        cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
+        generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
                 settings.antiAliasingMode(), activeFrameIndex);
-        if (environmentBackground != null) {
-            environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
+        if (generation.environmentBackground != null) {
+            generation.environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
         }
 
         ShaderProgram boundShader = null;
@@ -896,7 +1042,7 @@ public final class RenderPipeline {
                     || materialBindingChanged && invalidatesFrameState(material)) {
                 bindFrameState(shader, cmd, shadowTexture, pointShadowTexture, spotShadowTexture);
                 if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
-                    pbrMaterialBinder.bind(shader, cmd);
+                    generation.pbrMaterialBinder.bind(shader, cmd);
                 }
                 boundShader = shader;
             }
@@ -927,42 +1073,84 @@ public final class RenderPipeline {
     private SceneFrame sceneFrame() {
         if (currentSceneFrame != null) return currentSceneFrame;
 
-        // Light parameters can change without changing renderable membership. Refresh the
-        // derived shadow selections only when Scene reports a lighting revision.
-        if (cachedLightingRevision != scene.lightingRevision()) {
-            cachedShadowDirectional = LightingBinder.shadowDirectionalLight(scene);
-            cachedShadowPoint = LightingBinder.shadowPointLight(scene);
-            cachedShadowSpot = LightingBinder.shadowSpotLight(scene);
-            cachedLightingRevision = scene.lightingRevision();
-        }
-        var shadow = cachedShadowDirectional;
+        RenderFrameContext context = requireFrameContext();
+        var shadow = LightingBinder.shadowDirectionalLight(context.lights());
         if (shadow.isPresent()) {
-            lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
-                    shadow.orElseThrow().light(), frameCamera().position()));
+            if (directionalCascadeSettings.enabled()) {
+                DirectionalCascadePlan plan = directionalCascadePlan(context.camera(),
+                        context.width(), context.height(), shadow.orElseThrow().light());
+                lastDirectionalCascadeMatrices = plan.cascades().stream()
+                        .map(DirectionalCascadePlan.Cascade::lightSpaceMatrix).toList();
+                lastDirectionalCascadeSplits = new float[plan.cascades().size()];
+                for (int index = 0; index < plan.cascades().size(); index++) {
+                    lastDirectionalCascadeSplits[index] = plan.cascades().get(index).farDistance();
+                }
+                lastDirectionalLightSpaceMatrix.set(lastDirectionalCascadeMatrices.get(0));
+            } else {
+                lastDirectionalLightSpaceMatrix.set(directionalShadowMap.lightSpaceMatrix(
+                        shadow.orElseThrow().light(), context.camera().position()));
+                lastDirectionalCascadeMatrices = List.of(new Matrix4f(lastDirectionalLightSpaceMatrix));
+                lastDirectionalCascadeSplits = new float[]{CameraProjection.FAR_PLANE};
+            }
         } else {
             lastDirectionalLightSpaceMatrix.identity();
+            lastDirectionalCascadeMatrices = List.of();
+            lastDirectionalCascadeSplits = new float[0];
         }
-        var pointShadow = cachedShadowPoint;
+        var pointShadow = LightingBinder.shadowPointLight(context.lights());
         lastPointLightSpaceMatrices = pointShadow.isPresent()
                 ? pointShadowAtlas.faceMatrices(pointShadow.orElseThrow().light()) : List.of();
-        var spotShadow = cachedShadowSpot;
+        var spotShadow = LightingBinder.shadowSpotLight(context.lights());
         if (spotShadow.isPresent()) {
             lastSpotLightSpaceMatrix.set(
                     spotShadowMap.lightSpaceMatrix(spotShadow.orElseThrow().light()));
         } else {
             lastSpotLightSpaceMatrix.identity();
         }
-        SceneFrame built = sceneFrameBuilder.build(scene, frameCamera(),
-                Math.max(1, frameWidth()), Math.max(1, frameHeight()), lastDirectionalLightSpaceMatrix,
-                shadow.isPresent(), settings.sceneVisibility(), activeFrameIndex);
+        SceneFrame built = requireGeneration().sceneFrameBuilder.build(scene, context.camera(),
+                context.width(), context.height(), lastDirectionalCascadeMatrices.isEmpty()
+                        ? lastDirectionalLightSpaceMatrix
+                        : lastDirectionalCascadeMatrices.get(lastDirectionalCascadeMatrices.size() - 1),
+                shadow.isPresent(), settings.sceneVisibility(),
+                settings.sceneVisibility() && !directionalCascadeSettings.enabled(),
+                context.frameIndex());
         currentSceneFrame = built;
         return built;
     }
 
+    private DirectionalCascadePlan directionalCascadePlan(Camera camera, int width, int height,
+                                                           SceneLight light) {
+        float near = camera instanceof ExternalCamera external
+                ? external.nearPlane() : CameraProjection.NEAR_PLANE;
+        float far = camera instanceof ExternalCamera external
+                ? external.farPlane() : CameraProjection.FAR_PLANE;
+        float verticalFov;
+        float aspect;
+        org.joml.Vector3f forward;
+        if (camera instanceof ExternalCamera external) {
+            Matrix4f projection = external.projection();
+            verticalFov = 2.0f * (float) Math.atan(1.0f / projection.m11());
+            aspect = projection.m11() / projection.m00();
+            forward = external.inverseView().transformDirection(0.0f, 0.0f, -1.0f,
+                    new org.joml.Vector3f()).normalize();
+        } else {
+            verticalFov = (float) Math.toRadians(camera.zoom());
+            aspect = width / (float) height;
+            forward = camera.front();
+        }
+        return DirectionalCascadePlan.create(camera.position(), forward, light.direction(),
+                verticalFov, aspect, near, far, directionalCascadeSettings.cascadeCount(),
+                directionalCascadeSettings.splitLambda(), directionalCascadeSettings.tileSize());
+    }
+
     private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
                                 int pointShadowTexture, int spotShadowTexture) {
-        cameraUniforms.bind(shader);
-        lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix, frameCamera());
+        PipelineGeneration generation = requireGeneration();
+        generation.cameraUniforms.bind(shader);
+        RenderFrameContext context = requireFrameContext();
+        generation.lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix,
+                lastDirectionalCascadeMatrices, lastDirectionalCascadeSplits,
+                directionalCascadeSettings, context.camera(), context.lights());
         boolean hasShadow = shadowTexture != 0;
         cmd.trySetUniformInt(shader, "uHasDirectionalShadow", hasShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uShadowMap", SHADOW_TEXTURE_UNIT)
@@ -989,16 +1177,9 @@ public final class RenderPipeline {
         if (hasSpotShadow) cmd.bindTexture(SPOT_SHADOW_TEXTURE_UNIT, spotShadowTexture);
     }
 
-    private boolean hasPbrMaterials() {
-        for (MeshRenderer renderer : scene.forwardDrawOrder()) {
-            if (renderer.material().material().model() == MaterialModel.METALLIC_ROUGHNESS) return true;
-        }
-        return false;
-    }
-
-    private void validatePbrVertexLayouts() {
+    private void validatePbrVertexLayouts(Scene candidateScene) {
         int rendererIndex = 0;
-        for (MeshRenderer renderer : scene.renderers()) {
+        for (MeshRenderer renderer : candidateScene.renderers()) {
             if (renderer.material().material().model() == MaterialModel.METALLIC_ROUGHNESS) {
                 validatePbrVertexLayout(renderer.mesh().vertexLayout(), rendererIndex);
             }
@@ -1029,36 +1210,6 @@ public final class RenderPipeline {
         }
     }
 
-    /** 不暴露 renderer/queue 引用的每帧可见性值快照。 */
-    private record SceneTopologySignature(boolean directionalShadow,
-                                          boolean pointShadow,
-                                          boolean spotShadow) {
-        // O4: Merge 3 separate light traversals into 1 single pass with early exit
-        private static SceneTopologySignature of(Scene scene) {
-            boolean hasDirectional = false;
-            boolean hasPoint = false;
-            boolean hasSpot = false;
-            
-            for (SceneLight light : scene.lights()) {
-                if (!hasDirectional && light.type() == LightType.DIRECTIONAL && light.castShadows()) {
-                    hasDirectional = true;
-                }
-                if (!hasPoint && light.type() == LightType.POINT && light.castShadows()) {
-                    hasPoint = true;
-                }
-                if (!hasSpot && light.type() == LightType.SPOT && light.castShadows()) {
-                    hasSpot = true;
-                }
-                // Early exit if all shadow types found
-                if (hasDirectional && hasPoint && hasSpot) {
-                    break;
-                }
-            }
-            
-            return new SceneTopologySignature(hasDirectional, hasPoint, hasSpot);
-        }
-    }
-
     public record VisibilityStatistics(boolean available, boolean cullingEnabled,
                                        long sceneRevision, int candidateRenderers,
                                        int finiteBoundsRenderers, int unboundedRenderers,
@@ -1072,15 +1223,21 @@ public final class RenderPipeline {
                                        boolean shadowQueueRebuilt, long modelUpdateNanos,
                                        long boundsTransformNanos, long frustumTestNanos,
                                        long queueSortNanos, long totalQueueBuildNanos,
-                                       int opaqueDraws, int additiveDraws, int alphaDraws,
+                                       int opaqueDraws, int maskedDraws,
+                                       int additiveDraws, int alphaDraws,
                                        int shaderChanges, int materialChanges, int meshChanges,
                                        int blendChanges, int mirroredChanges,
+                                       int visibilityScanned, int boundsUpdated,
+                                       int missingBounds, int layerExcluded,
+                                       int transparentVisible, long transparentSortNanos,
+                                       int transparentStableTies,
                                        long commandRecordNanos, int recordedCommands,
                                        int recordedMatrixSnapshots, int recordedObjectPayloads) {
         public static final VisibilityStatistics UNAVAILABLE = new VisibilityStatistics(false,
                 false, 0L, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, false, false, false, false,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0);
 
         private static VisibilityStatistics from(SceneFrame.Statistics source,
@@ -1098,9 +1255,13 @@ public final class RenderPipeline {
                     source.shadowQueueReused(), source.shadowQueueRebuilt(),
                     source.modelUpdateNanos(), source.boundsTransformNanos(),
                     source.frustumTestNanos(), source.queueSortNanos(),
-                    source.totalQueueBuildNanos(), source.opaqueDraws(), source.additiveDraws(),
-                    source.alphaDraws(), source.shaderChanges(), source.materialChanges(),
+                    source.totalQueueBuildNanos(), source.opaqueDraws(), source.maskedDraws(),
+                    source.additiveDraws(), source.alphaDraws(), source.shaderChanges(),
+                    source.materialChanges(),
                     source.meshChanges(), source.blendChanges(), source.mirroredChanges(),
+                    source.visibilityScanned(), source.boundsUpdated(), source.missingBounds(),
+                    source.layerExcluded(), source.transparentVisible(),
+                    source.transparentSortNanos(), source.transparentStableTies(),
                     commandRecordNanos, recordedCommands, recordedMatrixSnapshots,
                     recordedObjectPayloads);
         }
@@ -1164,10 +1325,13 @@ public final class RenderPipeline {
     }
 
     private Camera frameCamera() {
-        return activeCamera == null ? scene.camera() : activeCamera;
+        RenderFrameContext context = activeFrameContext;
+        return context == null ? scene.camera() : context.camera();
     }
 
     private ExternalCamera externalFrameCamera() {
+        RenderFrameContext context = activeFrameContext;
+        if (context != null) return context.camera();
         Camera camera = frameCamera();
         if (camera instanceof ExternalCamera external) {
             return external;
@@ -1182,11 +1346,21 @@ public final class RenderPipeline {
     }
 
     private int frameWidth() {
-        return activeWidth > 0 ? activeWidth : Math.max(1, window.width());
+        RenderFrameContext context = activeFrameContext;
+        return context == null ? Math.max(1, window.width()) : context.width();
     }
 
     private int frameHeight() {
-        return activeHeight > 0 ? activeHeight : Math.max(1, window.height());
+        RenderFrameContext context = activeFrameContext;
+        return context == null ? Math.max(1, window.height()) : context.height();
+    }
+
+    private RenderFrameContext requireFrameContext() {
+        RenderFrameContext context = activeFrameContext;
+        if (context == null) {
+            throw new IllegalStateException("RenderFrameContext is only available during execute");
+        }
+        return context;
     }
 
     private static RenderWindow initialExtent(PresentationTarget target) {

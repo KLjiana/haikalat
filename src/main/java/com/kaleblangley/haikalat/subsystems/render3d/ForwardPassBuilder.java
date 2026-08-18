@@ -15,6 +15,7 @@ final class ForwardPassBuilder {
     static void addForwardPasses(RenderGraph graph, RenderSettings settings, Scene scene,
                                  PostProcessSettings postProcessSettings,
                                  DirectionalShadowMap shadowMap,
+                                 DirectionalCascadeSettings cascadeSettings,
                                  PointShadowAtlas pointShadowAtlas,
                                  SpotShadowMap spotShadowMap,
                                  PassExecutor shadowExecutor,
@@ -27,7 +28,10 @@ final class ForwardPassBuilder {
         if (hasDirectionalShadow) {
             graph.addPass(DirectionalShadowMap.PASS_NAME)
                     .createDepthTexture(DirectionalShadowMap.TEXTURE_NAME)
-                    .fixedSize(shadowMap.settings().resolution(), shadowMap.settings().resolution())
+                    .fixedSize(cascadeSettings.enabled() ? cascadeSettings.atlasSize()
+                                    : shadowMap.settings().resolution(),
+                            cascadeSettings.enabled() ? cascadeSettings.atlasSize()
+                                    : shadowMap.settings().resolution())
                     .clearDepthOnly()
                     .execute(shadowExecutor);
         }
@@ -55,7 +59,8 @@ final class ForwardPassBuilder {
         } else {
             geometry.createColor(PostProcessTargets.SCENE_COLOR, sceneFormat);
         }
-        if (postProcessSettings.fog().enabled()) {
+        if (postProcessSettings.fog().enabled()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA) {
             geometry.createDepthTexture(PostProcessTargets.SCENE_DEPTH);
         } else {
             geometry.createDepth();

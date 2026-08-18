@@ -8,20 +8,21 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RenderQueueSorterTest {
     @Test
-    void forwardPartitionsAndBatchesOpaqueAdditiveWhileKeepingAlphaInsertionOrder() {
-        int[] indices = {0, 1, 2, 3, 4, 5, 6};
+    void forwardPartitionsFourClassesAndSortsAlphaBackToFront() {
+        int[] indices = {0, 1, 2, 3, 4, 5, 6, 7};
         int[] scratch = new int[indices.length];
-        int[] blend = {2, 0, 1, 2, 0, 2, 1};
-        int[] shader = {9, 2, 1, 1, 1, 3, 1};
-        int[] material = {9, 1, 1, 1, 2, 2, 0};
-        int[] mesh = {9, 2, 2, 1, 1, 3, 1};
+        int[] queueClass = {2, 0, 3, 2, 0, 2, 3, 1};
+        float[] depth = {2, 0, 0, 8, 0, 8, 0, 0};
+        int[] shader = {9, 2, 1, 1, 1, 3, 1, 2};
+        int[] material = {9, 1, 1, 1, 2, 2, 0, 0};
+        int[] mesh = {9, 2, 2, 1, 1, 3, 1, 3};
 
         RenderQueueSorter.forward(indices, indices.length, scratch,
-                blend, shader, material, mesh);
+                queueClass, depth, shader, material, mesh);
 
-        assertArrayEquals(new int[]{4, 1, 6, 2, 0, 3, 5}, indices);
-        assertArrayEquals(new int[]{0, 3, 5}, Arrays.stream(indices)
-                .filter(index -> blend[index] == 2).toArray());
+        assertArrayEquals(new int[]{4, 1, 7, 3, 5, 0, 2, 6}, indices);
+        assertArrayEquals(new int[]{3, 5, 0}, Arrays.stream(indices)
+                .filter(index -> queueClass[index] == 2).toArray());
     }
 
     @Test

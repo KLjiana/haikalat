@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.material.Material;
@@ -19,6 +20,8 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.subsystems.render3d.*;
+import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
 import org.joml.Matrix4f;
@@ -100,6 +103,13 @@ class RenderPipelineGlTest {
             void main() {
                 FragColor = vec4(0.9, 0.4, 0.2, 1.0);
             }
+            """;
+
+    private static final String ALPHA_COLOR_FRAGMENT_SOURCE = """
+            #version 330 core
+            out vec4 FragColor;
+            uniform vec4 uColor;
+            void main() { FragColor = uColor; }
             """;
 
     private static final String HDR_FRAGMENT_SOURCE = """
@@ -468,7 +478,9 @@ class RenderPipelineGlTest {
                                     .antiAliasingMode(mode)
                                     .toneMappingMode(ToneMappingMode.ACES)
                                     .vsync(false)
-                                    .build());
+                                    .build())
+                            .postProcessSettings(PostProcessSettings.builder()
+                                    .fog(FogSettings.builder().build()).build());
                     try {
                         pipeline.build();
                         pipeline.execute(new GlRenderDevice());
@@ -478,6 +490,13 @@ class RenderPipelineGlTest {
                         readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
                         assertTrue(Byte.toUnsignedInt(pixel.get(0)) > 80,
                                 "HDR resize must retain final output for " + mode);
+                        Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
+                        assertEquals(mode == AntiAliasingMode.MSAA,
+                                diagnostics.depthResolve().executed());
+                        if (mode == AntiAliasingMode.MSAA) {
+                            assertTrue(diagnostics.depthResolve().sourceSamples() > 1);
+                            assertEquals(1, diagnostics.depthResolve().targetSamples());
+                        }
                         GlDebug.checkError("HDR resize " + mode);
                     } finally {
                         pipeline.close();
@@ -746,11 +765,18 @@ class RenderPipelineGlTest {
             try {
                 pipeline.build();
                 var activeGraph = pipeline.graph();
+                GlRenderDevice device = new GlRenderDevice();
+                pipeline.execute(device);
+                byte[] oldScenePixels = readFramebuffer(window.width(), window.height());
                 pipeline.replaceScene(newScene);
                 assertSame(newScene, pipeline.scene());
                 assertSame(activeGraph, pipeline.graph());
                 assertEquals(1L, pipeline.sceneFastPathReplacementCount());
                 assertEquals(0L, pipeline.sceneGraphRebuildCount());
+                pipeline.execute(device);
+                byte[] newScenePixels = readFramebuffer(window.width(), window.height());
+                assertTrue(changedRgbPixels(oldScenePixels, newScenePixels) > 8,
+                        "fast-path replacement must not reuse renderer membership from old Scene");
                 Scene shadowScene = new Scene(new Camera(new Vector3f(0, 0, 5)));
                 shadowScene.add(new SceneObject(mesh, material,
                         (model, frame) -> model.identity()));
@@ -761,7 +787,7 @@ class RenderPipelineGlTest {
                 assertNotSame(activeGraph, pipeline.graph());
                 assertEquals(1L, pipeline.sceneFastPathReplacementCount());
                 assertEquals(1L, pipeline.sceneGraphRebuildCount());
-                pipeline.execute(new GlRenderDevice());
+                pipeline.execute(device);
                 GlDebug.checkError("sceneReplacementUsesFastPathAndRebuildsOnTopologyChange");
             } finally {
                 pipeline.close();
@@ -795,6 +821,8 @@ class RenderPipelineGlTest {
                 pipeline.execute(new GlRenderDevice());
 
                 assertEquals(1, pipeline.lastShadowCasterDrawCount());
+                assertEquals(0L, pipeline.lastVisibilityStatistics().transparentSortNanos(),
+                        "opaque-only scenes must not pay transparent depth-sort accounting");
                 GlDebug.checkError("shadowPassDrawsOnlyObjectsMarkedAsCasters");
             } finally {
                 pipeline.close();
@@ -1042,6 +1070,233 @@ class RenderPipelineGlTest {
         return Byte.toUnsignedInt(pixels[offset])
                 + Byte.toUnsignedInt(pixels[offset + 1])
                 + Byte.toUnsignedInt(pixels[offset + 2]);
+    }
+
+    @Test
+    void maskedShadowDepthUsesTextureAlphaFactorAndSameCutoff() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            Framebuffer target = Framebuffer.fromDescriptor(new DirectionalShadowMap(
+                    new ShadowSettings(32, 10.0f, 0.1f, 30.0f)).descriptor());
+            ShaderProgram shader = ShaderProgram.fromResource(RenderPipelineGlTest.class,
+                    "/shaders/shadows/masked-directional-depth.vert",
+                    "/shaders/shadows/masked-directional-depth.frag");
+            Mesh mesh = Mesh.from(BuiltinMeshData.texturedQuad("masked-shadow-cutoff"));
+            Texture2D transparent = Texture2D.fromRgba8(1, 1,
+                    new byte[]{(byte) 255, (byte) 255, (byte) 255, 0},
+                    com.kaleblangley.haikalat.backend.texture.TextureColorSpace.SRGB);
+            Texture2D opaque = Texture2D.fromRgba8(1, 1,
+                    new byte[]{(byte) 255, (byte) 255, (byte) 255, (byte) 255},
+                    com.kaleblangley.haikalat.backend.texture.TextureColorSpace.SRGB);
+            try {
+                float discarded = maskedDepth(target, shader, mesh, transparent, 1.0f, 0.5f);
+                float factorDiscarded = maskedDepth(target, shader, mesh, opaque, 0.2f, 0.5f);
+                float written = maskedDepth(target, shader, mesh, opaque, 1.0f, 0.5f);
+                assertEquals(1.0f, discarded, 1.0e-6f);
+                assertEquals(1.0f, factorDiscarded, 1.0e-6f);
+                assertTrue(written > 0.45f && written < 0.55f);
+                GlDebug.checkError("masked shadow cutoff");
+            } finally {
+                opaque.close();
+                transparent.close();
+                mesh.close();
+                shader.close();
+                target.close();
+            }
+        }
+    }
+
+    private static float maskedDepth(Framebuffer target, ShaderProgram shader, Mesh mesh,
+                                     Texture2D texture, float factorAlpha, float cutoff) {
+        target.bind();
+        glViewport(0, 0, target.width(), target.height());
+        glEnable(GL_DEPTH_TEST);
+        glClearDepth(1.0);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        shader.use().setMat4("uLightSpace", new Matrix4f())
+                .setMat4("uModel", new Matrix4f())
+                .setInt("uSkinningEnabled", 0)
+                .setInt("uMorphTargetCount", 0)
+                .setInt("uBaseColorMap", 0)
+                .setVec4("uBaseColorFactor", 1, 1, 1, factorAlpha)
+                .setFloat("uAlphaCutoff", cutoff);
+        texture.bind(0);
+        mesh.draw();
+        FloatBuffer depth = BufferUtils.createFloatBuffer(1);
+        glReadPixels(16, 16, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+        return depth.get(0);
+    }
+
+    @Test
+    void overlappingAlphaDrawsAreSortedBackToFrontWithDeterministicPixels() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredQuad("alpha-depth-order"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE,
+                    ALPHA_COLOR_FRAGMENT_SOURCE);
+            Material near = Material.builder(shader).blendMode(BlendMode.ALPHA)
+                    .setVec4("uColor", new org.joml.Vector4f(1, 0, 0, 0.5f)).build();
+            Material far = Material.builder(shader).blendMode(BlendMode.ALPHA)
+                    .setVec4("uColor", new org.joml.Vector4f(0, 0, 1, 0.5f)).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            // Deliberately submit near first; the queue must reverse these two draws.
+            scene.add(new SceneObject(mesh, near, (model, frame) -> model.identity().scale(3.0f)));
+            scene.add(new SceneObject(mesh, far,
+                    (model, frame) -> model.identity().translation(0, 0, -1).scale(3.0f)));
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                    RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                            .vsync(false).build());
+            try {
+                pipeline.build();
+                pipeline.execute(new GlRenderDevice());
+                ByteBuffer pixel = BufferUtils.createByteBuffer(4);
+                readPipelineCenterPixel(pipeline, GL_UNSIGNED_BYTE, pixel);
+                assertTrue(Byte.toUnsignedInt(pixel.get(0)) > Byte.toUnsignedInt(pixel.get(2)),
+                        "near red must composite after far blue");
+                assertEquals(2, pipeline.lastVisibilityStatistics().alphaDraws());
+                assertTrue(pipeline.lastVisibilityStatistics().transparentSortNanos() > 0L);
+                assertEquals(0, pipeline.lastVisibilityStatistics().transparentStableTies());
+                Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
+                assertEquals(2, diagnostics.queues().alpha());
+                assertEquals(2, diagnostics.visibility().transparentVisible());
+                assertTrue(diagnostics.invalidationReasons().contains("CAMERA"));
+                GlDebug.checkError("overlapping alpha depth order");
+            } finally {
+                pipeline.close();
+                far.close();
+                near.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void directionalCascadeAtlasRendersTwoThreeAndFourStableTiles() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("cascade-caster-smoke"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE,
+                    PIPELINE_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
+            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity(), true));
+            scene.addLight(SceneLight.shadowedDirectional(
+                    new Vector3f(-0.3f, -1.0f, -0.4f), new Vector3f(1.0f), 1.0f));
+            try {
+                for (int count : List.of(2, 3, 4)) {
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                                    .vsync(false).build())
+                            .directionalCascades(new DirectionalCascadeSettings(
+                                    count, 1024, 0.6f, 0.08f));
+                    try {
+                        pipeline.build();
+                        pipeline.execute(new GlRenderDevice());
+                        assertEquals(count, pipeline.lastDirectionalCascadeMatrices().size());
+                        assertEquals(count, pipeline.lastShadowCasterDrawCount());
+                        pipeline.resize(73, 51);
+                        pipeline.execute(new GlRenderDevice());
+                        assertEquals(count, pipeline.lastShadowCasterDrawCount());
+                        scene.camera().setPosition(new Vector3f(0.03f, 0.0f, 5.0f));
+                        scene.camera().setYaw(-88.0f);
+                        pipeline.execute(new GlRenderDevice());
+                        assertTrue(pipeline.lastDirectionalCascadeMatrices().stream()
+                                .allMatch(Matrix4f::isFinite));
+                        Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
+                        assertTrue(diagnostics.available());
+                        assertEquals(count, diagnostics.shadows().cascadeCount());
+                        assertEquals(count, diagnostics.shadows().cascadeSplits().size());
+                        assertEquals(count, diagnostics.shadows().cascadeCasters().size());
+                        GlDebug.checkError("directional cascades " + count);
+                    } finally {
+                        pipeline.close();
+                    }
+                }
+            } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void failedCandidateSceneBuildPreservesActiveGenerationAndPixels() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("candidate-rollback"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE,
+                    PIPELINE_FRAGMENT_SOURCE);
+            Material legacy = Material.builder(shader).build();
+            Material unsupportedPbr = Material.builder(shader)
+                    .model(MaterialModel.METALLIC_ROUGHNESS)
+                    .build();
+            Scene activeScene = new Scene(new Camera(new Vector3f(0, 0, 5)))
+                    .add(new SceneObject(mesh, legacy, (model, frame) -> model.identity()));
+            RenderPipeline pipeline = new RenderPipeline(window, activeScene, null,
+                    RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                            .vsync(false).build());
+            try {
+                GlRenderDevice device = new GlRenderDevice();
+                pipeline.build();
+                pipeline.execute(device);
+                byte[] before = readFramebuffer(window.width(), window.height());
+                RenderGraph activeGraph = pipeline.graph();
+
+                Scene rejected = new Scene(new Camera(new Vector3f(0, 0, 5)))
+                        .add(new SceneObject(mesh, unsupportedPbr,
+                                (model, frame) -> model.identity()));
+                assertThrows(IllegalStateException.class,
+                        () -> pipeline.replaceScene(rejected));
+                Render3dDiagnostics failedBuild = pipeline.lastRender3dDiagnostics();
+                assertEquals("candidate-build", failedBuild.failureStage());
+                assertNotEquals(failedBuild.activeGenerationId(),
+                        failedBuild.candidateGenerationId());
+
+                assertSame(activeScene, pipeline.scene());
+                assertSame(activeGraph, pipeline.graph());
+                pipeline.execute(device);
+                assertEquals(0, changedRgbPixels(before,
+                        readFramebuffer(window.width(), window.height())));
+                GlDebug.checkError("failedCandidateSceneBuildPreservesActiveGenerationAndPixels");
+            } finally {
+                pipeline.close();
+                unsupportedPbr.close();
+                legacy.close();
+                mesh.close();
+            }
+        }
+    }
+
+    private static byte[] readFramebuffer(int width, int height) {
+        ByteBuffer pixels = BufferUtils.createByteBuffer(width * height * 4);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        byte[] image = new byte[pixels.capacity()];
+        pixels.get(image);
+        return image;
+    }
+
+    private static int changedRgbPixels(byte[] left, byte[] right) {
+        assertEquals(left.length, right.length);
+        int changed = 0;
+        for (int offset = 0; offset < left.length; offset += 4) {
+            if (left[offset] != right[offset]
+                    || left[offset + 1] != right[offset + 1]
+                    || left[offset + 2] != right[offset + 2]) {
+                changed++;
+            }
+        }
+        return changed;
     }
 
     private static void readPipelineCenterPixel(RenderPipeline pipeline, int type,

@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.assets.gltf.SceneSelection;
 import com.kaleblangley.haikalat.core.curve.Curves;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -21,9 +22,11 @@ import com.kaleblangley.haikalat.subsystems.animation.AnimationGraph;
 import com.kaleblangley.haikalat.subsystems.animation.ClipMotion;
 import com.kaleblangley.haikalat.subsystems.animation.AnimationSignal;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
+import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
@@ -48,6 +51,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -402,6 +406,8 @@ class GltfRuntimeGlTest {
                         assertTrue(frameRgbEnergy(morphedFrame) > 20);
                         assertTrue(changedRgbPixels(baseFrame, morphedFrame) > 8,
                                 "GPU morph must visibly deform the PBR primitive");
+                        assertTrue(pipeline.lastVisibilityStatistics().boundsUpdated() > 0,
+                                "morph weight revision must explicitly invalidate visibility bounds");
                         assertEquals(GL_NO_ERROR, glGetError());
                     } finally {
                         pipeline.close();
@@ -430,9 +436,57 @@ class GltfRuntimeGlTest {
                     assertEquals(8, asset.uniqueMeshCount());
                     assertEquals(1, asset.uniqueTextureCount());
                     assertEquals(8, asset.instantiate(new Matrix4f(), false).size());
-                    GltfAssetException failure = assertThrows(GltfAssetException.class,
-                            () -> asset.instantiate(new Matrix4f(), true));
-                    assertTrue(failure.getMessage().contains("castShadows=false"));
+                    List<SceneObject> maskedCasters = asset.instantiate(new Matrix4f(), true);
+                    assertEquals(8, maskedCasters.size());
+                    assertTrue(maskedCasters.stream().allMatch(SceneObject::castShadows));
+                } finally {
+                    asset.close();
+                }
+            }
+        }
+    }
+
+    @Test
+    void blendAssetUploadsAsAlphaQueueAndNeverCastsOpaqueShadow() throws Exception {
+        ResourceLocator classpath = ResourceLocator.classpath(getClass());
+        String blendJson = classpath.readString(AssetRef.of("/scenes/gltf/radio.gltf"))
+                .replace("\"alphaMode\":\"MASK\"", "\"alphaMode\":\"BLEND\"");
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("radio-blend.gltf"), blendJson);
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            LoadedGltfScene loaded = new GltfAssetLoader(classpath.addRoot(temporaryDirectory))
+                    .load(AssetRef.of("radio-blend.gltf"));
+            try (GltfRuntimeLibrary library = GltfRuntimeLibrary.create()) {
+                GltfSceneAsset asset = GltfSceneAsset.upload(loaded, library);
+                try {
+                    List<SceneObject> objects = asset.instantiate(new Matrix4f(), true);
+                    assertTrue(objects.stream().noneMatch(SceneObject::castShadows));
+                    assertTrue(objects.stream().allMatch(object ->
+                            object.material().blendMode() == BlendMode.ALPHA));
+                    GlRenderDevice device = new GlRenderDevice();
+                    Scene scene = new Scene(new Camera(new Vector3f(0, 0, 3)));
+                    objects.forEach(scene::add);
+                    scene.addLight(SceneLight.directional(new Vector3f(0, 0, -1),
+                            new Vector3f(1), 2.0f));
+                    try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                            "/environments/pbr/studio-small.hdr",
+                            PbrEnvironmentSettings.testQuality())) {
+                        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                                RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                                        .bloomSettings(BloomSettings.disabled()).vsync(false).build(),
+                                environment);
+                        try {
+                            pipeline.build();
+                            pipeline.execute(device);
+                            assertEquals(objects.size(),
+                                    pipeline.lastVisibilityStatistics().alphaDraws());
+                            assertEquals(0, pipeline.lastShadowCasterDrawCount());
+                            assertTrue(frameRgbEnergy(readFrame(window)) > 20);
+                        } finally {
+                            pipeline.close();
+                        }
+                    }
                 } finally {
                     asset.close();
                 }
@@ -570,16 +624,18 @@ class GltfRuntimeGlTest {
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
                     "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())) {
                 Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)));
-                asset.instantiate(new Matrix4f().translation(-0.4f, -0.4f, 0.0f), false)
+                asset.instantiate(new Matrix4f().translation(-0.4f, -0.4f, 0.0f), true)
                         .forEach(scene::add);
-                scene.addLight(SceneLight.directional(new Vector3f(0.0f, 0.0f, -1.0f),
+                scene.addLight(SceneLight.shadowedDirectional(new Vector3f(0.0f, 0.0f, -1.0f),
                         new Vector3f(1.0f), 3.0f));
                 RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                         RenderSettings.builder()
                                 .toneMappingMode(ToneMappingMode.ACES)
                                 .bloomSettings(BloomSettings.disabled())
                                 .vsync(false)
-                                .build(), environment);
+                                .build(), environment)
+                        .directionalCascades(new DirectionalCascadeSettings(
+                                4, 1024, 0.6f, 0.08f));
                 try {
                     pipeline.build();
                     pipeline.execute(device);
@@ -591,6 +647,7 @@ class GltfRuntimeGlTest {
                     assertTrue(Math.abs(centerEnergy - cornerEnergy) > 5,
                             "glTF object pixel must differ from environment background");
                     assertEquals(GL_NO_ERROR, glGetError());
+                    assertEquals(4, pipeline.lastDirectionalCascadeMatrices().size());
                 } finally {
                     pipeline.close();
                 }

@@ -31,6 +31,11 @@ public interface SceneDrawBinding {
         return skinningEnabled() || morphTargetCount() > 0;
     }
 
+    /** Revision of deformation inputs that can change conservative visibility bounds. */
+    default long boundsRevision() {
+        return 0L;
+    }
+
     enum Pass {
         FORWARD,
         SHADOW

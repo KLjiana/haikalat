@@ -60,6 +60,11 @@ final class SkinSceneDrawBinding implements SceneDrawBinding, AutoCloseable {
         return true;
     }
 
+    @Override
+    public long boundsRevision() {
+        return palette.revision();
+    }
+
     JointPalette palette() {
         return palette;
     }
