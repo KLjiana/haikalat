@@ -113,7 +113,7 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                                     long modelUpdateNanos, long boundsTransformNanos,
                                     long frustumTestNanos, long queueSortNanos,
                                     long totalQueueBuildNanos, long opaqueDraws,
-                                    long additiveDraws, long alphaDraws,
+                                    long maskedDraws, long additiveDraws, long alphaDraws,
                                     long shaderChanges, long materialChanges,
                                     long meshChanges, long blendChanges,
                                     long mirroredChanges, long commandRecordNanos,
@@ -127,7 +127,7 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                                  long modelUpdateNanos, long boundsTransformNanos,
                                  long frustumTestNanos, long queueSortNanos,
                                  long totalQueueBuildNanos, long opaqueDraws,
-                                 long additiveDraws, long alphaDraws,
+                                 long maskedDraws, long additiveDraws, long alphaDraws,
                                  long shaderChanges, long materialChanges,
                                  long meshChanges, long blendChanges,
                                  long mirroredChanges) {
@@ -137,7 +137,7 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                     candidateRenderers, 0L, candidateRenderers, false, true,
                     false, true, modelUpdateNanos, boundsTransformNanos,
                     frustumTestNanos, queueSortNanos, totalQueueBuildNanos,
-                    opaqueDraws, additiveDraws, alphaDraws, shaderChanges,
+                    opaqueDraws, maskedDraws, additiveDraws, alphaDraws, shaderChanges,
                     materialChanges, meshChanges, blendChanges, mirroredChanges,
                     0L, 0L, 0L, 0L);
         }
@@ -149,7 +149,7 @@ public record DiagnosticsSnapshot(long epoch, long frameSequence, long presented
                     dynamicRenderers, modelCacheHits, modelCacheMisses, boundsCacheHits,
                     boundsCacheMisses, forwardQueueReused, forwardQueueRebuilt,
                     shadowQueueReused, shadowQueueRebuilt, 0L, 0L, 0L, 0L,
-                    totalQueueBuildNanos, opaqueDraws, additiveDraws, alphaDraws,
+                    totalQueueBuildNanos, opaqueDraws, maskedDraws, additiveDraws, alphaDraws,
                     0L, 0L, 0L, 0L, 0L, commandRecordNanos, recordedCommands,
                     recordedMatrixSnapshots, recordedObjectPayloads);
         }

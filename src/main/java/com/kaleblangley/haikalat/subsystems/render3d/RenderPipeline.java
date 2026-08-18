@@ -943,7 +943,10 @@ public final class RenderPipeline {
         int draws = 0;
         for (int entry = 0; entry < frame.rendererCount(); entry++) {
             MeshRenderer renderer = frame.renderer(entry);
-            if (!renderer.castShadows()) continue;
+            if (!renderer.castShadows()
+                    || !RenderQueueClass.classify(renderer.material()).castsOpaqueShadow()) {
+                continue;
+            }
             ShaderProgram entryShader = shadowShaderFor(renderer);
             if (entryShader != boundShader) {
                 cmd.bindShader(entryShader).setUniformMat4(entryShader, "uLightSpace", lightSpace);

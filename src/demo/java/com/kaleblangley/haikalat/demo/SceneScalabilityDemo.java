@@ -317,8 +317,9 @@ public final class SceneScalabilityDemo {
                 value.forwardQueueRebuilt(), value.shadowQueueReused(), value.shadowQueueRebuilt(),
                 value.modelUpdateNanos(),
                 value.boundsTransformNanos(), value.frustumTestNanos(), value.queueSortNanos(),
-                value.totalQueueBuildNanos(), value.opaqueDraws(), value.additiveDraws(),
-                value.alphaDraws(), value.shaderChanges(), value.materialChanges(),
+                value.totalQueueBuildNanos(), value.opaqueDraws(), value.maskedDraws(),
+                value.additiveDraws(), value.alphaDraws(), value.shaderChanges(),
+                value.materialChanges(),
                 value.meshChanges(), value.blendChanges(), value.mirroredChanges(),
                 value.commandRecordNanos(), value.recordedCommands(),
                 value.recordedMatrixSnapshots(), value.recordedObjectPayloads());

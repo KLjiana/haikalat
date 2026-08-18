@@ -19,11 +19,12 @@ current goals, capabilities, and non-goals.
   mesh data, instancing, upload flow, immutable frame snapshots, and materials.
 - GL-free scalar curves, cubic-bezier easing, Hermite property tracks, HDR color gradients,
   fixed-table cubic Bezier paths, and curve lookup tables shared by UI, animation, and VFX.
-- A forward 3D scene pipeline with basic Blinn-Phong lighting, fixed-size
+- A forward 3D scene pipeline with basic Blinn-Phong lighting, fixed-size 1-4 cascade
   directional shadows for ordinary and opt-in instanced casters, 3x3 PCF,
   linear HDR/ACES tone mapping, optional multi-level Bloom, explicit linear/sRGB textures,
   selectable none/MSAA/FXAA/TAA paths, finite/unbounded mesh bounds, stable camera/shadow
-  frustum culling, and primitive render queues that preserve transparent insertion order.
+  frustum culling, explicit MSAA color/depth resolve, and OPAQUE/MASKED/ALPHA/ADDITIVE
+  queues with stable camera-space transparent sorting.
 - Asset helpers for classpath resources, shader assets, texture caching,
   `.properties` scene configuration, the OBJ path exercised by the main demo,
   and glTF 2.0 static/skinned assets plus manifest/ZIP external JSON animation
@@ -55,12 +56,13 @@ current goals, capabilities, and non-goals.
   particles, and pre-tone-map HDR/Bloom composition while keeping UI outside Bloom.
 - Controlled OpenGL 4.6 experiments for compute/SSBO GPU particles without CPU readback and
   bounded screen-space volumetric spot lighting, with real-pixel and resource-stability checks.
-- Directional, six-face point-atlas and spot shadow passes, with a practical-split,
-  world-texel-stabilized directional cascade plan.
+- Directional, six-face point-atlas and spot shadow passes, with an operational 2-4 tile,
+  practical-split, world-texel-stabilized directional cascade atlas.
 - Demo proof paths for an empty present baseline, the combined scene pipeline, minimal command/window flow,
   CPU skeletal animation, async update/upload/render-thread interaction, a dedicated UiDemo,
-  a Milestone 4 animation/PBR/postprocess/VFX/UI showcase, and generated GPU-procedural
-  1000000-instance stress profiling.
+  a Milestone 4 animation/PBR/postprocess/VFX/UI showcase, a dedicated v0.23 Render3D
+  queue/MASK/Fog+MSAA/CSM/diagnostics scene, and generated GPU-procedural 1000000-instance
+  stress profiling.
 - Bounded runtime diagnostics with frame/pass sample identity, RenderGraph inspection, structured GL messages,
   tracked resources, scene visibility/queue statistics, an F2 retained UI panel, frozen history,
   and deterministic schema-v1 JSON capture.
@@ -110,6 +112,13 @@ Run the hidden deterministic baseline scene for eight frames:
 
 ```powershell
 .\gradlew.bat runDemoIntegration
+```
+
+Run the interactive Render3D v0.23 proof scene, or its hidden finite contract check:
+
+```powershell
+.\gradlew.bat runRender3dV023Demo
+.\gradlew.bat runRender3dV023Integration
 ```
 
 Run deterministic resize/async integrations or the complete local GL verification:

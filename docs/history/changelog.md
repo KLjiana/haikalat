@@ -1,5 +1,36 @@
 # 变更记录
 
+## v0.23.0（2026-08-18）
+
+**主题**：Render3D 框架加固与能力扩展
+
+### 渲染框架
+
+- 新增六域 scene revision、不可变 `RenderFrameContext`、显式 `PipelineTopology` 与
+  candidate-first `PipelineGeneration`；resize、standalone 和 embedded 共享同一代次/回滚合同。
+- 普通 3D draw 明确分为 OPAQUE、MASKED、ALPHA 和 ADDITIVE 四类 queue；ALPHA 使用
+  camera-space back-to-front 稳定排序，opaque-only 场景不承担透明排序成本。
+- glTF `BLEND` 已贯通 decode、PBR、queue 和资源生命周期；MASK 主 pass 与 shadow pass 共享
+  alpha cutoff。ALPHA/ADDITIVE 默认不再按不透明 caster 写入方向光阴影。
+- Fog + MSAA 使用显式、带 format/sample/extent 校验的 depth resolve；非 MSAA 路径不创建额外
+  resolve 资源，resize 事务式替换相关 target。
+- 方向光阴影增加 2～4 级 practical-split CSM、world-texel snapping、固定 atlas、split blend
+  和 tile-safe 3x3 PCF；每个 tap 被限制在所选 cascade tile 的半 texel 内边界。
+
+### 诊断、验证与兼容性
+
+- `Render3dDiagnostics` 增加 revision/invalidation、generation、四类 queue、visibility、shadow、
+  depth-resolve、cache 与 failure-stage 摘要；通用 schema-v1 visibility 导出同步增加
+  `maskedDraws` 并保持计数恒等式。
+- 新增 `runRender3dV023Demo` 和 `runRender3dV023Integration`，同场景覆盖四类 queue、MASK
+  shadow、Fog + 4x MSAA、4 级 CSM、resize 与 diagnostics；4096 阴影 atlas 为四级 cascade
+  提供每 tile 2048x2048 的采样分辨率。
+- 保持 `Scene.add/remove`、既有 `BlendMode`、默认 opaque material、单级方向光阴影和无 MSAA
+  fast path 兼容。新增 Render3D value/configuration 类型已进入公共 API 分类。
+- 透明排序仍为对象级，mesh 内部自相交不保证正确；不提供透明阴影、OIT、transmission、
+  分级 caster 空间索引或 GPU occlusion。10,000 对象代表基准未达到 CPU spatial index 准入门槛，
+  因此本版本明确不实现 BVH/AABB tree。
+
 ## v0.22.2（2026-08-18）
 
 **主题**：共享骨架的外部 GLB 动画补丁

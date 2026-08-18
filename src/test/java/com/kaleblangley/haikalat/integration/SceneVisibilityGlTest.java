@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
@@ -75,6 +76,59 @@ class SceneVisibilityGlTest {
                         "一个 SceneObject 的 override 不得串到共享 Material 的另一个对象");
             } finally {
                 material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void defaultTransparentSceneObjectsDoNotEnterTheOpaqueShadowQueue() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("transparent-shadow-policy"));
+            ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+            Material opaque = Material.builder(shader).build();
+            Material alpha = Material.builder(shader).blendMode(BlendMode.ALPHA).build();
+            Material additive = Material.builder(shader).blendMode(BlendMode.ADDITIVE).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)))
+                    .addLight(SceneLight.shadowedDirectional(new Vector3f(-1, -2, -1),
+                            new Vector3f(1), 1.0f))
+                    .addLight(SceneLight.shadowedPoint(new Vector3f(0, 2, 2),
+                            new Vector3f(1), 1.0f, 10.0f))
+                    .addLight(SceneLight.shadowedSpot(new Vector3f(0, 3, 3),
+                            new Vector3f(0, -1, -1), new Vector3f(1), 1.0f, 10.0f,
+                            (float) Math.toRadians(15.0), (float) Math.toRadians(25.0)));
+            // SceneObject.fixed defaults castShadows to true for all three materials.
+            scene.add(SceneObject.fixed(mesh, opaque, new org.joml.Matrix4f()));
+            scene.add(SceneObject.fixed(mesh, alpha,
+                    new org.joml.Matrix4f().translation(-0.5f, 0.0f, 0.0f)));
+            scene.add(SceneObject.fixed(mesh, additive,
+                    new org.joml.Matrix4f().translation(0.5f, 0.0f, 0.0f)));
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                    RenderSettings.builder().vsync(false).build());
+            try {
+                pipeline.build();
+                pipeline.execute(new GlRenderDevice());
+                RenderPipeline.VisibilityStatistics statistics =
+                        pipeline.lastVisibilityStatistics();
+                assertAll(
+                        () -> assertEquals(1, statistics.shadowCandidates()),
+                        () -> assertEquals(1, statistics.shadowVisible()),
+                        () -> assertEquals(1, pipeline.lastShadowCasterDrawCount()),
+                        () -> assertEquals(6, pipeline.lastPointShadowCasterDrawCount()),
+                        () -> assertEquals(1, pipeline.lastSpotShadowCasterDrawCount()),
+                        () -> assertEquals(1, statistics.opaqueDraws()),
+                        () -> assertEquals(1, statistics.alphaDraws()),
+                        () -> assertEquals(1, statistics.additiveDraws()));
+                GlDebug.assertNoError("SceneVisibilityGlTest.transparent-shadow-policy");
+            } finally {
+                pipeline.close();
+                additive.close();
+                alpha.close();
+                opaque.close();
                 shader.close();
                 mesh.close();
             }

@@ -432,7 +432,8 @@ public final class DiagnosticsJsonExporter {
                 visibility.boundsCacheMisses(), visibility.modelUpdateNanos(),
                 visibility.boundsTransformNanos(), visibility.frustumTestNanos(),
                 visibility.queueSortNanos(), visibility.totalQueueBuildNanos(),
-                visibility.opaqueDraws(), visibility.additiveDraws(), visibility.alphaDraws(),
+                visibility.opaqueDraws(), visibility.maskedDraws(), visibility.additiveDraws(),
+                visibility.alphaDraws(),
                 visibility.shaderChanges(), visibility.materialChanges(), visibility.meshChanges(),
                 visibility.blendChanges(), visibility.mirroredChanges(),
                 visibility.commandRecordNanos(), visibility.recordedCommands(),
@@ -450,7 +451,8 @@ public final class DiagnosticsJsonExporter {
                 != visibility.candidateRenderers()
                 || visibility.shadowVisible() + visibility.shadowCulled()
                 != visibility.shadowCandidates()
-                || visibility.opaqueDraws() + visibility.additiveDraws() + visibility.alphaDraws()
+                || visibility.opaqueDraws() + visibility.maskedDraws()
+                + visibility.additiveDraws() + visibility.alphaDraws()
                 != visibility.forwardVisible()) {
             throw new IllegalArgumentException("scene visibility counters are inconsistent");
         }
@@ -496,6 +498,7 @@ public final class DiagnosticsJsonExporter {
         json.writeNumberField("queueSortNanos", visibility.queueSortNanos());
         json.writeNumberField("totalQueueBuildNanos", visibility.totalQueueBuildNanos());
         json.writeNumberField("opaqueDraws", visibility.opaqueDraws());
+        json.writeNumberField("maskedDraws", visibility.maskedDraws());
         json.writeNumberField("additiveDraws", visibility.additiveDraws());
         json.writeNumberField("alphaDraws", visibility.alphaDraws());
         json.writeNumberField("shaderChanges", visibility.shaderChanges());

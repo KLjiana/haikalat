@@ -396,7 +396,8 @@ final class SceneFrameBuilder {
             MeshRenderer renderer = scene.rendererAt(index);
             renderers[index] = renderer;
             allModelsImmutable &= renderer.immutableModel() && !renderer.drawBinding().deformsVertices();
-            queueClass[index] = RenderQueueClass.classify(renderer.material()).ordinal();
+            RenderQueueClass rendererQueue = RenderQueueClass.classify(renderer.material());
+            queueClass[index] = rendererQueue.ordinal();
             materialRevisions[index] = renderer.material().revision();
             shader[index] = renderer.material().material().shader().id();
             // 排序只按不可变 Material 模板分组。独立 MaterialInstance 的 override 仍由
@@ -409,7 +410,10 @@ final class SceneFrameBuilder {
             }
             material[index] = ordinal;
             mesh[index] = renderer.mesh().vertexArray().id();
-            castsShadow[index] = renderer.castShadows();
+            // Transparent shadow approximation is not part of the v0.23 contract. A caller
+            // retaining SceneObject's default castShadows=true must not silently turn an
+            // ALPHA/ADDITIVE object into an opaque depth caster.
+            castsShadow[index] = renderer.castShadows() && rendererQueue.castsOpaqueShadow();
             if (castsShadow[index]) shadowCandidateCount++;
             cacheValid[index] = false;
             cachedLocalBounds[index] = null;

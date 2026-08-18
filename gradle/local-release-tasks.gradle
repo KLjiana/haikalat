@@ -13,6 +13,7 @@ def localReleaseTasks = [
         'runShowcaseStabilityIntegration',
         'runPbrIntegration', 'runPbrResizeIntegration',
         'runPostProcessEffectsIntegration', 'runLocalShadowsIntegration',
+        'runRender3dV023Integration',
         'runGltfIntegration', 'runGltfResizeIntegration',
         'runGltfSkinningIntegration', 'runPlayerSlieIntegration',
         'runPlayerWildIntegration', 'runSerializedSceneIntegration', 'runUiIntegration',

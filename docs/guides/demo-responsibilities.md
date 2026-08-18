@@ -11,6 +11,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 | `AsyncDemo` | 双线程所有权和异步上传正确性 | GL render thread、latest-frame mailbox、upload queue、UBO、关闭顺序 | 大规模几何和完整光照 |
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
 | `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
+| `Render3dV023Demo` | v0.23 Render3D M3–M7 可交互纵向验收 | 四类 queue、故意逆序的重叠 ALPHA、MASK 主/阴影 pass、Fog + 4×MSAA depth resolve、4 级 CSM、culling/cache/generation diagnostics、resize | glTF parser/animation、点光/聚光 shadow、性能基准 |
 | `GltfDemo` | 静态、蒙皮与 Morph glTF 端到端证明 | accessor/node/material/skin/animation/weights、joint palette、per-instance Morph weights、PBR/shadow Morph-before-skin、生命周期 | Graph/IK、第二组关节权重、compute morph |
 | `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
 | `ModernUiDemo` | 独立现代游戏主界面与 v0.19 UI 纵向闭环 | 1280×720 双语战役主菜单、设置页、style class 主题、SDF 圆角、property timeline、显式 layer、UI VFX、reduced motion、像素证明 | editor timeline、offscreen subtree replay/cache、GPU particle |
@@ -64,8 +65,24 @@ Demo/application 层驱动 origin。`runVfxCurveBenchmark` 不创建 GL context�
 两个点光、HDR environment 和 UI 参数面板。确定性参数包括
 `--frames=N --hidden --environment-quality=test|default --auto-exposure=on|off`
 ` --bloom=on|off --color-grading=on|off --fog=on|off`
-` --aa=none|fxaa|msaa|msaa-fxaa|taa`；雾当前与 MSAA 组合会明确拒绝，性能入口另支持
+` --aa=none|fxaa|msaa|msaa-fxaa|taa`；Fog + MSAA 会走显式 depth resolve，性能入口另支持
 `--warmup=N --size=WIDTHxHEIGHT`。
+
+## Render3dV023Demo
+
+```powershell
+.\gradlew.bat runRender3dV023Demo
+.\gradlew.bat runRender3dV023Integration
+```
+
+窗口默认使用 4×MSAA、ACES、距离/高度 Fog 和 4 级 4096² 固定 CSM atlas，每级 tile 为
+2048²。前排依次展示
+OPAQUE、带 checker cutoff 的 MASK、故意按 near-before-far 插入的重叠 ALPHA，以及 ADDITIVE；
+远处 landmark 用于观察 Fog 和 cascade 过渡，另有一个视锥外对象固定产生 culling 统计。
+`WASD + 鼠标` 移动相机，`ESC` 退出；标题栏显示四类 queue、visible/culled、cascade count、
+depth resolve sample 数和 forward queue cache hit/rebuild。隐藏入口固定运行 12 帧，在第 6 帧从
+640×360 resize 到 800×450，并断言上述渲染与 diagnostics 合同。可用参数为
+`--hidden --frames=N --size=WxH --resize=FRAME:WxH --environment-quality=test|default --verify`。
 
 ## GltfDemo
 

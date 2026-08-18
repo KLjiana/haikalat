@@ -16,6 +16,7 @@ def registerDemoJavaExec = { taskName, taskGroup, descriptionText, mainClassName
 def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
+def render3dV023Main = 'com.kaleblangley.haikalat.demo.pbr.Render3dV023Demo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
 def animationBenchmarkMain =
@@ -122,6 +123,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=4', '--environment-quality=test', '--aa=none',
                  '--auto-exposure=off', '--bloom=off', '--local-shadows=on'],
                 'Runs directional, six-face point and spot shadow passes in one PBR scene.']
+        ,runRender3dV023Integration        : [render3dV023Main,
+                ['--hidden', '--frames=12', '--size=640x360', '--resize=6:800x450',
+                 '--environment-quality=test', '--verify'],
+                'Runs the v0.23 queues, MASK shadow, Fog + 4x MSAA, four-cascade and diagnostics proof.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
                 'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
@@ -274,6 +279,7 @@ tasks.register('localGlVerification') {
             'runVfxImpactIntegration', 'runVfxTrailIntegration',
             'runShowcaseIntegration', 'runShowcaseVfxMsaaIntegration',
             'runShowcaseVfxAutoExposureIntegration',
+            'runRender3dV023Integration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
@@ -346,6 +352,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain
+        ,runRender3dV023Demo: render3dV023Main
         ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
     registerDemoApplication(taskName,
@@ -400,6 +407,7 @@ tasks.register('localMilestone4Verification') {
 tasks.named('runShowcaseIntegration') { mustRunAfter 'runVfxIntegration' }
 tasks.named('runShowcaseVfxMsaaIntegration') { mustRunAfter 'runShowcaseIntegration' }
 tasks.named('runShowcaseVfxAutoExposureIntegration') { mustRunAfter 'runShowcaseVfxMsaaIntegration' }
+tasks.named('runRender3dV023Integration') { mustRunAfter 'runShowcaseVfxAutoExposureIntegration' }
 tasks.named('runShowcaseStabilityIntegration') { mustRunAfter 'runShowcaseIntegration' }
 
 tasks.named('runLearnOpenGlDemo', JavaExec) {

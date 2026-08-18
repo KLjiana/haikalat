@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Constructor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderQueueClassTest {
     @Test
@@ -26,6 +28,10 @@ class RenderQueueClassTest {
                 RenderQueueClass.classify(alpha.createInstance()));
         assertEquals(RenderQueueClass.TRANSPARENT_ADDITIVE,
                 RenderQueueClass.classify(additive.createInstance()));
+        assertTrue(RenderQueueClass.OPAQUE.castsOpaqueShadow());
+        assertTrue(RenderQueueClass.MASKED.castsOpaqueShadow());
+        assertFalse(RenderQueueClass.TRANSPARENT_ALPHA.castsOpaqueShadow());
+        assertFalse(RenderQueueClass.TRANSPARENT_ADDITIVE.castsOpaqueShadow());
 
         var override = opaque.createInstance().setFloat("uAlphaCutoff", 0.25f);
         assertEquals(RenderQueueClass.MASKED, RenderQueueClass.classify(override));

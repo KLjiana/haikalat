@@ -29,6 +29,34 @@ class ScenePipelineTest {
     }
 
     @Test
+    void cascadedPcfClampsBoundaryTapsToTheSelectedAtlasTile() throws IOException {
+        String source;
+        try (var stream = ScenePipelineTest.class.getResourceAsStream(
+                "/shaders/render3d/pbr/pbr-forward.frag")) {
+            assertTrue(stream != null);
+            source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        assertTrue(source.contains("vec2 tileMinimum = offset + texel * 0.5"));
+        assertTrue(source.contains("vec2 tileMaximum = offset + scale - texel * 0.5"));
+        assertTrue(source.contains("clamp(projected.xy + vec2(x, y) * texel,"));
+
+        // A 4x4 atlas split into two horizontal tiles has a 0.25 atlas texel and
+        // half-texel-safe bounds [0.125, 0.375] for the first tile. Even the +1 tap
+        // from a projected coordinate at the internal edge must not enter tile two.
+        float texel = 0.25f;
+        float tileMinimum = 0.5f * texel;
+        float tileMaximum = 0.5f - 0.5f * texel;
+        float projectedAtInternalEdge = 0.5f;
+        for (int tap = -1; tap <= 1; tap++) {
+            float sample = Math.max(tileMinimum,
+                    Math.min(tileMaximum, projectedAtInternalEdge + tap * texel));
+            assertTrue(sample >= tileMinimum && sample <= tileMaximum);
+            assertTrue(sample < 0.5f, "PCF tap crossed into the adjacent cascade tile");
+        }
+    }
+
+    @Test
     void sceneTracksLightsAndShadowCastingDirectionalLight() {
         Scene scene = new Scene(new Camera());
         SceneLight fill = SceneLight.point(new Vector3f(1, 2, 3), new Vector3f(1, 0.8f, 0.7f), 2.0f, 10.0f);

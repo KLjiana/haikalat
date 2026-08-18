@@ -67,11 +67,24 @@ projection，不改变分类。方向光 shadow queue 使用固定 shadow light-
 camera 外、shadow 内的 caster 仍会进入 shadow pass，反向情况不会提交无效 shadow draw。
 unbounded 对象在两套视锥中都保守保留。
 
-forward queue 只保存 primitive renderer index。OPAQUE/ADDITIVE 按 blend → shader → material → mesh →
-insertion index 稳定排序，ALPHA 始终位于最后并保持用户 insertion order；shadow queue 按 mesh 和
-insertion index 排序。queue 不公开 renderer list、matrix arena、native key 或可修改入口。
+forward queue 只保存 primitive renderer index。OPAQUE/MASKED 按 shader → material → mesh →
+insertion index 稳定排序，ALPHA 按 camera-space depth back-to-front 排序并以 insertion index 稳定
+打破平局，ADDITIVE 保持提交顺序。shadow queue 只接收 OPAQUE/MASKED caster 并按 mesh 与 insertion
+index 排序；普通 ALPHA/ADDITIVE 即使沿用 `SceneObject` 的 `castShadows=true` 默认值，也不会静默按
+不透明对象写入 shadow depth。queue 不公开 renderer list、matrix arena、native key 或可修改入口。
 `RenderSettings.sceneVisibility(false)` 只关闭 classification 删除，仍经过相同 updater、world-bounds、
 queue 和 draw 路径，用于同机场景 A/B，不改变 RenderGraph topology。
+
+每帧开始时，`SceneRevisionSnapshot` 捕获 membership、transform/model、lighting、material/render-state、
+camera 和 topology/settings 六类 revision；`FrameInvalidation` 只失效受影响的 queue、shadow 或
+generation cache。pass callback 读取不可变 `RenderFrameContext`，不直接观察执行途中的可变 Scene/
+Camera。改变 extent、sample、Fog、cascade 或 shadow topology 时，`RenderPipeline` 先构建并验证
+candidate `PipelineGeneration`，成功后原子切换并退休旧代次；失败时旧 active generation 保持可用。
+
+MSAA Fog 的深度来源必须通过显式 `DepthResolveDescriptor` 校验 format/sample/extent 后 resolve 为
+单采样 depth；非 MSAA 路径直接读取 geometry depth，不创建 resolve target。方向光 CSM 使用固定
+2～4 tile atlas，窗口 resize 不重建 atlas；PBR 的 3x3 PCF 每个 tap 都 clamp 到当前 tile 的半
+texel 内边界，不能跨 tile 读取相邻 cascade。
 
 ## HDR And Tone Mapping Boundary
 

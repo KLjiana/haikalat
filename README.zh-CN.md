@@ -19,8 +19,9 @@
   不可变帧快照和材质系统。
 - 无 GL 依赖的共享曲线基础：cubic-bezier easing、Hermite 属性轨道、HDR 颜色渐变、
   固定弧长表三次 Bezier 空间路径和曲线 LUT。
-- Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化方向光阴影、3x3 PCF、
-  显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom，以及 none、MSAA、FXAA、TAA 路径。
+- Forward 3D 场景管线，包含基础 Blinn-Phong 光照、普通/实例化 1～4 级方向光阴影、3x3 PCF、
+  显式 linear/sRGB 纹理、线性 HDR/ACES 色调映射、可选多级 Bloom、none/MSAA/FXAA/TAA、
+  MSAA color/depth resolve，以及带稳定相机深度排序的 OPAQUE/MASKED/ALPHA/ADDITIVE 队列。
 - 资产辅助能力：classpath 资源定位、shader asset、纹理缓存、`.properties` 场景配置，
   以及已接入主 Demo 的 OBJ 模型链路和专用 Demo 验证的静态/蒙皮 glTF 2.0 链路；
   外部 JSON 动画库支持清单目录与 ZIP 直接加载，并可合并到模型已有动画。
@@ -33,8 +34,8 @@
 - UI 新增无 GL 依赖的 visual/layout Tween 与 Transition，支持 linear/cubic/spring easing、延迟、取消和同通道替换。
 - 无 GL 依赖的确定性 VFX subsystem：有界粒子、Ribbon、Decal、over-life 和纯值纹理材质；render3d adapter 支持 R8/sRGB mask、Alpha/Additive emissive、billboard/stretch、场景深度 soft particle，以及 tone mapping 前的 HDR/Bloom 合成，UI 保持在 Bloom 之外。
 - OpenGL 4.6 受控实验：无 CPU readback 的 Compute/SSBO GPU 粒子，以及固定 4～128 步的屏幕空间体积聚光；真实像素和资源稳定性均有自动验证。
-- 阴影支持方向光、3×2 六面点光 atlas 和聚光 depth map，并提供 practical split、world-texel 稳定的方向光级联方案。
-- Demo 证明路径包括空窗口/present 基线、综合场景管线、最小命令流、CPU 骨架动画、异步更新与渲染线程协作、Milestone 4 动画/PBR/后处理/VFX/UI 同帧场景，以及自动生成 GPU procedural shader 的 100 万实例压力分析。
+- 阴影支持方向光、3×2 六面点光 atlas 和聚光 depth map，并实现 2～4 tile practical split、world-texel 稳定的方向光级联 atlas。
+- Demo 证明路径包括空窗口/present 基线、综合场景管线、最小命令流、CPU 骨架动画、异步更新与渲染线程协作、Milestone 4 动画/PBR/后处理/VFX/UI 同帧场景、v0.23 Render3D queue/MASK/Fog+MSAA/CSM/diagnostics 专项场景，以及自动生成 GPU procedural shader 的 100 万实例压力分析。
 - 有界运行时诊断：帧/pass 样本身份、RenderGraph 检查、结构化 GL 消息、资源追踪、F2 retained UI 面板、冻结历史和确定性 schema-v1 JSON 导出。
 
 主 Demo 是稳定基准场景，包含 receiver、普通与实例化 caster、纹理/纯色材质、方向光、点光，以及显式启用的 ACES HDR/FXAA。
@@ -76,6 +77,13 @@ CI 使用相同的非窗口路径，并额外编译 Demo 源码：
 
 ```powershell
 .\gradlew.bat runDemoIntegration
+```
+
+交互运行 Render3D v0.23 专项场景，或执行隐藏有限帧合同验收：
+
+```powershell
+.\gradlew.bat runRender3dV023Demo
+.\gradlew.bat runRender3dV023Integration
 ```
 
 执行 resize、异步渲染线程和全部本地 GL 验收：

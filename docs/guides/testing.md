@@ -153,6 +153,8 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runPbrFailureIntegration
 .\gradlew.bat runPostProcessEffectsIntegration
 .\gradlew.bat runLocalShadowsIntegration
+.\gradlew.bat runRender3dV023Demo
+.\gradlew.bat runRender3dV023Integration
 .\gradlew.bat localPbrVerification
 .\gradlew.bat runGltfIntegration
 .\gradlew.bat runGltfSkinningIntegration
@@ -200,7 +202,7 @@ glTF 默认测试保持无窗口：`.gltf/.glb`、external/data/GLB embedded 资
 与 normalized attribute、sparse accessor、node graph/transform、normal/tangent 生成、URI root
 约束、skin/inverse-bind/animation、STEP/LINEAR/CUBICSPLINE、四影响权重规范化、结构化错误、
 百万元素零基底 sparse accessor、sparse indices/values 完整范围、
-`radio.gltf` MASK/cutoff 保留和 BLEND 拒绝都在普通 `test` 中执行。
+`radio.gltf` MASK/cutoff 保留、BLEND decode/default/double-sided/异常输入都在普通 `test` 中执行。
 `localGltfVerification` 额外创建隐藏 OpenGL 4.6 context，验证 embedded PNG、同一 image 的
 sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、PBR 与方向光 shadow GPU 蒙皮、四阶段上传失败清理、library active-asset
 guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及包含 showcase/radio/creeper 共
@@ -211,8 +213,9 @@ PageUp/PageDown 或 Home/End 检查长资产树，F2 隐藏面板。
 `runGltfSharedAnimationIntegration` 和 `localGltfVerification` 自动执行。
 
 `runPostProcessEffectsIntegration` 和 `PostProcessEffectsGlTest` 以隐藏窗口验证 Color Grading LUT、
-距离/高度雾、深度重建、最终像素变化和 resize；雾与 MSAA 的未实现深度 resolve 组合会在分配 GL
-资源前明确失败。`runUiIntegration` 同时验证 header fade、spring layout transition 和最终 UI 像素。
+距离/高度雾、深度重建、最终像素变化和 resize；`runRender3dV023Integration` 额外验证 Fog 从
+4x MSAA 显式 resolved depth 取样、resize 后 target 代次替换，以及固定 CSM atlas 不随窗口重建。
+`runUiIntegration` 同时验证 header fade、spring layout transition 和最终 UI 像素。
 
 Milestone 3 VFX 默认测试覆盖固定种子、容量/寿命、Ribbon 采样、Decal 淘汰、透明稳定排序和
 `EffectAsset/EffectInstance` 关闭顺序。`VfxRendererGlTest` 验证三类 primitive 的实际像素与 GL
@@ -254,6 +257,17 @@ Run every local check that requires a desktop OpenGL environment:
 ```
 
 `localGlVerification` also depends on `localUiVerification`, runs MinimalDemo's sRGB LDR target, the deterministic CPU skeletal-animation proof, the full-GPU automatic-exposure transition, the no-draw empty-window check, the 100000-instance triangle/quad/flattened-cube checks, and dedicated indexed Cube plus indexed+compact-SSBO Cube integrations. It is intentionally not attached to the default `check` task, so headless CI remains safe.
+
+v0.23 的窗口化纵向证明可单独运行：
+
+```powershell
+.\gradlew.bat runRender3dV023Demo
+.\gradlew.bat runRender3dV023Integration --rerun-tasks
+```
+
+交互入口使用 4096x4096 固定方向光 atlas；4 级 CSM 时每个 tile 为 2048x2048。隐藏入口固定
+12 帧并在中途 resize，硬断言四类 queue、MASK caster、depth resolve、cascade 数、缓存与
+diagnostics。该任务创建 GLFW/OpenGL 窗口，只属于本地桌面验证，不接入无桌面默认 `check`。
 
 The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, linear/sRGB texture sampling, single-encoded mid-gray output across all LDR AA modes and HDR/ACES, RGBA16F values above 1.0, ACES exposure changes, R16F log-luminance plus RG32F sum/weight reduction/history, 9×1 and 1280×1 edge weighting, a 1×1-to-47×33 resize topology regression, fullscreen state ownership, HDR resize, disabled/enabled Bloom pixels across all four AA paths, the 40-case legal UI/pipeline matrix, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with one upload reused by two passes, reverse cleanup after a geometry-stage failure, next-frame ring reuse, an async UBO upload that drives instanced final pixels, PBR device-cache recovery after runtime environment preprocessing, shared legacy/PBR model variants, canonical tangent fail-fast, and three injected IBL preprocessing cleanup stages. Unit tests verify primitive-only state packets, boundary separation, relative target sizing, packed-instance quantization, uint8 topology/winding, HDR/Bloom/LDR-present pass order, exposure/Bloom validation, frame-rate-independent adaptation, topology-preserving dynamic light replacement, ACES reference behavior, range-limited inverse-square PBR falloff, sRGB/float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.
 

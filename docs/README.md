@@ -65,6 +65,7 @@
 - [序列化场景 v1](guides/serialized-scenes.md)
 - [场景异步加载与热重载](guides/scene-asset-loading.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
+- [Render3D 材质、透明与阴影指南](guides/render3d-materials-and-shadows.md)
 - [Milestone 4 API、性能与限制](guides/milestone4-api-performance-limitations.md)
 - [Windows IME 适配与人工验收矩阵](guides/windows-ime.md)
 
@@ -88,6 +89,7 @@
 - [v0.20.1 可嵌入渲染 snapshot 验收报告](releases/v0.20.1-snapshot-report.md)
 - [v0.20.2 外部动画与现代游戏 UI 正式版验收报告](releases/v0.20.2-release-report.md)
 - [v0.22.0 文本子系统与 Markdown/UI 字体特效正式版验收报告](releases/v0.22.0-release-report.md)
+- [v0.23.0 Render3D 框架加固与能力扩展正式版验收报告](releases/v0.23.0-release-report.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
 - [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)
 - [glTF Animation Graph sidecar 指南](guides/gltf-animation-state-machine.md)

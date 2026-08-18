@@ -181,7 +181,7 @@ class FrameDiagnosticsTest {
                 8, 2, 8, 2, 9, 1,
                 true, false, false, true,
                 11, 12, 13, 14, 60,
-                5, 1, 1, 2, 3, 4, 1, 1,
+                4, 1, 1, 1, 2, 3, 4, 1, 1,
                 15, 16, 17, 18));
         RenderStatistics statistics = new RenderStatistics();
         statistics.beginFrame();
@@ -194,6 +194,7 @@ class FrameDiagnosticsTest {
         assertEquals(7, visibility.forwardVisible());
         assertEquals(3, visibility.forwardCulled());
         assertEquals(60, visibility.totalQueueBuildNanos());
+        assertEquals(1, visibility.maskedDraws());
         assertEquals(0, visibility.modelUpdateNanos());
         assertEquals(0, visibility.shaderChanges());
         assertEquals(8, visibility.staticRenderers());
@@ -212,6 +213,7 @@ class FrameDiagnosticsTest {
         assertTrue(json.contains("\"candidateRenderers\" : 10"));
         assertTrue(json.contains("\"forwardVisible\" : 7"));
         assertTrue(json.contains("\"totalQueueBuildNanos\" : 60"));
+        assertTrue(json.contains("\"maskedDraws\" : 1"));
         assertTrue(json.contains("\"modelCacheHits\" : 8"));
         assertTrue(json.contains("\"forwardQueueReused\" : true"));
         assertTrue(json.contains("\"recordedMatrixSnapshots\" : 17"));

@@ -57,7 +57,7 @@ backbuffer、未注册外部纹理和通用资源导出保持不支持。Nsight/
 ## Scene visibility
 
 主 Demo 的 Overview 和 schema-v1 `scene.visibility` section 显示普通 renderer 的候选、有限/
-unbounded、forward 可见/裁剪、shadow 候选/可见/裁剪、opaque/additive/alpha draw、相邻 shader/
+unbounded、forward 可见/裁剪、shadow 候选/可见/裁剪、opaque/masked/additive/alpha draw、相邻 shader/
 material/mesh/blend/mirrored 变化，以及 model、bounds、frustum、sort 和总 queue build 时间。
 v0.17 还显示 static/dynamic、model/bounds hit/miss、forward/shadow reuse/rebuild、command record、
 recorded command、primitive matrix snapshot 与 object payload。它们都是冻结后的计数值，不暴露 live
@@ -65,3 +65,10 @@ SceneFrame、矩阵 arena 或 renderer 引用。
 必须满足 `visible + culled == candidates`；shadow 使用自己的候选等式。BASIC 保留计数和总时间，
 DETAILED 才保留各阶段时间与 key-change 明细；两种层级都不会导出逐对象矩阵或 renderer 列表。
 SceneFrame 构建失败时该帧 visibility 为 unavailable，不复用上一成功帧的值。
+
+v0.23 的 `Render3dDiagnostics` 是按需生成的有界值快照，不保留 renderer、矩阵或 GL id。它记录
+六域 revision/invalidation、active/candidate/retired generation、四类 queue、可见性、cascade
+split/caster、depth resolve source/target sample、queue/shadow/pipeline cache 和失败阶段。
+`runRender3dV023Demo` 将关键字段显示在标题栏；`runRender3dV023Integration` 对 resize 前后快照
+执行合同断言。通用 schema-v1 的 forward 恒等式为
+`opaqueDraws + maskedDraws + additiveDraws + alphaDraws == forwardVisible`。

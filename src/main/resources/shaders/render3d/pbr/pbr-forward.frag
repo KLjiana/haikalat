@@ -121,9 +121,13 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     vec2 offset = vec2(float(cascade % columns), float(cascade / columns)) * scale;
     projected.xy = projected.xy * scale + offset;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    vec2 tileMinimum = offset + texel * 0.5;
+    vec2 tileMaximum = offset + scale - texel * 0.5;
     float shadow = 0.0;
     for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
-        float closest = texture(uShadowMap, projected.xy + vec2(x, y) * texel).r;
+        vec2 sampleUv = clamp(projected.xy + vec2(x, y) * texel,
+                tileMinimum, tileMaximum);
+        float closest = texture(uShadowMap, sampleUv).r;
         shadow += projected.z - bias > closest ? 1.0 : 0.0;
     }
     return shadow / 9.0;

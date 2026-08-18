@@ -338,6 +338,7 @@ final class DiagnosticsPanel {
                         + "\nshadow %,d / %,d\nunbounded %,d\nqueue %.3f ms"
                         + "\nstatic/dynamic %,d/%,d model hit %,d bounds hit %,d"
                         + "\nqueue reuse forward/shadow %s/%s"
+                        + "\nqueue draws opaque/masked/alpha/additive %,d/%,d/%,d/%,d"
                         + "\ncommands %,d matrices %,d objects %,d"
                         + "\nqueue changes shader/material/mesh %,d/%,d/%,d",
                 visibility.cullingEnabled() ? "enabled" : "disabled",
@@ -347,6 +348,8 @@ final class DiagnosticsPanel {
                 visibility.staticRenderers(), visibility.dynamicRenderers(),
                 visibility.modelCacheHits(), visibility.boundsCacheHits(),
                 visibility.forwardQueueReused(), visibility.shadowQueueReused(),
+                visibility.opaqueDraws(), visibility.maskedDraws(),
+                visibility.alphaDraws(), visibility.additiveDraws(),
                 visibility.recordedCommands(), visibility.recordedMatrixSnapshots(),
                 visibility.recordedObjectPayloads(),
                 visibility.shaderChanges(), visibility.materialChanges(),

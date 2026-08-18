@@ -29,4 +29,8 @@ enum RenderQueueClass {
         return value instanceof UniformValue.FloatVal cutoff && cutoff.value() > 0.0f
                 ? MASKED : OPAQUE;
     }
+
+    boolean castsOpaqueShadow() {
+        return this == OPAQUE || this == MASKED;
+    }
 }
