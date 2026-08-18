@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.assets.ResourceLocator;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationSet;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLimits;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfLoadOptions;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
@@ -44,6 +45,8 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.stream.IntStream;
 
@@ -238,6 +241,65 @@ class GltfRuntimeGlTest {
                 library.close();
             }
         }
+    }
+
+    @Test
+    void sharedGlbAnimationSetUploadsAndDrivesAnotherModel() throws Exception {
+        String source = SkinnedGltfFixture.document();
+        java.nio.file.Files.write(temporaryDirectory.resolve("animations.glb"),
+                glb(source, payload(source)));
+        java.nio.file.Files.writeString(temporaryDirectory.resolve("model.gltf"),
+                withoutAnimations(source), StandardCharsets.UTF_8);
+
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GltfAssetLoader loader = new GltfAssetLoader(
+                    ResourceLocator.classpath(getClass()).addRoot(temporaryDirectory));
+            var animationSet = loader.loadAnimationSet(AssetRef.of("animations.glb"));
+            LoadedGltfScene model = loader.load(AssetRef.of("model.gltf"));
+            GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+            GltfSceneAsset asset = GltfSceneAsset.upload(model, library);
+            GltfSceneInstance instance = asset.instantiateAnimated(new Matrix4f(), false,
+                    animationSet);
+            try {
+                instance.seek(1.0f);
+                assertEquals(java.util.List.of("lift"), instance.animationNames());
+                assertEquals(1.0f, instance.jointPaletteMatrix(0, 1).m31(), 1.0e-5f);
+                assertEquals(GL_NO_ERROR, glGetError());
+            } finally {
+                instance.close();
+                asset.close();
+                library.close();
+            }
+        }
+    }
+
+    private static String withoutAnimations(String json) {
+        int marker = json.lastIndexOf("\"animations\"");
+        int start = json.lastIndexOf(',', marker);
+        return json.substring(0, start) + "}";
+    }
+
+    private static byte[] payload(String json) {
+        int start = json.indexOf("\"buffers\":[");
+        int uri = json.indexOf("base64,", start) + "base64,".length();
+        int end = json.indexOf('"', uri);
+        return java.util.Base64.getDecoder().decode(json.substring(uri, end));
+    }
+
+    private static byte[] glb(String json, byte[] bin) {
+        byte[] rawJson = json.getBytes(StandardCharsets.UTF_8);
+        int jsonLength = (rawJson.length + 3) & ~3;
+        int binLength = (bin.length + 3) & ~3;
+        ByteBuffer output = ByteBuffer.allocate(12 + 8 + jsonLength + 8 + binLength)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        output.putInt(0x46546C67).putInt(2).putInt(output.capacity());
+        output.putInt(jsonLength).putInt(0x4E4F534A).put(rawJson);
+        while (output.position() < 20 + jsonLength) output.put((byte) 0x20);
+        output.putInt(binLength).putInt(0x004E4942).put(bin);
+        while (output.hasRemaining()) output.put((byte) 0);
+        return output.array();
     }
 
     @Test

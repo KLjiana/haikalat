@@ -205,6 +205,9 @@ registerAnimationVerificationTest('runGltfMorphIntegration',
         'Runs glTF morph decode, weights animation and pure-JVM sampling.',
         ['*.MorphWeightTrackTest', '*.GltfAnimationRigTest',
          '*.GltfAssetLoaderTest'], false)
+registerAnimationVerificationTest('runGltfSharedAnimationIntegration',
+        'Runs shared GLB animation-set binding and library clip-selection tests.',
+        ['*.GltfAnimationSetTest', '*.GltfAnimationLibraryTest'], false)
 registerAnimationVerificationTest('runGltfMorphSkinningIntegration',
         'Runs real-GL per-instance morph, PBR and directional-shadow verification.',
         ['*.GltfRuntimeGlTest.morphWeightsArePerInstanceAndDeformForwardAndShadowPasses',
@@ -216,7 +219,7 @@ tasks.register('animationJvmVerification') {
     description = 'Runs the no-desktop v0.18.3 animation and morph verification matrix.'
     dependsOn 'runAnimationGraphIntegration', 'runAnimationAdditiveIntegration',
             'runAnimationConstraintIntegration', 'runAnimationVfxBridgeIntegration',
-            'runGltfMorphIntegration'
+            'runGltfMorphIntegration', 'runGltfSharedAnimationIntegration'
 }
 
 tasks.register('animationGlVerification') {
@@ -456,7 +459,7 @@ tasks.named('runLocalShadowsIntegration') { mustRunAfter 'runPostProcessEffectsI
 tasks.register('localGltfVerification') {
     group = 'verification'
     description = 'Runs v0.13 glTF JVM/real-GL tests and deterministic scene integrations.'
-    dependsOn 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration',
+    dependsOn 'runGltfSharedAnimationIntegration', 'glSmoke', 'runGltfIntegration', 'runGltfResizeIntegration',
             'runGltfSkinningIntegration', 'runZombieIntegration',
             'runCrouchWalkIntegration', 'runPlayerSlieIntegration',
             'runPlayerWildIntegration', 'runSerializedSceneIntegration'

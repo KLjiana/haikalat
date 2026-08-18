@@ -206,6 +206,9 @@ sRGB/linear 双变体、PBR/IBL/HDR/ACES 最终像素、PBR 与方向光 shadow 
 guard、未选 MASK 场景不阻止 OPAQUE shadow instantiate，以及包含 showcase/radio/creeper 共
 16 个对象和 animated two-joint fixture 的独立 Demo/resize 链路。可见窗口中按 F1 切换 inspector 交互模式，使用滚轮、
 PageUp/PageDown 或 Home/End 检查长资产树，F2 隐藏面板。
+共享动画专项还覆盖 `GltfAnimationSetTest` 与 `GltfAnimationLibraryTest` 的 GLB 源、多模型
+绑定、严格 Rig 拒绝、clip 选择和关键帧引用复用；它们由
+`runGltfSharedAnimationIntegration` 和 `localGltfVerification` 自动执行。
 
 `runPostProcessEffectsIntegration` 和 `PostProcessEffectsGlTest` 以隐藏窗口验证 Color Grading LUT、
 距离/高度雾、深度重建、最终像素变化和 resize；雾与 MSAA 的未实现深度 resolve 组合会在分配 GL

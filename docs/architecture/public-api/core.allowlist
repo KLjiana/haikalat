@@ -74,6 +74,7 @@ stable com.kaleblangley.haikalat.core.presentation.PresentationTarget
 advanced com.kaleblangley.haikalat.core.upload.UploadSystem
 advanced com.kaleblangley.haikalat.util.DirectBuffers
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationMetadata
+advanced com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationSet
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageData
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageDecoder
 stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader

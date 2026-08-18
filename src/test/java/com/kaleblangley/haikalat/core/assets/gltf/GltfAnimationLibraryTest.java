@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -217,10 +219,61 @@ class GltfAnimationLibraryTest {
         assertTrue(failure.getMessage().contains("unsafe animation library archive entry"));
     }
 
+    @Test
+    void librarySelectsAClipFromAnExternalGlbSource() throws Exception {
+        Path root = temporaryDirectory.resolve("glb-library");
+        Files.createDirectories(root.resolve("animations"));
+        String model = com.kaleblangley.haikalat.testing.SkinnedGltfFixture.document();
+        Files.writeString(root.resolve("model.gltf"), withoutAnimations(model),
+                StandardCharsets.UTF_8);
+        Files.write(root.resolve("animations/player.glb"), glb(model, payload(model)));
+        Files.writeString(root.resolve("animation-library.json"), """
+                {"schema":"haikalat.gltf-animation-library/1","gltfVersion":"2.0",
+                 "nodeBinding":"name","model":"model.gltf","animations":[
+                 {"name":"stand","file":"animations/player.glb","clip":"lift"}]}
+                """, StandardCharsets.UTF_8);
+
+        LoadedGltfScene scene = new GltfAssetLoader(
+                ResourceLocator.classpath(getClass()).addRoot(temporaryDirectory))
+                .loadAnimationLibrary(AssetRef.of(temporaryDirectory.relativize(
+                        root.resolve("animation-library.json")).toString()));
+
+        assertEquals(List.of("stand"), scene.animations().stream()
+                .map(LoadedGltfScene.AnimationDef::name).toList());
+        assertEquals(1, scene.animations().getFirst().channels().size());
+    }
+
     private static void put(ZipOutputStream output, String name,
                             String contents) throws IOException {
         output.putNextEntry(new ZipEntry(name));
         output.write(contents.getBytes(StandardCharsets.UTF_8));
         output.closeEntry();
+    }
+
+    private static String withoutAnimations(String json) {
+        int marker = json.lastIndexOf("\"animations\"");
+        int start = json.lastIndexOf(',', marker);
+        return json.substring(0, start) + "}";
+    }
+
+    private static byte[] payload(String json) {
+        int start = json.indexOf("\"buffers\":[");
+        int uri = json.indexOf("base64,", start) + "base64,".length();
+        int end = json.indexOf('"', uri);
+        return java.util.Base64.getDecoder().decode(json.substring(uri, end));
+    }
+
+    private static byte[] glb(String json, byte[] bin) {
+        byte[] rawJson = json.getBytes(StandardCharsets.UTF_8);
+        int jsonLength = (rawJson.length + 3) & ~3;
+        int binLength = (bin.length + 3) & ~3;
+        ByteBuffer output = ByteBuffer.allocate(12 + 8 + jsonLength + 8 + binLength)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        output.putInt(0x46546C67).putInt(2).putInt(output.capacity());
+        output.putInt(jsonLength).putInt(0x4E4F534A).put(rawJson);
+        while (output.position() < 20 + jsonLength) output.put((byte) 0x20);
+        output.putInt(binLength).putInt(0x004E4942).put(bin);
+        while (output.hasRemaining()) output.put((byte) 0);
+        return output.array();
     }
 }

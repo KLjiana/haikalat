@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d.gltf;
 
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationSet;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
 import com.kaleblangley.haikalat.core.curve.Curve1f;
@@ -55,14 +56,17 @@ public final class GltfSceneInstance implements AutoCloseable {
     private boolean closed;
 
     private GltfSceneInstance(GltfSceneAsset asset, Matrix4fc rootTransform,
-                              boolean castShadows) {
+                              boolean castShadows, GltfAnimationSet animations) {
         this.asset = asset;
         this.rootTransform = new Matrix4f(rootTransform);
         float determinant = this.rootTransform.determinant();
         if (!Float.isFinite(determinant) || Math.abs(determinant) <= 1.0e-12f) {
             throw new IllegalArgumentException("rootTransform must be finite and invertible");
         }
-        rig = GltfAnimationRig.from(asset.sourceData());
+        LoadedGltfScene animationSource = animations == null
+                ? asset.sourceData()
+                : animations.bind(asset.sourceData());
+        rig = GltfAnimationRig.from(animationSource);
         pose = rig.skeleton().createPoseBuffer();
         mixer = new AnimationMixer(rig.skeleton());
         morphWeights = createMorphWeights();
@@ -94,10 +98,16 @@ public final class GltfSceneInstance implements AutoCloseable {
 
     static GltfSceneInstance create(GltfSceneAsset asset, Matrix4fc rootTransform,
                                     boolean castShadows) {
+        return create(asset, rootTransform, castShadows, null);
+    }
+
+    static GltfSceneInstance create(GltfSceneAsset asset, Matrix4fc rootTransform,
+                                    boolean castShadows, GltfAnimationSet animations) {
         Objects.requireNonNull(asset, "asset").retainInstance();
         try {
             return new GltfSceneInstance(asset,
-                    Objects.requireNonNull(rootTransform, "rootTransform"), castShadows);
+                    Objects.requireNonNull(rootTransform, "rootTransform"), castShadows,
+                    animations);
         } catch (RuntimeException failure) {
             asset.releaseInstance();
             throw failure;

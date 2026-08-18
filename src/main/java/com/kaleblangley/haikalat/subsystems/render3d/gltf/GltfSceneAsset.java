@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAssetException;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfAlphaMode;
+import com.kaleblangley.haikalat.core.assets.gltf.GltfAnimationSet;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfImageData;
 import com.kaleblangley.haikalat.core.assets.gltf.GltfSceneStatistics;
 import com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene;
@@ -446,6 +447,18 @@ public final class GltfSceneAsset implements AutoCloseable {
                                                  boolean castShadows) {
         ensureOpen();
         return GltfSceneInstance.create(this, rootTransform, castShadows);
+    }
+
+    /**
+     * Instantiates this uploaded mesh with clips from a compatible shared animation set.
+     * Mesh/material/texture GPU resources remain owned by this asset and are not re-uploaded.
+     */
+    public GltfSceneInstance instantiateAnimated(Matrix4fc rootTransform,
+                                                 boolean castShadows,
+                                                 GltfAnimationSet animations) {
+        ensureOpen();
+        return GltfSceneInstance.create(this, rootTransform, castShadows,
+                Objects.requireNonNull(animations, "animations"));
     }
 
     public GltfSceneStatistics statistics() { return source.statistics(); }

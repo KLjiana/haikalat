@@ -38,6 +38,16 @@ public final class GltfAssetLoader {
         return loadWithSidecar(ref, GltfLoadOptions.defaults());
     }
 
+    /** Loads an immutable animation-only view from a glTF or GLB source. */
+    public GltfAnimationSet loadAnimationSet(AssetRef ref) {
+        return loadAnimationSet(ref, GltfLoadOptions.defaults());
+    }
+
+    /** Loads an immutable animation-only view without retaining source mesh resources. */
+    public GltfAnimationSet loadAnimationSet(AssetRef ref, GltfLoadOptions options) {
+        return GltfAnimationSet.from(loadWithSidecar(ref, options));
+    }
+
     /** Loads {@code <asset>.animation.json} or {@code <asset>.markers.json} when present. */
     public LoadedGltfScene loadWithSidecar(AssetRef ref, GltfLoadOptions options) {
         Objects.requireNonNull(ref, "ref");

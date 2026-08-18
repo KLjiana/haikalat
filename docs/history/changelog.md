@@ -1,5 +1,18 @@
 # 变更记录
 
+## v0.22.2（2026-08-18）
+
+**主题**：共享骨架的外部 GLB 动画补丁
+
+- 新增不可变 `GltfAnimationSet`，独立 GLB 只保留 Skeleton/Clip 数据，可绑定多个不同 Mesh
+  的 `LoadedGltfScene`，不复制关键帧数组。
+- 绑定时严格检查节点名唯一性、节点顺序/父节点、bind TRS、skin joint 顺序和 inverse bind
+  matrices；Mesh、UV、材质和贴图差异不影响兼容性。
+- `haikalat.gltf-animation-library/1` 的 `animations[].file` 支持 `.glb`，通过 `clip` 按名称
+  选择同一个 GLB 中的多个动画；旧 JSON sidecar 入口保持兼容。
+- 补丁不改变每个实例独立的播放时间、PoseBuffer、Animation Graph、marker/window 和蒙皮
+  palette 所有权。
+
 ## v0.22.1（2026-08-09）
 
 **主题**：文本与灯光缓存纯加固

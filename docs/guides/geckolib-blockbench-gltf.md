@@ -93,6 +93,26 @@ LoadedGltfScene scene = loader.loadAnimationLibrary(
 `GltfAnimationRig.from(scene)`、`GltfSceneAsset.upload(...)` 与
 `GltfSceneInstance.play(...)` 无需使用另一套 API。
 
+## 共享骨架的独立 GLB 动画源
+
+当多个模型只更换 Mesh、UV、材质和贴图，而节点/父子关系、bind TRS、skin joint 顺序及
+inverse bind matrices 完全一致时，可把一个动画 GLB 作为不可变共享资产：
+
+```java
+GltfAnimationSet animations = loader.loadAnimationSet(AssetRef.of("player.glb"));
+LoadedGltfScene wildData = animations.bind(loader.load(AssetRef.of("player_wild.gltf")));
+LoadedGltfScene sileData = animations.bind(loader.load(AssetRef.of("player_sile.gltf")));
+```
+
+`GltfAnimationSet` 不保留动画 GLB 的 Mesh、材质、图片或 sampler；绑定只复用不可变
+`AnimationDef`/channel 数据。每个上传后的 `GltfSceneInstance` 仍独立拥有播放时间、姿态、
+状态机和蒙皮 palette。绑定会严格拒绝节点名重复、节点顺序/父节点、bind TRS、skin joints
+或 inverse bind matrices 的任何差异，Mesh/UV/材质差异不会参与判断。
+
+`haikalat.gltf-animation-library/1` 的 `animations[].file` 也可指向 `.glb`。多 clip GLB
+必须指定 `animations[].clip`，同一个 GLB 可由多个条目按名称选择不同 clip；GLB 条目不需要
+`nodeBindings`，因为使用完整 Rig 兼容校验。JSON sidecar 的旧格式保持不变。
+
 外部动画也可以使用 `haikalat.animation-clip/1` 紧凑 JSON。该格式直接保存节点名、
 translation / rotation / scale / weights 轨道、关键帧和 events，不需要 glTF accessor 或
 base64 buffer。清单项省略 `nodeBindings` 时，加载器会按精确且唯一的模型节点名绑定；节点缺失、

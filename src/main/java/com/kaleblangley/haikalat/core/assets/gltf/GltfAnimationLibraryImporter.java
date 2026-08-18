@@ -113,9 +113,8 @@ final class GltfAnimationLibraryImporter {
                 throw fail("animations[" + index + "].name",
                         "duplicate animation name " + entry.name());
             }
-            GltfExternalAnimationDecoder.Result decoded =
-                    GltfExternalAnimationDecoder.decode(resolver, entry, model,
-                            animations.size(), options);
+            GltfExternalAnimationDecoder.Result decoded = decodeAnimationEntry(entry, model,
+                    animations.size());
             animations.add(decoded.animation());
             for (String warning : decoded.warnings()) {
                 warnings.add(entry.file().path() + ": " + warning);
@@ -142,14 +141,53 @@ final class GltfAnimationLibraryImporter {
                 extraDecodedBufferBytes);
     }
 
+    private GltfExternalAnimationDecoder.Result decodeAnimationEntry(AnimationEntry entry,
+                                                                      LoadedGltfScene model,
+                                                                      int animationIndex) {
+        if (entry.file().extension().equals("glb")) {
+            if (!entry.bindings().isEmpty()) {
+                throw fail("animations[" + entry.index() + "].nodeBindings",
+                        "GLB animation sources use strict rig compatibility and do not accept nodeBindings");
+            }
+            LoadedGltfScene source = new GltfAssetLoader(resolver).load(entry.file(), options);
+            GltfAnimationSet set = GltfAnimationSet.from(source);
+            String clipName = entry.clipName();
+            List<String> selected = clipName == null
+                    ? set.animationNames()
+                    : List.of(clipName);
+            if (clipName == null && selected.size() != 1) {
+                throw fail("animations[" + entry.index() + "].clip",
+                        "GLB animation source with multiple clips requires a clip name");
+            }
+            LoadedGltfScene bound = set.bind(model, selected);
+            LoadedGltfScene.AnimationDef selectedAnimation = bound.animations().getLast();
+            LoadedGltfScene.AnimationDef animation = new LoadedGltfScene.AnimationDef(
+                    animationIndex, entry.name(), selectedAnimation.channels(),
+                    selectedAnimation.durationSeconds(), selectedAnimation.markers());
+            return new GltfExternalAnimationDecoder.Result(animation, source.warnings(),
+                    source.statistics().decodedBufferBytes());
+        }
+        if (entry.clipName() != null) {
+            throw fail("animations[" + entry.index() + "].clip",
+                    "clip is only supported for .glb animation sources");
+        }
+        return GltfExternalAnimationDecoder.decode(resolver, entry, model,
+                animationIndex, options);
+    }
+
     private AnimationEntry decodeEntry(Map<String, Object> definition, int index) {
         String path = "animations[" + index + "]";
         String name = requiredText(definition, "name", path + ".name");
         String filePath = requiredText(definition, "file", path + ".file");
         AssetRef file = resolve(manifest, filePath, path + ".file");
-        if (!file.path().toLowerCase(java.util.Locale.ROOT).endsWith(".json")) {
+        String extension = file.extension().toLowerCase(java.util.Locale.ROOT);
+        if (!extension.equals("json") && !extension.equals("glb")) {
             throw fail(path + ".file",
-                    "external animation sidecar must be a JSON document");
+                    "external animation source must be a JSON sidecar or GLB");
+        }
+        String clipName = string(definition, "clip", false, path + ".clip");
+        if (clipName != null && clipName.isBlank()) {
+            throw fail(path + ".clip", "must not be blank");
         }
         boolean selfContained = bool(definition, "selfContained", false,
                 path + ".selfContained");
@@ -181,7 +219,7 @@ final class GltfAnimationLibraryImporter {
                     requiredText(binding, "name", bindingPath + ".name"),
                     bindingPath));
         }
-        return new AnimationEntry(name, file, selfContained, bindings, manifest);
+        return new AnimationEntry(index, name, file, clipName, selfContained, bindings, manifest);
     }
 
     private AssetRef resolve(AssetRef owner, String uri, String location) {
@@ -228,7 +266,8 @@ final class GltfAnimationLibraryImporter {
                 location, null, message, cause);
     }
 
-    record AnimationEntry(String name, AssetRef file, boolean selfContained,
+    record AnimationEntry(int index, String name, AssetRef file, String clipName,
+                          boolean selfContained,
                           List<NodeBinding> bindings, AssetRef manifest) {
         AnimationEntry {
             bindings = List.copyOf(bindings);
