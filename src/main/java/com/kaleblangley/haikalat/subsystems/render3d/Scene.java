@@ -18,6 +18,7 @@ public final class Scene {
     private List<MeshRenderer> shadowDrawOrder;
     private long membershipRevision;
     private long lightingRevision;
+    private boolean requiresPerFrameModelRevision;
 
     public Scene(Camera camera) {
         this.camera = Objects.requireNonNull(camera, "camera");
@@ -36,7 +37,9 @@ public final class Scene {
     }
 
     public Scene add(MeshRenderer renderer) {
-        renderers.add(Objects.requireNonNull(renderer, "renderer"));
+        MeshRenderer requiredRenderer = Objects.requireNonNull(renderer, "renderer");
+        renderers.add(requiredRenderer);
+        requiresPerFrameModelRevision |= !requiredRenderer.revisionedModel();
         forwardDrawOrder = null;
         shadowDrawOrder = null;
         membershipRevision = Math.incrementExact(membershipRevision);
@@ -99,6 +102,10 @@ public final class Scene {
 
     int rendererCount() {
         return renderers.size();
+    }
+
+    boolean requiresPerFrameModelRevision() {
+        return requiresPerFrameModelRevision;
     }
 
     MeshRenderer rendererAt(int index) {

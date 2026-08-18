@@ -39,24 +39,34 @@ class MaterialTest {
     @Test
     void materialInstanceRevisionAdvancesOncePerEffectiveMutation() {
         MaterialInstance instance = materialInstance();
+        long initialEpoch = MaterialInstance.mutationEpoch();
         assertEquals(0L, instance.revision());
 
         instance.setFloat("uValue", 1.0f);
+        long uniformEpoch = MaterialInstance.mutationEpoch();
         assertEquals(1L, instance.revision());
+        assertTrue(uniformEpoch > initialEpoch);
         instance.setFloat("uValue", 1.0f);
         assertEquals(1L, instance.revision(), "equal override must not invalidate caches");
+        assertEquals(uniformEpoch, MaterialInstance.mutationEpoch());
 
         Texture2D texture = texture(13);
         instance.texture(3, "uTexture", texture);
+        long textureEpoch = MaterialInstance.mutationEpoch();
         assertEquals(2L, instance.revision(),
                 "one texture call changes binding and sampler uniform as one domain mutation");
+        assertTrue(textureEpoch > uniformEpoch);
         instance.texture(3, "uTexture", texture);
         assertEquals(2L, instance.revision());
+        assertEquals(textureEpoch, MaterialInstance.mutationEpoch());
 
         instance.clearOverrides();
         assertEquals(3L, instance.revision());
+        assertTrue(MaterialInstance.mutationEpoch() > textureEpoch);
+        long clearedEpoch = MaterialInstance.mutationEpoch();
         instance.clearOverrides();
         assertEquals(3L, instance.revision(), "clearing an empty instance is not a mutation");
+        assertEquals(clearedEpoch, MaterialInstance.mutationEpoch());
     }
 
     @Test

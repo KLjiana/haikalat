@@ -10,8 +10,11 @@ import org.joml.Vector4f;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class MaterialInstance {
+    private static final AtomicLong MUTATION_EPOCH = new AtomicLong();
+
     private final Material material;
     private final Map<UniformKey<?>, UniformValue> uniformOverrides = new LinkedHashMap<>();
     private final Map<Integer, Material.TextureBinding> textureOverrides = new LinkedHashMap<>();
@@ -107,7 +110,7 @@ public final class MaterialInstance {
         boolean changed = !binding.equals(previous);
         if (changed) textureOverridesDirty = true;
         changed |= putOverride(binding.samplerKey(), new UniformValue.IntVal(unit));
-        if (changed) revision++;
+        if (changed) advanceRevision();
         return this;
     }
 
@@ -139,6 +142,14 @@ public final class MaterialInstance {
         return revision;
     }
 
+    /**
+     * Process-local conservative epoch for render-cache invalidation. A mutation in another
+     * scene may cause one harmless cache miss, but stable scenes can test this value in O(1).
+     */
+    public static long mutationEpoch() {
+        return MUTATION_EPOCH.get();
+    }
+
     public Map<UniformKey<?>, UniformValue> uniformOverrides() {
         if (uniformOverridesDirty) {
             uniformOverridesSnapshot = Map.copyOf(uniformOverrides);
@@ -164,11 +175,11 @@ public final class MaterialInstance {
         uniformOverridesDirty = false;
         textureOverridesDirty = false;
         hasOverrides = false;
-        revision++;
+        advanceRevision();
     }
 
     private void put(UniformKey<?> key, UniformValue value) {
-        if (putOverride(key, value)) revision++;
+        if (putOverride(key, value)) advanceRevision();
     }
 
     private boolean putOverride(UniformKey<?> key, UniformValue value) {
@@ -178,5 +189,10 @@ public final class MaterialInstance {
         if (changed) uniformOverridesDirty = true;
         hasOverrides = true;
         return changed;
+    }
+
+    private void advanceRevision() {
+        revision = Math.incrementExact(revision);
+        MUTATION_EPOCH.incrementAndGet();
     }
 }

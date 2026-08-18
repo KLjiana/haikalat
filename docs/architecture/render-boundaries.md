@@ -80,6 +80,8 @@ camera 和 topology/settings 六类 revision；`FrameInvalidation` 只失效受�
 generation cache。pass callback 读取不可变 `RenderFrameContext`，不直接观察执行途中的可变 Scene/
 Camera。改变 extent、sample、Fog、cascade 或 shadow topology 时，`RenderPipeline` 先构建并验证
 candidate `PipelineGeneration`，成功后原子切换并退休旧代次；失败时旧 active generation 保持可用。
+Transform/Material 有效变更使用进程级单调 epoch，使稳定 scene 的 snapshot 为 O(1)；跨 scene
+mutation 允许产生一次保守 miss。任意非 revisioned updater 仍按 frame index 逐帧失效。
 
 MSAA Fog 的深度来源必须通过显式 `DepthResolveDescriptor` 校验 format/sample/extent 后 resolve 为
 单采样 depth；非 MSAA 路径直接读取 geometry depth，不创建 resolve target。方向光 CSM 使用固定

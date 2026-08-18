@@ -8,6 +8,8 @@
 
 - 新增六域 scene revision、不可变 `RenderFrameContext`、显式 `PipelineTopology` 与
   candidate-first `PipelineGeneration`；resize、standalone 和 embedded 共享同一代次/回滚合同。
+- Transform/Material 有效变更通过单调 mutation epoch 使 revision capture 在稳定场景保持 O(1)；
+  非 revisioned updater 继续逐帧保守失效，10,000 all-visible 五轮 CPU 中位数为 3.062 ms。
 - 普通 3D draw 明确分为 OPAQUE、MASKED、ALPHA 和 ADDITIVE 四类 queue；ALPHA 使用
   camera-space back-to-front 稳定排序，opaque-only 场景不承担透明排序成本。
 - glTF `BLEND` 已贯通 decode、PBR、queue 和资源生命周期；MASK 主 pass 与 shadow pass 共享

@@ -4,8 +4,11 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class Transform {
+    private static final AtomicLong MUTATION_EPOCH = new AtomicLong();
+
     private final Vector3f position = new Vector3f();
     private final Vector3f rotationRadians = new Vector3f();
     private final Vector3f scale = new Vector3f(1.0f, 1.0f, 1.0f);
@@ -22,35 +25,35 @@ public final class Transform {
     public Transform position(float x, float y, float z) {
         long nextRevision = Math.incrementExact(revision);
         position.set(x, y, z);
-        revision = nextRevision;
+        commitRevision(nextRevision);
         return this;
     }
 
     public Transform position(Vector3f value) {
         long nextRevision = Math.incrementExact(revision);
         position.set(Objects.requireNonNull(value, "value"));
-        revision = nextRevision;
+        commitRevision(nextRevision);
         return this;
     }
 
     public Transform rotationRadians(float x, float y, float z) {
         long nextRevision = Math.incrementExact(revision);
         rotationRadians.set(x, y, z);
-        revision = nextRevision;
+        commitRevision(nextRevision);
         return this;
     }
 
     public Transform scale(float value) {
         long nextRevision = Math.incrementExact(revision);
         scale.set(value, value, value);
-        revision = nextRevision;
+        commitRevision(nextRevision);
         return this;
     }
 
     public Transform scale(float x, float y, float z) {
         long nextRevision = Math.incrementExact(revision);
         scale.set(x, y, z);
-        revision = nextRevision;
+        commitRevision(nextRevision);
         return this;
     }
 
@@ -79,5 +82,14 @@ public final class Transform {
 
     long revision() {
         return revision;
+    }
+
+    static long mutationEpoch() {
+        return MUTATION_EPOCH.get();
+    }
+
+    private void commitRevision(long nextRevision) {
+        revision = nextRevision;
+        MUTATION_EPOCH.incrementAndGet();
     }
 }

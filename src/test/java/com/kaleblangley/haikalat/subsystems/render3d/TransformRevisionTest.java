@@ -14,6 +14,7 @@ class TransformRevisionTest {
     @Test
     void settersAdvanceRevisionButReadsAndMatrixBuildsDoNot() {
         Transform transform = Transform.identity();
+        long initialEpoch = Transform.mutationEpoch();
         assertEquals(0L, transform.revision());
 
         transform.position(1.0f, 2.0f, 3.0f);
@@ -22,6 +23,8 @@ class TransformRevisionTest {
         transform.scale(2.0f);
         transform.scale(2.0f, 3.0f, 4.0f);
         assertEquals(5L, transform.revision());
+        long mutatedEpoch = Transform.mutationEpoch();
+        assertTrue(mutatedEpoch >= initialEpoch + 5L);
 
         Vector3f position = transform.position();
         assertNotSame(position, transform.position());
@@ -32,6 +35,7 @@ class TransformRevisionTest {
         transform.matrix(new Matrix4f());
 
         assertEquals(5L, transform.revision());
+        assertEquals(mutatedEpoch, Transform.mutationEpoch());
         assertEquals(new Vector3f(4.0f, 5.0f, 6.0f), transform.position());
     }
 

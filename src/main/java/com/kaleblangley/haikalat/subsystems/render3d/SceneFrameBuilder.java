@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
@@ -53,6 +54,7 @@ final class SceneFrameBuilder {
     private int entryCount;
     private int shadowCandidateCount;
     private boolean allModelsImmutable;
+    private long observedMaterialMutationEpoch = Long.MIN_VALUE;
     private boolean immutableSceneCacheReady;
     private int immutableFiniteCount;
     private long cachedCameraRevision = Long.MIN_VALUE;
@@ -425,6 +427,7 @@ final class SceneFrameBuilder {
         shadowCacheValid = false;
         cachedScene = scene;
         cachedRevision = revision;
+        observedMaterialMutationEpoch = MaterialInstance.mutationEpoch();
     }
 
     private void ensureCapacity(int required) {
@@ -491,14 +494,25 @@ final class SceneFrameBuilder {
     }
 
     private void syncMaterialState() {
+        long mutationEpoch = MaterialInstance.mutationEpoch();
+        if (observedMaterialMutationEpoch == mutationEpoch) return;
         for (int index = 0; index < entryCount; index++) {
             long revision = renderers[index].material().revision();
             if (materialRevisions[index] == revision) continue;
             materialRevisions[index] = revision;
-            queueClass[index] = RenderQueueClass.classify(renderers[index].material()).ordinal();
+            RenderQueueClass rendererQueue = RenderQueueClass.classify(renderers[index].material());
+            queueClass[index] = rendererQueue.ordinal();
+            boolean nextCastsShadow = renderers[index].castShadows()
+                    && rendererQueue.castsOpaqueShadow();
+            if (castsShadow[index] != nextCastsShadow) {
+                shadowCandidateCount += nextCastsShadow ? 1 : -1;
+                castsShadow[index] = nextCastsShadow;
+                shadowCacheValid = false;
+            }
             forwardCacheValid = false;
             immutableSceneCacheReady = false;
         }
+        observedMaterialMutationEpoch = mutationEpoch;
     }
 
     private float cameraDepth(int index) {
