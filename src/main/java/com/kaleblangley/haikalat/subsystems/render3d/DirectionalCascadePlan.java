@@ -102,6 +102,10 @@ public final class DirectionalCascadePlan {
         Vector3f centerLight = orientation.transformPosition(center, new Vector3f());
         centerLight.x = Math.round(centerLight.x / texelWorldSize) * texelWorldSize;
         centerLight.y = Math.round(centerLight.y / texelWorldSize) * texelWorldSize;
+        // Quantize depth as well as XY. Otherwise a sub-texel camera translation changes
+        // only the light-view Z translation, defeating the exact matrix cache key even
+        // though it cannot expose a different shadow texel footprint.
+        centerLight.z = Math.round(centerLight.z / texelWorldSize) * texelWorldSize;
         Vector3f snappedCenter = new Matrix4f(orientation).invert()
                 .transformPosition(centerLight, new Vector3f());
         Vector3f eye = new Vector3f(snappedCenter).fma(-2.0f * radius, direction);

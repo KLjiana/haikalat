@@ -17,6 +17,8 @@ def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 def render3dV023Main = 'com.kaleblangley.haikalat.demo.pbr.Render3dV023Demo'
+def render3dShadowBudgetMain =
+        'com.kaleblangley.haikalat.demo.gltf.Render3dShadowBudgetDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
 def animationBenchmarkMain =
@@ -127,6 +129,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=12', '--size=640x360', '--resize=6:800x450',
                  '--environment-quality=test', '--verify'],
                 'Runs the v0.23 queues, MASK shadow, Fog + 4x MSAA, four-cascade and diagnostics proof.']
+        ,runRender3dShadowBudgetIntegration: [render3dShadowBudgetMain,
+                ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
+                 '--environment-quality=test', '--verify'],
+                'Runs the v0.23.1 1+2+4 shadow budget, cache invalidation and resize proof.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
                 'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
@@ -280,6 +286,7 @@ tasks.register('localGlVerification') {
             'runShowcaseIntegration', 'runShowcaseVfxMsaaIntegration',
             'runShowcaseVfxAutoExposureIntegration',
             'runRender3dV023Integration',
+            'runRender3dShadowBudgetIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
@@ -353,6 +360,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain
         ,runRender3dV023Demo: render3dV023Main
+        ,runRender3dShadowBudgetDemo: render3dShadowBudgetMain
         ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
     registerDemoApplication(taskName,
@@ -397,6 +405,30 @@ registerDemoApplication('runShowcasePerformanceBaseline',
         showcaseMain, ['--hidden', '--frames=360', '--warmup=60', '--size=960x540',
                        '--gpu-particles=2048'])
 
+registerDemoApplication('runRender3dShadowBudgetPerformance1080p',
+        'Profiles the static balanced 1+2+4 shadow cache at 1920x1080.',
+        render3dShadowBudgetMain,
+        ['--benchmark', '--profile=balanced', '--frames=180', '--warmup=60',
+         '--size=1920x1080', '--environment-quality=test'])
+
+registerDemoApplication('runRender3dShadowBudgetPerformance4k',
+        'Profiles the static balanced 1+2+4 shadow cache at 3840x2160.',
+        render3dShadowBudgetMain,
+        ['--benchmark', '--profile=balanced', '--frames=180', '--warmup=60',
+         '--size=3840x2160', '--environment-quality=test'])
+
+registerDemoApplication('runRender3dShadowLegacyPerformance1080p',
+        'Profiles the v0.23-compatible static 1+1 shadow path at 1920x1080.',
+        render3dShadowBudgetMain,
+        ['--benchmark', '--profile=legacy', '--frames=180', '--warmup=60',
+         '--size=1920x1080', '--environment-quality=test'])
+
+registerDemoApplication('runRender3dShadowLegacyPerformance4k',
+        'Profiles the v0.23-compatible static 1+1 shadow path at 3840x2160.',
+        render3dShadowBudgetMain,
+        ['--benchmark', '--profile=legacy', '--frames=180', '--warmup=60',
+         '--size=3840x2160', '--environment-quality=test'])
+
 tasks.register('localMilestone4Verification') {
     group = 'verification'
     description = 'Runs advanced animation, GPU effects, combined showcase and stability acceptance.'
@@ -408,6 +440,7 @@ tasks.named('runShowcaseIntegration') { mustRunAfter 'runVfxIntegration' }
 tasks.named('runShowcaseVfxMsaaIntegration') { mustRunAfter 'runShowcaseIntegration' }
 tasks.named('runShowcaseVfxAutoExposureIntegration') { mustRunAfter 'runShowcaseVfxMsaaIntegration' }
 tasks.named('runRender3dV023Integration') { mustRunAfter 'runShowcaseVfxAutoExposureIntegration' }
+tasks.named('runRender3dShadowBudgetIntegration') { mustRunAfter 'runRender3dV023Integration' }
 tasks.named('runShowcaseStabilityIntegration') { mustRunAfter 'runShowcaseIntegration' }
 
 tasks.named('runLearnOpenGlDemo', JavaExec) {

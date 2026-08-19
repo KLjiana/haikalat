@@ -9,6 +9,7 @@ import java.util.Objects;
 /** One-frame immutable input captured before RenderGraph command recording begins. */
 record RenderFrameContext(ExternalCamera camera,
                           List<SceneLight> lights,
+                          List<SceneLightEntry> lightEntries,
                           SceneRevisionSnapshot revisions,
                           FrameInvalidation invalidation,
                           int width,
@@ -19,6 +20,10 @@ record RenderFrameContext(ExternalCamera camera,
     RenderFrameContext {
         Objects.requireNonNull(camera, "camera");
         lights = List.copyOf(Objects.requireNonNull(lights, "lights"));
+        lightEntries = List.copyOf(Objects.requireNonNull(lightEntries, "lightEntries"));
+        if (lights.size() != lightEntries.size()) {
+            throw new IllegalArgumentException("lights and lightEntries must have equal size");
+        }
         Objects.requireNonNull(revisions, "revisions");
         Objects.requireNonNull(invalidation, "invalidation");
         if (width <= 0 || height <= 0) {
@@ -37,7 +42,8 @@ record RenderFrameContext(ExternalCamera camera,
         ExternalCamera frozenCamera = freezeCamera(camera, width, height);
         SceneRevisionSnapshot revisions = SceneRevisionSnapshot.capture(
                 scene, frozenCamera, topologySettingsRevision, frameIndex);
-        List<SceneLight> frozenLights = freezeLights(scene.lights());
+        List<SceneLightEntry> frozenEntries = freezeLightEntries(scene.lightEntries());
+        List<SceneLight> frozenLights = frozenEntries.stream().map(SceneLightEntry::light).toList();
         SceneRevisionSnapshot confirmed = SceneRevisionSnapshot.capture(
                 scene, frozenCamera, topologySettingsRevision, frameIndex);
         if (!revisions.equals(confirmed)) {
@@ -45,7 +51,7 @@ record RenderFrameContext(ExternalCamera camera,
         }
         SceneRevisionSnapshot previous = previousSuccessfulFrame == null
                 ? null : previousSuccessfulFrame.revisions();
-        return new RenderFrameContext(frozenCamera, frozenLights, revisions,
+        return new RenderFrameContext(frozenCamera, frozenLights, frozenEntries, revisions,
                 FrameInvalidation.between(previous, revisions), width, height,
                 deltaSeconds, frameIndex, frameSequence);
     }
@@ -77,12 +83,10 @@ record RenderFrameContext(ExternalCamera camera,
                 CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE, after);
     }
 
-    private static List<SceneLight> freezeLights(List<SceneLight> lights) {
-        List<SceneLight> frozen = new ArrayList<>(lights.size());
-        for (SceneLight light : lights) {
-            frozen.add(new SceneLight(light.type(), light.color(), light.intensity(),
-                    light.direction(), light.position(), light.range(),
-                    light.innerConeRadians(), light.outerConeRadians(), light.castShadows()));
+    private static List<SceneLightEntry> freezeLightEntries(List<SceneLightEntry> entries) {
+        List<SceneLightEntry> frozen = new ArrayList<>(entries.size());
+        for (SceneLightEntry entry : entries) {
+            frozen.add(entry.frozen());
         }
         return List.copyOf(frozen);
     }

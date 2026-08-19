@@ -53,9 +53,19 @@ final class GltfDemoAssets implements AutoCloseable {
     }
 
     static GltfDemoAssets load(GltfDemo.Asset assetMode) {
+        return load(assetMode, false);
+    }
+
+    static GltfDemoAssets loadShadowBudget() {
+        return load(GltfDemo.Asset.DEFAULT, true);
+    }
+
+    private static GltfDemoAssets load(GltfDemo.Asset assetMode, boolean includeMorphCaster) {
         ResourceLocator resources = ResourceLocator.classpath(GltfDemo.class);
         GltfAssetLoader loader = new GltfAssetLoader(resources);
-        GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
+        GltfRuntimeLibrary library = includeMorphCaster
+                ? GltfRuntimeLibrary.createShadowBudget()
+                : GltfRuntimeLibrary.create();
         List<GltfSceneAsset> assets = new ArrayList<>();
         List<GltfSceneInstance> animatedInstances = new ArrayList<>();
         List<SceneObject> objects = new ArrayList<>();
@@ -144,6 +154,14 @@ final class GltfDemoAssets implements AutoCloseable {
                 probe = new AnimationProbe(playerWildInstance, 2);
                 timeScale = PLAYER_WILD_TIME_SCALE;
             } else {
+                if (includeMorphCaster) {
+                    LoadedGltfScene shadowRoom = loader.load(
+                            AssetRef.of("/scenes/gltf/shadow-room.gltf"));
+                    GltfSceneAsset shadowRoomGpu = GltfSceneAsset.upload(shadowRoom, library);
+                    assets.add(shadowRoomGpu);
+                    objects.addAll(shadowRoomGpu.instantiate(new Matrix4f(), false));
+                    appendInspection(lines, "shadow-room.gltf", shadowRoom, shadowRoomGpu, true);
+                }
                 LoadedGltfScene showcase = loader.load(AssetRef.of("/scenes/gltf/showcase.gltf"));
                 GltfSceneAsset showcaseGpu = GltfSceneAsset.upload(showcase, library);
                 assets.add(showcaseGpu);
@@ -177,6 +195,17 @@ final class GltfDemoAssets implements AutoCloseable {
                 animatedInstances.add(animatedInstance);
                 objects.addAll(animatedInstance.objects());
                 appendInspection(lines, "animated-two-joint.gltf", animated, animatedGpu, true);
+                if (includeMorphCaster) {
+                    LoadedGltfScene morph = loader.load(
+                            AssetRef.of("/scenes/gltf/morph-shadow.gltf"));
+                    GltfSceneAsset morphGpu = GltfSceneAsset.upload(morph, library);
+                    assets.add(morphGpu);
+                    GltfSceneInstance morphInstance = morphGpu.instantiateAnimated(
+                            new Matrix4f().translation(1.1f, -0.65f, 0.7f).scale(0.8f), true);
+                    animatedInstances.add(morphInstance);
+                    objects.addAll(morphInstance.objects());
+                    appendInspection(lines, "morph-shadow.gltf", morph, morphGpu, true);
+                }
                 probe = new AnimationProbe(animatedInstance, 2);
                 timeScale = 1.0f;
             }

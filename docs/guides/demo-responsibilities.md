@@ -12,6 +12,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 | `StressDemo` | 可重复的实例吞吐与 A/B 性能诊断 | procedural/indexed/SSBO/Matrix4f、GPU timer、pipeline statistics、state skip | 画面功能验收、复杂材质 |
 | `PbrDemo` | 现代材质与后处理纵向闭环 | tangent、五纹理 metallic-roughness、direct/shadow、GPU IBL、HDR/ACES/Bloom/exposure、Color Grading LUT、距离/高度雾、retained UI | glTF、PBR instancing、高级材质扩展 |
 | `Render3dV023Demo` | v0.23 Render3D M3–M7 可交互纵向验收 | 四类 queue、故意逆序的重叠 ALPHA、MASK 主/阴影 pass、Fog + 4×MSAA depth resolve、4 级 CSM、culling/cache/generation diagnostics、resize | glTF parser/animation、点光/聚光 shadow、性能基准 |
+| `Render3dShadowBudgetDemo` | v0.23.1 多局部光预算、质量与 atlas cache 纵向验收 | 室内 floor/ceiling/wall 接收面、1 directional + 2 point + 4 spot、稳定 ID/槽位、预算拒绝、MASK + skin/morph caster、局部 dirty tile、三档 filter 合同、resize、shadow diagnostics/performance | clustered/Forward+、第二盏方向光 CSM、无限动态光、软阴影/透明阴影 |
 | `GltfDemo` | 静态、蒙皮与 Morph glTF 端到端证明 | accessor/node/material/skin/animation/weights、joint palette、per-instance Morph weights、PBR/shadow Morph-before-skin、生命周期 | Graph/IK、第二组关节权重、compute morph |
 | `UiDemo` | retained UI、文本、输入与 UI 动画证明 | Yoga、widgets、glyph atlas、IME、visual fade、spring layout transition、resize | editor docking、完整 accessibility bridge |
 | `ModernUiDemo` | 独立现代游戏主界面与 v0.19 UI 纵向闭环 | 1280×720 双语战役主菜单、设置页、style class 主题、SDF 圆角、property timeline、显式 layer、UI VFX、reduced motion、像素证明 | editor timeline、offscreen subtree replay/cache、GPU particle |
@@ -83,6 +84,26 @@ OPAQUE、带 checker cutoff 的 MASK、故意按 near-before-far 插入的重叠
 depth resolve sample 数和 forward queue cache hit/rebuild。隐藏入口固定运行 12 帧，在第 6 帧从
 640×360 resize 到 800×450，并断言上述渲染与 diagnostics 合同。可用参数为
 `--hidden --frames=N --size=WxH --resize=FRAME:WxH --environment-quality=test|default --verify`。
+
+## Render3dShadowBudgetDemo
+
+```powershell
+.\gradlew.bat runRender3dShadowBudgetDemo
+.\gradlew.bat runRender3dShadowBudgetIntegration
+.\gradlew.bat runRender3dShadowBudgetPerformance1080p
+.\gradlew.bat runRender3dShadowBudgetPerformance4k
+```
+
+窗口使用 balanced policy 和固定 4 级 1024² CSM，加载真实 glTF OPAQUE/MASK、two-joint skin 与
+四 target morph caster；灯光固定为 1 directional + 2 point + 4 spot，另放置两个低优先级 candidate
+证明预算拒绝。标题栏显示 D/P/S 入选数、tile redraw/reuse、cache 和 filter；`WASD + 鼠标` 移动相机，
+`ESC` 退出。
+
+隐藏验证在固定帧移动 point、spot、camera 和 skin/morph，再执行同宽高比 resize，硬断言 6/1/4/20
+的 dirty tile 数、fixed atlas generation、最终 0 redraw / 20 reuse、2+4 atlas 尺寸和 20 MiB depth
+估值。参数为 `--hidden --frames=N --size=WxH --resize=FRAME:WxH`
+` --environment-quality=test|default --verify --benchmark --profile=legacy|balanced --warmup=N`。
+benchmark 模式不执行确定性变更，用于五轮 1080p/4K 静态 cache 记录。
 
 ## GltfDemo
 

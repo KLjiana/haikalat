@@ -12,6 +12,9 @@ interface RevisionedModelSource extends SceneObject.ModelUpdater {
      */
     default boolean immutable() { return false; }
 
+    /** True when revision changes are not represented by {@link Transform#mutationEpoch()}. */
+    default boolean requiresRevisionScan() { return false; }
+
     final class TransformSource implements RevisionedModelSource {
         private final Transform transform;
 

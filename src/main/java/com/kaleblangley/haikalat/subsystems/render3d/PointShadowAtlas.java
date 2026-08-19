@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** 使用 3×2 二维 depth atlas 表示点光六个 90 度视锥。 */
+/** Uses one stable 3x2 block per point light to represent six 90-degree frusta. */
 public final class PointShadowAtlas {
     public static final String PASS_NAME = "PointShadowPass";
     public static final String TEXTURE_NAME = "PointShadowAtlas";
@@ -27,9 +27,18 @@ public final class PointShadowAtlas {
     };
 
     private final LocalShadowSettings settings;
+    private final int capacity;
 
     public PointShadowAtlas(LocalShadowSettings settings) {
+        this(settings, 1);
+    }
+
+    public PointShadowAtlas(LocalShadowSettings settings, int capacity) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        if (capacity < 1 || capacity > LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS) {
+            throw new IllegalArgumentException("point shadow capacity must be in [1, 2]");
+        }
+        this.capacity = capacity;
     }
 
     public static PointShadowAtlas defaults() {
@@ -40,22 +49,51 @@ public final class PointShadowAtlas {
         return settings;
     }
 
+    public int capacity() {
+        return capacity;
+    }
+
     public int width() {
         return Math.multiplyExact(settings.resolution(), COLUMNS);
     }
 
     public int height() {
-        return Math.multiplyExact(settings.resolution(), ROWS);
+        return Math.multiplyExact(settings.resolution(), Math.multiplyExact(ROWS, capacity));
     }
 
     public int viewportX(int face) {
+        return viewportX(0, face);
+    }
+
+    public int viewportY(int face) {
+        return viewportY(0, face);
+    }
+
+    public int viewportX(int slot, int face) {
+        requireSlot(slot);
         requireFace(face);
         return face % COLUMNS * settings.resolution();
     }
 
-    public int viewportY(int face) {
+    public int viewportY(int slot, int face) {
+        requireSlot(slot);
         requireFace(face);
-        return face / COLUMNS * settings.resolution();
+        return (slot * ROWS + face / COLUMNS) * settings.resolution();
+    }
+
+    ShadowTileRect faceTile(int slot, int face) {
+        int x = viewportX(slot, face);
+        int y = viewportY(slot, face);
+        int size = settings.resolution();
+        return new ShadowTileRect(x, y, size, size,
+                x / (float) width(), y / (float) height(),
+                (x + size) / (float) width(), (y + size) / (float) height());
+    }
+
+    List<ShadowTileRect> faceTiles(int slot) {
+        List<ShadowTileRect> result = new ArrayList<>(FACE_COUNT);
+        for (int face = 0; face < FACE_COUNT; face++) result.add(faceTile(slot, face));
+        return List.copyOf(result);
     }
 
     public List<Matrix4f> faceMatrices(SceneLight light) {
@@ -81,6 +119,12 @@ public final class PointShadowAtlas {
     private static void requireFace(int face) {
         if (face < 0 || face >= FACE_COUNT) {
             throw new IllegalArgumentException("face must be in [0, 5]");
+        }
+    }
+
+    private void requireSlot(int slot) {
+        if (slot < 0 || slot >= capacity) {
+            throw new IllegalArgumentException("slot must be in [0, " + (capacity - 1) + "]");
         }
     }
 }

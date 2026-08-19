@@ -1,0 +1,40 @@
+{
+  "asset": {"version": "2.0", "generator": "Haikalat v0.23.1 shadow room fixture"},
+  "scene": 0,
+  "scenes": [{"name": "shadow-room", "nodes": [0, 1, 2, 3, 4]}],
+  "nodes": [
+    {"name": "floor", "mesh": 0, "translation": [-6, -1, 4],
+      "rotation": [-0.7071068, 0, 0, 0.7071068], "scale": [12, 12, 1]},
+    {"name": "ceiling", "mesh": 1, "translation": [-6, 7, -8],
+      "rotation": [0.7071068, 0, 0, 0.7071068], "scale": [12, 12, 1]},
+    {"name": "back-wall", "mesh": 1, "translation": [-6, -1, -8],
+      "scale": [12, 8, 1]},
+    {"name": "left-wall", "mesh": 2, "translation": [-6, -1, -8],
+      "rotation": [0, -0.7071068, 0, 0.7071068], "scale": [12, 8, 1]},
+    {"name": "right-wall", "mesh": 2, "translation": [6, -1, 4],
+      "rotation": [0, 0.7071068, 0, 0.7071068], "scale": [12, 8, 1]}
+  ],
+  "buffers": [{
+    "byteLength": 72,
+    "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAgD8AAAAA"
+  }],
+  "bufferViews": [{"buffer": 0, "byteLength": 72}],
+  "accessors": [{"bufferView": 0, "componentType": 5126, "count": 6,
+    "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}],
+  "materials": [
+    {"name": "matte floor", "pbrMetallicRoughness": {
+      "baseColorFactor": [0.28, 0.31, 0.34, 1], "metallicFactor": 0, "roughnessFactor": 0.86
+    }, "doubleSided": true},
+    {"name": "cool wall", "pbrMetallicRoughness": {
+      "baseColorFactor": [0.32, 0.37, 0.43, 1], "metallicFactor": 0, "roughnessFactor": 0.82
+    }, "doubleSided": true},
+    {"name": "warm wall", "pbrMetallicRoughness": {
+      "baseColorFactor": [0.43, 0.34, 0.29, 1], "metallicFactor": 0, "roughnessFactor": 0.82
+    }, "doubleSided": true}
+  ],
+  "meshes": [
+    {"name": "floor receiver", "primitives": [{"attributes": {"POSITION": 0}, "material": 0}]},
+    {"name": "cool receiver", "primitives": [{"attributes": {"POSITION": 0}, "material": 1}]},
+    {"name": "warm receiver", "primitives": [{"attributes": {"POSITION": 0}, "material": 2}]}
+  ]
+}

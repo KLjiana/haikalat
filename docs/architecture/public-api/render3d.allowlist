@@ -9,6 +9,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSetting
 stable com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera
 advanced com.kaleblangley.haikalat.subsystems.render3d.LightType
 advanced com.kaleblangley.haikalat.subsystems.render3d.LocalShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures
 advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials
@@ -23,6 +24,10 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.SceneLight
 advanced com.kaleblangley.haikalat.subsystems.render3d.SceneObject
 advanced com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowFilterMode
+advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowLightHints
+advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSelectionMode
+advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowAtlas
 advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowMap
 advanced com.kaleblangley.haikalat.subsystems.render3d.Transform
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer

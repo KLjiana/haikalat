@@ -32,27 +32,37 @@ class ScenePipelineTest {
     void cascadedPcfClampsBoundaryTapsToTheSelectedAtlasTile() throws IOException {
         String source;
         try (var stream = ScenePipelineTest.class.getResourceAsStream(
-                "/shaders/render3d/pbr/pbr-forward.frag")) {
+                "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag")) {
             assertTrue(stream != null);
             source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        assertTrue(source.contains("vec2 tileMinimum = offset + texel * 0.5"));
-        assertTrue(source.contains("vec2 tileMaximum = offset + scale - texel * 0.5"));
+        assertTrue(source.contains("vec2 guard = texel * (float(radius) + 0.5)"));
+        assertTrue(source.contains("vec2 tileMinimum = offset + guard"));
+        assertTrue(source.contains("vec2 tileMaximum = offset + scale - guard"));
         assertTrue(source.contains("clamp(projected.xy + vec2(x, y) * texel,"));
+        assertTrue(source.contains("#define MAX_POINT_SHADOW_SLOTS "
+                + LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS));
+        assertTrue(source.contains("#define MAX_SPOT_SHADOW_SLOTS "
+                + LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS));
+        assertTrue(source.contains("#define POINT_SHADOW_FACE_COUNT "
+                + PointShadowAtlas.FACE_COUNT));
+        assertTrue(source.contains("layout(std140, binding = 5) uniform ShadowSamplingBlock"));
 
-        // A 4x4 atlas split into two horizontal tiles has a 0.25 atlas texel and
-        // half-texel-safe bounds [0.125, 0.375] for the first tile. Even the +1 tap
-        // from a projected coordinate at the internal edge must not enter tile two.
-        float texel = 0.25f;
-        float tileMinimum = 0.5f * texel;
-        float tileMaximum = 0.5f - 0.5f * texel;
-        float projectedAtInternalEdge = 0.5f;
-        for (int tap = -1; tap <= 1; tap++) {
+        // A synthetic atlas tile [0, 0.75] with 0.05 atlas texels uses a 2.5-texel
+        // PCF_5X5 guard. Even a +2 tap from the internal edge cannot enter its neighbor.
+        float texel = 0.05f;
+        float guard = 2.5f * texel;
+        // Use a larger synthetic tile so the PCF_5X5 guard retains an interior interval.
+        float tileScale = 0.75f;
+        float tileMinimum = guard;
+        float tileMaximum = tileScale - guard;
+        float projectedAtInternalEdge = tileScale;
+        for (int tap = -2; tap <= 2; tap++) {
             float sample = Math.max(tileMinimum,
                     Math.min(tileMaximum, projectedAtInternalEdge + tap * texel));
             assertTrue(sample >= tileMinimum && sample <= tileMaximum);
-            assertTrue(sample < 0.5f, "PCF tap crossed into the adjacent cascade tile");
+            assertTrue(sample < tileScale, "PCF tap crossed into the adjacent cascade tile");
         }
     }
 

@@ -17,7 +17,7 @@ final class LightingBinder {
     void bind(ShaderProgram shader, CommandBuffer cmd, Matrix4f directionalLightSpace,
               List<Matrix4f> cascadeMatrices, float[] cascadeSplits,
               DirectionalCascadeSettings cascadeSettings,
-              Camera camera, List<SceneLight> lights) {
+              Camera camera, List<SceneLight> lights, ShadowFramePlan shadowPlan) {
         LightCounts counts = count(lights);
         int directionalCount = 0;
         int pointCount = 0;
@@ -79,11 +79,12 @@ final class LightingBinder {
                     .trySetUniformFloat(shader, "uDirectionalCascadeSplits[" + index + "]", split);
         }
         cmd.trySetUniformInt(shader, "uDirectionalShadowLightIndex",
-                shadowDirectionalLight(lights).map(ShadowDirectionalLight::shaderIndex).orElse(-1));
+                shadowPlan.directional().map(ShadowFramePlan.DirectionalPlan::shaderIndex)
+                        .orElse(-1));
         cmd.trySetUniformInt(shader, "uPointShadowLightIndex",
-                shadowPointLight(lights).map(ShadowPointLight::shaderIndex).orElse(-1));
+                shadowPlan.points().isEmpty() ? -1 : shadowPlan.points().getFirst().shaderIndex());
         cmd.trySetUniformInt(shader, "uSpotShadowLightIndex",
-                shadowSpotLight(lights).map(ShadowSpotLight::shaderIndex).orElse(-1));
+                shadowPlan.spots().isEmpty() ? -1 : shadowPlan.spots().getFirst().shaderIndex());
     }
 
     static LightCounts count(Scene scene) {

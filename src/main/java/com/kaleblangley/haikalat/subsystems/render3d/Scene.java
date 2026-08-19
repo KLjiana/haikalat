@@ -9,16 +9,20 @@ import com.kaleblangley.haikalat.core.material.MaterialInstance;
 
 public final class Scene {
     private static final AtomicLong NEXT_GENERATION = new AtomicLong(1L);
+    private static final AtomicLong NEXT_LIGHT_ID = new AtomicLong(1L);
 
     private final long generation = NEXT_GENERATION.getAndIncrement();
     private final Camera camera;
     private final List<MeshRenderer> renderers = new ArrayList<>();
+    private final List<MeshRenderer> revisionScannedRenderers = new ArrayList<>();
     private final List<SceneLight> lights = new ArrayList<>();
+    private final List<SceneLightEntry> lightEntries = new ArrayList<>();
     private List<MeshRenderer> forwardDrawOrder;
     private List<MeshRenderer> shadowDrawOrder;
     private long membershipRevision;
     private long lightingRevision;
     private boolean requiresPerFrameModelRevision;
+    private boolean requiresPerFrameShadowDeformation;
 
     public Scene(Camera camera) {
         this.camera = Objects.requireNonNull(camera, "camera");
@@ -39,7 +43,12 @@ public final class Scene {
     public Scene add(MeshRenderer renderer) {
         MeshRenderer requiredRenderer = Objects.requireNonNull(renderer, "renderer");
         renderers.add(requiredRenderer);
+        if (requiredRenderer.requiresRevisionScan()) {
+            revisionScannedRenderers.add(requiredRenderer);
+        }
         requiresPerFrameModelRevision |= !requiredRenderer.revisionedModel();
+        requiresPerFrameShadowDeformation |= requiredRenderer.castShadows()
+                && requiredRenderer.drawBinding().deformsVertices();
         forwardDrawOrder = null;
         shadowDrawOrder = null;
         membershipRevision = Math.incrementExact(membershipRevision);
@@ -55,7 +64,16 @@ public final class Scene {
     }
 
     public Scene addLight(SceneLight light) {
-        lights.add(Objects.requireNonNull(light, "light"));
+        return addLight(light, ShadowLightHints.DEFAULT);
+    }
+
+    /** Adds a light with non-destructive shadow scheduling hints. */
+    public Scene addLight(SceneLight light, ShadowLightHints hints) {
+        SceneLight requiredLight = Objects.requireNonNull(light, "light");
+        ShadowLightHints requiredHints = Objects.requireNonNull(hints, "hints");
+        long stableId = NEXT_LIGHT_ID.getAndIncrement();
+        lights.add(requiredLight);
+        lightEntries.add(new SceneLightEntry(stableId, requiredLight, requiredHints, 0L));
         lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
@@ -77,6 +95,15 @@ public final class Scene {
                     + "; rebuild the pipeline");
         }
         lights.set(index, replacement);
+        lightEntries.set(index, lightEntries.get(index).withLight(replacement));
+        lightingRevision = Math.incrementExact(lightingRevision);
+        return this;
+    }
+
+    /** Replaces only shadow scheduling hints while preserving the stable light ID. */
+    public Scene setShadowLightHints(int index, ShadowLightHints hints) {
+        ShadowLightHints replacement = Objects.requireNonNull(hints, "hints");
+        lightEntries.set(index, lightEntries.get(index).withHints(replacement));
         lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
@@ -108,6 +135,30 @@ public final class Scene {
         return requiresPerFrameModelRevision;
     }
 
+    boolean requiresPerFrameShadowDeformation() {
+        return requiresPerFrameShadowDeformation;
+    }
+
+    long revisionScannedModelEpoch() {
+        long hash = 0xcbf29ce484222325L;
+        for (MeshRenderer renderer : revisionScannedRenderers) {
+            hash = (hash ^ renderer.modelRevision()) * 0x100000001b3L;
+        }
+        return hash;
+    }
+
+    long revisionScannedShadowCasterEpoch() {
+        long hash = 0xcbf29ce484222325L;
+        for (MeshRenderer renderer : revisionScannedRenderers) {
+            if (!renderer.castShadows()
+                    || !RenderQueueClass.classify(renderer.material()).castsOpaqueShadow()) {
+                continue;
+            }
+            hash = (hash ^ renderer.modelRevision()) * 0x100000001b3L;
+        }
+        return hash;
+    }
+
     MeshRenderer rendererAt(int index) {
         return renderers.get(index);
     }
@@ -124,6 +175,10 @@ public final class Scene {
 
     public List<SceneLight> lights() {
         return List.copyOf(lights);
+    }
+
+    List<SceneLightEntry> lightEntries() {
+        return List.copyOf(lightEntries);
     }
 
     public Optional<SceneLight> firstShadowCastingDirectionalLight() {

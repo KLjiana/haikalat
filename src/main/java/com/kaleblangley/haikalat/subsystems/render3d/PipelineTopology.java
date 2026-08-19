@@ -24,6 +24,10 @@ record PipelineTopology(int width,
                         boolean spotShadow,
                         int directionalCascadeCount,
                         int directionalShadowAtlasSize,
+                        int pointShadowCapacity,
+                        int pointShadowResolution,
+                        int spotShadowCapacity,
+                        int spotShadowResolution,
                         boolean pbrMaterials,
                         boolean hdrVfx,
                         boolean embedded) {
@@ -42,12 +46,28 @@ record PipelineTopology(int width,
                 || directionalShadowAtlasSize <= 0) {
             throw new IllegalArgumentException("invalid directional cascade topology");
         }
+        if (pointShadowCapacity < 0
+                || pointShadowCapacity > LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS
+                || spotShadowCapacity < 0
+                || spotShadowCapacity > LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS
+                || pointShadowResolution <= 0 || spotShadowResolution <= 0) {
+            throw new IllegalArgumentException("invalid local shadow topology");
+        }
     }
 
     static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
                                     boolean hdrVfx, boolean embedded,
                                     DirectionalCascadeSettings cascades) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                LocalShadowPipelineSettings.legacyDefaults());
+    }
+
+    static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded,
+                                    DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -78,14 +98,18 @@ record PipelineTopology(int width,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
                 settings.exposureMode() == ExposureMode.AUTO,
                 effects.colorGrading().enabled(), effects.fog().enabled(),
-                directionalShadow, pointShadow, spotShadow, cascades.cascadeCount(),
-                cascades.atlasSize(), pbr, hdrVfx, embedded);
+                directionalShadow, pointShadow && localShadows.maxPointLights() > 0,
+                spotShadow && localShadows.maxSpotLights() > 0, cascades.cascadeCount(),
+                cascades.atlasSize(), localShadows.maxPointLights(),
+                localShadows.point().resolution(), localShadows.maxSpotLights(),
+                localShadows.spot().resolution(), pbr, hdrVfx, embedded);
     }
 
     PipelineTopology withExtent(int width, int height) {
         return new PipelineTopology(width, height, antiAliasingMode, sampleCount, hdr,
                 bloom, bloomLevels, automaticExposure, colorGrading, fog,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
-                directionalShadowAtlasSize, pbrMaterials, hdrVfx, embedded);
+                directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
+                spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded);
     }
 }

@@ -50,15 +50,38 @@ public record Render3dDiagnostics(
 
     public record ShadowSummary(String directionalSelection, String pointSelection,
                                 String spotSelection, int cascadeCount,
-                                List<Float> cascadeSplits, List<Integer> cascadeCasters) {
+                                List<Float> cascadeSplits, List<Integer> cascadeCasters,
+                                int directionalCandidates, int directionalSelected,
+                                int pointCandidates, int pointSelected, int pointCapacity,
+                                int spotCandidates, int spotSelected, int spotCapacity,
+                                List<SelectedShadowLight> selectedLights,
+                                List<RejectedShadowLight> rejectedLights,
+                                int tilesRendered, int tilesReused,
+                                int cacheHits, int cacheMisses,
+                                List<String> missReasons, String filterMode,
+                                int pointResolution, int pointAtlasWidth, int pointAtlasHeight,
+                                int spotResolution, int spotAtlasWidth, int spotAtlasHeight,
+                                long estimatedDepthBytes) {
         static final ShadowSummary EMPTY = new ShadowSummary("none", "none", "none",
-                0, List.of(), List.of());
+                0, List.of(), List.of(), 0, 0, 0, 0, 0,
+                0, 0, 0, List.of(), List.of(), 0, 0, 0, 0,
+                List.of(), ShadowFilterMode.PCF_3X3.name(), 0, 0, 0,
+                0, 0, 0, 0L);
 
         public ShadowSummary {
             cascadeSplits = List.copyOf(cascadeSplits);
             cascadeCasters = List.copyOf(cascadeCasters);
+            selectedLights = List.copyOf(selectedLights);
+            rejectedLights = List.copyOf(rejectedLights);
+            missReasons = List.copyOf(missReasons);
         }
     }
+
+    public record SelectedShadowLight(long stableId, String type, int shaderIndex,
+                                      int slot, int priority, float score) { }
+
+    public record RejectedShadowLight(long stableId, String type, int shaderIndex,
+                                      String reason, int priority, float score) { }
 
     public record DepthResolveSummary(boolean executed, int sourceSamples, int targetSamples,
                                       int width, int height) {

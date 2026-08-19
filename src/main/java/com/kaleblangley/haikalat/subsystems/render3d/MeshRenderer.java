@@ -63,6 +63,10 @@ public record MeshRenderer(
         return updater instanceof RevisionedModelSource source && source.immutable();
     }
 
+    boolean requiresRevisionScan() {
+        return updater instanceof RevisionedModelSource source && source.requiresRevisionScan();
+    }
+
     long modelRevision() {
         return ((RevisionedModelSource) updater).revision();
     }

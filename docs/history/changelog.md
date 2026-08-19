@@ -1,5 +1,39 @@
 # 变更记录
 
+## v0.23.1（2026-08-19）
+
+**主题**：Render3D 多局部光阴影、确定性预算与 atlas 缓存
+
+### 光源、atlas 与采样
+
+- `Scene` 为灯光提供进程内 stable ID 与 per-entry revision；`ShadowLightHints`、
+  `ShadowSelectionMode` 和 `ShadowLightScheduler` 以 priority、相机影响、迟滞和 stable tie-break
+  生成唯一不可变 `ShadowFramePlan`，并保留所有预算/上限/非法参数拒绝原因。
+- legacy 默认继续保持 1 point + 1 spot、3×3 PCF、旧 uniform 与资源合同；显式 balanced preset
+  同帧支持 1 directional + 2 point + 4 spot。两个 point 3×2 block 和四个 spot tile 使用稳定槽位，
+  sampling 映射由 binding 5、1,392-byte std140 UBO 一次上传。
+- 新增 HARD、PCF 3×3、PCF 5×5、共享 slope/base bias 和世界空间 normal bias；CSM、point face、
+  spot tile 均按 kernel 半径 clamp 到 guard band，不跨 atlas 槽采样。
+
+### 缓存、诊断与验证
+
+- `ShadowCacheKey/ShadowCacheState` 分离 light、caster membership、transform/model、material、
+  deformation、camera/cascade、settings 与 generation；静态 balanced 帧完全复用 20 tile，移动一盏
+  point/spot 分别只重画 6/1 tile，稳定化 CSM 可复用子 texel 相机移动和同宽高比 resize。
+- glTF instance 使用事务式 model revision，使冻结 skin/morph 可缓存、实际 deformation 正确失效；
+  OPAQUE/MASK/BLEND、普通/实例、skin/morph caster policy 保持 v0.23.0 合同。
+- `Render3dDiagnostics` 增加 candidate/selected/capacity、stable owner/slot/score、拒绝原因、
+  tile redraw/reuse、cache hit/miss reason、filter、atlas 尺寸和 depth memory 估值。
+- 新增 `Render3dShadowBudgetDemo`、18 帧隐藏 integration、三档真实 GL 像素/缓存回归和 1080p/4K
+  legacy/balanced 五轮性能入口；窗口以 floor/ceiling/三面 wall 的室内接收面同场展示 1+2+4、
+  预算拒绝、MASK 与 skin/morph caster。
+
+### 兼容性与限制
+
+- 不引入 Deferred、Forward+/Clustered、第二盏方向光 CSM、VSM/EVSM/PCSS、透明/面积光阴影、
+  GPU-driven shadow culling 或通用空间索引。容量和分辨率变化仍走 candidate-first generation；
+  filter/bias/priority/light/caster 变化只失效 frame plan 或对应 cache 内容。
+
 ## v0.23.0（2026-08-18）
 
 **主题**：Render3D 框架加固与能力扩展

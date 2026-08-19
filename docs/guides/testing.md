@@ -155,6 +155,8 @@ Deterministic resize and async render-thread integrations:
 .\gradlew.bat runLocalShadowsIntegration
 .\gradlew.bat runRender3dV023Demo
 .\gradlew.bat runRender3dV023Integration
+.\gradlew.bat runRender3dShadowBudgetDemo
+.\gradlew.bat runRender3dShadowBudgetIntegration
 .\gradlew.bat localPbrVerification
 .\gradlew.bat runGltfIntegration
 .\gradlew.bat runGltfSkinningIntegration
@@ -268,6 +270,39 @@ v0.23 的窗口化纵向证明可单独运行：
 交互入口使用 4096x4096 固定方向光 atlas；4 级 CSM 时每个 tile 为 2048x2048。隐藏入口固定
 12 帧并在中途 resize，硬断言四类 queue、MASK caster、depth resolve、cascade 数、缓存与
 diagnostics。该任务创建 GLFW/OpenGL 窗口，只属于本地桌面验证，不接入无桌面默认 `check`。
+
+v0.23.1 多局部光与缓存专项：
+
+```powershell
+.\gradlew.bat test --tests "*ShadowLightSchedulerTest" --tests "*ScenePipelineTest"
+.\gradlew.bat glSmoke --tests "*LocalShadowsGlTest" --rerun-tasks
+.\gradlew.bat runRender3dShadowBudgetIntegration --rerun-tasks
+.\gradlew.bat runRender3dShadowBudgetDemo
+```
+
+纯 JVM 路径锁定 stable light ID、优先级/相机评分、迟滞、拒绝原因、2 point + 4 spot atlas 布局、
+HARD/PCF kernel 与 1,392-byte std140 offset。真实 GL 路径反射 UBO binding/大小，验证 legacy 像素、
+三档 filter 的稳定像素和 tile guard、balanced 2+4 独立深度、静态完全复用、point 仅 6 face、spot
+仅 1 tile、CSM 子 texel 相机移动/同宽高比 resize 复用，以及 caster 变化精确失效。
+
+隐藏 integration 固定 18 帧：首帧 20 tile，frame 4 移动 point 得到 6 redraw，frame 7 移动 spot
+得到 1 redraw，frame 10 移动相机得到 4 cascade redraw，frame 12 更新 skin/morph 得到 20 redraw，
+frame 14 从 640×360 resize 到 800×450 且 fixed atlas generation/内容不变，最终为 0 redraw / 20 reuse。
+场景还包含真实 glTF MASK caster 和两个低优先级预算拒绝项。该任务已纳入 `localGlVerification`，不
+挂入默认无桌面 `check`。
+
+正式 1080p/4K profile 入口每轮 60 帧 warmup、120 帧采样；发布记录至少执行五轮：
+
+```powershell
+.\gradlew.bat runRender3dShadowLegacyPerformance1080p
+.\gradlew.bat runRender3dShadowLegacyPerformance4k
+.\gradlew.bat runRender3dShadowBudgetPerformance1080p
+.\gradlew.bat runRender3dShadowBudgetPerformance4k
+```
+
+输出 CPU median/P95、GPU median、shadow GPU median、tile redraw/reuse 和估算 depth MiB。legacy
+回退必须与 v0.23.0 的相同 1+1 参数配对比较，不能用 balanced 2+4 直接得出兼容性能结论。GPU
+频率或后台负载导致不同轮次明显漂移时，应把原始数据和限制写入报告，不能调整阈值或挑选单轮。
 
 The current GL smoke path additionally verifies project shader compilation, a compute dispatch writing through a named SSBO, an indexed procedural Cube drawn from a compact SSBO with no VBO, aligned persistent mapped compact-ring slots and dirty-range propagation, pending-state collapse/custom barriers, depth-mask-controlled depth clear, opaque/transparent ordering across RenderGraph passes, depth-only framebuffer writes and shader sampling, resource use-after-close behavior, linear/sRGB texture sampling, single-encoded mid-gray output across all LDR AA modes and HDR/ACES, RGBA16F values above 1.0, ACES exposure changes, R16F log-luminance plus RG32F sum/weight reduction/history, 9×1 and 1280×1 edge weighting, a 1×1-to-47×33 resize topology regression, fullscreen state ownership, HDR resize, disabled/enabled Bloom pixels across all four AA paths, the 40-case legal UI/pipeline matrix, the complete scene-to-shadow-to-lighting pixel chain, opt-in instanced shadows with one upload reused by two passes, reverse cleanup after a geometry-stage failure, next-frame ring reuse, an async UBO upload that drives instanced final pixels, PBR device-cache recovery after runtime environment preprocessing, shared legacy/PBR model variants, canonical tangent fail-fast, and three injected IBL preprocessing cleanup stages. Unit tests verify primitive-only state packets, boundary separation, relative target sizing, packed-instance quantization, uint8 topology/winding, HDR/Bloom/LDR-present pass order, exposure/Bloom validation, frame-rate-independent adaptation, topology-preserving dynamic light replacement, ACES reference behavior, range-limited inverse-square PBR falloff, sRGB/float framebuffer metadata, and synchronization between generated GLSL and the Java catalog.
 

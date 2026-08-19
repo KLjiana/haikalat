@@ -17,38 +17,42 @@ final class ForwardPassBuilder {
                                  DirectionalShadowMap shadowMap,
                                  DirectionalCascadeSettings cascadeSettings,
                                  PointShadowAtlas pointShadowAtlas,
-                                 SpotShadowMap spotShadowMap,
+                                 SpotShadowAtlas spotShadowAtlas,
+                                 PipelineTopology topology,
+                                 boolean preserveShadowTiles,
                                  PassExecutor shadowExecutor,
                                  PassExecutor pointShadowExecutor,
                                  PassExecutor spotShadowExecutor,
                                  PassExecutor geometryExecutor) {
-        boolean hasDirectionalShadow = LightingBinder.shadowDirectionalLight(scene).isPresent();
-        boolean hasPointShadow = LightingBinder.shadowPointLight(scene).isPresent();
-        boolean hasSpotShadow = LightingBinder.shadowSpotLight(scene).isPresent();
+        boolean hasDirectionalShadow = topology.directionalShadow();
+        boolean hasPointShadow = topology.pointShadow();
+        boolean hasSpotShadow = topology.spotShadow();
         if (hasDirectionalShadow) {
-            graph.addPass(DirectionalShadowMap.PASS_NAME)
+            RenderGraph.PassBuilder pass = graph.addPass(DirectionalShadowMap.PASS_NAME)
                     .createDepthTexture(DirectionalShadowMap.TEXTURE_NAME)
                     .fixedSize(cascadeSettings.enabled() ? cascadeSettings.atlasSize()
                                     : shadowMap.settings().resolution(),
                             cascadeSettings.enabled() ? cascadeSettings.atlasSize()
-                                    : shadowMap.settings().resolution())
-                    .clearDepthOnly()
-                    .execute(shadowExecutor);
+                                    : shadowMap.settings().resolution());
+            if (preserveShadowTiles) pass.noClear();
+            else pass.clearDepthOnly();
+            pass.execute(shadowExecutor);
         }
         if (hasPointShadow) {
-            graph.addPass(PointShadowAtlas.PASS_NAME)
+            RenderGraph.PassBuilder pass = graph.addPass(PointShadowAtlas.PASS_NAME)
                     .createDepthTexture(PointShadowAtlas.TEXTURE_NAME)
-                    .fixedSize(pointShadowAtlas.width(), pointShadowAtlas.height())
-                    .clearDepthOnly()
-                    .execute(pointShadowExecutor);
+                    .fixedSize(pointShadowAtlas.width(), pointShadowAtlas.height());
+            if (preserveShadowTiles) pass.noClear();
+            else pass.clearDepthOnly();
+            pass.execute(pointShadowExecutor);
         }
         if (hasSpotShadow) {
-            graph.addPass(SpotShadowMap.PASS_NAME)
-                    .createDepthTexture(SpotShadowMap.TEXTURE_NAME)
-                    .fixedSize(spotShadowMap.settings().resolution(),
-                            spotShadowMap.settings().resolution())
-                    .clearDepthOnly()
-                    .execute(spotShadowExecutor);
+            RenderGraph.PassBuilder pass = graph.addPass(SpotShadowAtlas.PASS_NAME)
+                    .createDepthTexture(SpotShadowAtlas.TEXTURE_NAME)
+                    .fixedSize(spotShadowAtlas.width(), spotShadowAtlas.height());
+            if (preserveShadowTiles) pass.noClear();
+            else pass.clearDepthOnly();
+            pass.execute(spotShadowExecutor);
         }
 
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
@@ -70,7 +74,7 @@ final class ForwardPassBuilder {
             geometry.dependsOn(DirectionalShadowMap.PASS_NAME);
         }
         if (hasPointShadow) geometry.dependsOn(PointShadowAtlas.PASS_NAME);
-        if (hasSpotShadow) geometry.dependsOn(SpotShadowMap.PASS_NAME);
+        if (hasSpotShadow) geometry.dependsOn(SpotShadowAtlas.PASS_NAME);
         geometry.execute(geometryExecutor);
     }
 

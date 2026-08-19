@@ -24,6 +24,7 @@ record SceneRevisionSnapshot(long sceneGeneration,
     private static long transformModelRevision(Scene scene, int frameIndex) {
         long revision = mix(mix(HASH_OFFSET, scene.membershipRevision()),
                 Transform.mutationEpoch());
+        revision = mix(revision, scene.revisionScannedModelEpoch());
         return scene.requiresPerFrameModelRevision()
                 ? mix(revision, Integer.toUnsignedLong(frameIndex)) : revision;
     }

@@ -53,6 +53,7 @@ public final class GltfSceneInstance implements AutoCloseable {
     private long processedSignalSequence = -1L;
     private int currentAnimationIndex = -1;
     private boolean directMorphTransition;
+    private long modelRevision;
     private boolean closed;
 
     private GltfSceneInstance(GltfSceneAsset asset, Matrix4fc rootTransform,
@@ -606,9 +607,10 @@ public final class GltfSceneInstance implements AutoCloseable {
                     drawBinding = morphBinding;
                 }
                 int nodeIndex = node.index();
-                result.add(new SceneObject(asset.mesh(primitive.index()),
+                result.add(SceneObject.revisioned(asset.mesh(primitive.index()),
                         asset.material(primitive),
                         (destination, frameIndex) -> destination.set(nodeModels[nodeIndex]),
+                        () -> modelRevision,
                         castShadows && material.alphaMode() != GltfAlphaMode.BLEND, drawBinding));
             }
         }
@@ -616,8 +618,10 @@ public final class GltfSceneInstance implements AutoCloseable {
     }
 
     private void refreshPoseDependents() {
+        long nextRevision = Math.incrementExact(modelRevision);
         updateNodeMatrices();
         updatePalettes();
+        modelRevision = nextRevision;
     }
 
     private void resetMorphWeights() {
