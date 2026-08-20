@@ -84,6 +84,7 @@ public final class PreviewSourceCatalog {
             throw new IllegalArgumentException("invalid preview storage dimensions");
         }
         int bytesPerPixel = switch (Objects.requireNonNull(format, "format")) {
+            case "R8" -> 1;
             case "R16F" -> 2;
             case "RG16F", "RGBA8", "SRGB8_ALPHA8", "DEPTH_COMPONENT",
                  "DEPTH_COMPONENT24", "DEPTH24_STENCIL8" -> 4;
@@ -149,7 +150,7 @@ public final class PreviewSourceCatalog {
                     || format.equals("DEPTH24_STENCIL8");
         }
         return switch (format) {
-            case "RGBA8", "SRGB8_ALPHA8", "RGBA16F", "R16F", "RG16F", "RG32F" -> true;
+            case "RGBA8", "SRGB8_ALPHA8", "RGBA16F", "R8", "R16F", "RG16F", "RG32F" -> true;
             default -> false;
         };
     }

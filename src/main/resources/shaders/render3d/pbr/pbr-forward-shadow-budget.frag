@@ -33,6 +33,7 @@ uniform sampler2D uSpotShadowMap;
 uniform samplerCube uIrradianceMap;
 uniform samplerCube uPrefilteredMap;
 uniform sampler2D uBrdfLut;
+uniform sampler2D uGtaoMap;
 
 uniform vec4 uBaseColorFactor;
 uniform float uMetallicFactor;
@@ -85,6 +86,11 @@ uniform int uHasVertexColor;
 uniform int uDoubleSided;
 uniform float uAlphaCutoff;
 uniform int uAlphaMode; // 0 OPAQUE, 1 MASK, 2 BLEND
+uniform int uGtaoEnabled;
+// Zero is the backwards-compatible default; demo/host materials can opt out.
+uniform int uGtaoMaterialOptOut;
+// Debug-only material switch used by the GTAO contact acceptance scene.
+uniform int uGtaoPreview;
 
 const float PI = 3.14159265358979323846;
 
@@ -440,7 +446,15 @@ void main() {
     vec3 indirect = vec3(0.0);
     if (uEnableDiffuseIbl != 0) indirect += kd * diffuseIbl;
     if (uEnableSpecularIbl != 0) indirect += specularIbl;
-    indirect *= ao * uEnvironmentIntensity;
+    float gtao = 1.0;
+    if (uGtaoEnabled != 0 && uGtaoMaterialOptOut == 0) {
+        gtao = texture(uGtaoMap, gl_FragCoord.xy / vec2(textureSize(uGtaoMap, 0))).r;
+    }
+    if (uGtaoPreview != 0) {
+        FragColor = vec4(vec3(gtao), 1.0);
+        return;
+    }
+    indirect *= ao * gtao * uEnvironmentIntensity;
     vec3 emissive = texture(uEmissiveMap, vTexCoord).rgb * uEmissiveFactor;
     FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)),
             uAlphaMode == 2 ? baseSample.a : 1.0);

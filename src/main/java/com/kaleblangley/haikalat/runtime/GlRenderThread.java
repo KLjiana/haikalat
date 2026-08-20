@@ -252,12 +252,38 @@ public final class GlRenderThread implements AutoCloseable {
             }
             if (failure == null) {
                 state.set(State.TERMINATED);
-                completion.complete(null);
             } else {
                 state.set(State.FAILED);
-                completion.completeExceptionally(failure);
             }
+            completeAfterThreadExit(failure);
         }
+    }
+
+    /**
+     * Publishes completion only after the worker has returned from {@link #runLoop()}.
+     * Completing the future from the worker's finally block can wake a joining caller
+     * while {@link Thread#isAlive()} is still true for the last few instructions of
+     * the worker, which makes shutdown observability racy.
+     */
+    private void completeAfterThreadExit(Throwable failure) {
+        Thread worker = thread;
+        Thread notifier = new Thread(() -> {
+            try {
+                if (worker != null && worker != Thread.currentThread()) {
+                    worker.join();
+                }
+                if (failure == null) {
+                    completion.complete(null);
+                } else {
+                    completion.completeExceptionally(failure);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                completion.completeExceptionally(interrupted);
+            }
+        }, "GL-RenderThread-completion");
+        notifier.setDaemon(true);
+        notifier.start();
     }
 
     private void ensureNotStarted(String operation) {

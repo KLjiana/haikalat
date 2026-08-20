@@ -84,6 +84,7 @@ public final class CommandBuffer {
     static final byte POP_DEBUG_GROUP = 50;
     static final byte UNIFORM_MAT4_PRIMITIVE = 51;
     static final byte UPLOAD_BUFFER_REGION = 52;
+    static final byte PREPARE_INSTANCED_BATCH_PERSISTENT = 53;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -502,6 +503,23 @@ public final class CommandBuffer {
         Objects.requireNonNull(transforms, "transforms");
         flushPendingState();
         opcode(PREPARE_INSTANCED_BATCH);
+        object(batch);
+        object(copyTransforms(transforms));
+        return this;
+    }
+
+    /**
+     * Uploads an instance snapshot whose prepared lifetime spans RenderGraph pass
+     * command buffers.  The owner must eventually record
+     * {@link #finishPreparedInstancedBatch(InstancedMeshBatch)}; a render-pipeline
+     * failure aborts the outstanding batch explicitly.
+     */
+    public CommandBuffer prepareInstancedBatchPersistent(InstancedMeshBatch batch,
+                                                          Iterable<Matrix4f> transforms) {
+        Objects.requireNonNull(batch, "batch");
+        Objects.requireNonNull(transforms, "transforms");
+        flushPendingState();
+        opcode(PREPARE_INSTANCED_BATCH_PERSISTENT);
         object(batch);
         object(copyTransforms(transforms));
         return this;

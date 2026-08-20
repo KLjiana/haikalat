@@ -1,6 +1,6 @@
 # Render3D 材质、透明与阴影指南
 
-本文描述 v0.23.1 的稳定合同，面向资产制作者和直接构建 `Scene` 的调用方。四类 queue 与 CSM
+本文描述 v0.23.2 的稳定合同，面向资产制作者和直接构建 `Scene` 的调用方。四类 queue 与 CSM
 窗口为 `runRender3dV023Demo`；多局部光预算与缓存窗口为 `runRender3dShadowBudgetDemo`，有限帧自动
 验证为 `runRender3dShadowBudgetIntegration`。
 
@@ -94,6 +94,34 @@ pipeline generation；filter、bias、priority 和灯光参数只更新 frame pl
 静态 balanced 场景应稳定为 0 个 redraw、20 个 reuse。移动一盏 point 应只重画 6 face，移动一盏
 spot 只重画 1 tile。skin/morph 姿态、MASK 材质或 caster transform 变化会使相关内容失效；BLEND 和
 `castShadows=false` 不参与 cache key。
+
+## GTAO 环境遮蔽（v0.23.2）
+
+GTAO 默认关闭，只对包含 metallic-roughness PBR 材质且启用了 HDR 的场景提供正式保证。通过同一个
+`PostProcessSettings` 配置入口启用：
+
+```java
+PostProcessSettings effects = PostProcessSettings.builder()
+        .gtao(GtaoSettings.defaults().withEnabled(true))
+        .build();
+RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, environment)
+        .postProcessSettings(effects);
+```
+
+启用后，pipeline 会在 PBR geometry 前执行 `GtaoDepthPrepass`、半分辨率 estimate、temporal、一次
+深度/法线感知 3×3 双边去噪和上采样。一次去噪替代旧的 H/V 两次全屏 pass，以减少稳定帧的
+FBO、timer 和 draw 开销；AO 只乘到 diffuse/specular IBL 的间接光；直接光、emissive、天空、BLEND/ADDITIVE、
+VFX 和 UI 不读取 GTAO。`LOW`/`MEDIUM`/`HIGH` 只改变有界的方向/步数预算，半分辨率对奇数窗口采用
+ceil-divide。独立的双缓冲 `RG16F` history 仅在成功帧交换，resize、模型/蒙皮/morph/MASK 变化或
+camera cut 会保守拒绝旧 history。
+
+GTAO visibility 绑定 fragment texture unit 13。材质不得覆盖该 unit；未声明 `uGtaoEnabled`/
+`uGtaoMap` 的自定义 shader 仍可运行，但不会自动接收 AO。F2 graph preview 可选择
+`GtaoDepthPrepass/gtaoDepth`、`GtaoEstimatePass/gtaoRaw`、`GtaoTemporalPass/gtaoTemporal`、
+去噪 target 和 `GtaoUpsamplePass/gtaoFinal`；R8 按线性灰度显示，白色表示无遮蔽。
+
+诊断通过 `pipeline.lastRender3dDiagnostics().ambientOcclusion()` 报告开关、质量、半/全分辨率、
+temporal/history 有效位和估算显存。完整真实 GL 与 1080p/4K 性能门禁在 `v0.23.2` 发布前执行。
 
 ## Fog、MSAA 与资源生命周期
 

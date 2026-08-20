@@ -63,6 +63,62 @@ Command:
 它会在 pipeline build 后替换方向光，验证 shadow queue/matrix 更新且 RenderGraph identity 与
 scene graph rebuild count 不变，并由 GL debug 门禁检查错误与未授权消息。
 
+v0.23.2 GTAO 的无桌面合同和真实 GL smoke 分开执行：
+
+```powershell
+.\gradlew.bat test --tests "*GtaoSettingsTest" --tests "*GtaoPassesTest" --tests "*PipelineTopologyTest" \
+    --tests "*FramebufferDescriptorTest" --tests "*RenderGraphTest" --rerun-tasks
+.\gradlew.bat glSmoke --tests "*GtaoShaderGlTest" --rerun-tasks
+.\gradlew.bat runRender3dGtaoIntegration --rerun-tasks
+.\gradlew.bat runRender3dGtaoBenchmarks "-PgtaoBenchmarkMode=comparison" "-PgtaoBenchmarkRounds=5" "-PgtaoBenchmarkWarmup=30" "-PgtaoBenchmarkFrames=60" --rerun-tasks
+# 单独跑一侧时可使用 enabled 或 disabled；comparison 默认同时跑两侧。
+.\gradlew.bat runRender3dGtaoBenchmarks "-PgtaoBenchmarkMode=enabled" "-PgtaoBenchmarkRounds=5" "-PgtaoBenchmarkWarmup=30" "-PgtaoBenchmarkFrames=60" --rerun-tasks
+```
+
+`localGtaoVerification` 的 1 轮/2 帧 smoke 只验证任务 wiring，benchmark 会自动跳过
+这类样本的性能断言。正式性能结论使用预热后的稳定帧（默认 3 轮/60 帧）：直接检查
+CPU p50/p95 增量、GTAO 全链 GPU p50、disabled 的 v0.23.1 历史基线回退，以及线程
+分配的后半段增长趋势；整轮 wall p50/p95 只作冷启动诊断，不参与正式 gate。
+
+人工视觉复核使用独立的 GTAO 接触场景，不依赖生产场景的构图：
+
+```powershell
+.\gradlew.bat runRender3dGtaoVisualDemo --args="--capture=build/reports/gtao-contact.png" --rerun-tasks
+.\gradlew.bat runRender3dGtaoVisualDemo --args="--hidden --frames=3 --size=640x400 --preview --capture=build/reports/gtao-contact-preview.png" --rerun-tasks
+.\gradlew.bat runRender3dGtaoVisualDemo --args="--hidden --frames=3 --size=640x400 --no-gtao --capture=build/reports/gtao-contact-baseline.png" --rerun-tasks
+```
+
+截图左侧 bay 使用 GTAO，右侧 bay 是相同几何、灯光和相机下的材质级 opt-out 参考；两侧的
+地面接触、墙角、球体交叠和悬挑底面应有明显的明暗差异。`--preview` 会把左侧输出为
+AO 灰度图，适合确认遮蔽分布；`--no-gtao` 用于成本和像素基线对照。性能复核建议使用
+`--hidden --no-vsync`，并通过 `--gtao-quality`、`--gtao-radius`、`--gtao-strength` 和
+`--gtao-thickness` 固定参数后再比较。
+
+交互窗口默认保持成对全景，避免启动时鼠标位置改变验收构图；需要移动到左侧近距离检查时显式加
+`--free-camera`，或用 `--view=left` / `--view=close` 复现固定视角。相机移动期间 GTAO history
+会在较大视图变化时丢弃，避免旧遮蔽跨表面拖影；近处的屏幕空间采样半径也有上限，避免采样半径
+投影到整个屏幕后出现突变或阴影消失。Demo 默认使用较保守的 `radius=0.90`、`strength=1.25`、
+`thickness=0.22`，需要放大效果时再显式调高参数。
+
+GTAO 是屏幕空间遮蔽：遮挡体完全离开当前 depth prepass 后，不保证继续产生阴影；需要跨视锥体
+或物体背面的持久投影阴影时，应使用灯光 shadow map/contact-shadow 路径，而不是继续提高 GTAO 强度。
+
+`GtaoShaderGlTest` 会编译 estimate/temporal/denoise/upsample、opaque/masked depth 和两套内置 PBR
+shader，并在隐藏 OpenGL context 中构建启用 GTAO 的 PBR pipeline，检查 depth prepass、ceil
+half-resolution target、R8 attachment、独立 history、相机位移后的 history 重建、最终像素 A/B、
+NONE/MSAA/FXAA/TAA 组合和失败后下一帧恢复。另有
+`RenderPipelineGlTest.gtaoDepthAndInstancedShadowReuseOnePreparedBatchAcrossPasses` 覆盖 GTAO depth、
+instanced shadow/cascade 与 geometry 的一次上传复用；`GltfRuntimeGlTest` 的 skin/morph forward 与
+shadow 用例也启用 GTAO depth prepass。发布候选仍需在同一最终提交上重跑 1080p/4K 性能结果，
+透明/emissive/UI 隔离继续由既有队列和后处理用例负责，并不扩大 GTAO 的支持合同。
+benchmark 默认输出每轮以及跨轮聚合的机器可读 stable CPU/GPU/GTAO 子链 p50/p95、
+`allocationKiBPerFrame` 与 `allocationTrendKiBPerFrame`，并标出
+`v0.23.1@4cc6d44` 对照来源。两侧必须使用相同 warmup、帧数和分辨率；wall 数据仍会输出，
+但只用于识别窗口/context/shader 冷启动抖动。benchmark 阶段会关闭可选 RenderGraph debug
+group，并将 GTAO GPU query 聚合为一条完整链路计时；普通交互/RenderDoc 运行仍保留逐 pass
+计时。若 4K disabled 与历史 GPU 基线出现明显偏离，必须先在相同渲染设置、电源/时钟状态下
+重建 v0.23.1 对照，不得放宽回退门槛。
+
 The v0.19 serialized-scene gate keeps the CPU and focused GL checks explicit:
 
 ```powershell

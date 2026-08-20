@@ -355,7 +355,7 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 10
+        assert policies.size() == 13
         def textBenchmarkPolicy = policies.find { it.owner == 'text/rendering' }
         assert textBenchmarkPolicy != null
         assert textBenchmarkPolicy.id == 131218
@@ -389,6 +389,31 @@ tasks.register('releaseVerificationContracts') {
         assert shadowPerformancePolicy.id == 131218
         assert shadowPerformancePolicy.maximum == 8
         assert shadowPerformancePolicy.expiry == LocalDate.of(2027, 2, 19)
+        def gtaoPolicies = policies.findAll {
+            it.entry in ['.*runRender3dGtaoIntegration.*', '.*runRender3dGtaoBenchmarks.*',
+                         '.*GtaoShaderGlTest.*']
+        }
+        assert gtaoPolicies.size() == 3
+        def gtaoPolicy = gtaoPolicies.find { it.entry == '.*runRender3dGtaoIntegration.*' }
+        assert gtaoPolicy != null
+        assert gtaoPolicy.id == 131218
+        assert gtaoPolicy.severity == 'MEDIUM'
+        assert gtaoPolicy.source == 'API'
+        assert gtaoPolicy.type == 'PERFORMANCE'
+        assert gtaoPolicy.maximum == 12
+        assert gtaoPolicy.expiry == LocalDate.of(2027, 2, 20)
+        def gtaoBenchmarkPolicy = gtaoPolicies.find { it.entry == '.*runRender3dGtaoBenchmarks.*' }
+        assert gtaoBenchmarkPolicy != null
+        assert gtaoBenchmarkPolicy.maximum == 72
+        assert gtaoBenchmarkPolicy.expiry == LocalDate.of(2027, 2, 20)
+        def gtaoPixelPolicy = gtaoPolicies.find { it.entry == '.*GtaoShaderGlTest.*' }
+        assert gtaoPixelPolicy != null
+        assert gtaoPixelPolicy.id == 131218
+        assert gtaoPixelPolicy.severity == 'MEDIUM'
+        assert gtaoPixelPolicy.source == 'API'
+        assert gtaoPixelPolicy.type == 'PERFORMANCE'
+        assert gtaoPixelPolicy.maximum == 12
+        assert gtaoPixelPolicy.expiry == LocalDate.of(2027, 2, 20)
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
                 'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
                         + 'OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive', policies)
@@ -411,6 +436,12 @@ tasks.register('releaseVerificationContracts') {
                         + 'Program/shader state performance warning: Vertex shader in program 12 '
                         + 'is being recompiled based on GL state.', policies)
         assert allowedShadowBudget.violations.isEmpty()
+        def allowedGtao = auditGlText('runRender3dGtaoIntegration',
+                'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+                        + 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: '
+                        + 'Program/shader state performance warning: Vertex shader in program 12 '
+                        + 'is being recompiled based on GL state, and was not found in the disk cache', policies)
+        assert allowedGtao.violations.isEmpty()
         def rejected = auditGlText('runUnknownIntegration',
                 'OpenGL PERFORMANCE [MEDIUM] source=API id=424242: unknown', policies)
         assert rejected.violations.size() == 1
@@ -469,7 +500,8 @@ tasks.withType(JavaExec).configureEach { JavaExec integration ->
 def glPolicyProducerTasks = {
     Set<Task> visited = new LinkedHashSet<>()
     List<Task> pending = ['localGlVerification', 'runSceneSubmissionStaticBenchmarks',
-                          'runPreviewBenchmarks'].collect { tasks.named(it).get() }
+                          'runPreviewBenchmarks', 'runRender3dGtaoBenchmarks']
+            .collect { tasks.named(it).get() }
     while (!pending.isEmpty()) {
         Task task = pending.remove(pending.size() - 1)
         if (!visited.add(task)) continue
@@ -1024,7 +1056,9 @@ tasks.register('releaseMetadataGuard') {
 def releaseReadinessEntries = ['releaseGitGuard', 'releaseMetadataGuard', 'assetManifestGuard',
                                'dependencyLockGuard', 'publicApiGuard', 'architectureGuard', 'check',
                                'releaseVerificationContracts',
-                               'localGlVerification', 'localReleaseVerification',
+                               'glSmoke', 'localGlVerification',
+                               'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks',
+                               'localReleaseVerification',
                                'runSceneSubmissionStaticBenchmarks', 'runSceneSubmissionStaticGate',
                                'glDebugPolicyGuard',
                                'glResourceLifecycleVerification', 'writePerformanceResult',
@@ -1060,6 +1094,22 @@ tasks.register('writeReleaseReadiness') {
                 if (!claim.find()) return
                 String command = claim.group(1)
                 List<String> evidenceTasks = releaseReadinessEntries.findAll { command.contains(it) }
+                // The report intentionally keeps a few aggregate/manual rows for
+                // readability.  Tie those rows to the concrete gates that produced
+                // their evidence instead of silently treating them as unsupported.
+                if (command.contains('compileJava')) evidenceTasks.add('check')
+                // The report keeps a few focused JVM commands for readability;
+                // the staged release graph runs the same tests through check.
+                if (command.startsWith('test ')) evidenceTasks.add('check')
+                if (command.contains('glSmoke')) evidenceTasks.add('glSmoke')
+                if (command.contains('GtaoShaderGlTest') || command.contains('GltfRuntimeGlTest')) {
+                    evidenceTasks.add('glSmoke')
+                }
+                if (command.contains('localGtaoVerification')) {
+                    evidenceTasks.addAll(['glSmoke', 'runRender3dGtaoIntegration',
+                                          'runRender3dGtaoBenchmarks'])
+                }
+                if (command.contains('GTAO') && command.contains('JVM')) evidenceTasks.add('check')
                 if (command.contains('git diff')) evidenceTasks.add('releaseMetadataGuard')
                 boolean supported = !evidenceTasks.isEmpty()
                         && evidenceTasks.every { outcomeByName[it] in ['SUCCESS', 'SKIPPED'] }

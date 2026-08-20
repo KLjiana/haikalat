@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
@@ -29,6 +30,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRe
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
@@ -49,6 +51,7 @@ public final class RenderPipeline {
     private static final int SHADOW_TEXTURE_UNIT = 7;
     private static final int POINT_SHADOW_TEXTURE_UNIT = 11;
     private static final int SPOT_SHADOW_TEXTURE_UNIT = 12;
+    private static final int GTAO_TEXTURE_UNIT = 13;
     private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
     
     // O2: Replace 26 string comparisons with O(1) HashSet lookup
@@ -76,7 +79,9 @@ public final class RenderPipeline {
         "uBrdfLut",
         "uEnvironmentIntensity",
         "uEnvironmentRotation",
-        "uPrefilterMaxLod"
+        "uPrefilterMaxLod",
+        "uGtaoEnabled",
+        "uGtaoMap"
     );
     private static final Set<String> FRAME_OWNED_UNIFORM_PREFIXES = Set.of(
         "uDirectionalLights[",
@@ -323,6 +328,21 @@ public final class RenderPipeline {
             candidate.postProcess = PostProcessPassBuilder.create(
                     settings, postProcessSettings, window, topology.width(), topology.height(),
                     hdrVfxRecorder);
+            if (topology.gtaoEnabled()) {
+                candidate.gtaoDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                        "/shaders/render3d/gtao/gtao-depth.vert",
+                        "/shaders/render3d/gtao/gtao-depth.frag");
+                candidate.gtaoMaskedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                        "/shaders/render3d/gtao/gtao-masked-depth.vert",
+                        "/shaders/render3d/gtao/gtao-masked-depth.frag");
+                if (instanced != null) {
+                    candidate.gtaoInstancedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                            "/shaders/render3d/gtao/gtao-instanced-depth.vert",
+                            "/shaders/render3d/gtao/gtao-depth.frag");
+                }
+                candidate.postProcess.addGtaoPreGeometryPasses(candidate.graph,
+                        gtaoDepthExecutor());
+            }
             boolean hasDirectionalShadow = topology.directionalShadow();
             boolean hasPointShadow = topology.pointShadow();
             boolean hasSpotShadow = topology.spotShadow();
@@ -496,7 +516,8 @@ public final class RenderPipeline {
                     Render3dDiagnostics.VisibilitySummary.EMPTY,
                     Render3dDiagnostics.ShadowSummary.EMPTY,
                     Render3dDiagnostics.DepthResolveSummary.EMPTY,
-                    Render3dDiagnostics.CacheSummary.EMPTY, lastFailureStage);
+                    Render3dDiagnostics.CacheSummary.EMPTY,
+                    Render3dDiagnostics.AmbientOcclusionSummary.EMPTY, lastFailureStage);
         }
         SceneRevisionSnapshot revision = context.revisions();
         var revisions = new Render3dDiagnostics.RevisionSummary(revision.membershipRevision(),
@@ -572,11 +593,13 @@ public final class RenderPipeline {
                 visibility.modelCacheMisses(), visibility.boundsCacheHits(),
                 visibility.boundsCacheMisses(), generationBuildCount, generationFailureCount,
                 generationReuseCount, generationBuildCount + generationFailureCount);
+        var ambientOcclusion = generation.postProcess.gtaoDiagnostics(
+                generation.topology.width(), generation.topology.height());
         return new Render3dDiagnostics(visibility.available(), revisions,
                 context.invalidation().bits(), reasons,
                 generation.id, lastCandidateGenerationId, lastRetiredGenerationId,
                 generation.topology.toString(), lastFrameTopologyRebuilt, queues, visible,
-                shadows, depth, caches, lastFailureStage);
+                shadows, depth, caches, ambientOcclusion, lastFailureStage);
     }
 
     /** @return 最近一次 shadow pass 绘制的实例 caster 数量 */
@@ -672,6 +695,13 @@ public final class RenderPipeline {
                     activeFrameContext.width(), activeFrameContext.height(),
                     activeFrameContext.frameIndex());
             postProcessFrameStarted = true;
+            FrameInvalidation invalidation = activeFrameContext.invalidation();
+            if (invalidation.invalidated(FrameInvalidation.Domain.MEMBERSHIP)
+                    || invalidation.invalidated(FrameInvalidation.Domain.TRANSFORM_MODEL)
+                    || invalidation.invalidated(FrameInvalidation.Domain.MATERIAL_RENDER_STATE)
+                    || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS)) {
+                generation.postProcess.invalidateGtaoHistory();
+            }
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.prepare(device, previewFrameSequence);
             }
@@ -709,6 +739,13 @@ public final class RenderPipeline {
         } catch (RuntimeException | Error failure) {
             lastFailureStage = frameStage;
             lastFailedFrameContext = activeFrameContext;
+            if (instanced != null) {
+                try {
+                    instanced.abortFrame();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
             if (postProcessFrameStarted) generation.postProcess.frameFailed();
             generation.shadowCache.frameFailed();
             if (generation.previewRenderer != null) {
@@ -843,14 +880,120 @@ public final class RenderPipeline {
         return (res, cmd) -> {
             copyHostAttachments(res, cmd);
             ShadowFramePlan plan = shadowFramePlan();
+            int gtaoTexture = requireGeneration().topology.gtaoEnabled()
+                    ? res.colorAttachment(PostProcessTargets.GTAO_FINAL) : 0;
             renderScene(cmd,
                 plan.directional().isPresent()
                         ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
                 !plan.points().isEmpty()
                         ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
                 !plan.spots().isEmpty()
-                        ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0);
+                        ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0,
+                gtaoTexture);
         };
+    }
+
+    private PassExecutor gtaoDepthExecutor() {
+        return (res, cmd) -> {
+            PipelineGeneration generation = requireGeneration();
+            SceneFrame frame = sceneFrame();
+            generation.cameraUniforms.update(cmd, frameCamera(), frameWidth(), frameHeight(),
+                    settings.antiAliasingMode(), activeFrameIndex);
+            ShaderProgram depthShader = generation.gtaoDepthShader;
+            cmd.bindShader(depthShader)
+                    .enableBlend(false).enableDepthTest(true).depthMask(true)
+                    .enableCullFace(false);
+            generation.cameraUniforms.bind(depthShader);
+            ShaderProgram boundShader = depthShader;
+            com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+            boolean frontFaceBound = false;
+            boolean cullBound = false;
+            boolean boundMirrored = false;
+            boolean boundCull = false;
+            int boundSkinningEnabled = -1;
+            int boundMorphTargetCount = -1;
+            for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
+                int entry = frame.forwardEntry(queueIndex);
+                MeshRenderer renderer = frame.renderer(entry);
+                if (!frame.castsOpaqueShadow(entry)) continue;
+                boolean mirrored = frame.mirrored(entry);
+                boolean cull = renderer.material().material().cullMode() == CullMode.BACK;
+                if (!frontFaceBound || mirrored != boundMirrored) {
+                    cmd.frontFace(mirrored ? FrontFace.CW : FrontFace.CCW);
+                    frontFaceBound = true;
+                    boundMirrored = mirrored;
+                }
+                if (!cullBound || cull != boundCull) {
+                    cmd.enableCullFace(cull);
+                    cullBound = true;
+                    boundCull = cull;
+                }
+                ShaderProgram shader = frame.masked(entry)
+                        ? generation.gtaoMaskedDepthShader : generation.gtaoDepthShader;
+                if (shader != boundShader) {
+                    cmd.bindShader(shader);
+                    generation.cameraUniforms.bind(shader);
+                    boundShader = shader;
+                    boundSkinningEnabled = -1;
+                    boundMorphTargetCount = -1;
+                }
+                if (shader == generation.gtaoMaskedDepthShader) {
+                    bindGtaoMaskedMaterial(cmd, shader, renderer.material());
+                }
+                cmd.setUniformMat4(shader, "uModel", frame.model(entry));
+                SceneDrawBinding binding = renderer.drawBinding();
+                int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
+                int morphTargetCount = binding.morphTargetCount();
+                if (skinningEnabled != boundSkinningEnabled) {
+                    cmd.trySetUniformInt(shader, "uSkinningEnabled", skinningEnabled);
+                    boundSkinningEnabled = skinningEnabled;
+                }
+                if (morphTargetCount != boundMorphTargetCount) {
+                    cmd.trySetUniformInt(shader, "uMorphTargetCount", morphTargetCount);
+                    boundMorphTargetCount = morphTargetCount;
+                }
+                if (binding != SceneDrawBinding.NONE) {
+                    binding.record(cmd, shader, activeFrameIndex, SceneDrawBinding.Pass.DEPTH_PREPASS);
+                }
+                if (renderer.mesh() != boundMesh) {
+                    cmd.bindMesh(renderer.mesh());
+                    boundMesh = renderer.mesh();
+                }
+                cmd.drawMesh(renderer.mesh());
+                generation.postProcess.recordGtaoDepthPrepassDraw();
+            }
+            if (instanced != null && generation.gtaoInstancedDepthShader != null) {
+                // Instanced depth uses its own winding convention; do not inherit
+                // a mirrored/cull state from the last regular mesh.
+                cmd.enableCullFace(false).frontFace(FrontFace.CCW);
+                cmd.bindShader(generation.gtaoInstancedDepthShader);
+                generation.cameraUniforms.bind(generation.gtaoInstancedDepthShader);
+                instanced.renderDepth(cmd, generation.gtaoInstancedDepthShader);
+                generation.postProcess.recordGtaoDepthPrepassDraw();
+            }
+        };
+    }
+
+    private void bindGtaoMaskedMaterial(CommandBuffer cmd, ShaderProgram shader,
+                                        MaterialInstance instance) {
+        Material material = instance.material();
+        Material.TextureBinding baseColor = instance.textureOverrides().get(0);
+        if (baseColor == null) {
+            for (Material.TextureBinding binding : material.defaultTextures()) {
+                if (binding.unit() == 0) { baseColor = binding; break; }
+            }
+        }
+        if (baseColor != null) cmd.bindTexture(0, baseColor.texture(), baseColor.sampler());
+        UniformValue cutoff = instance.uniformOverrides().get(UniformKey.float1("uAlphaCutoff"));
+        if (cutoff == null) cutoff = material.defaultUniforms().get(UniformKey.float1("uAlphaCutoff"));
+        UniformValue factor = instance.uniformOverrides().get(UniformKey.vec4("uBaseColorFactor"));
+        if (factor == null) factor = material.defaultUniforms().get(UniformKey.vec4("uBaseColorFactor"));
+        float cutoffValue = cutoff instanceof UniformValue.FloatVal value ? value.value() : 0.5f;
+        Vector4f factorValue = factor instanceof UniformValue.Vec4Val value
+                ? value.value() : new Vector4f(1.0f);
+        cmd.setUniformInt(shader, "uBaseColorMap", 0)
+                .setUniformFloat(shader, "uAlphaCutoff", cutoffValue)
+                .setUniformVec4(shader, "uBaseColorFactor", factorValue);
     }
 
     private void copyHostAttachments(com.kaleblangley.haikalat.core.graph.PassResources resources,
@@ -954,6 +1097,8 @@ public final class RenderPipeline {
         ShaderProgram boundShader = requireGeneration().shadowShader;
         cmd.bindShader(boundShader).setUniformMat4(boundShader, "uLightSpace", lightSpace);
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+        int boundSkinningEnabled = -1;
+        int boundMorphTargetCount = -1;
         for (int queueIndex = 0; queueIndex < frame.shadowCount; queueIndex++) {
             int entry = frame.shadowEntry(queueIndex);
             MeshRenderer renderer = frame.renderer(entry);
@@ -961,13 +1106,25 @@ public final class RenderPipeline {
             if (shader != boundShader) {
                 cmd.bindShader(shader).setUniformMat4(shader, "uLightSpace", lightSpace);
                 boundShader = shader;
+                boundSkinningEnabled = -1;
+                boundMorphTargetCount = -1;
             }
             bindMaskedShadowMaterial(cmd, shader, renderer.material());
             cmd.setUniformMat4(shader, "uModel", frame.model(entry));
             SceneDrawBinding binding = renderer.drawBinding();
-            cmd.trySetUniformInt(shader, "uSkinningEnabled", binding.skinningEnabled() ? 1 : 0)
-                    .trySetUniformInt(shader, "uMorphTargetCount", binding.morphTargetCount());
-            binding.record(cmd, shader, (int) frame.frameIndex, SceneDrawBinding.Pass.SHADOW);
+            int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
+            int morphTargetCount = binding.morphTargetCount();
+            if (skinningEnabled != boundSkinningEnabled) {
+                cmd.trySetUniformInt(shader, "uSkinningEnabled", skinningEnabled);
+                boundSkinningEnabled = skinningEnabled;
+            }
+            if (morphTargetCount != boundMorphTargetCount) {
+                cmd.trySetUniformInt(shader, "uMorphTargetCount", morphTargetCount);
+                boundMorphTargetCount = morphTargetCount;
+            }
+            if (binding != SceneDrawBinding.NONE) {
+                binding.record(cmd, shader, (int) frame.frameIndex, SceneDrawBinding.Pass.SHADOW);
+            }
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
                 boundMesh = renderer.mesh();
@@ -1061,6 +1218,8 @@ public final class RenderPipeline {
     private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame, Matrix4f lightSpace) {
         ShaderProgram boundShader = requireGeneration().shadowShader;
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
+        int boundSkinningEnabled = -1;
+        int boundMorphTargetCount = -1;
         int draws = 0;
         for (int entry = 0; entry < frame.rendererCount(); entry++) {
             MeshRenderer renderer = frame.renderer(entry);
@@ -1072,16 +1231,26 @@ public final class RenderPipeline {
             if (entryShader != boundShader) {
                 cmd.bindShader(entryShader).setUniformMat4(entryShader, "uLightSpace", lightSpace);
                 boundShader = entryShader;
+                boundSkinningEnabled = -1;
+                boundMorphTargetCount = -1;
             }
             bindMaskedShadowMaterial(cmd, entryShader, renderer.material());
             cmd.setUniformMat4(entryShader, "uModel", frame.model(entry));
             SceneDrawBinding drawBinding = renderer.drawBinding();
-            cmd.trySetUniformInt(entryShader, "uSkinningEnabled",
-                    drawBinding.skinningEnabled() ? 1 : 0)
-                    .trySetUniformInt(entryShader, "uMorphTargetCount",
-                            drawBinding.morphTargetCount());
-            drawBinding.record(cmd, entryShader, (int) frame.frameIndex,
-                    SceneDrawBinding.Pass.SHADOW);
+            int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
+            int morphTargetCount = drawBinding.morphTargetCount();
+            if (skinningEnabled != boundSkinningEnabled) {
+                cmd.trySetUniformInt(entryShader, "uSkinningEnabled", skinningEnabled);
+                boundSkinningEnabled = skinningEnabled;
+            }
+            if (morphTargetCount != boundMorphTargetCount) {
+                cmd.trySetUniformInt(entryShader, "uMorphTargetCount", morphTargetCount);
+                boundMorphTargetCount = morphTargetCount;
+            }
+            if (drawBinding != SceneDrawBinding.NONE) {
+                drawBinding.record(cmd, entryShader, (int) frame.frameIndex,
+                        SceneDrawBinding.Pass.SHADOW);
+            }
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
                 boundMesh = renderer.mesh();
@@ -1121,12 +1290,19 @@ public final class RenderPipeline {
     }
 
     private void renderScene(CommandBuffer cmd, int shadowTexture,
-                             int pointShadowTexture, int spotShadowTexture) {
+                             int pointShadowTexture, int spotShadowTexture,
+                             int gtaoTexture) {
         PipelineGeneration generation = requireGeneration();
         SceneFrame frame = sceneFrame();
+        boolean gtaoEnabled = generation.topology.gtaoEnabled();
         Camera camera = frameCamera();
-        generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
-                settings.antiAliasingMode(), activeFrameIndex);
+        // The GTAO depth prepass is the first graph pass and uploads the same
+        // camera block.  Reusing it avoids a second per-frame UBO update on the
+        // enabled path while preserving the legacy single update when disabled.
+        if (!gtaoEnabled) {
+            generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
+                    settings.antiAliasingMode(), activeFrameIndex);
+        }
         if (generation.environmentBackground != null) {
             generation.environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
         }
@@ -1138,6 +1314,9 @@ public final class RenderPipeline {
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
         boolean frontFaceBound = false;
         boolean boundMirrored = false;
+        int boundGtaoTexture = -1;
+        int boundSkinningEnabled = -1;
+        int boundMorphTargetCount = -1;
         for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
             int entry = frame.forwardEntry(queueIndex);
             MeshRenderer renderer = frame.renderer(entry);
@@ -1145,6 +1324,7 @@ public final class RenderPipeline {
             MaterialInstance material = renderer.material();
             Material materialTemplate = material.material();
             ShaderProgram shader = materialTemplate.shader();
+            boolean castsOpaque = gtaoEnabled && frame.castsOpaqueShadow(entry);
             boolean materialHasOverrides = material.hasOverrides();
             boolean mirrored = frame.mirrored(entry);
             if (!frontFaceBound || mirrored != boundMirrored) {
@@ -1162,22 +1342,38 @@ public final class RenderPipeline {
             boundMaterial = material;
             boundMaterialTemplate = materialTemplate;
             boundMaterialHasOverrides = materialHasOverrides;
+            int materialGtaoTexture = castsOpaque
+                    ? gtaoTexture : 0;
+            boolean gtaoBindingChanged = gtaoEnabled && materialGtaoTexture != boundGtaoTexture;
             if (shader != boundShader
-                    || materialBindingChanged && invalidatesFrameState(material)) {
-                bindFrameState(shader, cmd, shadowTexture, pointShadowTexture, spotShadowTexture);
+                    || materialBindingChanged && invalidatesFrameState(material)
+                    || gtaoBindingChanged) {
+                bindFrameState(shader, cmd, shadowTexture, pointShadowTexture, spotShadowTexture,
+                        materialGtaoTexture);
                 if (material.material().model() == MaterialModel.METALLIC_ROUGHNESS) {
                     generation.pbrMaterialBinder.bind(shader, cmd);
                 }
                 boundShader = shader;
+                if (gtaoEnabled) boundGtaoTexture = materialGtaoTexture;
+                boundSkinningEnabled = -1;
+                boundMorphTargetCount = -1;
             }
             cmd.setUniformMat4(shader, "uModel", model);
             SceneDrawBinding drawBinding = renderer.drawBinding();
-            cmd.trySetUniformInt(shader, "uSkinningEnabled",
-                    drawBinding.skinningEnabled() ? 1 : 0)
-                    .trySetUniformInt(shader, "uMorphTargetCount",
-                            drawBinding.morphTargetCount());
-            drawBinding.record(cmd, shader, (int) frame.frameIndex,
-                    SceneDrawBinding.Pass.FORWARD);
+            int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
+            int morphTargetCount = drawBinding.morphTargetCount();
+            if (skinningEnabled != boundSkinningEnabled) {
+                cmd.trySetUniformInt(shader, "uSkinningEnabled", skinningEnabled);
+                boundSkinningEnabled = skinningEnabled;
+            }
+            if (morphTargetCount != boundMorphTargetCount) {
+                cmd.trySetUniformInt(shader, "uMorphTargetCount", morphTargetCount);
+                boundMorphTargetCount = morphTargetCount;
+            }
+            if (drawBinding != SceneDrawBinding.NONE) {
+                drawBinding.record(cmd, shader, (int) frame.frameIndex,
+                        SceneDrawBinding.Pass.FORWARD);
+            }
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
                 boundMesh = renderer.mesh();
@@ -1189,7 +1385,8 @@ public final class RenderPipeline {
             cmd.bindShader(instanced.shader());
             cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
             bindFrameState(instanced.shader(), cmd, shadowTexture,
-                    pointShadowTexture, spotShadowTexture);
+                    pointShadowTexture, spotShadowTexture,
+                    gtaoEnabled ? gtaoTexture : 0);
             instanced.render(cmd);
         }
     }
@@ -1274,7 +1471,8 @@ public final class RenderPipeline {
     }
 
     private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
-                                int pointShadowTexture, int spotShadowTexture) {
+                                int pointShadowTexture, int spotShadowTexture,
+                                int gtaoTexture) {
         PipelineGeneration generation = requireGeneration();
         generation.cameraUniforms.bind(shader);
         RenderFrameContext context = requireFrameContext();
@@ -1310,6 +1508,12 @@ public final class RenderPipeline {
                 .trySetUniformFloat(shader, "uSpotShadowBias", localShadowSettings.spot().bias())
                 .trySetUniformMat4(shader, "uSpotShadowMatrix", lastSpotLightSpaceMatrix);
         if (hasSpotShadow) cmd.bindTexture(SPOT_SHADOW_TEXTURE_UNIT, spotShadowTexture);
+        if (generation.topology.gtaoEnabled()) {
+            boolean hasGtao = gtaoTexture != 0;
+            cmd.trySetUniformInt(shader, "uGtaoEnabled", hasGtao ? 1 : 0)
+                    .trySetUniformInt(shader, "uGtaoMap", GTAO_TEXTURE_UNIT);
+            if (hasGtao) cmd.bindTexture(GTAO_TEXTURE_UNIT, gtaoTexture);
+        }
         if (generation.shadowSamplingBlock != null) generation.shadowSamplingBlock.bind(cmd);
     }
 
@@ -1457,7 +1661,8 @@ public final class RenderPipeline {
                 || unit == SPOT_SHADOW_TEXTURE_UNIT
                 || unit == PbrMaterialBinder.IRRADIANCE_UNIT
                 || unit == PbrMaterialBinder.PREFILTERED_SPECULAR_UNIT
-                || unit == PbrMaterialBinder.BRDF_LUT_UNIT;
+                || unit == PbrMaterialBinder.BRDF_LUT_UNIT
+                || unit == GTAO_TEXTURE_UNIT;
     }
 
     private Camera frameCamera() {

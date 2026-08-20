@@ -45,7 +45,7 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 `RenderPipeline` 拥有普通与 instanced depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 先遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer，再在 `InstancedRenderer.castShadows=true` 时提交同一帧实例快照。实例阴影默认关闭，避免旧调用方无意增加一次实例上传和绘制。
 
-10 万实例五轮基准证明双提交稳定增加超过 0.5 ms CPU median 后，生产路径改为正式的 `prepareInstancedBatch -> drawPreparedInstancedBatch -> finishPreparedInstancedBatch` 协议。命令记录时只复制一次稳定快照，执行时只占用并上传一个 ring slot；shadow 与 geometry 分别 draw，最后一个 pass 后才插入 fence。普通单 pass 调用方继续使用 `drawInstancedBatch`，两条路径都不创建 shadow 专用 batch，也不通过 `custom()` 绕过命令系统。
+10 万实例五轮基准证明双提交稳定增加超过 0.5 ms CPU median 后，生产路径改为正式的 `prepareInstancedBatchPersistent -> drawPreparedInstancedBatch -> finishPreparedInstancedBatch` 协议。命令记录时只复制一次稳定快照，执行时只占用并上传一个 ring slot；shadow、GTAO depth 和 geometry 分别 draw，最后一个 pass 后才插入 fence。`prepareInstancedBatch` 仍保留为单个 `CommandExecutor` 内的局部协议，跨 RenderGraph pass 必须使用带 persistent 语义的入口。普通单 pass 调用方继续使用 `drawInstancedBatch`，三条路径都不创建 shadow 专用 batch，也不通过 `custom()` 绕过命令系统。
 
 基准场景包含双面平面，因此 shadow pass 显式关闭 face culling，通过可调 slope bias 和 geometry shader 的 3x3 PCF 控制 acne 与锯齿。Shadow texture 使用 nearest filtering、clamp-to-border 和白色边界，超出 light frustum 的采样按不遮挡处理。
 
@@ -118,7 +118,7 @@ Bloom 默认关闭；启用后从上述 MSAA resolve/TAA accumulation 之后的�
 
 `CommandBuffer` 不允许对任意 draw 全局排序，因为 framebuffer、clear、uniform、透明 draw 和 pass 依赖具有顺序语义。draw 排序仍由 scene 层缓存完成：opaque/additive 按 shader/material/mesh 分组，alpha 保留提交顺序并最后绘制，shadow 按 mesh 分组。
 
-多 pass 实例命令由同一 `CommandExecutor` 执行周期维护身份栈。每个成功的 `prepareInstancedBatch` 入栈，显式 `finishPreparedInstancedBatch` 移除并完成；命令流异常或遗漏 finish 时，执行器在 `finally` 中逆序结束剩余批次，插入 fence、释放矩阵快照并失效 VAO cache。清理失败不会覆盖主异常，而是作为 suppressed exception 保留。
+单命令流的多 pass 实例命令由 `CommandExecutor` 维护身份栈：每个成功的 `prepareInstancedBatch` 入栈，显式 `finishPreparedInstancedBatch` 移除并完成；命令流异常或遗漏 finish 时，执行器在 `finally` 中逆序结束剩余批次。RenderGraph 跨 pass 的生产路径使用 `prepareInstancedBatchPersistent`，执行器在成功的 pass 之间保留已上传快照，由 `InstancedRenderer` 在最后一个 geometry pass 显式 finish；任一 pass 失败时 `RenderPipeline` 调用 abort，插入 fence、释放矩阵快照并失效 VAO cache。清理失败不会覆盖主异常，而是作为 suppressed exception 保留。
 
 ## Runtime Timing
 

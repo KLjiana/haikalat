@@ -130,6 +130,24 @@ class RenderGraphTest {
     }
 
     @Test
+    void relativeSizeCeilPreservesOddHalfResolutionExtent() {
+        RenderGraph graph = new RenderGraph(5, 3, false);
+        graph.addPass("HalfCeil")
+                .createColor("HalfColor")
+                .relativeSizeCeil(0.5f)
+                .execute((res, cmd) -> {});
+
+        FramebufferDescriptor initial = graph.passFramebufferDescriptor("HalfCeil");
+        assertEquals(3, initial.width());
+        assertEquals(2, initial.height());
+
+        graph.resize(7, 5);
+        FramebufferDescriptor resized = graph.passFramebufferDescriptor("HalfCeil");
+        assertEquals(4, resized.width());
+        assertEquals(3, resized.height());
+    }
+
+    @Test
     void fixedAndRelativeSizesAreMutuallyExclusive() {
         RenderGraph graph = new RenderGraph(800, 600, false);
 

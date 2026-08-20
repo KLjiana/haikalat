@@ -30,6 +30,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.scene.GltfGpuAssetCache;
 import com.kaleblangley.haikalat.subsystems.scene.SceneUploadBudget;
 import com.kaleblangley.haikalat.subsystems.resources.AssetId;
@@ -214,7 +216,9 @@ class GltfRuntimeGlTest {
                                     .toneMappingMode(ToneMappingMode.ACES)
                                     .bloomSettings(BloomSettings.disabled())
                                     .vsync(false)
-                                    .build(), environment);
+                                    .build(), environment)
+                            .postProcessSettings(PostProcessSettings.builder()
+                                    .gtao(GtaoSettings.defaults().withEnabled(true)).build());
                     try {
                         pipeline.build();
                         instance.seek(0.0f);
@@ -389,7 +393,9 @@ class GltfRuntimeGlTest {
                                     .toneMappingMode(ToneMappingMode.ACES)
                                     .bloomSettings(BloomSettings.disabled())
                                     .vsync(false)
-                                    .build(), environment);
+                                    .build(), environment)
+                            .postProcessSettings(PostProcessSettings.builder()
+                                    .gtao(GtaoSettings.defaults().withEnabled(true)).build());
                     try {
                         pipeline.build();
                         first.play(0, com.kaleblangley.haikalat.subsystems.animation

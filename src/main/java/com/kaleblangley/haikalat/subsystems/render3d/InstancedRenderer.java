@@ -82,6 +82,9 @@ public final class InstancedRenderer {
     }
 
     public void beginFrame(int frame) {
+        // A previous graph failure may have stopped before the final geometry pass;
+        // clear that ring slot before accepting the next immutable snapshot.
+        batch.abortPrepared();
         frameIndex.set(frame);
         sharedBatchPrepared = false;
         List<Matrix4f> nextFrame = new ArrayList<>(definitions.size());
@@ -112,8 +115,27 @@ public final class InstancedRenderer {
             shadowDrawnCount.set(0);
             return;
         }
-        cmd.prepareInstancedBatch(batch, frameTransforms)
-                .drawPreparedInstancedBatch(batch, shadowDrawnCount::set);
+        prepareIfNeeded(cmd);
+        cmd.drawPreparedInstancedBatch(batch, shadowDrawnCount::set);
+        sharedBatchPrepared = true;
+    }
+
+    /** Submit the current instance snapshot to a depth-only prepass. */
+    public void renderDepth(CommandBuffer cmd, ShaderProgram depthShader) {
+        prepareIfNeeded(cmd);
+        cmd.drawPreparedInstancedBatch(batch, ignored -> { });
+        sharedBatchPrepared = true;
+    }
+
+    /** Abort an in-flight cross-pass batch after a RenderGraph command failure. */
+    public void abortFrame() {
+        batch.abortPrepared();
+        sharedBatchPrepared = false;
+    }
+
+    private void prepareIfNeeded(CommandBuffer cmd) {
+        if (sharedBatchPrepared) return;
+        cmd.prepareInstancedBatchPersistent(batch, frameTransforms);
         sharedBatchPrepared = true;
     }
 

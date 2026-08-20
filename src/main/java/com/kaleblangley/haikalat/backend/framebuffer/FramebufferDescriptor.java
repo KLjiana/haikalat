@@ -20,6 +20,7 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_R16F;
+import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.GL_RG;
 import static org.lwjgl.opengl.GL30.GL_RG32F;
 
@@ -128,7 +129,7 @@ public record FramebufferDescriptor(
         }
 
         private static int colorExternalFormat(int internalFormat) {
-            if (internalFormat == GL_R16F) {
+            if (internalFormat == GL_R8 || internalFormat == GL_R16F) {
                 return GL_RED;
             }
             return internalFormat == GL_RG32F || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F

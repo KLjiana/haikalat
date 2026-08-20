@@ -51,6 +51,7 @@ final class CommandExecutor {
         int gpuFenceTargetCursor = 0;
         Matrix4f matrixScratch = new Matrix4f();
         ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
+        ArrayDeque<InstancedMeshBatch> persistentPreparedBatches = new ArrayDeque<>();
         ArrayDeque<GpuTimer> activeGpuTimers = new ArrayDeque<>();
         Throwable commandFailure = null;
         int debugGroupDepth = 0;
@@ -303,6 +304,22 @@ final class CommandExecutor {
                         cache.invalidateVertexArray();
                     }
                 }
+                case PREPARE_INSTANCED_BATCH_PERSISTENT -> {
+                    InstancedMeshBatch batch =
+                            (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                    @SuppressWarnings("unchecked")
+                    List<Matrix4f> transforms =
+                            (List<Matrix4f>) stream.objectAt(objectCursor++);
+                    try {
+                        batch.prepareOwnedSnapshots(transforms);
+                        // Unlike the regular prepare opcode, this lifetime is intentionally
+                        // allowed to cross RenderGraph command-executor boundaries.  The
+                        // owning renderer records the final finish in its last pass.
+                        persistentPreparedBatches.addLast(batch);
+                    } finally {
+                        cache.invalidateVertexArray();
+                    }
+                }
                 case DRAW_PREPARED_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
                             (InstancedMeshBatch) stream.objectAt(objectCursor++);
@@ -318,6 +335,7 @@ final class CommandExecutor {
                 case FINISH_PREPARED_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
                             (InstancedMeshBatch) stream.objectAt(objectCursor++);
+                    persistentPreparedBatches.removeLastOccurrence(batch);
                     preparedBatches.removeLastOccurrence(batch);
                     batch.finishPrepared();
                 }
@@ -351,9 +369,13 @@ final class CommandExecutor {
                 abortGpuTimers(activeGpuTimers, commandFailure);
             } finally {
                 try {
-                    finishPreparedBatches(preparedBatches, cache, commandFailure);
+                    abortPersistentPreparedBatches(persistentPreparedBatches, cache, commandFailure);
                 } finally {
-                    while (debugGroupDepth-- > 0) GlDebug.popGroup();
+                    try {
+                        finishPreparedBatches(preparedBatches, cache, commandFailure);
+                    } finally {
+                        while (debugGroupDepth-- > 0) GlDebug.popGroup();
+                    }
                 }
             }
         }
@@ -421,5 +443,22 @@ final class CommandExecutor {
             throw runtimeFailure;
         }
         throw (Error) cleanupFailure;
+    }
+
+    /** Abort persistent cross-pass batches only when their command stream failed. */
+    private static void abortPersistentPreparedBatches(
+            ArrayDeque<InstancedMeshBatch> batches, StateCache cache, Throwable commandFailure) {
+        if (commandFailure == null) return;
+        Throwable cleanupFailure = null;
+        while (!batches.isEmpty()) {
+            try {
+                batches.removeLast().abortPrepared();
+            } catch (RuntimeException | Error failure) {
+                if (cleanupFailure == null) cleanupFailure = failure;
+                else cleanupFailure.addSuppressed(failure);
+            }
+        }
+        if (cleanupFailure != null) commandFailure.addSuppressed(cleanupFailure);
+        if (cache != null) cache.invalidateVertexArray();
     }
 }

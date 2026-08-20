@@ -6,6 +6,7 @@ final class SceneFrame {
     org.joml.Matrix4f[] models;
     WorldBounds[] worldBounds;
     boolean[] mirrored;
+    int[] queueClasses;
     int[] forwardIndices;
     int[] shadowIndices;
     int forwardCount;
@@ -37,6 +38,16 @@ final class SceneFrame {
 
     boolean mirrored(int entry) {
         return mirrored[entry];
+    }
+
+    boolean castsOpaqueShadow(int entry) {
+        int queue = queueClasses[entry];
+        return queue == RenderQueueClass.OPAQUE.ordinal()
+                || queue == RenderQueueClass.MASKED.ordinal();
+    }
+
+    boolean masked(int entry) {
+        return queueClasses[entry] == RenderQueueClass.MASKED.ordinal();
     }
 
     record Statistics(boolean cullingEnabled, long sceneRevision,

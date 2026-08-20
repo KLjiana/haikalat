@@ -4,6 +4,8 @@ import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 
+import java.util.Objects;
+
 final class TaaHistory implements AutoCloseable {
     private final RenderFormat format;
     private Framebuffer framebuffer;
@@ -34,17 +36,81 @@ final class TaaHistory implements AutoCloseable {
         return valid;
     }
 
-    void resize(int width, int height) {
-        if (width <= 0 || height <= 0) {
-            return;
+    ResizeCandidate prepareResize(int width, int height) {
+        ensureOpen();
+        if (width <= 0 || height <= 0
+                || framebuffer.width() == width && framebuffer.height() == height) {
+            return new ResizeCandidate(this, null);
         }
-        // Allocate the candidate first. If creation fails, the current history remains usable.
         Framebuffer candidate = createFramebuffer(width, height);
-        Framebuffer previous = framebuffer;
-        framebuffer = candidate;
-        valid = false;
-        if (previous != null) {
-            previous.close();
+        return new ResizeCandidate(this, candidate);
+    }
+
+    void commitResize(ResizeCandidate candidate) {
+        Objects.requireNonNull(candidate, "candidate").commitInto(this);
+    }
+
+    void resize(int width, int height) {
+        ResizeCandidate candidate = prepareResize(width, height);
+        try {
+            commitResize(candidate);
+        } finally {
+            candidate.close();
+        }
+    }
+
+    static final class ResizeCandidate implements AutoCloseable {
+        private final TaaHistory owner;
+        private Framebuffer candidate;
+        private Framebuffer retired;
+        private boolean committed;
+        private boolean closed;
+
+        private ResizeCandidate(TaaHistory owner, Framebuffer candidate) {
+            this.owner = owner;
+            this.candidate = candidate;
+        }
+
+        private void commitInto(TaaHistory expectedOwner) {
+            if (owner != expectedOwner) {
+                throw new IllegalArgumentException("TAA resize candidate belongs to another history");
+            }
+            if (closed) throw new IllegalStateException("TAA resize candidate is closed");
+            if (committed) throw new IllegalStateException("TAA resize candidate already committed");
+            if (candidate != null) {
+                retired = owner.framebuffer;
+                owner.framebuffer = candidate;
+                candidate = null;
+                owner.valid = false;
+            }
+            committed = true;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            RuntimeException failure = null;
+            if (candidate != null) {
+                try {
+                    candidate.close();
+                } catch (RuntimeException closeFailure) {
+                    failure = closeFailure;
+                } finally {
+                    candidate = null;
+                }
+            }
+            if (retired != null) {
+                try {
+                    retired.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
+                } finally {
+                    retired = null;
+                }
+            }
+            if (failure != null) throw failure;
         }
     }
 
@@ -61,5 +127,9 @@ final class TaaHistory implements AutoCloseable {
         return Framebuffer.fromDescriptor(FramebufferDescriptor.builder(width, height)
                 .colorTexture(format)
                 .build());
+    }
+
+    private void ensureOpen() {
+        if (framebuffer == null) throw new IllegalStateException("TAA history is closed");
     }
 }

@@ -30,7 +30,10 @@ record PipelineTopology(int width,
                         int spotShadowResolution,
                         boolean pbrMaterials,
                         boolean hdrVfx,
-                        boolean embedded) {
+                        boolean embedded,
+                        boolean gtaoEnabled,
+                        int gtaoHalfWidth,
+                        int gtaoHalfHeight) {
     PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -52,6 +55,9 @@ record PipelineTopology(int width,
                 || spotShadowCapacity > LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS
                 || pointShadowResolution <= 0 || spotShadowResolution <= 0) {
             throw new IllegalArgumentException("invalid local shadow topology");
+        }
+        if (gtaoHalfWidth <= 0 || gtaoHalfHeight <= 0) {
+            throw new IllegalArgumentException("invalid GTAO half-resolution extent");
         }
     }
 
@@ -102,7 +108,9 @@ record PipelineTopology(int width,
                 spotShadow && localShadows.maxSpotLights() > 0, cascades.cascadeCount(),
                 cascades.atlasSize(), localShadows.maxPointLights(),
                 localShadows.point().resolution(), localShadows.maxSpotLights(),
-                localShadows.spot().resolution(), pbr, hdrVfx, embedded);
+                localShadows.spot().resolution(), pbr, hdrVfx, embedded,
+                effects.gtao().enabled(), (Math.max(1, width) + 1) / 2,
+                (Math.max(1, height) + 1) / 2);
     }
 
     PipelineTopology withExtent(int width, int height) {
@@ -110,6 +118,7 @@ record PipelineTopology(int width,
                 bloom, bloomLevels, automaticExposure, colorGrading, fog,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
-                spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded);
+                spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
+                gtaoEnabled, (width + 1) / 2, (height + 1) / 2);
     }
 }

@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,22 @@ class PipelineTopologyTest {
                         800, 600, false, false, DirectionalCascadeSettings.disabled()),
                 PipelineTopology.capture(scene, second, PostProcessSettings.defaults(),
                         800, 600, false, false, DirectionalCascadeSettings.disabled()));
+    }
+
+    @Test
+    void gtaoTopologyUsesCeilHalfExtentAndRequiresPbr() {
+        Scene scene = new Scene(new Camera());
+        PostProcessSettings gtao = PostProcessSettings.builder()
+                .gtao(GtaoSettings.defaults().withEnabled(true)).build();
+        PipelineTopology topology = PipelineTopology.capture(scene,
+                RenderSettings.builder().build(), gtao, 5, 3, false, false,
+                DirectionalCascadeSettings.disabled());
+
+        assertEquals(true, topology.gtaoEnabled());
+        assertEquals(3, topology.gtaoHalfWidth());
+        assertEquals(2, topology.gtaoHalfHeight());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> new PipelineFeaturePolicy(topology, false).validate());
     }
 
     @Test

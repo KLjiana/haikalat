@@ -18,12 +18,28 @@ public record Render3dDiagnostics(
         ShadowSummary shadows,
         DepthResolveSummary depthResolve,
         CacheSummary caches,
+        AmbientOcclusionSummary ambientOcclusion,
         String failureStage) {
+
+    /** Source-compatible constructor retained for callers written before v0.23.2. */
+    public Render3dDiagnostics(boolean available, RevisionSummary revisions,
+                               int invalidationBits, List<String> invalidationReasons,
+                               long activeGenerationId, long candidateGenerationId,
+                               long retiredGenerationId, String topologyKey,
+                               boolean topologyRebuilt, QueueSummary queues,
+                               VisibilitySummary visibility, ShadowSummary shadows,
+                               DepthResolveSummary depthResolve, CacheSummary caches,
+                               String failureStage) {
+        this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
+                candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
+                visibility, shadows, depthResolve, caches, AmbientOcclusionSummary.EMPTY,
+                failureStage);
+    }
 
     public static final Render3dDiagnostics UNAVAILABLE = new Render3dDiagnostics(false,
             RevisionSummary.EMPTY, 0, List.of(), 0L, 0L, 0L, "", false,
             QueueSummary.EMPTY, VisibilitySummary.EMPTY, ShadowSummary.EMPTY,
-            DepthResolveSummary.EMPTY, CacheSummary.EMPTY, "");
+            DepthResolveSummary.EMPTY, CacheSummary.EMPTY, AmbientOcclusionSummary.EMPTY, "");
 
     public Render3dDiagnostics {
         invalidationReasons = List.copyOf(invalidationReasons);
@@ -95,5 +111,17 @@ public record Render3dDiagnostics(
                                long pipelineCacheMisses) {
         static final CacheSummary EMPTY = new CacheSummary(false, false,
                 0, 0, 0, 0, 0L, 0L, 0L, 0L);
+    }
+
+    /** Bounded GTAO state snapshot; no GPU handles or per-pixel data are retained. */
+    public record AmbientOcclusionSummary(boolean enabled, String disabledReason,
+                                          String quality, float radius, float strength,
+                                          float thickness, int fullWidth, int fullHeight,
+                                          int halfWidth, int halfHeight, boolean temporal,
+                                          boolean historyValid, int depthPrepassDraws,
+                                          long estimatedBytes) {
+        static final AmbientOcclusionSummary EMPTY = new AmbientOcclusionSummary(false,
+                "unavailable", "disabled", 0.0f, 0.0f, 0.0f,
+                0, 0, 0, 0, false, false, 0, 0L);
     }
 }

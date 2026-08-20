@@ -11,11 +11,13 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
+import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.GL_R16F;
 import static org.lwjgl.opengl.GL30.GL_RG;
 import static org.lwjgl.opengl.GL30.GL_RG32F;
 import static org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_RED;
 
@@ -54,6 +56,18 @@ class FramebufferDescriptorTest {
         assertEquals(GL_R16F, color.internalFormat());
         assertEquals(GL_RED, color.externalFormat());
         assertEquals(GL_FLOAT, color.dataType());
+    }
+
+    @Test
+    void r8TextureUsesSingleChannelUnsignedByteMetadata() {
+        FramebufferDescriptor descriptor = FramebufferDescriptor.builder(8, 4)
+                .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.R8)
+                .build();
+        FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().getFirst();
+
+        assertEquals(GL_R8, color.internalFormat());
+        assertEquals(GL_RED, color.externalFormat());
+        assertEquals(GL_UNSIGNED_BYTE, color.dataType());
     }
 
     @Test

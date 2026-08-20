@@ -231,6 +231,12 @@ public final class InstancedMeshBatch implements AutoCloseable {
         finishFrame(null);
     }
 
+    /** Recovery hook for a cross-pass command failure; safe when no frame is active. */
+    public void abortPrepared() {
+        if (closed || !frameBegun) return;
+        finishFrame(null);
+    }
+
     private void finishFrame(Throwable primaryFailure) {
         try {
             instanceBuffers.finishFrame();

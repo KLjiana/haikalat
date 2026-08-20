@@ -6,6 +6,12 @@ public final class PostProcessTargets {
     public static final String TAA_PASS = "TaaPass";
     public static final String HDR_RESOLVE_PASS = "HdrResolvePass";
     public static final String DEPTH_RESOLVE_PASS = "DepthResolvePass";
+    public static final String GTAO_DEPTH_PREPASS = "GtaoDepthPrepass";
+    public static final String GTAO_ESTIMATE_PASS = "GtaoEstimatePass";
+    public static final String GTAO_TEMPORAL_PASS = "GtaoTemporalPass";
+    public static final String GTAO_DENOISE_HORIZONTAL_PASS = "GtaoDenoiseHorizontalPass";
+    public static final String GTAO_DENOISE_VERTICAL_PASS = "GtaoDenoiseVerticalPass";
+    public static final String GTAO_UPSAMPLE_PASS = "GtaoUpsamplePass";
     public static final String FOG_PASS = "FogPass";
     public static final String VFX_COMPOSITE_PASS = "VfxCompositePass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
@@ -24,6 +30,12 @@ public final class PostProcessTargets {
     public static final String HDR_RESOLVED_COLOR = "hdrResolvedColor";
     public static final String SCENE_DEPTH = "sceneDepth";
     public static final String RESOLVED_SCENE_DEPTH = "resolvedSceneDepth";
+    public static final String GTAO_DEPTH = "gtaoDepth";
+    public static final String GTAO_RAW = "gtaoRaw";
+    public static final String GTAO_TEMPORAL = "gtaoTemporal";
+    public static final String GTAO_DENOISE_A = "gtaoDenoiseA";
+    public static final String GTAO_DENOISE_B = "gtaoDenoiseB";
+    public static final String GTAO_FINAL = "gtaoFinal";
     public static final String FOG_COLOR = "fogColor";
     public static final String VFX_COMPOSITE_COLOR = "vfxCompositeColor";
     public static final String VFX_SCENE_DEPTH = "vfxSceneDepth";

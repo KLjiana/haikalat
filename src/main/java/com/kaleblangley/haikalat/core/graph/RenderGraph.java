@@ -23,15 +23,32 @@ import java.util.Map;
 import java.util.Objects;
 
 public final class RenderGraph implements AutoCloseable {
+    private static final GpuTimer.Sample PENDING_GPU_SAMPLE =
+            new GpuTimer.Sample(GpuTimer.Status.PENDING, 0L, -1L, 0L, 0L);
     private final List<Pass> passes = new ArrayList<>();
     private final Map<String, Pass> passByName = new HashMap<>();
     private final Map<String, Texture2D> importedTextures = new HashMap<>();
     private final Map<String, ExternalAttachment> importedExternalAttachments = new HashMap<>();
     private final Map<String, PresentationTarget> importedPresentationTargets = new HashMap<>();
-    private final Map<String, Integer> textureAttachmentIds = new HashMap<>();
+    // Replaced as part of a resize candidate commit.  Keeping the lookup as a
+    // candidate-owned map means commit does not have to clear/rebuild shared
+    // state (which could throw after the framebuffer generation was swapped).
+    private Map<String, Integer> textureAttachmentIds = new HashMap<>();
     private RenderTargetManager renderTargets;
     private final RenderTargetManager fixedRenderTargets;
     private final boolean allocateResources;
+    private final boolean debugGroupsEnabled = !Boolean.getBoolean(
+            "haikalat.render.disableDebugGroups");
+    // Benchmark runs still need one non-blocking GPU sample for the whole GTAO
+    // chain, but per-pass query rings add a query begin/end and availability
+    // poll for every fullscreen pass.  Keep detailed per-pass timings for
+    // normal diagnostics and aggregate only the optional GTAO chain when the
+    // benchmark requests it.
+    private final boolean aggregateGtaoGpuTimer = Boolean.getBoolean(
+            "haikalat.render.aggregateGtaoGpuTimer");
+    private GpuTimer aggregateGtaoTimer;
+    private int firstGtaoPassIndex = -1;
+    private int lastGtaoPassIndex = -1;
     private final PassResources passResources;
     private final CommandBuffer immediateCommands = new CommandBuffer();
     private int lastRecordedCommandCount;
@@ -242,6 +259,23 @@ public final class RenderGraph implements AutoCloseable {
                 .toList();
         compiledGraph = RenderGraphCompiler.compile(specifications);
         sortedPasses = compiledGraph.passNames().stream().map(passByName::get).toList();
+        firstGtaoPassIndex = -1;
+        lastGtaoPassIndex = -1;
+        boolean gtaoRun = false;
+        for (int index = 0; index < sortedPasses.size(); index++) {
+            if (isGtaoPass(sortedPasses.get(index))) {
+                if (!gtaoRun) {
+                    firstGtaoPassIndex = index;
+                    gtaoRun = true;
+                }
+                lastGtaoPassIndex = index;
+            } else if (gtaoRun) {
+                // Timer queries cannot be nested.  Aggregate only the first
+                // contiguous GTAO run; an unusual graph with an interleaved
+                // non-GTAO pass falls back to its individual timers there.
+                break;
+            }
+        }
         cachedDescription = null;
     }
 
@@ -287,6 +321,7 @@ public final class RenderGraph implements AutoCloseable {
 
         long currentFrameSequence = frameSequence++;
         Arrays.fill(cpuRecordNanos, 0L);
+        GpuTimer.Sample aggregateGtaoSample = null;
         try {
             for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
                 Pass pass = sortedPasses.get(passIndex);
@@ -295,11 +330,25 @@ public final class RenderGraph implements AutoCloseable {
                 currentFbo = framebuffer;
                 PresentationTarget passTarget = targetFor(pass, frameTarget);
                 currentPresentationTarget = passTarget;
-                if (pass.timer == null) pass.timer = new GpuTimer();
-                GpuTimer timer = pass.timer;
-                cmd.pushDebugGroup("RenderGraph/" + pass.name);
+                boolean aggregateGtaoPass = aggregateGtaoGpuTimer
+                        && passIndex >= firstGtaoPassIndex
+                        && passIndex <= lastGtaoPassIndex
+                        && isGtaoPass(pass);
+                GpuTimer beginTimer = null;
+                GpuTimer endTimer = null;
+                if (!aggregateGtaoPass) {
+                    if (pass.timer == null) pass.timer = new GpuTimer();
+                    beginTimer = pass.timer;
+                    endTimer = pass.timer;
+                } else if (passIndex == firstGtaoPassIndex
+                        || passIndex == lastGtaoPassIndex) {
+                    if (aggregateGtaoTimer == null) aggregateGtaoTimer = new GpuTimer();
+                    if (passIndex == firstGtaoPassIndex) beginTimer = aggregateGtaoTimer;
+                    if (passIndex == lastGtaoPassIndex) endTimer = aggregateGtaoTimer;
+                }
+                if (debugGroupsEnabled) cmd.pushDebugGroup(pass.debugGroup);
                 cmd.enableScissor(false);
-                cmd.beginGpuTimer(timer, currentFrameSequence);
+                if (beginTimer != null) cmd.beginGpuTimer(beginTimer, currentFrameSequence);
 
                 if (passTarget != null) {
                     cmd.enableBlend(false);
@@ -326,8 +375,8 @@ public final class RenderGraph implements AutoCloseable {
                 try {
                     pass.executor.execute(passResources, cmd);
                 } finally {
-                    cmd.endGpuTimer(timer);
-                    cmd.popDebugGroup();
+                    if (endTimer != null) cmd.endGpuTimer(endTimer);
+                    if (debugGroupsEnabled) cmd.popDebugGroup();
                     cpuRecordNanos[passIndex] = System.nanoTime() - passCpuStart;
                 }
             }
@@ -337,10 +386,23 @@ public final class RenderGraph implements AutoCloseable {
             lastRecordedObjectPayloads = cmd.recordedObjectPayloadCount();
             device.execute(cmd);
             List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
+            if (aggregateGtaoTimer != null) {
+                aggregateGtaoSample = aggregateGtaoTimer.sample(currentFrameSequence);
+            }
             for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
                 Pass pass = sortedPasses.get(passIndex);
-                GpuTimer timer = pass.timer;
-                GpuTimer.Sample sample = timer.sample(currentFrameSequence);
+                boolean aggregateGtaoPass = aggregateGtaoGpuTimer
+                        && passIndex >= firstGtaoPassIndex
+                        && passIndex <= lastGtaoPassIndex
+                        && isGtaoPass(pass);
+                GpuTimer.Sample sample;
+                if (aggregateGtaoPass) {
+                    sample = passIndex == firstGtaoPassIndex && aggregateGtaoSample != null
+                            ? aggregateGtaoSample
+                            : PENDING_GPU_SAMPLE;
+                } else {
+                    sample = pass.timer.sample(currentFrameSequence);
+                }
                 passProfiles.add(new PassProfile(pass.name, cpuRecordNanos[passIndex],
                         sample.elapsedNanos(), mapStatus(sample.status()), sample.resultSequence(),
                         sample.sampleAgeFrames(), sample.skippedSubmissions()));
@@ -370,7 +432,13 @@ public final class RenderGraph implements AutoCloseable {
         List<PassProfile> failed = new ArrayList<>(sortedPasses.size());
         for (int index = 0; index < sortedPasses.size(); index++) {
             Pass pass = sortedPasses.get(index);
-            long skipped = pass.timer == null ? 0L
+            boolean aggregateGtaoPass = aggregateGtaoGpuTimer
+                    && index >= firstGtaoPassIndex && index <= lastGtaoPassIndex
+                    && isGtaoPass(pass);
+            long skipped = aggregateGtaoPass
+                    ? aggregateGtaoTimer == null ? 0L
+                    : aggregateGtaoTimer.sample(currentFrameSequence).skippedSubmissions()
+                    : pass.timer == null ? 0L
                     : pass.timer.sample(currentFrameSequence).skippedSubmissions();
             failed.add(new PassProfile(pass.name, cpuRecordNanos[index], 0L,
                     PassProfile.GpuTimingStatus.FAILED, -1L, 0L, skipped));
@@ -398,10 +466,12 @@ public final class RenderGraph implements AutoCloseable {
                     : importedPresentationTargets.get(pass.presentationTargetName);
             int targetWidth = importedTarget != null ? importedTarget.width()
                     : kind == TargetKind.EXTERNAL ? 0
-                    : targetDimension(width, pass.fixedWidth, pass.relativeWidthScale);
+                    : targetDimension(width, pass.fixedWidth, pass.relativeWidthScale,
+                    pass.ceilRelativeSize);
             int targetHeight = importedTarget != null ? importedTarget.height()
                     : kind == TargetKind.EXTERNAL ? 0
-                    : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale);
+                    : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale,
+                    pass.ceilRelativeSize);
             List<AttachmentDescription> colors = new ArrayList<>(pass.colorFormats.size());
             for (int index = 0; index < pass.colorFormats.size(); index++) {
                 String logicalName = index < pass.colorTextureNames.size()
@@ -424,22 +494,31 @@ public final class RenderGraph implements AutoCloseable {
         return cachedDescription;
     }
 
-    public void resize(int newWidth, int newHeight) {
-        if (newWidth <= 0 || newHeight <= 0) {
-            return;
+    /**
+     * Allocates a complete resize candidate without changing the active graph.
+     * The caller must either commit or close the returned candidate.
+     */
+    public ResizeCandidate prepareResize(int newWidth, int newHeight) {
+        ensureOpen();
+        if (newWidth <= 0 || newHeight <= 0
+                || newWidth == width && newHeight == height) {
+            return ResizeCandidate.noop(this, newWidth, newHeight);
+        }
+        if (Boolean.getBoolean("haikalat.test.failGraphResizeAllocation")) {
+            System.clearProperty("haikalat.test.failGraphResizeAllocation");
+            throw new IllegalStateException("injected graph resize allocation failure");
         }
         if (!allocateResources) {
-            width = newWidth;
-            height = newHeight;
-            cachedDescription = null;
-            return;
+            return new ResizeCandidate(this, newWidth, newHeight, null, null);
         }
         RenderTargetManager candidate = new RenderTargetManager();
+        Map<String, Integer> candidateAttachmentIds;
         try {
             for (Pass pass : passes) {
                 if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)) continue;
                 candidate.create(pass.name, descriptorFor(pass, newWidth, newHeight));
             }
+            candidateAttachmentIds = buildAttachmentLookup(candidate);
         } catch (RuntimeException | Error failure) {
             try {
                 candidate.close();
@@ -448,13 +527,105 @@ public final class RenderGraph implements AutoCloseable {
             }
             throw failure;
         }
-        RenderTargetManager previous = renderTargets;
-        renderTargets = candidate;
-        width = newWidth;
-        height = newHeight;
-        cachedDescription = null;
-        refreshAttachmentLookup();
-        previous.close();
+        return new ResizeCandidate(this, newWidth, newHeight, candidate, candidateAttachmentIds);
+    }
+
+    /** Publishes a previously prepared candidate without allocating or retiring resources. */
+    public void commitResize(ResizeCandidate candidate) {
+        ensureOpen();
+        Objects.requireNonNull(candidate, "candidate").commitInto(this);
+    }
+
+    public void resize(int newWidth, int newHeight) {
+        ResizeCandidate candidate = prepareResize(newWidth, newHeight);
+        try {
+            commitResize(candidate);
+        } finally {
+            candidate.close();
+        }
+    }
+
+    /** A graph extent candidate whose old resources are retired only after commit. */
+    public static final class ResizeCandidate implements AutoCloseable {
+        private final RenderGraph owner;
+        private final int width;
+        private final int height;
+        private RenderTargetManager candidateTargets;
+        private Map<String, Integer> candidateAttachmentIds;
+        private RenderTargetManager retiredTargets;
+        private boolean committed;
+        private boolean closed;
+
+        private ResizeCandidate(RenderGraph owner, int width, int height,
+                                RenderTargetManager candidateTargets,
+                                Map<String, Integer> candidateAttachmentIds) {
+            this.owner = owner;
+            this.width = width;
+            this.height = height;
+            this.candidateTargets = candidateTargets;
+            this.candidateAttachmentIds = candidateAttachmentIds;
+        }
+
+        private static ResizeCandidate noop(RenderGraph owner, int width, int height) {
+            return new ResizeCandidate(owner, width, height, null, null);
+        }
+
+        void validateFor(RenderGraph expectedOwner) {
+            if (owner != expectedOwner) {
+                throw new IllegalArgumentException("resize candidate belongs to another graph");
+            }
+            if (closed) throw new IllegalStateException("resize candidate is closed");
+            if (committed) throw new IllegalStateException("resize candidate already committed");
+        }
+
+        private void commitInto(RenderGraph expectedOwner) {
+            validateFor(expectedOwner);
+            if (width <= 0 || height <= 0
+                    || owner.width == width && owner.height == height) {
+                committed = true;
+                return;
+            }
+            if (owner.allocateResources) {
+                retiredTargets = owner.renderTargets;
+                owner.renderTargets = candidateTargets;
+                candidateTargets = null;
+                owner.textureAttachmentIds = candidateAttachmentIds == null
+                        ? new HashMap<>() : candidateAttachmentIds;
+                candidateAttachmentIds = null;
+            }
+            owner.width = width;
+            owner.height = height;
+            owner.cachedDescription = null;
+            committed = true;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            RuntimeException failure = null;
+            if (candidateTargets != null) {
+                try {
+                    candidateTargets.close();
+                } catch (RuntimeException closeFailure) {
+                    failure = closeFailure;
+                } finally {
+                    candidateTargets = null;
+                }
+            }
+            candidateAttachmentIds = null;
+            if (retiredTargets != null) {
+                try {
+                    retiredTargets.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
+                } finally {
+                    retiredTargets = null;
+                }
+            }
+            if (failure != null) throw failure;
+        }
     }
 
     @Override
@@ -490,6 +661,16 @@ public final class RenderGraph implements AutoCloseable {
                 }
             }
         }
+        if (aggregateGtaoTimer != null) {
+            try {
+                aggregateGtaoTimer.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            } finally {
+                aggregateGtaoTimer = null;
+            }
+        }
         textureAttachmentIds.clear();
         importedExternalAttachments.clear();
         importedPresentationTargets.clear();
@@ -513,8 +694,10 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     private FramebufferDescriptor descriptorFor(Pass pass, int windowWidth, int windowHeight) {
-        int targetWidth = targetDimension(windowWidth, pass.fixedWidth, pass.relativeWidthScale);
-        int targetHeight = targetDimension(windowHeight, pass.fixedHeight, pass.relativeHeightScale);
+        int targetWidth = targetDimension(windowWidth, pass.fixedWidth, pass.relativeWidthScale,
+                pass.ceilRelativeSize);
+        int targetHeight = targetDimension(windowHeight, pass.fixedHeight, pass.relativeHeightScale,
+                pass.ceilRelativeSize);
         FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(targetWidth, targetHeight)
                 .samples(pass.samples);
         boolean multisampled = pass.samples > 1;
@@ -533,12 +716,15 @@ public final class RenderGraph implements AutoCloseable {
         return builder.build();
     }
 
-    private static int targetDimension(int windowDimension, int fixedDimension, float relativeScale) {
+    private static int targetDimension(int windowDimension, int fixedDimension, float relativeScale,
+                                      boolean ceilRelativeSize) {
         if (fixedDimension > 0) {
             return fixedDimension;
         }
         if (relativeScale > 0.0f) {
-            return Math.max(1, Math.round(windowDimension * relativeScale));
+            return Math.max(1, ceilRelativeSize
+                    ? (int) Math.ceil(windowDimension * relativeScale)
+                    : Math.round(windowDimension * relativeScale));
         }
         return windowDimension;
     }
@@ -556,14 +742,37 @@ public final class RenderGraph implements AutoCloseable {
     }
 
     private void registerPassAttachments(Pass pass, Framebuffer framebuffer) {
+        registerPassAttachments(textureAttachmentIds, pass, framebuffer);
+    }
+
+    private Map<String, Integer> buildAttachmentLookup(RenderTargetManager dynamicTargets) {
+        Map<String, Integer> lookup = new HashMap<>();
+        for (Pass pass : passes) {
+            if (pass.useBackbuffer || pass.externalTarget) continue;
+            Framebuffer framebuffer = isFixedSize(pass)
+                    ? fixedRenderTargets.get(pass.name)
+                    : dynamicTargets.get(pass.name);
+            if (framebuffer != null) {
+                registerPassAttachments(lookup, pass, framebuffer);
+            }
+        }
+        return lookup;
+    }
+
+    private static void registerPassAttachments(Map<String, Integer> attachmentIds,
+                                                Pass pass, Framebuffer framebuffer) {
         for (int i = 0; i < pass.colorTextureNames.size(); i++) {
             if (i < framebuffer.colorAttachmentCount() && framebuffer.colorAttachmentIsTexture(i)) {
-                textureAttachmentIds.put(pass.colorTextureNames.get(i), framebuffer.colorAttachment(i));
+                attachmentIds.put(pass.colorTextureNames.get(i), framebuffer.colorAttachment(i));
             }
         }
         if (pass.depthTextureName != null && framebuffer.depthAttachmentIsTexture()) {
-            textureAttachmentIds.put(pass.depthTextureName, framebuffer.depthAttachment());
+            attachmentIds.put(pass.depthTextureName, framebuffer.depthAttachment());
         }
+    }
+
+    private static boolean isGtaoPass(Pass pass) {
+        return pass.name.startsWith("Gtao");
     }
 
     private void ensureOpen() {
@@ -668,6 +877,7 @@ public final class RenderGraph implements AutoCloseable {
 
     private static final class Pass {
         final String name;
+        final String debugGroup;
         final List<String> colorTextureNames;
         final List<RenderFormat> colorFormats;
         final int samples;
@@ -675,6 +885,7 @@ public final class RenderGraph implements AutoCloseable {
         final int fixedHeight;
         final float relativeWidthScale;
         final float relativeHeightScale;
+        final boolean ceilRelativeSize;
         final boolean createDepth;
         final String depthTextureName;
         final boolean clearColor;
@@ -692,11 +903,13 @@ public final class RenderGraph implements AutoCloseable {
 
         Pass(String name, List<String> colorTextureNames, List<RenderFormat> colorFormats, int samples,
              int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
+             boolean ceilRelativeSize,
              boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
              boolean externalTarget, String presentationTargetName,
              List<String> dependencies, PassExecutor executor) {
             this.name = name;
+            this.debugGroup = "RenderGraph/" + name;
             this.colorTextureNames = colorTextureNames;
             this.colorFormats = colorFormats;
             this.samples = samples;
@@ -704,6 +917,7 @@ public final class RenderGraph implements AutoCloseable {
             this.fixedHeight = fixedHeight;
             this.relativeWidthScale = relativeWidthScale;
             this.relativeHeightScale = relativeHeightScale;
+            this.ceilRelativeSize = ceilRelativeSize;
             this.createDepth = createDepth;
             this.depthTextureName = depthTextureName;
             this.clearColor = clearColor;
@@ -730,6 +944,7 @@ public final class RenderGraph implements AutoCloseable {
         private int fixedHeight;
         private float relativeWidthScale;
         private float relativeHeightScale;
+        private boolean ceilRelativeSize;
         private boolean createDepth;
         private String depthTextureName;
         private boolean clearColor = true;
@@ -869,7 +1084,23 @@ public final class RenderGraph implements AutoCloseable {
             }
             relativeWidthScale = widthScale;
             relativeHeightScale = heightScale;
+            ceilRelativeSize = false;
             return this;
+        }
+
+        /**
+         * Uses ceil rather than the legacy round rule for relative target sizes.
+         * This is intended for half-resolution effects where odd extents must
+         * retain the final row and column.
+         */
+        public PassBuilder relativeSizeCeil(float widthScale, float heightScale) {
+            relativeSize(widthScale, heightScale);
+            ceilRelativeSize = true;
+            return this;
+        }
+
+        public PassBuilder relativeSizeCeil(float scale) {
+            return relativeSizeCeil(scale, scale);
         }
 
         public PassBuilder writeToBackbuffer() {
@@ -940,6 +1171,7 @@ public final class RenderGraph implements AutoCloseable {
             }
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
                     fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
+                    ceilRelativeSize,
                     createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
                     useBackbuffer, externalTarget, presentationTargetName,
                     List.copyOf(dependencies), executor);
@@ -961,6 +1193,7 @@ public final class RenderGraph implements AutoCloseable {
                 case 35907 -> RenderFormat.SRGB8_ALPHA8;
                 case 34842 -> RenderFormat.RGBA16F;
                 case 33325 -> RenderFormat.R16F;
+                case 33321 -> RenderFormat.R8;
                 case 33327 -> RenderFormat.RG16F;
                 case 33328 -> RenderFormat.RG32F;
                 default -> throw new IllegalArgumentException("Unsupported legacy GL render format: " + value);

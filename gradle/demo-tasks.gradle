@@ -17,6 +17,7 @@ def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 def render3dV023Main = 'com.kaleblangley.haikalat.demo.pbr.Render3dV023Demo'
+def render3dGtaoMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dGtaoDemo'
 def render3dShadowBudgetMain =
         'com.kaleblangley.haikalat.demo.gltf.Render3dShadowBudgetDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
@@ -129,6 +130,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=12', '--size=640x360', '--resize=6:800x450',
                  '--environment-quality=test', '--verify'],
                 'Runs the v0.23 queues, MASK shadow, Fog + 4x MSAA, four-cascade and diagnostics proof.']
+        ,runRender3dGtaoIntegration        : [render3dV023Main,
+                ['--hidden', '--frames=12', '--size=640x360', '--resize=6:800x450',
+                 '--environment-quality=test', '--gtao', '--verify'],
+                'Runs the v0.23.2 GTAO depth, temporal history, resize and diagnostics proof.']
         ,runRender3dShadowBudgetIntegration: [render3dShadowBudgetMain,
                 ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
                  '--environment-quality=test', '--verify'],
@@ -286,6 +291,7 @@ tasks.register('localGlVerification') {
             'runShowcaseIntegration', 'runShowcaseVfxMsaaIntegration',
             'runShowcaseVfxAutoExposureIntegration',
             'runRender3dV023Integration',
+            'runRender3dGtaoIntegration',
             'runRender3dShadowBudgetIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
@@ -360,6 +366,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain
         ,runRender3dV023Demo: render3dV023Main
+        ,runRender3dGtaoDemo: render3dGtaoMain
         ,runRender3dShadowBudgetDemo: render3dShadowBudgetMain
         ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
@@ -429,6 +436,10 @@ registerDemoApplication('runRender3dShadowLegacyPerformance4k',
         ['--benchmark', '--profile=legacy', '--frames=180', '--warmup=60',
          '--size=3840x2160', '--environment-quality=test'])
 
+registerDemoApplication('runRender3dGtaoVisualDemo',
+        'Runs the paired GTAO contact scene: left bay uses GTAO, right bay is the material opt-out reference.',
+        render3dGtaoMain, [])
+
 tasks.register('localMilestone4Verification') {
     group = 'verification'
     description = 'Runs advanced animation, GPU effects, combined showcase and stability acceptance.'
@@ -440,7 +451,39 @@ tasks.named('runShowcaseIntegration') { mustRunAfter 'runVfxIntegration' }
 tasks.named('runShowcaseVfxMsaaIntegration') { mustRunAfter 'runShowcaseIntegration' }
 tasks.named('runShowcaseVfxAutoExposureIntegration') { mustRunAfter 'runShowcaseVfxMsaaIntegration' }
 tasks.named('runRender3dV023Integration') { mustRunAfter 'runShowcaseVfxAutoExposureIntegration' }
-tasks.named('runRender3dShadowBudgetIntegration') { mustRunAfter 'runRender3dV023Integration' }
+tasks.named('runRender3dGtaoIntegration') { mustRunAfter 'runRender3dV023Integration' }
+tasks.named('runRender3dShadowBudgetIntegration') { mustRunAfter 'runRender3dGtaoIntegration' }
+
+tasks.register('runRender3dGtaoBenchmarks', JavaExec) {
+    group = 'verification'
+    description = 'Runs enabled/disabled GTAO A/B timing, percentile and allocation gates at configurable 1080p/4K sizes.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dGtaoBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    def benchmarkMode = providers.gradleProperty('gtaoBenchmarkMode').getOrElse('comparison')
+    if (!(benchmarkMode in ['enabled', 'disabled', 'comparison'])) {
+        throw new GradleException('gtaoBenchmarkMode must be enabled, disabled or comparison')
+    }
+    args "--rounds=${providers.gradleProperty('gtaoBenchmarkRounds').getOrElse('3')}",
+            "--frames=${providers.gradleProperty('gtaoBenchmarkFrames').getOrElse('60')}",
+            "--warmup=${providers.gradleProperty('gtaoBenchmarkWarmup').getOrElse('30')}",
+            "--sizes=${providers.gradleProperty('gtaoBenchmarkSizes').getOrElse('1920x1080,3840x2160')}",
+            "--mode=${benchmarkMode}",
+            "--max-cpu-delta-ms=${providers.gradleProperty('gtaoBenchmarkMaxCpuDeltaMs').getOrElse('0.35')}",
+            "--max-cpu-p95-delta-ms=${providers.gradleProperty('gtaoBenchmarkMaxCpuP95DeltaMs').getOrElse('0.75')}",
+            "--max-disabled-regression=${providers.gradleProperty('gtaoBenchmarkMaxDisabledRegression').getOrElse('0.02')}",
+            "--max-allocation-trend-kib=${providers.gradleProperty('gtaoBenchmarkMaxAllocationTrendKiB').getOrElse('0.5')}",
+            "--max-gtao-gpu-1080p-ms=${providers.gradleProperty('gtaoBenchmarkMaxGtaoGpu1080pMs').getOrElse('2.0')}",
+            "--max-gtao-gpu-4k-ms=${providers.gradleProperty('gtaoBenchmarkMaxGtaoGpu4kMs').getOrElse('4.0')}"
+}
+
+tasks.register('localGtaoVerification') {
+    group = 'verification'
+    description = 'Runs v0.23.2 GTAO JVM/GL, deterministic integration and benchmark gates.'
+    dependsOn 'test', 'glSmoke', 'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks'
+}
 tasks.named('runShowcaseStabilityIntegration') { mustRunAfter 'runShowcaseIntegration' }
 
 tasks.named('runLearnOpenGlDemo', JavaExec) {

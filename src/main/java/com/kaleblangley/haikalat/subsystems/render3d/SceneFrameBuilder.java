@@ -264,6 +264,7 @@ final class SceneFrameBuilder {
             frame.models = models;
             frame.worldBounds = bounds;
             frame.mirrored = mirrored;
+            frame.queueClasses = queueClass;
             frame.forwardIndices = forward;
             frame.shadowIndices = shadow;
             frame.forwardCount = forwardCount;

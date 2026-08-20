@@ -1,5 +1,38 @@
 # 变更记录
 
+## v0.23.2（2026-08-21）
+
+**主题**：Render3D GTAO 与时域环境遮蔽
+
+- 新增 `GtaoSettings`/`GtaoQuality`，默认关闭并通过 `PostProcessSettings` 配置；拓扑记录开关与
+  ceil-divide 半分辨率，GTAO enabled 但场景没有 metallic-roughness PBR 时 fail-fast。
+- 新增 R8 typed framebuffer/RenderGraph/preview 支持和 `GtaoDepthPrepass`，覆盖 OPAQUE/MASKED、
+  instancing、skin/morph 的冻结姿态；透明队列、VFX、UI 和天空不参与遮蔽。
+- 新增半分辨率 horizon estimate、temporal resolve、深度/法线感知 3×3 denoise、全分辨率 upsample，
+  以及 candidate-first 双缓冲 `RG16F` GTAO history。history 只在成功帧提交，模型/材质/相机 cut/
+  resize 等变化保守拒绝旧历史。
+- 内置 `pbr-forward` 与 shadow-budget shader 将 GTAO 绑定到 texture unit 13，只调制 IBL 间接光，
+  不压暗直接光、emissive 或 BLEND/ADDITIVE；`Render3dDiagnostics.ambientOcclusion()` 报告状态。
+- 新增 `GtaoShaderGlTest` 真实 shader/FBO/RenderGraph 回归、`Render3dV023Demo --gtao` 集成与可配置
+  benchmark；R8/奇数尺寸/配置/拓扑 JVM 测试、资源 manifest 和 NVIDIA GL policy 已登记。完整视觉性能
+  基线；4K disabled GPU 与历史基线的分辨率/配置差异按发布策略记录为已接受成本，正式 release readiness 已通过。
+- 新增 `Render3dGtaoDemo` 成对接触场景：左侧启用 GTAO，右侧使用相同几何和灯光但材质级 opt-out，
+  支持隐藏截图、AO 灰度预览、开关和质量/半径/强度/厚度参数，便于人工复核。
+- GTAO 视觉验收补充固定全景/左侧/近距视角；近距投影半径封顶、屏外采样拒绝和更稳健的 history
+  丢弃策略，避免相机靠近时墙角 halo、过渡突变和接触阴影消失。
+- 验收加固：实例批次以 persistent prepare 跨 shadow/GTAO depth/cascade/geometry 只上传一次；temporal
+  history 改用相机线性深度；estimate 使用逐方向 horizon 积分并按 temporal frame phase 轮换采样；
+  denoise/upsample 加入线性深度与法线权重；depth prepass 同步材质 cull/mirrored front-face；RenderGraph、
+  TAA、GTAO history resize 采用统一 candidate prepare/commit；GTAO benchmark 默认执行 enabled/disabled
+  A/B，输出逐轮稳定 CPU/GPU/allocation 指标并直接检查规划门槛，wall p50/p95 仅作冷启动诊断。
+- 稳定帧进一步复用 `SceneFrame` queue classification，并将 GTAO sampler/质量参数/固定阈值移至 shader
+  初始化，仅在相机、尺寸、history 和 phase 变化时提交 uniform，降低 GTAO 命令录制开销。
+- benchmark 关闭仅用于捕获的 RenderGraph debug group，并将 GTAO 链 GPU query 聚合为一个非阻塞样本；
+  交互诊断仍保留逐 pass 计时。合并半分辨率去噪 pass 后，1080p 三轮稳定 CPU p50 增量降至
+  `0.342900 ms`，低于 `0.35 ms` 门槛。
+- 修复 `GlRenderThread` 完成 future 早于 worker 实际退出的关闭时序竞态，避免完整 GL 回归中
+  `completion.join()` 后仍观测到活动线程。
+
 ## v0.23.1（2026-08-19）
 
 **主题**：Render3D 多局部光阴影、确定性预算与 atlas 缓存

@@ -39,6 +39,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final BloomPass bloom;
     private final AutoExposurePass autoExposure;
     private final FogPass fog;
+    private final GtaoPasses gtao;
     private final RenderGraph.PassExecutor hdrVfx;
     private final Matrix4f fogInverseViewProjection = new Matrix4f();
     private final Matrix4f fogProjection = new Matrix4f();
@@ -55,7 +56,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                    ToneMappingPass toneMapping,
                                    BloomPass bloom,
                                    AutoExposurePass autoExposure,
-                                   FogPass fog, RenderGraph.PassExecutor hdrVfx) {
+                                   FogPass fog, GtaoPasses gtao, RenderGraph.PassExecutor hdrVfx) {
         this.settings = settings;
         this.effects = effects;
         this.window = window;
@@ -66,6 +67,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.bloom = bloom;
         this.autoExposure = autoExposure;
         this.fog = fog;
+        this.gtao = gtao;
         this.hdrVfx = hdrVfx;
     }
 
@@ -87,6 +89,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
         BloomPass bloom = null;
         AutoExposurePass autoExposure = null;
         FogPass fog = null;
+        GtaoPasses gtao = null;
         try {
             fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
                     ? new FxaaPostProcessor() : null;
@@ -100,9 +103,11 @@ final class PostProcessPassBuilder implements AutoCloseable {
             autoExposure = settings.exposureMode() == ExposureMode.AUTO
                     ? new AutoExposurePass() : null;
             fog = effects.fog().enabled() ? new FogPass() : null;
+            gtao = effects.gtao().enabled() ? new GtaoPasses(effects.gtao(), width, height) : null;
             return new PostProcessPassBuilder(settings, effects, window, fxaa, taa, history, toneMapping,
-                    bloom, autoExposure, fog, hdrVfx);
+                    bloom, autoExposure, fog, gtao, hdrVfx);
         } catch (RuntimeException failure) {
+            closeAfterFailure(gtao, failure);
             closeAfterFailure(fog, failure);
             closeAfterFailure(autoExposure, failure);
             closeAfterFailure(bloom, failure);
@@ -112,6 +117,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
             closeAfterFailure(fxaa, failure);
             throw failure;
         }
+    }
+
+    void addGtaoPreGeometryPasses(RenderGraph graph, RenderGraph.PassExecutor depthExecutor) {
+        if (gtao != null) gtao.addPreGeometryPasses(graph, depthExecutor);
     }
 
     static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -523,6 +532,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
             throw new IllegalArgumentException("deltaSeconds must be finite and non-negative");
         }
         deltaSeconds = Math.min(frameDeltaSeconds, 0.1f);
+        if (gtao != null) {
+            gtao.beginFrame(camera, Math.max(1, width), Math.max(1, height), frameIndex,
+                    settings.antiAliasingMode());
+        }
         if (fog != null) {
             CameraProjection.stable(Objects.requireNonNull(camera, "camera"),
                     Math.max(1, width), Math.max(1, height), fogProjection);
@@ -538,17 +551,116 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (autoExposure != null) {
             autoExposure.commitFrame();
         }
+        if (gtao != null) gtao.frameSucceeded();
     }
 
     void frameFailed() {
         if (autoExposure != null) {
             autoExposure.discardFrame();
         }
+        if (gtao != null) gtao.frameFailed();
+    }
+
+    void invalidateGtaoHistory() {
+        if (gtao != null) gtao.invalidateHistory();
+    }
+
+    void recordGtaoDepthPrepassDraw() {
+        if (gtao != null) gtao.recordDepthPrepassDraw();
+    }
+
+    Render3dDiagnostics.AmbientOcclusionSummary gtaoDiagnostics(int width, int height) {
+        return gtao == null
+                ? new Render3dDiagnostics.AmbientOcclusionSummary(false, "disabled",
+                "disabled", 0.0f, 0.0f, 0.0f, width, height,
+                Math.max(1, (width + 1) / 2), Math.max(1, (height + 1) / 2),
+                false, false, 0, 0L)
+                : gtao.diagnostics(width, height);
+    }
+
+    ResizeCandidate prepareResize(int width, int height) {
+        TaaHistory.ResizeCandidate taaCandidate = taaHistory == null ? null
+                : taaHistory.prepareResize(width, height);
+        try {
+            GtaoPasses.ResizeCandidate gtaoCandidate = gtao == null ? null
+                    : gtao.prepareResize(width, height);
+            return new ResizeCandidate(this, taaCandidate, gtaoCandidate);
+        } catch (RuntimeException | Error failure) {
+            if (taaCandidate != null) {
+                try {
+                    taaCandidate.close();
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
+        }
+    }
+
+    void commitResize(ResizeCandidate candidate) {
+        Objects.requireNonNull(candidate, "candidate").commitInto(this);
     }
 
     void resize(int width, int height) {
-        if (taaHistory != null) {
-            taaHistory.resize(width, height);
+        ResizeCandidate candidate = prepareResize(width, height);
+        try {
+            commitResize(candidate);
+        } finally {
+            candidate.close();
+        }
+    }
+
+    static final class ResizeCandidate implements AutoCloseable {
+        private final PostProcessPassBuilder owner;
+        private final TaaHistory.ResizeCandidate taaCandidate;
+        private final GtaoPasses.ResizeCandidate gtaoCandidate;
+        private boolean committed;
+        private boolean closed;
+
+        private ResizeCandidate(PostProcessPassBuilder owner,
+                                TaaHistory.ResizeCandidate taaCandidate,
+                                GtaoPasses.ResizeCandidate gtaoCandidate) {
+            this.owner = owner;
+            this.taaCandidate = taaCandidate;
+            this.gtaoCandidate = gtaoCandidate;
+        }
+
+        void validateFor(PostProcessPassBuilder expectedOwner) {
+            if (owner != expectedOwner) {
+                throw new IllegalArgumentException("post-process resize candidate belongs to another builder");
+            }
+            if (closed) throw new IllegalStateException("post-process resize candidate is closed");
+            if (committed) throw new IllegalStateException("post-process resize candidate already committed");
+        }
+
+        private void commitInto(PostProcessPassBuilder expectedOwner) {
+            validateFor(expectedOwner);
+            if (taaCandidate != null) owner.taaHistory.commitResize(taaCandidate);
+            if (gtaoCandidate != null) owner.gtao.commitResize(gtaoCandidate);
+            committed = true;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            RuntimeException failure = null;
+            if (gtaoCandidate != null) {
+                try {
+                    gtaoCandidate.close();
+                } catch (RuntimeException closeFailure) {
+                    failure = closeFailure;
+                }
+            }
+            if (taaCandidate != null) {
+                try {
+                    taaCandidate.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
+                }
+            }
+            if (failure != null) throw failure;
         }
     }
 
@@ -556,6 +668,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     public void close() {
         RuntimeException failure = null;
         failure = closeCollecting(fog, failure);
+        failure = closeCollecting(gtao, failure);
         failure = closeCollecting(autoExposure, failure);
         failure = closeCollecting(bloom, failure);
         failure = closeCollecting(toneMapping, failure);

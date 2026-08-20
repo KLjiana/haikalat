@@ -24,6 +24,7 @@
 - [v0.21 序列化游戏场景与角色内容管线](planning/v0.21-serialized-gameplay-scene-character-pipeline.md)
 - [v0.23 Render3D 框架加固与能力扩展计划](planning/v0.23-render3d-framework-hardening-and-capability-expansion.md)
 - [v0.23.1 Render3D 光源与阴影深化计划](planning/v0.23.1-render3d-lighting-and-shadow-enhancement.md)
+- [v0.23.2 Render3D GTAO 与时域环境遮蔽实施计划](planning/v0.23.2-render3d-gtao-temporal-ambient-occlusion.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构

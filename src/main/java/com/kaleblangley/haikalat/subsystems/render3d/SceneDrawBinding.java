@@ -38,6 +38,7 @@ public interface SceneDrawBinding {
 
     enum Pass {
         FORWARD,
-        SHADOW
+        SHADOW,
+        DEPTH_PREPASS
     }
 }

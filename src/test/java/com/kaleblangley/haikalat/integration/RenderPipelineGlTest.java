@@ -15,13 +15,21 @@ import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
+import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.subsystems.render3d.*;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
 import org.joml.Matrix4f;
@@ -863,6 +871,27 @@ class RenderPipelineGlTest {
     }
 
     @Test
+    void gtaoDepthAndInstancedShadowReuseOnePreparedBatchAcrossPasses() throws Exception {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(128, 128)
+                .title("GTAO Instanced Shadow Integration")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+
+            InstancedShadowResult result = renderInstancedShadowScene(window, true, true);
+            assertEquals(1, result.geometryInstances());
+            assertEquals(1, result.shadowInstances());
+            assertEquals(0, result.ordinaryCasterDraws());
+            // Two frames, one upload per frame despite GTAO depth + shadow + geometry.
+            assertEquals(2L * 16L * Float.BYTES, result.uploadedBytes());
+            GlDebug.checkError("gtaoDepthAndInstancedShadowReuseOnePreparedBatchAcrossPasses");
+        }
+    }
+
+    @Test
     void fullLightingAndShadowPipelineChangesFinalPixels() throws Exception {
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(128, 128)
@@ -943,6 +972,12 @@ class RenderPipelineGlTest {
 
     private static InstancedShadowResult renderInstancedShadowScene(GlfwWindow window,
                                                                     boolean castShadows) throws Exception {
+        return renderInstancedShadowScene(window, castShadows, false);
+    }
+
+    private static InstancedShadowResult renderInstancedShadowScene(GlfwWindow window,
+                                                                    boolean castShadows,
+                                                                    boolean gtao) throws Exception {
         Path resources = Path.of("src", "demo", "resources", "shaders", "scene");
         ShaderProgram receiverShader = ShaderProgram.fromSources(
                 Files.readString(resources.resolve("color-scene.vert")),
@@ -952,9 +987,18 @@ class RenderPipelineGlTest {
                         "instanced-scene.vert")),
                 Files.readString(Path.of("src", "demo", "resources", "shaders", "basic",
                         "vertex-color-unlit.frag")));
-        Mesh receiverMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-receiver"));
+        Mesh receiverMesh = Mesh.from(gtao
+                ? gtaoReceiverMeshData()
+                : BuiltinMeshData.coloredQuad("instanced-shadow-receiver"));
         Mesh instancedMesh = Mesh.from(BuiltinMeshData.coloredQuad("instanced-shadow-caster"));
-        Material receiverMaterial = Material.builder(receiverShader).build();
+        GlRenderDevice environmentDevice = gtao ? new GlRenderDevice() : null;
+        PbrEnvironment environment = gtao
+                ? PbrEnvironmentLoader.load(environmentDevice, RenderPipelineGlTest.class,
+                "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality())
+                : null;
+        Material receiverMaterial = Material.builder(receiverShader)
+                .model(gtao ? MaterialModel.METALLIC_ROUGHNESS : MaterialModel.LEGACY)
+                .build();
         InstancedMeshBatch batch = InstancedMeshBatch.of(instancedMesh, 1,
                 BuiltinMeshData.INSTANCE_ATTRIBUTE_BASE);
         InstancedRenderer instanced = new InstancedRenderer(batch, instancedShader, castShadows);
@@ -968,8 +1012,16 @@ class RenderPipelineGlTest {
         scene.addLight(SceneLight.shadowedDirectional(
                 new Vector3f(0.5f, 0.0f, -1.0f), new Vector3f(1.0f), 1.0f));
 
+        RenderSettings pipelineSettings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(gtao ? ToneMappingMode.ACES : ToneMappingMode.NONE)
+                .vsync(false).build();
         RenderPipeline pipeline = new RenderPipeline(window, scene, instanced,
-                RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build());
+                pipelineSettings, environment);
+        if (gtao) {
+            pipeline.postProcessSettings(PostProcessSettings.builder()
+                    .gtao(GtaoSettings.defaults().withEnabled(true)).build());
+        }
         try {
             pipeline.build();
             GlRenderDevice device = new GlRenderDevice();
@@ -987,6 +1039,7 @@ class RenderPipelineGlTest {
                     instanced.bufferStatistics().uploadedBytes());
         } finally {
             pipeline.close();
+            if (environment != null) environment.close();
             instanced.close();
             receiverMaterial.close();
             instancedMesh.close();
@@ -1004,6 +1057,27 @@ class RenderPipelineGlTest {
             difference += Math.abs(Byte.toUnsignedInt(left[i + 2]) - Byte.toUnsignedInt(right[i + 2]));
         }
         return difference;
+    }
+
+    private static MeshData gtaoReceiverMeshData() {
+        VertexLayout layout = VertexLayout.interleaved(12 * Float.BYTES,
+                VertexAttribute.builder().index(0).size(3).semantic(VertexSemantic.POSITION)
+                        .offsetBytes(0).build(),
+                VertexAttribute.builder().index(1).size(2).semantic(VertexSemantic.TEXCOORD_0)
+                        .offsetBytes(3 * Float.BYTES).build(),
+                VertexAttribute.builder().index(2).size(3).semantic(VertexSemantic.NORMAL)
+                        .offsetBytes(5 * Float.BYTES).build(),
+                VertexAttribute.builder().index(3).size(4).semantic(VertexSemantic.TANGENT)
+                        .offsetBytes(8 * Float.BYTES).build());
+        float[] vertex = {
+                -0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                 0.5f,  0.5f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                -0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                 0.5f,  0.5f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                -0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f
+        };
+        return MeshData.of("gtao-instanced-shadow-receiver", vertex, layout);
     }
 
     private static int renderExposurePixel(GlfwWindow window, Scene scene, float exposure) {

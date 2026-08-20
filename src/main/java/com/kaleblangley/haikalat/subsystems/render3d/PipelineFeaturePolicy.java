@@ -24,6 +24,9 @@ record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnvironmentAv
             throw new IllegalStateException(
                     "PBR scene requires an explicit borrowed PbrEnvironment");
         }
+        if (topology.gtaoEnabled() && !topology.pbrMaterials()) {
+            throw new IllegalStateException("GTAO requires at least one metallic-roughness PBR material");
+        }
         if (topology.fog() && topology.antiAliasingMode() == AntiAliasingMode.MSAA) {
             DepthResolveDescriptor.forTopology(topology);
         }

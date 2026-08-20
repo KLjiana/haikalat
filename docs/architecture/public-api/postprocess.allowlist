@@ -7,6 +7,8 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality
+advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor
 advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
 advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings
