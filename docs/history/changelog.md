@@ -1,5 +1,13 @@
 # 变更记录
 
+## v0.23.3（2026-08-21）
+
+**主题**：GTAO 静态场景时域稳定性补丁
+
+- 修复 GTAO 在固定摄像机下持续轮换全屏统一采样相位导致的接触阴影抖动；静止视图保持稳定相位，只有真实摄像机视图移动时才轮换 temporal phase。
+- 相位移动判定使用未带 TAA jitter 的 view matrix，避免抗锯齿投影抖动被误判为摄像机运动；相位模式切换时丢弃一次旧 history，避免开始/停止移动出现单帧跳变。
+- 新增 `GtaoPassesTest.staticCameraKeepsTemporalPhaseStable` 回归测试；GTAO shader smoke、独立 Demo smoke 与完整 `check` 均通过。
+
 ## v0.23.2（2026-08-21）
 
 **主题**：Render3D GTAO 与时域环境遮蔽

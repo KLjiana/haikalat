@@ -20,6 +20,11 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 
 /** Internal GTAO graph and shader owner for one pipeline generation. */
 final class GtaoPasses implements AutoCloseable {
+    /**
+     * View-space movement required before the temporal sample pattern rotates.
+     * This intentionally ignores TAA's jittered projection matrix.
+     */
+    private static final float SAMPLE_PHASE_MOTION_EPSILON = 5.0e-4f;
     private final GtaoSettings settings;
     private final ShaderProgram estimateProgram;
     private final ShaderProgram temporalProgram;
@@ -34,6 +39,8 @@ final class GtaoPasses implements AutoCloseable {
     private final Matrix4f currentViewProjection = new Matrix4f();
     private final Matrix4f previousViewProjection = new Matrix4f();
     private final Matrix4f pendingViewProjection = new Matrix4f();
+    private final Matrix4f previousCameraView = new Matrix4f();
+    private final Matrix4f pendingCameraView = new Matrix4f();
     private final Matrix4f frameProjection = new Matrix4f();
     private final Matrix4f frameView = new Matrix4f();
     private final float[] matrixDeltaLeft = new float[16];
@@ -43,6 +50,8 @@ final class GtaoPasses implements AutoCloseable {
     private final Matrix4f uploadedPreviousInverseProjection = new Matrix4f();
     private final Matrix4f uploadedPreviousViewProjection = new Matrix4f();
     private boolean previousCameraValid;
+    private boolean previousPhaseMotionActive;
+    private boolean pendingPhaseMotionActive;
     private boolean pendingFrame;
     private boolean uniformsInitialized;
     private boolean projectionUniformDirty;
@@ -163,6 +172,10 @@ final class GtaoPasses implements AutoCloseable {
         CameraUniforms.applyTemporalJitter(frameProjection, this.width, this.height,
                 Objects.requireNonNull(antiAliasingMode, "antiAliasingMode"), frameIndex);
         camera.getViewMatrix(frameView);
+        float cameraViewDelta = previousCameraValid
+                ? matrixDelta(previousCameraView, frameView) : 0.0f;
+        boolean phaseMotionActive = previousCameraValid
+                && cameraViewDelta > SAMPLE_PHASE_MOTION_EPSILON;
         currentViewProjection.set(frameProjection).mul(frameView);
         if (!currentViewProjection.isFinite()
                 || Math.abs(currentViewProjection.determinant()) <= 1.0e-8f) {
@@ -181,10 +194,13 @@ final class GtaoPasses implements AutoCloseable {
             throw new IllegalArgumentException("GTAO projection scale must be finite and positive");
         }
         depthPrepassDraws = 0;
-        // Rotate the deterministic interleaved pattern only when temporal
-        // accumulation can converge the additional samples.  Non-temporal
-        // GTAO keeps a stable phase for reproducible single-frame output.
-        samplePhase = samplePhase(frameIndex, settings.temporal());
+        // A static view must keep a stable sample phase. Rotating one global
+        // angle on every frame makes all contact edges change together, which
+        // remains visible even after temporal accumulation. Real camera motion
+        // still advances the deterministic sequence so moving views can gather
+        // additional samples. The view matrix is used instead of the jittered
+        // view-projection matrix, so TAA jitter cannot reintroduce shimmer.
+        samplePhase = samplePhaseForMotion(frameIndex, settings.temporal(), phaseMotionActive);
         if (camera instanceof ExternalCamera external) {
             nearPlane = external.nearPlane();
             farPlane = external.farPlane();
@@ -218,6 +234,13 @@ final class GtaoPasses implements AutoCloseable {
         if (previousCameraValid && matrixDelta(previousViewProjection, currentViewProjection) > 0.18f) {
             if (history != null) history.invalidate();
         }
+        if (previousCameraValid && phaseMotionActive != previousPhaseMotionActive
+                && history != null) {
+            // Do not blend history generated with a rotating pattern into a
+            // stable phase (or vice versa); that transition would look like a
+            // one-frame contact-shadow jump when the camera starts or stops.
+            history.invalidate();
+        }
         frameHistoryWeight = history != null && history.valid() ? settings.historyWeight() : 0.0f;
         frameHistoryValid = history != null && history.valid() ? 1 : 0;
         historyUniformDirty = !uniformsInitialized
@@ -225,6 +248,8 @@ final class GtaoPasses implements AutoCloseable {
                 != Float.floatToIntBits(frameHistoryWeight)
                 || uploadedHistoryValid != frameHistoryValid;
         pendingViewProjection.set(currentViewProjection);
+        pendingCameraView.set(frameView);
+        pendingPhaseMotionActive = phaseMotionActive;
         pendingInverseProjection.set(inverseProjection);
         pendingFrame = true;
     }
@@ -247,6 +272,8 @@ final class GtaoPasses implements AutoCloseable {
             uploadedHeight = height;
             uniformsInitialized = true;
             previousViewProjection.set(pendingViewProjection);
+            previousCameraView.set(pendingCameraView);
+            previousPhaseMotionActive = pendingPhaseMotionActive;
             previousInverseProjection.set(pendingInverseProjection);
             previousCameraValid = true;
             pendingFrame = false;
@@ -265,6 +292,10 @@ final class GtaoPasses implements AutoCloseable {
      */
     static float samplePhase(int frameIndex, boolean temporal) {
         return temporal ? (frameIndex & 7) / 8.0f : 0.0f;
+    }
+
+    static float samplePhaseForMotion(int frameIndex, boolean temporal, boolean cameraMoving) {
+        return samplePhase(frameIndex, temporal && cameraMoving);
     }
 
     ResizeCandidate prepareResize(int width, int height) {
@@ -318,6 +349,8 @@ final class GtaoPasses implements AutoCloseable {
             owner.width = width;
             owner.height = height;
             owner.previousCameraValid = false;
+            owner.previousPhaseMotionActive = false;
+            owner.pendingPhaseMotionActive = false;
             owner.pendingFrame = false;
             committed = true;
         }
@@ -358,6 +391,8 @@ final class GtaoPasses implements AutoCloseable {
     void invalidateHistory() {
         if (history != null) history.invalidate();
         previousCameraValid = false;
+        previousPhaseMotionActive = false;
+        pendingPhaseMotionActive = false;
         pendingFrame = false;
     }
 

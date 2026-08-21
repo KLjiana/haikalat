@@ -13,4 +13,12 @@ class GtaoPassesTest {
         assertEquals(0.0f, GtaoPasses.samplePhase(8, true));
         assertEquals(0.0f, GtaoPasses.samplePhase(31, false));
     }
+
+    @Test
+    void staticCameraKeepsTemporalPhaseStable() {
+        assertEquals(0.0f, GtaoPasses.samplePhaseForMotion(1, true, false));
+        assertEquals(0.0f, GtaoPasses.samplePhaseForMotion(7, true, false));
+        assertEquals(0.375f, GtaoPasses.samplePhaseForMotion(3, true, true));
+        assertEquals(0.0f, GtaoPasses.samplePhaseForMotion(3, false, true));
+    }
 }
