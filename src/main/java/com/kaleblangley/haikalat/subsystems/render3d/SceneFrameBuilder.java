@@ -81,6 +81,7 @@ final class SceneFrameBuilder {
     private long shadowSceneRevision;
     private long shadowBoundsRevision;
     private boolean shadowCullingEnabled;
+    private float shadowCullingPadding;
     private boolean shadowEnabledKey;
     private int shadowCount;
 
@@ -101,6 +102,17 @@ final class SceneFrameBuilder {
                      Matrix4fc shadowMatrix, boolean shadowEnabled,
                      boolean cullingEnabled, boolean shadowCulling,
                      int frameIndex) {
+        return build(scene, camera, width, height, shadowMatrix, shadowEnabled,
+                cullingEnabled, shadowCulling, 0.0f, frameIndex);
+    }
+
+    SceneFrame build(Scene scene, Camera camera, int width, int height,
+                     Matrix4fc shadowMatrix, boolean shadowEnabled,
+                     boolean cullingEnabled, boolean shadowCulling,
+                     float shadowCullingPadding, int frameIndex) {
+        if (!Float.isFinite(shadowCullingPadding) || shadowCullingPadding < 0.0f) {
+            throw new IllegalArgumentException("shadow culling padding must be finite and non-negative");
+        }
         long totalStart = System.nanoTime();
         frame.available = false;
         try {
@@ -108,7 +120,7 @@ final class SceneFrameBuilder {
             syncMaterialState();
             long sceneRevision = scene.membershipRevision();
             if (canReuseImmutableFrame(camera, sceneRevision, width, height, shadowMatrix,
-                    shadowEnabled, cullingEnabled, shadowCulling)) {
+                    shadowEnabled, cullingEnabled, shadowCulling, shadowCullingPadding)) {
                 return reuseImmutableFrame(sceneRevision, cullingEnabled, frameIndex, totalStart);
             }
 
@@ -124,6 +136,7 @@ final class SceneFrameBuilder {
             int boundsMisses = 0;
             int finite = 0;
             int changedCount = 0;
+            boolean deformationChanged = false;
             long stageStart = System.nanoTime();
             if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady) {
                 staticRenderers = entryCount;
@@ -137,6 +150,9 @@ final class SceneFrameBuilder {
                     if (revisioned) staticRenderers++; else dynamicRenderers++;
                     long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
                     long deformationRevision = renderer.drawBinding().boundsRevision();
+                    deformationChanged |= renderer.drawBinding().deformsVertices()
+                            && (!cacheValid[index]
+                            || cachedDeformationRevisions[index] != deformationRevision);
                     requestedModelRevisions[index] = revision;
                     boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
                             && cachedModelRevisions[index] == revision
@@ -236,14 +252,15 @@ final class SceneFrameBuilder {
             }
 
             boolean shadowReused = shadowCacheMatches(sceneRevision, shadowMatrix,
-                    shadowEnabled, shadowCulling);
+                    shadowEnabled, shadowCulling, shadowCullingPadding);
             if (!shadowReused) {
                 stageStart = System.nanoTime();
                 if (shadowEnabled && shadowCulling) shadowFrustum.set(shadowMatrix);
                 shadowCount = 0;
                 for (int index = 0; index < entryCount; index++) {
                     if (castsShadow[index] && shadowEnabled
-                            && (!shadowCulling || !shadowFrustum.outside(bounds[index]))) {
+                            && (!shadowCulling || !shadowFrustum.outside(bounds[index],
+                            shadowCullingPadding))) {
                         shadow[shadowCount++] = index;
                     }
                 }
@@ -255,6 +272,7 @@ final class SceneFrameBuilder {
                 shadowSceneRevision = sceneRevision;
                 shadowBoundsRevision = boundsRevision;
                 shadowCullingEnabled = shadowCulling;
+                this.shadowCullingPadding = shadowCullingPadding;
                 shadowEnabledKey = shadowEnabled;
                 shadowCacheValid = true;
             }
@@ -271,8 +289,11 @@ final class SceneFrameBuilder {
             frame.shadowCount = shadowCount;
             frame.changedIndices = changed;
             frame.changedCount = changedCount;
-            frame.forceShadowPlanRebuild = dynamicRenderers != 0
-                    || scene.requiresPerFrameShadowDeformation();
+            // Dynamic model/bounds changes are represented by changedIndices and
+            // can use the planner's sparse path.  Only vertex deformation that
+            // is not reducible to a stable model/bounds revision requires the
+            // explicit full shadow-plan barrier.
+            frame.forceShadowPlanRebuild = deformationChanged;
             frame.frameIndex = Integer.toUnsignedLong(frameIndex);
             frame.sceneRevision = sceneRevision;
             frame.statistics = new SceneFrame.Statistics(cullingEnabled, frame.sceneRevision,
@@ -301,7 +322,8 @@ final class SceneFrameBuilder {
 
     private boolean canReuseImmutableFrame(Camera camera, long sceneRevision, int width, int height,
                                            Matrix4fc shadowMatrix, boolean shadowEnabled,
-                                           boolean cullingEnabled, boolean shadowCulling) {
+                                           boolean cullingEnabled, boolean shadowCulling,
+                                           float shadowCullingPadding) {
         // Camera is extensible. A subclass can override matrix generation without updating the
         // base revision, so the O(1) shortcut is deliberately limited to the built-in camera.
         return camera.getClass() == Camera.class
@@ -314,7 +336,8 @@ final class SceneFrameBuilder {
                 && forwardSceneRevision == sceneRevision
                 && forwardBoundsRevision == boundsRevision
                 && forwardCullingEnabled == cullingEnabled
-                && shadowCacheMatches(sceneRevision, shadowMatrix, shadowEnabled, shadowCulling);
+                && shadowCacheMatches(sceneRevision, shadowMatrix, shadowEnabled, shadowCulling,
+                shadowCullingPadding);
     }
 
     private SceneFrame reuseImmutableFrame(long sceneRevision, boolean cullingEnabled,
@@ -350,11 +373,14 @@ final class SceneFrameBuilder {
     }
 
     private boolean shadowCacheMatches(long sceneRevision, Matrix4fc shadowMatrix,
-                                       boolean shadowEnabled, boolean cullingEnabled) {
+                                       boolean shadowEnabled, boolean cullingEnabled,
+                                       float shadowCullingPadding) {
         return queueCacheEnabled && shadowCacheValid
                 && shadowSceneRevision == sceneRevision
                 && shadowBoundsRevision == boundsRevision
                 && shadowCullingEnabled == cullingEnabled
+                && Float.floatToIntBits(this.shadowCullingPadding)
+                == Float.floatToIntBits(shadowCullingPadding)
                 && shadowEnabledKey == shadowEnabled
                 && matrixEquals(shadowKeyMatrix, shadowMatrix);
     }

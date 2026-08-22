@@ -11,11 +11,13 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.LightType;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
+import com.kaleblangley.haikalat.subsystems.render3d.ShadowPlannerEvidence;
 import com.kaleblangley.haikalat.subsystems.render3d.ShadowLightHints;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
@@ -30,9 +32,8 @@ import java.util.Locale;
 
 /** Windowed v0.23.4 proof for bounded multi-light shadow culling and atlas caching. */
 public final class Render3dShadowBudgetDemo {
+    private static final int DEFAULT_CSM_ATLAS_SIZE = 4_096;
     private static final int DIRECTIONAL_INDEX = 0;
-    private static final int FIRST_POINT_INDEX = 1;
-    private static final int FIRST_SPOT_INDEX = 4;
     private static final int POINT_MOVE_FRAME = 4;
     private static final int SPOT_MOVE_FRAME = 7;
     private static final int CAMERA_MOVE_FRAME = 10;
@@ -73,6 +74,9 @@ public final class Render3dShadowBudgetDemo {
              GltfDemoAssets assets = options.profile() == Profile.LEGACY
                      ? GltfDemoAssets.load(GltfDemo.Asset.DEFAULT)
                      : GltfDemoAssets.loadShadowBudget()) {
+            if (options.benchmark()) {
+                ShadowPlannerEvidence.run(assets.objects().getFirst());
+            }
             Camera camera = new Camera(new Vector3f(0.0f, 1.0f, 8.0f));
             Scene scene = new Scene(camera);
             assets.objects().forEach(scene::add);
@@ -80,7 +84,7 @@ public final class Render3dShadowBudgetDemo {
             RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                     renderSettings, environment)
                     .directionalCascades(new DirectionalCascadeSettings(
-                            4, 1_024, 0.6f, 0.08f))
+                            4, options.csmAtlasSize(), 0.6f, 0.08f))
                     .localShadows(options.profile() == Profile.LEGACY
                             ? LocalShadowPipelineSettings.legacyDefaults()
                             : LocalShadowPipelineSettings.balanced());
@@ -232,15 +236,29 @@ public final class Render3dShadowBudgetDemo {
             // dirty so the old atlas tile is cleared rather than leaving a ghost.
             assets.translateShadowCaster(0.0f, 0.0f, -12.0f);
         } else if (frame == POINT_MOVE_FRAME) {
-            scene.setLight(FIRST_POINT_INDEX, point(-2.15f, 2.8f, 3.7f,
-                    1.0f, 0.28f, 0.18f));
+            int pointIndex = firstLightIndex(scene, LightType.POINT);
+            if (pointIndex >= 0) {
+                scene.setLight(pointIndex, point(-2.15f, 2.8f, 3.7f,
+                        1.0f, 0.28f, 0.18f));
+            }
         } else if (frame == SPOT_MOVE_FRAME) {
-            scene.setLight(FIRST_SPOT_INDEX, spot(-3.35f, 4.25f, 2.7f, 0));
+            int spotIndex = firstLightIndex(scene, LightType.SPOT);
+            if (spotIndex >= 0) {
+                scene.setLight(spotIndex, spot(-3.35f, 4.25f, 2.7f, 0));
+            }
         } else if (frame == CAMERA_MOVE_FRAME) {
             camera.setPosition(new Vector3f(0.22f, 1.0f, 8.0f));
         } else if (frame == DEFORMATION_FRAME) {
             assets.update(1.0f / 30.0f);
         }
+    }
+
+    private static int firstLightIndex(Scene scene, LightType type) {
+        List<SceneLight> lights = scene.lights();
+        for (int index = 0; index < lights.size(); index++) {
+            if (lights.get(index).type() == type) return index;
+        }
+        return -1;
     }
 
     private static void updateTitle(GlfwWindow window, Render3dDiagnostics diagnostics) {
@@ -259,13 +277,14 @@ public final class Render3dShadowBudgetDemo {
         var shadow = diagnostics.shadows();
         System.out.printf(Locale.ROOT,
                 "SHADOW_BUDGET profile=%s frames=%d selected=%d/%d/%d rejected=%d "
-                        + "tiles=%d/%d cache=%d/%d atlas=%dx%d,%dx%d depthMiB=%.2f "
+                        + "tiles=%d/%d cache=%d/%d csm=%d atlas=%dx%d,%dx%d depthMiB=%.2f "
                         + "cpuMedian=%.3fms cpuP95=%.3fms gpuMedian=%.3fms "
                         + "shadowGpuMedian=%.3fms samples=%d failure=%s%n",
                 options.profile().name().toLowerCase(Locale.ROOT), frames,
                 shadow.directionalSelected(), shadow.pointSelected(), shadow.spotSelected(),
                 shadow.rejectedLights().size(), shadow.tilesRendered(), shadow.tilesReused(),
-                shadow.cacheHits(), shadow.cacheMisses(), shadow.pointAtlasWidth(),
+                shadow.cacheHits(), shadow.cacheMisses(), options.csmAtlasSize(),
+                shadow.pointAtlasWidth(),
                 shadow.pointAtlasHeight(), shadow.spotAtlasWidth(), shadow.spotAtlasHeight(),
                 shadow.estimatedDepthBytes() / 1_048_576.0,
                 samples.percentile(samples.cpuMillis, 0.5),
@@ -410,7 +429,8 @@ public final class Render3dShadowBudgetDemo {
                            int width, int height, int resizeFrame,
                            int resizeWidth, int resizeHeight,
                            String environmentQuality, boolean verify,
-                           boolean benchmark, boolean dynamic, Profile profile) {
+                           boolean benchmark, boolean dynamic, Profile profile,
+                           int csmAtlasSize) {
         private static Options parse(String[] arguments) {
             boolean hidden = false;
             int frames = -1;
@@ -425,6 +445,7 @@ public final class Render3dShadowBudgetDemo {
             boolean benchmark = false;
             boolean dynamic = false;
             Profile profile = Profile.BALANCED;
+            int csmAtlasSize = DEFAULT_CSM_ATLAS_SIZE;
             for (String argument : arguments) {
                 if (argument.equals("--hidden") || argument.equals("--deterministic")) {
                     hidden = true;
@@ -455,6 +476,8 @@ public final class Render3dShadowBudgetDemo {
                     environmentQuality = argument.substring(22);
                 } else if (argument.startsWith("--profile=")) {
                     profile = Profile.valueOf(argument.substring(10).toUpperCase(Locale.ROOT));
+                } else if (argument.startsWith("--csm-atlas=")) {
+                    csmAtlasSize = csmAtlasSize(argument.substring(12));
                 } else {
                     throw new IllegalArgumentException("Unknown shadow-budget option: " + argument);
                 }
@@ -470,7 +493,16 @@ public final class Render3dShadowBudgetDemo {
             PbrEnvironmentSettings.quality(environmentQuality);
             return new Options(hidden, frames, warmup, width, height, resizeFrame,
                     resizeWidth, resizeHeight, environmentQuality, verify, benchmark, dynamic,
-                    profile);
+                    profile, csmAtlasSize);
+        }
+
+        private static int csmAtlasSize(String value) {
+            int result = positive(value, "--csm-atlas");
+            if (result < 512 || result > 4_096 || (result & (result - 1)) != 0) {
+                throw new IllegalArgumentException(
+                        "--csm-atlas must be a power of two in [512, 4096]");
+            }
+            return result;
         }
 
         private static int positive(String value, String name) {

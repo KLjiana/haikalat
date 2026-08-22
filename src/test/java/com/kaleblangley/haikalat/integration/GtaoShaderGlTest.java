@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.integration;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
@@ -224,6 +225,62 @@ class GtaoShaderGlTest {
     }
 
     @Test
+    void gtaoDepthMatchesBackFaceCulledGeometrySilhouette() {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(96, 96)
+                .title("GTAO depth silhouette")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                    "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 ShaderProgram shader = ShaderProgram.fromResource(getClass(),
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
+                 Mesh receiverMesh = Mesh.from(pbrTriangle());
+                 Mesh backFaceMesh = Mesh.from(pbrBackFaceTriangle())) {
+                var receiverMaterial = PbrMaterials.createWithBindings(shader,
+                        new PbrMaterialProperties(new Vector4f(0.45f, 0.62f, 0.82f, 1.0f),
+                                0.0f, 0.72f, 1.0f, 1.0f, new Vector3f(), java.util.Map.of()),
+                        java.util.Map.of(), fallbacks, CullMode.NONE, false, false);
+                var backFaceMaterial = PbrMaterials.createWithBindings(shader,
+                        new PbrMaterialProperties(new Vector4f(0.9f, 0.2f, 0.1f, 1.0f),
+                                0.0f, 0.72f, 1.0f, 1.0f, new Vector3f(), java.util.Map.of()),
+                        java.util.Map.of(), fallbacks, CullMode.BACK, false, false);
+                try {
+                    Scene baseline = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)))
+                            .add(SceneObject.fixed(receiverMesh, receiverMaterial,
+                                    new org.joml.Matrix4f().translation(0.0f, 0.0f, -0.65f), false))
+                            .addLight(SceneLight.directional(new Vector3f(0.1f, -0.3f, -1.0f),
+                                    new Vector3f(1.0f), 1.5f));
+                    Scene withCulledBackFace = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 3.0f)))
+                            .add(SceneObject.fixed(receiverMesh, receiverMaterial,
+                                    new org.joml.Matrix4f().translation(0.0f, 0.0f, -0.65f), false))
+                            // Clockwise winding is rejected by BACK culling in the
+                            // forward pass.  It must also be rejected by GTAO depth.
+                            .add(SceneObject.fixed(backFaceMesh, backFaceMaterial,
+                                    new org.joml.Matrix4f().translation(0.0f, 0.0f, -0.20f)
+                                            .scale(0.72f), false))
+                            .addLight(SceneLight.directional(new Vector3f(0.1f, -0.3f, -1.0f),
+                                    new Vector3f(1.0f), 1.5f));
+                    byte[] baselinePixels = renderGtaoScene(window, device, environment, baseline);
+                    byte[] culledPixels = renderGtaoScene(window, device, environment,
+                            withCulledBackFace);
+                    assertTrue(pixelDifference(baselinePixels, culledPixels) < 512L,
+                            "GTAO depth must not include a triangle rejected by the forward material cull state");
+                    GlDebug.checkError("gtaoDepthMatchesBackFaceCulledGeometrySilhouette");
+                } finally {
+                    backFaceMaterial.close();
+                    receiverMaterial.close();
+                }
+            }
+        }
+    }
+
+    @Test
     void gtaoFailureDoesNotPoisonTheNextFrame() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
@@ -301,6 +358,47 @@ class GtaoShaderGlTest {
                 1.2f, -1.0f, 0.0f, 1.0f, 0.0f, 0, 0, 1, 1, 0, 0, 1,
                 0.0f, 1.2f, 0.0f, 0.5f, 1.0f, 0, 0, 1, 1, 0, 0, 1
         }, layout);
+    }
+
+    private static MeshData pbrBackFaceTriangle() {
+        VertexLayout layout = VertexLayout.interleaved(12 * Float.BYTES,
+                VertexAttribute.builder().index(0).size(3).semantic(VertexSemantic.POSITION)
+                        .offsetBytes(0).build(),
+                VertexAttribute.builder().index(1).size(2).semantic(VertexSemantic.TEXCOORD_0)
+                        .offsetBytes(12).build(),
+                VertexAttribute.builder().index(2).size(3).semantic(VertexSemantic.NORMAL)
+                        .offsetBytes(20).build(),
+                VertexAttribute.builder().index(3).size(4).semantic(VertexSemantic.TANGENT)
+                        .offsetBytes(32).build());
+        return MeshData.of("gtao-back-face", new float[]{
+                 1.2f, -1.0f, 0.0f, 1.0f, 0.0f, 0, 0, 1, 1, 0, 0, 1,
+                -1.2f, -1.0f, 0.0f, 0.0f, 0.0f, 0, 0, 1, 1, 0, 0, 1,
+                 0.0f,  1.2f, 0.0f, 0.5f, 1.0f, 0, 0, 1, 1, 0, 0, 1
+        }, layout);
+    }
+
+    private static byte[] renderGtaoScene(GlfwWindow window, GlRenderDevice device,
+                                           PbrEnvironment environment, Scene scene) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderSettings.builder()
+                        .antiAliasingMode(AntiAliasingMode.NONE)
+                        .toneMappingMode(ToneMappingMode.ACES)
+                        .vsync(false)
+                        .build(), environment)
+                .postProcessSettings(PostProcessSettings.builder()
+                        .gtao(GtaoSettings.defaults().withEnabled(true)).build());
+        try {
+            pipeline.build();
+            pipeline.execute(device);
+            ByteBuffer pixels = BufferUtils.createByteBuffer(window.width() * window.height() * 4);
+            org.lwjgl.opengl.GL11.glReadPixels(0, 0, window.width(), window.height(),
+                    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            byte[] result = new byte[pixels.remaining()];
+            pixels.get(result);
+            return result;
+        } finally {
+            pipeline.close();
+        }
     }
 
     private static MeshData pbrOcclusionMesh() {

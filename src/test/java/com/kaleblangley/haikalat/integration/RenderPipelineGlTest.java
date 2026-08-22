@@ -1260,7 +1260,7 @@ class RenderPipelineGlTest {
                     PIPELINE_FRAGMENT_SOURCE);
             Material material = Material.builder(shader).build();
             Scene scene = new Scene(new Camera(new Vector3f(0, 0, 5)));
-            scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity(), true));
+            scene.add(SceneObject.fixed(mesh, material, new Matrix4f(), true));
             scene.addLight(SceneLight.shadowedDirectional(
                     new Vector3f(-0.3f, -1.0f, -0.4f), new Vector3f(1.0f), 1.0f));
             try {
@@ -1275,6 +1275,17 @@ class RenderPipelineGlTest {
                         pipeline.execute(new GlRenderDevice());
                         assertEquals(count, pipeline.lastDirectionalCascadeMatrices().size());
                         assertEquals(count, pipeline.lastShadowCasterDrawCount());
+                        Render3dDiagnostics firstDiagnostics = pipeline.lastRender3dDiagnostics();
+                        assertEquals(count, firstDiagnostics.shadows().cascadeCasters().size());
+                        assertEquals(pipeline.lastShadowCullingStatistics().directionalReferences(),
+                                firstDiagnostics.shadows().cascadeCasters().stream()
+                                        .mapToInt(Integer::intValue).sum());
+                        // A fixed scene must reuse the published slices without
+                        // re-testing all caster/view pairs on the next frame.
+                        pipeline.execute(new GlRenderDevice());
+                        ShadowCullingStatistics reused = pipeline.lastShadowCullingStatistics();
+                        assertTrue(reused.planReused());
+                        assertEquals(0, reused.casterViewTests());
                         pipeline.resize(73, 51);
                         pipeline.execute(new GlRenderDevice());
                         assertEquals(count, pipeline.lastShadowCasterDrawCount());
@@ -1294,6 +1305,57 @@ class RenderPipelineGlTest {
                     }
                 }
             } finally {
+                material.close();
+                shader.close();
+                mesh.close();
+            }
+        }
+    }
+
+    @Test
+    void partialShadowFailureIsRaisedDuringGpuExecutionAndRecovers() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            Mesh mesh = Mesh.from(BuiltinMeshData.coloredQuad("partial-shadow-caster"));
+            ShaderProgram shader = ShaderProgram.fromSources(PIPELINE_VERTEX_SOURCE,
+                    PIPELINE_FRAGMENT_SOURCE);
+            Material material = Material.builder(shader).build();
+            Scene scene = new Scene(new Camera(new Vector3f(0.0f, 1.0f, 5.0f)));
+            scene.add(SceneObject.fixed(mesh, material, new Matrix4f(), true));
+            scene.addLight(SceneLight.shadowedDirectional(
+                    new Vector3f(-0.4f, -1.0f, -0.3f), new Vector3f(1.0f), 2.0f));
+            RenderSettings settings = RenderSettings.builder()
+                    .antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build();
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings)
+                    .directionalCascades(new DirectionalCascadeSettings(4, 512, 0.6f, 0.08f));
+            GlRenderDevice device = new GlRenderDevice();
+            String previous = System.getProperty("haikalat.test.failShadowPassOnce");
+            try {
+                pipeline.build();
+                pipeline.execute(device);
+                Render3dDiagnostics before = pipeline.lastRender3dDiagnostics();
+                byte[] beforePixels = readFramebuffer(window.width(), window.height());
+                System.setProperty("haikalat.test.failShadowPassOnce", "true");
+                IllegalStateException failure = assertThrows(IllegalStateException.class,
+                        () -> pipeline.execute(device));
+                assertEquals("injected shadow pass failure", failure.getMessage());
+                Render3dDiagnostics failed = pipeline.lastRender3dDiagnostics();
+                assertEquals("gpu-execute", failed.failureStage(),
+                        "partial failure must be reported after command execution");
+                assertEquals(before.shadows().cascadeCasters(), failed.shadows().cascadeCasters(),
+                        "failed diagnostics must retain the last successful cascade plan");
+                System.clearProperty("haikalat.test.failShadowPassOnce");
+                pipeline.execute(device);
+                assertTrue(pipeline.lastRender3dDiagnostics().failureStage().isEmpty());
+                assertEquals(0, changedRgbPixels(beforePixels,
+                                readFramebuffer(window.width(), window.height())),
+                        "recovery must restore the same final pixels after partial atlas failure");
+                GlDebug.checkError("partialShadowFailureIsRaisedDuringGpuExecutionAndRecovers");
+            } finally {
+                if (previous == null) System.clearProperty("haikalat.test.failShadowPassOnce");
+                else System.setProperty("haikalat.test.failShadowPassOnce", previous);
+                pipeline.close();
                 material.close();
                 shader.close();
                 mesh.close();

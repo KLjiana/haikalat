@@ -260,6 +260,14 @@ final class CommandExecutor {
                         cache.invalidate();
                     }
                 }
+                case TEST_FAILURE -> {
+                    String message = (String) stream.objectAt(objectCursor++);
+                    // Make the deterministic integration hook observe all
+                    // preceding shadow draws before reporting the failure.
+                    glFinish();
+                    cache.invalidate();
+                    throw new IllegalStateException(message);
+                }
                 case INSTANCED_BATCH -> {
                     InstancedBatchSubmission submission =
                             (InstancedBatchSubmission) stream.objectAt(objectCursor++);

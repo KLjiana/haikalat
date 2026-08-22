@@ -80,10 +80,11 @@ kernel 半径保留 guard band，不能跨槽采样。`LocalShadowSettings.bias(
 `normalBias` 是沿接收面法线的世界空间偏移。先保持接近默认值并在实际模型尺度下观察 acne，再逐步
 调整；过大的 base/normal bias 会产生 peter-panning。
 
-balanced 默认 atlas 为两个 512² point block（总 1536×2048）和四个 512² spot tile（总
-1024×1024），加上 4 级 1024² CSM 时估算 depth memory 为 20 MiB。容量或分辨率变化会事务式重建
-pipeline generation；filter、bias、priority 和灯光参数只更新 frame plan/cache。窗口同宽高比 resize
-不会重建 fixed atlas。
+balanced 的预算基线 atlas 为两个 512² point block（总 1536×2048）和四个 512² spot tile（总
+1024×1024），加上 4 级 1024² CSM 时估算 depth memory 为 20 MiB。`runRender3dShadowBudgetDemo`
+的可见窗口默认使用 4096² CSM（每个级联 2048²）以避免近景明显的阶梯边缘；性能和隐藏验证任务
+显式传入 `--csm-atlas=1024` 保持原预算基线。容量或分辨率变化会事务式重建 pipeline generation；
+filter、bias、priority 和灯光参数只更新 frame plan/cache。窗口同宽高比 resize 不会重建 fixed atlas。
 
 排查阴影预算时读取 `pipeline.lastRender3dDiagnostics().shadows()`：
 

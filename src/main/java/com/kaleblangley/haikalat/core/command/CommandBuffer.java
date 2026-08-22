@@ -85,6 +85,7 @@ public final class CommandBuffer {
     static final byte UNIFORM_MAT4_PRIMITIVE = 51;
     static final byte UPLOAD_BUFFER_REGION = 52;
     static final byte PREPARE_INSTANCED_BATCH_PERSISTENT = 53;
+    static final byte TEST_FAILURE = 54;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -897,6 +898,21 @@ public final class CommandBuffer {
         flushPendingState();
         opcode(CUSTOM);
         object(action);
+        pendingState.invalidateKnownState();
+        recordedProgramKnown = false;
+        return this;
+    }
+
+    /**
+     * Records the deterministic failure point used by integration tests.  It
+     * is a typed command (rather than the arbitrary callback escape hatch), so
+     * preceding GPU work is executed before the device reports the failure.
+     */
+    public CommandBuffer recordTestFailure(String message) {
+        String safe = Objects.requireNonNull(message, "message");
+        flushPendingState();
+        opcode(TEST_FAILURE);
+        object(safe);
         pendingState.invalidateKnownState();
         recordedProgramKnown = false;
         return this;

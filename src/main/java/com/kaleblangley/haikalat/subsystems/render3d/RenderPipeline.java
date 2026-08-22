@@ -104,6 +104,10 @@ public final class RenderPipeline {
     private Matrix4f lastDirectionalLightSpaceMatrix = new Matrix4f();
     private List<Matrix4f> lastDirectionalCascadeMatrices = List.of();
     private float[] lastDirectionalCascadeSplits = new float[0];
+    /** Per-cascade ordinary caster slice counts used by diagnostics. */
+    private int[] lastDirectionalCascadeCasterCounts = new int[0];
+    /** Counts staged by the current frame and committed only after GPU success. */
+    private int[] pendingDirectionalCascadeCasterCounts = new int[0];
     private List<Matrix4f> lastPointLightSpaceMatrices = List.of();
     private Matrix4f lastSpotLightSpaceMatrix = new Matrix4f();
     private ShadowFramePlan currentShadowFramePlan;
@@ -111,6 +115,7 @@ public final class RenderPipeline {
     private final ShadowCasterPlanner shadowCasterPlanner = new ShadowCasterPlanner();
     private ShadowCasterPlanner.ShadowCasterPlan currentShadowCasterPlan;
     private boolean shadowFailureInjected;
+    private boolean shadowFailureCommandRecorded;
     private int lastShadowCasterDrawCount;
     private int lastPointShadowCasterDrawCount;
     private int lastSpotShadowCasterDrawCount;
@@ -548,13 +553,20 @@ public final class RenderPipeline {
                 visibility.layerExcluded(), visibility.boundsUpdated(),
                 visibility.transparentVisible(), visibility.frustumTestNanos(),
                 visibility.totalQueueBuildNanos());
-        int cascadeCount = lastDirectionalCascadeMatrices.size();
-        List<Float> splits = new java.util.ArrayList<>(lastDirectionalCascadeSplits.length);
-        for (float split : lastDirectionalCascadeSplits) splits.add(split);
-        List<Integer> cascadeCasters = cascadeCount == 0 ? List.of()
-                : java.util.Collections.nCopies(cascadeCount,
-                        cascadeCount == 0 ? 0 : lastShadowCasterDrawCount / cascadeCount);
+        // The scheduler stages a plan before command execution.  Diagnostics
+        // must describe the last completed GPU frame, otherwise a failed frame
+        // can combine its matrices/splits with the previous cache counters.
         ShadowFramePlan shadowPlan = lastShadowFramePlan;
+        int cascadeCount = shadowPlan.directional().map(value -> value.matrices().size()).orElse(0);
+        List<Float> splits = new java.util.ArrayList<>(cascadeCount);
+        shadowPlan.directional().ifPresent(value -> {
+            for (float split : value.splits()) splits.add(split);
+        });
+        List<Integer> cascadeCasters = new java.util.ArrayList<>(cascadeCount);
+        for (int cascade = 0; cascade < cascadeCount; cascade++) {
+            cascadeCasters.add(cascade < lastDirectionalCascadeCasterCounts.length
+                    ? lastDirectionalCascadeCasterCounts[cascade] : 0);
+        }
         List<Render3dDiagnostics.SelectedShadowLight> selectedLights = shadowPlan.decisions()
                 .stream().filter(value -> value.status() == ShadowDecision.Status.SELECTED)
                 .map(value -> new Render3dDiagnostics.SelectedShadowLight(value.stableId(),
@@ -692,6 +704,9 @@ public final class RenderPipeline {
         usedDevices.add(Objects.requireNonNull(device, "device"));
         currentSceneFrame = null;
         currentShadowCasterPlan = null;
+        currentShadowFramePlan = null;
+        pendingDirectionalCascadeCasterCounts = new int[0];
+        shadowFailureCommandRecorded = false;
         lastShadowCasterDrawCount = 0;
         lastPointShadowCasterDrawCount = 0;
         lastSpotShadowCasterDrawCount = 0;
@@ -734,14 +749,31 @@ public final class RenderPipeline {
                 commandRecordNanos = Math.addExact(commandRecordNanos, pass.cpuRecordNanos());
             }
             if (currentSceneFrame != null) {
+                int shadowVisibleOverride = -1;
+                if (currentShadowCasterPlan != null && currentShadowFramePlan != null
+                        && currentShadowFramePlan.directional().isPresent()
+                        && currentShadowFramePlan.points().isEmpty()
+                        && currentShadowFramePlan.spots().isEmpty()
+                        && !directionalCascadeSettings.enabled()) {
+                    // Legacy directional visibility statistics now come from
+                    // the padded planner view; the shared SceneFrame queue is
+                    // intentionally no longer pre-culled by an unpadded frustum.
+                    shadowVisibleOverride = currentShadowCasterPlan.count(0);
+                }
                 lastVisibilityStatistics = VisibilityStatistics.from(currentSceneFrame.statistics,
                         commandRecordNanos, generation.graph.lastRecordedCommandCount(),
                         generation.graph.lastRecordedMatrixSnapshots(),
-                        generation.graph.lastRecordedObjectPayloads());
+                        generation.graph.lastRecordedObjectPayloads(), shadowVisibleOverride);
             }
             generation.postProcess.frameSucceeded();
             generation.shadowCache.frameSucceeded();
             if (currentShadowFramePlan != null) lastShadowFramePlan = currentShadowFramePlan;
+            if (pendingDirectionalCascadeCasterCounts.length != 0) {
+                lastDirectionalCascadeCasterCounts = pendingDirectionalCascadeCasterCounts.clone();
+            } else if (currentShadowFramePlan != null
+                    && currentShadowFramePlan.directional().isEmpty()) {
+                lastDirectionalCascadeCasterCounts = new int[0];
+            }
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.frameSucceeded(previewFrameSequence);
             }
@@ -753,7 +785,11 @@ public final class RenderPipeline {
             lastFailureStage = "";
             return result;
         } catch (RuntimeException | Error failure) {
-            lastFailureStage = frameStage;
+            // A typed shadow failure is queued after real shadow draws and is
+            // raised by CommandExecutor, so expose that boundary distinctly
+            // from ordinary pass-recording callbacks.
+            lastFailureStage = shadowFailureCommandRecorded && shadowFailureInjected
+                    ? "gpu-execute" : frameStage;
             lastFailedFrameContext = activeFrameContext;
             if (instanced != null) {
                 try {
@@ -822,6 +858,9 @@ public final class RenderPipeline {
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
         shadowFailureInjected = false;
+        shadowFailureCommandRecorded = false;
+        lastDirectionalCascadeCasterCounts = new int[0];
+        pendingDirectionalCascadeCasterCounts = new int[0];
         shadowCasterPlanner.reset();
         lastShadowFramePlan = ShadowFramePlan.EMPTY;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
@@ -852,6 +891,9 @@ public final class RenderPipeline {
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
         shadowFailureInjected = false;
+        shadowFailureCommandRecorded = false;
+        lastDirectionalCascadeCasterCounts = new int[0];
+        pendingDirectionalCascadeCasterCounts = new int[0];
         shadowCasterPlanner.reset();
         frameStateInvalidationByMaterial.clear();
         topologySettingsRevision++;
@@ -925,7 +967,9 @@ public final class RenderPipeline {
             ShaderProgram depthShader = generation.gtaoDepthShader;
             cmd.bindShader(depthShader)
                     .enableBlend(false).enableDepthTest(true).depthMask(true)
-                    .enableCullFace(false);
+                    // Establish a deterministic raster state, then override it
+                    // for every regular renderer from its Material.cullMode.
+                    .frontFace(FrontFace.CCW).enableCullFace(true);
             generation.cameraUniforms.bind(depthShader);
             ShaderProgram boundShader = depthShader;
             com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
@@ -1114,7 +1158,7 @@ public final class RenderPipeline {
                             .setUniformMat4(instancedShadowShader, "uLightSpace", matrices.get(cascade));
                     instanced.renderShadow(cmd);
                 }
-                maybeInjectShadowFailure();
+                recordMaybeInjectShadowFailure(cmd);
             }
             cmd.enableScissor(false);
             lastShadowCasterDrawCount = count;
@@ -1214,7 +1258,7 @@ public final class RenderPipeline {
                                 .setUniformMat4(instancedShadowShader, "uLightSpace", matrix);
                         instanced.renderShadow(cmd);
                     }
-                    maybeInjectShadowFailure();
+                    recordMaybeInjectShadowFailure(cmd);
                 }
             }
             cmd.enableScissor(false);
@@ -1267,7 +1311,7 @@ public final class RenderPipeline {
                                     slot.lightSpaceMatrix());
                     instanced.renderShadow(cmd);
                 }
-                maybeInjectShadowFailure();
+                recordMaybeInjectShadowFailure(cmd);
             }
             cmd.enableScissor(false);
             lastSpotShadowCasterDrawCount = draws;
@@ -1277,6 +1321,11 @@ public final class RenderPipeline {
     private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame, Matrix4f lightSpace,
                                        int view) {
         ShaderProgram boundShader = requireGeneration().shadowShader;
+        // Point faces and spot tiles are recorded back-to-back.  The previous view
+        // may have ended with the masked or instanced program bound, so DSA uniform
+        // updates alone are not enough to select the ordinary depth shader for the
+        // first opaque caster in this view.
+        cmd.bindShader(boundShader).setUniformMat4(boundShader, "uLightSpace", lightSpace);
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
         int boundSkinningEnabled = -1;
         int boundMorphTargetCount = -1;
@@ -1325,13 +1374,23 @@ public final class RenderPipeline {
         return draws;
     }
 
-    /** Test-only hook used by the deterministic shadow integration to model a partial pass. */
-    private void maybeInjectShadowFailure() {
-        if (!Boolean.getBoolean("haikalat.test.failShadowPassOnce") || shadowFailureInjected) {
+    /**
+     * Test-only hook used by the deterministic shadow integration to model a
+     * partial atlas write.  The typed failure command is deliberately recorded
+     * into the command stream: it therefore runs after the preceding shadow
+     * draws have reached the device, rather than failing while a pass is merely
+     * being recorded.
+     */
+    private void recordMaybeInjectShadowFailure(CommandBuffer cmd) {
+        if (!Boolean.getBoolean("haikalat.test.failShadowPassOnce")
+                || shadowFailureInjected || shadowFailureCommandRecorded) {
             return;
         }
+        shadowFailureCommandRecorded = true;
+        // Mark the one-shot hook as consumed when its typed command is queued;
+        // the exception itself is still raised later by CommandExecutor.
         shadowFailureInjected = true;
-        throw new IllegalStateException("injected shadow pass failure");
+        cmd.recordTestFailure("injected shadow pass failure");
     }
 
     private ShaderProgram shadowShaderFor(MeshRenderer renderer) {
@@ -1502,16 +1561,39 @@ public final class RenderPipeline {
         // The base shadow queue is also the deterministic candidate order consumed by
         // point/spot and per-cascade planning.  A local-light-only scene must not use the
         // identity directional matrix to cull that queue before its own view tests run.
-        boolean baseShadowCulling = anyShadowView && selected.directional().isPresent()
-                && settings.sceneVisibility() && !directionalCascadeSettings.enabled();
+        // The legacy single directional view may use the same padded frustum as its
+        // planner; cascades and local views must remain unconditionally in the shared
+        // queue so their individual padding is not defeated by an early test.
+        boolean legacyDirectional = selected.directional().isPresent()
+                && selected.points().isEmpty() && selected.spots().isEmpty()
+                && !directionalCascadeSettings.enabled() && settings.sceneVisibility();
+        boolean baseShadowCulling = legacyDirectional;
+        float baseShadowCullingPadding = 0.0f;
+        if (legacyDirectional) {
+            var directional = selected.directional().orElseThrow();
+            int last = directional.matrices().size() - 1;
+            baseShadowCullingPadding = directional.texelWorldSizes()[last]
+                    * (selected.filterMode().kernelRadius() + 2.0f);
+        }
         SceneFrame built = generation.sceneFrameBuilder.build(scene, context.camera(),
                 context.width(), context.height(), lastDirectionalCascadeMatrices.isEmpty()
                         ? lastDirectionalLightSpaceMatrix
                         : lastDirectionalCascadeMatrices.get(lastDirectionalCascadeMatrices.size() - 1),
                 anyShadowView, settings.sceneVisibility(), baseShadowCulling,
-                context.frameIndex());
+                baseShadowCullingPadding, context.frameIndex());
         currentShadowCasterPlan = shadowCasterPlanner.plan(selected, context, built,
                 settings.sceneVisibility(), instanced);
+        if (selected.directional().isPresent()) {
+            int cascadeCount = selected.directional().orElseThrow().matrices().size();
+            if (pendingDirectionalCascadeCasterCounts.length != cascadeCount) {
+                pendingDirectionalCascadeCasterCounts = new int[cascadeCount];
+            }
+            for (int cascade = 0; cascade < cascadeCount; cascade++) {
+                pendingDirectionalCascadeCasterCounts[cascade] = currentShadowCasterPlan.count(cascade);
+            }
+        } else {
+            pendingDirectionalCascadeCasterCounts = new int[0];
+        }
         currentShadowFramePlan = generation.shadowCache.prepare(selected, context, scene,
                 localShadowSettings, directionalCascadeSettings, currentShadowCasterPlan);
         recordShadowCullingCacheOutcome(currentShadowFramePlan, currentShadowCasterPlan);
@@ -1531,14 +1613,15 @@ public final class RenderPipeline {
             for (int cascade = 0; cascade < directional.dirtyTiles().size(); cascade++) {
                 if (!directional.dirtyTiles().get(cascade)) continue;
                 dirty++;
-                if (culling.count(cascade) == 0) empty++;
+                if (culling.count(cascade) == 0 && !culling.instanceVisible(cascade)) empty++;
             }
         }
         for (PointShadowSlotPlan point : plan.points()) {
             for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
                 if (!point.faceDirty(face)) continue;
                 dirty++;
-                if (culling.count(4 + point.slot() * PointShadowAtlas.FACE_COUNT + face) == 0) {
+                int view = 4 + point.slot() * PointShadowAtlas.FACE_COUNT + face;
+                if (culling.count(view) == 0 && !culling.instanceVisible(view)) {
                     empty++;
                 }
             }
@@ -1546,7 +1629,8 @@ public final class RenderPipeline {
         for (SpotShadowSlotPlan spot : plan.spots()) {
             if (!spot.dirty()) continue;
             dirty++;
-            if (culling.count(16 + spot.slot()) == 0) empty++;
+            int view = 16 + spot.slot();
+            if (culling.count(view) == 0 && !culling.instanceVisible(view)) empty++;
         }
         shadowCasterPlanner.recordCacheOutcome(dirty,
                 Math.max(0, culling.activeViews() - dirty), empty);
@@ -1696,11 +1780,16 @@ public final class RenderPipeline {
                                                   long commandRecordNanos,
                                                   int recordedCommands,
                                                   int recordedMatrixSnapshots,
-                                                  int recordedObjectPayloads) {
+                                                  int recordedObjectPayloads,
+                                                  int shadowVisibleOverride) {
+            int shadowVisible = shadowVisibleOverride < 0
+                    ? source.shadowVisible() : shadowVisibleOverride;
+            int shadowCulled = shadowVisibleOverride < 0
+                    ? source.shadowCulled() : source.shadowCandidates() - shadowVisible;
             return new VisibilityStatistics(true, source.cullingEnabled(), source.sceneRevision(),
                     source.candidateRenderers(), source.finiteBoundsRenderers(),
                     source.unboundedRenderers(), source.forwardVisible(), source.forwardCulled(),
-                    source.shadowCandidates(), source.shadowVisible(), source.shadowCulled(),
+                    source.shadowCandidates(), shadowVisible, shadowCulled,
                     source.staticRenderers(), source.dynamicRenderers(), source.modelCacheHits(),
                     source.modelCacheMisses(), source.boundsCacheHits(), source.boundsCacheMisses(),
                     source.forwardQueueReused(), source.forwardQueueRebuilt(),

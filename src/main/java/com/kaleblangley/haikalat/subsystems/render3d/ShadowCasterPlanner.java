@@ -10,9 +10,10 @@ import java.util.Objects;
  *
  * <p>The planner owns the fixed twenty-view arena used by Render3D: four
  * directional cascades, twelve point-light faces and four spot tiles.  It
- * keeps membership as a bit mask per caster and rebuilds flattened slices in
- * deterministic SceneFrame order.  A changed caster is re-tested against the
- * active views while unchanged views retain their previous membership.</p>
+ * keeps membership as a bit mask per caster and stores a compact mutable slice
+ * for each view.  A changed caster is re-tested against the active views while
+ * unchanged views retain their previous membership; this is what keeps the
+ * sparse dynamic path proportional to changed casters rather than N x V.</p>
  */
 final class ShadowCasterPlanner {
     static final int MAX_VIEWS = 20;
@@ -47,10 +48,13 @@ final class ShadowCasterPlanner {
     private boolean[] materialChangedEntries = new boolean[0];
     private boolean[] deformationChangedEntries = new boolean[0];
     private long[] oldMasks = new long[0];
-    private int[] flattened = new int[0];
+    private final int[][] viewSlices = new int[MAX_VIEWS][];
+    private final int[][] viewPositions = new int[MAX_VIEWS][];
+    private final int[] viewSliceSizes = new int[MAX_VIEWS];
     private int[] candidateOrder = new int[0];
+    /** Current shared shadow-queue membership, kept separate from per-view masks. */
+    private boolean[] candidateMembership = new boolean[0];
     private int candidateCount;
-    private int[] offsets = new int[MAX_VIEWS];
     private int[] counts = new int[MAX_VIEWS];
     private int[] viewKinds = new int[MAX_VIEWS];
     private int[] viewOwners = new int[MAX_VIEWS];
@@ -70,6 +74,9 @@ final class ShadowCasterPlanner {
     private int previousHeight = -1;
     private long previousCameraRevision = Long.MIN_VALUE;
     private long previousLightingRevision = Long.MIN_VALUE;
+    private long previousMembershipRevision = Long.MIN_VALUE;
+    private long previousTransformModelRevision = Long.MIN_VALUE;
+    private long previousMaterialRenderStateRevision = Long.MIN_VALUE;
     private long previousActiveMask;
     private boolean previousVisibility;
     private long lastViewLayoutSignature;
@@ -90,7 +97,11 @@ final class ShadowCasterPlanner {
     private boolean instancePlanChanged;
 
     ShadowCasterPlanner() {
-        for (int index = 0; index < MAX_VIEWS; index++) frustums[index] = new Frustum();
+        for (int index = 0; index < MAX_VIEWS; index++) {
+            frustums[index] = new Frustum();
+            viewSlices[index] = new int[0];
+            viewPositions[index] = new int[0];
+        }
     }
 
     ShadowCasterPlan plan(ShadowFramePlan shadowPlan, RenderFrameContext context,
@@ -104,178 +115,259 @@ final class ShadowCasterPlanner {
         ensureEntryCapacity(entries);
         candidateCount = frame.shadowCount;
         ensureCandidateCapacity(candidateCount);
-        for (int order = 0; order < candidateCount; order++) {
-            candidateOrder[order] = frame.shadowEntry(order);
-        }
-        System.arraycopy(masks, 0, oldMasks, 0, entries);
         configureViews(shadowPlan);
-        long sceneGeneration = context.revisions().sceneGeneration();
+        SceneRevisionSnapshot revisions = context.revisions();
+        long sceneGeneration = revisions.sceneGeneration();
         boolean sameAspectResize = initialized && previousWidth > 0 && previousHeight > 0
                 && ((long) previousWidth * context.height()
                 == (long) context.width() * previousHeight)
-                && previousCameraRevision == context.revisions().cameraRevision()
-                && previousLightingRevision == context.revisions().lightingRevision();
+                && previousCameraRevision == revisions.cameraRevision()
+                && previousLightingRevision == revisions.lightingRevision();
         if (sameAspectResize) Arrays.fill(viewChanged, false);
         boolean full = !initialized || previousSceneGeneration != sceneGeneration
                 || previousEntryCount != entries || previousVisibility != sceneVisibility
                 || previousCandidateCount != candidateCount
-                || previousActiveMask != published.activeMask;
-        boolean anyChanged = full;
+                || previousActiveMask != published.activeMask
+                // Material and membership revisions are global classification
+                // boundaries; movement remains sparse below.  A queue rebuild
+                // alone does not force an N x V rebuild because changedIndices
+                // remains the authoritative changed-entry frontier.
+                || previousMembershipRevision != revisions.membershipRevision()
+                || previousMaterialRenderStateRevision != revisions.materialRenderStateRevision()
+                || frame.forceShadowPlanRebuild;
         Arrays.fill(membershipChanged, false);
         Arrays.fill(transformChanged, false);
         Arrays.fill(materialChanged, false);
         Arrays.fill(deformationChanged, false);
 
-        candidateCasters = 0;
-        volatileCount = 0;
+        // An immutable, queue-reused frame with no changed entries has already
+        // proven all model/bounds keys in SceneFrameBuilder.  Keep the published
+        // slices and masks untouched instead of walking every renderer and every
+        // active view again.  Global revisions cover mutations which are not
+        // represented by SceneFrame.changedIndices (material state and membership).
+        boolean viewsStable = true;
+        for (int view = 0; view < MAX_VIEWS; view++) {
+            if (active[view] && viewChanged[view]) {
+                viewsStable = false;
+                break;
+            }
+        }
+        boolean staticReuse = initialized && !full && viewsStable
+                && frame.changedCount == 0
+                && frame.statistics.shadowQueueReused()
+                && frame.statistics.dynamicRenderers() == 0
+                && previousMembershipRevision == revisions.membershipRevision()
+                && previousTransformModelRevision == revisions.transformModelRevision()
+                && previousMaterialRenderStateRevision == revisions.materialRenderStateRevision()
+                && !frame.forceShadowPlanRebuild;
+        if (staticReuse) {
+            updateInstanceMembership(shadowPlan, frame, sceneVisibility, instanced);
+            if (!instancePlanChanged) {
+                casterViewTests = 0;
+                lastPlanReused = true;
+                lastFullRebuild = false;
+                lastBuildNanos = System.nanoTime() - start;
+                previousSceneGeneration = sceneGeneration;
+                previousEntryCount = entries;
+                previousCandidateCount = candidateCount;
+                previousWidth = context.width();
+                previousHeight = context.height();
+                previousCameraRevision = revisions.cameraRevision();
+                previousLightingRevision = revisions.lightingRevision();
+                previousMembershipRevision = revisions.membershipRevision();
+                previousTransformModelRevision = revisions.transformModelRevision();
+                previousMaterialRenderStateRevision = revisions.materialRenderStateRevision();
+                previousActiveMask = published.activeMask;
+                previousVisibility = sceneVisibility;
+                lastViewLayoutSignature = published.layoutSignature;
+                System.arraycopy(viewSignatures, 0, previousViewSignatures, 0, MAX_VIEWS);
+                published.fullRebuild = false;
+                published.planReused = true;
+                published.buildNanos = lastBuildNanos;
+                return published;
+            }
+        }
+
+        // Dynamic queues retain the previous deterministic candidate order.  A
+        // model/bounds change cannot alter caster classification, and copying a
+        // 10k-entry queue here would reintroduce an unnecessary per-frame scan.
+        // Full/static queue transitions still refresh the order normally.
+        boolean candidateQueueRefreshed = full || frame.statistics.dynamicRenderers() == 0
+                || !frame.statistics.shadowQueueReused();
+        if (candidateQueueRefreshed) {
+            Arrays.fill(candidateMembership, 0, entries, false);
+            for (int order = 0; order < candidateCount; order++) {
+                int index = frame.shadowEntry(order);
+                candidateOrder[order] = index;
+                if (isCaster(frame, index)) candidateMembership[index] = true;
+            }
+        }
+        boolean anyChanged = full;
+        candidateCasters = full ? 0 : candidateCasters;
+        volatileCount = full ? 0 : volatileCount;
         casterViewTests = 0;
         Arrays.fill(modelChangedEntries, 0, entries, false);
         Arrays.fill(materialChangedEntries, 0, entries, false);
         Arrays.fill(deformationChangedEntries, 0, entries, false);
-        for (int index = 0; index < entries; index++) {
-            MeshRenderer renderer = frame.renderer(index);
-            boolean caster = isCaster(frame, index);
-            if (caster) candidateCasters++;
-            boolean volatileCaster = caster && (!renderer.revisionedModel()
-                    || frame.worldBounds[index].unbounded
-                    || degenerate(frame.worldBounds[index]));
-            volatileCasters[index] = volatileCaster;
-            if (volatileCaster) volatileCount++;
-            long model = renderer.revisionedModel() ? renderer.modelRevision() : 0L;
-            long material = renderer.material().revision();
-            long deformation = renderer.drawBinding().boundsRevision();
-            long modelKey = matrixKey(frame.models[index]);
-            long boundsKey = boundsKey(frame.worldBounds[index]);
-            boolean modelChanged = full || !renderer.revisionedModel()
-                    || modelKeys[index] != modelKey
-                    || boundsKeys[index] != boundsKey
-                    || modelRevisions[index] != model;
-            boolean materialChanged = full || materialRevisions[index] != material;
-            boolean deformationChanged = full || deformationRevisions[index] != deformation;
-            modelChangedEntries[index] = modelChanged;
-            materialChangedEntries[index] = materialChanged;
-            deformationChangedEntries[index] = deformationChanged;
-            boolean changed = modelChanged || materialChanged || deformationChanged;
-            if (changed) anyChanged = true;
-            modelRevisions[index] = model;
-            modelKeys[index] = modelKey;
-            boundsKeys[index] = boundsKey;
-            materialRevisions[index] = material;
-            deformationRevisions[index] = deformation;
-        }
 
         if (full) {
             Arrays.fill(masks, 0, entries, EMPTY_MASK);
+            clearMembershipSlices(entries);
+            for (int index = 0; index < entries; index++) {
+                MeshRenderer renderer = frame.renderer(index);
+                boolean caster = isCaster(frame, index);
+                boolean volatileCaster = caster && (!renderer.revisionedModel()
+                        || frame.worldBounds[index].unbounded
+                        || degenerate(frame.worldBounds[index]));
+                volatileCasters[index] = volatileCaster;
+                updateEntryRevisions(frame, index);
+                modelChangedEntries[index] = true;
+                materialChangedEntries[index] = true;
+                deformationChangedEntries[index] = true;
+            }
+            // Count the actual shared shadow candidate queue, not renderers that
+            // an optional padded legacy queue has already rejected.
+            for (int order = 0; order < candidateCount; order++) {
+                int index = candidateOrder[order];
+                if (!isCaster(frame, index)) continue;
+                candidateCasters++;
+                if (volatileCasters[index]) volatileCount++;
+            }
+        } else {
+            if (candidateQueueRefreshed) {
+                // A dynamic bounds revision can rebuild the shared legacy queue.
+                // Refresh aggregate counters in O(N), but keep view tests sparse.
+                candidateCasters = 0;
+                volatileCount = 0;
+                for (int order = 0; order < candidateCount; order++) {
+                    int index = candidateOrder[order];
+                    if (!candidateMembership[index]) continue;
+                    candidateCasters++;
+                    if (volatileCasters[index]) volatileCount++;
+                }
+            }
+            // SceneFrame.changedIndices is the sparse invalidation frontier.  A
+            // queue/material/membership change made the plan full above, so this
+            // loop only touches changed model/bounds/deformation entries.
+            for (int changedIndex = 0; changedIndex < frame.changedCount; changedIndex++) {
+                int index = frame.changedIndices[changedIndex];
+                if (index < 0 || index >= entries) continue;
+                oldMasks[index] = masks[index];
+                MeshRenderer renderer = frame.renderer(index);
+                boolean caster = isCaster(frame, index);
+                boolean volatileCaster = caster && (!renderer.revisionedModel()
+                        || frame.worldBounds[index].unbounded
+                        || degenerate(frame.worldBounds[index]));
+                if (volatileCasters[index] != volatileCaster) {
+                    volatileCount += volatileCaster ? 1 : -1;
+                }
+                volatileCasters[index] = volatileCaster;
+                long model = renderer.revisionedModel() ? renderer.modelRevision() : 0L;
+                long material = renderer.material().revision();
+                long deformation = renderer.drawBinding().boundsRevision();
+                long modelKey = matrixKey(frame.models[index]);
+                long boundsKey = boundsKey(frame.worldBounds[index]);
+                boolean modelChanged = !renderer.revisionedModel()
+                        || modelKeys[index] != modelKey
+                        || boundsKeys[index] != boundsKey
+                        || modelRevisions[index] != model;
+                boolean materialChanged = materialRevisions[index] != material;
+                boolean deformationChanged = deformationRevisions[index] != deformation;
+                modelChangedEntries[index] = modelChanged;
+                materialChangedEntries[index] = materialChanged;
+                deformationChangedEntries[index] = deformationChanged;
+                if (modelChanged || materialChanged || deformationChanged) anyChanged = true;
+                modelRevisions[index] = model;
+                modelKeys[index] = modelKey;
+                boundsKeys[index] = boundsKey;
+                materialRevisions[index] = material;
+                deformationRevisions[index] = deformation;
+            }
+        }
+
+        if (full) {
             for (int view = 0; view < MAX_VIEWS; view++) {
                 if (!active[view]) continue;
                 for (int order = 0; order < candidateCount; order++) {
                     int index = candidateOrder[order];
                     if (!isCaster(frame, index)) continue;
-                    boolean included = include(view, frame.worldBounds[index],
-                            sceneVisibility);
-                    if (included) masks[index] |= 1L << view;
+                    boolean included = include(view, frame.worldBounds[index], sceneVisibility);
+                    setMembershipBit(view, index, included);
                     if (sceneVisibility && !frame.worldBounds[index].unbounded) casterViewTests++;
                 }
                 membershipChanged[view] = true;
+                transformChanged[view] = true;
+                materialChanged[view] = true;
+                deformationChanged[view] = true;
             }
         } else {
-            // Camera/light matrix changes invalidate only the affected view.  A
-            // changed caster is tested against each active view, then old/new
-            // membership is compared exactly below.
+            // A changed view must retest the stable candidate queue, while a
+            // changed caster only updates its own membership in each stable view.
             for (int view = 0; view < MAX_VIEWS; view++) {
                 if (!active[view] || !viewChanged[view]) continue;
+                anyChanged = true;
+                transformChanged[view] = true;
                 for (int order = 0; order < candidateCount; order++) {
                     int index = candidateOrder[order];
                     if (!isCaster(frame, index)) continue;
                     boolean included = include(view, frame.worldBounds[index], sceneVisibility);
-                    long bit = 1L << view;
                     long before = masks[index];
-                    if (included) masks[index] |= bit; else masks[index] &= ~bit;
-                    if (((before ^ masks[index]) & bit) != 0L) membershipChanged[view] = true;
+                    setMembershipBit(view, index, included);
+                    if (before != masks[index]) membershipChanged[view] = true;
                     if (sceneVisibility && !frame.worldBounds[index].unbounded) casterViewTests++;
                 }
-                anyChanged = true;
             }
-            for (int changedIndex = 0; changedIndex < entries; changedIndex++) {
-                MeshRenderer renderer = frame.renderer(changedIndex);
-                boolean changed = modelChangedEntries[changedIndex]
-                        || materialChangedEntries[changedIndex]
-                        || deformationChangedEntries[changedIndex];
-                if (!changed || !isCaster(frame, changedIndex)) continue;
-                long beforeMask = masks[changedIndex];
-                long nextMask = beforeMask;
+            for (int changedIndex = 0; changedIndex < frame.changedCount; changedIndex++) {
+                int index = frame.changedIndices[changedIndex];
+                if (index < 0 || index >= entries) continue;
+                if (!modelChangedEntries[index] && !materialChangedEntries[index]
+                        && !deformationChangedEntries[index]) continue;
+                boolean currentCandidate = candidateMembership[index] && isCaster(frame, index);
+                long nextMask = currentCandidate ? masks[index] : EMPTY_MASK;
                 for (int view = 0; view < MAX_VIEWS; view++) {
                     if (!active[view] || viewChanged[view]) continue;
                     long bit = 1L << view;
-                    boolean included = include(view, frame.worldBounds[changedIndex], sceneVisibility);
+                    boolean included = currentCandidate
+                            && include(view, frame.worldBounds[index], sceneVisibility);
                     if (included) nextMask |= bit; else nextMask &= ~bit;
-                    if (sceneVisibility && !frame.worldBounds[changedIndex].unbounded) casterViewTests++;
+                    if (sceneVisibility && currentCandidate
+                            && !frame.worldBounds[index].unbounded) casterViewTests++;
                 }
-                masks[changedIndex] = nextMask;
-                if ((beforeMask ^ nextMask) != 0L) {
-                    for (int view = 0; view < MAX_VIEWS; view++) {
-                        if (((beforeMask ^ nextMask) & (1L << view)) != 0L) {
-                            membershipChanged[view] = true;
-                        }
-                    }
+                applyMembershipMask(index, nextMask);
+                if (oldMasks[index] != masks[index]) {
                     anyChanged = true;
+                    long changedMask = oldMasks[index] ^ masks[index];
+                    for (int view = 0; view < MAX_VIEWS; view++) {
+                        if ((changedMask & (1L << view)) != 0L) membershipChanged[view] = true;
+                    }
                 }
             }
         }
 
-        // A membership mask cannot be left set for an entry that stopped being a
-        // shadow caster after a same-generation material change.
-        for (int index = 0; index < entries; index++) {
-            if (isCaster(frame, index)) continue;
-            long before = masks[index];
-            if (before == 0L) continue;
-            masks[index] = 0L;
-            anyChanged = true;
-            for (int view = 0; view < MAX_VIEWS; view++) {
-                if ((before & (1L << view)) != 0L) membershipChanged[view] = true;
+        // Category epochs are derived from only the changed entries in the
+        // sparse path.  The old all-entry/all-view aggregation made one dynamic
+        // caster cost O(N x V) even when the membership itself was incremental.
+        if (!full) {
+            for (int changedIndex = 0; changedIndex < frame.changedCount; changedIndex++) {
+                int index = frame.changedIndices[changedIndex];
+                if (index < 0 || index >= entries) continue;
+                long affected = oldMasks[index] | masks[index];
+                for (int view = 0; view < MAX_VIEWS; view++) {
+                    if (!active[view] || (affected & (1L << view)) == 0L) continue;
+                    materialChanged[view] |= materialChangedEntries[index];
+                    deformationChanged[view] |= deformationChangedEntries[index];
+                    transformChanged[view] |= modelChangedEntries[index];
+                }
             }
         }
-
-        // Resolve per-category epochs.  The frame changed list carries exact
-        // entries for model/bounds changes; material/deformation changes are
-        // covered by the conservative frame invalidation domains.
-        boolean deformationDomain = context.invalidation().invalidated(
-                FrameInvalidation.Domain.TRANSFORM_MODEL);
         for (int view = 0; view < MAX_VIEWS; view++) {
             if (!active[view]) continue;
             if (membershipChanged[view]) membershipEpoch[view]++;
-            if (full || viewChanged[view]) {
-                transformChanged[view] = true;
-            }
-            for (int index = 0; index < entries; index++) {
-                long affected = oldMasks[index] | masks[index];
-                if ((affected & (1L << view)) == 0L) continue;
-                materialChanged[view] |= materialChangedEntries[index];
-                deformationChanged[view] |= deformationChangedEntries[index];
-                transformChanged[view] |= modelChangedEntries[index];
-                if (transformChanged[view] && materialChanged[view]
-                        && deformationChanged[view]) break;
-            }
-            // A domain invalidation can be broader than the changed-entry list
-            // (for example an external material mutation), but the material
-            // revision comparison above remains the source of truth for which
-            // caster content actually changed.
-            if (deformationDomain && frame.forceShadowPlanRebuild) {
-                for (int index = 0; index < entries; index++) {
-                    if ((masks[index] & (1L << view)) != 0L
-                            && frame.renderer(index).drawBinding().deformsVertices()
-                            && deformationChangedEntries[index]) {
-                        deformationChanged[view] = true;
-                        break;
-                    }
-                }
-            }
             if (transformChanged[view]) transformEpoch[view]++;
             if (materialChanged[view]) materialEpoch[view]++;
             if (deformationChanged[view]) deformationEpoch[view]++;
         }
 
-        if (anyChanged || full) rebuildSlices(entries);
         updateInstanceMembership(shadowPlan, frame, sceneVisibility, instanced);
         lastPlanReused = initialized && !full && !anyChanged && !instancePlanChanged;
         lastFullRebuild = full;
@@ -294,8 +386,11 @@ final class ShadowCasterPlanner {
         previousCandidateCount = candidateCount;
         previousWidth = context.width();
         previousHeight = context.height();
-        previousCameraRevision = context.revisions().cameraRevision();
-        previousLightingRevision = context.revisions().lightingRevision();
+        previousCameraRevision = revisions.cameraRevision();
+        previousLightingRevision = revisions.lightingRevision();
+        previousMembershipRevision = revisions.membershipRevision();
+        previousTransformModelRevision = revisions.transformModelRevision();
+        previousMaterialRenderStateRevision = revisions.materialRenderStateRevision();
         previousActiveMask = published.activeMask;
         previousVisibility = sceneVisibility;
         lastViewLayoutSignature = published.layoutSignature;
@@ -330,13 +425,23 @@ final class ShadowCasterPlanner {
         previousHeight = -1;
         previousCameraRevision = Long.MIN_VALUE;
         previousLightingRevision = Long.MIN_VALUE;
+        previousMembershipRevision = Long.MIN_VALUE;
+        previousTransformModelRevision = Long.MIN_VALUE;
+        previousMaterialRenderStateRevision = Long.MIN_VALUE;
         previousActiveMask = 0L;
         previousVisibility = false;
         Arrays.fill(masks, 0L);
+        Arrays.fill(candidateMembership, false);
         Arrays.fill(previousViewSignatures, 0L);
         Arrays.fill(viewSignatures, 0L);
         Arrays.fill(active, false);
         Arrays.fill(instanceEpoch, 0L);
+        Arrays.fill(viewSliceSizes, 0);
+        Arrays.fill(counts, 0);
+        casterViewReferences = directionalReferences = pointReferences = spotReferences = 0;
+        for (int view = 0; view < MAX_VIEWS; view++) {
+            Arrays.fill(viewPositions[view], -1);
+        }
         published.activeMask = 0L;
         published.layoutSignature = 0L;
         published.instanceMask = 0L;
@@ -432,30 +537,89 @@ final class ShadowCasterPlanner {
                 + (z - lightZ[view]) * (z - lightZ[view]) <= radius * radius;
     }
 
-    private void rebuildSlices(int entries) {
-        int write = 0;
-        casterViewReferences = 0;
-        directionalReferences = pointReferences = spotReferences = 0;
+    private void updateEntryRevisions(SceneFrame frame, int index) {
+        MeshRenderer renderer = frame.renderer(index);
+        long model = renderer.revisionedModel() ? renderer.modelRevision() : 0L;
+        long material = renderer.material().revision();
+        long deformation = renderer.drawBinding().boundsRevision();
+        modelRevisions[index] = model;
+        modelKeys[index] = matrixKey(frame.models[index]);
+        boundsKeys[index] = boundsKey(frame.worldBounds[index]);
+        materialRevisions[index] = material;
+        deformationRevisions[index] = deformation;
+    }
+
+    private void clearMembershipSlices(int entries) {
+        Arrays.fill(viewSliceSizes, 0);
+        Arrays.fill(counts, 0);
+        casterViewReferences = directionalReferences = pointReferences = spotReferences = 0;
         for (int view = 0; view < MAX_VIEWS; view++) {
-            offsets[view] = write;
-            if (!active[view]) {
-                counts[view] = 0;
-                continue;
-            }
-            for (int order = 0; order < candidateCount; order++) {
-                int index = candidateOrder[order];
-                if ((masks[index] & (1L << view)) == 0L) continue;
-                ensureFlattenedCapacity(write + 1);
-                flattened[write++] = index;
-            }
-            counts[view] = write - offsets[view];
-            casterViewReferences += counts[view];
-            switch (viewKinds[view]) {
-                case 0 -> directionalReferences += counts[view];
-                case 1 -> pointReferences += counts[view];
-                default -> spotReferences += counts[view];
-            }
+            Arrays.fill(viewPositions[view], 0, Math.min(entries, viewPositions[view].length), -1);
         }
+    }
+
+    private void setMembershipBit(int view, int index, boolean included) {
+        long bit = 1L << view;
+        boolean present = (masks[index] & bit) != 0L;
+        if (present == included) return;
+        if (included) addViewMembership(view, index);
+        else removeViewMembership(view, index);
+    }
+
+    private void applyMembershipMask(int index, long nextMask) {
+        long before = masks[index];
+        long changed = before ^ nextMask;
+        if (changed == 0L) return;
+        for (int view = 0; view < MAX_VIEWS; view++) {
+            long bit = 1L << view;
+            if ((changed & bit) == 0L) continue;
+            if ((nextMask & bit) != 0L) addViewMembership(view, index);
+            else removeViewMembership(view, index);
+        }
+    }
+
+    private void addViewMembership(int view, int index) {
+        if ((masks[index] & (1L << view)) != 0L) return;
+        ensureViewSliceCapacity(view, viewSliceSizes[view] + 1);
+        int position = viewSliceSizes[view]++;
+        viewSlices[view][position] = index;
+        viewPositions[view][index] = position;
+        masks[index] |= 1L << view;
+        counts[view] = viewSliceSizes[view];
+        casterViewReferences++;
+        switch (viewKinds[view]) {
+            case 0 -> directionalReferences++;
+            case 1 -> pointReferences++;
+            default -> spotReferences++;
+        }
+    }
+
+    private void removeViewMembership(int view, int index) {
+        long bit = 1L << view;
+        if ((masks[index] & bit) == 0L) return;
+        int position = viewPositions[view][index];
+        int lastPosition = --viewSliceSizes[view];
+        int lastIndex = viewSlices[view][lastPosition];
+        if (position != lastPosition) {
+            viewSlices[view][position] = lastIndex;
+            viewPositions[view][lastIndex] = position;
+        }
+        viewPositions[view][index] = -1;
+        masks[index] &= ~bit;
+        counts[view] = viewSliceSizes[view];
+        casterViewReferences--;
+        switch (viewKinds[view]) {
+            case 0 -> directionalReferences--;
+            case 1 -> pointReferences--;
+            default -> spotReferences--;
+        }
+    }
+
+    private void ensureViewSliceCapacity(int view, int required) {
+        if (required <= viewSlices[view].length) return;
+        int capacity = Math.max(16, viewSlices[view].length);
+        while (capacity < required) capacity = Math.multiplyExact(capacity, 2);
+        viewSlices[view] = Arrays.copyOf(viewSlices[view], capacity);
     }
 
     private void countReferences() {
@@ -534,13 +698,12 @@ final class ShadowCasterPlanner {
         materialChangedEntries = Arrays.copyOf(materialChangedEntries, capacity);
         deformationChangedEntries = Arrays.copyOf(deformationChangedEntries, capacity);
         oldMasks = Arrays.copyOf(oldMasks, capacity);
-    }
-
-    private void ensureFlattenedCapacity(int required) {
-        if (required <= flattened.length) return;
-        int capacity = Math.max(32, flattened.length);
-        while (capacity < required) capacity = Math.multiplyExact(capacity, 2);
-        flattened = Arrays.copyOf(flattened, capacity);
+        candidateMembership = Arrays.copyOf(candidateMembership, capacity);
+        for (int view = 0; view < MAX_VIEWS; view++) {
+            int previousLength = viewPositions[view].length;
+            viewPositions[view] = Arrays.copyOf(viewPositions[view], capacity);
+            Arrays.fill(viewPositions[view], previousLength, capacity, -1);
+        }
     }
 
     private void ensureCandidateCapacity(int required) {
@@ -616,9 +779,9 @@ final class ShadowCasterPlanner {
         }
 
         boolean active(int view) { return view >= 0 && view < MAX_VIEWS && owner.active[view]; }
-        int offset(int view) { return owner.offsets[view]; }
+        int offset(int view) { return 0; }
         int count(int view) { return owner.counts[view]; }
-        int casterAt(int view, int index) { return owner.flattened[offset(view) + index]; }
+        int casterAt(int view, int index) { return owner.viewSlices[view][index]; }
         boolean instanceVisible(int view) { return (instanceMask & (1L << view)) != 0L; }
         boolean instanceVolatile() { return instanceVolatile; }
         long membershipEpoch(int view) { return owner.membershipEpoch[view]; }

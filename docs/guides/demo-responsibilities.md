@@ -94,10 +94,11 @@ depth resolve sample 数和 forward queue cache hit/rebuild。隐藏入口固定
 .\gradlew.bat runRender3dShadowBudgetPerformance4k
 ```
 
-窗口使用 balanced policy 和固定 4 级 1024² CSM，加载真实 glTF OPAQUE/MASK、two-joint skin 与
+窗口默认使用 balanced policy 和固定 4 级 4096² CSM，加载真实 glTF OPAQUE/MASK、two-joint skin 与
 四 target morph caster；灯光固定为 1 directional + 2 point + 4 spot，另放置两个低优先级 candidate
 证明预算拒绝。标题栏显示 D/P/S 入选数、tile redraw/reuse、cache 和 filter；`WASD + 鼠标` 移动相机，
-`ESC` 退出。
+`ESC` 退出。需要复现 1024² 预算基线时传入 `--csm-atlas=1024`；内置隐藏集成和 benchmark
+任务固定使用该低成本档位。
 
 隐藏验证在固定帧移动 point、spot、camera 和 skin/morph，再执行同宽高比 resize，硬断言 6/1/4/20
 的 dirty tile 数、fixed atlas generation、最终 0 redraw / 20 reuse、2+4 atlas 尺寸和 20 MiB depth
