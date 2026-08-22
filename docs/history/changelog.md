@@ -1,5 +1,22 @@
 # 变更记录
 
+## v0.23.4（2026-08-22）
+
+**主题**：Render3D 动态阴影精细裁剪与逐 view 失效
+
+- 为 4 个 directional cascade、12 个 point face 和 4 个 spot tile 建立固定 20-view
+  `ShadowCasterPlanner`，沿用 SceneFrame 的确定性 shadow candidate 顺序，使用保守 AABB/frustum
+  与 point/spot range broad phase 生成扁平 caster slice。
+- Shadow cache 细化为 cascade/face/tile 粒度；旧/新 membership 并集、空 view 局部 depth clear、
+  执行前失效/成功后提交和 `FRAME_FAILURE` 恢复合同已接入。相同宽高比 resize 保留固定 atlas 与
+  planner arena。
+- `InstancedRenderer` 增加 batch aggregate bounds 与矩阵 bit revision，directional/point/spot
+  shadow 复用同一帧实例准备；`RenderPipeline.lastShadowCullingStatistics()` 提供有界测试、引用、
+  裁剪、dirty/reused/empty 与构建时间快照。
+- 新增 `runRender3dDynamicShadowIntegration`、`runRender3dShadowCullingBenchmarks` 和
+  `localShadowCullingVerification`，同步更新 Render3D 阴影指南、testing guide、能力矩阵和
+  v0.23.4 性能/发布证据。
+
 ## v0.23.3（2026-08-21）
 
 **主题**：GTAO 静态场景时域稳定性补丁

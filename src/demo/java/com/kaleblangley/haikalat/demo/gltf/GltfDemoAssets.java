@@ -15,6 +15,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset;
 import com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneInstance;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -246,6 +247,13 @@ final class GltfDemoAssets implements AutoCloseable {
         float animationDelta = deltaSeconds * animationTimeScale;
         if (animationPlaylist != null) animationPlaylist.update(animationDelta);
         animatedInstances.forEach(instance -> instance.update(animationDelta));
+    }
+
+    /** Move the first shadow-casting animated asset for deterministic culling proofs. */
+    void translateShadowCaster(float x, float y, float z) {
+        ensureOpen();
+        if (animatedInstances.isEmpty()) return;
+        animatedInstances.getFirst().translateRoot(new Vector3f(x, y, z));
     }
 
     float animationMotion() {

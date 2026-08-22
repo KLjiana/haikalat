@@ -1,20 +1,23 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
-import com.kaleblangley.haikalat.core.material.MaterialInstance;
-import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-/** Transactional per-generation shadow depth cache metadata. */
+/** Transactional per-generation, per-shadow-view depth cache metadata. */
 final class ShadowCacheState {
     private final ShadowCacheKey[] directional = new ShadowCacheKey[4];
-    private final ShadowCacheKey[] points = new ShadowCacheKey[
-            LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS];
+    private final boolean[] failedDirectional = new boolean[4];
+    private final ShadowCacheKey[][] points = new ShadowCacheKey[
+            LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS][PointShadowAtlas.FACE_COUNT];
+    private final boolean[][] failedPoints = new boolean[
+            LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS][PointShadowAtlas.FACE_COUNT];
     private final ShadowCacheKey[] spots = new ShadowCacheKey[
             LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS];
+    private final boolean[] failedSpots = new boolean[LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS];
     private Pending pending;
     private boolean uncachedPending;
     private boolean uncachedDirectionalSelected;
@@ -28,76 +31,120 @@ final class ShadowCacheState {
     private int lastTilesReused;
     private int lastCacheHits;
     private int lastCacheMisses;
-    private long observedMembershipRevision = Long.MIN_VALUE;
-    private long observedTransformEpoch = Long.MIN_VALUE;
-    private long observedRevisionScannedCasterEpoch = Long.MIN_VALUE;
-    private long observedMaterialEpoch = Long.MIN_VALUE;
-    private long casterMembershipRevision;
-    private long casterTransformRevision;
-    private long casterMaterialRevision;
 
     ShadowFramePlan prepare(ShadowFramePlan source, RenderFrameContext context, Scene scene,
                             LocalShadowPipelineSettings settings,
                             DirectionalCascadeSettings cascades) {
+        return prepare(source, context, scene, settings, cascades, null);
+    }
+
+    ShadowFramePlan prepare(ShadowFramePlan source, RenderFrameContext context, Scene scene,
+                            LocalShadowPipelineSettings settings,
+                            DirectionalCascadeSettings cascades,
+                            ShadowCasterPlanner.ShadowCasterPlan planner) {
         if (!settings.cacheStaticTiles()) {
             return prepareUncached(source);
         }
         long settingsKey = settingsKey(settings, cascades);
-        CasterRevisions casters = casterRevisions(scene, context.frameIndex());
-        List<ShadowCacheKey> directionalKeys = new ArrayList<>();
+        ShadowCacheKey[] nextDirectionalKeys = new ShadowCacheKey[directional.length];
         Optional<ShadowFramePlan.DirectionalPlan> nextDirectional = source.directional().map(plan -> {
-            List<Boolean> dirty = new ArrayList<>();
-            List<ShadowFramePlan.MissReason> reasons = new ArrayList<>();
+            var dirty = new java.util.ArrayList<Boolean>(plan.matrices().size());
+            var reasons = new java.util.ArrayList<ShadowFramePlan.MissReason>(plan.matrices().size());
             for (int cascade = 0; cascade < plan.matrices().size(); cascade++) {
-                ShadowCacheKey key = key(context, plan.entry(), casters,
+                int view = cascade;
+                ShadowCacheKey key = key(context, plan.entry(), planner, view,
                         matrixKey(plan.matrices().get(cascade)), settingsKey);
-                directionalKeys.add(key);
-                ShadowFramePlan.MissReason reason = settings.cacheStaticTiles()
-                        ? key.difference(directional[cascade])
-                        : ShadowFramePlan.MissReason.SETTINGS;
-                dirty.add(reason != ShadowFramePlan.MissReason.NONE);
+                nextDirectionalKeys[cascade] = key;
+                ShadowFramePlan.MissReason reason = difference(key, directional[cascade],
+                        failedDirectional[cascade]);
+                boolean isDirty = reason != ShadowFramePlan.MissReason.NONE;
+                dirty.add(isDirty);
                 reasons.add(reason);
+                if (isDirty) {
+                    directional[cascade] = null;
+                    failedDirectional[cascade] = false;
+                }
             }
             return plan.withCache(dirty, reasons);
         });
 
-        ShadowCacheKey[] pointKeys = new ShadowCacheKey[points.length];
-        List<PointShadowSlotPlan> nextPoints = new ArrayList<>(source.points().size());
+        ShadowCacheKey[][] nextPointKeys = new ShadowCacheKey[points.length][PointShadowAtlas.FACE_COUNT];
+        var nextPoints = new java.util.ArrayList<PointShadowSlotPlan>(source.points().size());
         for (PointShadowSlotPlan plan : source.points()) {
-            ShadowCacheKey key = key(context, plan.entry(), casters, 0L, settingsKey);
-            pointKeys[plan.slot()] = key;
-            ShadowFramePlan.MissReason reason = settings.cacheStaticTiles()
-                    ? key.difference(points[plan.slot()])
-                    : ShadowFramePlan.MissReason.SETTINGS;
-            nextPoints.add(plan.withCache(reason != ShadowFramePlan.MissReason.NONE, reason));
+            var dirtyFaces = new java.util.ArrayList<Boolean>(PointShadowAtlas.FACE_COUNT);
+            var reasons = new java.util.ArrayList<ShadowFramePlan.MissReason>(PointShadowAtlas.FACE_COUNT);
+            for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
+                int view = 4 + plan.slot() * PointShadowAtlas.FACE_COUNT + face;
+                ShadowCacheKey key = key(context, plan.entry(), planner, view,
+                        matrixKey(plan.faceMatrices().get(face)), settingsKey);
+                nextPointKeys[plan.slot()][face] = key;
+                ShadowFramePlan.MissReason reason = difference(key, points[plan.slot()][face],
+                        failedPoints[plan.slot()][face]);
+                boolean isDirty = reason != ShadowFramePlan.MissReason.NONE;
+                dirtyFaces.add(isDirty);
+                reasons.add(reason);
+                if (isDirty) {
+                    points[plan.slot()][face] = null;
+                    failedPoints[plan.slot()][face] = false;
+                }
+            }
+            nextPoints.add(plan.withFaceCache(dirtyFaces, reasons));
         }
 
-        ShadowCacheKey[] spotKeys = new ShadowCacheKey[spots.length];
-        List<SpotShadowSlotPlan> nextSpots = new ArrayList<>(source.spots().size());
+        ShadowCacheKey[] nextSpotKeys = new ShadowCacheKey[spots.length];
+        var nextSpots = new java.util.ArrayList<SpotShadowSlotPlan>(source.spots().size());
         for (SpotShadowSlotPlan plan : source.spots()) {
-            ShadowCacheKey key = key(context, plan.entry(), casters, 0L, settingsKey);
-            spotKeys[plan.slot()] = key;
-            ShadowFramePlan.MissReason reason = settings.cacheStaticTiles()
-                    ? key.difference(spots[plan.slot()])
-                    : ShadowFramePlan.MissReason.SETTINGS;
-            nextSpots.add(plan.withCache(reason != ShadowFramePlan.MissReason.NONE, reason));
+            int view = 16 + plan.slot();
+            ShadowCacheKey key = key(context, plan.entry(), planner, view,
+                    matrixKey(plan.lightSpaceMatrix()), settingsKey);
+            nextSpotKeys[plan.slot()] = key;
+            ShadowFramePlan.MissReason reason = difference(key, spots[plan.slot()],
+                    failedSpots[plan.slot()]);
+            boolean isDirty = reason != ShadowFramePlan.MissReason.NONE;
+            if (isDirty) {
+                spots[plan.slot()] = null;
+                failedSpots[plan.slot()] = false;
+            }
+            nextSpots.add(plan.withCache(isDirty, reason));
         }
 
         ShadowFramePlan result = source.withCache(nextDirectional, nextPoints, nextSpots);
-        int rendered = result.directional().map(value -> (int) value.dirtyTiles().stream()
-                        .filter(Boolean::booleanValue).count()).orElse(0)
-                + result.points().stream().mapToInt(value -> value.dirty()
-                        ? PointShadowAtlas.FACE_COUNT : 0).sum()
-                + (int) result.spots().stream().filter(SpotShadowSlotPlan::dirty).count();
+        int rendered = 0;
+        if (result.directional().isPresent()) {
+            rendered += (int) result.directional().orElseThrow().dirtyTiles().stream()
+                    .filter(Boolean::booleanValue).count();
+        }
+        for (PointShadowSlotPlan plan : result.points()) {
+            for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
+                if (plan.faceDirty(face)) rendered++;
+            }
+        }
+        rendered += (int) result.spots().stream().filter(SpotShadowSlotPlan::dirty).count();
         int selected = result.selectedTiles();
-        pending = new Pending(directionalKeys, pointKeys, spotKeys,
+        boolean[] directionalDirty = new boolean[directional.length];
+        boolean[][] pointDirty = new boolean[points.length][PointShadowAtlas.FACE_COUNT];
+        boolean[] spotDirty = new boolean[spots.length];
+        if (result.directional().isPresent()) {
+            List<Boolean> dirtyTiles = result.directional().orElseThrow().dirtyTiles();
+            for (int index = 0; index < dirtyTiles.size(); index++) {
+                directionalDirty[index] = dirtyTiles.get(index);
+            }
+        }
+        for (PointShadowSlotPlan plan : result.points()) {
+            for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
+                pointDirty[plan.slot()][face] = plan.faceDirty(face);
+            }
+        }
+        for (SpotShadowSlotPlan plan : result.spots()) spotDirty[plan.slot()] = plan.dirty();
+        pending = new Pending(nextDirectionalKeys, nextPointKeys, nextSpotKeys,
+                directionalDirty, pointDirty, spotDirty,
                 result.directional().isPresent(), !result.points().isEmpty(),
                 !result.spots().isEmpty(), rendered, selected - rendered);
         return result;
     }
 
     private ShadowFramePlan prepareUncached(ShadowFramePlan source) {
-        ShadowFramePlan result = fullyDirtyUncached(source) ? source : dirtyUncached(source);
+        ShadowFramePlan result = dirtyUncached(source);
         int rendered = result.selectedTiles();
         pending = null;
         uncachedPending = true;
@@ -111,43 +158,24 @@ final class ShadowCacheState {
     private static ShadowFramePlan dirtyUncached(ShadowFramePlan source) {
         Optional<ShadowFramePlan.DirectionalPlan> directionalPlan = source.directional()
                 .map(plan -> plan.withCache(
-                        java.util.Collections.nCopies(plan.matrices().size(), true),
-                        java.util.Collections.nCopies(plan.matrices().size(),
+                        Collections.nCopies(plan.matrices().size(), true),
+                        Collections.nCopies(plan.matrices().size(),
                                 ShadowFramePlan.MissReason.SETTINGS)));
-        List<PointShadowSlotPlan> pointPlans = source.points().stream()
-                .map(plan -> plan.withCache(true, ShadowFramePlan.MissReason.SETTINGS))
-                .toList();
-        List<SpotShadowSlotPlan> spotPlans = source.spots().stream()
-                .map(plan -> plan.withCache(true, ShadowFramePlan.MissReason.SETTINGS))
-                .toList();
-        return source.withCache(directionalPlan, pointPlans, spotPlans);
-    }
-
-    private static boolean fullyDirtyUncached(ShadowFramePlan source) {
-        if (source.directional().isPresent()) {
-            ShadowFramePlan.DirectionalPlan directional = source.directional().orElseThrow();
-            for (int index = 0; index < directional.dirtyTiles().size(); index++) {
-                if (!directional.dirtyTiles().get(index)
-                        || directional.missReasons().get(index)
-                        != ShadowFramePlan.MissReason.SETTINGS) return false;
-            }
-        }
-        for (PointShadowSlotPlan point : source.points()) {
-            if (!point.dirty() || point.missReason() != ShadowFramePlan.MissReason.SETTINGS) {
-                return false;
-            }
-        }
-        for (SpotShadowSlotPlan spot : source.spots()) {
-            if (!spot.dirty() || spot.missReason() != ShadowFramePlan.MissReason.SETTINGS) {
-                return false;
-            }
-        }
-        return true;
+        List<PointShadowSlotPlan> points = source.points().stream()
+                .map(plan -> plan.withCache(true, ShadowFramePlan.MissReason.SETTINGS)).toList();
+        List<SpotShadowSlotPlan> spots = source.spots().stream()
+                .map(plan -> plan.withCache(true, ShadowFramePlan.MissReason.SETTINGS)).toList();
+        return source.withCache(directionalPlan, points, spots);
     }
 
     void frameSucceeded() {
         if (uncachedPending) {
             uncachedPending = false;
+            if (uncachedDirectionalSelected) Arrays.fill(failedDirectional, false);
+            if (uncachedPointSelected) {
+                for (boolean[] faces : failedPoints) Arrays.fill(faces, false);
+            }
+            if (uncachedSpotSelected) Arrays.fill(failedSpots, false);
             directionalAtlasInitialized |= uncachedDirectionalSelected;
             pointAtlasInitialized |= uncachedPointSelected;
             spotAtlasInitialized |= uncachedSpotSelected;
@@ -160,14 +188,11 @@ final class ShadowCacheState {
         Pending completed = pending;
         pending = null;
         if (completed == null) return;
-        for (int index = 0; index < completed.directionalKeys.size(); index++) {
-            directional[index] = completed.directionalKeys.get(index);
+        System.arraycopy(completed.directionalKeys, 0, directional, 0, directional.length);
+        for (int slot = 0; slot < points.length; slot++) {
+            System.arraycopy(completed.pointKeys[slot], 0, points[slot], 0, PointShadowAtlas.FACE_COUNT);
         }
-        for (int index = completed.directionalKeys.size(); index < directional.length; index++) {
-            directional[index] = null;
-        }
-        commitSlots(points, completed.pointKeys);
-        commitSlots(spots, completed.spotKeys);
+        System.arraycopy(completed.spotKeys, 0, spots, 0, spots.length);
         directionalAtlasInitialized |= completed.directionalSelected;
         pointAtlasInitialized |= completed.pointSelected;
         spotAtlasInitialized |= completed.spotSelected;
@@ -178,106 +203,59 @@ final class ShadowCacheState {
     }
 
     void frameFailed() {
+        Pending failed = pending;
+        if (failed != null) {
+            for (int index = 0; index < failed.directionalDirty.length; index++) {
+                if (failed.directionalDirty[index]) failedDirectional[index] = true;
+            }
+            for (int slot = 0; slot < failed.pointDirty.length; slot++) {
+                for (int face = 0; face < failed.pointDirty[slot].length; face++) {
+                    if (failed.pointDirty[slot][face]) failedPoints[slot][face] = true;
+                }
+            }
+            for (int slot = 0; slot < failed.spotDirty.length; slot++) {
+                if (failed.spotDirty[slot]) failedSpots[slot] = true;
+            }
+        } else if (uncachedPending) {
+            if (uncachedDirectionalSelected) Arrays.fill(failedDirectional, true);
+            if (uncachedPointSelected) {
+                for (boolean[] faces : failedPoints) Arrays.fill(faces, true);
+            }
+            if (uncachedSpotSelected) Arrays.fill(failedSpots, true);
+        }
+        // Dirty keys were invalidated in prepare(). Keeping them null forces a
+        // complete redraw after a partial GPU write. The explicit flags retain
+        // the reason for the next recovery frame.
         pending = null;
         uncachedPending = false;
     }
 
-    boolean directionalAtlasInitialized() {
-        return directionalAtlasInitialized;
-    }
-
-    boolean pointAtlasInitialized() {
-        return pointAtlasInitialized;
-    }
-
-    boolean spotAtlasInitialized() {
-        return spotAtlasInitialized;
-    }
-
-    int lastTilesRendered() {
-        return lastTilesRendered;
-    }
-
-    int lastTilesReused() {
-        return lastTilesReused;
-    }
-
-    int lastCacheHits() {
-        return lastCacheHits;
-    }
-
-    int lastCacheMisses() {
-        return lastCacheMisses;
-    }
-
-    private static void commitSlots(ShadowCacheKey[] destination, ShadowCacheKey[] source) {
-        for (int slot = 0; slot < destination.length; slot++) {
-            if (source[slot] != null) destination[slot] = source[slot];
-            else destination[slot] = null;
-        }
-    }
+    boolean directionalAtlasInitialized() { return directionalAtlasInitialized; }
+    boolean pointAtlasInitialized() { return pointAtlasInitialized; }
+    boolean spotAtlasInitialized() { return spotAtlasInitialized; }
+    int lastTilesRendered() { return lastTilesRendered; }
+    int lastTilesReused() { return lastTilesReused; }
+    int lastCacheHits() { return lastCacheHits; }
+    int lastCacheMisses() { return lastCacheMisses; }
 
     private static ShadowCacheKey key(RenderFrameContext context, SceneLightEntry entry,
-                                      CasterRevisions casters, long cameraCascadeKey,
-                                      long settingsKey) {
+                                      ShadowCasterPlanner.ShadowCasterPlan planner, int view,
+                                      long cameraCascadeKey, long settingsKey) {
+        long membership;
+        long transform;
+        long material;
+        long deformation;
+        if (planner == null || !planner.active(view)) {
+            membership = transform = material = deformation = 0L;
+        } else {
+            membership = planner.membershipEpoch(view);
+            transform = planner.transformEpoch(view);
+            material = planner.materialEpoch(view);
+            deformation = mix(planner.deformationEpoch(view), planner.instanceEpoch(view));
+        }
         SceneRevisionSnapshot revision = context.revisions();
         return new ShadowCacheKey(revision.sceneGeneration(), entry.stableId(), entry.revision(),
-                casters.membership(), casters.transformModel(), casters.material(),
-                casters.deformation(),
-                cameraCascadeKey, settingsKey);
-    }
-
-    private CasterRevisions casterRevisions(Scene scene, int frameIndex) {
-        long membership = scene.membershipRevision();
-        long transformEpoch = Transform.mutationEpoch();
-        long revisionScannedCasterEpoch = scene.revisionScannedShadowCasterEpoch();
-        long materialEpoch = MaterialInstance.mutationEpoch();
-        boolean membershipChanged = observedMembershipRevision != membership;
-        if (membershipChanged || observedTransformEpoch != transformEpoch
-                || observedRevisionScannedCasterEpoch != revisionScannedCasterEpoch
-                || scene.requiresPerFrameModelRevision()) {
-            long membershipHash = 0xcbf29ce484222325L;
-            long transformHash = 0xcbf29ce484222325L;
-            for (int index = 0; index < scene.rendererCount(); index++) {
-                MeshRenderer renderer = scene.rendererAt(index);
-                if (!shadowCaster(renderer)) continue;
-                membershipHash = mix(membershipHash, index + 1L);
-                long modelRevision = renderer.revisionedModel()
-                        ? renderer.modelRevision() : Integer.toUnsignedLong(frameIndex);
-                transformHash = mix(transformHash, modelRevision);
-            }
-            casterMembershipRevision = membershipHash;
-            casterTransformRevision = transformHash;
-            observedMembershipRevision = membership;
-            observedTransformEpoch = transformEpoch;
-            observedRevisionScannedCasterEpoch = revisionScannedCasterEpoch;
-        }
-        if (membershipChanged || observedMaterialEpoch != materialEpoch) {
-            long materialHash = 0xcbf29ce484222325L;
-            for (int index = 0; index < scene.rendererCount(); index++) {
-                MeshRenderer renderer = scene.rendererAt(index);
-                if (!shadowCaster(renderer)) continue;
-                materialHash = mix(materialHash, renderer.material().revision());
-            }
-            casterMaterialRevision = materialHash;
-            observedMaterialEpoch = materialEpoch;
-        }
-        long deformation = 0xcbf29ce484222325L;
-        if (scene.requiresPerFrameShadowDeformation()) {
-            for (int index = 0; index < scene.rendererCount(); index++) {
-                MeshRenderer renderer = scene.rendererAt(index);
-                if (shadowCaster(renderer) && renderer.drawBinding().deformsVertices()) {
-                    deformation = mix(deformation, renderer.drawBinding().boundsRevision());
-                }
-            }
-        }
-        return new CasterRevisions(casterMembershipRevision, casterTransformRevision,
-                casterMaterialRevision, deformation);
-    }
-
-    private static boolean shadowCaster(MeshRenderer renderer) {
-        return renderer.castShadows()
-                && RenderQueueClass.classify(renderer.material()).castsOpaqueShadow();
+                membership, transform, material, deformation, cameraCascadeKey, settingsKey);
     }
 
     private static long settingsKey(LocalShadowPipelineSettings settings,
@@ -293,32 +271,59 @@ final class ShadowCacheState {
         return hash;
     }
 
-    private static long matrixKey(Matrix4f matrix) {
-        float[] values = matrix.get(new float[16]);
+    private static ShadowFramePlan.MissReason difference(ShadowCacheKey next,
+                                                         ShadowCacheKey previous,
+                                                         boolean failed) {
+        if (previous == null && failed) return ShadowFramePlan.MissReason.FRAME_FAILURE;
+        return next.difference(previous);
+    }
+
+    private static long matrixKey(Matrix4fc matrix) {
         long hash = 0xcbf29ce484222325L;
-        for (float value : values) hash = mix(hash, Float.floatToIntBits(value));
-        return hash;
+        hash = mix(hash, Float.floatToIntBits(matrix.m00()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m01()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m02()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m03()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m10()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m11()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m12()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m13()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m20()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m21()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m22()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m23()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m30()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m31()));
+        hash = mix(hash, Float.floatToIntBits(matrix.m32()));
+        return mix(hash, Float.floatToIntBits(matrix.m33()));
     }
 
     private static long mix(long hash, long value) {
         return (hash ^ value) * 0x100000001b3L;
     }
 
-    private record Pending(List<ShadowCacheKey> directionalKeys,
-                           ShadowCacheKey[] pointKeys,
+    private record Pending(ShadowCacheKey[] directionalKeys,
+                           ShadowCacheKey[][] pointKeys,
                            ShadowCacheKey[] spotKeys,
+                           boolean[] directionalDirty,
+                           boolean[][] pointDirty,
+                           boolean[] spotDirty,
                            boolean directionalSelected,
                            boolean pointSelected,
                            boolean spotSelected,
                            int rendered,
                            int reused) {
         Pending {
-            directionalKeys = List.copyOf(directionalKeys);
-            pointKeys = Arrays.copyOf(pointKeys, pointKeys.length);
+            directionalKeys = Arrays.copyOf(directionalKeys, directionalKeys.length);
+            pointKeys = Arrays.stream(pointKeys)
+                    .map(value -> Arrays.copyOf(value, value.length))
+                    .toArray(ShadowCacheKey[][]::new);
             spotKeys = Arrays.copyOf(spotKeys, spotKeys.length);
+            directionalDirty = Arrays.copyOf(directionalDirty, directionalDirty.length);
+            pointDirty = Arrays.stream(pointDirty)
+                    .map(value -> Arrays.copyOf(value, value.length))
+                    .toArray(boolean[][]::new);
+            spotDirty = Arrays.copyOf(spotDirty, spotDirty.length);
         }
     }
-
-    private record CasterRevisions(long membership, long transformModel,
-                                   long material, long deformation) { }
 }

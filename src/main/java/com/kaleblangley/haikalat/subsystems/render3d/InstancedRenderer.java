@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.InstanceBatchStats;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
+import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import com.kaleblangley.haikalat.core.buffer.InstanceBufferStatistics;
 import org.joml.Matrix4f;
 
@@ -20,6 +21,13 @@ public final class InstancedRenderer {
     private final AtomicInteger drawnCount = new AtomicInteger(0);
     private final AtomicInteger shadowDrawnCount = new AtomicInteger(0);
     private final List<InstanceDef> definitions = new ArrayList<>();
+    private final WorldBounds aggregateWorldBounds = new WorldBounds();
+    private final WorldBounds transformedBounds = new WorldBounds();
+    private final float[] matrixScratch = new float[16];
+    private Bounds3f aggregateLocalBounds;
+    private float[] transformBits = new float[0];
+    private long instanceTransformEpoch;
+    private boolean aggregateBoundsVolatile;
     private boolean sharedBatchPrepared;
 
     public InstancedRenderer(InstancedMeshBatch batch, ShaderProgram shader) {
@@ -92,6 +100,7 @@ public final class InstancedRenderer {
             nextFrame.add(new Matrix4f(def.compute(frame)));
         }
         frameTransforms = List.copyOf(nextFrame);
+        updateAggregateSnapshot(nextFrame);
     }
 
     public void render(CommandBuffer cmd, Matrix4f projection, Matrix4f view) {
@@ -132,6 +141,77 @@ public final class InstancedRenderer {
         batch.abortPrepared();
         sharedBatchPrepared = false;
     }
+
+    /** Package-private conservative batch bounds consumed by ShadowCasterPlanner. */
+    WorldBounds aggregateWorldBounds() {
+        return aggregateWorldBounds;
+    }
+
+    /** Package-private exact matrix snapshot revision for shadow cache identity. */
+    long instanceTransformEpoch() {
+        return instanceTransformEpoch;
+    }
+
+    /** Package-private volatile fallback for unknown/unbounded batch geometry. */
+    boolean instanceBoundsVolatile() {
+        return aggregateBoundsVolatile;
+    }
+
+    /** Package-private batch size used to keep an empty batch out of shadow views. */
+    int instanceCount() {
+        return definitions.size();
+    }
+
+    private void updateAggregateSnapshot(List<Matrix4f> transforms) {
+        Bounds3f local = aggregateLocalBounds;
+        if (local == null) {
+            local = batch.aggregateLocalBounds();
+            aggregateLocalBounds = local;
+        }
+        if (transforms.isEmpty()) {
+            aggregateWorldBounds.minX = aggregateWorldBounds.minY = aggregateWorldBounds.minZ = 0.0f;
+            aggregateWorldBounds.maxX = aggregateWorldBounds.maxY = aggregateWorldBounds.maxZ = 0.0f;
+            aggregateWorldBounds.unbounded = false;
+            aggregateBoundsVolatile = false;
+        } else if (local.isUnbounded()) {
+            aggregateWorldBounds.unbounded();
+            aggregateBoundsVolatile = true;
+        } else {
+            aggregateBoundsVolatile = false;
+            aggregateWorldBounds.minX = aggregateWorldBounds.minY = aggregateWorldBounds.minZ
+                    = Float.POSITIVE_INFINITY;
+            aggregateWorldBounds.maxX = aggregateWorldBounds.maxY = aggregateWorldBounds.maxZ
+                    = Float.NEGATIVE_INFINITY;
+            aggregateWorldBounds.unbounded = false;
+            for (Matrix4f matrix : transforms) {
+                BoundsTransforms.world(local, matrix, transformedBounds);
+                aggregateWorldBounds.minX = Math.min(aggregateWorldBounds.minX, transformedBounds.minX);
+                aggregateWorldBounds.minY = Math.min(aggregateWorldBounds.minY, transformedBounds.minY);
+                aggregateWorldBounds.minZ = Math.min(aggregateWorldBounds.minZ, transformedBounds.minZ);
+                aggregateWorldBounds.maxX = Math.max(aggregateWorldBounds.maxX, transformedBounds.maxX);
+                aggregateWorldBounds.maxY = Math.max(aggregateWorldBounds.maxY, transformedBounds.maxY);
+                aggregateWorldBounds.maxZ = Math.max(aggregateWorldBounds.maxZ, transformedBounds.maxZ);
+            }
+        }
+        int required = transforms.size() * 16;
+        if (required > transformBits.length) transformBits = new float[required];
+        // The capacity comparison above is deliberately separated from the
+        // content comparison: only the active prefix participates in identity.
+        boolean changed = required != activeTransformBitCount;
+        int offset = 0;
+        for (Matrix4f matrix : transforms) {
+            matrix.get(matrixScratch);
+            for (float value : matrixScratch) {
+                if (!changed && Float.floatToIntBits(transformBits[offset])
+                        != Float.floatToIntBits(value)) changed = true;
+                transformBits[offset++] = value;
+            }
+        }
+        if (changed) instanceTransformEpoch++;
+        activeTransformBitCount = required;
+    }
+
+    private int activeTransformBitCount;
 
     private void prepareIfNeeded(CommandBuffer cmd) {
         if (sharedBatchPrepared) return;

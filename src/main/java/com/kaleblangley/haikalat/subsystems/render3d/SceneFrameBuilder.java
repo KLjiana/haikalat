@@ -269,6 +269,10 @@ final class SceneFrameBuilder {
             frame.shadowIndices = shadow;
             frame.forwardCount = forwardCount;
             frame.shadowCount = shadowCount;
+            frame.changedIndices = changed;
+            frame.changedCount = changedCount;
+            frame.forceShadowPlanRebuild = dynamicRenderers != 0
+                    || scene.requiresPerFrameShadowDeformation();
             frame.frameIndex = Integer.toUnsignedLong(frameIndex);
             frame.sceneRevision = sceneRevision;
             frame.statistics = new SceneFrame.Statistics(cullingEnabled, frame.sceneRevision,
@@ -318,6 +322,9 @@ final class SceneFrameBuilder {
         long totalNanos = System.nanoTime() - totalStart;
         frame.frameIndex = Integer.toUnsignedLong(frameIndex);
         frame.sceneRevision = sceneRevision;
+        frame.changedIndices = changed;
+        frame.changedCount = 0;
+        frame.forceShadowPlanRebuild = false;
         frame.statistics = new SceneFrame.Statistics(cullingEnabled, sceneRevision,
                 entryCount, immutableFiniteCount, entryCount - immutableFiniteCount,
                 forwardCount, entryCount - forwardCount, shadowCandidateCount, shadowCount,

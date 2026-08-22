@@ -95,6 +95,41 @@ pipeline generation；filter、bias、priority 和灯光参数只更新 frame pl
 spot 只重画 1 tile。skin/morph 姿态、MASK 材质或 caster transform 变化会使相关内容失效；BLEND 和
 `castShadows=false` 不参与 cache key。
 
+## v0.23.4 逐 view 裁剪与诊断
+
+v0.23.4 保持同一组 20 个固定 shadow view（4 个 directional cascade、12 个 point face、4 个
+spot tile），但每个 view 只消费自己的保守 caster slice。普通 renderer 使用 world AABB 与
+view frustum 的 guard band；point/spot 先做 light range broad phase。边界物体可以被相邻 view
+重复保留，不能为了少一次 draw 而产生漏影。`sceneVisibility=false` 时关闭空间剔除，所有 OPAQUE/MASK
+候选仍进入每个 active view。
+
+无法提供有限 bounds、稳定模型快照或可分析变形范围的对象会被标记为 volatile，并采用保守加入策略。
+实例渲染器按整个 batch 的 aggregate bounds 与矩阵 bit snapshot 参与三类 shadow；不会做逐实例 compact，
+同一帧仍只准备/上传一次实例矩阵。
+
+逐 view 的缓存 key 在执行前失效、整帧成功后提交；失败帧的下次恢复会报告 `FRAME_FAILURE`，未触碰的
+clean view 仍可复用。caster 移动使用上一帧与当前帧 membership 的并集，因此离开 view 时会先清理旧
+tile；空集合 view 也会在 tile/face 内清 depth，避免残留 ghost shadow。读取附加诊断：
+
+```java
+ShadowCullingStatistics culling = pipeline.lastShadowCullingStatistics();
+```
+
+其中 `casterViewTests`、`casterViewReferences`、`culledReferences`、三类 references、dirty/reused
+view 和 `emptyViewsCleared` 用于区分空间测试收益与实际重画；`planReused=true` 表示未变化帧复用固定
+planner arena。动态 integration 还会移动 revisioned glTF caster 穿过 point face/spot range，验证
+old/new membership 并集和离开范围后的旧 tile 清理；在已提交的静态 tile 上注入一次 partial shadow
+pass failure，恢复帧必须以 `FRAME_FAILURE` 重建 dirty view。窗口同宽高比 resize 不重建 fixed atlas，
+也不会丢弃可复用的 view plan。
+
+专项入口：
+
+```powershell
+.\gradlew.bat runRender3dDynamicShadowIntegration --rerun-tasks
+.\gradlew.bat runRender3dShadowCullingBenchmarks --rerun-tasks
+.\gradlew.bat localShadowCullingVerification --rerun-tasks
+```
+
 ## GTAO 环境遮蔽（v0.23.2）
 
 GTAO 默认关闭，只对包含 metallic-roughness PBR 材质且启用了 HDR 的场景提供正式保证。通过同一个

@@ -26,6 +26,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowFilterMode
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowLightHints
+advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowCullingStatistics
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSelectionMode
 advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowAtlas
 advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowMap

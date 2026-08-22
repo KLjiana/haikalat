@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Windowed v0.23.1 proof for bounded multi-light shadow scheduling and atlas caching. */
+/** Windowed v0.23.4 proof for bounded multi-light shadow culling and atlas caching. */
 public final class Render3dShadowBudgetDemo {
     private static final int DIRECTIONAL_INDEX = 0;
     private static final int FIRST_POINT_INDEX = 1;
@@ -45,7 +45,7 @@ public final class Render3dShadowBudgetDemo {
         Options options = Options.parse(arguments);
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(options.width(), options.height())
-                .title("Haikalat Render3D v0.23.1 Shadow Budget")
+                .title("Haikalat Render3D v0.23.4 Shadow Culling")
                 .visible(!options.hidden())
                 .cursorMode(options.hidden()
                         ? GlfwWindow.CursorMode.NORMAL : GlfwWindow.CursorMode.DISABLED)
@@ -86,7 +86,18 @@ public final class Render3dShadowBudgetDemo {
                             : LocalShadowPipelineSettings.balanced());
             try {
                 pipeline.build();
-                renderLoop(window, driver, pipeline, scene, camera, assets, options);
+                String previousFailureProperty = System.getProperty(
+                        "haikalat.test.failShadowPassOnce");
+                try {
+                    renderLoop(window, driver, pipeline, scene, camera, assets, options);
+                } finally {
+                    if (previousFailureProperty == null) {
+                        System.clearProperty("haikalat.test.failShadowPassOnce");
+                    } else {
+                        System.setProperty("haikalat.test.failShadowPassOnce",
+                                previousFailureProperty);
+                    }
+                }
             } finally {
                 pipeline.close();
             }
@@ -143,9 +154,13 @@ public final class Render3dShadowBudgetDemo {
         FrameClock clock = new FrameClock();
         Verification verification = new Verification();
         Samples samples = new Samples();
+        boolean expectedFailure = options.dynamic() && options.verify();
+        boolean recoveredFailure = false;
         int frame = 0;
         while (!window.shouldClose()) {
-            if (!options.benchmark()) applyDeterministicEvent(frame, scene, camera, assets);
+            if (!options.benchmark()) {
+                applyDeterministicEvent(frame, scene, camera, assets, options.dynamic());
+            }
             else if (!options.hidden()) assets.update(clock.tick().deltaSeconds());
             if (options.resizeFrame() == frame) {
                 verification.generationBeforeResize =
@@ -156,17 +171,33 @@ public final class Render3dShadowBudgetDemo {
             if (!options.hidden()) DemoSupport.updateFreeCamera(window, camera, deltaSeconds);
             if (window.consumeResize()) pipeline.resize(window.width(), window.height());
 
+            if (options.dynamic() && options.verify() && frame == 1 && !recoveredFailure) {
+                // After the first static tile commit, inject one partial shadow pass
+                // failure; the following frame must recover with FRAME_FAILURE rather
+                // than trusting a partially written atlas tile.
+                System.setProperty("haikalat.test.failShadowPassOnce", "true");
+            }
+
             driver.beginFrame();
+            boolean frameFailed = false;
             try {
                 pipeline.execute(driver.device(), deltaSeconds);
                 driver.recordGraph(pipeline.graph());
                 driver.endFrame();
             } catch (RuntimeException | Error failure) {
                 driver.failFrame(pipeline.graph(), failure);
-                throw failure;
+                if (!expectedFailure || recoveredFailure
+                        || !String.valueOf(failure.getMessage()).contains(
+                        "injected shadow pass failure")) {
+                    throw failure;
+                }
+                recoveredFailure = true;
+                frameFailed = true;
+                System.clearProperty("haikalat.test.failShadowPassOnce");
             }
-            driver.present(window::swapBuffers);
+            if (!frameFailed) driver.present(window::swapBuffers);
             window.pollEvents();
+            if (frameFailed) verification.markFailureObserved();
             GlDebug.checkError("Render3dShadowBudgetDemo.frame");
 
             Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
@@ -180,13 +211,27 @@ public final class Render3dShadowBudgetDemo {
         }
         Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
         if (options.verify()) verification.verify(diagnostics, pipeline, options);
-        printSummary(diagnostics, samples, frame, options);
+        printSummary(diagnostics, pipeline.lastShadowCullingStatistics(), samples, frame, options);
         GlDebug.assertNoError("Render3dShadowBudgetDemo");
     }
 
     private static void applyDeterministicEvent(int frame, Scene scene, Camera camera,
-                                                GltfDemoAssets assets) {
-        if (frame == POINT_MOVE_FRAME) {
+                                                GltfDemoAssets assets, boolean dynamic) {
+        if (dynamic && frame == 1) {
+            // Move one revisioned animated caster while it remains in the local-light
+            // volumes. The planner must invalidate only the old/new membership union.
+            assets.translateShadowCaster(0.8f, 0.0f, 0.0f);
+        } else if (dynamic && frame == 2) {
+            assets.translateShadowCaster(0.45f, 0.0f, 0.0f);
+        } else if (dynamic && frame == 6) {
+            // Cross a point-light cube-face seam; adjacent faces may both retain the
+            // caster because the planner deliberately uses a conservative guard band.
+            assets.translateShadowCaster(-2.5f, 0.0f, -0.8f);
+        } else if (dynamic && frame == 9) {
+            // Leave the small spot/range volume. The previous membership must still be
+            // dirty so the old atlas tile is cleared rather than leaving a ghost.
+            assets.translateShadowCaster(0.0f, 0.0f, -12.0f);
+        } else if (frame == POINT_MOVE_FRAME) {
             scene.setLight(FIRST_POINT_INDEX, point(-2.15f, 2.8f, 3.7f,
                     1.0f, 0.28f, 0.18f));
         } else if (frame == SPOT_MOVE_FRAME) {
@@ -201,15 +246,16 @@ public final class Render3dShadowBudgetDemo {
     private static void updateTitle(GlfwWindow window, Render3dDiagnostics diagnostics) {
         var shadows = diagnostics.shadows();
         window.setTitle(String.format(Locale.ROOT,
-                "Render3D v0.23.1 | D/P/S %d/%d/%d | tiles %d draw %d reuse | "
+                "Render3D v0.23.4 | D/P/S %d/%d/%d | tiles %d draw %d reuse | "
                         + "cache %d/%d | %s | WASD mouse ESC",
                 shadows.directionalSelected(), shadows.pointSelected(), shadows.spotSelected(),
                 shadows.tilesRendered(), shadows.tilesReused(), shadows.cacheHits(),
                 shadows.cacheMisses(), shadows.filterMode()));
     }
 
-    private static void printSummary(Render3dDiagnostics diagnostics, Samples samples,
-                                     int frames, Options options) {
+    private static void printSummary(Render3dDiagnostics diagnostics,
+                                     com.kaleblangley.haikalat.subsystems.render3d.ShadowCullingStatistics culling,
+                                     Samples samples, int frames, Options options) {
         var shadow = diagnostics.shadows();
         System.out.printf(Locale.ROOT,
                 "SHADOW_BUDGET profile=%s frames=%d selected=%d/%d/%d rejected=%d "
@@ -228,6 +274,16 @@ public final class Render3dShadowBudgetDemo {
                 samples.percentile(samples.shadowGpuMillis, 0.5),
                 samples.cpuMillis.size(),
                 diagnostics.failureStage().isEmpty() ? "none" : diagnostics.failureStage());
+        System.out.printf(Locale.ROOT,
+                "SHADOW_CULLING available=%s reused=%s full=%s active=%d dirty=%d reusedViews=%d "
+                        + "empty=%d candidates=%d volatile=%d tests=%d references=%d culled=%d "
+                        + "directional=%d point=%d spot=%d buildNanos=%d%n",
+                culling.available(), culling.planReused(), culling.fullRebuild(),
+                culling.activeViews(), culling.dirtyViews(), culling.reusedViews(),
+                culling.emptyViewsCleared(), culling.candidateCasters(), culling.volatileCasters(),
+                culling.casterViewTests(), culling.casterViewReferences(), culling.culledReferences(),
+                culling.directionalReferences(), culling.pointReferences(), culling.spotReferences(),
+                culling.buildNanos());
     }
 
     private static void require(boolean condition, String message) {
@@ -243,10 +299,19 @@ public final class Render3dShadowBudgetDemo {
         private int resizeTiles = -1;
         private long generationBeforeResize = -1L;
         private long generationAfterResize = -1L;
+        private boolean failureObserved;
+        private boolean failureRecoveryObserved;
+
+        private void markFailureObserved() {
+            failureObserved = true;
+        }
 
         private void observe(int frame, Render3dDiagnostics diagnostics,
                              RenderPipeline pipeline) {
             int tiles = diagnostics.shadows().tilesRendered();
+            if (failureObserved && diagnostics.shadows().missReasons().contains("FRAME_FAILURE")) {
+                failureRecoveryObserved = true;
+            }
             if (frame == 0) initialTiles = tiles;
             else if (frame == POINT_MOVE_FRAME) pointMoveTiles = tiles;
             else if (frame == SPOT_MOVE_FRAME) spotMoveTiles = tiles;
@@ -285,6 +350,20 @@ public final class Render3dShadowBudgetDemo {
                     "point atlas dimensions are not the 3x4 balanced layout");
             require(shadows.spotAtlasWidth() == 1_024 && shadows.spotAtlasHeight() == 1_024,
                     "spot atlas dimensions are not the 2x2 balanced layout");
+            var culling = pipeline.lastShadowCullingStatistics();
+            require(culling.available(), "shadow culling diagnostics are unavailable");
+            require(culling.activeViews() == 20,
+                    "balanced shadow plan must publish all twenty view slots");
+            require(culling.candidateCasters() > 0 && culling.casterViewReferences() > 0,
+                    "shadow planner did not publish caster/view references");
+            require(culling.culledReferences() > 0,
+                    "shadow planner did not cull any non-intersecting caster/view pairs");
+            require(culling.planReused(),
+                    "final static frame must reuse the published shadow culling plan");
+            if (options.dynamic()) {
+                require(failureObserved && failureRecoveryObserved,
+                        "dynamic integration did not prove shadow failure recovery");
+            }
             if (options.resizeFrame() >= 0) {
                 require(generationBeforeResize > 0
                                 && generationAfterResize == generationBeforeResize,
@@ -331,7 +410,7 @@ public final class Render3dShadowBudgetDemo {
                            int width, int height, int resizeFrame,
                            int resizeWidth, int resizeHeight,
                            String environmentQuality, boolean verify,
-                           boolean benchmark, Profile profile) {
+                           boolean benchmark, boolean dynamic, Profile profile) {
         private static Options parse(String[] arguments) {
             boolean hidden = false;
             int frames = -1;
@@ -344,6 +423,7 @@ public final class Render3dShadowBudgetDemo {
             String environmentQuality = "default";
             boolean verify = false;
             boolean benchmark = false;
+            boolean dynamic = false;
             Profile profile = Profile.BALANCED;
             for (String argument : arguments) {
                 if (argument.equals("--hidden") || argument.equals("--deterministic")) {
@@ -353,6 +433,8 @@ public final class Render3dShadowBudgetDemo {
                 } else if (argument.equals("--benchmark")) {
                     benchmark = true;
                     hidden = true;
+                } else if (argument.equals("--dynamic")) {
+                    dynamic = true;
                 } else if (argument.startsWith("--frames=")) {
                     frames = positive(argument.substring(9), "--frames");
                 } else if (argument.startsWith("--warmup=")) {
@@ -387,7 +469,8 @@ public final class Render3dShadowBudgetDemo {
             }
             PbrEnvironmentSettings.quality(environmentQuality);
             return new Options(hidden, frames, warmup, width, height, resizeFrame,
-                    resizeWidth, resizeHeight, environmentQuality, verify, benchmark, profile);
+                    resizeWidth, resizeHeight, environmentQuality, verify, benchmark, dynamic,
+                    profile);
         }
 
         private static int positive(String value, String name) {

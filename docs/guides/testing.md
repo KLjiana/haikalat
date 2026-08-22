@@ -80,6 +80,24 @@ v0.23.2 GTAO 的无桌面合同和真实 GL smoke 分开执行：
 CPU p50/p95 增量、GTAO 全链 GPU p50、disabled 的 v0.23.1 历史基线回退，以及线程
 分配的后半段增长趋势；整轮 wall p50/p95 只作冷启动诊断，不参与正式 gate。
 
+v0.23.4 动态阴影专项保持在桌面 GL 门禁之外的默认 `check`，本地验收使用：
+
+```powershell
+.\gradlew.bat test --tests "*ShadowCacheStateTest" --rerun-tasks
+.\gradlew.bat runRender3dShadowBudgetIntegration --rerun-tasks
+.\gradlew.bat runRender3dDynamicShadowIntegration --rerun-tasks
+.\gradlew.bat runRender3dShadowCullingBenchmarks --rerun-tasks
+.\gradlew.bat localShadowCullingVerification --rerun-tasks
+```
+
+`runRender3dDynamicShadowIntegration` 输出 `SHADOW_CULLING` 机器可读行，覆盖固定 20 view、
+caster-view 测试/引用/裁剪、dirty/reused/empty view、plan reuse 与构建耗时。它还验证 point
+light 的逐 face 失效、revisioned glTF caster 的 old/new membership（含跨范围与离开范围）、spot
+tile、camera cascade、skin/morph 变形、一次注入的 partial shadow failure/`FRAME_FAILURE` 恢复和同宽高比 resize；默认
+`runRender3dShadowBudgetIntegration` 继续作为兼容预算/atlas 回归。`runRender3dShadowCullingBenchmarks`
+记录预热后的 CPU/GPU、shadow GPU、caster references 与 dirty view，不把窗口创建 wall time 当作
+稳定帧性能。
+
 人工视觉复核使用独立的 GTAO 接触场景，不依赖生产场景的构图：
 
 ```powershell

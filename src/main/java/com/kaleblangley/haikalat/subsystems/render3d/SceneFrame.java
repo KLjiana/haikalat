@@ -11,6 +11,9 @@ final class SceneFrame {
     int[] shadowIndices;
     int forwardCount;
     int shadowCount;
+    int[] changedIndices;
+    int changedCount;
+    boolean forceShadowPlanRebuild;
     long frameIndex;
     long sceneRevision;
     Statistics statistics = Statistics.UNAVAILABLE;
@@ -30,6 +33,13 @@ final class SceneFrame {
 
     int rendererCount() {
         return statistics.candidateRenderers();
+    }
+
+    boolean rendererChanged(int ordinal) {
+        for (int index = 0; index < changedCount; index++) {
+            if (changedIndices[index] == ordinal) return true;
+        }
+        return false;
     }
 
     org.joml.Matrix4f model(int entry) {

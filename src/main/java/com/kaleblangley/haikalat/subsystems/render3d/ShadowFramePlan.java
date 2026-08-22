@@ -51,7 +51,8 @@ record ShadowFramePlan(Optional<DirectionalPlan> directional,
         DEFORMATION,
         CAMERA_CASCADE,
         SETTINGS,
-        GENERATION
+        GENERATION,
+        FRAME_FAILURE
     }
 
     record DirectionalPlan(SceneLightEntry entry, int shaderIndex, float score,

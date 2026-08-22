@@ -47,6 +47,22 @@ final class Frustum {
         return classify(bounds) == Classification.OUTSIDE;
     }
 
+    /**
+     * Conservative AABB test with a world-space guard band.  Shadow views use this
+     * overload so filter kernels and cascade/cube seams never turn an edge contact
+     * into a false negative.
+     */
+    boolean outside(WorldBounds bounds, float padding) {
+        Objects.requireNonNull(bounds, "bounds");
+        if (bounds.unbounded) return false;
+        if (!Float.isFinite(padding) || padding < 0.0f) {
+            throw new IllegalArgumentException("padding must be finite and non-negative");
+        }
+        return classify(bounds.minX - padding, bounds.minY - padding, bounds.minZ - padding,
+                bounds.maxX + padding, bounds.maxY + padding, bounds.maxZ + padding)
+                == Classification.OUTSIDE;
+    }
+
     private Classification classify(float minX, float minY, float minZ,
                                     float maxX, float maxY, float maxZ) {
         float centerX = (minX + maxX) * 0.5f;

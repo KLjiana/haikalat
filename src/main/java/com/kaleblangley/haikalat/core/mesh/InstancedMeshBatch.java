@@ -324,6 +324,32 @@ public final class InstancedMeshBatch implements AutoCloseable {
         return count;
     }
 
+    /**
+     * Returns a conservative local-space AABB covering every mesh registered in
+     * this batch.  It is used by Render3D's batch-level shadow culling; an
+     * unbounded member intentionally makes the result unbounded.
+     */
+    public Bounds3f aggregateLocalBounds() {
+        if (meshes.isEmpty()) return Bounds3f.unbounded();
+        float minX = Float.POSITIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
+        float maxZ = Float.NEGATIVE_INFINITY;
+        for (MeshEntry entry : meshes) {
+            Bounds3f bounds = entry.mesh.localBounds();
+            if (bounds.isUnbounded()) return Bounds3f.unbounded();
+            minX = Math.min(minX, bounds.minX());
+            minY = Math.min(minY, bounds.minY());
+            minZ = Math.min(minZ, bounds.minZ());
+            maxX = Math.max(maxX, bounds.maxX());
+            maxY = Math.max(maxY, bounds.maxY());
+            maxZ = Math.max(maxZ, bounds.maxZ());
+        }
+        return Bounds3f.of(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
     @Override
     public void close() {
         if (closed) {

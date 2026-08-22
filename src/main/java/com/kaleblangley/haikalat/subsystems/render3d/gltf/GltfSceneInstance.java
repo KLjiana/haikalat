@@ -22,6 +22,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.SceneDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
+import org.joml.Vector3fc;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -118,6 +119,23 @@ public final class GltfSceneInstance implements AutoCloseable {
     public List<SceneObject> objects() {
         ensureOpen();
         return objects;
+    }
+
+    /**
+     * Translates the instance root while preserving its current orientation and scale.
+     * The model revision is advanced so scene snapshots and shadow membership caches see
+     * the movement on the next frame.
+     */
+    public GltfSceneInstance translateRoot(Vector3fc delta) {
+        ensureOpen();
+        Objects.requireNonNull(delta, "delta");
+        if (!Float.isFinite(delta.x()) || !Float.isFinite(delta.y())
+                || !Float.isFinite(delta.z())) {
+            throw new IllegalArgumentException("delta must be finite");
+        }
+        rootTransform.translate(delta);
+        refreshPoseDependents();
+        return this;
     }
 
     public int animationCount() {

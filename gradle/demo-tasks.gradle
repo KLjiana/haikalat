@@ -138,6 +138,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
                  '--environment-quality=test', '--verify'],
                 'Runs the v0.23.1 1+2+4 shadow budget, cache invalidation and resize proof.']
+        ,runRender3dDynamicShadowIntegration: [render3dShadowBudgetMain,
+                ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
+                 '--environment-quality=test', '--dynamic', '--verify'],
+                'Runs deterministic per-view dynamic shadow culling, local invalidation and resize proof.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
                 'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
@@ -292,10 +296,17 @@ tasks.register('localGlVerification') {
             'runShowcaseVfxAutoExposureIntegration',
             'runRender3dV023Integration',
             'runRender3dGtaoIntegration',
-            'runRender3dShadowBudgetIntegration',
+            'runRender3dShadowBudgetIntegration', 'runRender3dDynamicShadowIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
+}
+
+tasks.register('localShadowCullingVerification') {
+    group = 'verification'
+    description = 'Runs JVM checks, shadow GL smoke and the deterministic dynamic shadow integration.'
+    dependsOn 'test', 'glSmoke', 'runRender3dShadowBudgetIntegration',
+            'runRender3dDynamicShadowIntegration'
 }
 
 tasks.named('runDemoIntegration') {
@@ -453,6 +464,19 @@ tasks.named('runShowcaseVfxAutoExposureIntegration') { mustRunAfter 'runShowcase
 tasks.named('runRender3dV023Integration') { mustRunAfter 'runShowcaseVfxAutoExposureIntegration' }
 tasks.named('runRender3dGtaoIntegration') { mustRunAfter 'runRender3dV023Integration' }
 tasks.named('runRender3dShadowBudgetIntegration') { mustRunAfter 'runRender3dGtaoIntegration' }
+tasks.named('runRender3dDynamicShadowIntegration') { mustRunAfter 'runRender3dShadowBudgetIntegration' }
+
+tasks.register('runRender3dShadowCullingBenchmarks', JavaExec) {
+    group = 'verification'
+    description = 'Measures deterministic shadow-culling references, dirty views and frame timings.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = render3dShadowBudgetMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--benchmark', '--frames=60', '--warmup=20', '--size=1280x720',
+            '--environment-quality=test'
+}
 
 tasks.register('runRender3dGtaoBenchmarks', JavaExec) {
     group = 'verification'

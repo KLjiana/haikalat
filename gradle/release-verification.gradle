@@ -373,22 +373,22 @@ tasks.register('releaseVerificationContracts') {
         assert render3dV023Policy.maximum == 4
         assert render3dV023Policy.expiry == LocalDate.of(2027, 2, 18)
         def shadowBudgetPolicy = policies.find {
-            it.entry == '.*runRender3dShadowBudgetIntegration.*'
+            it.entry.contains('runRender3dShadowBudgetIntegration')
         }
         assert shadowBudgetPolicy != null
         assert shadowBudgetPolicy.id == 131218
         assert shadowBudgetPolicy.severity == 'MEDIUM'
         assert shadowBudgetPolicy.source == 'API'
         assert shadowBudgetPolicy.type == 'PERFORMANCE'
-        assert shadowBudgetPolicy.maximum == 8
-        assert shadowBudgetPolicy.expiry == LocalDate.of(2027, 2, 19)
+        assert shadowBudgetPolicy.maximum == 16
+        assert shadowBudgetPolicy.expiry == LocalDate.of(2027, 2, 22)
         def shadowPerformancePolicy = policies.find {
             it.owner == 'render3d/performance'
         }
         assert shadowPerformancePolicy != null
         assert shadowPerformancePolicy.id == 131218
-        assert shadowPerformancePolicy.maximum == 8
-        assert shadowPerformancePolicy.expiry == LocalDate.of(2027, 2, 19)
+        assert shadowPerformancePolicy.maximum == 16
+        assert shadowPerformancePolicy.expiry == LocalDate.of(2027, 2, 22)
         def gtaoPolicies = policies.findAll {
             it.entry in ['.*runRender3dGtaoIntegration.*', '.*runRender3dGtaoBenchmarks.*',
                          '.*GtaoShaderGlTest.*']
@@ -1057,6 +1057,9 @@ def releaseReadinessEntries = ['releaseGitGuard', 'releaseMetadataGuard', 'asset
                                'dependencyLockGuard', 'publicApiGuard', 'architectureGuard', 'check',
                                'releaseVerificationContracts',
                                'glSmoke', 'localGlVerification',
+                               'runRender3dShadowBudgetIntegration',
+                               'runRender3dDynamicShadowIntegration',
+                               'runRender3dShadowCullingBenchmarks',
                                'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks',
                                'localReleaseVerification',
                                'runSceneSubmissionStaticBenchmarks', 'runSceneSubmissionStaticGate',
@@ -1094,6 +1097,7 @@ tasks.register('writeReleaseReadiness') {
                 if (!claim.find()) return
                 String command = claim.group(1)
                 List<String> evidenceTasks = releaseReadinessEntries.findAll { command.contains(it) }
+                if (command == 'releaseReadiness') evidenceTasks.addAll(releaseReadinessEntries)
                 // The report intentionally keeps a few aggregate/manual rows for
                 // readability.  Tie those rows to the concrete gates that produced
                 // their evidence instead of silently treating them as unsupported.
