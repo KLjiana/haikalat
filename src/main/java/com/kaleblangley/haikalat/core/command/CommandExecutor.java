@@ -45,6 +45,8 @@ final class CommandExecutor {
 
     static void execute(CommandStream stream, StateCache cache) {
         Objects.requireNonNull(cache, "cache");
+        boolean injectFailureAfterDraw = Boolean.getBoolean(
+                "haikalat.test.failShadowPassOnce");
         int integerCursor = 0;
         int longCursor = 0;
         int objectCursor = 0;
@@ -159,19 +161,23 @@ final class CommandExecutor {
                 }
                 case DRAW_MESH -> {
                     ((Mesh) stream.objectAt(objectCursor++)).drawBound();
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ELEMENTS -> {
                     glDrawElements(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++), 0L);
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ARRAYS -> {
                     glDrawArrays(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ARRAYS_INSTANCED -> {
                     glDrawArraysInstanced(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++));
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ELEMENTS_INSTANCED -> {
                     int mode = stream.integerAt(integerCursor++);
@@ -180,10 +186,12 @@ final class CommandExecutor {
                     int instances = stream.integerAt(integerCursor++);
                     glDrawElementsInstanced(mode, count, type,
                             stream.longAt(longCursor++), instances);
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_MESH_INSTANCED -> {
                     int instances = stream.integerAt(integerCursor++);
                     ((Mesh) stream.objectAt(objectCursor++)).drawInstancedBound(instances);
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case APPLY_PIPELINE_STATE -> integerCursor = PendingPipelineState.applyEncoded(
                         stream, integerCursor, cache);
@@ -260,14 +268,6 @@ final class CommandExecutor {
                         cache.invalidate();
                     }
                 }
-                case TEST_FAILURE -> {
-                    String message = (String) stream.objectAt(objectCursor++);
-                    // Make the deterministic integration hook observe all
-                    // preceding shadow draws before reporting the failure.
-                    glFinish();
-                    cache.invalidate();
-                    throw new IllegalStateException(message);
-                }
                 case INSTANCED_BATCH -> {
                     InstancedBatchSubmission submission =
                             (InstancedBatchSubmission) stream.objectAt(objectCursor++);
@@ -281,6 +281,7 @@ final class CommandExecutor {
                     } finally {
                         cache.invalidateVertexArray();
                     }
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
@@ -298,6 +299,7 @@ final class CommandExecutor {
                     } finally {
                         cache.invalidateVertexArray();
                     }
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case PREPARE_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
@@ -339,6 +341,7 @@ final class CommandExecutor {
                     } finally {
                         cache.invalidateVertexArray();
                     }
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case FINISH_PREPARED_INSTANCED_BATCH -> {
                     InstancedMeshBatch batch =
@@ -387,6 +390,15 @@ final class CommandExecutor {
                 }
             }
         }
+    }
+
+    private static void failAfterDrawIfRequested(boolean requested, StateCache cache) {
+        if (!requested) return;
+        // Integration-only fault boundary: the draw has reached OpenGL and is
+        // completed before metadata rollback is exercised by RenderPipeline.
+        glFinish();
+        cache.invalidate();
+        throw new IllegalStateException("injected shadow pass failure");
     }
 
     private static void abortGpuTimers(ArrayDeque<GpuTimer> activeTimers,

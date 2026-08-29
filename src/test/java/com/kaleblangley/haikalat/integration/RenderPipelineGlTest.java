@@ -1250,7 +1250,7 @@ class RenderPipelineGlTest {
     }
 
     @Test
-    void directionalCascadeAtlasRendersTwoThreeAndFourStableTiles() {
+    void directionalCascadeAtlasRendersTwoThreeAndFourStableTiles() throws Exception {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
             GL.createCapabilities();
@@ -1280,12 +1280,21 @@ class RenderPipelineGlTest {
                         assertEquals(pipeline.lastShadowCullingStatistics().directionalReferences(),
                                 firstDiagnostics.shadows().cascadeCasters().stream()
                                         .mapToInt(Integer::intValue).sum());
+                        Object pendingCounts = privateField(pipeline,
+                                "pendingDirectionalCascadeCasterCounts");
+                        Object committedCounts = privateField(pipeline,
+                                "lastDirectionalCascadeCasterCounts");
                         // A fixed scene must reuse the published slices without
-                        // re-testing all caster/view pairs on the next frame.
+                        // re-testing all caster/view pairs or replacing its
+                        // cascade diagnostic buffers on the next frame.
                         pipeline.execute(new GlRenderDevice());
                         ShadowCullingStatistics reused = pipeline.lastShadowCullingStatistics();
                         assertTrue(reused.planReused());
                         assertEquals(0, reused.casterViewTests());
+                        assertSame(pendingCounts, privateField(pipeline,
+                                "pendingDirectionalCascadeCasterCounts"));
+                        assertSame(committedCounts, privateField(pipeline,
+                                "lastDirectionalCascadeCasterCounts"));
                         pipeline.resize(73, 51);
                         pipeline.execute(new GlRenderDevice());
                         assertEquals(count, pipeline.lastShadowCasterDrawCount());
@@ -1312,6 +1321,12 @@ class RenderPipelineGlTest {
         }
     }
 
+    private static Object privateField(Object target, String name) throws Exception {
+        java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
     @Test
     void partialShadowFailureIsRaisedDuringGpuExecutionAndRecovers() {
         try (GlfwWindow window = hiddenWindow()) {
@@ -1322,7 +1337,11 @@ class RenderPipelineGlTest {
                     PIPELINE_FRAGMENT_SOURCE);
             Material material = Material.builder(shader).build();
             Scene scene = new Scene(new Camera(new Vector3f(0.0f, 1.0f, 5.0f)));
-            scene.add(SceneObject.fixed(mesh, material, new Matrix4f(), true));
+            java.util.concurrent.atomic.AtomicLong casterRevision =
+                    new java.util.concurrent.atomic.AtomicLong(1L);
+            scene.add(SceneObject.revisioned(mesh, material,
+                    (model, frame) -> model.identity(), casterRevision::get,
+                    true, SceneDrawBinding.NONE));
             scene.addLight(SceneLight.shadowedDirectional(
                     new Vector3f(-0.4f, -1.0f, -0.3f), new Vector3f(1.0f), 2.0f));
             RenderSettings settings = RenderSettings.builder()
@@ -1336,6 +1355,10 @@ class RenderPipelineGlTest {
                 pipeline.execute(device);
                 Render3dDiagnostics before = pipeline.lastRender3dDiagnostics();
                 byte[] beforePixels = readFramebuffer(window.width(), window.height());
+                // Dirty a real shadow tile without changing its pixels. This
+                // guarantees the execution hook runs after an atlas draw rather
+                // than after an unrelated forward draw.
+                casterRevision.incrementAndGet();
                 System.setProperty("haikalat.test.failShadowPassOnce", "true");
                 IllegalStateException failure = assertThrows(IllegalStateException.class,
                         () -> pipeline.execute(device));

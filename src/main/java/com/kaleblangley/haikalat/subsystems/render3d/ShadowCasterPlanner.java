@@ -10,10 +10,12 @@ import java.util.Objects;
  *
  * <p>The planner owns the fixed twenty-view arena used by Render3D: four
  * directional cascades, twelve point-light faces and four spot tiles.  It
- * keeps membership as a bit mask per caster and stores a compact mutable slice
- * for each view.  A changed caster is re-tested against the active views while
+ * keeps membership as a bit mask per caster and as candidate-rank bitsets for
+ * each view.  A changed caster is re-tested against the active views while
  * unchanged views retain their previous membership; this is what keeps the
- * sparse dynamic path proportional to changed casters rather than N x V.</p>
+ * sparse dynamic path proportional to changed casters rather than N x V.  The
+ * rank bitsets also preserve the deterministic shared candidate order without
+ * moving an entire dense slice when one caster enters or leaves a view.</p>
  */
 final class ShadowCasterPlanner {
     static final int MAX_VIEWS = 20;
@@ -48,10 +50,10 @@ final class ShadowCasterPlanner {
     private boolean[] materialChangedEntries = new boolean[0];
     private boolean[] deformationChangedEntries = new boolean[0];
     private long[] oldMasks = new long[0];
-    private final int[][] viewSlices = new int[MAX_VIEWS][];
-    private final int[][] viewPositions = new int[MAX_VIEWS][];
-    private final int[] viewSliceSizes = new int[MAX_VIEWS];
+    private final long[][] viewMembershipWords = new long[MAX_VIEWS][];
     private int[] candidateOrder = new int[0];
+    /** Entry ordinal -> rank in candidateOrder; valid until the next full rebuild. */
+    private int[] candidateRanks = new int[0];
     /** Current shared shadow-queue membership, kept separate from per-view masks. */
     private boolean[] candidateMembership = new boolean[0];
     private int candidateCount;
@@ -99,8 +101,7 @@ final class ShadowCasterPlanner {
     ShadowCasterPlanner() {
         for (int index = 0; index < MAX_VIEWS; index++) {
             frustums[index] = new Frustum();
-            viewSlices[index] = new int[0];
-            viewPositions[index] = new int[0];
+            viewMembershipWords[index] = new long[0];
         }
     }
 
@@ -134,7 +135,11 @@ final class ShadowCasterPlanner {
                 // remains the authoritative changed-entry frontier.
                 || previousMembershipRevision != revisions.membershipRevision()
                 || previousMaterialRenderStateRevision != revisions.materialRenderStateRevision()
-                || frame.forceShadowPlanRebuild;
+                || frame.forceShadowPlanRebuild
+                // A rebuilt candidate queue may have changed rank or membership.
+                // Sparse view bitsets are keyed by the last published candidate
+                // rank, so refresh them transactionally with the queue.
+                || (initialized && !frame.statistics.shadowQueueReused());
         Arrays.fill(membershipChanged, false);
         Arrays.fill(transformChanged, false);
         Arrays.fill(materialChanged, false);
@@ -152,6 +157,7 @@ final class ShadowCasterPlanner {
                 break;
             }
         }
+        boolean instanceMembershipUpdated = false;
         boolean staticReuse = initialized && !full && viewsStable
                 && frame.changedCount == 0
                 && frame.statistics.shadowQueueReused()
@@ -162,6 +168,7 @@ final class ShadowCasterPlanner {
                 && !frame.forceShadowPlanRebuild;
         if (staticReuse) {
             updateInstanceMembership(shadowPlan, frame, sceneVisibility, instanced);
+            instanceMembershipUpdated = true;
             if (!instancePlanChanged) {
                 casterViewTests = 0;
                 lastPlanReused = true;
@@ -188,17 +195,16 @@ final class ShadowCasterPlanner {
             }
         }
 
-        // Dynamic queues retain the previous deterministic candidate order.  A
-        // model/bounds change cannot alter caster classification, and copying a
-        // 10k-entry queue here would reintroduce an unnecessary per-frame scan.
-        // Full/static queue transitions still refresh the order normally.
-        boolean candidateQueueRefreshed = full || frame.statistics.dynamicRenderers() == 0
-                || !frame.statistics.shadowQueueReused();
-        if (candidateQueueRefreshed) {
+        // Sparse membership bitsets are keyed by candidate rank.  Queue rebuilds
+        // are therefore full planner boundaries; ordinary model/bounds changes
+        // retain this order and only touch changedIndices below.
+        if (full) {
             Arrays.fill(candidateMembership, 0, entries, false);
+            Arrays.fill(candidateRanks, 0, entries, -1);
             for (int order = 0; order < candidateCount; order++) {
                 int index = frame.shadowEntry(order);
                 candidateOrder[order] = index;
+                candidateRanks[index] = order;
                 if (isCaster(frame, index)) candidateMembership[index] = true;
             }
         }
@@ -212,7 +218,7 @@ final class ShadowCasterPlanner {
 
         if (full) {
             Arrays.fill(masks, 0, entries, EMPTY_MASK);
-            clearMembershipSlices(entries);
+            clearMembershipSlices();
             for (int index = 0; index < entries; index++) {
                 MeshRenderer renderer = frame.renderer(index);
                 boolean caster = isCaster(frame, index);
@@ -234,18 +240,6 @@ final class ShadowCasterPlanner {
                 if (volatileCasters[index]) volatileCount++;
             }
         } else {
-            if (candidateQueueRefreshed) {
-                // A dynamic bounds revision can rebuild the shared legacy queue.
-                // Refresh aggregate counters in O(N), but keep view tests sparse.
-                candidateCasters = 0;
-                volatileCount = 0;
-                for (int order = 0; order < candidateCount; order++) {
-                    int index = candidateOrder[order];
-                    if (!candidateMembership[index]) continue;
-                    candidateCasters++;
-                    if (volatileCasters[index]) volatileCount++;
-                }
-            }
             // SceneFrame.changedIndices is the sparse invalidation frontier.  A
             // queue/material/membership change made the plan full above, so this
             // loop only touches changed model/bounds/deformation entries.
@@ -368,7 +362,9 @@ final class ShadowCasterPlanner {
             if (deformationChanged[view]) deformationEpoch[view]++;
         }
 
-        updateInstanceMembership(shadowPlan, frame, sceneVisibility, instanced);
+        if (!instanceMembershipUpdated) {
+            updateInstanceMembership(shadowPlan, frame, sceneVisibility, instanced);
+        }
         lastPlanReused = initialized && !full && !anyChanged && !instancePlanChanged;
         lastFullRebuild = full;
         if (lastPlanReused) {
@@ -432,15 +428,15 @@ final class ShadowCasterPlanner {
         previousVisibility = false;
         Arrays.fill(masks, 0L);
         Arrays.fill(candidateMembership, false);
+        Arrays.fill(candidateRanks, -1);
         Arrays.fill(previousViewSignatures, 0L);
         Arrays.fill(viewSignatures, 0L);
         Arrays.fill(active, false);
         Arrays.fill(instanceEpoch, 0L);
-        Arrays.fill(viewSliceSizes, 0);
         Arrays.fill(counts, 0);
         casterViewReferences = directionalReferences = pointReferences = spotReferences = 0;
         for (int view = 0; view < MAX_VIEWS; view++) {
-            Arrays.fill(viewPositions[view], -1);
+            Arrays.fill(viewMembershipWords[view], 0L);
         }
         published.activeMask = 0L;
         published.layoutSignature = 0L;
@@ -549,12 +545,11 @@ final class ShadowCasterPlanner {
         deformationRevisions[index] = deformation;
     }
 
-    private void clearMembershipSlices(int entries) {
-        Arrays.fill(viewSliceSizes, 0);
+    private void clearMembershipSlices() {
         Arrays.fill(counts, 0);
         casterViewReferences = directionalReferences = pointReferences = spotReferences = 0;
         for (int view = 0; view < MAX_VIEWS; view++) {
-            Arrays.fill(viewPositions[view], 0, Math.min(entries, viewPositions[view].length), -1);
+            Arrays.fill(viewMembershipWords[view], 0L);
         }
     }
 
@@ -562,8 +557,7 @@ final class ShadowCasterPlanner {
         long bit = 1L << view;
         boolean present = (masks[index] & bit) != 0L;
         if (present == included) return;
-        if (included) addViewMembership(view, index);
-        else removeViewMembership(view, index);
+        updateViewMembership(view, index, included);
     }
 
     private void applyMembershipMask(int index, long nextMask) {
@@ -573,53 +567,39 @@ final class ShadowCasterPlanner {
         for (int view = 0; view < MAX_VIEWS; view++) {
             long bit = 1L << view;
             if ((changed & bit) == 0L) continue;
-            if ((nextMask & bit) != 0L) addViewMembership(view, index);
-            else removeViewMembership(view, index);
+            updateViewMembership(view, index, (nextMask & bit) != 0L);
         }
     }
 
-    private void addViewMembership(int view, int index) {
-        if ((masks[index] & (1L << view)) != 0L) return;
-        ensureViewSliceCapacity(view, viewSliceSizes[view] + 1);
-        int position = viewSliceSizes[view]++;
-        viewSlices[view][position] = index;
-        viewPositions[view][index] = position;
-        masks[index] |= 1L << view;
-        counts[view] = viewSliceSizes[view];
-        casterViewReferences++;
-        switch (viewKinds[view]) {
-            case 0 -> directionalReferences++;
-            case 1 -> pointReferences++;
-            default -> spotReferences++;
-        }
-    }
-
-    private void removeViewMembership(int view, int index) {
+    private void updateViewMembership(int view, int index, boolean included) {
         long bit = 1L << view;
-        if ((masks[index] & bit) == 0L) return;
-        int position = viewPositions[view][index];
-        int lastPosition = --viewSliceSizes[view];
-        int lastIndex = viewSlices[view][lastPosition];
-        if (position != lastPosition) {
-            viewSlices[view][position] = lastIndex;
-            viewPositions[view][lastIndex] = position;
+        boolean present = (masks[index] & bit) != 0L;
+        if (present == included) return;
+        int rank = candidateRanks[index];
+        if (rank < 0 || rank >= candidateCount) {
+            throw new IllegalStateException("shadow candidate rank unavailable for entry " + index);
         }
-        viewPositions[view][index] = -1;
-        masks[index] &= ~bit;
-        counts[view] = viewSliceSizes[view];
-        casterViewReferences--;
+        long rankBit = 1L << (rank & 63);
+        int word = rank >>> 6;
+        int delta;
+        if (included) {
+            viewMembershipWords[view][word] |= rankBit;
+            masks[index] |= bit;
+            counts[view]++;
+            casterViewReferences++;
+            delta = 1;
+        } else {
+            viewMembershipWords[view][word] &= ~rankBit;
+            masks[index] &= ~bit;
+            counts[view]--;
+            casterViewReferences--;
+            delta = -1;
+        }
         switch (viewKinds[view]) {
-            case 0 -> directionalReferences--;
-            case 1 -> pointReferences--;
-            default -> spotReferences--;
+            case 0 -> directionalReferences += delta;
+            case 1 -> pointReferences += delta;
+            default -> spotReferences += delta;
         }
-    }
-
-    private void ensureViewSliceCapacity(int view, int required) {
-        if (required <= viewSlices[view].length) return;
-        int capacity = Math.max(16, viewSlices[view].length);
-        while (capacity < required) capacity = Math.multiplyExact(capacity, 2);
-        viewSlices[view] = Arrays.copyOf(viewSlices[view], capacity);
     }
 
     private void countReferences() {
@@ -687,6 +667,7 @@ final class ShadowCasterPlanner {
         if (required <= masks.length) return;
         int capacity = Math.max(16, masks.length);
         while (capacity < required) capacity = Math.multiplyExact(capacity, 2);
+        int previousCapacity = masks.length;
         masks = Arrays.copyOf(masks, capacity);
         modelRevisions = Arrays.copyOf(modelRevisions, capacity);
         modelKeys = Arrays.copyOf(modelKeys, capacity);
@@ -699,11 +680,8 @@ final class ShadowCasterPlanner {
         deformationChangedEntries = Arrays.copyOf(deformationChangedEntries, capacity);
         oldMasks = Arrays.copyOf(oldMasks, capacity);
         candidateMembership = Arrays.copyOf(candidateMembership, capacity);
-        for (int view = 0; view < MAX_VIEWS; view++) {
-            int previousLength = viewPositions[view].length;
-            viewPositions[view] = Arrays.copyOf(viewPositions[view], capacity);
-            Arrays.fill(viewPositions[view], previousLength, capacity, -1);
-        }
+        candidateRanks = Arrays.copyOf(candidateRanks, capacity);
+        Arrays.fill(candidateRanks, previousCapacity, capacity, -1);
     }
 
     private void ensureCandidateCapacity(int required) {
@@ -711,6 +689,26 @@ final class ShadowCasterPlanner {
         int capacity = Math.max(16, candidateOrder.length);
         while (capacity < required) capacity = Math.multiplyExact(capacity, 2);
         candidateOrder = Arrays.copyOf(candidateOrder, capacity);
+        int words = (capacity + Long.SIZE - 1) / Long.SIZE;
+        for (int view = 0; view < MAX_VIEWS; view++) {
+            viewMembershipWords[view] = Arrays.copyOf(viewMembershipWords[view], words);
+        }
+    }
+
+    private int nextCandidateRank(int view, int previousRank) {
+        int next = previousRank + 1;
+        if (next < 0 || next >= candidateCount) return -1;
+        int wordIndex = next >>> 6;
+        long word = viewMembershipWords[view][wordIndex] & (-1L << (next & 63));
+        int wordLimit = (candidateCount + Long.SIZE - 1) / Long.SIZE;
+        while (true) {
+            if (word != 0L) {
+                int rank = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                return rank < candidateCount ? rank : -1;
+            }
+            if (++wordIndex >= wordLimit) return -1;
+            word = viewMembershipWords[view][wordIndex];
+        }
     }
 
     private static float clamp(float value, float min, float max) {
@@ -779,9 +777,10 @@ final class ShadowCasterPlanner {
         }
 
         boolean active(int view) { return view >= 0 && view < MAX_VIEWS && owner.active[view]; }
-        int offset(int view) { return 0; }
         int count(int view) { return owner.counts[view]; }
-        int casterAt(int view, int index) { return owner.viewSlices[view][index]; }
+        int firstCandidateRank(int view) { return owner.nextCandidateRank(view, -1); }
+        int nextCandidateRank(int view, int rank) { return owner.nextCandidateRank(view, rank); }
+        int casterAtRank(int rank) { return owner.candidateOrder[rank]; }
         boolean instanceVisible(int view) { return (instanceMask & (1L << view)) != 0L; }
         boolean instanceVolatile() { return instanceVolatile; }
         long membershipEpoch(int view) { return owner.membershipEpoch[view]; }

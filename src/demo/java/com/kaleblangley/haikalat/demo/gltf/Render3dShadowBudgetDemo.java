@@ -75,7 +75,7 @@ public final class Render3dShadowBudgetDemo {
                      ? GltfDemoAssets.load(GltfDemo.Asset.DEFAULT)
                      : GltfDemoAssets.loadShadowBudget()) {
             if (options.benchmark()) {
-                ShadowPlannerEvidence.run(assets.objects().getFirst());
+                ShadowPlannerEvidence.run(assets.objects());
             }
             Camera camera = new Camera(new Vector3f(0.0f, 1.0f, 8.0f));
             Scene scene = new Scene(camera);

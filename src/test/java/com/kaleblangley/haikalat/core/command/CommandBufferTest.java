@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
@@ -22,6 +23,12 @@ import static org.lwjgl.opengl.GL11.GL_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_NEAREST;
 
 class CommandBufferTest {
+    @Test
+    void publicApiDoesNotExposeTestOnlyFailureCommands() {
+        assertFalse(java.util.Arrays.stream(CommandBuffer.class.getMethods())
+                .anyMatch(method -> method.getName().equals("recordTestFailure")));
+    }
+
     @Test
     void repeatedProgramBindingIsFoldedUntilCustomBarrier() {
         CommandBuffer commands = new CommandBuffer()

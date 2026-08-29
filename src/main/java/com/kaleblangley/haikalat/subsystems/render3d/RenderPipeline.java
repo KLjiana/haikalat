@@ -89,6 +89,9 @@ public final class RenderPipeline {
         "uSpotLights[",
         "uPointShadowMatrices["
     );
+    private static final int[] NO_CASCADE_COUNTS = new int[0];
+    private static final String SHADOW_FAILURE_PROPERTY = "haikalat.test.failShadowPassOnce";
+    private static final String SHADOW_FAILURE_MESSAGE = "injected shadow pass failure";
     private final RenderWindow window;
     private Scene scene;
     private final InstancedRenderer instanced;
@@ -105,17 +108,17 @@ public final class RenderPipeline {
     private List<Matrix4f> lastDirectionalCascadeMatrices = List.of();
     private float[] lastDirectionalCascadeSplits = new float[0];
     /** Per-cascade ordinary caster slice counts used by diagnostics. */
-    private int[] lastDirectionalCascadeCasterCounts = new int[0];
+    private int[] lastDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
     /** Counts staged by the current frame and committed only after GPU success. */
-    private int[] pendingDirectionalCascadeCasterCounts = new int[0];
+    private int[] pendingDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+    /** -1 until sceneFrame stages a directional/no-directional result for this frame. */
+    private int pendingDirectionalCascadeCount = -1;
     private List<Matrix4f> lastPointLightSpaceMatrices = List.of();
     private Matrix4f lastSpotLightSpaceMatrix = new Matrix4f();
     private ShadowFramePlan currentShadowFramePlan;
     private ShadowFramePlan lastShadowFramePlan = ShadowFramePlan.EMPTY;
     private final ShadowCasterPlanner shadowCasterPlanner = new ShadowCasterPlanner();
     private ShadowCasterPlanner.ShadowCasterPlan currentShadowCasterPlan;
-    private boolean shadowFailureInjected;
-    private boolean shadowFailureCommandRecorded;
     private int lastShadowCasterDrawCount;
     private int lastPointShadowCasterDrawCount;
     private int lastSpotShadowCasterDrawCount;
@@ -426,7 +429,6 @@ public final class RenderPipeline {
             scene = candidateScene;
             currentSceneFrame = null;
             currentShadowCasterPlan = null;
-            shadowFailureInjected = false;
             shadowCasterPlanner.reset();
             activeFrameContext = null;
             frameStateInvalidationByMaterial.clear();
@@ -438,7 +440,6 @@ public final class RenderPipeline {
         currentSceneFrame = null;
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
-        shadowFailureInjected = false;
         shadowCasterPlanner.reset();
         activateGeneration(candidate);
         sceneGraphRebuildCount++;
@@ -705,8 +706,7 @@ public final class RenderPipeline {
         currentSceneFrame = null;
         currentShadowCasterPlan = null;
         currentShadowFramePlan = null;
-        pendingDirectionalCascadeCasterCounts = new int[0];
-        shadowFailureCommandRecorded = false;
+        pendingDirectionalCascadeCount = -1;
         lastShadowCasterDrawCount = 0;
         lastPointShadowCasterDrawCount = 0;
         lastSpotShadowCasterDrawCount = 0;
@@ -768,11 +768,19 @@ public final class RenderPipeline {
             generation.postProcess.frameSucceeded();
             generation.shadowCache.frameSucceeded();
             if (currentShadowFramePlan != null) lastShadowFramePlan = currentShadowFramePlan;
-            if (pendingDirectionalCascadeCasterCounts.length != 0) {
-                lastDirectionalCascadeCasterCounts = pendingDirectionalCascadeCasterCounts.clone();
-            } else if (currentShadowFramePlan != null
-                    && currentShadowFramePlan.directional().isEmpty()) {
-                lastDirectionalCascadeCasterCounts = new int[0];
+            if (pendingDirectionalCascadeCount >= 0) {
+                if (pendingDirectionalCascadeCount == 0) {
+                    lastDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+                } else {
+                    if (lastDirectionalCascadeCasterCounts.length
+                            != pendingDirectionalCascadeCount) {
+                        lastDirectionalCascadeCasterCounts =
+                                new int[pendingDirectionalCascadeCount];
+                    }
+                    System.arraycopy(pendingDirectionalCascadeCasterCounts, 0,
+                            lastDirectionalCascadeCasterCounts, 0,
+                            pendingDirectionalCascadeCount);
+                }
             }
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.frameSucceeded(previewFrameSequence);
@@ -785,11 +793,11 @@ public final class RenderPipeline {
             lastFailureStage = "";
             return result;
         } catch (RuntimeException | Error failure) {
-            // A typed shadow failure is queued after real shadow draws and is
-            // raised by CommandExecutor, so expose that boundary distinctly
-            // from ordinary pass-recording callbacks.
-            lastFailureStage = shadowFailureCommandRecorded && shadowFailureInjected
-                    ? "gpu-execute" : frameStage;
+            // The integration-only executor fault is raised after a real draw,
+            // so expose that boundary distinctly from pass-recording callbacks.
+            boolean injectedGpuFailure = Boolean.getBoolean(SHADOW_FAILURE_PROPERTY)
+                    && SHADOW_FAILURE_MESSAGE.equals(failure.getMessage());
+            lastFailureStage = injectedGpuFailure ? "gpu-execute" : frameStage;
             lastFailedFrameContext = activeFrameContext;
             if (instanced != null) {
                 try {
@@ -857,10 +865,9 @@ public final class RenderPipeline {
         currentSceneFrame = null;
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
-        shadowFailureInjected = false;
-        shadowFailureCommandRecorded = false;
-        lastDirectionalCascadeCasterCounts = new int[0];
-        pendingDirectionalCascadeCasterCounts = new int[0];
+        lastDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+        pendingDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+        pendingDirectionalCascadeCount = -1;
         shadowCasterPlanner.reset();
         lastShadowFramePlan = ShadowFramePlan.EMPTY;
         lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
@@ -890,10 +897,9 @@ public final class RenderPipeline {
         currentSceneFrame = null;
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
-        shadowFailureInjected = false;
-        shadowFailureCommandRecorded = false;
-        lastDirectionalCascadeCasterCounts = new int[0];
-        pendingDirectionalCascadeCasterCounts = new int[0];
+        lastDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+        pendingDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
+        pendingDirectionalCascadeCount = -1;
         shadowCasterPlanner.reset();
         frameStateInvalidationByMaterial.clear();
         topologySettingsRevision++;
@@ -1158,7 +1164,6 @@ public final class RenderPipeline {
                             .setUniformMat4(instancedShadowShader, "uLightSpace", matrices.get(cascade));
                     instanced.renderShadow(cmd);
                 }
-                recordMaybeInjectShadowFailure(cmd);
             }
             cmd.enableScissor(false);
             lastShadowCasterDrawCount = count;
@@ -1174,10 +1179,15 @@ public final class RenderPipeline {
         int boundMorphTargetCount = -1;
         int count = currentShadowCasterPlan == null ? frame.shadowCount
                 : currentShadowCasterPlan.count(view);
+        int candidateRank = currentShadowCasterPlan == null ? -1
+                : currentShadowCasterPlan.firstCandidateRank(view);
         for (int queueIndex = 0; queueIndex < count; queueIndex++) {
             int entry = currentShadowCasterPlan == null
                     ? frame.shadowEntry(queueIndex)
-                    : currentShadowCasterPlan.casterAt(view, queueIndex);
+                    : currentShadowCasterPlan.casterAtRank(candidateRank);
+            if (currentShadowCasterPlan != null) {
+                candidateRank = currentShadowCasterPlan.nextCandidateRank(view, candidateRank);
+            }
             MeshRenderer renderer = frame.renderer(entry);
             ShaderProgram shader = shadowShaderFor(renderer);
             if (shader != boundShader) {
@@ -1258,7 +1268,6 @@ public final class RenderPipeline {
                                 .setUniformMat4(instancedShadowShader, "uLightSpace", matrix);
                         instanced.renderShadow(cmd);
                     }
-                    recordMaybeInjectShadowFailure(cmd);
                 }
             }
             cmd.enableScissor(false);
@@ -1311,7 +1320,6 @@ public final class RenderPipeline {
                                     slot.lightSpaceMatrix());
                     instanced.renderShadow(cmd);
                 }
-                recordMaybeInjectShadowFailure(cmd);
             }
             cmd.enableScissor(false);
             lastSpotShadowCasterDrawCount = draws;
@@ -1332,9 +1340,14 @@ public final class RenderPipeline {
         int draws = 0;
         int count = currentShadowCasterPlan == null ? frame.rendererCount()
                 : currentShadowCasterPlan.count(view);
+        int candidateRank = currentShadowCasterPlan == null ? -1
+                : currentShadowCasterPlan.firstCandidateRank(view);
         for (int index = 0; index < count; index++) {
             int entry = currentShadowCasterPlan == null
-                    ? index : currentShadowCasterPlan.casterAt(view, index);
+                    ? index : currentShadowCasterPlan.casterAtRank(candidateRank);
+            if (currentShadowCasterPlan != null) {
+                candidateRank = currentShadowCasterPlan.nextCandidateRank(view, candidateRank);
+            }
             MeshRenderer renderer = frame.renderer(entry);
             if (!renderer.castShadows()
                     || !RenderQueueClass.classify(renderer.material()).castsOpaqueShadow()) {
@@ -1372,25 +1385,6 @@ public final class RenderPipeline {
             draws++;
         }
         return draws;
-    }
-
-    /**
-     * Test-only hook used by the deterministic shadow integration to model a
-     * partial atlas write.  The typed failure command is deliberately recorded
-     * into the command stream: it therefore runs after the preceding shadow
-     * draws have reached the device, rather than failing while a pass is merely
-     * being recorded.
-     */
-    private void recordMaybeInjectShadowFailure(CommandBuffer cmd) {
-        if (!Boolean.getBoolean("haikalat.test.failShadowPassOnce")
-                || shadowFailureInjected || shadowFailureCommandRecorded) {
-            return;
-        }
-        shadowFailureCommandRecorded = true;
-        // Mark the one-shot hook as consumed when its typed command is queued;
-        // the exception itself is still raised later by CommandExecutor.
-        shadowFailureInjected = true;
-        cmd.recordTestFailure("injected shadow pass failure");
     }
 
     private ShaderProgram shadowShaderFor(MeshRenderer renderer) {
@@ -1585,14 +1579,15 @@ public final class RenderPipeline {
                 settings.sceneVisibility(), instanced);
         if (selected.directional().isPresent()) {
             int cascadeCount = selected.directional().orElseThrow().matrices().size();
-            if (pendingDirectionalCascadeCasterCounts.length != cascadeCount) {
+            if (pendingDirectionalCascadeCasterCounts.length < cascadeCount) {
                 pendingDirectionalCascadeCasterCounts = new int[cascadeCount];
             }
             for (int cascade = 0; cascade < cascadeCount; cascade++) {
                 pendingDirectionalCascadeCasterCounts[cascade] = currentShadowCasterPlan.count(cascade);
             }
+            pendingDirectionalCascadeCount = cascadeCount;
         } else {
-            pendingDirectionalCascadeCasterCounts = new int[0];
+            pendingDirectionalCascadeCount = 0;
         }
         currentShadowFramePlan = generation.shadowCache.prepare(selected, context, scene,
                 localShadowSettings, directionalCascadeSettings, currentShadowCasterPlan);

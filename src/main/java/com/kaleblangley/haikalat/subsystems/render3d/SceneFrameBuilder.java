@@ -136,7 +136,6 @@ final class SceneFrameBuilder {
             int boundsMisses = 0;
             int finite = 0;
             int changedCount = 0;
-            boolean deformationChanged = false;
             long stageStart = System.nanoTime();
             if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady) {
                 staticRenderers = entryCount;
@@ -150,9 +149,6 @@ final class SceneFrameBuilder {
                     if (revisioned) staticRenderers++; else dynamicRenderers++;
                     long revision = revisioned ? renderer.modelRevision() : Long.MIN_VALUE;
                     long deformationRevision = renderer.drawBinding().boundsRevision();
-                    deformationChanged |= renderer.drawBinding().deformsVertices()
-                            && (!cacheValid[index]
-                            || cachedDeformationRevisions[index] != deformationRevision);
                     requestedModelRevisions[index] = revision;
                     boolean hit = staticCacheEnabled && revisioned && cacheValid[index]
                             && cachedModelRevisions[index] == revision
@@ -289,11 +285,10 @@ final class SceneFrameBuilder {
             frame.shadowCount = shadowCount;
             frame.changedIndices = changed;
             frame.changedCount = changedCount;
-            // Dynamic model/bounds changes are represented by changedIndices and
-            // can use the planner's sparse path.  Only vertex deformation that
-            // is not reducible to a stable model/bounds revision requires the
-            // explicit full shadow-plan barrier.
-            frame.forceShadowPlanRebuild = deformationChanged;
+            // Model, conservative bounds and skin/morph content revisions all
+            // enter changedIndices.  The shadow planner can therefore update the
+            // affected caster/view epochs without forcing an N x V rebuild.
+            frame.forceShadowPlanRebuild = false;
             frame.frameIndex = Integer.toUnsignedLong(frameIndex);
             frame.sceneRevision = sceneRevision;
             frame.statistics = new SceneFrame.Statistics(cullingEnabled, frame.sceneRevision,
@@ -377,12 +372,14 @@ final class SceneFrameBuilder {
                                        float shadowCullingPadding) {
         return queueCacheEnabled && shadowCacheValid
                 && shadowSceneRevision == sceneRevision
-                && shadowBoundsRevision == boundsRevision
                 && shadowCullingEnabled == cullingEnabled
+                && shadowEnabledKey == shadowEnabled
+                // Without base shadow culling, bounds, light matrix and padding
+                // cannot change the shared candidate membership or sort order.
+                && (!cullingEnabled || (shadowBoundsRevision == boundsRevision
                 && Float.floatToIntBits(this.shadowCullingPadding)
                 == Float.floatToIntBits(shadowCullingPadding)
-                && shadowEnabledKey == shadowEnabled
-                && matrixEquals(shadowKeyMatrix, shadowMatrix);
+                && matrixEquals(shadowKeyMatrix, shadowMatrix)));
     }
 
     private void updateForwardStatistics() {

@@ -16,6 +16,10 @@
 - 新增 `runRender3dDynamicShadowIntegration`、`runRender3dShadowCullingBenchmarks` 和
   `localShadowCullingVerification`，同步更新 Render3D 阴影指南、testing guide、能力矩阵和
   v0.23.4 性能/发布证据。
+- 动态阴影收尾修复将逐 view 成员关系改为按共享候选 rank 的位图，避免 caster 离开/重入后
+  swap-remove 改变提交顺序；skin/morph 与单 caster bounds 变化沿 `changedIndices` 稀疏更新，
+  10k 证据改为真实 SceneFrameBuilder 链路。级联诊断缓冲稳定帧复用，测试故障命令从
+  `CommandBuffer` 公共 API 移除。
 
 ## v0.23.3（2026-08-21）
 
