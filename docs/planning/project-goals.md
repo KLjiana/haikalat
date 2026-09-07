@@ -4,9 +4,11 @@
 Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、单元测试和少量
 清晰文档，沉淀一套可学习、可验证、可逐步扩展的 OpenGL 渲染架构。
 
-当前阶段的重点不是无边界扩张功能面，而是稳定已有 runtime、RenderGraph、资源生命周期、
-材质、场景渲染、后处理、UI subsystem 和 demo 证明路径。调试器与编辑工具可以作为这些
-公共能力的集成场景逐步发展。
+当前阶段在维护 runtime、RenderGraph、资源生命周期和 UI 合同的基础上，推进
+[v0.24 风格化室外环境与体积阳光](v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)。
+通过一个完整室外样板，验证天空、环境光、雾和受遮挡的光束如何共同形成画面；v0.24.0
+候选已完成自动专项验收，后续只保留发布门禁和人工复核证据收口；
+调试器与编辑工具继续作为公共能力的集成场景逐步发展。
 
 ## 已有能力
 
@@ -51,13 +53,13 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 
 ## 非目标
 
-- 暂不做完整游戏引擎：物理、音频、脚本、动画状态机不是当前重点。
+- 暂不做完整游戏引擎：物理、音频、脚本不是当前重点，已有 Animation Graph 不扩张为完整玩法系统。
 - 暂不引入复杂 ECS，除非现有 `SceneObject` 模型明确撑不住。
 - 暂不直接重写 Vulkan 或第二后端；第二后端只能在 OpenGL 边界稳定后用于验证 `RenderDevice`。
 - 暂不一次性建设与框架紧耦合的单体生产级编辑器；允许基于 UI subsystem 逐步增加调试面板、
   资源检查器和编辑工作流。
-- v0.13 只把 v0.12 PBR 接入静态 glTF 2.0 资产主路径；animation/skin、transmission、
-  clearcoat、local probe、clustered lighting 与 shader graph 仍必须由后续真实内容需求和性能数据驱动。
+- transmission、clearcoat、local probe、clustered lighting 与 shader graph 等扩展，
+  由后续真实内容需求和性能数据驱动；已有 animation/skin 能力以当前能力矩阵为准。
 
 ## 命名
 

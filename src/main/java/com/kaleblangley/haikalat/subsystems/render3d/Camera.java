@@ -60,6 +60,8 @@ public class Camera {
 
     /** @return 相机位置 */
     public Vector3f position() { return new Vector3f(position); }
+    /** Package-private zero-allocation view for render passes on the render thread. */
+    Vector3f positionInternal() { return position; }
     /** @return 相机前方向量 */
     public Vector3f front() { return new Vector3f(front); }
     /** @return 相机上方向量 */

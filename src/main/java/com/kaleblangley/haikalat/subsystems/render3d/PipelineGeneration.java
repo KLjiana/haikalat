@@ -30,6 +30,8 @@ final class PipelineGeneration implements AutoCloseable {
     String finalPassName;
     PbrMaterialBinder pbrMaterialBinder;
     EnvironmentBackgroundRenderer environmentBackground;
+    OutdoorVolumetricSunPass outdoorVolumetricSun;
+    StylizedSkyRenderer stylizedSky;
     final SceneFrameBuilder sceneFrameBuilder = new SceneFrameBuilder();
     GraphPreviewRenderer previewRenderer;
     private boolean closed;
@@ -182,6 +184,8 @@ final class PipelineGeneration implements AutoCloseable {
         ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
+        OutdoorVolumetricSunPass localOutdoorVolume = outdoorVolumetricSun;
+        StylizedSkyRenderer localStylizedSky = stylizedSky;
         RenderGraph localGraph = graph;
         previewRenderer = null;
         instancedShadowShader = null;
@@ -195,6 +199,8 @@ final class PipelineGeneration implements AutoCloseable {
         shadowSamplingBlock = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
+        outdoorVolumetricSun = null;
+        stylizedSky = null;
         graph = null;
         finalPassName = null;
 
@@ -211,6 +217,8 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localShadowSamplingBlock, failure);
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);
+        failure = closeCollecting(localOutdoorVolume, failure);
+        failure = closeCollecting(localStylizedSky, failure);
         failure = closeCollecting(localGraph, failure);
         if (failure != null) throw failure;
     }

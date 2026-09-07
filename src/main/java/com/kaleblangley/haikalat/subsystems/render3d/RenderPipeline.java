@@ -133,6 +133,7 @@ public final class RenderPipeline {
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
+    private OutdoorEnvironmentSettings outdoorEnvironment = OutdoorEnvironmentSettings.disabled();
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
     private RenderFrameContext activeFrameContext;
@@ -239,6 +240,82 @@ public final class RenderPipeline {
         return this;
     }
 
+    /**
+     * Configures the v0.24 outdoor environment before the first generation is
+     * built.  The snapshot owns no GL resources; applying it is therefore a
+     * normal candidate-generation operation and never mutates a live frame.
+     */
+    public RenderPipeline outdoorEnvironment(OutdoorEnvironmentSettings value) {
+        if (activeGeneration != null) {
+            throw new IllegalStateException("outdoor environment must be configured before build");
+        }
+        OutdoorEnvironmentSettings required = Objects.requireNonNull(value, "outdoorEnvironment");
+        if (required.volumetricSun().enabled() && hdrVfxRecorder != null) {
+            throw new IllegalArgumentException(
+                    "outdoor volumetric sun cannot be combined with a custom HDR VFX recorder");
+        }
+        outdoorEnvironment = required;
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Returns the immutable environment snapshot used by the next frame. */
+    public OutdoorEnvironmentSettings outdoorEnvironment() {
+        return outdoorEnvironment;
+    }
+
+    /**
+     * Returns whether both independent outdoor volume histories were accepted
+     * for the most recently completed frame.  A false value is intentionally
+     * conservative: it also covers a resize, camera/scene/environment change,
+     * or a failed frame before the next successful commit.
+     */
+    public boolean outdoorVolumeHistoryValid() {
+        return activeGeneration != null && activeGeneration.postProcess != null
+                && activeGeneration.postProcess.outdoorHistoryValid();
+    }
+
+    /**
+     * Applies a new outdoor preset as a frame-boundary candidate.  If shader or
+     * target creation fails the previous preset and generation remain active.
+     */
+    public void applyOutdoorEnvironment(OutdoorEnvironmentSettings value) {
+        OutdoorEnvironmentSettings replacement = Objects.requireNonNull(value, "outdoorEnvironment");
+        if (activeGeneration == null) {
+            outdoorEnvironment(replacement);
+            return;
+        }
+        if (executing) throw new IllegalStateException("outdoor environment changes are only allowed at frame start");
+        OutdoorEnvironmentSettings previous = outdoorEnvironment;
+        outdoorEnvironment = replacement;
+        try {
+            validateOutdoorEnvironment(scene);
+            PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
+                    postProcessSettings, activeGeneration.graph.width(), activeGeneration.graph.height(),
+                    hdrVfxRecorder != null || outdoorEnvironment.volumetricSun().enabled(), embedded,
+                    directionalCascadeSettings, localShadowSettings);
+            boolean outdoorPassShapeChanged =
+                    (activeGeneration.stylizedSky != null) != outdoorEnvironment.enabled()
+                    || (activeGeneration.outdoorVolumetricSun != null)
+                    != outdoorEnvironment.volumetricSun().enabled()
+                    || activeGeneration.postProcess.outdoorDownsample()
+                    != (outdoorEnvironment.volumetricSun().enabled()
+                    ? outdoorEnvironment.volumetricSun().downsample() : 2);
+            if (activeGeneration.topology.equals(candidateTopology) && !outdoorPassShapeChanged) {
+                // Sky/medium parameters are frame-boundary state even when
+                // the graph topology stays unchanged.  Do not blend the old
+                // preset's scattering into the new one.
+                activeGeneration.postProcess.invalidateOutdoorHistory();
+                return;
+            }
+            PipelineGeneration candidate = createGeneration(scene, candidateTopology);
+            activateGeneration(candidate);
+        } catch (RuntimeException | Error failure) {
+            outdoorEnvironment = previous;
+            throw failure;
+        }
+    }
+
     /** Configures the fixed directional cascade atlas before generation creation. */
     public RenderPipeline directionalCascades(DirectionalCascadeSettings value) {
         if (activeGeneration != null) {
@@ -312,8 +389,10 @@ public final class RenderPipeline {
                     + Math.max(2, settings.msaaSamples())
                     + "; provide a matching resolvable host depth target");
         }
+        validateOutdoorEnvironment(scene);
         PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
-                postProcessSettings, w, h, hdrVfxRecorder != null, embedded,
+                postProcessSettings, w, h, hdrVfxRecorder != null
+                        || outdoorEnvironment.volumetricSun().enabled(), embedded,
                 directionalCascadeSettings, localShadowSettings);
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         activateGeneration(candidate);
@@ -336,9 +415,21 @@ public final class RenderPipeline {
                 candidate.pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
                 candidate.environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
             }
+            if (outdoorEnvironment.enabled()) {
+                candidate.stylizedSky = new StylizedSkyRenderer();
+                if (outdoorEnvironment.volumetricSun().enabled()) {
+                    candidate.outdoorVolumetricSun = new OutdoorVolumetricSunPass();
+                }
+            }
             candidate.postProcess = PostProcessPassBuilder.create(
                     settings, postProcessSettings, window, topology.width(), topology.height(),
-                    hdrVfxRecorder);
+                    hdrVfxRecorder,
+                    candidate.outdoorVolumetricSun == null ? null
+                            : (resources, commands, sceneColor, sceneDepth) ->
+                            recordOutdoorVolume(candidate, resources, commands, sceneColor, sceneDepth),
+                    0.86f, 0.08f,
+                    candidate.outdoorVolumetricSun == null
+                            ? 2 : outdoorEnvironment.volumetricSun().downsample());
             if (topology.gtaoEnabled()) {
                 candidate.gtaoDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
                         "/shaders/render3d/gtao/gtao-depth.vert",
@@ -421,12 +512,15 @@ public final class RenderPipeline {
             scene = candidateScene;
             return;
         }
+        validateOutdoorEnvironment(candidateScene);
         PipelineTopology candidateTopology = PipelineTopology.capture(candidateScene, settings,
                 postProcessSettings, generation.graph.width(), generation.graph.height(),
-                hdrVfxRecorder != null, embedded, directionalCascadeSettings,
+                hdrVfxRecorder != null || outdoorEnvironment.volumetricSun().enabled(), embedded,
+                directionalCascadeSettings,
                 localShadowSettings);
         if (generation.topology.equals(candidateTopology)) {
             scene = candidateScene;
+            generation.postProcess.invalidateOutdoorHistory();
             currentSceneFrame = null;
             currentShadowCasterPlan = null;
             shadowCasterPlanner.reset();
@@ -611,7 +705,7 @@ public final class RenderPipeline {
                 shadowPlan.filterMode().name(), localShadowSettings.point().resolution(),
                 pointWidth, pointHeight, localShadowSettings.spot().resolution(),
                 spotWidth, spotHeight, depthBytes);
-        boolean depthResolved = generation.topology.fog()
+        boolean depthResolved = (generation.topology.fog() || generation.topology.hdrVfx())
                 && generation.topology.antiAliasingMode() == AntiAliasingMode.MSAA;
         var depth = new Render3dDiagnostics.DepthResolveSummary(depthResolved,
                 depthResolved ? generation.topology.sampleCount() : 1, 1,
@@ -732,6 +826,9 @@ public final class RenderPipeline {
                     || invalidation.invalidated(FrameInvalidation.Domain.MATERIAL_RENDER_STATE)
                     || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS)) {
                 generation.postProcess.invalidateGtaoHistory();
+            }
+            if (invalidation.any()) {
+                generation.postProcess.invalidateOutdoorHistory();
             }
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.prepare(device, previewFrameSequence);
@@ -962,6 +1059,52 @@ public final class RenderPipeline {
                         ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0,
                 gtaoTexture);
         };
+    }
+
+    private void validateOutdoorEnvironment(Scene candidateScene) {
+        if (!outdoorEnvironment.volumetricSun().enabled()) return;
+        if (!settings.hdrEnabled()) {
+            throw new IllegalStateException("v0.24 outdoor volumetric sunlight requires HDR output");
+        }
+        if (hdrVfxRecorder != null) {
+            throw new IllegalStateException(
+                    "v0.24 outdoor volumetric sunlight cannot share the HDR VFX composite");
+        }
+        if (postProcessSettings.fog().enabled()) {
+            throw new IllegalStateException(
+                    "global analytic fog must be disabled when outdoor volume owns the ray interval");
+        }
+        boolean hasShadowedSun = candidateScene.lights().stream()
+                .anyMatch(light -> light.type() == LightType.DIRECTIONAL && light.castShadows());
+        if (!hasShadowedSun) {
+            throw new IllegalStateException(
+                    "v0.24 outdoor volumetric sunlight requires one shadowed directional sun");
+        }
+        for (MeshRenderer renderer : candidateScene.renderers()) {
+            RenderQueueClass queue = RenderQueueClass.classify(renderer.material());
+            if (queue == RenderQueueClass.TRANSPARENT_ALPHA
+                    || queue == RenderQueueClass.TRANSPARENT_ADDITIVE) {
+                throw new IllegalStateException(
+                        "ALPHA/ADDITIVE materials are unsupported while outdoor volume is enabled");
+            }
+        }
+    }
+
+    private void recordOutdoorVolume(PipelineGeneration generation,
+                                     com.kaleblangley.haikalat.core.graph.PassResources resources,
+                                     CommandBuffer commands, int sceneColorTexture,
+                                     int sceneDepthTexture) {
+        if (generation.outdoorVolumetricSun == null) return;
+        ShadowFramePlan plan = currentShadowFramePlan;
+        if (plan == null || plan.directional().isEmpty()) {
+            throw new IllegalStateException("outdoor volume frame has no valid directional shadow plan");
+        }
+        ShadowFramePlan.DirectionalPlan directional = plan.directional().orElseThrow();
+        int shadowTexture = resources.depthAttachment(DirectionalShadowMap.TEXTURE_NAME);
+        generation.outdoorVolumetricSun.recordIntoCurrentTarget(commands,
+                sceneColorTexture, sceneDepthTexture, shadowTexture, frameCamera(),
+                outdoorEnvironment, directional.matrices(), directional.splits(), activeFrameIndex,
+                frameWidth(), frameHeight());
     }
 
     private PassExecutor gtaoDepthExecutor() {
@@ -1429,7 +1572,10 @@ public final class RenderPipeline {
             generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
                     settings.antiAliasingMode(), activeFrameIndex);
         }
-        if (generation.environmentBackground != null) {
+        if (generation.stylizedSky != null) {
+            generation.stylizedSky.render(cmd, camera, frameWidth(), frameHeight(),
+                    outdoorEnvironment.sky());
+        } else if (generation.environmentBackground != null) {
             generation.environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
         }
 

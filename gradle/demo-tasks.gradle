@@ -20,6 +20,8 @@ def render3dV023Main = 'com.kaleblangley.haikalat.demo.pbr.Render3dV023Demo'
 def render3dGtaoMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dGtaoDemo'
 def render3dShadowBudgetMain =
         'com.kaleblangley.haikalat.demo.gltf.Render3dShadowBudgetDemo'
+def render3dOutdoorMain =
+        'com.kaleblangley.haikalat.demo.pbr.Render3dOutdoorEnvironmentDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
 def animationBenchmarkMain =
@@ -142,6 +144,27 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
                  '--environment-quality=test', '--csm-atlas=1024', '--dynamic', '--verify'],
                 'Runs deterministic per-view dynamic shadow culling, local invalidation and resize proof.']
+        ,runOutdoorEnvironmentIntegration   : [render3dOutdoorMain,
+                ['--hidden', '--frames=8', '--size=640x360', '--environment-quality=test',
+                 '--preset=morning_fog', '--aa=TAA', '--bloom', '--auto-exposure', '--gtao', '--verify'],
+                'Runs the deterministic v0.24 outdoor sky, CSM-aware volume, GTAO, Bloom and auto-exposure scene.']
+        ,runOutdoorEnvironmentDemo          : [render3dOutdoorMain,
+                ['--size=1280x720', '--environment-quality=test', '--preset=morning_fog'],
+                'Shows the v0.24 stylized outdoor environment and volume controls.']
+        ,runOutdoorEnvironmentReferenceIntegration: [render3dOutdoorMain,
+                ['--hidden', '--frames=8', '--size=640x360', '--environment-quality=test',
+                 '--preset=morning_fog', '--volume-quality=high', '--verify'],
+                'Runs the high-sample, history-off reference volume path.']
+        ,runOutdoorEnvironmentStabilityIntegration: [render3dOutdoorMain,
+                ['--hidden', '--frames=3600', '--size=320x180', '--resize=120:480x270',
+                 '--environment-quality=test',
+                 '--preset=morning_fog', '--stability', '--verify'],
+                'Runs the v0.24 outdoor volume stability soak, preset switches and failure rollback.']
+        ,runOutdoorEnvironmentBenchmarks : [render3dOutdoorMain,
+                ['--hidden', '--frames=720', '--warmup=120', '--rounds=5', '--benchmark',
+                 '--benchmark-sizes=1920x1080,3840x2160', '--size=1920x1080', '--no-vsync', '--environment-quality=test',
+                 '--preset=morning_fog', '--verify'],
+                'Measures five paired enabled/disabled outdoor volume rounds at 1080p and 4K.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
                 'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
@@ -297,9 +320,19 @@ tasks.register('localGlVerification') {
             'runRender3dV023Integration',
             'runRender3dGtaoIntegration',
             'runRender3dShadowBudgetIntegration', 'runRender3dDynamicShadowIntegration',
+            'runOutdoorEnvironmentIntegration', 'runOutdoorEnvironmentStabilityIntegration',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
+}
+
+tasks.register('localOutdoorVerification') {
+    group = 'verification'
+    description = 'Runs the v0.24 outdoor environment integration, stability and benchmark smoke matrix.'
+    dependsOn 'runOutdoorEnvironmentIntegration',
+            'runOutdoorEnvironmentReferenceIntegration',
+            'runOutdoorEnvironmentStabilityIntegration',
+            'runOutdoorEnvironmentBenchmarks'
 }
 
 tasks.register('localShadowCullingVerification') {

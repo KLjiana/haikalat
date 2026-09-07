@@ -16,6 +16,7 @@ def localReleaseTasks = [
         'runRender3dV023Integration',
         'runRender3dShadowBudgetIntegration', 'runRender3dDynamicShadowIntegration',
         'runRender3dShadowCullingBenchmarks',
+        'localOutdoorVerification',
         'runGltfIntegration', 'runGltfResizeIntegration',
         'runGltfSkinningIntegration', 'runPlayerSlieIntegration',
         'runPlayerWildIntegration', 'runSerializedSceneIntegration', 'runUiIntegration',

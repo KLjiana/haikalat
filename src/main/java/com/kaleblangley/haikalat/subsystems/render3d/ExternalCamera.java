@@ -99,6 +99,11 @@ public final class ExternalCamera extends Camera {
         return new Vector3f(position);
     }
 
+    @Override
+    Vector3f positionInternal() {
+        return position;
+    }
+
     public float partialTick() {
         return partialTick;
     }

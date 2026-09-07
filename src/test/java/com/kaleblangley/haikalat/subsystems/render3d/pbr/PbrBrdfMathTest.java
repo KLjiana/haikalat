@@ -11,6 +11,13 @@ class PbrBrdfMathTest {
         assertEquals(0.04f, PbrBrdfMath.DIELECTRIC_F0, 1.0e-6f);
         assertEquals(0.0f, PbrBrdfMath.diffuseWeight(1.0f, 0.04f), 1.0e-6f);
         assertTrue(PbrBrdfMath.diffuseWeight(0.0f, 0.04f) > 0.9f);
+        float whiteLambert = PbrBrdfMath.diffuseFromIrradiance((float) Math.PI,
+                1.0f, 0.0f, 0.0f);
+        assertEquals(1.0f, whiteLambert, 1.0e-6f,
+                "PI-scaled irradiance must produce unit white Lambert response");
+        assertEquals(0.0f, PbrBrdfMath.diffuseFromIrradiance((float) Math.PI,
+                1.0f, 1.0f, 0.04f), 1.0e-6f,
+                "fully metallic surfaces have no diffuse IBL term");
     }
 
     @Test

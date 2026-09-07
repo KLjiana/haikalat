@@ -63,7 +63,7 @@ final class ForwardPassBuilder {
         } else {
             geometry.createColor(PostProcessTargets.SCENE_COLOR, sceneFormat);
         }
-        if (postProcessSettings.fog().enabled()
+        if ((postProcessSettings.fog().enabled() || topology.hdrVfx())
                 && settings.antiAliasingMode() != AntiAliasingMode.MSAA) {
             geometry.createDepthTexture(PostProcessTargets.SCENE_DEPTH);
         } else {

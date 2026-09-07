@@ -31,6 +31,10 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSelectionMode
 advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowAtlas
 advanced com.kaleblangley.haikalat.subsystems.render3d.SpotShadowMap
 advanced com.kaleblangley.haikalat.subsystems.render3d.Transform
+advanced com.kaleblangley.haikalat.subsystems.render3d.LocalFogVolume
+advanced com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.StylizedSkySettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricSunSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer

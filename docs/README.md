@@ -26,6 +26,7 @@
 - [v0.23.1 Render3D 光源与阴影深化计划](planning/v0.23.1-render3d-lighting-and-shadow-enhancement.md)
 - [v0.23.2 Render3D GTAO 与时域环境遮蔽实施计划](planning/v0.23.2-render3d-gtao-temporal-ambient-occlusion.md)
 - [v0.23.4 Render3D 动态阴影精细裁剪与失效计划](planning/v0.23.4-render3d-dynamic-shadow-culling-and-invalidation.md)
+- [v0.24 风格化室外环境与体积阳光计划](planning/v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -70,6 +71,7 @@
 - [场景异步加载与热重载](guides/scene-asset-loading.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
 - [Render3D 材质、透明与阴影指南](guides/render3d-materials-and-shadows.md)
+- [Render3D 室外环境与体积阳光指南](guides/render3d-outdoor-environment.md)
 - [Milestone 4 API、性能与限制](guides/milestone4-api-performance-limitations.md)
 - [Windows IME 适配与人工验收矩阵](guides/windows-ime.md)
 
@@ -95,12 +97,14 @@
 - [v0.22.0 文本子系统与 Markdown/UI 字体特效正式版验收报告](releases/v0.22.0-release-report.md)
 - [v0.23.0 Render3D 框架加固与能力扩展正式版验收报告](releases/v0.23.0-release-report.md)
 - [v0.23.1 Render3D 光源与阴影深化正式版验收报告](releases/v0.23.1-release-report.md)
+- [v0.24.0 室外环境与体积阳光发布报告](releases/v0.24.0-release-report.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
 - [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)
 - [glTF Animation Graph sidecar 指南](guides/gltf-animation-state-machine.md)
 - [2026-08-06 v0.20.2 外部动画与现代 UI 性能记录](performance/v0.20.2-modern-ui-2026-08-06.md)
 - [2026-08-08 v0.22.0 文本与字体特效专项记录](performance/v0.22.0-text-effects-2026-08-08.md)
 - [2026-08-19 v0.23.1 Render3D 阴影性能与缓存记录](performance/v0.23.1-render3d-shadows-2026-08-19.md)
+- [2026-09-08 v0.24 室外环境阶段性能记录](performance/v0.24-outdoor-environment-2026-09-08.md)
 - [2026-07-28 v0.20 M7 热路径性能与回归记录](performance/v0.20-m7-2026-07-28.md)
 - [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)

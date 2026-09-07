@@ -36,6 +36,11 @@ final class TaaHistory implements AutoCloseable {
         return valid;
     }
 
+    void invalidate() {
+        ensureOpen();
+        valid = false;
+    }
+
     ResizeCandidate prepareResize(int width, int height) {
         ensureOpen();
         if (width <= 0 || height <= 0

@@ -12,6 +12,19 @@ final class PbrBrdfMath {
         return (1.0f - clamp01(fresnel)) * (1.0f - clamp01(metallic));
     }
 
+    /**
+     * Converts the irradiance convention used by irradiance.comp (PI times
+     * the cosine-weighted environment average) into a Lambert diffuse term.
+     */
+    static float diffuseFromIrradiance(float irradiance, float albedo,
+                                       float metallic, float fresnel) {
+        if (!Float.isFinite(irradiance) || irradiance < 0.0f
+                || !Float.isFinite(albedo) || albedo < 0.0f) {
+            throw new IllegalArgumentException("irradiance and albedo must be finite and non-negative");
+        }
+        return irradiance * albedo * diffuseWeight(metallic, fresnel) / PI;
+    }
+
     static float distributionGgx(float nDotH, float roughness) {
         float safeRoughness = Math.max(0.045f, clamp01(roughness));
         float a = safeRoughness * safeRoughness;

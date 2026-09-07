@@ -435,7 +435,9 @@ void main() {
     vec3 f = fresnelSchlickRoughness(nDotV, f0, roughness);
     vec3 kd = (1.0 - f) * (1.0 - metallic);
     vec3 rotatedN = rotateEnvironment(n);
-    vec3 diffuseIbl = texture(uIrradianceMap, rotatedN).rgb * baseSample.rgb;
+    // irradiance.comp stores PI * average(cosine-weighted radiance), so the
+    // Lambert BRDF must divide by PI exactly once here.
+    vec3 diffuseIbl = texture(uIrradianceMap, rotatedN).rgb * baseSample.rgb / PI;
     vec3 reflection = rotateEnvironment(reflect(-v, n));
     vec3 prefiltered = textureLod(uPrefilteredMap, reflection,
             roughness * uPrefilterMaxLod).rgb;
