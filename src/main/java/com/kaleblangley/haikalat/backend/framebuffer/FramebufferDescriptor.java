@@ -20,6 +20,7 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL;
 import static org.lwjgl.opengl.GL30.GL_RGBA8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_R16F;
+import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.GL_RG;
 import static org.lwjgl.opengl.GL30.GL_RG32F;
@@ -95,6 +96,7 @@ public record FramebufferDescriptor(
 
     public enum AttachmentStorage {
         TEXTURE_2D,
+        TEXTURE_2D_MULTISAMPLE,
         RENDERBUFFER,
         NONE
     }
@@ -117,6 +119,11 @@ public record FramebufferDescriptor(
                     AttachmentStorage.TEXTURE_2D);
         }
 
+        public static ColorAttachment textureMultisample(int internalFormat) {
+            return new ColorAttachment(internalFormat, colorExternalFormat(internalFormat), colorDataType(internalFormat),
+                    AttachmentStorage.TEXTURE_2D_MULTISAMPLE);
+        }
+
         public static ColorAttachment renderbuffer(int internalFormat) {
             return new ColorAttachment(internalFormat, colorExternalFormat(internalFormat), colorDataType(internalFormat),
                     AttachmentStorage.RENDERBUFFER);
@@ -125,11 +132,13 @@ public record FramebufferDescriptor(
         private static int colorDataType(int internalFormat) {
             return internalFormat == GL_RGBA16F || internalFormat == GL_R16F
                     || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F || internalFormat == GL_RG32F
+                    || internalFormat == GL_R32F
                     ? GL_FLOAT : GL_UNSIGNED_BYTE;
         }
 
         private static int colorExternalFormat(int internalFormat) {
-            if (internalFormat == GL_R8 || internalFormat == GL_R16F) {
+            if (internalFormat == GL_R8 || internalFormat == GL_R16F
+                    || internalFormat == GL_R32F) {
                 return GL_RED;
             }
             return internalFormat == GL_RG32F || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F
@@ -151,6 +160,12 @@ public record FramebufferDescriptor(
         public static DepthAttachment texture() {
             return new DepthAttachment(GL_DEPTH_COMPONENT24, org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT,
                     org.lwjgl.opengl.GL11.GL_FLOAT, GL_DEPTH_ATTACHMENT, AttachmentStorage.TEXTURE_2D);
+        }
+
+        public static DepthAttachment textureMultisample() {
+            return new DepthAttachment(GL_DEPTH_COMPONENT24, org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT,
+                    org.lwjgl.opengl.GL11.GL_FLOAT, GL_DEPTH_ATTACHMENT,
+                    AttachmentStorage.TEXTURE_2D_MULTISAMPLE);
         }
 
         public static DepthAttachment stencilRenderbuffer() {
@@ -188,6 +203,15 @@ public record FramebufferDescriptor(
             return this;
         }
 
+        public Builder colorTextureMultisample(int internalFormat) {
+            colorAttachments.add(ColorAttachment.textureMultisample(internalFormat));
+            return this;
+        }
+
+        public Builder colorTextureMultisample(RenderFormat format) {
+            return colorTextureMultisample(GlFormats.toGl(format));
+        }
+
         public Builder colorTexture(RenderFormat format) {
             return colorTexture(GlFormats.toGl(format));
         }
@@ -203,6 +227,11 @@ public record FramebufferDescriptor(
 
         public Builder depthTexture() {
             depthAttachment = DepthAttachment.texture();
+            return this;
+        }
+
+        public Builder depthTextureMultisample() {
+            depthAttachment = DepthAttachment.textureMultisample();
             return this;
         }
 

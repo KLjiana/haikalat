@@ -36,9 +36,20 @@ public interface SceneDrawBinding {
         return 0L;
     }
 
+    /**
+     * Optional previous-frame deformation capability.  External implementations
+     * written before v0.24.1 keep compiling and are treated as having no
+     * reliable history.
+     */
+    default TemporalDrawBinding temporalBinding() {
+        return null;
+    }
+
     enum Pass {
         FORWARD,
         SHADOW,
-        DEPTH_PREPASS
+        DEPTH_PREPASS,
+        /** Shared scene surface prepass producing depth/normal/velocity/validity. */
+        SURFACE
     }
 }

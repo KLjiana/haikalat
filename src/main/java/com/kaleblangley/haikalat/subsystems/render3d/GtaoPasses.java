@@ -49,7 +49,13 @@ final class GtaoPasses implements AutoCloseable {
     private final Matrix4f uploadedInverseViewProjection = new Matrix4f();
     private final Matrix4f uploadedPreviousInverseProjection = new Matrix4f();
     private final Matrix4f uploadedPreviousViewProjection = new Matrix4f();
+    private final org.joml.Vector2f jitterScratch = new org.joml.Vector2f();
     private boolean previousCameraValid;
+    private boolean sharedSurface;
+    private float pendingJitterX;
+    private float pendingJitterY;
+    private float previousJitterX;
+    private float previousJitterY;
     private boolean previousPhaseMotionActive;
     private boolean pendingPhaseMotionActive;
     private boolean pendingFrame;
@@ -121,14 +127,18 @@ final class GtaoPasses implements AutoCloseable {
         }
     }
 
-    void addPreGeometryPasses(RenderGraph graph, RenderGraph.PassExecutor depthExecutor) {
+    void addPreGeometryPasses(RenderGraph graph, RenderGraph.PassExecutor depthExecutor,
+                              boolean sharedSurface) {
         ensureOpen();
         Objects.requireNonNull(graph, "graph");
-        Objects.requireNonNull(depthExecutor, "depthExecutor");
-        graph.addPass(PostProcessTargets.GTAO_DEPTH_PREPASS)
-                .createDepthTexture(PostProcessTargets.GTAO_DEPTH)
-                .clearDepthOnly()
-                .execute(depthExecutor);
+        this.sharedSurface = sharedSurface;
+        if (!sharedSurface) {
+            Objects.requireNonNull(depthExecutor, "depthExecutor");
+            graph.addPass(PostProcessTargets.GTAO_DEPTH_PREPASS)
+                    .createDepthTexture(PostProcessTargets.GTAO_DEPTH)
+                    .clearDepthOnly()
+                    .execute(depthExecutor);
+        }
 
         graph.addPass(PostProcessTargets.GTAO_ESTIMATE_PASS)
                 .createColors(java.util.List.of(PostProcessTargets.GTAO_RAW,
@@ -136,7 +146,9 @@ final class GtaoPasses implements AutoCloseable {
                         java.util.List.of(RenderFormat.R8, RenderFormat.RG16F))
                 .relativeSizeCeil(0.5f)
                 .noClear()
-                .dependsOn(PostProcessTargets.GTAO_DEPTH_PREPASS)
+                .dependsOn(sharedSurface
+                        ? PostProcessTargets.SCENE_SURFACE_PASS
+                        : PostProcessTargets.GTAO_DEPTH_PREPASS)
                 .execute(this::recordEstimate);
 
         graph.addPass(PostProcessTargets.GTAO_TEMPORAL_PASS)
@@ -173,6 +185,10 @@ final class GtaoPasses implements AutoCloseable {
         CameraProjection.stable(camera, this.width, this.height, frameProjection);
         CameraUniforms.applyTemporalJitter(frameProjection, this.width, this.height,
                 Objects.requireNonNull(antiAliasingMode, "antiAliasingMode"), frameIndex);
+        TemporalJitter.uvOffset(antiAliasingMode, frameIndex, this.width, this.height,
+                jitterScratch);
+        pendingJitterX = jitterScratch.x;
+        pendingJitterY = jitterScratch.y;
         camera.getViewMatrix(frameView);
         float cameraViewDelta = previousCameraValid
                 ? matrixDelta(previousCameraView, frameView) : 0.0f;
@@ -287,6 +303,8 @@ final class GtaoPasses implements AutoCloseable {
             previousCameraView.set(pendingCameraView);
             previousPhaseMotionActive = pendingPhaseMotionActive;
             previousInverseProjection.set(pendingInverseProjection);
+            previousJitterX = pendingJitterX;
+            previousJitterY = pendingJitterY;
             previousCameraValid = true;
             pendingFrame = false;
         }
@@ -364,6 +382,8 @@ final class GtaoPasses implements AutoCloseable {
             owner.previousPhaseMotionActive = false;
             owner.pendingPhaseMotionActive = false;
             owner.pendingFrame = false;
+            owner.previousJitterX = 0.0f;
+            owner.previousJitterY = 0.0f;
             committed = true;
         }
 
@@ -385,11 +405,12 @@ final class GtaoPasses implements AutoCloseable {
     Render3dDiagnostics.AmbientOcclusionSummary diagnostics(int fullWidth, int fullHeight) {
         long fullPixels = (long) fullWidth * fullHeight;
         long halfPixels = (long) half(fullWidth) * half(fullHeight);
-        // D24 depth is conservatively reported as four bytes/texel; the transient
-        // color targets include the RG16F octahedral normal cache emitted beside
-        // raw AO (R8 + RG16F + RG16F + R8).  The estimate is intentionally
-        // conservative for driver alignment.
-        long transientBytes = fullPixels * 5L + halfPixels * 11L;
+        // D24 depth is conservatively reported as four bytes/texel when GTAO
+        // owns its legacy prepass; in shared-surface mode the depth belongs to
+        // the SceneSurfacePass budget instead.  The transient color targets
+        // include the RG16F octahedral normal cache emitted beside raw AO.
+        long transientBytes = (sharedSurface ? fullPixels * 1L : fullPixels * 5L)
+                + halfPixels * 11L;
         long historyBytes = history == null ? 0L
                 : halfPixels * 8L;
         return new Render3dDiagnostics.AmbientOcclusionSummary(true, "", settings.quality().name(),
@@ -408,15 +429,27 @@ final class GtaoPasses implements AutoCloseable {
         previousPhaseMotionActive = false;
         pendingPhaseMotionActive = false;
         pendingFrame = false;
+        previousJitterX = 0.0f;
+        previousJitterY = 0.0f;
     }
 
     private void recordEstimate(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
+        int depthTexture = sharedSurface
+                ? resources.depthAttachment(PostProcessTargets.SCENE_DEPTH)
+                : resources.depthAttachment(PostProcessTargets.GTAO_DEPTH);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(estimateProgram)
-                .bindTexture(0, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH));
+                .bindTexture(0, depthTexture);
+        if (sharedSurface) {
+            command.bindTexture(1, resources.colorAttachment(PostProcessTargets.SCENE_NORMAL))
+                    .setUniformInt(estimateProgram, "uSharedSurface", 1)
+                    .setUniformMat4(estimateProgram, "uView", frameView);
+        } else {
+            command.setUniformInt(estimateProgram, "uSharedSurface", 0);
+        }
         if (projectionUniformDirty) command.setUniformMat4(estimateProgram, "uInverseProjection", inverseProjection)
                 .setUniformFloat(estimateProgram, "uProjectionScaleY", projectionScaleY);
         if (phaseUniformDirty) command.setUniformFloat(estimateProgram, "uFramePhase", samplePhase);
@@ -429,12 +462,26 @@ final class GtaoPasses implements AutoCloseable {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
         int historyTexture = history == null ? 0 : history.readFramebuffer().colorAttachment();
+        int depthTexture = sharedSurface
+                ? resources.depthAttachment(PostProcessTargets.SCENE_DEPTH)
+                : resources.depthAttachment(PostProcessTargets.GTAO_DEPTH);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(temporalProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_RAW))
-                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH))
+                .bindTexture(1, depthTexture)
                 .bindTexture(2, historyTexture);
+        if (sharedSurface) {
+            command.bindTexture(3, resources.colorAttachment(PostProcessTargets.SCENE_VELOCITY))
+                    .bindTexture(4, resources.colorAttachment(PostProcessTargets.SCENE_PREVIOUS_DEPTH))
+                    .bindTexture(5, resources.colorAttachment(PostProcessTargets.SCENE_VALIDITY))
+                    .setUniformInt(temporalProgram, "uSharedSurface", 1)
+                    .setUniformVec2(temporalProgram, "uJitter", pendingJitterX, pendingJitterY)
+                    .setUniformVec2(temporalProgram, "uPreviousJitter",
+                            previousJitterX, previousJitterY);
+        } else {
+            command.setUniformInt(temporalProgram, "uSharedSurface", 0);
+        }
         if (viewUniformDirty) command.setUniformMat4(temporalProgram,
                 "uInverseViewProjection", inverseViewProjection);
         if (projectionUniformDirty) command.setUniformMat4(temporalProgram,
@@ -457,11 +504,14 @@ final class GtaoPasses implements AutoCloseable {
     private void recordDenoise(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
+        int depthTexture = sharedSurface
+                ? resources.depthAttachment(PostProcessTargets.SCENE_DEPTH)
+                : resources.depthAttachment(PostProcessTargets.GTAO_DEPTH);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(denoiseProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_TEMPORAL))
-                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH))
+                .bindTexture(1, depthTexture)
                 .bindTexture(2, resources.colorAttachment(PostProcessTargets.GTAO_NORMAL));
         if (extentUniformDirty) command.setUniformVec2(denoiseProgram,
                 "uHalfExtent", target.width(), target.height());
@@ -474,11 +524,14 @@ final class GtaoPasses implements AutoCloseable {
     private void recordUpsample(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
+        int depthTexture = sharedSurface
+                ? resources.depthAttachment(PostProcessTargets.SCENE_DEPTH)
+                : resources.depthAttachment(PostProcessTargets.GTAO_DEPTH);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(upsampleProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_DENOISE_B))
-                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH))
+                .bindTexture(1, depthTexture)
                 .bindTexture(2, resources.colorAttachment(PostProcessTargets.GTAO_NORMAL));
         if (extentUniformDirty) command.setUniformVec2(upsampleProgram,
                 "uHalfExtent", half(width), half(height))
@@ -500,6 +553,8 @@ final class GtaoPasses implements AutoCloseable {
      */
     private void configureStaticUniforms() {
         estimateProgram.setSampler("uDepth", 0)
+                .setSampler("uSharedNormal", 1)
+                .setInt("uSharedSurface", 0)
                 .setFloat("uRadius", settings.radius())
                 .setFloat("uStrength", settings.strength())
                 .setFloat("uThickness", settings.thickness())
@@ -508,6 +563,10 @@ final class GtaoPasses implements AutoCloseable {
         temporalProgram.setSampler("uRaw", 0)
                 .setSampler("uDepth", 1)
                 .setSampler("uHistory", 2)
+                .setSampler("uVelocity", 3)
+                .setSampler("uPreviousDepth", 4)
+                .setSampler("uValidity", 5)
+                .setInt("uSharedSurface", 0)
                 .setFloat("uDepthReject", settings.depthRejectionThreshold());
         denoiseProgram.setSampler("uInput", 0)
                 .setSampler("uDepth", 1)

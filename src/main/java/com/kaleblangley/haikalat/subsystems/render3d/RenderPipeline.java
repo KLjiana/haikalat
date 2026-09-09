@@ -32,6 +32,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRendere
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import org.joml.Matrix4f;
+import org.joml.Vector2f;
+import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 import java.util.Collections;
@@ -139,6 +141,8 @@ public final class RenderPipeline {
     private RenderFrameContext activeFrameContext;
     private RenderFrameContext lastFrameContext;
     private RenderFrameContext lastFailedFrameContext;
+    private final TemporalFrameState temporalFrameState = new TemporalFrameState();
+    private final TemporalSceneState temporalSceneState = new TemporalSceneState();
     private long topologySettingsRevision;
     private boolean executing;
     private boolean embedded;
@@ -452,21 +456,38 @@ public final class RenderPipeline {
                     outdoorEnvironment.volumetricSun().historyWeight(),
                     outdoorEnvironment.volumetricSun().depthRejectThreshold(),
                     candidate.outdoorVolumetricSun == null
-                            ? 2 : outdoorEnvironment.volumetricSun().downsample());
+                            ? 2 : outdoorEnvironment.volumetricSun().downsample(),
+                    topology.sceneBuffers().requiresSurfacePass(),
+                    topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
+                    reactiveExecutor());
+            boolean gtaoShared = topology.gtaoEnabled()
+                    && topology.sceneBuffers().requiresSurfacePass()
+                    && topology.sceneBuffers().requires(SceneBufferChannel.NORMAL);
             if (topology.gtaoEnabled()) {
-                candidate.gtaoDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
-                        "/shaders/render3d/gtao/gtao-depth.vert",
-                        "/shaders/render3d/gtao/gtao-depth.frag");
-                candidate.gtaoMaskedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
-                        "/shaders/render3d/gtao/gtao-masked-depth.vert",
-                        "/shaders/render3d/gtao/gtao-masked-depth.frag");
-                if (instanced != null) {
-                    candidate.gtaoInstancedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
-                            "/shaders/render3d/gtao/gtao-instanced-depth.vert",
+                if (!gtaoShared) {
+                    candidate.gtaoDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                            "/shaders/render3d/gtao/gtao-depth.vert",
                             "/shaders/render3d/gtao/gtao-depth.frag");
+                    candidate.gtaoMaskedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                            "/shaders/render3d/gtao/gtao-masked-depth.vert",
+                            "/shaders/render3d/gtao/gtao-masked-depth.frag");
+                    if (instanced != null) {
+                        candidate.gtaoInstancedDepthShader = ShaderProgram.fromResource(RenderPipeline.class,
+                                "/shaders/render3d/gtao/gtao-instanced-depth.vert",
+                                "/shaders/render3d/gtao/gtao-depth.frag");
+                    }
                 }
                 candidate.postProcess.addGtaoPreGeometryPasses(candidate.graph,
-                        gtaoDepthExecutor());
+                        gtaoDepthExecutor(), gtaoShared);
+            }
+            if (topology.sceneBuffers().requiresSurfacePass()) {
+                candidate.sceneSurfacePass = new SceneSurfacePass();
+                if (topology.sampleCount() > 1) {
+                    candidate.sceneSurfaceResolvePass = new SceneSurfaceResolvePass();
+                }
+            }
+            if (topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)) {
+                candidate.sceneReactivePass = new SceneReactivePass();
             }
             boolean hasDirectionalShadow = topology.directionalShadow();
             boolean hasPointShadow = topology.pointShadow();
@@ -491,7 +512,7 @@ public final class RenderPipeline {
                     pointShadowAtlas, spotShadowAtlas, topology,
                     localShadowSettings.cacheStaticTiles(),
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
-                    geometryExecutor());
+                    surfaceExecutor(), surfaceResolveExecutor(), geometryExecutor());
             candidate.postProcess.addFinalPass(candidate.graph);
             candidate.finalPassName = candidate.postProcess.finalPassName();
             candidate.previewRenderer = new GraphPreviewRenderer(
@@ -730,7 +751,9 @@ public final class RenderPipeline {
                 shadowPlan.filterMode().name(), localShadowSettings.point().resolution(),
                 pointWidth, pointHeight, localShadowSettings.spot().resolution(),
                 spotWidth, spotHeight, depthBytes);
-        boolean depthResolved = (generation.topology.fog() || generation.topology.hdrVfx())
+        boolean surfaceResolved = generation.topology.sceneBuffers().requiresSurfacePass();
+        boolean depthResolved = (generation.topology.fog() || generation.topology.hdrVfx()
+                || surfaceResolved)
                 && generation.topology.antiAliasingMode() == AntiAliasingMode.MSAA;
         var depth = new Render3dDiagnostics.DepthResolveSummary(depthResolved,
                 depthResolved ? generation.topology.sampleCount() : 1, 1,
@@ -840,10 +863,27 @@ public final class RenderPipeline {
         boolean postProcessFrameStarted = false;
         String frameStage = "frame-setup";
         try {
+            // Temporal camera/state capture is only paid when a temporal
+            // consumer exists; the NONE/FXAA/MSAA paths must keep their
+            // pre-v0.24.1 cost.
+            boolean temporalActive = generation.sceneSurfacePass != null
+                    || settings.antiAliasingMode() == AntiAliasingMode.TAA;
+            TemporalFrameState.FrameParameters frameParameters = temporalActive
+                    ? captureFrameParameters(activeFrameContext) : null;
+            if (temporalActive) {
+                temporalFrameState.prepare(frameParameters);
+                if (TemporalFrameState.looksLikeCameraCut(
+                        temporalFrameState.previous(), frameParameters)) {
+                    temporalFrameState.invalidate();
+                    temporalSceneState.invalidate();
+                    if (instanced != null) instanced.invalidatePreviousFrame();
+                }
+            }
             generation.postProcess.beginFrame(
                     activeFrameContext.deltaSeconds(), activeFrameContext.camera(),
                     activeFrameContext.width(), activeFrameContext.height(),
-                    activeFrameContext.frameIndex());
+                    activeFrameContext.frameIndex(), frameParameters,
+                    temporalActive ? temporalFrameState.previous() : null);
             postProcessFrameStarted = true;
             FrameInvalidation invalidation = activeFrameContext.invalidation();
             if (invalidation.invalidated(FrameInvalidation.Domain.MEMBERSHIP)
@@ -867,11 +907,17 @@ public final class RenderPipeline {
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.prepare(device, previewFrameSequence);
             }
+            // Membership changes need no global reset: new renderers start with
+            // an invalid snapshot and removed renderers are pruned on commit.
             // Freeze renderer membership, model matrices, bounds and queues before any graph
             // callback can observe mutable Scene inputs.
             frameStage = "frame-snapshot";
-            sceneFrame();
+            SceneFrame builtFrame = sceneFrame();
+            if (generation.sceneSurfacePass != null) {
+                temporalSceneState.beginFrame(builtFrame);
+            }
             activeFrameContext.verifySceneStable(scene, topologySettingsRevision);
+            generation.postProcess.synchronizeTemporalImports(generation.graph);
             frameStage = "pass-callback";
             PresentationResult result = generation.graph.execute(device, target);
             frameStage = "frame-finalize";
@@ -896,7 +942,21 @@ public final class RenderPipeline {
                         generation.graph.lastRecordedMatrixSnapshots(),
                         generation.graph.lastRecordedObjectPayloads(), shadowVisibleOverride);
             }
+            // Fallible finalization first: nothing is published until every
+            // temporal owner has completed its potentially failing work.
+            generation.postProcess.prepareFrameSuccess();
+            if (generation.sceneSurfacePass != null) {
+                temporalSceneState.prepareFinalization();
+            }
+            // Infallible publish phase.
             generation.postProcess.frameSucceeded();
+            if (temporalActive) {
+                temporalFrameState.commitSuccessfulFrame();
+            }
+            if (generation.sceneSurfacePass != null) {
+                temporalSceneState.commitSuccessfulFrame();
+                if (instanced != null) instanced.commitFrame();
+            }
             if (generation.outdoorVolumetricSun != null) {
                 generation.outdoorVolumetricSun.frameSucceeded(activeFrameContext.deltaSeconds());
             }
@@ -941,6 +1001,10 @@ public final class RenderPipeline {
                 }
             }
             if (postProcessFrameStarted) generation.postProcess.frameFailed();
+            temporalFrameState.discardFrame();
+            if (generation.sceneSurfacePass != null) {
+                temporalSceneState.discardFrame();
+            }
             generation.shadowCache.frameFailed();
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.frameFailed(failure);
@@ -1081,8 +1145,110 @@ public final class RenderPipeline {
         return failure;
     }
 
+    private PassExecutor surfaceExecutor() {
+        return (res, cmd) -> {
+            PipelineGeneration generation = requireGeneration();
+            if (generation.sceneSurfacePass == null) return;
+            SceneFrame frame = sceneFrame();
+            TemporalFrameState.FrameParameters current = temporalFrameState.current();
+            if (current == null) {
+                throw new IllegalStateException(
+                        "scene surface pass requires a prepared temporal frame state");
+            }
+            // Upload the single shared camera block before recording the
+            // surface draws; the forward geometry pass reuses it.
+            generation.cameraUniforms.update(cmd, frameCamera(), frameWidth(), frameHeight(),
+                    settings.antiAliasingMode(), activeFrameIndex);
+            generation.sceneSurfacePass.record(cmd, frame, temporalSceneState, current,
+                    temporalFrameState.previous(), instanced, activeFrameIndex,
+                    generation.cameraUniforms);
+        };
+    }
+
+    private PassExecutor reactiveExecutor() {
+        return (res, cmd) -> {
+            PipelineGeneration generation = requireGeneration();
+            if (generation.sceneReactivePass == null) return;
+            generation.sceneReactivePass.record(cmd, sceneFrame(), generation.cameraUniforms);
+        };
+    }
+
+    private PassExecutor surfaceResolveExecutor() {
+        return (res, cmd) -> {
+            PipelineGeneration generation = requireGeneration();
+            if (generation.sceneSurfaceResolvePass == null) return;
+            generation.sceneSurfaceResolvePass.record(cmd, res,
+                    Math.max(2, settings.msaaSamples()));
+        };
+    }
+
+    private TemporalFrameState.FrameParameters captureFrameParameters(RenderFrameContext context) {
+        Camera camera = context.camera();
+        int width = context.width();
+        int height = context.height();
+        Matrix4f stableProjection = CameraProjection.stable(camera, width, height, new Matrix4f());
+        Matrix4f jitteredProjection = new Matrix4f(stableProjection);
+        TemporalJitter.applyProjection(jitteredProjection, width, height,
+                settings.antiAliasingMode(), context.frameIndex());
+        Matrix4f view = camera.getViewMatrix(new Matrix4f());
+        Matrix4f stableViewProjection = new Matrix4f(stableProjection).mul(view);
+        Matrix4f inverseStableViewProjection = new Matrix4f(stableViewProjection).invert();
+        Matrix4f inverseJitteredProjection = new Matrix4f(jitteredProjection).invert();
+        Vector2f jitterUv = TemporalJitter.uvOffset(settings.antiAliasingMode(),
+                context.frameIndex(), width, height, new Vector2f());
+        float nearPlane;
+        float farPlane;
+        Vector3f forward;
+        if (camera instanceof ExternalCamera external) {
+            nearPlane = external.nearPlane();
+            farPlane = external.farPlane();
+            forward = external.inverseView().transformDirection(0.0f, 0.0f, -1.0f,
+                    new Vector3f()).normalize();
+        } else {
+            nearPlane = CameraProjection.NEAR_PLANE;
+            farPlane = CameraProjection.FAR_PLANE;
+            forward = camera.front();
+        }
+        Vector3f position = camera.position();
+        return new TemporalFrameState.FrameParameters(context.frameSequence(), width, height,
+                nearPlane, farPlane, position.x, position.y, position.z,
+                forward.x, forward.y, forward.z, jitterUv.x, jitterUv.y,
+                stableProjection, jitteredProjection, inverseJitteredProjection, view,
+                stableViewProjection, inverseStableViewProjection,
+                context.revisions().cameraRevision());
+    }
+
+    /** Drops all temporal history (camera cut, resize, scene replacement, explicit reset). */
+    public void resetTemporalHistory() {        temporalFrameState.invalidate();
+        temporalSceneState.invalidate();
+        if (instanced != null) instanced.invalidatePreviousFrame();
+        if (activeGeneration != null) {
+            activeGeneration.postProcess.invalidateTemporalHistory();
+        }
+    }
+
+    /** Test/diagnostic access to committed temporal frame state. */
+    TemporalFrameState temporalFrameStateForTest() {
+        return temporalFrameState;
+    }
+
+    /** Test/diagnostic access to committed temporal scene state. */
+    TemporalSceneState temporalSceneStateForTest() {
+        return temporalSceneState;
+    }
+
+    /** Test/diagnostic access to the active generation. */
+    PipelineGeneration activeGenerationForTest() {
+        return activeGeneration;
+    }
+
     private PassExecutor geometryExecutor() {
         return (res, cmd) -> {
+            if (Boolean.getBoolean("haikalat.test.failTemporalAfterSurface")) {
+                System.clearProperty("haikalat.test.failTemporalAfterSurface");
+                throw new IllegalStateException(
+                        "injected temporal frame failure after surface recording");
+            }
             copyHostAttachments(res, cmd);
             ShadowFramePlan plan = shadowFramePlan();
             int gtaoTexture = requireGeneration().topology.gtaoEnabled()
@@ -1616,11 +1782,17 @@ public final class RenderPipeline {
         PipelineGeneration generation = requireGeneration();
         SceneFrame frame = sceneFrame();
         boolean gtaoEnabled = generation.topology.gtaoEnabled();
+        boolean sharedDepth = generation.topology.sceneBuffers().requiresSurfacePass();
         Camera camera = frameCamera();
-        // The GTAO depth prepass is the first graph pass and uploads the same
-        // camera block.  Reusing it avoids a second per-frame UBO update on the
-        // enabled path while preserving the legacy single update when disabled.
-        if (!gtaoEnabled) {
+        if (sharedDepth) {
+            // The surface pass produced the shared depth; only fragments that
+            // match the same surface may contribute color.
+            cmd.depthFunc(org.lwjgl.opengl.GL11.GL_LEQUAL);
+        }
+        // The GTAO depth prepass or the shared surface pass is the first graph
+        // pass that uploads the camera block.  Reusing it avoids a second
+        // per-frame UBO update on the enabled paths.
+        if (!gtaoEnabled && generation.sceneSurfacePass == null) {
             generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
                     settings.antiAliasingMode(), activeFrameIndex);
         }

@@ -17,6 +17,8 @@ public final class InstancedRenderer {
     private final ShaderProgram shader;
     private final boolean castShadows;
     private volatile List<Matrix4f> frameTransforms = List.of();
+    private List<Matrix4f> previousFrameTransforms = List.of();
+    private boolean previousFrameValid;
     private final AtomicInteger frameIndex = new AtomicInteger(0);
     private final AtomicInteger drawnCount = new AtomicInteger(0);
     private final AtomicInteger shadowDrawnCount = new AtomicInteger(0);
@@ -140,6 +142,32 @@ public final class InstancedRenderer {
     public void abortFrame() {
         batch.abortPrepared();
         sharedBatchPrepared = false;
+    }
+
+    /** Publishes this frame's instance snapshot as the previous successful frame. */
+    public void commitFrame() {
+        previousFrameTransforms = frameTransforms;
+        previousFrameValid = true;
+    }
+
+    /** Drops previous instance transforms, e.g. after resize or explicit temporal reset. */
+    public void invalidatePreviousFrame() {
+        previousFrameTransforms = List.of();
+        previousFrameValid = false;
+    }
+
+    /** @return committed previous-frame instance transforms, possibly empty */
+    public List<Matrix4f> previousFrameTransforms() {
+        return previousFrameTransforms;
+    }
+
+    /** @return this frame's instance transform snapshot */
+    public List<Matrix4f> currentFrameTransforms() {
+        return frameTransforms;
+    }
+
+    public boolean previousFrameValid() {
+        return previousFrameValid && previousFrameTransforms.size() == frameTransforms.size();
     }
 
     /** Package-private conservative batch bounds consumed by ShadowCasterPlanner. */

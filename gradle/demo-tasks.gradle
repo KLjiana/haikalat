@@ -18,6 +18,7 @@ def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
 def render3dV023Main = 'com.kaleblangley.haikalat.demo.pbr.Render3dV023Demo'
 def render3dGtaoMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dGtaoDemo'
+def render3dTemporalMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dTemporalDemo'
 def render3dShadowBudgetMain =
         'com.kaleblangley.haikalat.demo.gltf.Render3dShadowBudgetDemo'
 def render3dOutdoorMain =
@@ -136,6 +137,10 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=12', '--size=640x360', '--resize=6:800x450',
                  '--environment-quality=test', '--gtao', '--verify'],
                 'Runs the v0.23.2 GTAO depth, temporal history, resize and diagnostics proof.']
+        ,runRender3dTemporalDemoIntegration : [render3dTemporalMain,
+                ['--hidden', '--frames=24', '--size=640x360', '--resize=12:800x450',
+                 '--reset=18', '--aa=TAA', '--verify'],
+                'Runs the v0.24.1 TAA demo with resize and explicit temporal history reset.']
         ,runRender3dShadowBudgetIntegration: [render3dShadowBudgetMain,
                 ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
                  '--environment-quality=test', '--csm-atlas=1024', '--verify'],
@@ -310,6 +315,28 @@ tasks.register('glSmoke', Test) {
     systemProperty 'haikalat.glSmoke', 'true'
 }
 
+tasks.register('runRender3dTemporalIntegration', Test) {
+    group = 'verification'
+    description = 'Runs the v0.24.1 scene buffer, velocity, TAA history and resolve GPU proofs.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter {
+        includeTestsMatching '*.TaaResolveGlTest'
+        includeTestsMatching '*.TaaHistoryGlTest'
+        includeTestsMatching '*.TemporalJitterTest'
+        includeTestsMatching '*.SceneVelocityMathTest'
+        includeTestsMatching '*.SceneBufferRequirementsTest'
+        includeTestsMatching '*.TaaSettingsTest'
+        includeTestsMatching '*.TemporalFrameStateTest'
+        includeTestsMatching '*.TemporalTransactionGlTest'
+        includeTestsMatching '*.SceneVelocityGlTest'
+        includeTestsMatching '*.SceneReactiveGlTest'
+        includeTestsMatching '*.GpuTimerGlTest'
+    }
+}
+
 tasks.register('localGlVerification') {
     group = 'verification'
     description = 'Runs GL smoke tests and all deterministic demo integrations.'
@@ -415,6 +442,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         ,runPbrDemo       : pbrMain
         ,runRender3dV023Demo: render3dV023Main
         ,runRender3dGtaoDemo: render3dGtaoMain
+        ,runRender3dTemporalDemo: render3dTemporalMain
         ,runRender3dShadowBudgetDemo: render3dShadowBudgetMain
         ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
@@ -544,6 +572,50 @@ tasks.register('localGtaoVerification') {
     group = 'verification'
     description = 'Runs v0.23.2 GTAO JVM/GL, deterministic integration and benchmark gates.'
     dependsOn 'test', 'glSmoke', 'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks'
+}
+
+tasks.register('runRender3dTemporalBenchmarks', JavaExec) {
+    group = 'verification'
+    description = 'Runs same-scene native-TAA CPU/GPU gates with exact measured frames and fingerprinted per-run reports.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dTemporalBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--rounds=${providers.gradleProperty('temporalBenchmarkRounds').getOrElse('3')}",
+            "--frames=${providers.gradleProperty('temporalBenchmarkFrames').getOrElse('60')}",
+            "--warmup=${providers.gradleProperty('temporalBenchmarkWarmup').getOrElse('30')}",
+            "--sizes=${providers.gradleProperty('temporalBenchmarkSizes').getOrElse('1920x1080,3840x2160')}",
+            "--max-cpu-delta-ms=${providers.gradleProperty('temporalBenchmarkMaxCpuDeltaMs').getOrElse('0.5')}",
+            "--max-cpu-p95-delta-ms=${providers.gradleProperty('temporalBenchmarkMaxCpuP95DeltaMs').getOrElse('6.0')}",
+            "--max-wall-delta-ms=${providers.gradleProperty('temporalBenchmarkMaxWallDeltaMs').getOrElse('3.0')}"
+    if (providers.gradleProperty('temporalBenchmarkInformal').getOrElse('false').toBoolean()) {
+        args '--informal'
+    }
+}
+
+tasks.register('localTemporalVerification') {
+    group = 'verification'
+    description = 'Runs the v0.24.1 temporal JVM/GL proofs, demo integration and A/B benchmark gate.'
+    dependsOn 'test', 'glSmoke', 'runRender3dTemporalIntegration',
+            'runRender3dTemporalDemoIntegration', 'runRender3dTemporalBenchmarks',
+            'runRender3dTemporalQuality'
+}
+
+tasks.register('runRender3dTemporalQuality', JavaExec) {
+    group = 'verification'
+    description = 'Renders the deterministic NONE/TAA camera path and asserts aliasing, sharpness and ghost-decay metrics.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dTemporalQualitySuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args "--size=${providers.gradleProperty('temporalQualitySize').getOrElse('480x480')}",
+            "--frames=${providers.gradleProperty('temporalQualityFrames').getOrElse('40')}",
+            "--cut=${providers.gradleProperty('temporalQualityCut').getOrElse('24')}",
+            "--max-aliasing-ratio=${providers.gradleProperty('temporalQualityMaxAliasingRatio').getOrElse('0.85')}",
+            "--min-sharpness-ratio=${providers.gradleProperty('temporalQualityMinSharpnessRatio').getOrElse('0.65')}",
+            "--max-ghost-frames=${providers.gradleProperty('temporalQualityMaxGhostFrames').getOrElse('8')}"
 }
 tasks.named('runShowcaseStabilityIntegration') { mustRunAfter 'runShowcaseIntegration' }
 

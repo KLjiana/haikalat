@@ -5,6 +5,9 @@ layout(location = 0) out float FragVisibility;
 layout(location = 1) out vec2 FragNormal;
 
 uniform sampler2D uDepth;
+uniform sampler2D uSharedNormal;
+uniform int uSharedSurface;
+uniform mat4 uView;
 uniform mat4 uInverseViewProjection;
 uniform mat4 uInverseProjection;
 uniform float uRadius;
@@ -112,6 +115,18 @@ vec2 encodeOctahedral(vec3 normal) {
     return normal.xy * 0.5 + 0.5;
 }
 
+vec3 decodeOctahedral(vec2 encoded) {
+    vec3 normal = vec3(encoded * 2.0 - 1.0, 1.0
+            - abs(encoded.x * 2.0 - 1.0)
+            - abs(encoded.y * 2.0 - 1.0));
+    if (normal.z < 0.0) {
+        normal.xy = (1.0 - abs(normal.yx))
+                * vec2(normal.x >= 0.0 ? 1.0 : -1.0,
+                       normal.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(normal);
+}
+
 // x is the projected normal length, y its signed angle from the view ray.
 vec2 projectSliceNormal(vec3 normal, vec3 viewDirection, vec3 screenDirection) {
     vec3 tangent = normalize(screenDirection
@@ -147,7 +162,16 @@ void main() {
         return;
     }
     vec3 centerView = reconstructView(fullUv, centerDepth);
-    vec3 normal = reconstructNormal(fullUv, centerDepth, centerView);
+    vec3 normal;
+    if (uSharedSurface != 0) {
+        // Shared normal is world-space geometric; convert once to the current
+        // view space and orient to the visible hemisphere.
+        vec3 worldNormal = decodeOctahedral(texture(uSharedNormal, fullUv).rg);
+        normal = normalize(mat3(uView) * worldNormal);
+        if (normal.z < 0.0) normal = -normal;
+    } else {
+        normal = reconstructNormal(fullUv, centerDepth, centerView);
+    }
     int directionCount = clamp(uDirections, 2, 6);
     int stepCount = clamp(uSteps, 1, 6);
     float projectedRadius = uRadius * 0.5 * uFullExtent.y * uProjectionScaleY

@@ -65,6 +65,8 @@ final class CommandExecutor {
                 case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
                 case BIND_TEXTURE_2D -> cache.bindTexture2D(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                case BIND_TEXTURE_2D_MULTISAMPLE -> cache.bindTexture2DMultisample(
+                        stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
                 case BIND_TEXTURE_CUBE -> {
                     int unit = stream.integerAt(integerCursor++);
                     TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);

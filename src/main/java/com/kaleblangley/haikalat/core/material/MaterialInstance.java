@@ -42,6 +42,14 @@ public final class MaterialInstance {
         return set(UniformKey.float1(name), new UniformValue.FloatVal(value));
     }
 
+    /** Per-instance temporal distrust in [0, 1]; see {@link Material#TEMPORAL_REACTIVE_UNIFORM}. */
+    public MaterialInstance temporalReactive(float value) {
+        if (!Float.isFinite(value) || value < 0.0f || value > 1.0f) {
+            throw new IllegalArgumentException("temporal reactive must be in [0, 1]");
+        }
+        return setFloat(Material.TEMPORAL_REACTIVE_UNIFORM, value);
+    }
+
     public MaterialInstance set(UniformKey<UniformValue.FloatVal> key, UniformValue.FloatVal value) {
         put(key, value);
         return this;

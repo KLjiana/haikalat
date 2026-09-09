@@ -27,6 +27,9 @@ final class PipelineGeneration implements AutoCloseable {
     ShaderProgram gtaoDepthShader;
     ShaderProgram gtaoMaskedDepthShader;
     ShaderProgram gtaoInstancedDepthShader;
+    SceneSurfacePass sceneSurfacePass;
+    SceneSurfaceResolvePass sceneSurfaceResolvePass;
+    SceneReactivePass sceneReactivePass;
     String finalPassName;
     PbrMaterialBinder pbrMaterialBinder;
     EnvironmentBackgroundRenderer environmentBackground;
@@ -181,6 +184,9 @@ final class PipelineGeneration implements AutoCloseable {
         ShaderProgram localGtaoInstancedDepth = gtaoInstancedDepthShader;
         PostProcessPassBuilder localPostProcess = postProcess;
         CameraUniforms localCameraUniforms = cameraUniforms;
+        SceneSurfacePass localSceneSurface = sceneSurfacePass;
+        SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
+        SceneReactivePass localSceneReactive = sceneReactivePass;
         ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
@@ -196,6 +202,9 @@ final class PipelineGeneration implements AutoCloseable {
         gtaoInstancedDepthShader = null;
         postProcess = null;
         cameraUniforms = null;
+        sceneSurfacePass = null;
+        sceneSurfaceResolvePass = null;
+        sceneReactivePass = null;
         shadowSamplingBlock = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
@@ -214,6 +223,9 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localGtaoDepth, failure);
         failure = closeCollecting(localPostProcess, failure);
         failure = closeCollecting(localCameraUniforms, failure);
+        failure = closeCollecting(localSceneSurface, failure);
+        failure = closeCollecting(localSceneSurfaceResolve, failure);
+        failure = closeCollecting(localSceneReactive, failure);
         failure = closeCollecting(localShadowSamplingBlock, failure);
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);

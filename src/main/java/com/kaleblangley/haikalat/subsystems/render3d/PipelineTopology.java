@@ -33,12 +33,14 @@ record PipelineTopology(int width,
                         boolean embedded,
                         boolean gtaoEnabled,
                         int gtaoHalfWidth,
-                        int gtaoHalfHeight) {
+                        int gtaoHalfHeight,
+                        SceneBufferRequirements sceneBuffers) {
     PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
         }
         Objects.requireNonNull(antiAliasingMode, "antiAliasingMode");
+        Objects.requireNonNull(sceneBuffers, "sceneBuffers");
         if (sampleCount < 1) {
             throw new IllegalArgumentException("pipeline topology sample count must be positive");
         }
@@ -110,7 +112,47 @@ record PipelineTopology(int width,
                 localShadows.point().resolution(), localShadows.maxSpotLights(),
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
                 effects.gtao().enabled(), (Math.max(1, width) + 1) / 2,
-                (Math.max(1, height) + 1) / 2);
+                (Math.max(1, height) + 1) / 2,
+                sceneBufferRequirements(scene, settings, effects, samples, hdrVfx));
+    }
+
+    private static SceneBufferRequirements sceneBufferRequirements(Scene scene,
+                                                                  RenderSettings settings,
+                                                                  PostProcessSettings effects,
+                                                                  int samples,
+                                                                  boolean hdrVfx) {
+        SceneBufferRequirements requirements = SceneBufferRequirements.none();
+        if (effects.fog().enabled()) {
+            requirements = requirements.merge(SceneBufferRequirements.fog());
+        }
+        if (effects.gtao().enabled()) {
+            requirements = requirements.merge(
+                    SceneBufferRequirements.gtao(effects.gtao().temporal()));
+        }
+        if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
+            requirements = requirements.merge(SceneBufferRequirements.taa(
+                    reactiveProducerPresent(scene, hdrVfx)));
+        }
+        return requirements.validated().withSamples(samples);
+    }
+
+    /**
+     * Reactive is only requested when a real producer exists: a declared
+     * material distrust value, a transparent/additive queue or HDR VFX.
+     */
+    private static boolean reactiveProducerPresent(Scene scene, boolean hdrVfx) {
+        if (hdrVfx) return true;
+        for (MeshRenderer renderer : scene.renderers()) {
+            RenderQueueClass queue = RenderQueueClass.classify(renderer.material());
+            if (queue == RenderQueueClass.TRANSPARENT_ALPHA
+                    || queue == RenderQueueClass.TRANSPARENT_ADDITIVE) {
+                return true;
+            }
+            if (SceneReactivePass.reactiveOf(renderer.material()) > 0.0f) {
+                return true;
+            }
+        }
+        return false;
     }
 
     PipelineTopology withExtent(int width, int height) {
@@ -119,6 +161,6 @@ record PipelineTopology(int width,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
-                gtaoEnabled, (width + 1) / 2, (height + 1) / 2);
+                gtaoEnabled, (width + 1) / 2, (height + 1) / 2, sceneBuffers);
     }
 }

@@ -52,3 +52,9 @@ stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.SceneBufferChannel
+advanced com.kaleblangley.haikalat.subsystems.render3d.SceneBufferRequirements
+advanced com.kaleblangley.haikalat.subsystems.render3d.SceneBufferView
+advanced com.kaleblangley.haikalat.subsystems.render3d.TaaSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.TaaResolveInputs
+advanced com.kaleblangley.haikalat.subsystems.render3d.TemporalDrawBinding

@@ -26,6 +26,7 @@ import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_UNPACK_ALIGNMENT;
 import static org.lwjgl.opengl.GL11.GL_UNPACK_ROW_LENGTH;
 import static org.lwjgl.opengl.GL11.GL_UNPACK_SKIP_PIXELS;
@@ -43,6 +44,7 @@ import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL30.GL_RG;
 import static org.lwjgl.opengl.GL30.GL_HALF_FLOAT;
 import static org.lwjgl.opengl.GL30.GL_R8;
+import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_RG8;
 import static org.lwjgl.opengl.GL30.GL_RG16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
@@ -68,6 +70,8 @@ public final class Texture2D implements GlResource {
             GL_RGB, GL_UNSIGNED_BYTE, 3, TextureColorSpace.SRGB);
     private static final UploadFormat SRGBA8_UPLOAD = new UploadFormat(
             GL_RGBA, GL_UNSIGNED_BYTE, 4, TextureColorSpace.SRGB);
+    private static final UploadFormat R32F_UPLOAD = new UploadFormat(
+            GL_RED, GL_FLOAT, Float.BYTES, TextureColorSpace.LINEAR);
     private static final UploadFormat RG16F_UPLOAD = new UploadFormat(
             GL_RG, GL_HALF_FLOAT, 2 * Short.BYTES, TextureColorSpace.LINEAR);
     private static final UploadFormat RGBA16F_UPLOAD = new UploadFormat(
@@ -634,6 +638,7 @@ public final class Texture2D implements GlResource {
             case GL_R8, GL_RED -> 1;
             case GL_RG8 -> 2;
             case GL_RGB8, GL_SRGB8, GL_RGB -> 3;
+            case GL_R32F -> Float.BYTES;
             case GL_RG16F -> 4;
             case GL_RGBA16F -> 8;
             default -> 4;
@@ -660,6 +665,7 @@ public final class Texture2D implements GlResource {
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
             case GL_RG16F -> RG16F_UPLOAD;
             case GL_RGBA16F -> RGBA16F_UPLOAD;
+            case org.lwjgl.opengl.GL30.GL_R32F -> R32F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported dynamic texture internal format: " + internalFormat);
         };
@@ -675,6 +681,7 @@ public final class Texture2D implements GlResource {
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
             case GL_RG16F -> RG16F_UPLOAD;
             case GL_RGBA16F -> RGBA16F_UPLOAD;
+            case org.lwjgl.opengl.GL30.GL_R32F -> R32F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported empty texture sized internal format: " + internalFormat);
         };

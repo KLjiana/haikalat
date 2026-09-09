@@ -11,9 +11,10 @@ import static org.lwjgl.opengl.GL33.*;
 public final class GpuTimer implements GlResource {
     private static final int QUERY_RING_SIZE = 8;
 
-    private final int[] queryIds = new int[QUERY_RING_SIZE];
-    private final boolean[] pending = new boolean[QUERY_RING_SIZE];
-    private final long[] submissionSequences = new long[QUERY_RING_SIZE];
+    private final int[] queryIds;
+    private final boolean[] pending;
+    private final long[] submissionSequences;
+    private final java.util.List<Sample> completed;
     private int writeIndex;
     private int readIndex;
     private boolean begun;
@@ -28,9 +29,19 @@ public final class GpuTimer implements GlResource {
     private final long resourceSequence;
 
     public GpuTimer() {
+        this(false);
+    }
+
+    /** Optional benchmark collection; callers must drain results regularly. */
+    public GpuTimer(boolean retainSamples) {
+        int count = retainSamples ? 256 : QUERY_RING_SIZE;
+        queryIds = new int[count];
+        pending = new boolean[count];
+        submissionSequences = new long[count];
+        completed = retainSamples ? new java.util.ArrayList<>() : null;
         for (int i = 0; i < queryIds.length; i++) queryIds[i] = glGenQueries();
         resourceSequence = GlDebug.trackResource("QUERY", queryIds[0],
-                "GpuTimer ring=" + QUERY_RING_SIZE, 0L);
+                "GpuTimer ring=" + count, 0L);
     }
 
     /** 兼容入口；没有帧身份的调用使用内部单调序号。 */
@@ -133,13 +144,27 @@ public final class GpuTimer implements GlResource {
     }
 
     private void drainAvailable() {
-        while (pending[readIndex]
+        while ((completed == null || completed.size() < 4096)
+                && pending[readIndex]
                 && glGetQueryObjecti(queryIds[readIndex], GL_QUERY_RESULT_AVAILABLE) == GL_TRUE) {
             elapsedNanos = glGetQueryObjectui64(queryIds[readIndex], GL_QUERY_RESULT);
             resultSequence = submissionSequences[readIndex];
+            if (completed != null) {
+                completed.add(new Sample(Status.AVAILABLE, elapsedNanos, resultSequence, 0, skippedSubmissions));
+            }
             pending[readIndex] = false;
             readIndex = (readIndex + 1) % queryIds.length;
         }
+    }
+
+    /** Returns every completed retained query once, without waiting for GPU work. */
+    public java.util.List<Sample> drainCompletedSamples() {
+        ensureOpen();
+        if (completed == null) throw new GlException("GPU sample collection is not enabled");
+        if (!begun) drainAvailable();
+        var result = java.util.List.copyOf(completed);
+        completed.clear();
+        return result;
     }
 
     /** 查询样本状态。 */

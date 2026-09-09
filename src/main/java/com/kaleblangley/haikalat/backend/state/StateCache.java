@@ -52,6 +52,8 @@ public final class StateCache implements PipelineStateSink {
     private boolean blendFuncCached;
     private boolean depthWriteEnabled;
     private boolean depthWriteCached;
+    private int depthFunc = org.lwjgl.opengl.GL11.GL_LESS;
+    private boolean depthFuncCached;
     private boolean depthTestEnabled;
     private boolean depthTestCached;
     private boolean cullFaceEnabled;
@@ -130,6 +132,17 @@ public final class StateCache implements PipelineStateSink {
             glBindTexture(GL_TEXTURE_2D, texture);
             boundTextures2D[unit] = texture;
             lastTextureTargets[unit] = GL_TEXTURE_2D;
+        }
+    }
+    /** 在指定纹理单元绑定多重采样 2D 纹理，供 sampler2DMS 读取。 */
+    public void bindTexture2DMultisample(int unit, int texture) {
+        requireTextureUnit(unit);
+        activeTexture(unit);
+        if (changeRequired(boundTextures2D[unit] != texture
+                || lastTextureTargets[unit] != org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE)) {
+            glBindTexture(org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE, texture);
+            boundTextures2D[unit] = texture;
+            lastTextureTargets[unit] = org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE;
         }
     }
 
@@ -284,6 +297,16 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
+    /** Sets and caches the depth comparison function. */
+    @Override
+    public void depthFunc(int function) {
+        if (changeRequired(!depthFuncCached || function != depthFunc)) {
+            org.lwjgl.opengl.GL11.glDepthFunc(function);
+            depthFunc = function;
+            depthFuncCached = true;
+        }
+    }
+
     /**
      * 若深度测试状态与缓存不同，则启用或禁用 GL_DEPTH_TEST。
      *
@@ -426,6 +449,7 @@ public final class StateCache implements PipelineStateSink {
         blendCached = false;
         blendFuncCached = false;
         depthWriteCached = false;
+        depthFuncCached = false;
         depthTestCached = false;
         cullFaceCached = false;
         frontFaceCached = false;

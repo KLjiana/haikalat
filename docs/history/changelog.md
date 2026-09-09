@@ -1,5 +1,31 @@
 # 变更记录
 
+## v0.24.1（正式版）
+**主题**：统一 Scene Buffers 与原生 TAA
+
+- 新增按需求合并的共享表面协议：`SceneBufferRequirements`/`SceneBufferView`、R32F、
+  多重采样纹理与共享附件，`SceneSurfacePass` 在单采样与 MSAA 下生产
+  depth/normal/velocity/previous-depth/validity，MSAA 由 `SceneSurfaceResolvePass`
+  按最近设备 sample 一致解析；Forward Geometry 共享深度并保持 LEQUAL 一致结果。
+- 新增 `TemporalFrameState`/`TemporalSceneState`/`TemporalJitter`：当前与上一成功帧
+  矩阵、jitter、Model 与骨骼/Morph 快照，只有整帧成功后才统一发布；失败帧不推进
+  历史、相机或变形状态，绑定上传缓存失败后强制重传。
+- `TaaHistory` 改为颜色+R32F 深度双缓冲候选，新增 `taa-resolve.frag`：velocity+jitter
+  重投影、逐 tap 深度校验、邻域 clamp、reactive 权重与背景方向重投影；HDR 与 LDR
+  两条路径；`Material.temporalReactive` + `SceneReactivePass` 提供真实 reactive 生产者。
+- GTAO 迁移到公共表面数据：estimate 读取公共 depth/normal，temporal 使用公共
+  velocity/previous-depth/validity 与 jitter 修正，删除重复 depth prepass 与法线重建。
+- 新增 `Render3dTemporalDemo`（OFF/FXAA/MSAA/TAA、暂停相机/动画、reset、resize、
+  序列捕获、硬切镜）、`runRender3dTemporalIntegration`、`runRender3dTemporalDemoIntegration`、
+  `runRender3dTemporalBenchmarks` 与 `runRender3dTemporalQuality`；画质套件断言抗锯齿
+  能量比、边缘锐度比与切镜残影衰减。
+- 性能口径修正：基准在测量帧前 `glFinish` 隔离驱动反压，门禁按 CPU 录制增量
+  （0.5 ms）与 TAA resolve GPU（1080p 1 ms / 4K 3 ms）分别判定，并输出逐 pass
+  CPU/GPU、record/submit 分段与候选指纹报告。
+- 已知边界：内建风动/自定义变形的上一帧参数协议、体积雾帧状态与雾区降权、
+  `DeformationVelocityGlTest`/`TaaHistoryLifecycleGlTest`/`TaaSceneRegression` 与
+  离线高采样参考尚未纳入本版本，见规划文档第 0 节。
+
 ## v0.24.0（正式版）
 
 **主题**：风格化室外环境与 HDR 体积阳光

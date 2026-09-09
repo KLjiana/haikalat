@@ -10,6 +10,8 @@ public interface PipelineStateSink {
 
     void depthMask(boolean write);
 
+    void depthFunc(int function);
+
     void enableDepthTest(boolean enable);
 
     void enableCullFace(boolean enable);

@@ -10,15 +10,17 @@ import org.lwjgl.opengl.GL;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 
-/** 验证 HDR TAA history 的真实格式、resize 重建和有效状态复位。 */
+/** Verifies the color+depth TAA history double buffer, commit and resize protocol. */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class TaaHistoryGlTest {
     @Test
-    void hdrHistoryResizeRebuildsFloatTargetAndInvalidatesAccumulation() {
+    void hdrHistoryResizeRebuildsColorAndDepthTargetsAndInvalidatesAccumulation() {
         try (GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(32, 32)
                 .title("TAA History GL Test")
@@ -28,21 +30,54 @@ class TaaHistoryGlTest {
             GL.createCapabilities();
 
             try (TaaHistory history = new TaaHistory(32, 32, RenderFormat.RGBA16F)) {
-                Framebuffer originalFramebuffer = history.framebuffer();
-                history.markValid();
+                Framebuffer read = history.readFramebuffer();
+                Framebuffer write = history.writeFramebuffer();
+                assertNotSame(read, write, "double buffered history must expose distinct slots");
+                assertEquals(2, read.colorAttachmentCount());
+                assertEquals(GL_RGBA16F,
+                        read.descriptor().colorAttachments().get(0).internalFormat());
+                assertEquals(GL_R32F,
+                        read.descriptor().colorAttachments().get(1).internalFormat());
+                assertFalse(history.valid());
+
+                history.prepareFrame();
+                history.commitSuccessfulFrame();
                 assertTrue(history.valid());
+                assertNotSame(read, history.readFramebuffer(),
+                        "commit must swap the read slot to the written candidate");
 
                 history.resize(48, 40);
-
-                FramebufferDescriptor descriptor = history.framebuffer().descriptor();
-                assertTrue(originalFramebuffer.isClosed());
-                assertNotSame(originalFramebuffer, history.framebuffer());
+                FramebufferDescriptor descriptor = history.readFramebuffer().descriptor();
+                assertTrue(read.isClosed());
                 assertFalse(history.valid());
-                assertEquals(0.0f, history.historyWeight());
                 assertEquals(48, descriptor.width());
                 assertEquals(40, descriptor.height());
-                assertEquals(GL_RGBA16F,
-                        descriptor.colorAttachments().getFirst().internalFormat());
+                assertEquals(GL_R32F,
+                        descriptor.colorAttachments().get(1).internalFormat());
+            }
+        }
+    }
+
+    @Test
+    void failedFrameDoesNotPublishCandidate() {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(16, 16)
+                .title("TAA History Failure GL Test")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+
+            try (TaaHistory history = new TaaHistory(16, 16, RenderFormat.RGBA16F)) {
+                int originalRead = history.readFramebuffer().colorAttachment(0);
+                history.prepareFrame();
+                history.discardFrame();
+                assertFalse(history.valid());
+                assertEquals(originalRead, history.readFramebuffer().colorAttachment(0));
+                history.prepareFrame();
+                history.commitSuccessfulFrame();
+                assertTrue(history.valid());
+                assertNotEquals(originalRead, history.readFramebuffer().colorAttachment(0));
             }
         }
     }

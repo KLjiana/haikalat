@@ -23,6 +23,7 @@ final class PendingPipelineState {
     private static final int SCISSOR_ENABLE = 1 << 8;
     private static final int SCISSOR_RECTANGLE = 1 << 9;
     private static final int FRONT_FACE = 1 << 10;
+    private static final int DEPTH_FUNC = 1 << 11;
 
     private int dirty;
     private int known;
@@ -34,6 +35,7 @@ final class PendingPipelineState {
     private int blendSourceRgb;
     private int blendDestinationRgb;
     private boolean depthWriteEnabled;
+    private int depthFunction = org.lwjgl.opengl.GL11.GL_LESS;
     private boolean depthTestEnabled;
     private boolean cullFaceEnabled;
     private int frontFace;
@@ -87,6 +89,13 @@ final class PendingPipelineState {
         depthTestEnabled = enable;
         known |= DEPTH_TEST;
         dirty |= DEPTH_TEST;
+    }
+
+    void depthFunc(int function) {
+        if ((known & DEPTH_FUNC) != 0 && depthFunction == function) return;
+        depthFunction = function;
+        known |= DEPTH_FUNC;
+        dirty |= DEPTH_FUNC;
     }
 
     void enableCullFace(boolean enable) {
@@ -180,6 +189,7 @@ final class PendingPipelineState {
         }
         if ((changes & BLEND_ENABLE) != 0) target.enableBlend(blendEnabled);
         if ((changes & DEPTH_MASK) != 0) target.depthMask(depthWriteEnabled);
+        if ((changes & DEPTH_FUNC) != 0) target.depthFunc(depthFunction);
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(depthTestEnabled);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(cullFaceEnabled);
         if ((changes & FRONT_FACE) != 0) target.frontFace(frontFace);
@@ -215,6 +225,7 @@ final class PendingPipelineState {
         }
         if ((changes & BLEND_ENABLE) != 0) stream.integer(blendEnabled ? 1 : 0);
         if ((changes & DEPTH_MASK) != 0) stream.integer(depthWriteEnabled ? 1 : 0);
+        if ((changes & DEPTH_FUNC) != 0) stream.integer(depthFunction);
         if ((changes & DEPTH_TEST) != 0) stream.integer(depthTestEnabled ? 1 : 0);
         if ((changes & CULL_FACE) != 0) stream.integer(cullFaceEnabled ? 1 : 0);
         if ((changes & FRONT_FACE) != 0) stream.integer(frontFace);
@@ -247,6 +258,7 @@ final class PendingPipelineState {
         }
         if ((changes & BLEND_ENABLE) != 0) target.enableBlend(stream.integerAt(cursor++) != 0);
         if ((changes & DEPTH_MASK) != 0) target.depthMask(stream.integerAt(cursor++) != 0);
+        if ((changes & DEPTH_FUNC) != 0) target.depthFunc(stream.integerAt(cursor++));
         if ((changes & DEPTH_TEST) != 0) target.enableDepthTest(stream.integerAt(cursor++) != 0);
         if ((changes & CULL_FACE) != 0) target.enableCullFace(stream.integerAt(cursor++) != 0);
         if ((changes & FRONT_FACE) != 0) target.frontFace(stream.integerAt(cursor++));

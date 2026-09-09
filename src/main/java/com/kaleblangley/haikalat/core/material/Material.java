@@ -32,6 +32,8 @@ import java.util.Set;
  * {@link ResourceOwnership#OWNED} 时，Material 才关闭其引用的 GPU 资源。</p>
  */
 public final class Material implements GlResource {
+    /** Reserved uniform carrying a material's temporal distrust in [0, 1]. */
+    public static final String TEMPORAL_REACTIVE_UNIFORM = "uTemporalReactive";
     private final ShaderProgram shader;
     private final List<TextureBinding> defaultTextures;
     private final Map<UniformKey<?>, UniformValue> defaultUniforms;
@@ -213,6 +215,18 @@ public final class Material implements GlResource {
 
         public Builder setFloat(String name, float value) {
             return set(UniformKey.float1(name), new UniformValue.FloatVal(value));
+        }
+
+        /**
+         * Declares how strongly this material distrusts temporal history
+         * (0 = normal history, 1 = do not reuse history).  The value feeds the
+         * shared reactive channel consumed by the TAA resolve.
+         */
+        public Builder temporalReactive(float value) {
+            if (!Float.isFinite(value) || value < 0.0f || value > 1.0f) {
+                throw new IllegalArgumentException("temporal reactive must be in [0, 1]");
+            }
+            return setFloat(TEMPORAL_REACTIVE_UNIFORM, value);
         }
 
         public Builder set(UniformKey<UniformValue.FloatVal> key, UniformValue.FloatVal value) {

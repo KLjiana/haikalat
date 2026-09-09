@@ -59,6 +59,7 @@ public final class CommandBuffer {
     static final byte DRAW_MESH_INSTANCED = 18;
     static final byte APPLY_PIPELINE_STATE = 19;
     static final byte CLEAR = 26;
+    static final byte BIND_TEXTURE_2D_MULTISAMPLE = 27;
     static final byte BLIT_FRAMEBUFFER = 28;
     static final byte UNIFORM_MAT4 = 29;
     static final byte UNIFORM_VEC3 = 30;
@@ -110,6 +111,14 @@ public final class CommandBuffer {
 
     public CommandBuffer bindTexture(int unit, int texture) {
         opcode(BIND_TEXTURE_2D);
+        integer(unit);
+        integer(texture);
+        return this;
+    }
+
+    /** Binds a multisampled 2D texture for {@code sampler2DMS} access. */
+    public CommandBuffer bindTextureMultisample(int unit, int texture) {
+        opcode(BIND_TEXTURE_2D_MULTISAMPLE);
         integer(unit);
         integer(texture);
         return this;
@@ -572,6 +581,12 @@ public final class CommandBuffer {
 
     public CommandBuffer depthMask(boolean write) {
         pendingState.depthMask(write);
+        return this;
+    }
+
+    /** Sets the depth comparison function (for example GL_LEQUAL when reusing a depth attachment). */
+    public CommandBuffer depthFunc(int function) {
+        pendingState.depthFunc(function);
         return this;
     }
 

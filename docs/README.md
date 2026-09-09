@@ -27,6 +27,7 @@
 - [v0.23.2 Render3D GTAO 与时域环境遮蔽实施计划](planning/v0.23.2-render3d-gtao-temporal-ambient-occlusion.md)
 - [v0.23.4 Render3D 动态阴影精细裁剪与失效计划](planning/v0.23.4-render3d-dynamic-shadow-culling-and-invalidation.md)
 - [v0.24 风格化室外环境与体积阳光计划](planning/v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)
+- [v0.24.1 统一 Scene Buffers 与 TAA 实施指南](planning/v0.24.1-scene-buffers-and-taa.md)
 - [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 

@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -51,9 +52,22 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final OutdoorVolumetricUpsamplePass outdoorUpsample;
     private final OutdoorVolumetricTemporalPass outdoorTemporal;
     private final OutdoorVolumetricDepthHistoryPass outdoorDepthHistoryPass;
-    private final TaaHistory outdoorHistory;
-    private final TaaHistory outdoorDepthHistory;
+    private final OutdoorHistory outdoorHistory;
+    private final OutdoorHistory outdoorDepthHistory;
     private final int outdoorDownsample;
+    private final boolean surfaceResolved;
+    private final boolean reactiveRequested;
+    private final RenderGraph.PassExecutor reactiveRecorder;
+    private final TaaSettings taaSettings = TaaSettings.defaults();
+    private float currentJitterUvX;
+    private float currentJitterUvY;
+    private float previousJitterUvX;
+    private float previousJitterUvY;
+    private org.joml.Matrix4f taaInverseProjection = new org.joml.Matrix4f();
+    private org.joml.Matrix4f previousTaaInverseProjection = new org.joml.Matrix4f();
+    private final org.joml.Matrix4f previousTaaStableViewProjection = new org.joml.Matrix4f();
+    private final org.joml.Matrix4f taaInverseView = new org.joml.Matrix4f();
+    private boolean previousTaaFrameValid;
     private float outdoorHistoryWeight;
     private float outdoorDepthReject;
     private final Matrix4f fogInverseViewProjection = new Matrix4f();
@@ -87,10 +101,12 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                    OutdoorVolumetricUpsamplePass outdoorUpsample,
                                    OutdoorVolumetricTemporalPass outdoorTemporal,
                                    OutdoorVolumetricDepthHistoryPass outdoorDepthHistoryPass,
-                                   TaaHistory outdoorHistory,
-                                   TaaHistory outdoorDepthHistory,
+                                   OutdoorHistory outdoorHistory,
+                                   OutdoorHistory outdoorDepthHistory,
                                    int outdoorDownsample,
-                                   float outdoorHistoryWeight, float outdoorDepthReject) {
+                                   float outdoorHistoryWeight, float outdoorDepthReject,
+                                   boolean surfaceResolved, boolean reactiveRequested,
+                                   RenderGraph.PassExecutor reactiveRecorder) {
         this.settings = settings;
         this.effects = effects;
         this.window = window;
@@ -112,6 +128,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.outdoorDownsample = outdoorDownsample;
         this.outdoorHistoryWeight = outdoorHistoryWeight;
         this.outdoorDepthReject = outdoorDepthReject;
+        this.surfaceResolved = surfaceResolved;
+        this.reactiveRequested = reactiveRequested;
+        this.reactiveRecorder = reactiveRecorder;
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
@@ -130,7 +149,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                          RenderGraph.PassExecutor hdrVfx,
                                          OutdoorVolumeRecorder outdoorVolume) {
         return create(settings, effects, window, width, height, hdrVfx, outdoorVolume,
-                0.86f, 0.08f, 2);
+                0.86f, 0.08f, 2, false);
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
@@ -139,7 +158,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                          OutdoorVolumeRecorder outdoorVolume,
                                          float outdoorHistoryWeight, float outdoorDepthReject) {
         return create(settings, effects, window, width, height, hdrVfx, outdoorVolume,
-                outdoorHistoryWeight, outdoorDepthReject, 2);
+                outdoorHistoryWeight, outdoorDepthReject, 2, false);
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
@@ -147,7 +166,20 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                          RenderGraph.PassExecutor hdrVfx,
                                          OutdoorVolumeRecorder outdoorVolume,
                                          float outdoorHistoryWeight, float outdoorDepthReject,
-                                         int outdoorDownsample) {
+                                         int outdoorDownsample, boolean surfaceResolved) {
+        return create(settings, effects, window, width, height, hdrVfx, outdoorVolume,
+                outdoorHistoryWeight, outdoorDepthReject, outdoorDownsample, surfaceResolved,
+                false, null);
+    }
+
+    static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
+                                         RenderWindow window, int width, int height,
+                                         RenderGraph.PassExecutor hdrVfx,
+                                         OutdoorVolumeRecorder outdoorVolume,
+                                         float outdoorHistoryWeight, float outdoorDepthReject,
+                                         int outdoorDownsample, boolean surfaceResolved,
+                                         boolean reactiveRequested,
+                                         RenderGraph.PassExecutor reactiveRecorder) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(window, "window");
@@ -165,16 +197,15 @@ final class PostProcessPassBuilder implements AutoCloseable {
         OutdoorVolumetricUpsamplePass outdoorUpsample = null;
         OutdoorVolumetricTemporalPass outdoorTemporal = null;
         OutdoorVolumetricDepthHistoryPass outdoorDepthHistoryPass = null;
-        TaaHistory outdoorHistory = null;
-        TaaHistory outdoorDepthHistory = null;
+        OutdoorHistory outdoorHistory = null;
+        OutdoorHistory outdoorDepthHistory = null;
         try {
             fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
                     ? new FxaaPostProcessor() : null;
             taa = settings.antiAliasingMode() == AntiAliasingMode.TAA
                     ? new TemporalAccumulationPass() : null;
             history = settings.antiAliasingMode() == AntiAliasingMode.TAA
-                    ? new TaaHistory(width, height, taaHistoryFormat(settings)) : null;
-            toneMapping = settings.hdrEnabled()
+                    ? new TaaHistory(width, height, taaHistoryFormat(settings)) : null;            toneMapping = settings.hdrEnabled()
                     ? new ToneMappingPass(effects.colorGrading()) : null;
             bloom = settings.bloomSettings().enabled() ? new BloomPass() : null;
             autoExposure = settings.exposureMode() == ExposureMode.AUTO
@@ -186,18 +217,19 @@ final class PostProcessPassBuilder implements AutoCloseable {
             outdoorDepthHistoryPass = outdoorVolume == null ? null : new OutdoorVolumetricDepthHistoryPass();
             if (outdoorVolume != null) {
                 injectOutdoorHistoryAllocationFailureIfRequested();
-                outdoorHistory = new TaaHistory(divideCeil(width, outdoorDownsample),
+                outdoorHistory = new OutdoorHistory(divideCeil(width, outdoorDownsample),
                         divideCeil(height, outdoorDownsample),
                         RenderFormat.RGBA16F);
                 injectOutdoorDepthHistoryAllocationFailureIfRequested();
-                outdoorDepthHistory = new TaaHistory(divideCeil(width, outdoorDownsample),
+                outdoorDepthHistory = new OutdoorHistory(divideCeil(width, outdoorDownsample),
                         divideCeil(height, outdoorDownsample),
                         RenderFormat.R16F);
             }
             return new PostProcessPassBuilder(settings, effects, window, fxaa, taa, history, toneMapping,
                     bloom, autoExposure, fog, gtao, hdrVfx, outdoorVolume, outdoorUpsample,
                     outdoorTemporal, outdoorDepthHistoryPass, outdoorHistory, outdoorDepthHistory,
-                    outdoorDownsample, outdoorHistoryWeight, outdoorDepthReject);
+                    outdoorDownsample, outdoorHistoryWeight, outdoorDepthReject, surfaceResolved,
+                    reactiveRequested, reactiveRecorder);
         } catch (RuntimeException failure) {
             closeAfterFailure(gtao, failure);
             closeAfterFailure(outdoorUpsample, failure);
@@ -216,8 +248,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
     }
 
-    void addGtaoPreGeometryPasses(RenderGraph graph, RenderGraph.PassExecutor depthExecutor) {
-        if (gtao != null) gtao.addPreGeometryPasses(graph, depthExecutor);
+    void addGtaoPreGeometryPasses(RenderGraph graph, RenderGraph.PassExecutor depthExecutor,
+                                  boolean sharedSurface) {
+        if (gtao != null) gtao.addPreGeometryPasses(graph, depthExecutor, sharedSurface);
     }
 
     static List<String> passNamesFor(AntiAliasingMode mode) {
@@ -288,24 +321,25 @@ final class PostProcessPassBuilder implements AutoCloseable {
                 addLdrPresentPass(graph, PostProcessTargets.FXAA_PASS);
             }
             case TAA -> {
-                graph.addPass(PostProcessTargets.TAA_PASS)
-                    .createColor(PostProcessTargets.TAA_COLOR, RenderFormat.SRGB8_ALPHA8)
+                if (reactiveRequested) {
+                    graph.addPass(PostProcessTargets.SCENE_REACTIVE_PASS)
+                            .createColor(PostProcessTargets.SCENE_REACTIVE, RenderFormat.R8)
+                            .clearColor(0.0f, 0.0f, 0.0f, 0.0f)
+                            .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                            .execute((res, cmd) -> {
+                                if (reactiveRecorder != null) reactiveRecorder.execute(res, cmd);
+                            });
+                }
+                RenderGraph.PassBuilder taaPass = graph.addPass(PostProcessTargets.TAA_PASS)
+                    .writeToExternalTarget()
                     .noClear()
-                    .dependsOn(PostProcessTargets.GEOMETRY_PASS)
-                    .execute((res, cmd) -> {
-                        Framebuffer geoFb = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-                        Framebuffer target = res.currentTarget();
-                        if (geoFb != null && taaHistory != null) {
-                            Framebuffer history = taaHistory.framebuffer();
-                            taa.recordIntoCurrentTarget(cmd, res.colorAttachment(PostProcessTargets.SCENE_COLOR),
-                                    history.colorAttachment(), taaHistory.historyWeight());
-                            if (target != null) {
-                                cmd.blitColor(target, history);
-                            }
-                            taaHistory.markValid();
-                        }
-                    });
-                addLdrPresentPass(graph, PostProcessTargets.TAA_PASS);
+                    .dependsOn(PostProcessTargets.GEOMETRY_PASS);
+                if (reactiveRequested) {
+                    taaPass.dependsOn(PostProcessTargets.SCENE_REACTIVE_PASS);
+                }
+                taaPass.execute((res, cmd) -> recordTaaResolve(res, cmd,
+                        PostProcessTargets.SCENE_COLOR));
+                addTaaPresentPass(graph);
             }
             case NONE, MSAA -> addLdrPresentPass(graph, PostProcessTargets.GEOMETRY_PASS);
         }
@@ -328,6 +362,64 @@ final class PostProcessPassBuilder implements AutoCloseable {
         recordFinalPass(PostProcessTargets.PRESENT_PASS);
     }
 
+    private void addTaaPresentPass(RenderGraph graph) {
+        graph.addPass(PostProcessTargets.PRESENT_PASS)
+                .writeToBackbuffer()
+                .noClear()
+                .dependsOn(PostProcessTargets.TAA_PASS)
+                .execute((res, cmd) -> {
+                    PresentationTarget target = res.presentationTarget();
+                    if (target != null && taaHistory != null) {
+                        Framebuffer candidate = taaHistory.writeFramebuffer();
+                        cmd.blitFramebuffer(candidate.id(), target.drawFramebufferId(),
+                                candidate.width(), candidate.height(),
+                                target.width(), target.height());
+                    }
+                });
+        recordFinalPass(PostProcessTargets.PRESENT_PASS);
+    }
+
+    /**
+     * Resolves the temporal candidate into the history write slot.  The
+     * candidate color is imported as {@code TAA_RESOLVED_COLOR} by
+     * {@link #synchronizeTemporalImports(RenderGraph)} so downstream passes can
+     * consume it without an extra full-screen copy.
+     */
+    private void recordTaaResolve(com.kaleblangley.haikalat.core.graph.PassResources res,
+                                  CommandBuffer cmd, String inputTexture) {
+        if (taa == null || taaHistory == null) return;
+        Framebuffer candidate = taaHistory.writeFramebuffer();
+        boolean historyValid = taaHistory.valid() && previousTaaFrameValid;
+        TaaResolveInputs inputs = new TaaResolveInputs(
+                res.colorAttachment(inputTexture),
+                historyValid ? taaHistory.readColorTexture() : 0,
+                historyValid ? taaHistory.readDepthTexture() : 0,
+                res.depthAttachment(PostProcessTargets.SCENE_DEPTH),
+                res.colorAttachment(PostProcessTargets.SCENE_VELOCITY),
+                res.colorAttachment(PostProcessTargets.SCENE_PREVIOUS_DEPTH),
+                res.colorAttachment(PostProcessTargets.SCENE_VALIDITY),
+                res.colorAttachment(PostProcessTargets.SCENE_REACTIVE),
+                historyValid,
+                candidate.width(), candidate.height(),
+                currentJitterUvX, currentJitterUvY, previousJitterUvX, previousJitterUvY,
+                taaInverseProjection, previousTaaStableViewProjection, taaInverseView, taaSettings);
+        taa.recordResolve(cmd, candidate, inputs);
+    }
+
+    /**
+     * Publishes this frame's history write color as a borrowed logical texture
+     * for passes that run after the TAA resolve.
+     */
+    void synchronizeTemporalImports(RenderGraph graph) {
+        if (taaHistory == null) return;
+        int texture = taaHistory.writeColorTexture();
+        graph.importExternalColor(PostProcessTargets.TAA_RESOLVED_COLOR,
+                com.kaleblangley.haikalat.core.presentation.ExternalAttachment.borrowedColor(
+                        texture, taaHistoryFormat(settings),
+                        taaHistory.writeFramebuffer().width(),
+                        taaHistory.writeFramebuffer().height()));
+    }
+
     private void addHdrFinalPasses(RenderGraph graph) {
         String hdrTexture = PostProcessTargets.SCENE_COLOR;
         String hdrProducer = PostProcessTargets.GEOMETRY_PASS;
@@ -346,7 +438,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     });
             hdrTexture = PostProcessTargets.HDR_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.HDR_RESOLVE_PASS;
-            if (effects.fog().enabled() || outdoorVolume != null) {
+            if ((effects.fog().enabled() || outdoorVolume != null) && !surfaceResolved) {
                 graph.addPass(PostProcessTargets.DEPTH_RESOLVE_PASS)
                         .createDepthTexture(PostProcessTargets.RESOLVED_SCENE_DEPTH)
                         .noClear()
@@ -359,36 +451,22 @@ final class PostProcessPassBuilder implements AutoCloseable {
                         });
             }
         } else if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
-            graph.addPass(PostProcessTargets.TAA_PASS)
-                    .createColor(PostProcessTargets.TAA_COLOR, RenderFormat.RGBA16F)
-                    .noClear()
-                    .dependsOn(PostProcessTargets.GEOMETRY_PASS)
-                    .execute((res, cmd) -> {
-                        Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-                        Framebuffer target = res.currentTarget();
-                        if (geometry != null && target != null && taaHistory != null) {
-                            Framebuffer history = taaHistory.framebuffer();
-                            taa.recordIntoCurrentTarget(cmd,
-                                    res.colorAttachment(PostProcessTargets.SCENE_COLOR),
-                                    history.colorAttachment(), taaHistory.historyWeight());
-                            cmd.blitColor(target, history);
-                            taaHistory.markValid();
-                        }
-                    });
-            hdrTexture = PostProcessTargets.TAA_COLOR;
-            hdrProducer = PostProcessTargets.TAA_PASS;
+            // Native TAA resolves after fog/volume compositing below so the
+            // temporal history sees the final scene color, not a pre-fog frame.
         }
 
         if (effects.fog().enabled()) {
             final String fogInputTexture = hdrTexture;
             final String fogInputPass = hdrProducer;
-            final String fogDepthTexture = settings.antiAliasingMode() == AntiAliasingMode.MSAA
+            final String fogDepthTexture = surfaceResolved
+                    ? PostProcessTargets.SCENE_DEPTH
+                    : settings.antiAliasingMode() == AntiAliasingMode.MSAA
                     ? PostProcessTargets.RESOLVED_SCENE_DEPTH : PostProcessTargets.SCENE_DEPTH;
             RenderGraph.PassBuilder fogBuilder = graph.addPass(PostProcessTargets.FOG_PASS)
                     .createColor(PostProcessTargets.FOG_COLOR, RenderFormat.RGBA16F)
                     .noClear()
                     .dependsOn(fogInputPass);
-            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA && !surfaceResolved) {
                 fogBuilder.dependsOn(PostProcessTargets.DEPTH_RESOLVE_PASS);
             }
             fogBuilder
@@ -403,7 +481,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (outdoorVolume != null) {
             final String volumeInputTexture = hdrTexture;
             final String volumeInputPass = hdrProducer;
-            final String volumeDepthTexture = settings.antiAliasingMode() == AntiAliasingMode.MSAA
+            final String volumeDepthTexture = surfaceResolved
+                    ? PostProcessTargets.SCENE_DEPTH
+                    : settings.antiAliasingMode() == AntiAliasingMode.MSAA
                     ? PostProcessTargets.RESOLVED_SCENE_DEPTH : PostProcessTargets.SCENE_DEPTH;
             RenderGraph.PassBuilder volumeBuilder = graph.addPass(PostProcessTargets.OUTDOOR_VOLUME_PASS)
                     .createColors(List.of(PostProcessTargets.OUTDOOR_VOLUME_COLOR,
@@ -411,7 +491,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                             List.of(RenderFormat.RGBA16F, RenderFormat.R16F))
                     .relativeSize(1.0f / outdoorDownsample)
                     .noClear().dependsOn(volumeInputPass);
-            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA && !surfaceResolved) {
                 volumeBuilder.dependsOn(PostProcessTargets.DEPTH_RESOLVE_PASS);
             }
             volumeBuilder.execute((res, cmd) -> {
@@ -474,12 +554,6 @@ final class PostProcessPassBuilder implements AutoCloseable {
             hdrProducer = PostProcessTargets.OUTDOOR_VOLUME_UPSAMPLE_PASS;
         }
 
-        final String exposureInput = hdrTexture;
-        final String exposureProducer = hdrProducer;
-        ExposureOutput exposureOutput = settings.exposureMode() == ExposureMode.AUTO
-                ? addAutoExposurePasses(graph, exposureInput, exposureProducer)
-                : ExposureOutput.MANUAL;
-
         if (hdrVfx != null) {
             final String baseTexture = hdrTexture;
             final String baseProducer = hdrProducer;
@@ -506,6 +580,39 @@ final class PostProcessPassBuilder implements AutoCloseable {
             hdrTexture = PostProcessTargets.VFX_COMPOSITE_COLOR;
             hdrProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
         }
+
+        if (reactiveRequested) {
+            final String reactiveProducer = hdrProducer;
+            graph.addPass(PostProcessTargets.SCENE_REACTIVE_PASS)
+                    .createColor(PostProcessTargets.SCENE_REACTIVE, RenderFormat.R8)
+                    .clearColor(0.0f, 0.0f, 0.0f, 0.0f)
+                    .dependsOn(reactiveProducer)
+                    .execute((res, cmd) -> {
+                        if (reactiveRecorder != null) reactiveRecorder.execute(res, cmd);
+                    });
+        }
+
+        if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
+            final String taaInput = hdrTexture;
+            final String taaInputPass = hdrProducer;
+            RenderGraph.PassBuilder taaPass = graph.addPass(PostProcessTargets.TAA_PASS)
+                    .writeToExternalTarget()
+                    .noClear()
+                    .dependsOn(taaInputPass);
+            if (reactiveRequested) {
+                taaPass.dependsOn(PostProcessTargets.SCENE_REACTIVE_PASS);
+            }
+            taaPass.execute((res, cmd) -> recordTaaResolve(res, cmd, taaInput));
+            hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
+            hdrProducer = PostProcessTargets.TAA_PASS;
+        }
+
+        final String exposureInput = hdrTexture;
+        final String exposureProducer = hdrProducer;
+        ExposureOutput exposureOutput = settings.exposureMode() == ExposureMode.AUTO
+                ? addAutoExposurePasses(graph, exposureInput, exposureProducer)
+                : ExposureOutput.MANUAL;
+
         final String gradedToneInput = hdrTexture;
         BloomOutput bloomOutput = settings.bloomSettings().enabled()
                 ? addBloomPasses(graph, hdrTexture, hdrProducer)
@@ -698,11 +805,30 @@ final class PostProcessPassBuilder implements AutoCloseable {
     }
 
     void beginFrame(float frameDeltaSeconds, Camera camera, int width, int height,
-                    int frameIndex) {
+                    int frameIndex, TemporalFrameState.FrameParameters currentFrame,
+                    TemporalFrameState.FrameParameters previousFrame) {
         if (!Float.isFinite(frameDeltaSeconds) || frameDeltaSeconds < 0.0f) {
             throw new IllegalArgumentException("deltaSeconds must be finite and non-negative");
         }
         deltaSeconds = Math.min(frameDeltaSeconds, 0.1f);
+        if (taaHistory != null) {
+            taaHistory.prepareFrame();
+        }
+        if (currentFrame != null) {
+            currentJitterUvX = currentFrame.jitterUvX();
+            currentJitterUvY = currentFrame.jitterUvY();
+            taaInverseProjection.set(currentFrame.inverseJitteredProjection());
+            taaInverseView.set(currentFrame.view()).invert();
+            if (!previousTaaFrameValid) {
+                previousTaaStableViewProjection.set(currentFrame.stableViewProjection());
+            }
+        }
+        if (previousFrame != null && previousTaaFrameValid) {
+            previousJitterUvX = previousFrame.jitterUvX();
+            previousJitterUvY = previousFrame.jitterUvY();
+            previousTaaInverseProjection.set(previousFrame.inverseJitteredProjection());
+            previousTaaStableViewProjection.set(previousFrame.stableViewProjection());
+        }
         if (gtao != null) {
             gtao.beginFrame(camera, Math.max(1, width), Math.max(1, height), frameIndex,
                     settings.antiAliasingMode());
@@ -743,11 +869,20 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Fallible pre-commit phase.  Runs before any temporal owner publishes
+     * state so a failure cannot leave a partially advanced frame.
+     */
+    void prepareFrameSuccess() {
+    }
+
     void frameSucceeded() {
         if (autoExposure != null) {
             autoExposure.commitFrame();
         }
         if (gtao != null) gtao.frameSucceeded();
+        if (taaHistory != null) taaHistory.commitSuccessfulFrame();
+        previousTaaFrameValid = true;
         if (outdoorHistory != null) outdoorHistory.markValid();
         if (outdoorDepthHistory != null) outdoorDepthHistory.markValid();
         if (outdoorVolume != null) {
@@ -763,6 +898,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
             autoExposure.discardFrame();
         }
         if (gtao != null) gtao.frameFailed();
+        if (taaHistory != null) taaHistory.discardFrame();
         if (outdoorHistory != null) outdoorHistory.invalidate();
         if (outdoorDepthHistory != null) outdoorDepthHistory.invalidate();
         previousOutdoorCameraValid = false;
@@ -770,6 +906,16 @@ final class PostProcessPassBuilder implements AutoCloseable {
 
     void invalidateGtaoHistory() {
         if (gtao != null) gtao.invalidateHistory();
+    }
+
+    void invalidateTemporalHistory() {
+        if (taaHistory != null) taaHistory.invalidate();
+        previousTaaFrameValid = false;
+    }
+
+    /** Test/diagnostic access to the TAA history owner. */
+    TaaHistory taaHistoryForTest() {
+        return taaHistory;
     }
 
     void invalidateOutdoorHistory() {
@@ -808,8 +954,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
     ResizeCandidate prepareResize(int width, int height) {
         TaaHistory.ResizeCandidate taaCandidate = taaHistory == null ? null
                 : taaHistory.prepareResize(width, height);
-        TaaHistory.ResizeCandidate outdoorHistoryCandidate = null;
-        TaaHistory.ResizeCandidate outdoorDepthHistoryCandidate = null;
+        OutdoorHistory.ResizeCandidate outdoorHistoryCandidate = null;
+        OutdoorHistory.ResizeCandidate outdoorDepthHistoryCandidate = null;
         try {
             if (outdoorHistory != null) {
                 injectOutdoorHistoryAllocationFailureIfRequested();
@@ -866,16 +1012,16 @@ final class PostProcessPassBuilder implements AutoCloseable {
         private final PostProcessPassBuilder owner;
         private final TaaHistory.ResizeCandidate taaCandidate;
         private final GtaoPasses.ResizeCandidate gtaoCandidate;
-        private final TaaHistory.ResizeCandidate outdoorHistoryCandidate;
-        private final TaaHistory.ResizeCandidate outdoorDepthHistoryCandidate;
+        private final OutdoorHistory.ResizeCandidate outdoorHistoryCandidate;
+        private final OutdoorHistory.ResizeCandidate outdoorDepthHistoryCandidate;
         private boolean committed;
         private boolean closed;
 
         private ResizeCandidate(PostProcessPassBuilder owner,
                                 TaaHistory.ResizeCandidate taaCandidate,
                                 GtaoPasses.ResizeCandidate gtaoCandidate,
-                                TaaHistory.ResizeCandidate outdoorHistoryCandidate,
-                                TaaHistory.ResizeCandidate outdoorDepthHistoryCandidate) {
+                                OutdoorHistory.ResizeCandidate outdoorHistoryCandidate,
+                                OutdoorHistory.ResizeCandidate outdoorDepthHistoryCandidate) {
             this.owner = owner;
             this.taaCandidate = taaCandidate;
             this.gtaoCandidate = gtaoCandidate;

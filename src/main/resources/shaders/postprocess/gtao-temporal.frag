@@ -6,6 +6,12 @@ layout(location = 0) out vec2 FragTemporal;
 uniform sampler2D uRaw;
 uniform sampler2D uDepth;
 uniform sampler2D uHistory;
+uniform sampler2D uVelocity;
+uniform sampler2D uPreviousDepth;
+uniform sampler2D uValidity;
+uniform int uSharedSurface;
+uniform vec2 uJitter;
+uniform vec2 uPreviousJitter;
 uniform mat4 uInverseViewProjection;
 uniform mat4 uInverseProjection;
 uniform mat4 uPreviousViewProjection;
@@ -45,37 +51,65 @@ void main() {
     float historyAo = currentAo;
     float weight = 0.0;
     if (uHistoryValid != 0 && currentDepth < 0.999999) {
-        vec3 world = reconstructWorld(vTexCoord, currentDepth);
-        vec4 previousClip = uPreviousViewProjection * vec4(world, 1.0);
-        bool finiteClip = !any(isnan(previousClip)) && !any(isinf(previousClip));
-        if (previousClip.w > 0.0 && finiteClip) {
-            vec2 previousUv = previousClip.xy / previousClip.w * 0.5 + 0.5;
-            if (all(greaterThanEqual(previousUv, vec2(0.0)))
-                    && all(lessThanEqual(previousUv, vec2(1.0)))) {
-                vec2 texel = 1.0 / max(uHalfExtent, vec2(1.0));
-                vec2 minimumAo = vec2(1.0);
-                vec2 maximumAo = vec2(0.0);
-                for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) {
-                    float value = texture(uRaw, clamp(vTexCoord + vec2(x, y) * texel,
-                            vec2(0.0), vec2(1.0))).r;
-                    minimumAo.x = min(minimumAo.x, value);
-                    maximumAo.x = max(maximumAo.x, value);
+        if (uSharedSurface != 0) {
+            float validity = texture(uValidity, vTexCoord).r;
+            if (validity >= 0.5) {
+                vec2 velocity = texture(uVelocity, vTexCoord).rg;
+                vec2 previousUv = vTexCoord + velocity + uPreviousJitter - uJitter;
+                if (all(greaterThanEqual(previousUv, vec2(0.0)))
+                        && all(lessThanEqual(previousUv, vec2(1.0)))) {
+                    vec2 texel = 1.0 / max(uHalfExtent, vec2(1.0));
+                    vec2 minimumAo = vec2(1.0);
+                    vec2 maximumAo = vec2(0.0);
+                    for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) {
+                        float value = texture(uRaw, clamp(vTexCoord + vec2(x, y) * texel,
+                                vec2(0.0), vec2(1.0))).r;
+                        minimumAo.x = min(minimumAo.x, value);
+                        maximumAo.x = max(maximumAo.x, value);
+                    }
+                    vec2 history = texture(uHistory, previousUv).rg;
+                    float expectedDepth = texture(uPreviousDepth, vTexCoord).r;
+                    float depthDelta = abs(history.g - expectedDepth);
+                    float reject = max(0.01, uDepthReject * max(expectedDepth, 1.0));
+                    if (depthDelta <= reject) {
+                        historyAo = clamp(history.r, minimumAo.x, maximumAo.x);
+                        weight = clamp(uHistoryWeight, 0.0, 0.98);
+                    }
                 }
-                vec2 history = texture(uHistory, previousUv).rg;
-                float expectedDepth = previousViewDepth(previousClip);
-                float depthDelta = abs(history.g - expectedDepth);
-                // Both the stored value and the expected value are positive
-                // view-space depth.  Use an absolute floor near the camera and
-                // a relative term at distance; this keeps rejection behavior
-                // stable across near/far ranges and avoids unit mismatches with
-                // the spatial filters.
-                float absoluteTolerance = max(0.01,
-                        uDepthReject * max(uNearPlane, 1.0));
-                float relativeTolerance = uDepthReject * max(expectedDepth, 1.0);
-                float reject = max(absoluteTolerance, relativeTolerance);
-                if (depthDelta <= reject) {
-                    historyAo = clamp(history.r, minimumAo.x, maximumAo.x);
-                    weight = clamp(uHistoryWeight, 0.0, 0.98);
+            }
+        } else {
+            vec3 world = reconstructWorld(vTexCoord, currentDepth);
+            vec4 previousClip = uPreviousViewProjection * vec4(world, 1.0);
+            bool finiteClip = !any(isnan(previousClip)) && !any(isinf(previousClip));
+            if (previousClip.w > 0.0 && finiteClip) {
+                vec2 previousUv = previousClip.xy / previousClip.w * 0.5 + 0.5;
+                if (all(greaterThanEqual(previousUv, vec2(0.0)))
+                        && all(lessThanEqual(previousUv, vec2(1.0)))) {
+                    vec2 texel = 1.0 / max(uHalfExtent, vec2(1.0));
+                    vec2 minimumAo = vec2(1.0);
+                    vec2 maximumAo = vec2(0.0);
+                    for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) {
+                        float value = texture(uRaw, clamp(vTexCoord + vec2(x, y) * texel,
+                                vec2(0.0), vec2(1.0))).r;
+                        minimumAo.x = min(minimumAo.x, value);
+                        maximumAo.x = max(maximumAo.x, value);
+                    }
+                    vec2 history = texture(uHistory, previousUv).rg;
+                    float expectedDepth = previousViewDepth(previousClip);
+                    float depthDelta = abs(history.g - expectedDepth);
+                    // Both the stored value and the expected value are positive
+                    // view-space depth.  Use an absolute floor near the camera and
+                    // a relative term at distance; this keeps rejection behavior
+                    // stable across near/far ranges and avoids unit mismatches with
+                    // the spatial filters.
+                    float absoluteTolerance = max(0.01,
+                            uDepthReject * max(uNearPlane, 1.0));
+                    float relativeTolerance = uDepthReject * max(expectedDepth, 1.0);
+                    float reject = max(absoluteTolerance, relativeTolerance);
+                    if (depthDelta <= reject) {
+                        historyAo = clamp(history.r, minimumAo.x, maximumAo.x);
+                        weight = clamp(uHistoryWeight, 0.0, 0.98);
+                    }
                 }
             }
         }

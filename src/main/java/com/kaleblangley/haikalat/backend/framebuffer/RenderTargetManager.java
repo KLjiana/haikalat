@@ -28,6 +28,23 @@ public final class RenderTargetManager implements AutoCloseable {
         return candidate;
     }
 
+    /**
+     * Creates a framebuffer that owns its color attachments but borrows the
+     * depth texture of {@code depthSource}.  The source must belong to this
+     * manager generation and is never closed by the returned target.
+     */
+    public Framebuffer createShared(String name, FramebufferDescriptor descriptor,
+                                    Framebuffer depthSource) {
+        ensureOpen();
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(descriptor, "descriptor");
+        Framebuffer candidate = Framebuffer.fromDescriptorSharingDepth(descriptor, depthSource);
+        Framebuffer previous = targets.put(name, candidate);
+        descriptors.put(name, descriptor);
+        if (previous != null) previous.close();
+        return candidate;
+    }
+
     public Framebuffer get(String name) {
         ensureOpen();
         return targets.get(name);

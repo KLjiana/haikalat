@@ -44,8 +44,9 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.24.0`；上一正式稳定版本为 `0.23.4`。
-- v0.24 室外能力已完成候选验证，构建版本为 `0.24.0`；正式 tag 应指向最后一次 `releaseReadiness` 通过的提交。
+- 正式稳定版本：`0.24.1`；上一正式稳定版本为 `0.24.0`。
+- v0.24.1 统一 Scene Buffers 与原生 TAA 已完成候选验证，构建版本为 `0.24.1`；正式 tag 应指向最后一次 `releaseReadiness` 通过的提交。
+- v0.24.1 已知边界：内建风动/自定义变形上一帧参数协议、体积雾帧状态与雾区降权、离线高采样参考序列尚未纳入；见规划文档第 0 节。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。
 - 本地真实 GL：`test -Dhaikalat.glSmoke=true --rerun-tasks`，要求桌面环境与 OpenGL 4.6 驱动。

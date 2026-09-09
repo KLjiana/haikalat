@@ -9,6 +9,7 @@ public enum RenderFormat {
     R16F,
     RG16F,
     RG32F,
+    R32F,
     DEPTH_COMPONENT24,
     DEPTH24_STENCIL8
 }

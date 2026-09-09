@@ -355,7 +355,7 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 16
+        assert policies.size() == 17
         def outdoorStabilityPolicy = policies.find { it.owner == 'render3d/outdoor-stability' }
         assert outdoorStabilityPolicy != null
         assert outdoorStabilityPolicy.entry == '.*runOutdoorEnvironmentStabilityIntegration.*'
@@ -1092,6 +1092,8 @@ def releaseReadinessEntries = ['releaseGitGuard', 'releaseMetadataGuard', 'asset
                                'runRender3dDynamicShadowIntegration',
                                'runRender3dShadowCullingBenchmarks',
                                'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks',
+                               'runRender3dTemporalIntegration', 'runRender3dTemporalDemoIntegration',
+                               'runRender3dTemporalBenchmarks', 'runRender3dTemporalQuality',
                                'localOutdoorVerification',
                                'localReleaseVerification',
                                'runSceneSubmissionStaticBenchmarks', 'runSceneSubmissionStaticGate',

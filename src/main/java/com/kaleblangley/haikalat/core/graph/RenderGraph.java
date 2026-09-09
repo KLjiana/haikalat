@@ -66,6 +66,7 @@ public final class RenderGraph implements AutoCloseable {
     private boolean topologySealed;
     private boolean closed;
     private long frameSequence;
+    private boolean retainGpuSamples;
     private long topologyRevision;
     private Description cachedDescription;
 
@@ -340,7 +341,7 @@ public final class RenderGraph implements AutoCloseable {
                 GpuTimer beginTimer = null;
                 GpuTimer endTimer = null;
                 if (!aggregateGtaoPass) {
-                    if (pass.timer == null) pass.timer = new GpuTimer();
+                    if (pass.timer == null) pass.timer = new GpuTimer(retainGpuSamples);
                     beginTimer = pass.timer;
                     endTimer = pass.timer;
                 } else if (passIndex == firstGtaoPassIndex
@@ -453,6 +454,32 @@ public final class RenderGraph implements AutoCloseable {
         return lastFrameProfile;
     }
 
+    /** Enable lossless query collection before the first frame, for benchmarks only. */
+    public void enableGpuSampleCollection() {
+        ensureOpen();
+        if (frameSequence != 0 || aggregateGtaoGpuTimer) {
+            throw new IllegalStateException("GPU collection requires a fresh graph with per-pass timers");
+        }
+        retainGpuSamples = true;
+    }
+
+    /** Drain completed per-pass queries once; this never waits for GPU completion. */
+    public List<PassProfile> drainGpuSamples() {
+        ensureOpen();
+        if (!retainGpuSamples) throw new IllegalStateException("GPU collection is disabled");
+        List<PassProfile> result = new ArrayList<>();
+        if (sortedPasses == null) return result;
+        for (Pass pass : sortedPasses) {
+            if (pass.timer == null) continue;
+            for (GpuTimer.Sample sample : pass.timer.drainCompletedSamples()) {
+                result.add(new PassProfile(pass.name, 0, sample.elapsedNanos(),
+                        PassProfile.GpuTimingStatus.AVAILABLE, sample.resultSequence(),
+                        Math.max(0, frameSequence - 1 - sample.resultSequence()), sample.skippedSubmissions()));
+            }
+        }
+        return List.copyOf(result);
+    }
+
     /**
      * 返回与实际 compiled plan 一致的不可变 RenderGraph 描述。
      * topology 和尺寸未变化时复用同一实例。
@@ -519,7 +546,16 @@ public final class RenderGraph implements AutoCloseable {
         try {
             for (Pass pass : passes) {
                 if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)) continue;
-                candidate.create(pass.name, descriptorFor(pass, newWidth, newHeight));
+                if (pass.sharedDepthPassName != null) {
+                    Framebuffer source = candidate.get(pass.sharedDepthPassName);
+                    if (source == null) {
+                        throw new GlException("RenderGraph resize candidate cannot resolve shared depth pass '"
+                                + pass.sharedDepthPassName + "' for '" + pass.name + "'");
+                    }
+                    candidate.createShared(pass.name, descriptorFor(pass, newWidth, newHeight), source);
+                } else {
+                    candidate.create(pass.name, descriptorFor(pass, newWidth, newHeight));
+                }
             }
             candidateAttachmentIds = buildAttachmentLookup(candidate);
         } catch (RuntimeException | Error failure) {
@@ -684,7 +720,17 @@ public final class RenderGraph implements AutoCloseable {
 
     private void allocatePassFramebuffer(Pass pass) {
         RenderTargetManager owner = isFixedSize(pass) ? fixedRenderTargets : renderTargets;
-        Framebuffer framebuffer = owner.create(pass.name, descriptorFor(pass));
+        Framebuffer framebuffer;
+        if (pass.sharedDepthPassName != null) {
+            Framebuffer source = getPassFramebuffer(pass.sharedDepthPassName);
+            if (source == null) {
+                throw new GlException("RenderGraph pass '" + pass.name
+                        + "' shares depth from missing pass '" + pass.sharedDepthPassName + "'");
+            }
+            framebuffer = owner.createShared(pass.name, descriptorFor(pass), source);
+        } else {
+            framebuffer = owner.create(pass.name, descriptorFor(pass));
+        }
         registerPassAttachments(pass, framebuffer);
     }
 
@@ -705,14 +751,20 @@ public final class RenderGraph implements AutoCloseable {
                 .samples(pass.samples);
         boolean multisampled = pass.samples > 1;
         for (RenderFormat format : pass.colorFormats) {
-            if (multisampled) {
+            if (multisampled && pass.multisampleTextures) {
+                builder.colorTextureMultisample(format);
+            } else if (multisampled) {
                 builder.colorRenderbuffer(format);
             } else {
                 builder.colorTexture(format);
             }
         }
         if (pass.depthTextureName != null) {
-            builder.depthTexture();
+            if (multisampled) {
+                builder.depthTextureMultisample();
+            } else {
+                builder.depthTexture();
+            }
         } else if (pass.createDepth) {
             builder.depthStencilRenderbuffer();
         }
@@ -884,6 +936,7 @@ public final class RenderGraph implements AutoCloseable {
         final List<String> colorTextureNames;
         final List<RenderFormat> colorFormats;
         final int samples;
+        final boolean multisampleTextures;
         final int fixedWidth;
         final int fixedHeight;
         final float relativeWidthScale;
@@ -891,6 +944,7 @@ public final class RenderGraph implements AutoCloseable {
         final boolean ceilRelativeSize;
         final boolean createDepth;
         final String depthTextureName;
+        final String sharedDepthPassName;
         final boolean clearColor;
         final boolean clearDepth;
         final float clearR;
@@ -905,9 +959,11 @@ public final class RenderGraph implements AutoCloseable {
         GpuTimer timer;
 
         Pass(String name, List<String> colorTextureNames, List<RenderFormat> colorFormats, int samples,
+             boolean multisampleTextures,
              int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
              boolean ceilRelativeSize,
-             boolean createDepth, String depthTextureName, boolean clearColor, boolean clearDepth,
+             boolean createDepth, String depthTextureName, String sharedDepthPassName,
+             boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
              boolean externalTarget, String presentationTargetName,
              List<String> dependencies, PassExecutor executor) {
@@ -916,6 +972,7 @@ public final class RenderGraph implements AutoCloseable {
             this.colorTextureNames = colorTextureNames;
             this.colorFormats = colorFormats;
             this.samples = samples;
+            this.multisampleTextures = multisampleTextures;
             this.fixedWidth = fixedWidth;
             this.fixedHeight = fixedHeight;
             this.relativeWidthScale = relativeWidthScale;
@@ -923,6 +980,7 @@ public final class RenderGraph implements AutoCloseable {
             this.ceilRelativeSize = ceilRelativeSize;
             this.createDepth = createDepth;
             this.depthTextureName = depthTextureName;
+            this.sharedDepthPassName = sharedDepthPassName;
             this.clearColor = clearColor;
             this.clearDepth = clearDepth;
             this.clearR = clearR;
@@ -943,6 +1001,7 @@ public final class RenderGraph implements AutoCloseable {
         private final List<String> colorTextureNames = new ArrayList<>();
         private final List<RenderFormat> colorFormats = new ArrayList<>();
         private int samples = 1;
+        private boolean multisampleTextures;
         private int fixedWidth;
         private int fixedHeight;
         private float relativeWidthScale;
@@ -950,6 +1009,7 @@ public final class RenderGraph implements AutoCloseable {
         private boolean ceilRelativeSize;
         private boolean createDepth;
         private String depthTextureName;
+        private String sharedDepthPassName;
         private boolean clearColor = true;
         private boolean clearDepth = true;
         private float clearR = 0.08f;
@@ -1020,6 +1080,26 @@ public final class RenderGraph implements AutoCloseable {
             return this;
         }
 
+        /** Multisampled MRT declaration used by the shared scene surface pass. */
+        public PassBuilder createColorsMS(List<String> textureNames, List<RenderFormat> formats,
+                                          int samples) {
+            Objects.requireNonNull(textureNames, "textureNames");
+            Objects.requireNonNull(formats, "formats");
+            if (textureNames.isEmpty() || textureNames.size() != formats.size()) {
+                throw new IllegalArgumentException(
+                        "textureNames and formats must be non-empty and of equal size");
+            }
+            colorTextureNames.clear();
+            colorFormats.clear();
+            colorTextureNames.addAll(textureNames.stream()
+                    .map(name -> Objects.requireNonNull(name, "textureName")).toList());
+            colorFormats.addAll(formats.stream()
+                    .map(format -> Objects.requireNonNull(format, "format")).toList());
+            this.samples = Math.max(2, samples);
+            this.multisampleTextures = true;
+            return this;
+        }
+
         public PassBuilder createColorMS(String textureName, int format, int samples) {
             return createColorMS(textureName, legacyFormat(format), samples);
         }
@@ -1035,11 +1115,21 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder createDepthTexture(String textureName) {
-            if (samples > 1) {
-                throw new IllegalStateException("multisampled depth textures are not supported yet");
-            }
             createDepth = true;
             depthTextureName = Objects.requireNonNull(textureName, "textureName");
+            sharedDepthPassName = null;
+            return this;
+        }
+
+        /**
+         * Reuses the depth texture produced by {@code sourcePassName} instead of
+         * allocating one.  The source pass must be added before this pass and the
+         * extents/samples must match; the source keeps exclusive ownership.
+         */
+        public PassBuilder shareDepthTexture(String textureName, String sourcePassName) {
+            createDepth = true;
+            depthTextureName = Objects.requireNonNull(textureName, "textureName");
+            sharedDepthPassName = Objects.requireNonNull(sourcePassName, "sourcePassName");
             return this;
         }
 
@@ -1155,6 +1245,17 @@ public final class RenderGraph implements AutoCloseable {
             return this;
         }
 
+        /** Clears color only; depth contents are preserved for shared-depth passes. */
+        public PassBuilder clearColorOnly(float r, float g, float b, float a) {
+            clearR = r;
+            clearG = g;
+            clearB = b;
+            clearA = a;
+            clearColor = true;
+            clearDepth = false;
+            return this;
+        }
+
         public PassBuilder noClear() {
             clearColor = false;
             clearDepth = false;
@@ -1173,9 +1274,11 @@ public final class RenderGraph implements AutoCloseable {
                 throw new IllegalStateException("external-target pass must declare noClear()");
             }
             Pass pass = new Pass(name, List.copyOf(colorTextureNames), List.copyOf(colorFormats), samples,
+                    multisampleTextures,
                     fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
                     ceilRelativeSize,
-                    createDepth, depthTextureName, clearColor, clearDepth, clearR, clearG, clearB, clearA,
+                    createDepth, depthTextureName, sharedDepthPassName, clearColor, clearDepth,
+                    clearR, clearG, clearB, clearA,
                     useBackbuffer, externalTarget, presentationTargetName,
                     List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
@@ -1199,6 +1302,7 @@ public final class RenderGraph implements AutoCloseable {
                 case 33321 -> RenderFormat.R8;
                 case 33327 -> RenderFormat.RG16F;
                 case 33328 -> RenderFormat.RG32F;
+                case 33326 -> RenderFormat.R32F;
                 default -> throw new IllegalArgumentException("Unsupported legacy GL render format: " + value);
             };
         }

@@ -187,6 +187,8 @@ class PendingPipelineStateTest {
 
         @Override public void depthMask(boolean write) { events.add("depthMask:" + write); }
 
+        @Override public void depthFunc(int function) { events.add("depthFunc:" + function); }
+
         @Override public void enableDepthTest(boolean enable) {
             events.add("depthTest:" + enable);
         }

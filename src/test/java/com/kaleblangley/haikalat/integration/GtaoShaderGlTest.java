@@ -120,7 +120,11 @@ class GtaoShaderGlTest {
                         pipeline.build();
                         var descriptions = pipeline.graph().description().passes();
                         assertTrue(descriptions.stream().anyMatch(value ->
-                                value.name().equals("GtaoDepthPrepass")));
+                                value.name().equals("SceneSurfacePass")),
+                                "GTAO must consume the shared surface pass");
+                        assertFalse(descriptions.stream().anyMatch(value ->
+                                value.name().equals("GtaoDepthPrepass")),
+                                "shared-surface GTAO must not render a duplicate depth prepass");
                         var estimate = descriptions.stream().filter(value ->
                                 value.name().equals("GtaoEstimatePass")).findFirst().orElseThrow();
                         assertEquals((pipeline.graph().width() + 1) / 2, estimate.width());
@@ -163,7 +167,8 @@ class GtaoShaderGlTest {
                         pipeline.execute(device);
                         var ambientOcclusion = pipeline.lastRender3dDiagnostics().ambientOcclusion();
                         assertTrue(ambientOcclusion.enabled());
-                        assertTrue(ambientOcclusion.depthPrepassDraws() > 0);
+                        assertEquals(0, ambientOcclusion.depthPrepassDraws(),
+                                "shared surface mode must not report duplicate GTAO depth draws");
                         assertTrue(ambientOcclusion.historyValid());
                         // A large camera displacement must reject the previous
                         // history and rebuild it without a stale disocclusion.
