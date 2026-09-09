@@ -54,7 +54,7 @@ class GtaoSettingsTest {
             org.junit.jupiter.api.Assertions.assertTrue(
                     source.contains("uniform float uFramePhase"));
             org.junit.jupiter.api.Assertions.assertTrue(
-                    source.contains("float(direction) + 0.5 + uFramePhase"));
+                    source.contains("float(slice) + 0.5 + uFramePhase"));
         }
     }
 }

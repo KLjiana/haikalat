@@ -136,6 +136,9 @@ public final class RenderGraph implements AutoCloseable {
         return topologySealed;
     }
 
+    /** Whether this graph has released its resources and may no longer execute. */
+    public boolean isClosed() { return closed; }
+
     public void importTexture(String name, Texture2D texture) {
         ensureOpen();
         importedTextures.put(Objects.requireNonNull(name, "name"),

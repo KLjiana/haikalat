@@ -27,6 +27,7 @@
 - [v0.23.2 Render3D GTAO 与时域环境遮蔽实施计划](planning/v0.23.2-render3d-gtao-temporal-ambient-occlusion.md)
 - [v0.23.4 Render3D 动态阴影精细裁剪与失效计划](planning/v0.23.4-render3d-dynamic-shadow-culling-and-invalidation.md)
 - [v0.24 风格化室外环境与体积阳光计划](planning/v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)
+- [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
@@ -105,6 +106,7 @@
 - [2026-08-08 v0.22.0 文本与字体特效专项记录](performance/v0.22.0-text-effects-2026-08-08.md)
 - [2026-08-19 v0.23.1 Render3D 阴影性能与缓存记录](performance/v0.23.1-render3d-shadows-2026-08-19.md)
 - [2026-09-08 v0.24 室外环境阶段性能记录](performance/v0.24-outdoor-environment-2026-09-08.md)
+- [2026-09-08 v0.24 室外渲染优化复测](performance/v0.24-outdoor-improvements-2026-09-08.md)
 - [2026-07-28 v0.20 M7 热路径性能与回归记录](performance/v0.20-m7-2026-07-28.md)
 - [2026-07-28 v0.19.4 Modern UI 验证记录](performance/v0.19.4-modern-ui-2026-07-28.md)
 - [2026-07-26 v0.18.2 纹理化 HDR VFX 性能与资源报告](performance/v0.18.2-textured-hdr-vfx-2026-07-26.md)

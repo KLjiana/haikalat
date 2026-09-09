@@ -355,7 +355,24 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 14
+        assert policies.size() == 16
+        def outdoorStabilityPolicy = policies.find { it.owner == 'render3d/outdoor-stability' }
+        assert outdoorStabilityPolicy != null
+        assert outdoorStabilityPolicy.entry == '.*runOutdoorEnvironmentStabilityIntegration.*'
+        assert outdoorStabilityPolicy.id == 131218
+        assert outdoorStabilityPolicy.maximum == 512
+        def outdoorCapturePolicy = policies.find { it.owner == 'render3d/capture' }
+        assert outdoorCapturePolicy != null
+        assert outdoorCapturePolicy.entry == '.*runOutdoorEnvironmentCapture.*'
+        assert outdoorCapturePolicy.id == 131154
+        assert outdoorCapturePolicy.maximum == 1
+        assert outdoorCapturePolicy.severity == 'MEDIUM'
+        assert outdoorCapturePolicy.source == 'API'
+        assert outdoorCapturePolicy.type == 'PERFORMANCE'
+        def captureReadback = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n' +
+                'OpenGL PERFORMANCE [MEDIUM] source=API id=131154: Pixel transfer is synchronized with 3D rendering.'
+        assert auditGlText('runOutdoorEnvironmentCapture', captureReadback, policies).violations.isEmpty()
+        assert !auditGlText('runOutdoorEnvironmentBenchmarks', captureReadback, policies).violations.isEmpty()
         def textBenchmarkPolicy = policies.find { it.owner == 'text/rendering' }
         assert textBenchmarkPolicy != null
         assert textBenchmarkPolicy.id == 131218
@@ -414,7 +431,7 @@ tasks.register('releaseVerificationContracts') {
         assert gtaoPixelPolicy.type == 'PERFORMANCE'
         assert gtaoPixelPolicy.maximum == 12
         def outdoorPolicy = policies.find {
-            it.entry ==~ '.*(runOutdoorEnvironment.*|localOutdoorVerification).*'
+            it.owner == 'render3d/outdoor'
         }
         assert outdoorPolicy != null
         assert outdoorPolicy.id == 131218

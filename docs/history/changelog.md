@@ -15,6 +15,11 @@
 - 可见室外 demo 增加独立调试面板：三种预设、质量/体积参数、历史/对比开关、深度/CSM/
   散射/透射率/历史诊断；properties 配置记录天空、雾体、噪声种子、风速和相机路径，
   支持保存/重载复现。
+- GTAO 修复纳入正式候选：半分辨率上采样采用像素中心对齐与离散采样，法线连续性使用视空间深度，
+  estimate 使用带投影法线的双侧 horizon 解析积分，并通过 RG16F octahedral normal cache 供
+  denoise/upsample 复用；时域 history 统一保存正视空间深度，near/far 变化主动失效。
+- 共享方向光 PCF 在级联混合带外早退，避免无效的第二级联采样；新增 GTAO 解析参考、像素级 GL
+  回归、GTAO 集成与 1080p/4K 稳定帧基准。
 
 该条目对应 `releaseReadiness -PreleaseVersion=0.24.0` 通过的正式候选；远端 GPU/驱动
 差异仍由 CI 记录为独立环境风险。

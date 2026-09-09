@@ -54,8 +54,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final TaaHistory outdoorHistory;
     private final TaaHistory outdoorDepthHistory;
     private final int outdoorDownsample;
-    private final float outdoorHistoryWeight;
-    private final float outdoorDepthReject;
+    private float outdoorHistoryWeight;
+    private float outdoorDepthReject;
     private final Matrix4f fogInverseViewProjection = new Matrix4f();
     private final Matrix4f fogProjection = new Matrix4f();
     private final Matrix4f fogView = new Matrix4f();
@@ -67,6 +67,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final Matrix4f pendingOutdoorViewProjection = new Matrix4f();
     private final Matrix4f previousOutdoorViewProjection = new Matrix4f();
     private boolean previousOutdoorCameraValid;
+    private final Vector3f previousOutdoorPosition = new Vector3f();
+    private final Vector3f pendingOutdoorPosition = new Vector3f();
+    private final Vector3f previousOutdoorForward = new Vector3f();
+    private final Vector3f pendingOutdoorForward = new Vector3f();
     private float deltaSeconds = 1.0f / 60.0f;
     private String finalPassName;
 
@@ -402,7 +406,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
             final String volumeDepthTexture = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                     ? PostProcessTargets.RESOLVED_SCENE_DEPTH : PostProcessTargets.SCENE_DEPTH;
             RenderGraph.PassBuilder volumeBuilder = graph.addPass(PostProcessTargets.OUTDOOR_VOLUME_PASS)
-                    .createColor(PostProcessTargets.OUTDOOR_VOLUME_COLOR, RenderFormat.RGBA16F)
+                    .createColors(List.of(PostProcessTargets.OUTDOOR_VOLUME_COLOR,
+                                    PostProcessTargets.OUTDOOR_VOLUME_SAMPLE_DEPTH),
+                            List.of(RenderFormat.RGBA16F, RenderFormat.R16F))
                     .relativeSize(1.0f / outdoorDownsample)
                     .noClear().dependsOn(volumeInputPass);
             if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
@@ -429,7 +435,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                     ? outdoorDepthHistory.framebuffer().colorAttachment() : 0;
                             outdoorTemporal.recordIntoCurrentTarget(cmd,
                                     res.colorAttachment(PostProcessTargets.OUTDOOR_VOLUME_COLOR),
-                                    historyTexture, res.depthAttachment(volumeDepthTexture),
+                                    historyTexture, res.colorAttachment(PostProcessTargets.OUTDOOR_VOLUME_SAMPLE_DEPTH),
                                     historyDepthTexture, outdoorHistoryWeight, outdoorDepthReject,
                                     outdoorInverseViewProjection, previousOutdoorViewProjection,
                                     previousOutdoorCameraValid && outdoorHistory.valid()
@@ -445,7 +451,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                         Framebuffer target = res.currentTarget();
                         if (target != null && outdoorDepthHistoryPass != null) {
                             outdoorDepthHistoryPass.recordIntoCurrentTarget(cmd,
-                                    res.depthAttachment(volumeDepthTexture));
+                                    res.colorAttachment(PostProcessTargets.OUTDOOR_VOLUME_SAMPLE_DEPTH));
                             cmd.blitColor(target, outdoorDepthHistory.framebuffer());
                         }
                     });
@@ -715,7 +721,15 @@ final class PostProcessPassBuilder implements AutoCloseable {
             int outdoorHeight = Math.max(1, height);
             CameraProjection.stable(Objects.requireNonNull(camera, "camera"),
                     outdoorWidth, outdoorHeight, outdoorProjection);
+            CameraUniforms.applyTemporalJitter(outdoorProjection, width, height,
+                    settings.antiAliasingMode(), frameIndex);
             camera.getViewMatrix(outdoorView);
+            pendingOutdoorPosition.set(camera.positionInternal());
+            pendingOutdoorForward.set(outdoorView.m02(), outdoorView.m12(), outdoorView.m22()).normalize();
+            if (previousOutdoorCameraValid && (pendingOutdoorPosition.distanceSquared(previousOutdoorPosition) > 16.0f
+                    || pendingOutdoorForward.dot(previousOutdoorForward) < 0.8f)) {
+                invalidateOutdoorHistory();
+            }
             outdoorViewProjection.set(outdoorProjection).mul(outdoorView);
             if (!outdoorViewProjection.isFinite()
                     || Math.abs(outdoorViewProjection.determinant()) <= 1.0e-8f) {
@@ -738,6 +752,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (outdoorDepthHistory != null) outdoorDepthHistory.markValid();
         if (outdoorVolume != null) {
             previousOutdoorViewProjection.set(pendingOutdoorViewProjection);
+            previousOutdoorPosition.set(pendingOutdoorPosition);
+            previousOutdoorForward.set(pendingOutdoorForward);
             previousOutdoorCameraValid = true;
         }
     }
@@ -760,6 +776,11 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (outdoorHistory != null) outdoorHistory.invalidate();
         if (outdoorDepthHistory != null) outdoorDepthHistory.invalidate();
         previousOutdoorCameraValid = false;
+    }
+
+    void updateOutdoorSettings(VolumetricSunSettings settings) {
+        outdoorHistoryWeight = settings.historyWeight();
+        outdoorDepthReject = settings.depthRejectThreshold();
     }
 
     int outdoorDownsample() {

@@ -41,8 +41,8 @@ public record OutdoorEnvironmentSettings(boolean enabled, String preset,
     public static OutdoorEnvironmentSettings morningFog() {
         return new OutdoorEnvironmentSettings(true, "morning_fog", StylizedSkySettings.morningFog(),
                 VolumetricSunSettings.balanced(), FogSettings.builder().enabled(true)
-                .color(0.48f, 0.58f, 0.68f).distanceDensity(0.006f).heightDensity(0.018f)
-                .heightFalloff(0.16f).baseHeight(0.0f).maximumOpacity(0.55f).build(), List.of(),
+                .color(0.48f, 0.64f, 0.76f).distanceDensity(0.002f).heightDensity(0.012f)
+                .heightFalloff(0.24f).baseHeight(0.0f).maximumOpacity(0.55f).build(), List.of(),
                 1337, 0.12f);
     }
 

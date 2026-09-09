@@ -346,6 +346,13 @@ public final class UiSystem implements AutoCloseable {
         return attachments.diagnostics();
     }
 
+    /** Reattaches the existing UI after its previous pipeline graph was retired. */
+    public void rebindTo(RenderGraph graph, String dependencyPass) {
+        updateThread.check();
+        ensureOpen("UiSystem graph rebind");
+        attachments.rebind(graph, dependencyPass);
+    }
+
     /** 返回最近完成 update 的统计，并合入最近 render record 数据。 */
     public UiFrameStats statistics() {
         ensureOpen("UiFrameStats");

@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import org.joml.Matrix4f;
@@ -33,6 +34,7 @@ final class OutdoorVolumetricSunPass implements GlResource {
             "/shaders/postprocess/outdoor-volumetric-sun.frag");
     private final ScreenQuad quad = new ScreenQuad();
     private final Matrix4f inverseViewProjection = new Matrix4f();
+    private final Matrix4f viewProjection = new Matrix4f();
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
     private final Matrix4f emptyCascadeMatrix = new Matrix4f();
@@ -43,13 +45,15 @@ final class OutdoorVolumetricSunPass implements GlResource {
     private final Vector3f globalFogColor = new Vector3f();
     private final Vector3f zero = new Vector3f();
     private long frames;
+    private float elapsedSeconds;
     private boolean closed;
 
     void recordIntoCurrentTarget(CommandBuffer cmd, int sceneColorTexture, int sceneDepthTexture,
                                  int shadowTexture, Camera camera,
                                  OutdoorEnvironmentSettings settings,
                                  List<Matrix4f> cascadeMatrices, float[] cascadeSplits,
-                                 int frameIndex, int frameWidth, int frameHeight) {
+                                 int frameIndex, int frameWidth, int frameHeight,
+                                 AntiAliasingMode aa, SceneLight shadowSun) {
         ensureOpen();
         Objects.requireNonNull(cmd, "cmd");
         Objects.requireNonNull(camera, "camera");
@@ -66,10 +70,12 @@ final class OutdoorVolumetricSunPass implements GlResource {
         // the window is not square.
         CameraProjection.stable(camera,
                 Math.max(1, frameWidth), Math.max(1, frameHeight), projection);
+        CameraUniforms.applyTemporalJitter(projection, frameWidth, frameHeight, aa, frameIndex);
         camera.getViewMatrix(view);
-        inverseViewProjection.set(projection).mul(view).invert();
-        sunDirection.set(environment.sky().sunDirectionInternal());
-        sunColor.set(environment.sky().sunColorInternal());
+        viewProjection.set(projection).mul(view);
+        inverseViewProjection.set(viewProjection).invert();
+        sunDirection.set(shadowSun.direction());
+        sunColor.set(shadowSun.color());
         cameraPosition.set(camera.positionInternal());
         int cascadeCount = Math.min(MAX_CASCADES, cascadeMatrices == null ? 0 : cascadeMatrices.size());
 
@@ -90,11 +96,12 @@ final class OutdoorVolumetricSunPass implements GlResource {
                 .setUniformInt(shader, "uSceneDepth", SCENE_DEPTH_UNIT)
                 .setUniformInt(shader, "uShadowMap", SHADOW_UNIT)
                 .setUniformMat4(shader, "uInverseViewProjection", inverseViewProjection)
+                .setUniformMat4(shader, "uViewProjection", viewProjection)
                 .setUniformMat4(shader, "uView", view)
                 .setUniformVec3(shader, "uCameraPosition", cameraPosition)
                 .setUniformVec3(shader, "uSunDirection", sunDirection)
                 .setUniformVec3(shader, "uSunColor", sunColor)
-                .setUniformFloat(shader, "uSunIntensity", environment.sky().sunIntensity())
+                .setUniformFloat(shader, "uSunIntensity", shadowSun.intensity())
                 .setUniformVec3(shader, "uEnvironmentColor",
                         environmentColor.set(environment.sky().horizonColorInternal()))
                 .setUniformFloat(shader, "uEnvironmentIntensity",
@@ -108,7 +115,8 @@ final class OutdoorVolumetricSunPass implements GlResource {
                 // Rotate a short, deterministic low-discrepancy sequence. The
                 // independent temporal pass then averages the phases without
                 // coupling this effect to scene TAA jitter.
-                .setUniformFloat(shader, "uFramePhase", (frameIndex & 7) / 8.0f)
+                .setUniformFloat(shader, "uFramePhase", volume.historyWeight() > 0 ? (frameIndex & 7) / 8.0f : 0)
+                .setUniformFloat(shader, "uNoiseStrength", volume.noiseStrength())
                 .setUniformInt(shader, "uCascadeCount", cascadeCount)
                 .trySetUniformFloat(shader, "uCascadeAtlasSize", cascadeCount > 1
                         ? 2.0f : 1.0f)
@@ -122,7 +130,7 @@ final class OutdoorVolumetricSunPass implements GlResource {
                         environment.globalFog().blue()))
                 .setUniformInt(shader, "uLocalFogCount", environment.localFogVolumes().size())
                 .setUniformInt(shader, "uNoiseSeed", environment.noiseSeed())
-                .setUniformFloat(shader, "uWindTime", frames / 60.0f * environment.windSpeed());
+                .setUniformFloat(shader, "uWindTime", elapsedSeconds * environment.windSpeed());
         for (int index = 0; index < MAX_CASCADES; index++) {
             Matrix4f matrix = cascadeCount == 0 ? emptyCascadeMatrix : cascadeMatrices.get(
                     Math.min(index, cascadeCount - 1));
@@ -162,6 +170,8 @@ final class OutdoorVolumetricSunPass implements GlResource {
     }
 
     long framesRecorded() { return frames; }
+
+    void frameSucceeded(float deltaSeconds) { elapsedSeconds += deltaSeconds; }
 
     @Override public int id() { return shader.id(); }
     @Override public boolean isClosed() { return closed; }

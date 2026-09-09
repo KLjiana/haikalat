@@ -23,29 +23,25 @@ vec3 reconstructWorld(vec2 uv, float depth) {
     return world.xyz / max(abs(world.w), 1.0e-6);
 }
 
-// History stores normalized camera-space depth, not world-space Z.  World Z
-// remains unchanged when the camera rotates/translates, so it cannot reject a
-// disoccluded sample reliably.
-float normalizedLinearDepth(vec2 uv, float depth) {
+// History stores positive camera-space view depth.  It is deliberately not
+// world-space Z or device depth: both are poor contracts for reprojection when
+// the camera moves or the projection changes.
+float viewDepth(vec2 uv, float depth) {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = uInverseProjection * clip;
-    float viewDepth = abs(view.z / max(abs(view.w), 1.0e-6));
-    return clamp((viewDepth - uNearPlane) / max(uFarPlane - uNearPlane, 1.0e-4),
-            0.0, 1.0);
+    return clamp(abs(view.z / max(abs(view.w), 1.0e-6)), uNearPlane, uFarPlane);
 }
 
-float normalizedPreviousLinearDepth(vec4 previousClip) {
+float previousViewDepth(vec4 previousClip) {
     vec4 view = uPreviousInverseProjection * previousClip;
-    float viewDepth = abs(view.z / max(abs(view.w), 1.0e-6));
-    return clamp((viewDepth - uNearPlane) / max(uFarPlane - uNearPlane, 1.0e-4),
-            0.0, 1.0);
+    return clamp(abs(view.z / max(abs(view.w), 1.0e-6)), uNearPlane, uFarPlane);
 }
 
 void main() {
     float currentDepth = texture(uDepth, vTexCoord).r;
     float currentAo = texture(uRaw, vTexCoord).r;
     float depthValue = currentDepth >= 0.999999
-            ? 1.0 : normalizedLinearDepth(vTexCoord, currentDepth);
+            ? uFarPlane : viewDepth(vTexCoord, currentDepth);
     float historyAo = currentAo;
     float weight = 0.0;
     if (uHistoryValid != 0 && currentDepth < 0.999999) {
@@ -66,11 +62,17 @@ void main() {
                     maximumAo.x = max(maximumAo.x, value);
                 }
                 vec2 history = texture(uHistory, previousUv).rg;
-                float expectedDepth = normalizedPreviousLinearDepth(previousClip);
+                float expectedDepth = previousViewDepth(previousClip);
                 float depthDelta = abs(history.g - expectedDepth);
-                // Keep the public threshold normalized, but scale it slightly at
-                // far depth so quantization does not reject every stable sample.
-                float reject = uDepthReject * max(1.0, expectedDepth * 4.0);
+                // Both the stored value and the expected value are positive
+                // view-space depth.  Use an absolute floor near the camera and
+                // a relative term at distance; this keeps rejection behavior
+                // stable across near/far ranges and avoids unit mismatches with
+                // the spatial filters.
+                float absoluteTolerance = max(0.01,
+                        uDepthReject * max(uNearPlane, 1.0));
+                float relativeTolerance = uDepthReject * max(expectedDepth, 1.0);
+                float reject = max(absoluteTolerance, relativeTolerance);
                 if (depthDelta <= reject) {
                     historyAo = clamp(history.r, minimumAo.x, maximumAo.x);
                     weight = clamp(uHistoryWeight, 0.0, 0.98);

@@ -5,49 +5,30 @@ layout(location = 0) out float FragVisibility;
 
 uniform sampler2D uInput;
 uniform sampler2D uDepth;
+uniform sampler2D uNormal;
 uniform mat4 uInverseProjection;
 uniform vec2 uHalfExtent;
-uniform vec2 uFullExtent;
 uniform float uDepthReject;
 
 vec3 reconstructView(vec2 uv, float depth) {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = uInverseProjection * clip;
-    return view.xyz / max(abs(view.w), 1.0e-6);
+    if (any(isnan(view)) || any(isinf(view)) || abs(view.w) < 1.0e-6) {
+        return vec3(0.0);
+    }
+    return view.xyz / view.w;
 }
 
-vec3 reconstructNormal(vec2 uv, float centerDepth, vec3 centerView) {
-    vec2 texel = 1.0 / max(uFullExtent, vec2(1.0));
-    float leftDepth = texture(uDepth, clamp(uv + vec2(-texel.x, 0.0),
-            vec2(0.0), vec2(1.0))).r;
-    float rightDepth = texture(uDepth, clamp(uv + vec2(texel.x, 0.0),
-            vec2(0.0), vec2(1.0))).r;
-    float downDepth = texture(uDepth, clamp(uv + vec2(0.0, -texel.y),
-            vec2(0.0), vec2(1.0))).r;
-    float upDepth = texture(uDepth, clamp(uv + vec2(0.0, texel.y),
-            vec2(0.0), vec2(1.0))).r;
-    bool leftValid = leftDepth < 0.999999 && abs(leftDepth - centerDepth) < 0.08;
-    bool rightValid = rightDepth < 0.999999 && abs(rightDepth - centerDepth) < 0.08;
-    bool downValid = downDepth < 0.999999 && abs(downDepth - centerDepth) < 0.08;
-    bool upValid = upDepth < 0.999999 && abs(upDepth - centerDepth) < 0.08;
-    vec3 tangentX = leftValid && rightValid
-            ? reconstructView(uv + vec2(texel.x, 0.0), rightDepth)
-                - reconstructView(uv - vec2(texel.x, 0.0), leftDepth)
-            : rightValid ? reconstructView(uv + vec2(texel.x, 0.0), rightDepth) - centerView
-            : leftValid ? centerView - reconstructView(uv - vec2(texel.x, 0.0), leftDepth)
-            : vec3(1.0, 0.0, 0.0);
-    vec3 tangentY = downValid && upValid
-            ? reconstructView(uv + vec2(0.0, texel.y), upDepth)
-                - reconstructView(uv - vec2(0.0, texel.y), downDepth)
-            : upValid ? reconstructView(uv + vec2(0.0, texel.y), upDepth) - centerView
-            : downValid ? centerView - reconstructView(uv - vec2(0.0, texel.y), downDepth)
-            : vec3(0.0, 1.0, 0.0);
-    vec3 normal = cross(tangentX, tangentY);
-    if (length(normal) < 1.0e-5 || any(isnan(normal)) || any(isinf(normal))) {
-        return vec3(0.0, 0.0, 1.0);
+vec3 decodeOctahedral(vec2 encoded) {
+    vec3 normal = vec3(encoded * 2.0 - 1.0, 1.0
+            - abs(encoded.x * 2.0 - 1.0)
+            - abs(encoded.y * 2.0 - 1.0));
+    if (normal.z < 0.0) {
+        normal.xy = (1.0 - abs(normal.yx))
+                * vec2(normal.x >= 0.0 ? 1.0 : -1.0,
+                       normal.y >= 0.0 ? 1.0 : -1.0);
     }
-    normal = normalize(normal);
-    return normal.z < 0.0 ? -normal : normal;
+    return normalize(normal);
 }
 
 float normalWeight(vec3 centerNormal, vec3 tapNormal) {
@@ -62,7 +43,7 @@ void main() {
         return;
     }
     vec3 centerView = reconstructView(vTexCoord, centerDepth);
-    vec3 centerNormal = reconstructNormal(vTexCoord, centerDepth, centerView);
+    vec3 centerNormal = decodeOctahedral(texture(uNormal, vTexCoord).rg);
     vec2 texel = 1.0 / max(uHalfExtent, vec2(1.0));
     float sum = 0.0;
     float weight = 0.0;
@@ -77,7 +58,7 @@ void main() {
             vec3 tapView = reconstructView(uv, tapDepth);
             float depthDifference = abs(tapView.z - centerView.z);
             if (depthDifference > uDepthReject * max(abs(centerView.z), 1.0)) continue;
-            vec3 tapNormal = reconstructNormal(uv, tapDepth, tapView);
+            vec3 tapNormal = decodeOctahedral(texture(uNormal, uv).rg);
             float edgeWeight = normalWeight(centerNormal, tapNormal);
             float spatialWeight = (x == 0 && y == 0) ? 4.0
                     : (x == 0 || y == 0) ? 2.0 : 1.0;

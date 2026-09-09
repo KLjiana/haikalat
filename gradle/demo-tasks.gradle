@@ -151,9 +151,13 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
         ,runOutdoorEnvironmentDemo          : [render3dOutdoorMain,
                 ['--size=1280x720', '--environment-quality=test', '--preset=morning_fog'],
                 'Shows the v0.24 stylized outdoor environment and volume controls.']
+        ,runOutdoorEnvironmentCapture       : [render3dOutdoorMain,
+                ['--hidden', '--frames=48', '--size=1280x720', '--preset=morning_fog',
+                 '--capture=build/reports/outdoor-improved.png', '--no-vsync', '--verify'],
+                'Captures one deterministic outdoor frame with intentional pixel readback.']
         ,runOutdoorEnvironmentReferenceIntegration: [render3dOutdoorMain,
                 ['--hidden', '--frames=8', '--size=640x360', '--environment-quality=test',
-                 '--preset=morning_fog', '--volume-quality=high', '--verify'],
+                 '--preset=morning_fog', '--volume-quality=reference', '--verify'],
                 'Runs the high-sample, history-off reference volume path.']
         ,runOutdoorEnvironmentStabilityIntegration: [render3dOutdoorMain,
                 ['--hidden', '--frames=3600', '--size=320x180', '--resize=120:480x270',

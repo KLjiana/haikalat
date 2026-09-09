@@ -18,6 +18,9 @@ final class UiAttachmentController implements AutoCloseable {
     private final String overlayPassName;
     private RenderGraph attachedGraph;
     private UiCompositor compositor;
+    private RenderGraph.PassExecutor prefix;
+    private UiAttachmentOptions attachmentOptions;
+    private BiConsumer<com.kaleblangley.haikalat.core.graph.PassResources, CommandBuffer> recorder;
 
     UiAttachmentController(String overlayPassName) {
         this.overlayPassName = Objects.requireNonNull(overlayPassName, "overlayPassName");
@@ -40,6 +43,8 @@ final class UiAttachmentController implements AutoCloseable {
                 });
         graph.sealTopology();
         attachedGraph = graph;
+        prefix = beforeOverlay;
+        recorder = overlayRecorder;
     }
 
     void attach(RenderGraph graph, String dependencyPass,
@@ -58,6 +63,24 @@ final class UiAttachmentController implements AutoCloseable {
                 .execute(overlayRecorder::accept);
         graph.sealTopology();
         attachedGraph = graph;
+        attachmentOptions = options;
+        recorder = overlayRecorder;
+    }
+
+    void rebind(RenderGraph graph, String dependencyPass) {
+        if (graph == attachedGraph) return;
+        if (attachedGraph == null || !attachedGraph.isClosed()) {
+            throw new IllegalStateException("UI rebind requires a retired previous RenderGraph");
+        }
+        RenderGraph previous = attachedGraph;
+        attachedGraph = null;
+        try {
+            if (attachmentOptions == null) attach(graph, dependencyPass, prefix, recorder);
+            else attach(graph, dependencyPass, attachmentOptions, recorder);
+        } catch (RuntimeException | Error failure) {
+            attachedGraph = previous;
+            throw failure;
+        }
     }
 
     boolean isAttached() {
@@ -72,6 +95,9 @@ final class UiAttachmentController implements AutoCloseable {
     public void close() {
         attachedGraph = null;
         compositor = null;
+        prefix = null;
+        attachmentOptions = null;
+        recorder = null;
     }
 
     private void validate(RenderGraph graph, String dependencyPass) {

@@ -53,8 +53,8 @@ public record VolumetricSunSettings(boolean enabled, int steps, int downsample,
     }
 
     public static VolumetricSunSettings balanced() {
-        return new VolumetricSunSettings(true, 32, 2, 64.0f, 0.012f,
-                new Vector3f(0.82f, 0.90f, 1.0f), 0.35f, 0.86f, 0.08f, 0.35f);
+        return new VolumetricSunSettings(true, 32, 2, 90.0f, 0.004f,
+                new Vector3f(0.82f, 0.90f, 1.0f), 0.55f, 0.86f, 0.008f, 0.7f);
     }
 
     public static VolumetricSunSettings high() {

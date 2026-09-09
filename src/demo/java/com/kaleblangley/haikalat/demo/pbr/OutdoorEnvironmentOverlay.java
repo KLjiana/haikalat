@@ -37,6 +37,7 @@ import java.util.function.DoubleConsumer;
 final class OutdoorEnvironmentOverlay implements AutoCloseable {
     private final UiSystem ui;
     private final RenderPipeline pipeline;
+    private final java.util.function.Consumer<OutdoorEnvironmentSettings> applyEnvironment;
     private final Path configPath;
     private final Label status;
     private final Label depthDiagnostics;
@@ -58,8 +59,10 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
     private boolean syncing;
 
     private OutdoorEnvironmentOverlay(GlfwWindow window, RenderPipeline pipeline,
-                                      OutdoorEnvironmentSettings initial, Path configPath) {
+                                      OutdoorEnvironmentSettings initial, Path configPath,
+                                      java.util.function.Consumer<OutdoorEnvironmentSettings> applyEnvironment) {
         this.pipeline = pipeline;
+        this.applyEnvironment = applyEnvironment;
         this.desired = initial;
         this.compareBase = initial;
         this.configPath = configPath.toAbsolutePath().normalize();
@@ -70,21 +73,21 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
                 .padding(UiInsets.points(12)).alignItems(UiStyle.AlignItems.FLEX_END).build());
         Panel panel = new Panel();
         panel.debugName("OutdoorEnvironmentControls");
-        panel.style(UiStyle.builder().width(UiLength.points(430)).height(UiLength.points(690))
+        panel.style(UiStyle.builder().width(UiLength.points(430)).height(UiLength.points(570))
                 .padding(UiInsets.points(10)).gap(3)
                 .flexDirection(UiStyle.FlexDirection.COLUMN).build());
         panel.add(line("v0.24 Outdoor Environment"));
-        panel.add(line("Preset / sun / volume / history / repeatable capture"));
+        panel.add(line("Woodland / lighting / atmosphere"));
 
         Panel presets = new Panel();
-        presets.style(rowStyle(100));
+        presets.style(rowStyle(34));
         presets.add(button("Morning fog", () -> choosePreset("morning_fog")));
         presets.add(button("Clear day", () -> choosePreset("clear_day")));
         presets.add(button("Golden hour", () -> choosePreset("golden_hour")));
         panel.add(presets);
 
         Panel quality = new Panel();
-        quality.style(rowStyle(100));
+        quality.style(rowStyle(34));
         quality.add(button("Low", () -> chooseQuality("low")));
         quality.add(button("Balanced", () -> chooseQuality("balanced")));
         quality.add(button("High", () -> chooseQuality("high")));
@@ -159,11 +162,11 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
                 }));
 
         Panel persistence = new Panel();
-        persistence.style(rowStyle(100));
+        persistence.style(rowStyle(34));
         persistence.add(button("Save config", this::saveConfig));
         persistence.add(button("Load config", this::loadConfig));
-        persistence.add(line("file=" + this.configPath));
         panel.add(persistence);
+        panel.add(line("Config: " + this.configPath.getFileName()).ellipsis(true));
 
         status = line("");
         depthDiagnostics = line("");
@@ -181,27 +184,40 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
     }
 
     static OutdoorEnvironmentOverlay attach(GlfwWindow window, RenderPipeline pipeline,
-                                             OutdoorEnvironmentSettings initial, Path configPath) {
-        return new OutdoorEnvironmentOverlay(window, pipeline, initial, configPath);
+                                             OutdoorEnvironmentSettings initial, Path configPath,
+                                             java.util.function.Consumer<OutdoorEnvironmentSettings> applyEnvironment) {
+        return new OutdoorEnvironmentOverlay(window, pipeline, initial, configPath, applyEnvironment);
     }
 
     void update(WindowInputSnapshot input, float deltaSeconds) {
+        rebind();
         ui.update(input, deltaSeconds);
+        rebind();
         Render3dDiagnostics snapshot = pipeline.lastRender3dDiagnostics();
         Render3dDiagnostics.ShadowSummary shadow = snapshot.shadows();
         VolumetricSunSettings sun = desired.volumetricSun();
         float transmittance = (float) Math.exp(-sun.density() * sun.maximumDistance());
         float scattering = 1.0f - transmittance;
         String history = pipeline.outdoorVolumeHistoryValid() ? "valid" : "rejected/invalidated";
-        depthDiagnostics.text(String.format(Locale.ROOT, "DEPTH %d x %d   CSM %d   RANGE %s",
+        depthDiagnostics.text(String.format(Locale.ROOT, "DEPTH %d x %d   CSM %d",
                 snapshot.depthResolve().width(), snapshot.depthResolve().height(),
-                shadow.cascadeCount(), shadow.cascadeSplits()));
+                shadow.cascadeCount()));
         volumeDiagnostics.text(String.format(Locale.ROOT,
-                "SCATTER %.3f   TRANS %.3f   HISTORY %s",
+                "BASE MEDIUM %.3f / %.3f   HISTORY %s",
                 scattering, transmittance, history));
         shadowDiagnostics.text(String.format(Locale.ROOT,
                 "CASTERS %s   SHADOW DRAWS %d",
                 shadow.cascadeCasters(), pipeline.lastShadowCasterDrawCount()));
+    }
+
+    void rebind() { ui.rebindTo(pipeline.graph(), pipeline.finalPassName()); }
+
+    /** Refresh controls after a scripted preset has successfully reached the pipeline. */
+    void presetApplied(OutdoorEnvironmentSettings settings) {
+        desired = settings;
+        compareBase = settings;
+        syncControls(settings);
+        setStatus("Applied " + settings.preset() + " / quality=" + qualityFor(settings.volumetricSun()));
     }
 
     @Override
@@ -232,9 +248,9 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
     }
 
     private void mutateIgnoredCompare(OutdoorEnvironmentSettings next) {
-        desired = next;
-        pipeline.applyOutdoorEnvironment(compareToggle.value()
+        applyEnvironment.accept(compareToggle.value()
                 ? next.withVolumetricSun(VolumetricSunSettings.disabled()) : next);
+        desired = next;
         syncControls(next);
         setStatus("Applied " + next.preset() + " / quality=" + qualityFor(next.volumetricSun()));
     }
@@ -242,20 +258,20 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
     private void mutate(java.util.function.UnaryOperator<OutdoorEnvironmentSettings> operation) {
         if (syncing) return;
         OutdoorEnvironmentSettings next = operation.apply(desired);
-        desired = next;
         try {
-            pipeline.applyOutdoorEnvironment(compareToggle.value()
+            applyEnvironment.accept(compareToggle.value()
                     ? next.withVolumetricSun(VolumetricSunSettings.disabled()) : next);
         } catch (RuntimeException failure) {
             setStatus("Rejected: " + failure.getMessage());
             return;
         }
+        desired = next;
         setStatus("Applied " + next.preset());
     }
 
     private void applyCompare(boolean compare) {
         try {
-            pipeline.applyOutdoorEnvironment(compare
+            applyEnvironment.accept(compare
                     ? desired.withVolumetricSun(VolumetricSunSettings.disabled()) : desired);
             setStatus(compare ? "Comparison: volume disabled" : "Comparison: volume enabled");
         } catch (RuntimeException failure) {
@@ -278,7 +294,7 @@ final class OutdoorEnvironmentOverlay implements AutoCloseable {
                     configPath, desired);
             compareBase = next;
             desired = next;
-            pipeline.applyOutdoorEnvironment(compareToggle.value()
+            applyEnvironment.accept(compareToggle.value()
                     ? next.withVolumetricSun(VolumetricSunSettings.disabled()) : next);
             syncControls(next);
             setStatus("Loaded reproducible config: " + configPath);

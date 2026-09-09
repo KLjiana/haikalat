@@ -2,11 +2,13 @@
 
 layout (location = 0) in vec2 vUv;
 layout (location = 0) out vec4 fragColor;
+layout (location = 1) out float fragSampleDepth;
 
 uniform sampler2D uSceneColor;
 uniform sampler2D uSceneDepth;
 uniform sampler2D uShadowMap;
 uniform mat4 uInverseViewProjection;
+uniform mat4 uViewProjection;
 uniform mat4 uView;
 uniform vec3 uCameraPosition;
 uniform vec3 uSunDirection;
@@ -21,6 +23,7 @@ uniform float uDensity;
 uniform float uAnisotropy;
 uniform float uHistoryWeight;
 uniform float uFramePhase;
+uniform float uNoiseStrength;
 uniform float uGlobalDistanceDensity;
 uniform float uGlobalHeightDensity;
 uniform float uGlobalHeightFalloff;
@@ -58,6 +61,16 @@ float hash13(vec3 p) {
     return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
 }
 
+float smoothNoise(vec3 p) {
+    vec3 cell = floor(p);
+    vec3 t = fract(p);
+    t = t * t * (3.0 - 2.0 * t);
+    return mix(mix(mix(hash13(cell), hash13(cell + vec3(1,0,0)), t.x),
+                   mix(hash13(cell + vec3(0,1,0)), hash13(cell + vec3(1,1,0)), t.x), t.y),
+               mix(mix(hash13(cell + vec3(0,0,1)), hash13(cell + vec3(1,0,1)), t.x),
+                   mix(hash13(cell + vec3(0,1,1)), hash13(cell + vec3(1,1,1)), t.x), t.y), t.z);
+}
+
 float localDensity(vec3 position, out vec3 localColor) {
     float density = 0.0;
     localColor = vec3(0.0);
@@ -70,10 +83,13 @@ float localDensity(vec3 position, out vec3 localColor) {
         if (!inside) continue;
         float noise = 1.0;
         if (uFogNoiseScales[i] > 0.0 && uFogNoiseAmounts[i] > 0.0) {
-            noise = mix(1.0, hash13(position * uFogNoiseScales[i]
+            noise = mix(1.0, smoothNoise(position * uFogNoiseScales[i]
                     + vec3(uWindTime, 0.0, uWindTime)), uFogNoiseAmounts[i]);
         }
-        float contribution = uFogDensities[i] * noise;
+        float boundary = uFogShapes[i] == 0 ? length(d) / max(uFogExtents[i].x, 1e-5)
+                : max(max(abs(d.x) / max(uFogExtents[i].x, 1e-5), abs(d.y) / max(uFogExtents[i].y, 1e-5)),
+                      abs(d.z) / max(uFogExtents[i].z, 1e-5));
+        float contribution = uFogDensities[i] * noise * (1.0 - smoothstep(0.8, 1.0, boundary));
         density += contribution;
         localColor += uFogColors[i] * contribution;
     }
@@ -99,7 +115,7 @@ float sunVisibility(vec3 position, float viewDepth) {
             min(projected.y, 1.0 - projected.y));
     float depthDistance = min(projected.z, 1.0 - projected.z);
     float coverage = smoothstep(0.0, 0.08, min(borderDistance, depthDistance));
-    if (coverage <= 0.0) return 1.0;
+    if (coverage <= 0.0) return 0.0;
     vec3 sampleProjected = clamp(projected, vec3(0.0), vec3(1.0));
     int columns = uCascadeCount > 1 ? 2 : 1;
     int rows = uCascadeCount > 2 ? 2 : 1;
@@ -113,7 +129,7 @@ float sunVisibility(vec3 position, float viewDepth) {
                 offset + texel * 0.5, offset + scale - texel * 0.5);
         visibility += sampleProjected.z - 0.0015 > texture(uShadowMap, sampleUv).r ? 0.0 : 1.0;
     }
-    return mix(1.0, visibility / 9.0, coverage);
+    return visibility / 9.0 * coverage;
 }
 
 void main() {
@@ -124,7 +140,8 @@ void main() {
     if (depth < 0.99999) {
         endDistance = min(endDistance, length(reconstructWorld(vUv, depth) - uCameraPosition));
     }
-    if (endDistance <= 1.0e-4 || uDensity <= 0.0) {
+    fragSampleDepth = depth;
+    if (endDistance <= 1.0e-4) {
         fragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
@@ -132,12 +149,14 @@ void main() {
     float stepLength = endDistance / float(max(uSteps, 1));
     float transmittance = 1.0;
     vec3 scattering = vec3(0.0);
+    float weightedDistance = 0.0;
+    float scatteringWeight = 0.0;
     // A fixed spatial sequence avoids flicker when history is disabled.  The
     // phase uniform is reserved for the independent temporal owner.
     float jitter = fract(hash13(vec3(gl_FragCoord.xy, uFramePhase)));
     for (int i = 0; i < 128; ++i) {
         if (i >= uSteps) break;
-        float distanceAlongRay = (float(i) + 0.5 + (jitter - 0.5) * 0.25) * stepLength;
+        float distanceAlongRay = (float(i) + 0.5 + (jitter - 0.5) * uNoiseStrength) * stepLength;
         vec3 samplePosition = uCameraPosition + ray * distanceAlongRay;
         vec3 localColor;
         float localMedium = localDensity(samplePosition, localColor);
@@ -149,14 +168,20 @@ void main() {
         vec3 viewPosition = (uView * vec4(samplePosition, 1.0)).xyz;
         float viewDepth = max(-viewPosition.z, 0.0);
         float visibility = sunVisibility(samplePosition, viewDepth);
-        vec3 incident = uSunColor * uSunIntensity * visibility
-                + uEnvironmentColor * uEnvironmentIntensity * 0.08;
+        vec3 incident = uSunColor * uSunIntensity * visibility * phase
+                + uEnvironmentColor * uEnvironmentIntensity * 0.12;
         vec3 mediumColor = localMedium > 1.0e-5 ? localColor : uGlobalFogColor;
         incident *= mix(vec3(1.0), mediumColor, 0.35);
         float extinction = exp(-medium * stepLength);
-        scattering += transmittance * (1.0 - extinction) * incident
-                * phase * uScatteringColor;
+        vec3 contribution = transmittance * (1.0 - extinction) * incident * uScatteringColor;
+        scattering += contribution;
+        float contributionWeight = dot(contribution, vec3(0.2126, 0.7152, 0.0722));
+        weightedDistance += distanceAlongRay * contributionWeight;
+        scatteringWeight += contributionWeight;
         transmittance *= extinction;
     }
     fragColor = vec4(scattering, transmittance);
+    float sampleDistance = scatteringWeight > 1e-6 ? weightedDistance / scatteringWeight : endDistance * 0.5;
+    vec4 sampleClip = uViewProjection * vec4(uCameraPosition + ray * sampleDistance, 1.0);
+    fragSampleDepth = clamp(sampleClip.z / max(sampleClip.w, 1e-6) * 0.5 + 0.5, 0.0, 1.0);
 }

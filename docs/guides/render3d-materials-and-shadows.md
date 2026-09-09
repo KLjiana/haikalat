@@ -145,7 +145,8 @@ RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, envi
 ```
 
 启用后，pipeline 会在 PBR geometry 前执行 `GtaoDepthPrepass`、半分辨率 estimate、temporal、一次
-深度/法线感知 3×3 双边去噪和上采样。一次去噪替代旧的 H/V 两次全屏 pass，以减少稳定帧的
+深度/法线感知 3×3 双边去噪和上采样。estimate 同时写出 `gtaoRaw` 与 `gtaoNormal`（RG16F
+octahedral normal cache），去噪和上采样复用这份几何信息，不再为每个邻居重复重建法线。一次去噪替代旧的 H/V 两次全屏 pass，以减少稳定帧的
 FBO、timer 和 draw 开销；AO 只乘到 diffuse/specular IBL 的间接光；直接光、emissive、天空、BLEND/ADDITIVE、
 VFX 和 UI 不读取 GTAO。`LOW`/`MEDIUM`/`HIGH` 只改变有界的方向/步数预算，半分辨率对奇数窗口采用
 ceil-divide。独立的双缓冲 `RG16F` history 仅在成功帧交换，resize、模型/蒙皮/morph/MASK 变化或
@@ -153,7 +154,8 @@ camera cut 会保守拒绝旧 history。
 
 GTAO visibility 绑定 fragment texture unit 13。材质不得覆盖该 unit；未声明 `uGtaoEnabled`/
 `uGtaoMap` 的自定义 shader 仍可运行，但不会自动接收 AO。F2 graph preview 可选择
-`GtaoDepthPrepass/gtaoDepth`、`GtaoEstimatePass/gtaoRaw`、`GtaoTemporalPass/gtaoTemporal`、
+`GtaoDepthPrepass/gtaoDepth`、`GtaoEstimatePass/gtaoRaw`、`GtaoEstimatePass/gtaoNormal`、
+`GtaoTemporalPass/gtaoTemporal`、
 去噪 target 和 `GtaoUpsamplePass/gtaoFinal`；R8 按线性灰度显示，白色表示无遮蔽。
 
 诊断通过 `pipeline.lastRender3dDiagnostics().ambientOcclusion()` 报告开关、质量、半/全分辨率、

@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
 public final class PostProcessTargets {
+    public static final String OUTDOOR_VOLUME_SAMPLE_DEPTH = "OutdoorVolumeSampleDepth";
     public static final String GEOMETRY_PASS = "GeometryPass";
     public static final String FXAA_PASS = "FxaaPass";
     public static final String TAA_PASS = "TaaPass";
@@ -36,6 +37,8 @@ public final class PostProcessTargets {
     public static final String RESOLVED_SCENE_DEPTH = "resolvedSceneDepth";
     public static final String GTAO_DEPTH = "gtaoDepth";
     public static final String GTAO_RAW = "gtaoRaw";
+    /** Half-resolution octahedral normal cache emitted alongside GTAO_RAW. */
+    public static final String GTAO_NORMAL = "gtaoNormal";
     public static final String GTAO_TEMPORAL = "gtaoTemporal";
     public static final String GTAO_DENOISE_A = "gtaoDenoiseA";
     public static final String GTAO_DENOISE_B = "gtaoDenoiseB";

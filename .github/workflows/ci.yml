@@ -18,7 +18,7 @@ jobs:
           java-version: '21'
       - name: Compile and test (Windows)
         if: runner.os == 'Windows'
-        run: .\gradlew.bat compileJava demoClasses test
+        run: .\gradlew.bat check demoClasses
       - name: Compile and test (Linux)
         if: runner.os == 'Linux'
-        run: ./gradlew compileJava demoClasses test
+        run: ./gradlew check demoClasses

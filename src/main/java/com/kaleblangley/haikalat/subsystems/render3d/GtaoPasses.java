@@ -131,7 +131,9 @@ final class GtaoPasses implements AutoCloseable {
                 .execute(depthExecutor);
 
         graph.addPass(PostProcessTargets.GTAO_ESTIMATE_PASS)
-                .createColor(PostProcessTargets.GTAO_RAW, RenderFormat.R8)
+                .createColors(java.util.List.of(PostProcessTargets.GTAO_RAW,
+                                PostProcessTargets.GTAO_NORMAL),
+                        java.util.List.of(RenderFormat.R8, RenderFormat.RG16F))
                 .relativeSizeCeil(0.5f)
                 .noClear()
                 .dependsOn(PostProcessTargets.GTAO_DEPTH_PREPASS)
@@ -207,6 +209,16 @@ final class GtaoPasses implements AutoCloseable {
         } else {
             nearPlane = CameraProjection.NEAR_PLANE;
             farPlane = CameraProjection.FAR_PLANE;
+        }
+        if (previousCameraValid
+                && (Float.floatToIntBits(nearPlane) != Float.floatToIntBits(uploadedNearPlane)
+                || Float.floatToIntBits(farPlane) != Float.floatToIntBits(uploadedFarPlane))) {
+            // History depth is stored in positive view-space units.  A clip
+            // range change changes the interpretation/precision of both the
+            // current and previous projection, so retaining the old history
+            // would make a matching surface look like a disocclusion (or vice
+            // versa).
+            if (history != null) history.invalidate();
         }
         projectionUniformDirty = !uniformsInitialized
                 || !uploadedInverseProjection.equals(inverseProjection)
@@ -374,8 +386,10 @@ final class GtaoPasses implements AutoCloseable {
         long fullPixels = (long) fullWidth * fullHeight;
         long halfPixels = (long) half(fullWidth) * half(fullHeight);
         // D24 depth is conservatively reported as four bytes/texel; the transient
-        // color targets are R8, RG16F, R8, R8 and R8 respectively.
-        long transientBytes = fullPixels * 5L + halfPixels * 7L;
+        // color targets include the RG16F octahedral normal cache emitted beside
+        // raw AO (R8 + RG16F + RG16F + R8).  The estimate is intentionally
+        // conservative for driver alignment.
+        long transientBytes = fullPixels * 5L + halfPixels * 11L;
         long historyBytes = history == null ? 0L
                 : halfPixels * 8L;
         return new Render3dDiagnostics.AmbientOcclusionSummary(true, "", settings.quality().name(),
@@ -447,10 +461,10 @@ final class GtaoPasses implements AutoCloseable {
                 .enableFramebufferSrgb(false)
                 .bindShader(denoiseProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_TEMPORAL))
-                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH));
+                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH))
+                .bindTexture(2, resources.colorAttachment(PostProcessTargets.GTAO_NORMAL));
         if (extentUniformDirty) command.setUniformVec2(denoiseProgram,
-                "uHalfExtent", target.width(), target.height())
-                .setUniformVec2(denoiseProgram, "uFullExtent", width, height);
+                "uHalfExtent", target.width(), target.height());
         if (projectionUniformDirty) command.setUniformMat4(denoiseProgram,
                 "uInverseProjection", inverseProjection);
         command.bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES, 0, 6)
@@ -464,7 +478,8 @@ final class GtaoPasses implements AutoCloseable {
                 .enableFramebufferSrgb(false)
                 .bindShader(upsampleProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_DENOISE_B))
-                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH));
+                .bindTexture(1, resources.depthAttachment(PostProcessTargets.GTAO_DEPTH))
+                .bindTexture(2, resources.colorAttachment(PostProcessTargets.GTAO_NORMAL));
         if (extentUniformDirty) command.setUniformVec2(upsampleProgram,
                 "uHalfExtent", half(width), half(height))
                 .setUniformVec2(upsampleProgram, "uFullExtent", width, height);
@@ -496,9 +511,11 @@ final class GtaoPasses implements AutoCloseable {
                 .setFloat("uDepthReject", settings.depthRejectionThreshold());
         denoiseProgram.setSampler("uInput", 0)
                 .setSampler("uDepth", 1)
+                .setSampler("uNormal", 2)
                 .setFloat("uDepthReject", settings.depthRejectionThreshold());
         upsampleProgram.setSampler("uInput", 0)
                 .setSampler("uDepth", 1)
+                .setSampler("uNormal", 2)
                 .setFloat("uDepthReject", settings.depthRejectionThreshold());
     }
 

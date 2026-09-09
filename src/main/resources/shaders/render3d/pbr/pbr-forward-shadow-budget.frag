@@ -146,6 +146,13 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
             * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+vec2 receiverPlaneGradient(vec3 projected) {
+    vec3 dx = dFdx(projected), dy = dFdy(projected);
+    float determinant = dx.x * dy.y - dx.y * dy.x;
+    if (abs(determinant) < 1e-10) return vec2(0.0);
+    return vec2(dx.z * dy.y - dy.z * dx.y, dy.z * dx.x - dx.z * dy.x) / determinant;
+}
+
 float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     if (uUseShadowSamplingBlock == 0) {
         vec4 legacyLightPosition = uDirectionalCascadeCount > 1
@@ -166,11 +173,13 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
         vec2 legacyTexel = 1.0 / vec2(textureSize(uShadowMap, 0));
         vec2 legacyMinimum = legacyOffset + legacyTexel * 0.5;
         vec2 legacyMaximum = legacyOffset + legacyScale - legacyTexel * 0.5;
+        vec2 legacyGradient = receiverPlaneGradient(legacyProjected);
+        legacyBias += min(dot(abs(legacyGradient), legacyTexel) * 0.5, 0.01);
         float legacyShadow = 0.0;
         for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
             vec2 sampleUv = clamp(legacyProjected.xy + vec2(x, y) * legacyTexel,
                     legacyMinimum, legacyMaximum);
-            legacyShadow += legacyProjected.z - legacyBias
+            legacyShadow += legacyProjected.z + dot(legacyGradient, sampleUv - legacyProjected.xy) - legacyBias
                     > texture(uShadowMap, sampleUv).r ? 1.0 : 0.0;
         }
         return legacyShadow / 9.0;
@@ -195,13 +204,15 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     vec2 guard = texel * (float(radius) + 0.5);
     vec2 tileMinimum = offset + guard;
     vec2 tileMaximum = offset + scale - guard;
+    vec2 gradient = receiverPlaneGradient(projected);
+    bias += min(dot(abs(gradient), texel) * 0.5, 0.01);
     float shadow = 0.0;
     for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y) {
         if (abs(x) > radius || abs(y) > radius) continue;
         vec2 sampleUv = clamp(projected.xy + vec2(x, y) * texel,
                 tileMinimum, tileMaximum);
         float closest = texture(uShadowMap, sampleUv).r;
-        shadow += projected.z - bias > closest ? 1.0 : 0.0;
+        shadow += projected.z + dot(gradient, sampleUv - projected.xy) - bias > closest ? 1.0 : 0.0;
     }
     float width = float(radius * 2 + 1);
     return shadow / (width * width);
@@ -221,7 +232,9 @@ float shadowFactor(vec3 n, vec3 l) {
             * uDirectionalCascadeBlendRange, 1.0e-4);
     float blendStart = uDirectionalCascadeSplits[cascade] - blendWidth;
     float weight = smoothstep(blendStart, uDirectionalCascadeSplits[cascade], vViewDepth);
-    return mix(current, sampleDirectionalCascade(cascade + 1, n, l), weight);
+    if (weight <= 1.0e-4) return current;
+    float next = sampleDirectionalCascade(cascade + 1, n, l);
+    return weight >= 0.9999 ? next : mix(current, next, weight);
 }
 
 int pointShadowFace(vec3 direction) {

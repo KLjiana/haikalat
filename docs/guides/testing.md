@@ -66,9 +66,10 @@ scene graph rebuild count 不变，并由 GL debug 门禁检查错误与未授�
 v0.23.2 GTAO 的无桌面合同和真实 GL smoke 分开执行：
 
 ```powershell
-.\gradlew.bat test --tests "*GtaoSettingsTest" --tests "*GtaoPassesTest" --tests "*PipelineTopologyTest" \
+.\gradlew.bat test --tests "*GtaoSettingsTest" --tests "*GtaoPassesTest" --tests "*GtaoAnalyticReferenceTest" \
+    --tests "*PipelineTopologyTest" \
     --tests "*FramebufferDescriptorTest" --tests "*RenderGraphTest" --rerun-tasks
-.\gradlew.bat glSmoke --tests "*GtaoShaderGlTest" --rerun-tasks
+.\gradlew.bat glSmoke --tests "*GtaoShaderGlTest" --tests "*GtaoReconstructionGlTest" --rerun-tasks
 .\gradlew.bat runRender3dGtaoIntegration --rerun-tasks
 .\gradlew.bat runRender3dGtaoBenchmarks "-PgtaoBenchmarkMode=comparison" "-PgtaoBenchmarkRounds=5" "-PgtaoBenchmarkWarmup=30" "-PgtaoBenchmarkFrames=60" --rerun-tasks
 # 单独跑一侧时可使用 enabled 或 disabled；comparison 默认同时跑两侧。
@@ -146,6 +147,9 @@ GTAO 是屏幕空间遮蔽：遮挡体完全离开当前 depth prepass 后，不
 shader，并在隐藏 OpenGL context 中构建启用 GTAO 的 PBR pipeline，检查 depth prepass、ceil
 half-resolution target、R8 attachment、独立 history、相机位移后的 history 重建、最终像素 A/B、
 NONE/MSAA/FXAA/TAA 组合和失败后下一帧恢复。另有
+`GtaoReconstructionGlTest` 直接读取实际 fragment shader 输出，验证 8×8→16×16 像素中心渐变、
+常量场保持、深度断层不跨面重建法线以及边界有限性；`GtaoAnalyticReferenceTest` 在无 GL 的
+JVM 上验证无 horizon、30° 对称 horizon 的 `sin²` 余弦积分、确定性半球采样和旋转相位一致性。
 `RenderPipelineGlTest.gtaoDepthAndInstancedShadowReuseOnePreparedBatchAcrossPasses` 覆盖 GTAO depth、
 instanced shadow/cascade 与 geometry 的一次上传复用；`GltfRuntimeGlTest` 的 skin/morph forward 与
 shadow 用例也启用 GTAO depth prepass。发布候选仍需在同一最终提交上重跑 1080p/4K 性能结果，

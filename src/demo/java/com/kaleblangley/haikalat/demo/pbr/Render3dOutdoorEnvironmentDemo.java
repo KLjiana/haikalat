@@ -28,8 +28,6 @@ import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
-import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
-import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
@@ -85,28 +83,27 @@ public final class Render3dOutdoorEnvironmentDemo {
                 .antiAliasingMode(options.aa)
                 .toneMappingMode(ToneMappingMode.ACES)
                 .exposureMode(options.autoExposure ? ExposureMode.AUTO : ExposureMode.MANUAL)
-                .exposure(options.preset.equals("golden_hour") ? 0.95f : 1.05f)
+                .exposure(1.05f)
                 .bloomSettings(BloomSettings.builder().enabled(options.bloom).build())
                 .build();
         List<Material> materials = new ArrayList<>();
         try (FrameDriver driver = new FrameDriver(renderSettings);
-             PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(),
-                     Render3dOutdoorEnvironmentDemo.class, "/environments/pbr/studio-small.hdr",
-                     PbrEnvironmentSettings.quality(options.environmentQuality));
+             OutdoorEnvironmentResources outdoorResources = new OutdoorEnvironmentResources(
+                     driver.device(), options.environmentQuality);
              PbrFallbackTextures fallbacks = new PbrFallbackTextures();
              ShaderProgram shader = ShaderProgram.fromResource(Render3dOutdoorEnvironmentDemo.class,
                      "/shaders/render3d/pbr/pbr-forward.vert", "/shaders/render3d/pbr/pbr-forward.frag");
-             Mesh sphere = Mesh.from(PbrSphereMesh.create(28, 18))) {
-            Scene scene = createScene(sphere, shader, fallbacks, materials);
+             WoodlandMeshes meshes = new WoodlandMeshes()) {
+            Scene scene = createScene(meshes, shader, fallbacks, materials);
             OutdoorEnvironmentSettings environmentSettings = applyVolumeQuality(
                     preset(options.preset), options.volumeQuality);
             if (options.loadConfigPath != null) {
                 environmentSettings = loadEnvironmentConfig(options.loadConfigPath, environmentSettings);
             }
             if (!options.volume) {
-                environmentSettings = OutdoorEnvironmentSettings.disabled();
+                environmentSettings = environmentSettings.withVolumetricSun(VolumetricSunSettings.disabled());
             }
-            environment.intensity(environmentSettings.sky().environmentIntensity());
+            PbrEnvironment environment = outdoorResources.environmentFor(environmentSettings);
             RenderPipeline pipeline = new RenderPipeline(window, scene, null, renderSettings, environment)
                     .postProcessSettings(PostProcessSettings.builder()
                             .gtao(options.gtao ? GtaoSettings.quality(GtaoQuality.MEDIUM)
@@ -125,13 +122,14 @@ public final class Render3dOutdoorEnvironmentDemo {
                 if (options.benchmark && options.rounds > 1) {
                     runBenchmarkMatrix(window, driver, pipeline, options, environmentSettings);
                 } else {
-                    if (!options.hidden) {
+                    if (!options.hidden || options.overlay) {
                         try (OutdoorEnvironmentOverlay overlay = OutdoorEnvironmentOverlay.attach(
-                                window, pipeline, environmentSettings, options.configPath)) {
-                            renderLoop(window, driver, pipeline, options, overlay);
+                                window, pipeline, environmentSettings, options.configPath,
+                                value -> outdoorResources.apply(pipeline, value))) {
+                            renderLoop(window, driver, pipeline, options, overlay, outdoorResources);
                         }
                     } else {
-                        renderLoop(window, driver, pipeline, options, null);
+                        renderLoop(window, driver, pipeline, options, null, outdoorResources);
                     }
                 }
             } finally {
@@ -142,48 +140,51 @@ public final class Render3dOutdoorEnvironmentDemo {
         }
     }
 
-    private static Scene createScene(Mesh mesh, ShaderProgram shader,
+    private static Scene createScene(WoodlandMeshes meshes, ShaderProgram shader,
                                      PbrFallbackTextures fallbacks, List<Material> owner) {
         Material ground = own(owner, material(shader, fallbacks,
-                new Vector4f(0.28f, 0.36f, 0.23f, 1.0f), 0.0f, 0.92f));
+                new Vector4f(0.075f, 0.17f, 0.075f, 1.0f), 0.0f, 0.94f));
         Material bark = own(owner, material(shader, fallbacks,
-                new Vector4f(0.38f, 0.16f, 0.07f, 1.0f), 0.0f, 0.82f));
+                new Vector4f(0.17f, 0.09f, 0.045f, 1.0f), 0.0f, 0.92f));
         Material leaf = own(owner, material(shader, fallbacks,
-                new Vector4f(0.18f, 0.58f, 0.20f, 1.0f), 0.0f, 0.68f));
+                new Vector4f(0.10f, 0.27f, 0.065f, 1.0f), 0.0f, 0.86f));
         Material stone = own(owner, material(shader, fallbacks,
-                new Vector4f(0.50f, 0.55f, 0.60f, 1.0f), 0.05f, 0.72f));
-        Camera camera = new Camera(new Vector3f(0.0f, 2.4f, 14.0f));
+                new Vector4f(0.20f, 0.27f, 0.29f, 1.0f), 0.0f, 0.82f));
+        Material trail = own(owner, material(shader, fallbacks,
+                new Vector4f(.30f,.22f,.115f,1),0,.98f));
+        Material paleLeaf = own(owner, material(shader, fallbacks,
+                new Vector4f(.23f,.33f,.085f,1),0,.90f));
+        Camera camera = new Camera(new Vector3f(6.5f, 3.1f, 13.5f));
+        camera.setYaw(-106.0f);
+        camera.setPitch(-5.0f);
         Scene scene = new Scene(camera);
-        scene.add(SceneObject.fixed(mesh, ground,
-                new Matrix4f().translation(0.0f, -2.6f, -17.0f).scale(15.0f, 0.28f, 30.0f), true));
-        // Near trunks, a mid-distance path and a distant canopy give the CSM
-        // and volume a repeatable occluder/depth gradient.
-        for (int i = -3; i <= 3; i++) {
-            float x = i * 3.2f;
-            scene.add(SceneObject.fixed(mesh, bark,
-                    new Matrix4f().translation(x, -0.3f, -5.0f - Math.abs(i) * 2.0f)
-                            .scale(0.72f, 3.4f, 0.72f), true));
-            scene.add(SceneObject.fixed(mesh, leaf,
-                    new Matrix4f().translation(x, 3.0f, -5.0f - Math.abs(i) * 2.0f)
-                            .scale(2.2f, 1.4f, 2.2f), true));
+        scene.add(SceneObject.fixed(meshes.terrain, ground, new Matrix4f(), true));
+        scene.add(SceneObject.fixed(meshes.path, trail, new Matrix4f(), false));
+        java.util.Random random = new java.util.Random(2400);
+        for (int i = 0; i < 34; i++) {
+            float z = 9.0f - (i / 2) * 3.9f + random.nextFloat() * 1.6f;
+            float x = WoodlandMeshes.pathX(z) + (i % 2 == 0 ? -1 : 1) * (4.0f + random.nextFloat() * 8.0f);
+            float scale = .80f + random.nextFloat() * .60f;
+            Matrix4f transform = new Matrix4f().translation(x, WoodlandMeshes.height(x,z), z)
+                    .rotateY(random.nextFloat() * 6.28f).scale(scale);
+            scene.add(SceneObject.fixed(meshes.trunk, bark, transform, true));
+            scene.add(SceneObject.fixed(meshes.crown, i % 4 == 0 ? paleLeaf : leaf, transform, true));
         }
-        for (int i = 0; i < 7; i++) {
-            float x = (i - 3) * 2.4f;
-            scene.add(SceneObject.fixed(mesh, stone,
-                    new Matrix4f().translation(x, -1.6f, -8.0f - (i % 3) * 7.0f)
-                            .scale(0.9f + (i % 2) * 0.45f, 0.65f, 0.8f), true));
+        for (int i=0;i<24;i++) {
+            float z=10-random.nextFloat()*54, x=WoodlandMeshes.pathX(z)+(i%2==0?-1:1)*(2+random.nextFloat()*5);
+            float scale=.25f+random.nextFloat()*1.0f;
+            scene.add(SceneObject.fixed(meshes.rock,stone,new Matrix4f()
+                    .translation(x,WoodlandMeshes.height(x,z)+scale*.25f,z)
+                    .rotateY(random.nextFloat()*6.28f).scale(scale),true));
         }
-        // Broad low-poly ridges close the horizon so the finite background
-        // integration and the sky/ground transition are visible in captures.
-        for (int i = -2; i <= 2; i++) {
-            scene.add(SceneObject.fixed(mesh, stone,
-                    new Matrix4f().translation(i * 8.0f, -1.0f, -38.0f - Math.abs(i) * 3.0f)
-                            .scale(6.0f + Math.abs(i), 2.4f, 3.2f), true));
+        for (int i=0;i<45;i++) {
+            float z=12-random.nextFloat()*45, x=WoodlandMeshes.pathX(z)+(i%2==0?-1:1)*(1.6f+random.nextFloat()*3);
+            scene.add(SceneObject.fixed(meshes.grass,i%3==0?paleLeaf:leaf,new Matrix4f()
+                    .translation(x,WoodlandMeshes.height(x,z),z).rotateY(random.nextFloat()*6.28f)
+                    .scale(.7f+random.nextFloat()*.9f),false));
         }
-        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.45f, -0.78f, -0.28f),
-                new Vector3f(1.0f, 0.62f, 0.32f), 3.2f));
-        scene.addLight(SceneLight.point(new Vector3f(0.0f, 4.0f, 4.0f),
-                new Vector3f(0.24f, 0.38f, 1.0f), 7.0f, 18.0f));
+        StylizedSkySettings sky = StylizedSkySettings.morningFog();
+        scene.addLight(SceneLight.shadowedDirectional(sky.sunDirection(), sky.sunColor(), sky.sunIntensity()));
         return scene;
     }
 
@@ -207,11 +208,11 @@ public final class Render3dOutdoorEnvironmentDemo {
             case "morning_fog", "morning", "fog" -> OutdoorEnvironmentSettings.morningFog()
                     .withLocalFogVolumes(List.of(
                             new LocalFogVolume(LocalFogVolume.Shape.SPHERE,
-                                    new Vector3f(-2.2f, -0.7f, -9.0f), new Vector3f(4.0f),
-                                    0.045f, new Vector3f(0.62f, 0.72f, 0.80f), 0.16f, 0.22f),
+                                    new Vector3f(-2.2f, 0.4f, -14.0f), new Vector3f(6.0f),
+                                    0.012f, new Vector3f(0.62f, 0.75f, 0.86f), 0.22f, 0.4f),
                             new LocalFogVolume(LocalFogVolume.Shape.BOX,
-                                    new Vector3f(3.0f, -0.8f, -18.0f), new Vector3f(4.5f, 2.0f, 6.0f),
-                                    0.025f, new Vector3f(0.55f, 0.65f, 0.75f), 0.12f, 0.18f)));
+                                    new Vector3f(2.0f, 0.6f, -27.0f), new Vector3f(12.0f, 1.5f, 18.0f),
+                                    0.008f, new Vector3f(0.55f, 0.72f, 0.83f), 0.18f, 0.45f)));
             default -> throw new IllegalArgumentException("unknown outdoor preset: " + value);
         };
     }
@@ -224,7 +225,10 @@ public final class Render3dOutdoorEnvironmentDemo {
             case "low" -> new VolumetricSunSettings(true, 16, 4, base.maximumDistance(),
                     base.density(), base.scatteringColor(), base.anisotropy(), 0.72f,
                     base.depthRejectThreshold(), base.noiseStrength());
-            case "high", "reference" -> new VolumetricSunSettings(true, 96, 1,
+            case "high" -> new VolumetricSunSettings(true, 64, 2,
+                    base.maximumDistance(), base.density(), base.scatteringColor(), base.anisotropy(),
+                    0.9f, base.depthRejectThreshold(), base.noiseStrength());
+            case "reference" -> new VolumetricSunSettings(true, 96, 1,
                     base.maximumDistance(), base.density(), base.scatteringColor(), base.anisotropy(),
                     0.0f, base.depthRejectThreshold() * 0.75f, base.noiseStrength() * 0.5f);
             default -> throw new IllegalArgumentException("unknown volume quality: " + quality);
@@ -234,7 +238,7 @@ public final class Render3dOutdoorEnvironmentDemo {
 
     private static void renderLoop(GlfwWindow window, FrameDriver driver,
                                    RenderPipeline pipeline, Options options,
-                                   OutdoorEnvironmentOverlay overlay) {
+                                   OutdoorEnvironmentOverlay overlay, OutdoorEnvironmentResources outdoorResources) {
         int frame = 0;
         Camera routeCamera = pipeline.scene().camera();
         Vector3f routePosition = new Vector3f();
@@ -261,8 +265,10 @@ public final class Render3dOutdoorEnvironmentDemo {
             if (options.switches > 0 && environmentSwitches < options.switches
                     && frame > 0 && frame % Math.max(1, options.switchInterval) == 0) {
                 String[] cycle = {"morning_fog", "clear_day", "golden_hour"};
-                pipeline.applyOutdoorEnvironment(applyVolumeQuality(
-                        preset(cycle[environmentSwitches % cycle.length]), options.volumeQuality));
+                OutdoorEnvironmentSettings next = applyVolumeQuality(
+                        preset(cycle[environmentSwitches % cycle.length]), options.volumeQuality);
+                outdoorResources.apply(pipeline, next);
+                if (overlay != null) overlay.presetApplied(next);
                 environmentSwitches++;
             }
             if (options.failureInjections > 0 && failureInjections < options.failureInjections
@@ -285,6 +291,7 @@ public final class Render3dOutdoorEnvironmentDemo {
                     failureInjections++;
                 }
             }
+            if (overlay != null) overlay.rebind();
             long allocatedBefore = options.benchmark ? allocatedBytes(allocationBean) : -1L;
             driver.beginFrame();
             try {
@@ -359,7 +366,7 @@ public final class Render3dOutdoorEnvironmentDemo {
             for (int[] size : sizes) {
                 window.resize(size[0], size[1]);
                 if (window.consumeResize()) pipeline.resize(window.width(), window.height());
-                pipeline.applyOutdoorEnvironment(OutdoorEnvironmentSettings.disabled());
+                pipeline.applyOutdoorEnvironment(enabledEnvironment.withVolumetricSun(VolumetricSunSettings.disabled()));
                 BenchmarkSample off = measurePhase(window, driver, pipeline, options,
                         round, size[0], size[1], false);
                 pipeline.applyOutdoorEnvironment(environmentForSize(enabledEnvironment,
@@ -703,7 +710,7 @@ public final class Render3dOutdoorEnvironmentDemo {
     private static final class Options {
         private int width = 1280, height = 720, frames = 0, csmAtlas = 2048;
         private int resizeFrame = -1, resizeWidth = 0, resizeHeight = 0;
-        private boolean hidden, noVsync, volume = true, bloom, verify, benchmark,
+        private boolean hidden, overlay, noVsync, volume = true, bloom, verify, benchmark,
                 autoExposure, gtao, route, insideVolume;
         private int warmup = 120;
         private String preset = "morning_fog", environmentQuality = "test";
@@ -724,6 +731,7 @@ public final class Render3dOutdoorEnvironmentDemo {
                 if (arg.equals("--hidden")) value.hidden = true;
                 else if (arg.equals("--no-vsync")) value.noVsync = true;
                 else if (arg.equals("--volume=off")) value.volume = false;
+                else if (arg.equals("--overlay")) value.overlay = true;
                 else if (arg.equals("--bloom")) value.bloom = true;
                 else if (arg.equals("--auto-exposure")) value.autoExposure = true;
                 else if (arg.equals("--gtao")) value.gtao = true;
