@@ -6,17 +6,17 @@ import java.util.List;
 import java.util.Objects;
 
 /** Immutable point-light 3x2 block assignment for one frame. */
-record PointShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, float score,
+record PointShadowSlotPlan(SceneLightEntry entry, int frameLightIndex, int slot, float score,
                            List<Matrix4f> faceMatrices, List<ShadowTileRect> faceTiles,
                            boolean newlyAssigned, boolean dirty,
                            ShadowFramePlan.MissReason missReason,
                            List<Boolean> dirtyFaces,
                            List<ShadowFramePlan.MissReason> faceMissReasons) {
-    PointShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, float score,
+    PointShadowSlotPlan(SceneLightEntry entry, int frameLightIndex, int slot, float score,
                         List<Matrix4f> faceMatrices, List<ShadowTileRect> faceTiles,
                         boolean newlyAssigned, boolean dirty,
                         ShadowFramePlan.MissReason missReason) {
-        this(entry, shaderIndex, slot, score, faceMatrices, faceTiles, newlyAssigned, dirty,
+        this(entry, frameLightIndex, slot, score, faceMatrices, faceTiles, newlyAssigned, dirty,
                 missReason, java.util.Collections.nCopies(PointShadowAtlas.FACE_COUNT, dirty),
                 java.util.Collections.nCopies(PointShadowAtlas.FACE_COUNT, missReason));
     }
@@ -40,7 +40,7 @@ record PointShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, flo
     }
 
     PointShadowSlotPlan withCache(boolean nextDirty, ShadowFramePlan.MissReason reason) {
-        return new PointShadowSlotPlan(entry, shaderIndex, slot, score, faceMatrices,
+        return new PointShadowSlotPlan(entry, frameLightIndex, slot, score, faceMatrices,
                 faceTiles, newlyAssigned, nextDirty, reason,
                 java.util.Collections.nCopies(PointShadowAtlas.FACE_COUNT, nextDirty),
                 java.util.Collections.nCopies(PointShadowAtlas.FACE_COUNT, reason));
@@ -56,7 +56,7 @@ record PointShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, flo
                 break;
             }
         }
-        return new PointShadowSlotPlan(entry, shaderIndex, slot, score, faceMatrices,
+        return new PointShadowSlotPlan(entry, frameLightIndex, slot, score, faceMatrices,
                 faceTiles, newlyAssigned, anyDirty, first, nextDirty, reasons);
     }
 

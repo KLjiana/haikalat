@@ -132,6 +132,7 @@ final class ForwardPassBuilder {
         }
         if (hasPointShadow) geometry.dependsOn(PointShadowAtlas.PASS_NAME);
         if (hasSpotShadow) geometry.dependsOn(SpotShadowAtlas.PASS_NAME);
+        geometry.dependsOn(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS);
         if (topology.gtaoEnabled()) {
             geometry.dependsOn(PostProcessTargets.GTAO_UPSAMPLE_PASS);
         }

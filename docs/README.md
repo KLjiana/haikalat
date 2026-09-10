@@ -28,6 +28,7 @@
 - [v0.23.4 Render3D 动态阴影精细裁剪与失效计划](planning/v0.23.4-render3d-dynamic-shadow-culling-and-invalidation.md)
 - [v0.24 风格化室外环境与体积阳光计划](planning/v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)
 - [v0.24.1 统一 Scene Buffers 与 TAA 实施指南](planning/v0.24.1-scene-buffers-and-taa.md)
+- [v0.24.2 Clustered Forward 实施规划书](planning/v0.24.2-clustered-forward.md)
 - [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
@@ -100,6 +101,7 @@
 - [v0.23.0 Render3D 框架加固与能力扩展正式版验收报告](releases/v0.23.0-release-report.md)
 - [v0.23.1 Render3D 光源与阴影深化正式版验收报告](releases/v0.23.1-release-report.md)
 - [v0.24.0 室外环境与体积阳光发布报告](releases/v0.24.0-release-report.md)
+- [v0.24.2 Clustered Forward 发布准备报告](releases/v0.24.2-release-report.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
 - [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)
 - [glTF Animation Graph sidecar 指南](guides/gltf-animation-state-machine.md)

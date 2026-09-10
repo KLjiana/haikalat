@@ -1,14 +1,46 @@
 #version 460 core
 
-#define MAX_POINT_SHADOW_SLOTS 2
-#define MAX_SPOT_SHADOW_SLOTS 4
 #define POINT_SHADOW_FACE_COUNT 6
 
-struct DirectionalLight { vec3 direction; vec3 color; float intensity; };
-struct PointLight { vec3 position; vec3 color; float intensity; float range; };
-struct SpotLight {
-    vec3 position; vec3 direction; vec3 color;
-    float intensity; float range; float innerCone; float outerCone;
+struct LightRecord {
+    vec4 positionRange;    // world xyz, local range
+    vec4 directionOuter;   // world direction, spot outer cone
+    vec4 colorIntensity;   // linear rgb, intensity
+    vec4 extra;            // spot inner cone, view-space position xyz
+    ivec4 metadata;        // type (0 directional / 1 point / 2 spot), shadow slot, flags, 0
+};
+
+layout(std430, binding = 0) readonly buffer LightTableBlock {
+    uvec4 uLightHeader;    // directionalCount, localCount, totalCount, reserved
+    LightRecord uLights[];
+};
+
+layout(std430, binding = 2) readonly buffer ClusterHeadersBlock {
+    uvec4 uClusterHeaders[];   // offset, count, overflowFlag, trueCount
+};
+
+layout(std430, binding = 3) readonly buffer ClusterIndicesBlock {
+    uint uClusterIndices[];
+};
+
+layout(std140, binding = 5) uniform ShadowSamplingBlock {
+    ivec4 uPointShadowMeta[2];
+    mat4 uPointSlotMatrices[2 * POINT_SHADOW_FACE_COUNT];
+    vec4 uPointFaceRects[2 * POINT_SHADOW_FACE_COUNT];
+    ivec4 uSpotShadowMeta[4];
+    mat4 uSpotSlotMatrices[4];
+    vec4 uSpotTileRects[4];
+    ivec4 uShadowQualityMeta;
+};
+
+layout(std140, binding = 6) uniform ClusterParametersBlock {
+    mat4 uStableView;
+    mat4 uStableViewProjection;
+    mat4 uInverseProjection;
+    ivec4 uGridParams;      // nx, ny, nz, inlineCapacity
+    vec4 uDepthParams;      // near, far, perspective(1/0), reserved
+    ivec4 uLightCounts;     // directionalCount, localCount, reserved, reserved
+    vec4 uEdgeExpand;       // ndc expand x, ndc expand y, reserved, reserved
 };
 
 in vec2 vTexCoord;
@@ -41,43 +73,23 @@ uniform float uRoughnessFactor;
 uniform float uNormalScale;
 uniform float uOcclusionStrength;
 uniform vec3 uEmissiveFactor;
+uniform int uClusterDebugMode;
 uniform float uEnvironmentIntensity;
 uniform float uEnvironmentRotation;
 uniform float uPrefilterMaxLod;
 uniform vec3 uCameraPosition;
-uniform int uDirectionalLightCount;
-uniform int uPointLightCount;
-uniform int uSpotLightCount;
-uniform DirectionalLight uDirectionalLights[2];
-uniform PointLight uPointLights[8];
-uniform SpotLight uSpotLights[4];
 uniform int uHasDirectionalShadow;
-uniform int uDirectionalShadowLightIndex;
+uniform int uDirectionalShadowFrameLightIndex;
 uniform float uShadowBias;
 uniform int uDirectionalCascadeCount;
 uniform float uDirectionalCascadeSplits[4];
 uniform float uDirectionalCascadeBlendRange;
-uniform int uHasPointShadow;
-uniform int uPointShadowLightIndex;
-uniform mat4 uPointShadowMatrices[6];
-uniform float uPointShadowBias;
-uniform int uHasSpotShadow;
-uniform int uSpotShadowLightIndex;
-uniform mat4 uSpotShadowMatrix;
-uniform float uSpotShadowBias;
 uniform mat4 uDirectionalLightSpace;
 uniform mat4 uDirectionalCascadeMatrices[4];
-uniform int uUseShadowSamplingBlock;
-
-layout(std140, binding = 5) uniform ShadowSamplingBlock {
-    ivec4 uPointShadowMeta[MAX_POINT_SHADOW_SLOTS];
-    mat4 uPointSlotMatrices[MAX_POINT_SHADOW_SLOTS * POINT_SHADOW_FACE_COUNT];
-    vec4 uPointFaceRects[MAX_POINT_SHADOW_SLOTS * POINT_SHADOW_FACE_COUNT];
-    ivec4 uSpotShadowMeta[MAX_SPOT_SHADOW_SLOTS];
-    mat4 uSpotSlotMatrices[MAX_SPOT_SHADOW_SLOTS];
-    vec4 uSpotTileRects[MAX_SPOT_SHADOW_SLOTS];
-    ivec4 uShadowQualityMeta;
-};
+uniform int uHasPointShadow;
+uniform float uPointShadowBias;
+uniform int uHasSpotShadow;
+uniform float uSpotShadowBias;
 uniform int uEnableDirect;
 uniform int uEnableDiffuseIbl;
 uniform int uEnableSpecularIbl;
@@ -95,16 +107,11 @@ uniform int uGtaoPreview;
 const float PI = 3.14159265358979323846;
 
 int shadowKernelRadius() {
-    return uUseShadowSamplingBlock != 0 ? clamp(uShadowQualityMeta.x, 0, 2) : 1;
+    return clamp(uShadowQualityMeta.x, 0, 2);
 }
+
 float shadowNormalBias() {
-    return uUseShadowSamplingBlock != 0 ? intBitsToFloat(uShadowQualityMeta.y) : 0.0;
-}
-float pointBaseBias() {
-    return uUseShadowSamplingBlock != 0 ? intBitsToFloat(uShadowQualityMeta.z) : uPointShadowBias;
-}
-float spotBaseBias() {
-    return uUseShadowSamplingBlock != 0 ? intBitsToFloat(uShadowQualityMeta.w) : uSpotShadowBias;
+    return intBitsToFloat(uShadowQualityMeta.y);
 }
 
 float shadowDepthBias(float baseBias, vec3 n, vec3 l) {
@@ -154,36 +161,6 @@ vec2 receiverPlaneGradient(vec3 projected) {
 }
 
 float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
-    if (uUseShadowSamplingBlock == 0) {
-        vec4 legacyLightPosition = uDirectionalCascadeCount > 1
-            ? vDirectionalCascadePosition[cascade] : vDirectionalLightPosition;
-        vec3 legacyProjected = legacyLightPosition.xyz / legacyLightPosition.w;
-        legacyProjected = legacyProjected * 0.5 + 0.5;
-        if (legacyProjected.z <= 0.0 || legacyProjected.z >= 1.0
-                || any(lessThanEqual(legacyProjected.xy, vec2(0.0)))
-                || any(greaterThanEqual(legacyProjected.xy, vec2(1.0)))) return 0.0;
-        float legacyBias = max(uShadowBias * (1.0 - dot(n, l)), uShadowBias * 0.25);
-        int legacyColumns = uDirectionalCascadeCount == 2
-                || uDirectionalCascadeCount > 2 ? 2 : 1;
-        int legacyRows = uDirectionalCascadeCount > 2 ? 2 : 1;
-        vec2 legacyScale = vec2(1.0 / float(legacyColumns), 1.0 / float(legacyRows));
-        vec2 legacyOffset = vec2(float(cascade % legacyColumns),
-                float(cascade / legacyColumns)) * legacyScale;
-        legacyProjected.xy = legacyProjected.xy * legacyScale + legacyOffset;
-        vec2 legacyTexel = 1.0 / vec2(textureSize(uShadowMap, 0));
-        vec2 legacyMinimum = legacyOffset + legacyTexel * 0.5;
-        vec2 legacyMaximum = legacyOffset + legacyScale - legacyTexel * 0.5;
-        vec2 legacyGradient = receiverPlaneGradient(legacyProjected);
-        legacyBias += min(dot(abs(legacyGradient), legacyTexel) * 0.5, 0.01);
-        float legacyShadow = 0.0;
-        for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
-            vec2 sampleUv = clamp(legacyProjected.xy + vec2(x, y) * legacyTexel,
-                    legacyMinimum, legacyMaximum);
-            legacyShadow += legacyProjected.z + dot(legacyGradient, sampleUv - legacyProjected.xy) - legacyBias
-                    > texture(uShadowMap, sampleUv).r ? 1.0 : 0.0;
-        }
-        return legacyShadow / 9.0;
-    }
     vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
     vec4 lightPosition = uDirectionalCascadeCount > 1
         ? uDirectionalCascadeMatrices[cascade] * vec4(samplePosition, 1.0)
@@ -218,7 +195,7 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     return shadow / (width * width);
 }
 
-float shadowFactor(vec3 n, vec3 l) {
+float directionalShadowFactor(vec3 n, vec3 l) {
     if (uHasDirectionalShadow == 0) return 0.0;
     int count = max(uDirectionalCascadeCount, 1);
     int cascade = count - 1;
@@ -249,46 +226,9 @@ int pointShadowFace(vec3 direction) {
     return direction.z >= 0.0 ? 4 : 5;
 }
 
-float pointShadowFactor(int lightIndex, vec3 n, vec3 l) {
-    if (uHasPointShadow == 0) return 0.0;
-    if (uUseShadowSamplingBlock == 0) {
-        if (lightIndex != uPointShadowLightIndex) return 0.0;
-        vec3 legacyFromLight = vWorldPosition - uPointLights[lightIndex].position;
-        int legacyFace = pointShadowFace(legacyFromLight);
-        vec4 legacyClip = uPointShadowMatrices[legacyFace] * vec4(vWorldPosition, 1.0);
-        vec3 legacyProjected = legacyClip.xyz / legacyClip.w;
-        legacyProjected = legacyProjected * 0.5 + 0.5;
-        if (legacyProjected.z <= 0.0 || legacyProjected.z >= 1.0
-                || any(lessThanEqual(legacyProjected.xy, vec2(0.0)))
-                || any(greaterThanEqual(legacyProjected.xy, vec2(1.0)))) return 0.0;
-        ivec2 legacyTile = ivec2(legacyFace % 3, legacyFace / 3);
-        vec2 legacyGrid = vec2(3.0, 2.0);
-        vec2 legacyAtlasUv = (legacyProjected.xy + vec2(legacyTile)) / legacyGrid;
-        vec2 legacyTexel = 1.0 / vec2(textureSize(uPointShadowMap, 0));
-        vec2 legacyMinimum = vec2(legacyTile) / legacyGrid + legacyTexel * 0.5;
-        vec2 legacyMaximum = vec2(legacyTile + ivec2(1)) / legacyGrid
-                - legacyTexel * 0.5;
-        float legacyBias = max(uPointShadowBias * (1.0 - dot(n, l)),
-                uPointShadowBias * 0.25);
-        float legacyShadow = 0.0;
-        for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
-            vec2 sampleUv = clamp(legacyAtlasUv + vec2(x, y) * legacyTexel,
-                    legacyMinimum, legacyMaximum);
-            legacyShadow += legacyProjected.z - legacyBias
-                    > texture(uPointShadowMap, sampleUv).r ? 1.0 : 0.0;
-        }
-        return legacyShadow / 9.0;
-    }
-    int slot = -1;
-    for (int candidate = 0; candidate < MAX_POINT_SHADOW_SLOTS; candidate++) {
-        if (uPointShadowMeta[candidate].y != 0
-                && uPointShadowMeta[candidate].x == lightIndex) {
-            slot = candidate;
-            break;
-        }
-    }
-    if (slot < 0) return 0.0;
-    vec3 fromLight = vWorldPosition - uPointLights[lightIndex].position;
+float pointShadowFactor(int slot, vec3 lightPosition, vec3 n, vec3 l) {
+    if (uHasPointShadow == 0 || uPointShadowMeta[slot].y == 0) return 0.0;
+    vec3 fromLight = vWorldPosition - lightPosition;
     int face = pointShadowFace(fromLight);
     vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
     int matrixIndex = slot * POINT_SHADOW_FACE_COUNT + face;
@@ -301,7 +241,7 @@ float pointShadowFactor(int lightIndex, vec3 n, vec3 l) {
     vec4 rect = uPointFaceRects[matrixIndex];
     vec2 atlasUv = mix(rect.xy, rect.zw, projected.xy);
     vec2 atlasTexel = 1.0 / vec2(textureSize(uPointShadowMap, 0));
-    float bias = shadowDepthBias(pointBaseBias(), n, l);
+    float bias = shadowDepthBias(intBitsToFloat(uShadowQualityMeta.z), n, l);
     int radius = shadowKernelRadius();
     vec2 guard = atlasTexel * (float(radius) + 0.5);
     vec2 tileMinimum = rect.xy + guard;
@@ -317,36 +257,8 @@ float pointShadowFactor(int lightIndex, vec3 n, vec3 l) {
     return shadow / (width * width);
 }
 
-float spotShadowFactor(int lightIndex, vec3 n, vec3 l) {
-    if (uHasSpotShadow == 0) return 0.0;
-    if (uUseShadowSamplingBlock == 0) {
-        if (lightIndex != uSpotShadowLightIndex) return 0.0;
-        vec4 legacyClip = uSpotShadowMatrix * vec4(vWorldPosition, 1.0);
-        vec3 legacyProjected = legacyClip.xyz / legacyClip.w;
-        legacyProjected = legacyProjected * 0.5 + 0.5;
-        if (legacyProjected.z <= 0.0 || legacyProjected.z >= 1.0
-                || any(lessThanEqual(legacyProjected.xy, vec2(0.0)))
-                || any(greaterThanEqual(legacyProjected.xy, vec2(1.0)))) return 0.0;
-        float legacyBias = max(uSpotShadowBias * (1.0 - dot(n, l)),
-                uSpotShadowBias * 0.25);
-        vec2 legacyTexel = 1.0 / vec2(textureSize(uSpotShadowMap, 0));
-        float legacyShadow = 0.0;
-        for (int x = -1; x <= 1; ++x) for (int y = -1; y <= 1; ++y) {
-            legacyShadow += legacyProjected.z - legacyBias
-                    > texture(uSpotShadowMap,
-                    legacyProjected.xy + vec2(x, y) * legacyTexel).r ? 1.0 : 0.0;
-        }
-        return legacyShadow / 9.0;
-    }
-    int slot = -1;
-    for (int candidate = 0; candidate < MAX_SPOT_SHADOW_SLOTS; candidate++) {
-        if (uSpotShadowMeta[candidate].y != 0
-                && uSpotShadowMeta[candidate].x == lightIndex) {
-            slot = candidate;
-            break;
-        }
-    }
-    if (slot < 0) return 0.0;
+float spotShadowFactor(int slot, vec3 n, vec3 l) {
+    if (uHasSpotShadow == 0 || uSpotShadowMeta[slot].y == 0) return 0.0;
     vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
     vec4 clip = uSpotSlotMatrices[slot] * vec4(samplePosition, 1.0);
     vec3 projected = clip.xyz / clip.w;
@@ -354,7 +266,7 @@ float spotShadowFactor(int lightIndex, vec3 n, vec3 l) {
     if (projected.z <= 0.0 || projected.z >= 1.0
             || any(lessThanEqual(projected.xy, vec2(0.0)))
             || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
-    float bias = shadowDepthBias(spotBaseBias(), n, l);
+    float bias = shadowDepthBias(intBitsToFloat(uShadowQualityMeta.w), n, l);
     vec2 texel = 1.0 / vec2(textureSize(uSpotShadowMap, 0));
     vec4 rect = uSpotTileRects[slot];
     vec2 atlasUv = mix(rect.xy, rect.zw, projected.xy);
@@ -391,6 +303,97 @@ float rangeInverseSquareAttenuation(float distanceToLight, float range) {
     return (rangeWindow * rangeWindow) / max(distanceToLight * distanceToLight, 1.0e-4);
 }
 
+vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
+                         float metallic, float roughness, vec3 f0) {
+    LightRecord light = uLights[index];
+    vec3 l = normalize(-light.directionOuter.xyz);
+    float visibility = index == uDirectionalShadowFrameLightIndex
+            ? 1.0 - directionalShadowFactor(n, l) : 1.0;
+    return visibility * directBrdf(n, v, l, light.colorIntensity.rgb * light.colorIntensity.a,
+            baseColor, metallic, roughness, f0);
+}
+
+vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
+                   float metallic, float roughness, vec3 f0) {
+    LightRecord light = uLights[index];
+    vec3 lightPosition = light.positionRange.xyz;
+    vec3 delta = lightPosition - vWorldPosition;
+    float distanceToLight = length(delta);
+    vec3 l = delta / max(distanceToLight, 1.0e-5);
+    float attenuation = rangeInverseSquareAttenuation(distanceToLight,
+            light.positionRange.w);
+    float cone = 1.0;
+    int type = light.metadata.x;
+    if (type == 2) {
+        float angle = acos(clamp(dot(-l, normalize(light.directionOuter.xyz)), -1.0, 1.0));
+        cone = 1.0 - smoothstep(light.extra.x, light.directionOuter.w, angle);
+    }
+    int slot = light.metadata.y;
+    float visibility = 1.0;
+    if (slot >= 0) {
+        visibility = 1.0 - (type == 1
+                ? pointShadowFactor(slot, lightPosition, n, l)
+                : spotShadowFactor(slot, n, l));
+    }
+    return visibility * directBrdf(n, v, l,
+            light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone,
+            baseColor, metallic, roughness, f0);
+}
+
+int resolveCluster() {
+    vec4 clip = uStableViewProjection * vec4(vWorldPosition, 1.0);
+    if (clip.w <= 0.0) return -1;
+    float viewZ = (uStableView * vec4(vWorldPosition, 1.0)).z;
+    float depth = -viewZ;
+    if (depth <= 0.0) return -1;
+    int z;
+    if (uDepthParams.z > 0.5) {
+        z = int(floor(log(depth / uDepthParams.x) * float(uGridParams.z)
+                / log(uDepthParams.y / uDepthParams.x)));
+    } else {
+        z = int(floor((depth - uDepthParams.x) / (uDepthParams.y - uDepthParams.x)
+                * float(uGridParams.z)));
+    }
+    z = clamp(z, 0, uGridParams.z - 1);
+    vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
+    int tileX = clamp(int(floor(uv.x * float(uGridParams.x))), 0, uGridParams.x - 1);
+    int tileY = clamp(int(floor(uv.y * float(uGridParams.y))), 0, uGridParams.y - 1);
+    return tileX + uGridParams.x * (tileY + uGridParams.y * z);
+}
+
+vec3 clusterDebugColor(int cluster) {
+    if (cluster < 0) return vec3(0.08, 0.08, 0.10);
+    uvec4 header = uClusterHeaders[cluster];
+    if (uClusterDebugMode == 1) {
+        uint hashed = uint(cluster) * 2654435761u;
+        return vec3(float(hashed & 255u), float((hashed >> 8) & 255u),
+                float((hashed >> 16) & 255u)) / 255.0;
+    }
+    if (uClusterDebugMode == 2) {
+        int z = cluster / (uGridParams.x * uGridParams.y);
+        float t = float(z) / max(float(uGridParams.z - 1), 1.0);
+        return vec3(t, 1.0 - t, 0.15);
+    }
+    if (uClusterDebugMode == 3) {
+        float t = float(header.y) / max(float(uGridParams.w), 1.0);
+        return vec3(t, 1.0 - t, 0.0);
+    }
+    if (uClusterDebugMode == 4) {
+        return header.z != 0u ? vec3(1.0, 0.05, 0.05) : vec3(0.05, 0.6, 0.1);
+    }
+    if (uClusterDebugMode == 5) {
+        for (uint k = 0u; k < header.y; k++) {
+            LightRecord light = uLights[uClusterIndices[header.x + k]];
+            if (light.metadata.y >= 0) {
+                float t = float(light.metadata.y) / 4.0;
+                return vec3(1.0 - t, 0.2, t);
+            }
+        }
+        return vec3(0.25, 0.25, 0.28);
+    }
+    return vec3(1.0);
+}
+
 void main() {
     vec4 vertexColor = uHasVertexColor != 0 ? vVertexColor : vec4(1.0);
     vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor * vertexColor;
@@ -409,38 +412,25 @@ void main() {
     }
     vec3 v = normalize(uCameraPosition - vWorldPosition);
     vec3 f0 = mix(vec3(0.04), baseSample.rgb, metallic);
+    if (uClusterDebugMode != 0) {
+        uint localLightCount = uLightHeader.y;
+        int debugCluster = localLightCount > 0u ? resolveCluster() : -1;
+        FragColor = vec4(clusterDebugColor(debugCluster), 1.0);
+        return;
+    }
     vec3 direct = vec3(0.0);
     if (uEnableDirect != 0) {
-        for (int i = 0; i < uDirectionalLightCount; ++i) {
-            vec3 l = normalize(-uDirectionalLights[i].direction);
-            float visibility = i == uDirectionalShadowLightIndex ? 1.0 - shadowFactor(n, l) : 1.0;
-            direct += visibility * directBrdf(n, v, l,
-                    uDirectionalLights[i].color * uDirectionalLights[i].intensity,
-                    baseSample.rgb, metallic, roughness, f0);
+        uint directionalCount = uLightHeader.x;
+        uint localCount = uLightHeader.y;
+        for (uint i = 0u; i < directionalCount; i++) {
+            direct += directionalRadiance(int(i), n, v, baseSample.rgb,
+                    metallic, roughness, f0);
         }
-        for (int i = 0; i < uPointLightCount; ++i) {
-            vec3 delta = uPointLights[i].position - vWorldPosition;
-            float distanceToLight = length(delta);
-            vec3 l = delta / max(distanceToLight, 1.0e-5);
-            float attenuation = rangeInverseSquareAttenuation(
-                    distanceToLight, uPointLights[i].range);
-            float visibility = 1.0 - pointShadowFactor(i, n, l);
-            direct += visibility * directBrdf(n, v, l, uPointLights[i].color
-                    * uPointLights[i].intensity * attenuation,
-                    baseSample.rgb, metallic, roughness, f0);
-        }
-        for (int i = 0; i < uSpotLightCount; ++i) {
-            vec3 delta = uSpotLights[i].position - vWorldPosition;
-            float distanceToLight = length(delta);
-            vec3 l = delta / max(distanceToLight, 1.0e-5);
-            float attenuation = rangeInverseSquareAttenuation(
-                    distanceToLight, uSpotLights[i].range);
-            float angle = acos(clamp(dot(-l, normalize(uSpotLights[i].direction)), -1.0, 1.0));
-            float cone = 1.0 - smoothstep(uSpotLights[i].innerCone, uSpotLights[i].outerCone, angle);
-            float visibility = 1.0 - spotShadowFactor(i, n, l);
-            direct += visibility * directBrdf(n, v, l, uSpotLights[i].color
-                    * uSpotLights[i].intensity * attenuation * cone,
-                    baseSample.rgb, metallic, roughness, f0);
+        // Test-only full-scan reference: every local light is evaluated in
+        // frameLightIndex order, bypassing the cluster lists entirely.
+        for (uint i = 0u; i < localCount; i++) {
+            direct += localRadiance(int(directionalCount + i), n, v, baseSample.rgb,
+                    metallic, roughness, f0);
         }
     }
 

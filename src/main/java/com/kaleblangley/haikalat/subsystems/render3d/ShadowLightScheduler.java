@@ -14,7 +14,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Pure-CPU deterministic shadow budget scheduler and projection planner. */
+/**
+ * Pure-CPU deterministic shadow budget scheduler and projection planner.
+ *
+ * <p>Candidates are enumerated across every eligible scene light; the old
+ * 2/8/4 shader-array limits no longer reject lights.  Each selected candidate
+ * is addressed by its frameLightIndex in the unified light table.</p>
+ */
 final class ShadowLightScheduler {
     private final ShadowAtlasAllocator directionalAllocator = new ShadowAtlasAllocator(1);
     private final ShadowAtlasAllocator pointAllocator = new ShadowAtlasAllocator(
@@ -22,19 +28,21 @@ final class ShadowLightScheduler {
     private final ShadowAtlasAllocator spotAllocator = new ShadowAtlasAllocator(
             LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS);
 
-    ShadowFramePlan plan(List<SceneLightEntry> entries, ExternalCamera camera,
+    ShadowFramePlan plan(List<SceneLightEntry> entries, FrameLightTable lightTable,
+                         ExternalCamera camera,
                          int width, int height,
                          LocalShadowPipelineSettings settings,
                          PointShadowAtlas pointAtlas, SpotShadowAtlas spotAtlas,
                          DirectionalShadowMap directionalMap,
                          DirectionalCascadeSettings cascades) {
         Objects.requireNonNull(entries, "entries");
+        Objects.requireNonNull(lightTable, "lightTable");
         Objects.requireNonNull(camera, "camera");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(directionalMap, "directionalMap");
         Objects.requireNonNull(cascades, "cascades");
 
-        CollectionResult collected = collect(entries, camera, settings);
+        CollectionResult collected = collect(entries, lightTable, camera, settings);
         Selection directionalSelection = select(collected.directional, 1,
                 directionalAllocator, settings);
         Selection pointSelection = select(collected.points, settings.maxPointLights(),
@@ -56,7 +64,7 @@ final class ShadowLightScheduler {
             Objects.requireNonNull(pointAtlas, "pointAtlas");
             for (Candidate candidate : pointSelection.selected) {
                 int slot = pointSelection.assignment.slot(candidate.entry.stableId());
-                points.add(new PointShadowSlotPlan(candidate.entry, candidate.shaderIndex, slot,
+                points.add(new PointShadowSlotPlan(candidate.entry, candidate.frameLightIndex, slot,
                         candidate.score, pointAtlas.faceMatrices(candidate.entry.light()),
                         pointAtlas.faceTiles(slot),
                         pointSelection.assignment.newlyAssigned(candidate.entry.stableId()),
@@ -70,7 +78,7 @@ final class ShadowLightScheduler {
             Objects.requireNonNull(spotAtlas, "spotAtlas");
             for (Candidate candidate : spotSelection.selected) {
                 int slot = spotSelection.assignment.slot(candidate.entry.stableId());
-                spots.add(new SpotShadowSlotPlan(candidate.entry, candidate.shaderIndex, slot,
+                spots.add(new SpotShadowSlotPlan(candidate.entry, candidate.frameLightIndex, slot,
                         candidate.score, spotAtlas.lightSpaceMatrix(candidate.entry.light()),
                         spotAtlas.tile(slot),
                         spotSelection.assignment.newlyAssigned(candidate.entry.stableId()),
@@ -90,42 +98,38 @@ final class ShadowLightScheduler {
         spotAllocator.clear();
     }
 
-    private static CollectionResult collect(List<SceneLightEntry> entries, ExternalCamera camera,
+    private static CollectionResult collect(List<SceneLightEntry> entries,
+                                            FrameLightTable lightTable,
+                                            ExternalCamera camera,
                                             LocalShadowPipelineSettings settings) {
         List<Candidate> directional = new ArrayList<>();
         List<Candidate> points = new ArrayList<>();
         List<Candidate> spots = new ArrayList<>();
         List<ShadowDecision> terminal = new ArrayList<>();
-        int directionalIndex = 0;
-        int pointIndex = 0;
-        int spotIndex = 0;
         int directionalCandidates = 0;
         int pointCandidates = 0;
         int spotCandidates = 0;
         for (SceneLightEntry entry : entries) {
             SceneLight light = entry.light();
-            int shaderIndex;
-            int shaderLimit;
+            int frameLightIndex = lightTable.frameLightIndex(entry.stableId());
+            if (frameLightIndex < 0) {
+                throw new IllegalStateException("shadow candidate missing from light table: "
+                        + entry.stableId());
+            }
             int capacity;
             List<Candidate> destination;
             switch (light.type()) {
                 case DIRECTIONAL -> {
-                    shaderIndex = directionalIndex++;
-                    shaderLimit = LightingBinder.MAX_DIRECTIONAL_LIGHTS;
                     capacity = 1;
                     destination = directional;
                     if (light.castShadows()) directionalCandidates++;
                 }
                 case POINT -> {
-                    shaderIndex = pointIndex++;
-                    shaderLimit = LightingBinder.MAX_POINT_LIGHTS;
                     capacity = settings.maxPointLights();
                     destination = points;
                     if (light.castShadows()) pointCandidates++;
                 }
                 case SPOT -> {
-                    shaderIndex = spotIndex++;
-                    shaderLimit = LightingBinder.MAX_SPOT_LIGHTS;
                     capacity = settings.maxSpotLights();
                     destination = spots;
                     if (light.castShadows()) spotCandidates++;
@@ -133,30 +137,25 @@ final class ShadowLightScheduler {
                 default -> throw new IllegalStateException("Unsupported light type " + light.type());
             }
             if (!light.castShadows()) continue;
-            if (shaderIndex >= shaderLimit) {
-                terminal.add(decision(entry, shaderIndex,
-                        ShadowDecision.Status.OUTSIDE_SHADER_LIMIT, -1, 0.0f));
-                continue;
-            }
             if (capacity == 0) {
-                terminal.add(decision(entry, shaderIndex,
+                terminal.add(decision(entry, frameLightIndex,
                         ShadowDecision.Status.DISABLED_BY_SETTINGS, -1, 0.0f));
                 continue;
             }
             LocalShadowSettings local = light.type() == LightType.POINT
                     ? settings.point() : settings.spot();
             if (light.type() != LightType.DIRECTIONAL && local.nearPlane() >= light.range()) {
-                terminal.add(decision(entry, shaderIndex,
+                terminal.add(decision(entry, frameLightIndex,
                         ShadowDecision.Status.INVALID_NEAR_FAR_RANGE, -1, 0.0f));
                 continue;
             }
             Influence influence = influence(light, camera, settings.selectionMode());
             if (light.intensity() == 0.0f) {
-                terminal.add(decision(entry, shaderIndex,
+                terminal.add(decision(entry, frameLightIndex,
                         ShadowDecision.Status.OUTSIDE_CAMERA_INFLUENCE, -1, influence.score));
                 continue;
             }
-            destination.add(new Candidate(entry, shaderIndex, influence.score,
+            destination.add(new Candidate(entry, frameLightIndex, influence.score,
                     influence.insideCamera));
         }
         return new CollectionResult(directional, points, spots, terminal,
@@ -219,23 +218,23 @@ final class ShadowLightScheduler {
         for (Candidate candidate : candidates) {
             long id = candidate.entry.stableId();
             if (selectedIds.contains(id)) {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.SELECTED, selection.assignment.slot(id),
                         candidate.score));
             } else if (capacity == 0) {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.DISABLED_BY_SETTINGS, -1, candidate.score));
             } else if (selection.heldChallengers.contains(id)) {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.HELD_BY_HYSTERESIS, -1, candidate.score));
             } else if (!candidate.insideCamera) {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.OUTSIDE_CAMERA_INFLUENCE, -1, candidate.score));
             } else if (candidate.entry.hints().priority() < lowestPriority) {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.LOWER_PRIORITY, -1, candidate.score));
             } else {
-                decisions.add(decision(candidate.entry, candidate.shaderIndex,
+                decisions.add(decision(candidate.entry, candidate.frameLightIndex,
                         ShadowDecision.Status.BUDGET_EXHAUSTED, -1, candidate.score));
             }
         }
@@ -281,7 +280,7 @@ final class ShadowLightScheduler {
         List<Boolean> dirty = java.util.Collections.nCopies(matrices.size(), true);
         List<ShadowFramePlan.MissReason> reasons = java.util.Collections.nCopies(
                 matrices.size(), ShadowFramePlan.MissReason.NEW_ALLOCATION);
-        return new ShadowFramePlan.DirectionalPlan(candidate.entry, candidate.shaderIndex,
+        return new ShadowFramePlan.DirectionalPlan(candidate.entry, candidate.frameLightIndex,
                 candidate.score, matrices, splits, texelSizes, tiles, dirty, reasons);
     }
 
@@ -325,13 +324,13 @@ final class ShadowLightScheduler {
                 && z >= -1.0f - margin && z <= 1.0f + margin;
     }
 
-    private static ShadowDecision decision(SceneLightEntry entry, int shaderIndex,
+    private static ShadowDecision decision(SceneLightEntry entry, int frameLightIndex,
                                            ShadowDecision.Status status, int slot, float score) {
-        return new ShadowDecision(entry.stableId(), entry.light().type(), shaderIndex, status,
+        return new ShadowDecision(entry.stableId(), entry.light().type(), frameLightIndex, status,
                 slot, entry.hints().priority(), score);
     }
 
-    private record Candidate(SceneLightEntry entry, int shaderIndex,
+    private record Candidate(SceneLightEntry entry, int frameLightIndex,
                              float score, boolean insideCamera) { }
 
     private record Influence(float score, boolean insideCamera) { }

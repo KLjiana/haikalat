@@ -5,7 +5,7 @@ import org.joml.Matrix4f;
 import java.util.Objects;
 
 /** Immutable spot-light tile assignment for one frame. */
-record SpotShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, float score,
+record SpotShadowSlotPlan(SceneLightEntry entry, int frameLightIndex, int slot, float score,
                           Matrix4f lightSpaceMatrix, ShadowTileRect tile,
                           boolean newlyAssigned, boolean dirty,
                           ShadowFramePlan.MissReason missReason) {
@@ -19,7 +19,7 @@ record SpotShadowSlotPlan(SceneLightEntry entry, int shaderIndex, int slot, floa
     }
 
     SpotShadowSlotPlan withCache(boolean nextDirty, ShadowFramePlan.MissReason reason) {
-        return new SpotShadowSlotPlan(entry, shaderIndex, slot, score, lightSpaceMatrix,
+        return new SpotShadowSlotPlan(entry, frameLightIndex, slot, score, lightSpaceMatrix,
                 tile, newlyAssigned, nextDirty, reason);
     }
 }

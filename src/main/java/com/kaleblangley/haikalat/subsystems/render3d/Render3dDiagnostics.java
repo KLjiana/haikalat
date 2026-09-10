@@ -19,6 +19,7 @@ public record Render3dDiagnostics(
         DepthResolveSummary depthResolve,
         CacheSummary caches,
         AmbientOcclusionSummary ambientOcclusion,
+        ClusteredLightingDiagnostics clustered,
         String failureStage) {
 
     /** Source-compatible constructor retained for callers written before v0.23.2. */
@@ -33,13 +34,29 @@ public record Render3dDiagnostics(
         this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
                 candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
                 visibility, shadows, depthResolve, caches, AmbientOcclusionSummary.EMPTY,
-                failureStage);
+                ClusteredLightingDiagnostics.UNAVAILABLE, failureStage);
+    }
+
+    /** Source-compatible constructor retained for callers written before v0.24.2. */
+    public Render3dDiagnostics(boolean available, RevisionSummary revisions,
+                               int invalidationBits, List<String> invalidationReasons,
+                               long activeGenerationId, long candidateGenerationId,
+                               long retiredGenerationId, String topologyKey,
+                               boolean topologyRebuilt, QueueSummary queues,
+                               VisibilitySummary visibility, ShadowSummary shadows,
+                               DepthResolveSummary depthResolve, CacheSummary caches,
+                               AmbientOcclusionSummary ambientOcclusion, String failureStage) {
+        this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
+                candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
+                visibility, shadows, depthResolve, caches, ambientOcclusion,
+                ClusteredLightingDiagnostics.UNAVAILABLE, failureStage);
     }
 
     public static final Render3dDiagnostics UNAVAILABLE = new Render3dDiagnostics(false,
             RevisionSummary.EMPTY, 0, List.of(), 0L, 0L, 0L, "", false,
             QueueSummary.EMPTY, VisibilitySummary.EMPTY, ShadowSummary.EMPTY,
-            DepthResolveSummary.EMPTY, CacheSummary.EMPTY, AmbientOcclusionSummary.EMPTY, "");
+            DepthResolveSummary.EMPTY, CacheSummary.EMPTY, AmbientOcclusionSummary.EMPTY,
+            ClusteredLightingDiagnostics.UNAVAILABLE, "");
 
     public Render3dDiagnostics {
         invalidationReasons = List.copyOf(invalidationReasons);
@@ -93,10 +110,10 @@ public record Render3dDiagnostics(
         }
     }
 
-    public record SelectedShadowLight(long stableId, String type, int shaderIndex,
+    public record SelectedShadowLight(long stableId, String type, int frameLightIndex,
                                       int slot, int priority, float score) { }
 
-    public record RejectedShadowLight(long stableId, String type, int shaderIndex,
+    public record RejectedShadowLight(long stableId, String type, int frameLightIndex,
                                       String reason, int priority, float score) { }
 
     public record DepthResolveSummary(boolean executed, int sourceSamples, int targetSamples,

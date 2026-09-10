@@ -26,3 +26,15 @@ v0.17.2 没有删除 stable 类型。advanced backend `GlDebug` 新增 `contextS
 v0.18.0 没有删除 stable 类型。新增 animation、resources、VFX、局部阴影、后处理和 UI 动画接口均已在
 域 allowlist 中明确分类；高级动画、GPU 粒子、体积光和 UI 动画诊断保持 `advanced`，不扩大 stable
 兼容承诺。`SceneObject` 新增可选 `SceneDrawBinding`，原构造器和固定/动态模型更新语义保持兼容。
+
+v0.24.2（候选）没有删除 stable 类型。`GltfRuntimeLibrary` 保留 `create()`，但移除了
+`createShadowBudget()`：唯一 `pbr-forward.frag` 通过 buffer header 决定灯数，不再存在
+legacy/budget 双 shader 路径。`Scene` 新增 `removeLight(int)`。`Render3dDiagnostics` 在
+canonical record 中新增 `clustered` 组件，`SelectedShadowLight`/`RejectedShadowLight` 的
+`shaderIndex` 更名为 `frameLightIndex`（advanced API）；旧构造入口保留。advanced
+`ClusteredLightingDiagnostics` 的组件在实现期扩展了 `gpuCountersAvailable` 与
+`gpuSampleFrameSequence`：GPU 计数改为双缓冲 persistent-coherent 映射 + fence 延迟读回，
+未完成时计数字段为 -1。新增 advanced 类型 `ClusteredLightingSettings`、
+`ClusterDebugMode`。自定义 lit shader 必须改用 binding 0 light table、binding 2/3 cluster list、
+binding 6 `ClusterParametersBlock` 和 binding 5 `ShadowSamplingBlock`，旧的
+`uDirectionalLights/uPointLights/uSpotLights` 数组合同不再接受。

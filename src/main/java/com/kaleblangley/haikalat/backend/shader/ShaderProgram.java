@@ -323,11 +323,36 @@ public final class ShaderProgram implements GlResource {
         return uniformLocationOrMinusOne(name) >= 0;
     }
 
+    /** Non-throwing capability probe for optional frame blocks. */
+    public boolean hasUniformBlock(String name) {
+        ensureOpen();
+        Objects.requireNonNull(name, "name");
+        Integer cached = uniformBlockIndices.get(name);
+        if (cached != null) return cached != GL_INVALID_INDEX;
+        int index = glGetUniformBlockIndex(id, name);
+        uniformBlockIndices.put(name, index);
+        return index != GL_INVALID_INDEX;
+    }
+
+    /** Non-throwing capability probe for optional shader storage blocks. */
+    public boolean hasStorageBlock(String name) {
+        ensureOpen();
+        Objects.requireNonNull(name, "name");
+        Integer cached = storageBlockIndices.get(name);
+        if (cached != null) return cached != GL_INVALID_INDEX;
+        int index = glGetProgramResourceIndex(id, GL_SHADER_STORAGE_BLOCK, name);
+        storageBlockIndices.put(name, index);
+        return index != GL_INVALID_INDEX;
+    }
+
     public int uniformBlockIndex(String name) {
         ensureOpen();
         Objects.requireNonNull(name, "name");
         Integer cached = uniformBlockIndices.get(name);
-        if (cached != null) return cached;
+        if (cached != null) {
+            if (cached == GL_INVALID_INDEX) throw new GlException("Uniform block not found: " + name);
+            return cached;
+        }
         int index = glGetUniformBlockIndex(id, name);
         if (index == GL_INVALID_INDEX) throw new GlException("Uniform block not found: " + name);
         uniformBlockIndices.put(name, index);
@@ -338,7 +363,12 @@ public final class ShaderProgram implements GlResource {
         ensureOpen();
         Objects.requireNonNull(name, "name");
         Integer cached = storageBlockIndices.get(name);
-        if (cached != null) return cached;
+        if (cached != null) {
+            if (cached == GL_INVALID_INDEX) {
+                throw new GlException("Shader storage block not found: " + name);
+            }
+            return cached;
+        }
         int index = glGetProgramResourceIndex(id, GL_SHADER_STORAGE_BLOCK, name);
         if (index == GL_INVALID_INDEX) {
             throw new GlException("Shader storage block not found: " + name);

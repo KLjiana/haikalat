@@ -55,7 +55,7 @@ record ShadowFramePlan(Optional<DirectionalPlan> directional,
         FRAME_FAILURE
     }
 
-    record DirectionalPlan(SceneLightEntry entry, int shaderIndex, float score,
+    record DirectionalPlan(SceneLightEntry entry, int frameLightIndex, float score,
                            List<Matrix4f> matrices, float[] splits,
                            float[] texelWorldSizes, List<ShadowTileRect> tiles,
                            List<Boolean> dirtyTiles, List<MissReason> missReasons) {
@@ -76,7 +76,7 @@ record ShadowFramePlan(Optional<DirectionalPlan> directional,
         }
 
         DirectionalPlan withCache(List<Boolean> dirty, List<MissReason> reasons) {
-            return new DirectionalPlan(entry, shaderIndex, score, matrices, splits,
+            return new DirectionalPlan(entry, frameLightIndex, score, matrices, splits,
                     texelWorldSizes, tiles, dirty, reasons);
         }
     }

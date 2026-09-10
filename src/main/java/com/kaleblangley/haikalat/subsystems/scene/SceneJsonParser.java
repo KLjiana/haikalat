@@ -23,9 +23,13 @@ public final class SceneJsonParser {
     public static final int MAX_PARENT_DEPTH = 256;
     public static final int MAX_GLTF_RENDERABLES = 2_048;
     public static final int MAX_CHARACTERS = 512;
-    public static final int MAX_DIRECTIONAL_LIGHTS = 2;
-    public static final int MAX_POINT_LIGHTS = 8;
-    public static final int MAX_SPOT_LIGHTS = 4;
+    // v0.24.2: keep serialized scene capacity in step with the clustered
+    // forward light table defaults (8 directional / 1024 local each).  The
+    // renderer still rejects lights above its own configured capacity instead
+    // of silently dropping them.
+    public static final int MAX_DIRECTIONAL_LIGHTS = 8;
+    public static final int MAX_POINT_LIGHTS = 1024;
+    public static final int MAX_SPOT_LIGHTS = 1024;
 
     private static final JsonFactory FACTORY = JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)

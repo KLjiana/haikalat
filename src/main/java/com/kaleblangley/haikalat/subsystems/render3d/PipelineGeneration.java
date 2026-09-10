@@ -19,7 +19,9 @@ final class PipelineGeneration implements AutoCloseable {
     ShadowSamplingBlock shadowSamplingBlock;
     final ShadowLightScheduler shadowLightScheduler = new ShadowLightScheduler();
     final ShadowCacheState shadowCache = new ShadowCacheState();
-    final LightingBinder lightingBinder = new LightingBinder();
+    final ShadowFrameBinder shadowFrameBinder = new ShadowFrameBinder();
+    ClusteredLightingResources clusteredResources;
+    ClusteredLightingBinder clusteredLightingBinder;
     PostProcessPassBuilder postProcess;
     ShaderProgram shadowShader;
     ShaderProgram maskedShadowShader;
@@ -79,27 +81,29 @@ final class PipelineGeneration implements AutoCloseable {
     private ResizeCandidate prepareResize(int width, int height) {
         RenderGraph.ResizeCandidate graphCandidate = null;
         PostProcessPassBuilder.ResizeCandidate postProcessCandidate = null;
+        ClusteredLightingResources.ResizeCandidate clusteredCandidate = null;
         try {
             graphCandidate = graph.prepareResize(width, height);
             postProcessCandidate = postProcess.prepareResize(width, height);
+            clusteredCandidate = clusteredResources.prepareResize(width, height);
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
-                    graphCandidate, postProcessCandidate);
+                    graphCandidate, postProcessCandidate, clusteredCandidate);
         } catch (RuntimeException | Error failure) {
-            if (postProcessCandidate != null) {
-                try {
-                    postProcessCandidate.close();
-                } catch (RuntimeException cleanupFailure) {
-                    failure.addSuppressed(cleanupFailure);
-                }
-            }
-            if (graphCandidate != null) {
-                try {
-                    graphCandidate.close();
-                } catch (RuntimeException cleanupFailure) {
-                    failure.addSuppressed(cleanupFailure);
-                }
-            }
+            closeCandidate(clusteredCandidate, failure);
+            closeCandidate(postProcessCandidate, failure);
+            closeCandidate(graphCandidate, failure);
             throw failure;
+        }
+    }
+
+    private static void closeCandidate(AutoCloseable candidate, Throwable failure) {
+        if (candidate == null) {
+            return;
+        }
+        try {
+            candidate.close();
+        } catch (Exception cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
         }
     }
 
@@ -108,7 +112,7 @@ final class PipelineGeneration implements AutoCloseable {
         candidate.commitInto(this);
     }
 
-    /** One generation-wide resize transaction for graph, TAA, GTAO and topology. */
+    /** One generation-wide resize transaction for graph, TAA, GTAO, clustering and topology. */
     private static final class ResizeCandidate implements AutoCloseable {
         private final PipelineGeneration owner;
         private final int width;
@@ -116,19 +120,22 @@ final class PipelineGeneration implements AutoCloseable {
         private final PipelineTopology candidateTopology;
         private final RenderGraph.ResizeCandidate graphCandidate;
         private final PostProcessPassBuilder.ResizeCandidate postProcessCandidate;
+        private final ClusteredLightingResources.ResizeCandidate clusteredCandidate;
         private boolean committed;
         private boolean closed;
 
         private ResizeCandidate(PipelineGeneration owner, int width, int height,
                                 PipelineTopology candidateTopology,
                                 RenderGraph.ResizeCandidate graphCandidate,
-                                PostProcessPassBuilder.ResizeCandidate postProcessCandidate) {
+                                PostProcessPassBuilder.ResizeCandidate postProcessCandidate,
+                                ClusteredLightingResources.ResizeCandidate clusteredCandidate) {
             this.owner = owner;
             this.width = width;
             this.height = height;
             this.candidateTopology = candidateTopology;
             this.graphCandidate = graphCandidate;
             this.postProcessCandidate = postProcessCandidate;
+            this.clusteredCandidate = clusteredCandidate;
         }
 
         private void validateFor(PipelineGeneration expectedOwner) {
@@ -147,6 +154,7 @@ final class PipelineGeneration implements AutoCloseable {
             validateFor(expectedOwner);
             owner.graph.commitResize(graphCandidate);
             owner.postProcess.commitResize(postProcessCandidate);
+            owner.clusteredResources.commitResize(clusteredCandidate);
             owner.topology = candidateTopology;
             committed = true;
         }
@@ -156,18 +164,24 @@ final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
-            try {
-                postProcessCandidate.close();
-            } catch (RuntimeException closeFailure) {
-                failure = closeFailure;
-            }
-            try {
-                graphCandidate.close();
-            } catch (RuntimeException closeFailure) {
-                if (failure == null) failure = closeFailure;
-                else failure.addSuppressed(closeFailure);
-            }
+            failure = closeOne(clusteredCandidate, failure);
+            failure = closeOne(postProcessCandidate, failure);
+            failure = closeOne(graphCandidate, failure);
             if (failure != null) throw failure;
+        }
+
+        private static RuntimeException closeOne(AutoCloseable candidate, RuntimeException failure) {
+            if (candidate == null) return failure;
+            try {
+                candidate.close();
+            } catch (Exception closeFailure) {
+                RuntimeException runtime = closeFailure instanceof RuntimeException existing
+                        ? existing
+                        : new IllegalStateException("Failed to close resize candidate", closeFailure);
+                if (failure == null) return runtime;
+                failure.addSuppressed(runtime);
+            }
+            return failure;
         }
     }
 
@@ -188,6 +202,8 @@ final class PipelineGeneration implements AutoCloseable {
         SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
         SceneReactivePass localSceneReactive = sceneReactivePass;
         ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
+        ClusteredLightingResources localClusteredResources = clusteredResources;
+        ClusteredLightingBinder localClusteredBinder = clusteredLightingBinder;
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
         OutdoorVolumetricSunPass localOutdoorVolume = outdoorVolumetricSun;
@@ -206,6 +222,8 @@ final class PipelineGeneration implements AutoCloseable {
         sceneSurfaceResolvePass = null;
         sceneReactivePass = null;
         shadowSamplingBlock = null;
+        clusteredResources = null;
+        clusteredLightingBinder = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
         outdoorVolumetricSun = null;
@@ -227,6 +245,8 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localSceneSurfaceResolve, failure);
         failure = closeCollecting(localSceneReactive, failure);
         failure = closeCollecting(localShadowSamplingBlock, failure);
+        failure = closeCollecting(localClusteredBinder, failure);
+        failure = closeCollecting(localClusteredResources, failure);
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);
         failure = closeCollecting(localOutdoorVolume, failure);

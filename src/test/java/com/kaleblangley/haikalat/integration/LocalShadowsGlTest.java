@@ -64,7 +64,7 @@ class LocalShadowsGlTest {
             GlDebug.enableDebugCallback();
             try (ShaderProgram shader = ShaderProgram.fromResource(getClass(),
                     "/shaders/render3d/pbr/pbr-forward.vert",
-                    "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag")) {
+                    "/shaders/render3d/pbr/pbr-forward.frag")) {
                 int block = shader.uniformBlockIndex("ShadowSamplingBlock");
                 assertEquals(1_392,
                         glGetActiveUniformBlocki(shader.id(), block, GL_UNIFORM_BLOCK_DATA_SIZE));
@@ -84,7 +84,7 @@ class LocalShadowsGlTest {
             GlRenderDevice device = new GlRenderDevice();
             try (ShaderProgram shader = ShaderProgram.fromResource(getClass(),
                     "/shaders/render3d/pbr/pbr-forward.vert",
-                    "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag");
+                    "/shaders/render3d/pbr/pbr-forward.frag");
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  Mesh quad = Mesh.from(TangentGenerator.generate(
                          BuiltinMeshData.texturedQuad("directional-cache-quad")).mesh());
@@ -167,7 +167,7 @@ class LocalShadowsGlTest {
             GlRenderDevice device = new GlRenderDevice();
             try (ShaderProgram shader = ShaderProgram.fromResource(getClass(),
                     "/shaders/render3d/pbr/pbr-forward.vert",
-                    "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag");
+                    "/shaders/render3d/pbr/pbr-forward.frag");
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  Mesh quad = Mesh.from(TangentGenerator.generate(
                          BuiltinMeshData.texturedQuad("balanced-shadow-quad")).mesh());
@@ -294,7 +294,7 @@ class LocalShadowsGlTest {
             GlRenderDevice device = new GlRenderDevice();
             try (ShaderProgram shader = ShaderProgram.fromResource(getClass(),
                     "/shaders/render3d/pbr/pbr-forward.vert",
-                    "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag");
+                    "/shaders/render3d/pbr/pbr-forward.frag");
                  PbrFallbackTextures fallbacks = new PbrFallbackTextures();
                  Mesh quad = Mesh.from(TangentGenerator.generate(
                          BuiltinMeshData.texturedQuad("filter-shadow-quad")).mesh());

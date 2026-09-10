@@ -67,10 +67,7 @@ class GtaoShaderGlTest {
                          "/shaders/render3d/gtao/gtao-masked-depth.frag");
                  ShaderProgram pbr = ShaderProgram.fromResource(getClass(),
                          "/shaders/render3d/pbr/pbr-forward.vert",
-                         "/shaders/render3d/pbr/pbr-forward.frag");
-                 ShaderProgram pbrBudget = ShaderProgram.fromResource(getClass(),
-                         "/shaders/render3d/pbr/pbr-forward.vert",
-                         "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag")) {
+                         "/shaders/render3d/pbr/pbr-forward.frag")) {
                 assertFalse(estimate.isCompute());
                 assertFalse(temporal.isCompute());
                 assertFalse(denoise.isCompute());
@@ -78,7 +75,6 @@ class GtaoShaderGlTest {
                 assertFalse(depth.isCompute());
                 assertFalse(maskedDepth.isCompute());
                 assertFalse(pbr.isCompute());
-                assertFalse(pbrBudget.isCompute());
             }
             GlDebug.checkError("gtaoAndPbrProgramsCompileTogether");
         }

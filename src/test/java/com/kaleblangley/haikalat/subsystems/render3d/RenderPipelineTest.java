@@ -26,10 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RenderPipelineTest {
     @Test
     void frameOwnedUniformClassificationCoversLightingShadowAndEnvironmentOnly() {
-        assertTrue(RenderPipeline.isFrameOwnedUniform("uDirectionalLights[0].direction"));
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uDirectionalShadowFrameLightIndex"));
         assertTrue(RenderPipeline.isFrameOwnedUniform("uCameraPosition"));
         assertTrue(RenderPipeline.isFrameOwnedUniform("uShadowMap"));
         assertTrue(RenderPipeline.isFrameOwnedUniform("uPrefilteredMap"));
+        assertTrue(RenderPipeline.isFrameOwnedUniform("uDirectionalCascadeMatrices[2]"));
         assertTrue(!RenderPipeline.isFrameOwnedUniform("uColor"));
         assertTrue(!RenderPipeline.isFrameOwnedUniform("uModel"));
     }
@@ -206,85 +207,95 @@ class RenderPipelineTest {
     }
 
     @Test
-    void lightingBinderCountsLightTypesWithoutGlContext() {
+    void frameLightTableCountsAndAddressesLightsByStableId() {
         Scene scene = new Scene(new Camera());
-        scene.addLight(SceneLight.directional(new Vector3f(-1, -1, -1), new Vector3f(1), 1.0f));
+        SceneLight directional = SceneLight.directional(
+                new Vector3f(-1, -1, -1), new Vector3f(1), 1.0f);
+        SceneLight point = SceneLight.point(new Vector3f(1, 2, 3), new Vector3f(1), 2.0f, 10.0f);
+        SceneLight spot = SceneLight.spot(new Vector3f(), new Vector3f(0, -1, 0),
+                new Vector3f(1), 1.0f, 12.0f, 0.3f, 0.8f);
+        scene.addLight(directional).addLight(point).addLight(spot);
+
+        FrameLightTable table = FrameLightTable.build(scene.lightEntries(),
+                new Matrix4f(), ClusteredLightingSettings.defaults());
+
+        assertEquals(1, table.directionalCount());
+        assertEquals(2, table.localCount());
+        assertEquals(3, table.totalCount());
+        assertEquals(0, table.frameLightIndex(scene.lightEntries().get(0).stableId()));
+        assertEquals(1, table.frameLightIndex(scene.lightEntries().get(1).stableId()));
+        assertEquals(2, table.frameLightIndex(scene.lightEntries().get(2).stableId()));
+        assertEquals(LightType.POINT, table.record(1).type());
+        assertEquals(LightType.SPOT, table.record(2).type());
+    }
+
+    @Test
+    void frameLightTableOrdersLocalLightsByStableId() {
+        Scene scene = new Scene(new Camera());
+        scene.addLight(SceneLight.point(new Vector3f(1, 0, 0), new Vector3f(1), 1.0f, 5.0f));
+        scene.addLight(SceneLight.point(new Vector3f(2, 0, 0), new Vector3f(1), 1.0f, 5.0f));
+        long first = scene.lightEntries().get(0).stableId();
+        long second = scene.lightEntries().get(1).stableId();
+
+        FrameLightTable table = FrameLightTable.build(scene.lightEntries(),
+                new Matrix4f(), ClusteredLightingSettings.defaults());
+
+        assertEquals(0, table.frameLightIndex(first));
+        assertEquals(1, table.frameLightIndex(second));
+        assertTrue(table.record(0).stableId() < table.record(1).stableId());
+    }
+
+    @Test
+    void frameLightTableRejectsExceedingConfiguredCapacity() {
+        Scene scene = new Scene(new Camera());
+        scene.addLight(SceneLight.point(new Vector3f(1, 0, 0), new Vector3f(1), 1.0f, 5.0f));
+        scene.addLight(SceneLight.point(new Vector3f(2, 0, 0), new Vector3f(1), 1.0f, 5.0f));
+        ClusteredLightingSettings settings = ClusteredLightingSettings.builder()
+                .maxLocalLights(1).build();
+
+        assertThrows(IllegalStateException.class, () -> FrameLightTable.build(
+                scene.lightEntries(), new Matrix4f(), settings));
+    }
+
+    @Test
+    void frameLightTableIsFrozenAgainstLaterSceneMutation() {
+        Scene scene = new Scene(new Camera());
         scene.addLight(SceneLight.point(new Vector3f(1, 2, 3), new Vector3f(1), 2.0f, 10.0f));
-        scene.addLight(SceneLight.spot(new Vector3f(), new Vector3f(0, -1, 0),
-                new Vector3f(1), 1.0f, 12.0f, 0.3f, 0.8f));
+        FrameLightTable table = FrameLightTable.build(scene.lightEntries(),
+                new Matrix4f(), ClusteredLightingSettings.defaults());
+        scene.setLight(0, SceneLight.point(new Vector3f(9, 9, 9), new Vector3f(0), 0.0f, 10.0f));
 
-        LightingBinder.LightCounts counts = LightingBinder.count(scene);
-
-        assertEquals(1, counts.directional());
-        assertEquals(1, counts.point());
-        assertEquals(1, counts.spot());
+        assertEquals(2.0f, table.record(0).intensity());
+        assertEquals(1.0f, table.record(0).position().x);
     }
 
     @Test
-    void lightingBinderClampsCountsToShaderArrayLimits() {
+    void lightTablePackerWritesTheLockedStd430Layout() {
         Scene scene = new Scene(new Camera());
-        for (int i = 0; i < LightingBinder.MAX_DIRECTIONAL_LIGHTS + 3; i++) {
-            scene.addLight(SceneLight.directional(new Vector3f(-1, -1, -1), new Vector3f(1), 1.0f));
-        }
-        for (int i = 0; i < LightingBinder.MAX_POINT_LIGHTS + 3; i++) {
-            scene.addLight(SceneLight.point(new Vector3f(i, 0, 0), new Vector3f(1), 1.0f, 10.0f));
-        }
+        scene.addLight(SceneLight.shadowedDirectional(
+                new Vector3f(0, -1, 0), new Vector3f(1, 1, 1), 2.0f));
+        scene.addLight(SceneLight.point(new Vector3f(1, 2, 3), new Vector3f(1, 0, 0),
+                4.0f, 10.0f));
+        FrameLightTable table = FrameLightTable.build(scene.lightEntries(),
+                new Matrix4f(), ClusteredLightingSettings.defaults());
+        java.nio.ByteBuffer packed = LightTablePacker.allocate(8);
+        LightTablePacker.pack(table, ShadowFramePlan.EMPTY, packed);
 
-        LightingBinder.LightCounts counts = LightingBinder.count(scene);
-
-        assertEquals(LightingBinder.MAX_DIRECTIONAL_LIGHTS, counts.directional());
-        assertEquals(LightingBinder.MAX_POINT_LIGHTS, counts.point());
-    }
-
-    @Test
-    void shadowDirectionalIndexMatchesOriginalShaderLightOrder() {
-        Scene scene = new Scene(new Camera());
-        SceneLight unshadowed = SceneLight.directional(
-                new Vector3f(1, -1, 0), new Vector3f(1), 0.5f);
-        SceneLight shadowed = SceneLight.shadowedDirectional(
-                new Vector3f(-1, -1, 0), new Vector3f(1), 1.0f);
-        scene.addLight(unshadowed).addLight(shadowed);
-
-        LightingBinder.ShadowDirectionalLight selection =
-                LightingBinder.shadowDirectionalLight(scene).orElseThrow();
-
-        assertEquals(shadowed, selection.light());
-        assertEquals(1, selection.shaderIndex());
-    }
-
-    @Test
-    void localShadowIndicesMatchTheirIndependentShaderArrays() {
-        Scene scene = new Scene(new Camera());
-        SceneLight pointFill = SceneLight.point(new Vector3f(1, 0, 0),
-                new Vector3f(1), 1.0f, 5.0f);
-        SceneLight pointShadow = SceneLight.shadowedPoint(new Vector3f(-1, 0, 0),
-                new Vector3f(1), 1.0f, 5.0f);
-        SceneLight spotFill = SceneLight.spot(new Vector3f(), new Vector3f(0, -1, 0),
-                new Vector3f(1), 1.0f, 6.0f, 0.2f, 0.5f);
-        SceneLight spotShadow = SceneLight.shadowedSpot(new Vector3f(),
-                new Vector3f(0, -1, 0), new Vector3f(1),
-                1.0f, 6.0f, 0.2f, 0.5f);
-        scene.addLight(SceneLight.directional(new Vector3f(0, -1, 0), new Vector3f(1), 1.0f))
-                .addLight(pointFill).addLight(spotFill).addLight(pointShadow).addLight(spotShadow);
-
-        LightingBinder.ShadowPointLight point = LightingBinder.shadowPointLight(scene).orElseThrow();
-        LightingBinder.ShadowSpotLight spot = LightingBinder.shadowSpotLight(scene).orElseThrow();
-
-        assertEquals(pointShadow, point.light());
-        assertEquals(1, point.shaderIndex());
-        assertEquals(spotShadow, spot.light());
-        assertEquals(1, spot.shaderIndex());
-    }
-
-    @Test
-    void shadowLightOutsideDirectionalShaderLimitIsNotSelected() {
-        Scene scene = new Scene(new Camera());
-        for (int i = 0; i < LightingBinder.MAX_DIRECTIONAL_LIGHTS; i++) {
-            scene.addLight(SceneLight.directional(new Vector3f(i + 1, -1, 0), new Vector3f(1), 1.0f));
-        }
-        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(0, -1, -1), new Vector3f(1), 1.0f));
-
-        assertTrue(LightingBinder.shadowDirectionalLight(scene).isEmpty());
+        assertEquals(1, packed.getInt(0));
+        assertEquals(1, packed.getInt(4));
+        assertEquals(2, packed.getInt(8));
+        assertEquals(0, packed.getInt(LightTablePacker.HEADER_BYTES
+                + LightTablePacker.METADATA_OFFSET));
+        assertEquals(2.0f, packed.getFloat(LightTablePacker.HEADER_BYTES
+                + LightTablePacker.COLOR_INTENSITY_OFFSET + 12));
+        assertEquals(1, packed.getInt(LightTablePacker.HEADER_BYTES
+                + LightTablePacker.RECORD_BYTES + LightTablePacker.METADATA_OFFSET));
+        assertEquals(1.0f, packed.getFloat(LightTablePacker.HEADER_BYTES
+                + LightTablePacker.RECORD_BYTES
+                + LightTablePacker.POSITION_RANGE_OFFSET));
+        assertEquals(10.0f, packed.getFloat(LightTablePacker.HEADER_BYTES
+                + LightTablePacker.RECORD_BYTES
+                + LightTablePacker.POSITION_RANGE_OFFSET + 12));
     }
 
     @Test

@@ -1,0 +1,75 @@
+#version 460 core
+
+// One invocation per cluster.  Computes the view-space AABB of the tile/slice
+// cell described by the frozen ClusterParametersBlock.  Outer tiles are
+// conservatively expanded by the configured jitter footprint so jittered
+// fragments clamp to a list that still contains every relevant light.
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 1) writeonly buffer ClusterBoundsBlock {
+    vec4 uClusterBounds[];
+};
+
+layout(std140, binding = 6) uniform ClusterParametersBlock {
+    mat4 uStableView;
+    mat4 uStableViewProjection;
+    mat4 uInverseProjection;
+    ivec4 uGridParams;      // nx, ny, nz, inlineCapacity
+    vec4 uDepthParams;      // near, far, perspective(1/0), reserved
+    ivec4 uLightCounts;     // directionalCount, localCount, reserved, reserved
+    vec4 uEdgeExpand;       // ndc expand x, ndc expand y, reserved, reserved
+};
+
+vec3 unproject(vec2 ndc, float ndcZ) {
+    vec4 point = uInverseProjection * vec4(ndc, ndcZ, 1.0);
+    return point.xyz / point.w;
+}
+
+float sliceEdge(int slice) {
+    float near = uDepthParams.x;
+    float far = uDepthParams.y;
+    float ratio = float(slice) / float(uGridParams.z);
+    return uDepthParams.z > 0.5
+        ? near * pow(far / near, ratio)
+        : near + (far - near) * ratio;
+}
+
+void main() {
+    uint cluster = gl_GlobalInvocationID.x;
+    uint total = uint(uGridParams.x * uGridParams.y * uGridParams.z);
+    if (cluster >= total) return;
+    int nx = uGridParams.x;
+    int ny = uGridParams.y;
+    int x = int(cluster % uint(nx));
+    int y = int((cluster / uint(nx)) % uint(ny));
+    int z = int(cluster / uint(nx * ny));
+
+    float x0 = -1.0 + 2.0 * float(x) / float(nx);
+    float x1 = -1.0 + 2.0 * float(x + 1) / float(nx);
+    float y0 = -1.0 + 2.0 * float(y) / float(ny);
+    float y1 = -1.0 + 2.0 * float(y + 1) / float(ny);
+    if (x == 0) x0 -= uEdgeExpand.x;
+    if (x == nx - 1) x1 += uEdgeExpand.x;
+    if (y == 0) y0 -= uEdgeExpand.y;
+    if (y == ny - 1) y1 += uEdgeExpand.y;
+
+    float nearEdge = sliceEdge(z);
+    float farEdge = sliceEdge(z + 1);
+    float nearT = (nearEdge - uDepthParams.x) / (uDepthParams.y - uDepthParams.x);
+    float farT = (farEdge - uDepthParams.x) / (uDepthParams.y - uDepthParams.x);
+
+    vec3 minimum = vec3(1e30);
+    vec3 maximum = vec3(-1e30);
+    vec2 corners[4] = vec2[4](vec2(x0, y0), vec2(x0, y1), vec2(x1, y0), vec2(x1, y1));
+    for (int corner = 0; corner < 4; corner++) {
+        vec3 nearPoint = unproject(corners[corner], -1.0);
+        vec3 farPoint = unproject(corners[corner], 1.0);
+        vec3 nearCorner = mix(nearPoint, farPoint, nearT);
+        vec3 farCorner = mix(nearPoint, farPoint, farT);
+        minimum = min(minimum, min(nearCorner, farCorner));
+        maximum = max(maximum, max(nearCorner, farCorner));
+    }
+    uClusterBounds[cluster * 2u] = vec4(minimum, 0.0);
+    uClusterBounds[cluster * 2u + 1u] = vec4(maximum, 0.0);
+}

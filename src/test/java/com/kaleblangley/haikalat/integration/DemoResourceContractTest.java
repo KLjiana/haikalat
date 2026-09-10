@@ -50,10 +50,11 @@ class DemoResourceContractTest {
     void litShadersUseTheSelectedShadowDirectionalLightIndex() throws IOException {
         String shader = Files.readString(SCENE_SHADERS.resolve("lit-scene.frag"));
 
-        assertTrue(shader.contains("uniform int uDirectionalShadowLightIndex;"));
-        assertTrue(shader.contains("i == uDirectionalShadowLightIndex"));
-        assertTrue(!shader.contains("i == 0 ? 1.0 - shadowFactor"),
-                "Shadowing must not be hard-coded to the first directional light");
+        assertTrue(shader.contains("uniform int uDirectionalShadowFrameLightIndex;"));
+        assertTrue(shader.contains("int(index) == uDirectionalShadowFrameLightIndex"));
+        assertTrue(shader.contains("layout(std430, binding = 0) readonly buffer LightTableBlock"));
+        assertTrue(!shader.contains("uDirectionalLights[2]"),
+                "Legacy fixed light arrays must not return to demo lit shaders");
     }
 
     @Test

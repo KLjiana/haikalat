@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.24.1'
+version = '0.24.2'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -148,6 +148,7 @@ dependencies {
 test {
     useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', System.getProperty('haikalat.glSmoke', 'false')
+    systemProperty 'haikalat.glReadback', System.getProperty('haikalat.glReadback', 'false')
 }
 
 tasks.register('quickVerification') {

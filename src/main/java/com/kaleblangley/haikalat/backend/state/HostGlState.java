@@ -167,7 +167,11 @@ public final class HostGlState implements AutoCloseable {
             throw new IllegalStateException("host GL state must be restored on capture thread "
                     + threadId + ", current=" + Thread.currentThread().threadId());
         }
-        glUseProgram(program);
+        // A program name captured before Haikalat ran may have been deleted
+        // meanwhile (for example an engine precompute program that was still
+        // current when its owner closed it).  Restoring a deleted name is an
+        // INVALID_VALUE, so fall back to the only valid state, program 0.
+        glUseProgram(program == 0 || glIsProgram(program) ? program : 0);
         glBindVertexArray(vertexArray);
         glBindBuffer(GL_ARRAY_BUFFER, arrayBuffer);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementArrayBuffer);

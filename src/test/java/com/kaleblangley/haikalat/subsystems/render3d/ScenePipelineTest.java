@@ -32,7 +32,7 @@ class ScenePipelineTest {
     void cascadedPcfClampsBoundaryTapsToTheSelectedAtlasTile() throws IOException {
         String source;
         try (var stream = ScenePipelineTest.class.getResourceAsStream(
-                "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag")) {
+                "/shaders/render3d/pbr/pbr-forward.frag")) {
             assertTrue(stream != null);
             source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
@@ -41,13 +41,14 @@ class ScenePipelineTest {
         assertTrue(source.contains("vec2 tileMinimum = offset + guard"));
         assertTrue(source.contains("vec2 tileMaximum = offset + scale - guard"));
         assertTrue(source.contains("clamp(projected.xy + vec2(x, y) * texel,"));
-        assertTrue(source.contains("#define MAX_POINT_SHADOW_SLOTS "
-                + LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS));
-        assertTrue(source.contains("#define MAX_SPOT_SHADOW_SLOTS "
-                + LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS));
+        assertTrue(source.contains("ivec4 uPointShadowMeta["
+                + LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS + "]"));
+        assertTrue(source.contains("ivec4 uSpotShadowMeta["
+                + LocalShadowPipelineSettings.MAX_SPOT_SHADOW_LIGHTS + "]"));
         assertTrue(source.contains("#define POINT_SHADOW_FACE_COUNT "
                 + PointShadowAtlas.FACE_COUNT));
         assertTrue(source.contains("layout(std140, binding = 5) uniform ShadowSamplingBlock"));
+        assertTrue(source.contains("layout(std430, binding = 0) readonly buffer LightTableBlock"));
 
         // A synthetic atlas tile [0, 0.75] with 0.05 atlas texels uses a 2.5-texel
         // PCF_5X5 guard. Even a +2 tap from the internal edge cannot enter its neighbor.

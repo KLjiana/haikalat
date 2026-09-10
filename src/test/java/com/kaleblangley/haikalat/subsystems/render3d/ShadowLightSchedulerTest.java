@@ -105,24 +105,30 @@ class ShadowLightSchedulerTest {
     }
 
     @Test
-    void invalidNearRangeAndShaderOverflowReceiveExplicitTerminalReasons() {
-        Scene scene = new Scene(new Camera());
-        for (int index = 0; index < LightingBinder.MAX_POINT_LIGHTS; index++) {
-            scene.addLight(point(index));
-        }
-        scene.addLight(point(99));
+    void invalidNearRangeAndBudgetExhaustionReceiveExplicitTerminalReasons() {
+        Scene invalidScene = new Scene(new Camera());
+        invalidScene.addLight(point(0.0f));
         LocalShadowSettings invalidForLight = new LocalShadowSettings(128, 6.0f, 0.001f);
-        LocalShadowPipelineSettings settings = new LocalShadowPipelineSettings(
+        LocalShadowPipelineSettings invalidSettings = new LocalShadowPipelineSettings(
                 invalidForLight, LocalShadowSettings.defaults(), 2, 0,
                 ShadowSelectionMode.SCENE_ORDER, ShadowFilterMode.HARD,
                 0.0f, 1.0f, true);
-
-        ShadowFramePlan plan = plan(new ShadowLightScheduler(), scene, settings);
-
-        assertTrue(plan.decisions().stream().anyMatch(value ->
+        ShadowFramePlan invalidPlan = plan(new ShadowLightScheduler(), invalidScene,
+                invalidSettings);
+        assertTrue(invalidPlan.decisions().stream().anyMatch(value ->
                 value.status() == ShadowDecision.Status.INVALID_NEAR_FAR_RANGE));
-        assertTrue(plan.decisions().stream().anyMatch(value ->
-                value.status() == ShadowDecision.Status.OUTSIDE_SHADER_LIMIT));
+
+        Scene crowdedScene = new Scene(new Camera());
+        for (int index = 0; index < 4; index++) {
+            crowdedScene.addLight(point(index));
+        }
+        LocalShadowPipelineSettings twoSlots = new LocalShadowPipelineSettings(
+                LocalShadowSettings.defaults(), LocalShadowSettings.defaults(), 2, 0,
+                ShadowSelectionMode.SCENE_ORDER, ShadowFilterMode.HARD,
+                0.0f, 1.0f, true);
+        ShadowFramePlan crowdedPlan = plan(new ShadowLightScheduler(), crowdedScene, twoSlots);
+        assertTrue(crowdedPlan.decisions().stream().anyMatch(value ->
+                value.status() == ShadowDecision.Status.BUDGET_EXHAUSTED));
     }
 
     @Test
@@ -164,13 +170,42 @@ class ShadowLightSchedulerTest {
         assertEquals(25, ShadowFilterMode.PCF_5X5.sampleCount());
     }
 
+    @Test
+    void shadowBudgetCompetesForLightsBeyondLegacyArrayLimits() {
+        Scene scene = new Scene(new Camera());
+        for (int index = 0; index < 12; index++) {
+            scene.addLight(point(index));
+        }
+        // The 12th point light carries the highest priority; the old 8-light
+        // shader array would have rejected it before selection.
+        scene.setShadowLightHints(11, ShadowLightHints.priority(100));
+        LocalShadowPipelineSettings twoPointSlots = new LocalShadowPipelineSettings(
+                LocalShadowSettings.defaults(), LocalShadowSettings.defaults(), 2, 0,
+                ShadowSelectionMode.CAMERA_IMPORTANCE, ShadowFilterMode.HARD,
+                0.0f, 1.0f, true);
+
+        ShadowFramePlan plan = plan(new ShadowLightScheduler(), scene, twoPointSlots);
+
+        long highPriorityStableId = scene.lightEntries().get(11).stableId();
+        assertTrue(plan.points().stream()
+                        .anyMatch(slot -> slot.entry().stableId() == highPriorityStableId
+                                && slot.frameLightIndex() > 8),
+                "the 12th point light must select a slot with frameLightIndex beyond 8");
+        assertTrue(plan.decisions().stream()
+                        .filter(value -> value.status() == ShadowDecision.Status.SELECTED)
+                        .allMatch(value -> value.frameLightIndex() >= 0));
+    }
+
     private static ShadowFramePlan plan(ShadowLightScheduler scheduler, Scene scene,
                                         LocalShadowPipelineSettings settings) {
         PointShadowAtlas points = settings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(settings.point(), settings.maxPointLights());
         SpotShadowAtlas spots = settings.maxSpotLights() == 0 ? null
                 : new SpotShadowAtlas(settings.spot(), settings.maxSpotLights());
-        return scheduler.plan(scene.lightEntries(), camera(), 1280, 720, settings,
+        ExternalCamera camera = camera();
+        FrameLightTable table = FrameLightTable.build(scene.lightEntries(),
+                camera.getViewMatrix(new Matrix4f()), ClusteredLightingSettings.defaults());
+        return scheduler.plan(scene.lightEntries(), table, camera, 1280, 720, settings,
                 points, spots, DirectionalShadowMap.defaults(),
                 DirectionalCascadeSettings.disabled());
     }

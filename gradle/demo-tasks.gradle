@@ -315,6 +315,128 @@ tasks.register('glSmoke', Test) {
     systemProperty 'haikalat.glSmoke', 'true'
 }
 
+tasks.register('runRender3dClusteredIntegration', Test) {
+    group = 'verification'
+    description = 'Runs the clustered-forward CPU oracle and GPU readback proof matrix.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    filter {
+        includeTestsMatching '*.ClusterAssignmentGlTest'
+        includeTestsMatching '*.ClusterLightingGlTest'
+        includeTestsMatching '*.LightTableLayoutGlTest'
+        includeTestsMatching '*.ClusterMathTest'
+    }
+}
+
+def clusteredMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredDemo'
+
+tasks.register('runRender3dClusteredDemoIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs lab, town and stress clustered demos with deterministic verification.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=24', '--size=640x360', '--scene=lab', '--lights=16',
+            '--spots=5', '--verify'
+}
+
+tasks.register('runRender3dClusteredTownIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the deterministic night-town clustered scene through resize and stress.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=32', '--size=640x360', '--scene=town',
+            '--resize=16:800x450', '--camera-path=street', '--verify'
+}
+
+tasks.register('runRender3dClusteredStressIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs sparse, overlap, churn and moving stress scenes with verification.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=24', '--size=640x360', '--scene=stress', '--lights=256',
+            '--mode=sparse', '--verify'
+}
+
+tasks.register('runRender3dClusteredOverflowIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Runs the 256-light overlap scene and proves overflow correctness.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=16', '--size=640x360', '--scene=stress', '--lights=256',
+            '--mode=overlap', '--verify'
+}
+
+tasks.register('runRender3dClusteredBenchmarks', JavaExec) {
+    group = 'verification'
+    description = 'Formal clustered matrix: 3 rounds x (120 warmup + 300 measured) with budget gates.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--cpu-isolation'
+}
+
+tasks.register('runRender3dClusteredBenchmarkSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Single-round informal clustered benchmark for fast local plumbing checks.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--informal', '--rounds=1', '--frames=30', '--warmup=10'
+}
+
+tasks.register('runRender3dClusteredDemoCapture', JavaExec) {
+    group = 'verification'
+    description = 'Capture smoke for the night-town path; quality gate is a separate task.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=120', '--size=960x540', '--scene=town',
+            '--capture-at=30:build/reports/clustered-capture/town-0030.png',
+            '--capture-at=90:build/reports/clustered-capture/town-0090.png'
+}
+
+tasks.register('runRender3dClusteredQuality', JavaExec) {
+    group = 'verification'
+    description = 'Deterministic two-pass TAA night-town image gate plus the numeric oracle matrix.'
+    dependsOn demoClasses
+    dependsOn 'runRender3dClusteredIntegration'
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredQualitySuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--frames=480', '--size=1280x720'
+}
+
+tasks.register('localClusteredVerification') {
+    group = 'verification'
+    description = 'Runs the complete v0.24.2 clustered integration, demo, capture, quality and formal benchmark matrix.'
+    dependsOn 'runRender3dClusteredIntegration', 'runRender3dClusteredDemoIntegration',
+            'runRender3dClusteredTownIntegration', 'runRender3dClusteredStressIntegration',
+            'runRender3dClusteredOverflowIntegration', 'runRender3dClusteredDemoCapture',
+            'runRender3dClusteredQuality', 'runRender3dClusteredBenchmarks'
+}
+
 tasks.register('runRender3dTemporalIntegration', Test) {
     group = 'verification'
     description = 'Runs the v0.24.1 scene buffer, velocity, TAA history and resolve GPU proofs.'
@@ -349,6 +471,7 @@ tasks.register('localGlVerification') {
             'runShowcaseIntegration', 'runShowcaseVfxMsaaIntegration',
             'runShowcaseVfxAutoExposureIntegration',
             'runRender3dV023Integration',
+            'runRender3dClusteredIntegration',
             'runRender3dGtaoIntegration',
             'runRender3dShadowBudgetIntegration', 'runRender3dDynamicShadowIntegration',
             'runOutdoorEnvironmentIntegration', 'runOutdoorEnvironmentStabilityIntegration',
@@ -444,6 +567,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         ,runRender3dGtaoDemo: render3dGtaoMain
         ,runRender3dTemporalDemo: render3dTemporalMain
         ,runRender3dShadowBudgetDemo: render3dShadowBudgetMain
+        ,runRender3dClusteredDemo: clusteredMain
         ,runGltfDemo      : gltfMain
 ].each { taskName, mainClassName ->
     registerDemoApplication(taskName,
@@ -747,3 +871,4 @@ def stressMainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
     registerDemoApplication(taskName, preset[2], stressMainClass,
             ["--shape=${preset[0]}", '--instances=1000000', "--mode=${preset[1]}"])
 }
+

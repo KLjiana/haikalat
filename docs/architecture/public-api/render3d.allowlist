@@ -2,6 +2,9 @@
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.subsystems.render3d.Camera
+advanced com.kaleblangley.haikalat.subsystems.render3d.ClusterDebugMode
+advanced com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalShadowMap
 advanced com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadePlan

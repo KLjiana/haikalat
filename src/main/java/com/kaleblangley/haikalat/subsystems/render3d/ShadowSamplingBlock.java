@@ -42,7 +42,7 @@ final class ShadowSamplingBlock implements AutoCloseable {
         }
         for (PointShadowSlotPlan point : plan.points()) {
             setMeta(POINT_META_OFFSET + point.slot() * 16,
-                    point.shaderIndex(), 1, point.slot(), 0);
+                    point.frameLightIndex(), 1, point.slot(), 0);
             for (int face = 0; face < PointShadowAtlas.FACE_COUNT; face++) {
                 int matrixIndex = point.slot() * PointShadowAtlas.FACE_COUNT + face;
                 block.setMat4(POINT_MATRIX_OFFSET + matrixIndex * 64,
@@ -59,7 +59,7 @@ final class ShadowSamplingBlock implements AutoCloseable {
         }
         for (SpotShadowSlotPlan spot : plan.spots()) {
             setMeta(SPOT_META_OFFSET + spot.slot() * 16,
-                    spot.shaderIndex(), 1, spot.slot(), 0);
+                    spot.frameLightIndex(), 1, spot.slot(), 0);
             block.setMat4(SPOT_MATRIX_OFFSET + spot.slot() * 64,
                     spot.lightSpaceMatrix());
             ShadowTileRect rect = spot.tile();
@@ -77,8 +77,8 @@ final class ShadowSamplingBlock implements AutoCloseable {
         commands.bindUniformBlock(BLOCK_BINDING, block);
     }
 
-    private void setMeta(int offset, int shaderIndex, int valid, int slot, int reserved) {
-        block.setInt(offset, shaderIndex)
+    private void setMeta(int offset, int frameLightIndex, int valid, int slot, int reserved) {
+        block.setInt(offset, frameLightIndex)
                 .setInt(offset + 4, valid)
                 .setInt(offset + 8, slot)
                 .setInt(offset + 12, reserved);
@@ -95,14 +95,14 @@ final class ShadowSamplingBlock implements AutoCloseable {
         for (PointShadowSlotPlan point : plan.points()) {
             hash = mix(hash, point.entry().stableId());
             hash = mix(hash, point.entry().revision());
-            hash = mix(hash, point.shaderIndex());
+            hash = mix(hash, point.frameLightIndex());
             hash = mix(hash, point.slot());
         }
         hash = mix(hash, plan.spots().size());
         for (SpotShadowSlotPlan spot : plan.spots()) {
             hash = mix(hash, spot.entry().stableId());
             hash = mix(hash, spot.entry().revision());
-            hash = mix(hash, spot.shaderIndex());
+            hash = mix(hash, spot.frameLightIndex());
             hash = mix(hash, spot.slot());
         }
         return hash;

@@ -58,14 +58,9 @@ public final class RenderPipeline {
     
     // O2: Replace 26 string comparisons with O(1) HashSet lookup
     private static final Set<String> FRAME_OWNED_UNIFORMS = Set.of(
-        "uDirectionalLightCount",
-        "uPointLightCount",
-        "uSpotLightCount",
         "uCameraPosition",
         "uDirectionalLightSpace",
-        "uDirectionalShadowLightIndex",
-        "uPointShadowLightIndex",
-        "uSpotShadowLightIndex",
+        "uDirectionalShadowFrameLightIndex",
         "uHasDirectionalShadow",
         "uShadowMap",
         "uShadowBias",
@@ -75,7 +70,6 @@ public final class RenderPipeline {
         "uHasSpotShadow",
         "uSpotShadowMap",
         "uSpotShadowBias",
-        "uSpotShadowMatrix",
         "uIrradianceMap",
         "uPrefilteredMap",
         "uBrdfLut",
@@ -83,13 +77,12 @@ public final class RenderPipeline {
         "uEnvironmentRotation",
         "uPrefilterMaxLod",
         "uGtaoEnabled",
-        "uGtaoMap"
+        "uGtaoMap",
+        "uClusterDebugMode"
     );
     private static final Set<String> FRAME_OWNED_UNIFORM_PREFIXES = Set.of(
-        "uDirectionalLights[",
-        "uPointLights[",
-        "uSpotLights[",
-        "uPointShadowMatrices["
+        "uDirectionalCascadeMatrices[",
+        "uDirectionalCascadeSplits["
     );
     private static final int[] NO_CASCADE_COUNTS = new int[0];
     private static final String SHADOW_FAILURE_PROPERTY = "haikalat.test.failShadowPassOnce";
@@ -103,6 +96,9 @@ public final class RenderPipeline {
             DirectionalCascadeSettings.disabled();
     private LocalShadowPipelineSettings localShadowSettings =
             LocalShadowPipelineSettings.legacyDefaults();
+    private ClusteredLightingSettings clusteredLightingSettings =
+            ClusteredLightingSettings.defaults();
+    private ClusterDebugMode clusterDebugMode = ClusterDebugMode.OFF;
     private PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
     private SpotShadowAtlas spotShadowAtlas = SpotShadowAtlas.defaults();
     private PipelineGeneration activeGeneration;
@@ -128,6 +124,8 @@ public final class RenderPipeline {
     private long sceneFastPathReplacementCount;
     private long sceneGraphRebuildCount;
     private SceneFrame currentSceneFrame;
+    private FrameLightTable currentLightTable;
+    private ClusterGrid currentClusterGrid;
     private int activeFrameIndex;
     private int pipelineFrameIndex;
     private VisibilityStatistics lastVisibilityStatistics = VisibilityStatistics.UNAVAILABLE;
@@ -365,6 +363,31 @@ public final class RenderPipeline {
         return this;
     }
 
+    /** Configures the clustered-forward grid, capacity and memory budget before build. */
+    public RenderPipeline clusteredLighting(ClusteredLightingSettings value) {
+        if (activeGeneration != null) {
+            throw new IllegalStateException("clustered lighting must be configured before build");
+        }
+        clusteredLightingSettings = Objects.requireNonNull(value, "clusteredLighting");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Returns the frozen clustered-forward settings used by the active generation. */
+    public ClusteredLightingSettings clusteredLighting() {
+        return clusteredLightingSettings;
+    }
+
+    /** Selects a cluster debug visualisation for the next frame; never changes topology. */
+    public RenderPipeline clusteredDebug(ClusterDebugMode value) {
+        clusterDebugMode = Objects.requireNonNull(value, "clusterDebugMode");
+        return this;
+    }
+
+    public ClusterDebugMode clusteredDebug() {
+        return clusterDebugMode;
+    }
+
     /** Adds a controlled HDR VFX recorder before Bloom and tone mapping. */
     public RenderPipeline hdrVfx(PassExecutor recorder) {
         if (activeGeneration != null) {
@@ -434,9 +457,15 @@ public final class RenderPipeline {
             candidate.graph = new RenderGraph(topology.width(), topology.height());
             candidate.cameraUniforms = new CameraUniforms();
             if ((topology.directionalShadow() || topology.pointShadow() || topology.spotShadow())
-                    && topology.pbrMaterials() && !localShadowSettings.legacySamplingContract()) {
+                    && topology.pbrMaterials()) {
                 candidate.shadowSamplingBlock = new ShadowSamplingBlock();
             }
+            candidate.clusteredResources = new ClusteredLightingResources(
+                    topology.width(), topology.height(), clusteredLightingSettings);
+            candidate.clusteredLightingBinder = new ClusteredLightingBinder(
+                    candidate.clusteredResources, clusteredLightingSettings);
+            ClusteredLightingPassBuilder.addPasses(candidate.graph, topology,
+                    candidate.clusteredLightingBinder);
             if (topology.pbrMaterials()) {
                 candidate.pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
                 candidate.environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
@@ -711,12 +740,12 @@ public final class RenderPipeline {
         List<Render3dDiagnostics.SelectedShadowLight> selectedLights = shadowPlan.decisions()
                 .stream().filter(value -> value.status() == ShadowDecision.Status.SELECTED)
                 .map(value -> new Render3dDiagnostics.SelectedShadowLight(value.stableId(),
-                        value.type().name(), value.shaderIndex(), value.slot(),
+                        value.type().name(), value.frameLightIndex(), value.slot(),
                         value.priority(), value.score())).toList();
         List<Render3dDiagnostics.RejectedShadowLight> rejectedLights = shadowPlan.decisions()
                 .stream().filter(value -> value.status() != ShadowDecision.Status.SELECTED)
                 .map(value -> new Render3dDiagnostics.RejectedShadowLight(value.stableId(),
-                        value.type().name(), value.shaderIndex(), value.status().name(),
+                        value.type().name(), value.frameLightIndex(), value.status().name(),
                         value.priority(), value.score())).toList();
         List<String> missReasons = new java.util.ArrayList<>();
         shadowPlan.directional().ifPresent(value -> value.missReasons().stream()
@@ -765,11 +794,39 @@ public final class RenderPipeline {
                 generationReuseCount, generationBuildCount + generationFailureCount);
         var ambientOcclusion = generation.postProcess.gtaoDiagnostics(
                 generation.topology.width(), generation.topology.height());
+        ClusteredLightingDiagnostics clustered = clusteredDiagnostics(generation);
         return new Render3dDiagnostics(visibility.available(), revisions,
                 context.invalidation().bits(), reasons,
                 generation.id, lastCandidateGenerationId, lastRetiredGenerationId,
                 generation.topology.toString(), lastFrameTopologyRebuilt, queues, visible,
-                shadows, depth, caches, ambientOcclusion, lastFailureStage);
+                shadows, depth, caches, ambientOcclusion, clustered, lastFailureStage);
+    }
+
+    private ClusteredLightingDiagnostics clusteredDiagnostics(PipelineGeneration generation) {
+        if (generation.clusteredLightingBinder == null) {
+            return ClusteredLightingDiagnostics.UNAVAILABLE;
+        }
+        ClusteredLightingResources.ClusterStorage storage =
+                generation.clusteredResources.storage();
+        FrameLightTable table = generation.clusteredLightingBinder.stagedTable();
+        ClusteredLightingBinder.CounterSnapshot counters =
+                generation.clusteredLightingBinder.tryCounterSnapshot();
+        boolean countersAvailable = counters != null;
+        return new ClusteredLightingDiagnostics(true,
+                countersAvailable,
+                countersAvailable ? counters.frameSequence() : -1L,
+                clusteredLightingSettings.tileSize(), clusteredLightingSettings.zSlices(),
+                clusteredLightingSettings.inlineIndicesPerCluster(),
+                clusteredLightingSettings.maxLocalLights(),
+                clusteredLightingSettings.maxDirectionalLights(),
+                table == null ? 0 : table.directionalCount(),
+                table == null ? 0 : table.localCount(),
+                storage.clusterCount,
+                countersAvailable ? counters.overflowClusters() : -1,
+                countersAvailable ? counters.maxInlineCount() : -1,
+                countersAvailable ? counters.droppedIndices() : -1,
+                storage.lightTableBytes, storage.clusterBoundsBytes,
+                storage.clusterHeadersBytes, storage.clusterIndicesBytes, storage.totalBytes);
     }
 
     /** @return 最近一次 shadow pass 绘制的实例 caster 数量 */
@@ -846,6 +903,8 @@ public final class RenderPipeline {
         synchronizeHostImports(generation.graph, target);
         usedDevices.add(Objects.requireNonNull(device, "device"));
         currentSceneFrame = null;
+        currentLightTable = null;
+        currentClusterGrid = null;
         currentShadowCasterPlan = null;
         currentShadowFramePlan = null;
         pendingDirectionalCascadeCount = -1;
@@ -961,6 +1020,7 @@ public final class RenderPipeline {
                 generation.outdoorVolumetricSun.frameSucceeded(activeFrameContext.deltaSeconds());
             }
             generation.shadowCache.frameSucceeded();
+            generation.clusteredLightingBinder.frameSucceeded();
             if (currentShadowFramePlan != null) lastShadowFramePlan = currentShadowFramePlan;
             if (pendingDirectionalCascadeCount >= 0) {
                 if (pendingDirectionalCascadeCount == 0) {
@@ -1006,6 +1066,7 @@ public final class RenderPipeline {
                 temporalSceneState.discardFrame();
             }
             generation.shadowCache.frameFailed();
+            generation.clusteredLightingBinder.frameFailed();
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.frameFailed(failure);
             }
@@ -1893,12 +1954,18 @@ public final class RenderPipeline {
         RenderFrameContext context = requireFrameContext();
         PipelineGeneration generation = requireGeneration();
         FrameInvalidation invalidation = context.invalidation();
+        Matrix4f view = context.camera().getViewMatrix(new Matrix4f());
+        currentLightTable = FrameLightTable.build(context.lightEntries(), view,
+                clusteredLightingSettings);
+        float jitterFootprint = settings.antiAliasingMode() == AntiAliasingMode.TAA ? 0.5f : 0.0f;
+        currentClusterGrid = ClusterGrid.create(context.camera(), context.width(),
+                context.height(), clusteredLightingSettings, jitterFootprint);
         boolean reschedule = lastShadowFramePlan == ShadowFramePlan.EMPTY
                 || invalidation.invalidated(FrameInvalidation.Domain.LIGHTING)
                 || invalidation.invalidated(FrameInvalidation.Domain.CAMERA)
                 || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS);
         ShadowFramePlan selected = reschedule
-                ? generation.shadowLightScheduler.plan(context.lightEntries(),
+                ? generation.shadowLightScheduler.plan(context.lightEntries(), currentLightTable,
                         context.camera(), context.width(), context.height(), localShadowSettings,
                         pointShadowAtlas, spotShadowAtlas, directionalShadowMap,
                         directionalCascadeSettings)
@@ -1965,6 +2032,8 @@ public final class RenderPipeline {
         if (generation.shadowSamplingBlock != null) {
             generation.shadowSamplingBlock.update(currentShadowFramePlan, localShadowSettings);
         }
+        generation.clusteredLightingBinder.prepare(currentClusterGrid, currentLightTable,
+                currentShadowFramePlan, context.frameSequence());
         currentSceneFrame = built;
         return built;
     }
@@ -2038,14 +2107,10 @@ public final class RenderPipeline {
         generation.cameraUniforms.bind(shader);
         RenderFrameContext context = requireFrameContext();
         ShadowFramePlan shadowPlan = shadowFramePlan();
-        boolean useSamplingBlock = generation.shadowSamplingBlock != null;
-        generation.lightingBinder.bind(shader, cmd, lastDirectionalLightSpaceMatrix,
-                lastDirectionalCascadeMatrices, lastDirectionalCascadeSplits,
-                directionalCascadeSettings, context.camera(), context.lights(), shadowPlan);
+        generation.shadowFrameBinder.bind(cmd, shader, context.camera(),
+                lastDirectionalLightSpaceMatrix, lastDirectionalCascadeMatrices,
+                lastDirectionalCascadeSplits, directionalCascadeSettings, shadowPlan);
         boolean hasShadow = shadowTexture != 0;
-        if (useSamplingBlock) {
-            cmd.trySetUniformInt(shader, "uUseShadowSamplingBlock", 1);
-        }
         cmd.trySetUniformInt(shader, "uHasDirectionalShadow", hasShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uShadowMap", SHADOW_TEXTURE_UNIT)
                 .trySetUniformFloat(shader, "uShadowBias", directionalShadowMap.settings().bias());
@@ -2057,17 +2122,12 @@ public final class RenderPipeline {
                 .trySetUniformInt(shader, "uPointShadowMap", POINT_SHADOW_TEXTURE_UNIT)
                 .trySetUniformFloat(shader, "uPointShadowBias", localShadowSettings.point().bias());
         if (hasPointShadow) {
-            for (int face = 0; face < lastPointLightSpaceMatrices.size(); face++) {
-                cmd.trySetUniformMat4(shader, "uPointShadowMatrices[" + face + "]",
-                        lastPointLightSpaceMatrices.get(face));
-            }
             cmd.bindTexture(POINT_SHADOW_TEXTURE_UNIT, pointShadowTexture);
         }
         boolean hasSpotShadow = spotShadowTexture != 0;
         cmd.trySetUniformInt(shader, "uHasSpotShadow", hasSpotShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uSpotShadowMap", SPOT_SHADOW_TEXTURE_UNIT)
-                .trySetUniformFloat(shader, "uSpotShadowBias", localShadowSettings.spot().bias())
-                .trySetUniformMat4(shader, "uSpotShadowMatrix", lastSpotLightSpaceMatrix);
+                .trySetUniformFloat(shader, "uSpotShadowBias", localShadowSettings.spot().bias());
         if (hasSpotShadow) cmd.bindTexture(SPOT_SHADOW_TEXTURE_UNIT, spotShadowTexture);
         if (generation.topology.gtaoEnabled()) {
             boolean hasGtao = gtaoTexture != 0;
@@ -2076,6 +2136,8 @@ public final class RenderPipeline {
             if (hasGtao) cmd.bindTexture(GTAO_TEXTURE_UNIT, gtaoTexture);
         }
         if (generation.shadowSamplingBlock != null) generation.shadowSamplingBlock.bind(cmd);
+        generation.clusteredLightingBinder.bindForward(cmd, shader);
+        cmd.trySetUniformInt(shader, "uClusterDebugMode", clusterDebugMode.ordinal());
     }
 
     private void validatePbrVertexLayouts(Scene candidateScene) {

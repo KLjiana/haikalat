@@ -64,9 +64,7 @@ final class GltfDemoAssets implements AutoCloseable {
     private static GltfDemoAssets load(GltfDemo.Asset assetMode, boolean includeMorphCaster) {
         ResourceLocator resources = ResourceLocator.classpath(GltfDemo.class);
         GltfAssetLoader loader = new GltfAssetLoader(resources);
-        GltfRuntimeLibrary library = includeMorphCaster
-                ? GltfRuntimeLibrary.createShadowBudget()
-                : GltfRuntimeLibrary.create();
+        GltfRuntimeLibrary library = GltfRuntimeLibrary.create();
         List<GltfSceneAsset> assets = new ArrayList<>();
         List<GltfSceneInstance> animatedInstances = new ArrayList<>();
         List<SceneObject> objects = new ArrayList<>();

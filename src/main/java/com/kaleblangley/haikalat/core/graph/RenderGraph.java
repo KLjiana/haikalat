@@ -234,7 +234,7 @@ public final class RenderGraph implements AutoCloseable {
 
     FramebufferDescriptor passFramebufferDescriptor(String passName) {
         Pass pass = passByName.get(passName);
-        if (pass == null || pass.useBackbuffer || pass.externalTarget) {
+        if (pass == null || pass.useBackbuffer || pass.externalTarget || pass.computeOnly) {
             return null;
         }
         return descriptorFor(pass);
@@ -252,7 +252,8 @@ public final class RenderGraph implements AutoCloseable {
         compiledGraph = null;
         topologyRevision++;
         cachedDescription = null;
-        if (allocateResources && !pass.useBackbuffer && !pass.externalTarget) {
+        if (allocateResources && !pass.useBackbuffer && !pass.externalTarget
+                && !pass.computeOnly) {
             allocatePassFramebuffer(pass);
         }
     }
@@ -491,14 +492,17 @@ public final class RenderGraph implements AutoCloseable {
         List<PassDescription> descriptions = new ArrayList<>(sortedPasses.size());
         for (Pass pass : sortedPasses) {
             TargetKind kind = pass.useBackbuffer ? TargetKind.BACKBUFFER
+                    : pass.computeOnly ? TargetKind.COMPUTE
                     : pass.externalTarget ? TargetKind.EXTERNAL : TargetKind.MANAGED;
             PresentationTarget importedTarget = pass.presentationTargetName == null ? null
                     : importedPresentationTargets.get(pass.presentationTargetName);
-            int targetWidth = importedTarget != null ? importedTarget.width()
+            int targetWidth = pass.computeOnly ? 0
+                    : importedTarget != null ? importedTarget.width()
                     : kind == TargetKind.EXTERNAL ? 0
                     : targetDimension(width, pass.fixedWidth, pass.relativeWidthScale,
                     pass.ceilRelativeSize);
-            int targetHeight = importedTarget != null ? importedTarget.height()
+            int targetHeight = pass.computeOnly ? 0
+                    : importedTarget != null ? importedTarget.height()
                     : kind == TargetKind.EXTERNAL ? 0
                     : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale,
                     pass.ceilRelativeSize);
@@ -545,7 +549,8 @@ public final class RenderGraph implements AutoCloseable {
         Map<String, Integer> candidateAttachmentIds;
         try {
             for (Pass pass : passes) {
-                if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)) continue;
+                if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)
+                        || pass.computeOnly) continue;
                 if (pass.sharedDepthPassName != null) {
                     Framebuffer source = candidate.get(pass.sharedDepthPassName);
                     if (source == null) {
@@ -787,7 +792,7 @@ public final class RenderGraph implements AutoCloseable {
     private void refreshAttachmentLookup() {
         textureAttachmentIds.clear();
         for (Pass pass : passes) {
-            if (!pass.useBackbuffer && !pass.externalTarget) {
+            if (!pass.useBackbuffer && !pass.externalTarget && !pass.computeOnly) {
                 Framebuffer framebuffer = getPassFramebuffer(pass.name);
                 if (framebuffer != null) {
                     registerPassAttachments(pass, framebuffer);
@@ -803,7 +808,7 @@ public final class RenderGraph implements AutoCloseable {
     private Map<String, Integer> buildAttachmentLookup(RenderTargetManager dynamicTargets) {
         Map<String, Integer> lookup = new HashMap<>();
         for (Pass pass : passes) {
-            if (pass.useBackbuffer || pass.externalTarget) continue;
+            if (pass.useBackbuffer || pass.externalTarget || pass.computeOnly) continue;
             Framebuffer framebuffer = isFixedSize(pass)
                     ? fixedRenderTargets.get(pass.name)
                     : dynamicTargets.get(pass.name);
@@ -922,7 +927,7 @@ public final class RenderGraph implements AutoCloseable {
     public record AttachmentDescription(String logicalName, String format, StorageKind storageKind) {
     }
 
-    public enum TargetKind { BACKBUFFER, MANAGED, EXTERNAL }
+    public enum TargetKind { BACKBUFFER, MANAGED, EXTERNAL, COMPUTE }
     public enum StorageKind { TEXTURE, RENDERBUFFER }
 
     @FunctionalInterface
@@ -953,6 +958,7 @@ public final class RenderGraph implements AutoCloseable {
         final float clearA;
         final boolean useBackbuffer;
         final boolean externalTarget;
+        final boolean computeOnly;
         final String presentationTargetName;
         final List<String> dependencies;
         final PassExecutor executor;
@@ -965,7 +971,7 @@ public final class RenderGraph implements AutoCloseable {
              boolean createDepth, String depthTextureName, String sharedDepthPassName,
              boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
-             boolean externalTarget, String presentationTargetName,
+             boolean externalTarget, boolean computeOnly, String presentationTargetName,
              List<String> dependencies, PassExecutor executor) {
             this.name = name;
             this.debugGroup = "RenderGraph/" + name;
@@ -989,6 +995,7 @@ public final class RenderGraph implements AutoCloseable {
             this.clearA = clearA;
             this.useBackbuffer = useBackbuffer;
             this.externalTarget = externalTarget;
+            this.computeOnly = computeOnly;
             this.presentationTargetName = presentationTargetName;
             this.dependencies = dependencies;
             this.executor = executor;
@@ -1018,6 +1025,7 @@ public final class RenderGraph implements AutoCloseable {
         private float clearA = 1.0f;
         private boolean useBackbuffer;
         private boolean externalTarget;
+        private boolean computeOnly;
         private String presentationTargetName;
         private final List<String> dependencies = new ArrayList<>();
         private PassExecutor executor;
@@ -1027,7 +1035,31 @@ public final class RenderGraph implements AutoCloseable {
             this.name = name;
         }
 
+        /**
+         * Declares a pass with no framebuffer, viewport or clear work.  The
+         * executor records compute dispatches and explicit barriers only; the
+         * graph still orders it with normal dependency edges and profiles it
+         * like any other pass.
+         */
+        public PassBuilder computeOnly() {
+            if (useBackbuffer || externalTarget || !colorTextureNames.isEmpty()
+                    || createDepth || sharedDepthPassName != null) {
+                throw new IllegalStateException(
+                        "computeOnly is mutually exclusive with color/depth/target declarations");
+            }
+            computeOnly = true;
+            return this;
+        }
+
+        private void requireGraphicsTarget(String declaration) {
+            if (computeOnly) {
+                throw new IllegalStateException(declaration
+                        + " cannot be combined with computeOnly");
+            }
+        }
+
         public PassBuilder createColor(String textureName, RenderFormat format) {
+            requireGraphicsTarget("createColor");
             colorTextureNames.clear();
             colorFormats.clear();
             colorTextureNames.add(Objects.requireNonNull(textureName, "textureName"));
@@ -1055,6 +1087,7 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder createColors(List<String> textureNames, List<RenderFormat> formats) {
+            requireGraphicsTarget("createColors");
             Objects.requireNonNull(textureNames, "textureNames");
             Objects.requireNonNull(formats, "formats");
             if (textureNames.isEmpty()) {
@@ -1072,6 +1105,7 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder createColorMS(String textureName, RenderFormat format, int samples) {
+            requireGraphicsTarget("createColorMS");
             colorTextureNames.clear();
             colorFormats.clear();
             colorTextureNames.add(Objects.requireNonNull(textureName, "textureName"));
@@ -1083,6 +1117,7 @@ public final class RenderGraph implements AutoCloseable {
         /** Multisampled MRT declaration used by the shared scene surface pass. */
         public PassBuilder createColorsMS(List<String> textureNames, List<RenderFormat> formats,
                                           int samples) {
+            requireGraphicsTarget("createColorsMS");
             Objects.requireNonNull(textureNames, "textureNames");
             Objects.requireNonNull(formats, "formats");
             if (textureNames.isEmpty() || textureNames.size() != formats.size()) {
@@ -1109,12 +1144,14 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder createDepth() {
+            requireGraphicsTarget("createDepth");
             createDepth = true;
             depthTextureName = null;
             return this;
         }
 
         public PassBuilder createDepthTexture(String textureName) {
+            requireGraphicsTarget("createDepthTexture");
             createDepth = true;
             depthTextureName = Objects.requireNonNull(textureName, "textureName");
             sharedDepthPassName = null;
@@ -1127,6 +1164,7 @@ public final class RenderGraph implements AutoCloseable {
          * extents/samples must match; the source keeps exclusive ownership.
          */
         public PassBuilder shareDepthTexture(String textureName, String sourcePassName) {
+            requireGraphicsTarget("shareDepthTexture");
             createDepth = true;
             depthTextureName = Objects.requireNonNull(textureName, "textureName");
             sharedDepthPassName = Objects.requireNonNull(sourcePassName, "sourcePassName");
@@ -1197,6 +1235,7 @@ public final class RenderGraph implements AutoCloseable {
         }
 
         public PassBuilder writeToBackbuffer() {
+            requireGraphicsTarget("writeToBackbuffer");
             if (externalTarget) {
                 throw new IllegalStateException("backbuffer and external target are mutually exclusive");
             }
@@ -1209,6 +1248,7 @@ public final class RenderGraph implements AutoCloseable {
          * 适用于跨帧 history；RenderGraph 不为该 pass 分配 framebuffer。
          */
         public PassBuilder writeToExternalTarget() {
+            requireGraphicsTarget("writeToExternalTarget");
             if (useBackbuffer) {
                 throw new IllegalStateException("external target and backbuffer are mutually exclusive");
             }
@@ -1222,6 +1262,7 @@ public final class RenderGraph implements AutoCloseable {
          * The imported native handles may be replaced between frames.
          */
         public PassBuilder writeToPresentationTarget(String targetName) {
+            requireGraphicsTarget("writeToPresentationTarget");
             if (useBackbuffer) {
                 throw new IllegalStateException(
                         "presentation target and backbuffer are mutually exclusive");
@@ -1279,7 +1320,7 @@ public final class RenderGraph implements AutoCloseable {
                     ceilRelativeSize,
                     createDepth, depthTextureName, sharedDepthPassName, clearColor, clearDepth,
                     clearR, clearG, clearB, clearA,
-                    useBackbuffer, externalTarget, presentationTargetName,
+                    useBackbuffer, externalTarget, computeOnly, presentationTargetName,
                     List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
             return graph;

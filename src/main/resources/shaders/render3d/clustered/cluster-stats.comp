@@ -1,0 +1,63 @@
+#version 460 core
+
+// Reduces cluster headers into the diagnostic counters.  One workgroup covers
+// 256 headers using shared-memory atomics, then emits one global atomic per
+// workgroup, which keeps counter contention independent of cluster count.
+// Runs after cluster assignment; the caller inserts the diagnostic fence after
+// this pass.
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 2) readonly buffer ClusterHeadersBlock {
+    uvec4 uClusterHeaders[];
+};
+
+layout(std430, binding = 4) buffer ClusterCountersBlock {
+    uvec4 uClusterCounters[];
+};
+
+layout(std140, binding = 6) uniform ClusterParametersBlock {
+    mat4 uStableView;
+    mat4 uStableViewProjection;
+    mat4 uInverseProjection;
+    ivec4 uGridParams;      // nx, ny, nz, inlineCapacity
+    vec4 uDepthParams;      // near, far, perspective(1/0), reserved
+    ivec4 uLightCounts;     // directionalCount, localCount, reserved, reserved
+    vec4 uEdgeExpand;       // ndc expand x, ndc expand y, reserved, reserved
+};
+
+shared uint sOverflowClusters;
+shared uint sMaxInline;
+shared uint sDropped;
+
+void main() {
+    if (gl_LocalInvocationIndex == 0u) {
+        sOverflowClusters = 0u;
+        sMaxInline = 0u;
+        sDropped = 0u;
+    }
+    barrier();
+    uint capacity = uint(uGridParams.w);
+    uint totalClusters = uint(uGridParams.x * uGridParams.y * uGridParams.z);
+    uint clusterId = gl_WorkGroupID.x * 256u + gl_LocalInvocationIndex;
+    if (clusterId < totalClusters) {
+        uvec4 header = uClusterHeaders[clusterId];
+        if (header.z != 0u) {
+            atomicAdd(sOverflowClusters, 1u);
+        }
+        atomicMax(sMaxInline, header.w);
+        if (header.w > capacity) {
+            atomicAdd(sDropped, header.w - capacity);
+        }
+    }
+    barrier();
+    if (gl_LocalInvocationIndex == 0u) {
+        if (sOverflowClusters != 0u) {
+            atomicAdd(uClusterCounters[0].x, sOverflowClusters);
+        }
+        if (sDropped != 0u) {
+            atomicAdd(uClusterCounters[0].z, sDropped);
+        }
+        atomicMax(uClusterCounters[0].y, sMaxInline);
+    }
+}

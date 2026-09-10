@@ -108,6 +108,17 @@ public final class Scene {
         return this;
     }
 
+    /**
+     * Removes the light at {@code index}.  Remaining lights keep their stable
+     * IDs; frameLightIndex values are rebuilt next frame.
+     */
+    public Scene removeLight(int index) {
+        lights.remove(index);
+        lightEntries.remove(index);
+        lightingRevision = Math.incrementExact(lightingRevision);
+        return this;
+    }
+
     public List<MeshRenderer> renderers() {
         return List.copyOf(renderers);
     }

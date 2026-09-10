@@ -1,5 +1,38 @@
 # 变更记录
 
+## v0.24.2（待标记）
+
+版本号已准备为 `0.24.2`。发布准备及剩余验收限制见
+[发布报告](../releases/v0.24.2-release-report.md)，此状态不表示完整发布门禁已通过。
+**主题**：Clustered Forward 统一局部光照
+
+- 新增 `ClusteredLightingSettings`/`FrameLightTable`/`LightTablePacker`/`ClusterGrid`/
+  `ClusterMath`/`ClusteredLightingResources`/`ClusteredLightingBinder`/
+  `ClusteredLightingPassBuilder`/`ShadowFrameBinder`/`ClusteredLightingDiagnostics`：
+  单一 light table SSBO、view-space cluster bounds、确定性 inline 列表与 overflow 全灯 fallback。
+- `RenderGraph` 新增真正无 framebuffer 的 `computeOnly()` pass：不分配/绑定 FBO，不修改 viewport，
+  仍参与依赖排序、profile、debug group 与异常清理；`TargetKind` 增加 `COMPUTE`。
+- 正式 PBR 合并为唯一 `pbr-forward.frag`：Directional 使用全局区间，Point/Spot 使用 cluster 列表；
+  阴影槽从 light table metadata 读取，`ShadowSamplingBlock` 映射统一为 frameLightIndex；
+  删除 `LightingBinder`、`pbr-forward-shadow-budget.frag`、2/8/4 shader 数组上传路径和
+  `GltfRuntimeLibrary.createShadowBudget()` 双路径。
+- 灯数变化不重建 topology；0/1/16/64/128/256/1024 灯走同一 buffer header 协议，
+  超过 `maxLocalLights` 或超过 8 盏 Directional 在 prepare 报错而不是静默截断。
+- 新增 `ClusteredDemoSceneFactory` 与 `Render3dClusteredDemo`（lab/town/stress、debug 模式、
+  capture、benchmark），以及 `runRender3dClusteredIntegration`、`runRender3dClusteredDemoIntegration`、
+  `runRender3dClusteredTownIntegration`、`runRender3dClusteredStressIntegration`、
+  `runRender3dClusteredOverflowIntegration`、`runRender3dClusteredBenchmarks`、
+  `runRender3dClusteredQuality`、`localClusteredVerification`。
+- Demo 视觉与交互：Night Town 重做为四角商铺街区（四面发光窗、双臂路灯、树、喷泉长椅、入口拱门），
+  夜间 IBL 降强度、Bloom/雾可切换，火把闪烁与技能灯脉冲为确定性帧函数；可见窗口支持 debug 模式、
+  暂停、机位切换与截图。修复了地面/街道平面未旋转（一直竖立为背景墙）与 PBR 自发光缺省贴图
+  为黑色（`emissiveFactor` 被乘成 0）两个视觉 bug。
+- v0.24.2 性能：正式 benchmark 3 轮（120 warmup + 300 measured、cpuIsolation、GPU 覆盖率门禁）通过；
+  `sparse-128 1080p` ClusterAssign GPU p95 = 0.116 ms（预算 0.75 ms），`sparse-256 4K` = 0.856 ms
+  （预算 1.50 ms）。优化来自：assign 移除每 cluster 全局原子（`cluster-stats.comp` 归约）、
+  16-byte 紧凑灯 bounds、4 cluster/workgroup。原始样本与口径见
+  `docs/performance/v0.24.2-clustered-forward.md`。本条目不是发布声明。
+
 ## v0.24.1（正式版）
 **主题**：统一 Scene Buffers 与原生 TAA
 

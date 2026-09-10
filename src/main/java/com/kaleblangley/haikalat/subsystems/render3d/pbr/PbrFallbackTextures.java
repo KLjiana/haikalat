@@ -27,7 +27,10 @@ public final class PbrFallbackTextures implements AutoCloseable {
             textures.put(PbrTextureRole.NORMAL, pixel(GL_RGBA8, 128, 128, 255, 255));
             textures.put(PbrTextureRole.METALLIC_ROUGHNESS, pixel(GL_RGBA8, 0, 255, 0, 255));
             textures.put(PbrTextureRole.OCCLUSION, pixel(GL_RGBA8, 255, 255, 255, 255));
-            textures.put(PbrTextureRole.EMISSIVE, pixel(GL_SRGB8_ALPHA8, 0, 0, 0, 255));
+            // glTF semantics: emissive = emissiveFactor * emissiveTexture.  A
+            // white fallback keeps emissiveFactor as the only authoring input,
+            // so materials without an emissive map can still glow.
+            textures.put(PbrTextureRole.EMISSIVE, pixel(GL_SRGB8_ALPHA8, 255, 255, 255, 255));
         } catch (RuntimeException failure) {
             close();
             throw failure;

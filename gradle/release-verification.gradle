@@ -355,7 +355,19 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 17
+        assert policies.size() == 24
+        def clusteredReadbackPolicy = policies.find { it.owner == 'render3d/clustered' && it.id == 131186 }
+        assert clusteredReadbackPolicy != null
+        assert clusteredReadbackPolicy.entry.contains('ClusterAssignmentGlTest')
+        def clusteredBenchmarkPolicy = policies.find {
+            it.owner == 'render3d/clustered' && it.id == 131218 && it.entry.contains('Benchmarks')
+        }
+        assert clusteredBenchmarkPolicy != null
+        assert clusteredBenchmarkPolicy.maximum == 256
+        assert policies.find {
+            it.owner == 'render3d/clustered' && it.id == 131154
+                    && it.entry.contains('runRender3dClusteredQuality')
+        } != null
         def outdoorStabilityPolicy = policies.find { it.owner == 'render3d/outdoor-stability' }
         assert outdoorStabilityPolicy != null
         assert outdoorStabilityPolicy.entry == '.*runOutdoorEnvironmentStabilityIntegration.*'

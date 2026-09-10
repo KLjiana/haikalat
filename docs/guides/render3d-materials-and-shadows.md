@@ -1,8 +1,8 @@
 # Render3D 材质、透明与阴影指南
 
-本文描述 v0.23.2 的稳定合同，面向资产制作者和直接构建 `Scene` 的调用方。四类 queue 与 CSM
-窗口为 `runRender3dV023Demo`；多局部光预算与缓存窗口为 `runRender3dShadowBudgetDemo`，有限帧自动
-验证为 `runRender3dShadowBudgetIntegration`。
+本文描述 v0.24.2 的稳定合同，面向资产制作者和直接构建 `Scene` 的调用方。四类 queue 与 CSM
+窗口为 `runRender3dV023Demo`；clustered 局部光照窗口为 `runRender3dClusteredDemo`，CPU/GPU
+验证入口为 `runRender3dClusteredIntegration` 与 `localClusteredVerification`。
 
 ## 四类 forward queue
 
@@ -40,10 +40,44 @@ world-texel snapping 和 split blend。窗口 resize 不重建 fixed atlas；atl
 `runRender3dV023Demo` 使用 4096x4096 atlas；4 级布局下每个 tile 为 2048x2048。更高的 atlas 会
 增加显存和 shadow fill 成本，应按目标硬件、可见距离与 caster 数量测量后选择。
 
+## v0.24.2 Clustered Forward 局部光照
+
+PBR 材质只使用唯一 `pbr-forward.frag`。每帧 CPU 从冻结的 `RenderFrameContext` 建立
+`FrameLightTable`：Directional 排在全局区间，Point/Spot 按 stableId 排序紧随其后；
+`LightTablePacker` 写入 `uvec4` header 加 80-byte record 的 std430 light table。GPU 端
+`cluster-bounds.comp` 按 view-space tile/slice 生成 32-byte AABB，`cluster-assign.comp`
+每个 workgroup 负责一个 cluster，以 shared scan 生成确定性 inline 列表；超过 K 的 cluster
+在 header 标记 overflow，fragment 对全部 Local 灯回退遍历，保证不漏灯。
+
+调用方配置：
+
+```java
+RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, environment)
+        .clusteredLighting(ClusteredLightingSettings.builder()
+                .tileSize(64).zSlices(24).inlineIndicesPerCluster(64)
+                .maxLocalLights(1024).build());
+```
+
+- 灯增删与参数变化不重建 RenderGraph topology；超过 `maxLocalLights` 或超过 8 盏 Directional
+  会在帧准备阶段报错，而不是静默截断。
+- 局部阴影容量仍独立：没有拿到 shadow slot 的灯继续照明，slot 由 light record metadata 携带，
+  `ShadowSamplingBlock` 使用 frameLightIndex。
+- 调试可视化通过 `pipeline.clusteredDebug(ClusterDebugMode.LIGHT_COUNT)` 等模式显示在 PBR
+  材质上，不额外引入 fullscreen pass。
+- `Render3dClusteredDemo --debug=light-count|overflow|cluster-id|slice|shadow-slot` 提供上述
+  模式，`--scene=lab|town|stress` 共享 `ClusteredDemoSceneFactory`。
+- 可见窗口操作：`1`–`6` 切换 debug 模式，`L` 暂停灯动画，`O` 暂停相机，`F` 在
+  static/street/free 之间切换机位，`C` 截图到 `build/reports/clustered-capture/`，`H` 打印快捷键，
+  `ESC` 退出；free 机位使用 WASD + 鼠标。标题栏显示灯数、FPS、debug 模式与暂停状态。
+- `--bloom=on|off`、`--fog=on|off` 控制夜间小镇的 Bloom 与雾；`--pause-lights`/`--pause-camera`
+  供确定性对比。夜间小镇默认把 IBL 强度降到 0.25，由窗户、路灯、火把和彩色技能灯主导照明；
+  火把闪烁与技能灯脉冲是帧号的确定性函数，两遍运行仍逐像素一致（quality gate）。
+- PBR 自发光缺省贴图现在为白色：`emissive = emissiveFactor`，没有 emissive map 的材质也能
+  通过 `emissiveFactor` 发光；未设置 factor 的材质仍不发光。
+
 ## v0.23.1 局部光预算与质量
 
-默认设置继续使用 v0.23.0 的一盏 point + 一盏 spot、3×3 PCF 和逐帧更新合同。高级 balanced preset
-显式开启最多两盏 point、四盏 spot、稳定槽位和静态 tile cache：
+高级 balanced preset 显式开启最多两盏 point、四盏 spot、稳定槽位和静态 tile cache：
 
 ```java
 scene.addLight(keyPoint, ShadowLightHints.priority(100));
@@ -54,14 +88,13 @@ RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, envi
         .localShadows(LocalShadowPipelineSettings.balanced());
 ```
 
-内置 glTF 高级路径由 `GltfDemoAssets.loadShadowBudget()` / `GltfRuntimeLibrary.createShadowBudget()`
-选择 `pbr-forward-shadow-budget.frag`；普通 `GltfRuntimeLibrary.create()` 继续编译 v0.23.0 的
-`pbr-forward.frag`。自定义 shader 若使用 balanced 配置，必须实现 binding 5 的
-`ShadowSamplingBlock` 合同，否则 pipeline 会在准备阶段拒绝不兼容组合。
+v0.24.2 起 PBR 只有唯一 `pbr-forward.frag`，它同时读取 binding 5 的 `ShadowSamplingBlock`
+和 clustered light table。自定义 shader 若使用 balanced 配置，必须实现同一组绑定合同，
+否则 pipeline 会在准备阶段拒绝不兼容组合。
 
 `setLight(index, replacement)` 保留灯光 stable ID，因此参数动画不会无条件换槽。调度器先比较显式
-priority，再按 `SCENE_ORDER` 或 `CAMERA_IMPORTANCE` 评分，最终以 stable ID 打破平局；超过预算、超出
-shader 数组上限、near/range 非法或关闭投影的灯会在 diagnostics 中留下确定原因。
+priority，再按 `SCENE_ORDER` 或 `CAMERA_IMPORTANCE` 评分，最终以 stable ID 打破平局；超过预算、
+near/range 非法或关闭投影的灯会在 diagnostics 中留下确定原因。候选枚举不再受旧 shader 数组上限限制。
 
 自定义质量配置仍组合已有 `LocalShadowSettings`：
 

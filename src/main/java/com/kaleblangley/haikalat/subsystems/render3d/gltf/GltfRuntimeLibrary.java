@@ -12,11 +12,10 @@ public final class GltfRuntimeLibrary implements AutoCloseable {
     private int activeAssets;
     private boolean closed;
 
-    private GltfRuntimeLibrary(boolean shadowBudgetShader) {
+    private GltfRuntimeLibrary() {
         ShaderProgram createdShader = ShaderProgram.fromResource(GltfRuntimeLibrary.class,
-                "/shaders/render3d/pbr/pbr-forward.vert", shadowBudgetShader
-                        ? "/shaders/render3d/pbr/pbr-forward-shadow-budget.frag"
-                        : "/shaders/render3d/pbr/pbr-forward.frag");
+                "/shaders/render3d/pbr/pbr-forward.vert",
+                "/shaders/render3d/pbr/pbr-forward.frag");
         PbrFallbackTextures createdFallbacks;
         Sampler createdSampler;
         try (CloseStack rollback = new CloseStack()) {
@@ -30,13 +29,11 @@ public final class GltfRuntimeLibrary implements AutoCloseable {
         defaultSampler = createdSampler;
     }
 
-    /** Creates the v0.23-compatible PBR runtime used by the default 1+1 shadow policy. */
-    public static GltfRuntimeLibrary create() { return new GltfRuntimeLibrary(false); }
-
-    /** Creates the built-in PBR variant for the bounded 2-point/4-spot sampling block. */
-    public static GltfRuntimeLibrary createShadowBudget() {
-        return new GltfRuntimeLibrary(true);
-    }
+    /**
+     * Creates the single unified PBR runtime.  The clustered forward path owns
+     * per-frame light and shadow mapping, so there is no legacy/budget variant.
+     */
+    public static GltfRuntimeLibrary create() { return new GltfRuntimeLibrary(); }
 
     ShaderProgram shader() { ensureOpen(); return shader; }
     PbrFallbackTextures fallbacks() { ensureOpen(); return fallbacks; }

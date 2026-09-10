@@ -1,0 +1,113 @@
+#version 460 core
+
+// Four clusters per workgroup (one 64-lane quarter each).  Local lights are
+// inspected in frameLightIndex order and every batch of 64 lanes is compacted
+// with a quarter-local shared scan, so the resulting inline list is
+// deterministic.  When a cluster exceeds the inline capacity the header marks
+// overflow; the fragment shader then falls back to scanning the whole local
+// range.  No light is silently dropped.
+//
+// Overflow diagnostics are aggregated by cluster-stats.comp instead of a
+// per-cluster global atomic, which dominated dispatch cost on some drivers.
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer LightTableBlock {
+    uvec4 uLightHeader;
+};
+
+layout(std430, binding = 1) readonly buffer ClusterBoundsBlock {
+    vec4 uClusterBounds[];
+};
+
+layout(std430, binding = 2) writeonly buffer ClusterHeadersBlock {
+    uvec4 uClusterHeaders[];
+};
+
+layout(std430, binding = 3) writeonly buffer ClusterIndicesBlock {
+    uint uClusterIndices[];
+};
+
+layout(std430, binding = 5) readonly buffer LightBoundsBlock {
+    vec4 uLightBounds[];
+};
+
+layout(std140, binding = 6) uniform ClusterParametersBlock {
+    mat4 uStableView;
+    mat4 uStableViewProjection;
+    mat4 uInverseProjection;
+    ivec4 uGridParams;      // nx, ny, nz, inlineCapacity
+    vec4 uDepthParams;      // near, far, perspective(1/0), reserved
+    ivec4 uLightCounts;     // directionalCount, localCount, reserved, reserved
+    vec4 uEdgeExpand;       // ndc expand x, ndc expand y, reserved, reserved
+};
+
+#define CLUSTERS_PER_WORKGROUP 4u
+
+shared uint sScan[256];
+shared uint sBatchBase[CLUSTERS_PER_WORKGROUP];
+
+bool intersects(vec4 minimum, vec4 maximum, vec4 bound) {
+    vec3 center = bound.xyz;
+    float radius = bound.w;
+    vec3 q = clamp(center, minimum.xyz, maximum.xyz);
+    vec3 delta = center - q;
+    return dot(delta, delta) <= radius * radius + 1.0e-5;
+}
+
+void main() {
+    uint lane = gl_LocalInvocationIndex;
+    uint quarter = lane / 64u;
+    uint qlane = lane % 64u;
+    uint totalClusters = uint(uGridParams.x * uGridParams.y * uGridParams.z);
+    uint clusterId = gl_WorkGroupID.x * CLUSTERS_PER_WORKGROUP + quarter;
+    bool isActive = clusterId < totalClusters;
+    uint capacity = uint(uGridParams.w);
+    uint directionalCount = uLightHeader.x;
+    uint localCount = uLightHeader.y;
+    vec4 minimum = vec4(0.0);
+    vec4 maximum = vec4(0.0);
+    if (isActive) {
+        minimum = uClusterBounds[clusterId * 2u];
+        maximum = uClusterBounds[clusterId * 2u + 1u];
+    }
+
+    uint outputCount = 0u;
+    for (uint base = 0u; base < localCount; base += 64u) {
+        uint localIndex = base + qlane;
+        uint hit = 0u;
+        if (isActive && localIndex < localCount) {
+            hit = intersects(minimum, maximum, uLightBounds[localIndex]) ? 1u : 0u;
+        }
+        sScan[lane] = hit;
+        barrier();
+        uint value = sScan[lane];
+        for (uint offset = 1u; offset < 64u; offset <<= 1u) {
+            uint add = qlane >= offset ? sScan[lane - offset] : 0u;
+            barrier();
+            sScan[lane] += add;
+            barrier();
+        }
+        uint rank = sScan[lane] - value;
+        uint batchTotal = sScan[lane - qlane + 63u];
+        if (qlane == 0u) {
+            sBatchBase[quarter] = outputCount;
+            outputCount += batchTotal;
+        }
+        barrier();
+        if (isActive && value == 1u) {
+            uint slot = sBatchBase[quarter] + rank;
+            if (slot < capacity) {
+                uClusterIndices[clusterId * capacity + slot] =
+                        directionalCount + base + qlane;
+            }
+        }
+        barrier();
+    }
+
+    if (isActive && qlane == 0u) {
+        uint overflow = outputCount > capacity ? 1u : 0u;
+        uClusterHeaders[clusterId] = uvec4(
+                clusterId * capacity, min(outputCount, capacity), overflow, outputCount);
+    }
+}
