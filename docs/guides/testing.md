@@ -1,5 +1,12 @@
 # Testing
 
+## 当前工作树的快速逻辑验收（2026-10-08）
+
+按[更新后的规范第 0 节](focused-acceptance-policy.md#0-2026-10-08-减负规则优先于下文原时间目标)，普通功能签收不强制跑 benchmark，默认总时限 5 分钟、默认零次自动重试。正确性错误继续阻断；历史性能失败作为欠账保留。
+
+主检出目录已提供 `verify.ps1` 和固定逻辑任务；本 0.25 工作树尚未合入这些执行器文件，不应在这里调用不存在的命令，也不能运行主检出目录的脚本后声称验证了本候选。本轮只有规范与报告变化，按第 8 节核对输入和原始结果后复用已有正确性证据，新增 JVM/GL/benchmark 执行均为 0。详见[本轮功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)。
+
+
 This project uses three test categories. The default Gradle `test` task must stay safe for CI machines without a desktop OpenGL environment.
 
 ## Unit
