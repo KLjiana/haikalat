@@ -40,6 +40,12 @@
 | RenderGraph GPU 资源预览 | 完整 | `render3d/preview`、typed framebuffer blit、`PreviewSummary` | F2 Graph 资源行、preview pane 与显示控件 | `PreviewContractsTest`、`GraphPreviewGlTest`、`runPreviewIntegration` | 支持 LDR/sRGB/HDR/R/RG/depth、MSAA resolve 和显式 PBR cubemap；backbuffer/任意外部资源不支持；冻结只冻结元数据，不捕获像素 |
 | 普通场景可见性与 Render Queue | 完整 | `Bounds3f`、`SceneFrameBuilder`、`Frustum`、`RenderQueueClass`、`RenderQueueSorter` | `SceneScalabilityDemo`、`GltfSceneScalabilityDemo`、`Render3dV023Demo` | `RenderQueueClassTest`、`RenderQueueSorterTest`、`TransformRevisionTest`、`SceneVisibilityGlTest`、`runRender3dV023Integration`、`localSceneSubmissionVerification` | OPAQUE/MASKED 使用稳定状态排序，ALPHA 使用 camera-space back-to-front 稳定排序，ADDITIVE 保持提交顺序；revisioned/fixed renderer 复用 model/bounds/queue，deformation revision 会失效 bounds。10k 基准中 O(N) culling + queue scan 未持续超过 2 ms，因此 v0.23 不实施 CPU spatial index；仍不包含层级 bounds、occlusion、GPU culling 或 MDI |
 
+## v0.25.0 当前构建与功能签收
+
+构建版本已更新为 `0.25.0`。多光源体积雾及其直接 Render3D 消费者普通功能验收为 `REUSED_PASS`；版本同步后的主包和源码包身份检查为 `PASS`，与旧包相比仅 `haikalat-build.properties` 的版本属性发生变化。详见[功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)和[版本核对](../releases/v0.25.0-version-identity-2026-10-08.md)。历史性能欠账保留，正式性能未重新评估，未创建发布 tag。
+
+以下版本小节保留各阶段的原始事实。
+
 ## v0.24.3 已验证候选增量
 
 | 能力 | 状态 | 源码入口 | 自动化验证 | 当前限制 |
@@ -52,7 +58,8 @@
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.24.1`；`0.24.3` 仍是未标记候选，完整 `releaseReadiness` 因既有 GTAO 性能门禁失败，提交与 annotated tag 均未创建。
+- 当前构建版本：`0.25.0`，普通功能验收已通过；正式发布状态见上述当前版本小节。
+- 历史稳定基线记录：`0.24.1`；`0.24.3` 当时为未标记候选，完整 `releaseReadiness` 因既有 GTAO 性能门禁失败，当时提交与 annotated tag 均未创建。
 - v0.24.1 统一 Scene Buffers 与原生 TAA 已完成候选验证，构建版本为 `0.24.1`；正式 tag 应指向最后一次 `releaseReadiness` 通过的提交。
 - v0.24.2 Clustered Forward 为未发布候选：核心实现、JVM/GL 读回证明、旋转视图对照、lab/town/stress、
   capture smoke 与两遍确定性 quality gate 已落地；正式 benchmark 门禁（1080p/4K assign 预算、
