@@ -41,6 +41,18 @@ class GtaoHistoryResizeGlTest {
                 }
                 assertEquals(24, history.readFramebuffer().width());
                 assertEquals(20, history.readFramebuffer().height());
+                int readColor = history.readFramebuffer().colorAttachment();
+                int candidateColor = history.writeFramebuffer().colorAttachment();
+                assertThrows(IllegalArgumentException.class,
+                        () -> history.stageRendered(history.readFramebuffer()));
+                history.stageRendered(history.writeFramebuffer());
+                history.commit();
+                assertEquals(candidateColor, history.readFramebuffer().colorAttachment());
+                history.stageRendered(history.writeFramebuffer());
+                history.discard();
+                history.commit();
+                assertEquals(candidateColor, history.readFramebuffer().colorAttachment());
+                assertEquals(readColor, history.writeFramebuffer().colorAttachment());
                 GlDebug.checkError("injectedGtaoAllocationFailureLeavesActivePairUntouched");
             } finally {
                 history.close();

@@ -23,6 +23,7 @@ public final class StateCache implements PipelineStateSink {
     private int currentVAO;
     private int activeTextureUnit;
     private int[] boundTextures2D = new int[0];
+    private int[] boundTextures3D = new int[0];
     private int[] boundTexturesCube = new int[0];
     private int[] lastTextureTargets = new int[0];
     private int[] boundSamplers = new int[0];
@@ -75,10 +76,32 @@ public final class StateCache implements PipelineStateSink {
     private float clearAlpha;
     private boolean clearColorCached;
     private long appliedChanges;
+    private boolean sampleShadingCached;
+    private boolean sampleShadingEnabled;
+    private float sampleShadingMinimum;
+    private int currentBlendEquation;
     private long avoidedChanges;
 
     public StateCache() {
         invalidate();
+    }
+
+    public void sampleShading(boolean enabled, float minimum) {
+        if (!sampleShadingCached || enabled != sampleShadingEnabled) {
+            if (enabled) glEnable(org.lwjgl.opengl.GL40.GL_SAMPLE_SHADING);
+            else glDisable(org.lwjgl.opengl.GL40.GL_SAMPLE_SHADING);
+            appliedChanges++;
+        } else avoidedChanges++;
+        if (!sampleShadingCached || minimum != sampleShadingMinimum) {
+            org.lwjgl.opengl.GL40.glMinSampleShading(minimum);
+            appliedChanges++;
+        } else avoidedChanges++;
+        sampleShadingCached = true; sampleShadingEnabled = enabled; sampleShadingMinimum = minimum;
+    }
+    public void blendEquation(int equation) {
+        if (changeRequired(currentBlendEquation!=equation)) {
+            org.lwjgl.opengl.GL14.glBlendEquation(equation); currentBlendEquation=equation;
+        }
     }
 
     /**
@@ -143,6 +166,18 @@ public final class StateCache implements PipelineStateSink {
             glBindTexture(org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE, texture);
             boundTextures2D[unit] = texture;
             lastTextureTargets[unit] = org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE;
+        }
+    }
+
+    /** Binds 3D storage without aliasing the 2D/cube cache entries on this unit. */
+    public void bindTexture3D(int unit, int texture) {
+        requireTextureUnit(unit);
+        activeTexture(unit);
+        if (changeRequired(boundTextures3D[unit] != texture
+                || lastTextureTargets[unit] != org.lwjgl.opengl.GL12.GL_TEXTURE_3D)) {
+            glBindTexture(org.lwjgl.opengl.GL12.GL_TEXTURE_3D, texture);
+            boundTextures3D[unit] = texture;
+            lastTextureTargets[unit] = org.lwjgl.opengl.GL12.GL_TEXTURE_3D;
         }
     }
 
@@ -425,10 +460,13 @@ public final class StateCache implements PipelineStateSink {
      * 将所有 GL 状态缓存重置为默认值，使其在下一次调用时强制同步。
      */
     public void invalidate() {
+        sampleShadingCached = false;
+        currentBlendEquation = -1;
         currentProgram = -1;
         currentVAO = -1;
         activeTextureUnit = -1;
         Arrays.fill(boundTextures2D, -1);
+        Arrays.fill(boundTextures3D, -1);
         Arrays.fill(boundTexturesCube, -1);
         Arrays.fill(lastTextureTargets, -1);
         Arrays.fill(boundSamplers, -1);
@@ -484,6 +522,7 @@ public final class StateCache implements PipelineStateSink {
         if (boundTextures2D.length == 0) {
             int count = positiveLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, "texture units");
             boundTextures2D = initializedInts(count);
+            boundTextures3D = initializedInts(count);
             boundTexturesCube = initializedInts(count);
             lastTextureTargets = initializedInts(count);
             boundSamplers = initializedInts(count);

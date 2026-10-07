@@ -110,7 +110,7 @@ class LocalShadowsGlTest {
                     RenderPipeline pipeline = new RenderPipeline(viewport, scene, null,
                             settings, environment)
                             .directionalCascades(new DirectionalCascadeSettings(
-                                    4, 512, 0.6f, 0.08f))
+                                    4, 512, 0.6f, 0.08f, Float.MAX_VALUE))
                             .localShadows(LocalShadowPipelineSettings.balanced());
                     try {
                         pipeline.build();

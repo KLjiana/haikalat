@@ -130,7 +130,7 @@ public record FramebufferDescriptor(
         }
 
         private static int colorDataType(int internalFormat) {
-            return internalFormat == GL_RGBA16F || internalFormat == GL_R16F
+            return internalFormat == GL_RGBA16F || internalFormat == org.lwjgl.opengl.GL30.GL_RGBA32F || internalFormat == GL_R16F
                     || internalFormat == org.lwjgl.opengl.GL30.GL_RG16F || internalFormat == GL_RG32F
                     || internalFormat == GL_R32F
                     ? GL_FLOAT : GL_UNSIGNED_BYTE;

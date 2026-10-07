@@ -48,6 +48,7 @@ import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_RG8;
 import static org.lwjgl.opengl.GL30.GL_RG16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
+import static org.lwjgl.opengl.GL30.GL_RGBA32F;
 import static org.lwjgl.opengl.GL30.glGenerateMipmap;
 import static org.lwjgl.opengl.GL21.GL_SRGB8;
 import static org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8;
@@ -76,6 +77,8 @@ public final class Texture2D implements GlResource {
             GL_RG, GL_HALF_FLOAT, 2 * Short.BYTES, TextureColorSpace.LINEAR);
     private static final UploadFormat RGBA16F_UPLOAD = new UploadFormat(
             GL_RGBA, GL_HALF_FLOAT, 4 * Short.BYTES, TextureColorSpace.LINEAR);
+    private static final UploadFormat RGBA32F_UPLOAD = new UploadFormat(
+            GL_RGBA, GL_FLOAT, 4 * Float.BYTES, TextureColorSpace.LINEAR);
 
     private final int id;
     private final int width;
@@ -641,6 +644,7 @@ public final class Texture2D implements GlResource {
             case GL_R32F -> Float.BYTES;
             case GL_RG16F -> 4;
             case GL_RGBA16F -> 8;
+            case GL_RGBA32F -> 16;
             default -> 4;
         };
     }
@@ -665,6 +669,7 @@ public final class Texture2D implements GlResource {
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
             case GL_RG16F -> RG16F_UPLOAD;
             case GL_RGBA16F -> RGBA16F_UPLOAD;
+            case GL_RGBA32F -> RGBA32F_UPLOAD;
             case org.lwjgl.opengl.GL30.GL_R32F -> R32F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported dynamic texture internal format: " + internalFormat);
@@ -681,6 +686,7 @@ public final class Texture2D implements GlResource {
             case GL_SRGB8_ALPHA8 -> SRGBA8_UPLOAD;
             case GL_RG16F -> RG16F_UPLOAD;
             case GL_RGBA16F -> RGBA16F_UPLOAD;
+            case GL_RGBA32F -> RGBA32F_UPLOAD;
             case org.lwjgl.opengl.GL30.GL_R32F -> R32F_UPLOAD;
             default -> throw new IllegalArgumentException(
                     "unsupported empty texture sized internal format: " + internalFormat);

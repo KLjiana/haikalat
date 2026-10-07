@@ -51,7 +51,7 @@ public final class ClusteredDemoSceneFactory {
     }
 
     public record Request(Kind kind, int localLights, int spotLights, long seed,
-                          StressMode stressMode) {
+                          StressMode stressMode, boolean grayModel) {
         public Request {
             kind = Objects.requireNonNull(kind, "kind");
             stressMode = Objects.requireNonNull(stressMode, "stressMode");
@@ -64,15 +64,19 @@ public final class ClusteredDemoSceneFactory {
         }
 
         public static Request lab(int localLights, int spotLights, long seed) {
-            return new Request(Kind.LAB, localLights, spotLights, seed, StressMode.SPARSE);
+            return new Request(Kind.LAB, localLights, spotLights, seed, StressMode.SPARSE, false);
         }
 
         public static Request town() {
-            return new Request(Kind.TOWN, 128, 24, 242L, StressMode.SPARSE);
+            return town(false);
+        }
+
+        public static Request town(boolean grayModel) {
+            return new Request(Kind.TOWN, 128, 24, 242L, StressMode.SPARSE, grayModel);
         }
 
         public static Request stress(int localLights, StressMode mode, long seed) {
-            return new Request(Kind.STRESS, localLights, 0, seed, mode);
+            return new Request(Kind.STRESS, localLights, 0, seed, mode, false);
         }
     }
 
@@ -145,9 +149,32 @@ public final class ClusteredDemoSceneFactory {
         try {
             return switch (request.kind()) {
                 case LAB -> createLab(request, pbrShader, fallbacks, materials, meshes);
-                case TOWN -> createTown(pbrShader, fallbacks, materials, meshes);
+                case TOWN -> createTown(pbrShader, fallbacks, materials, meshes,
+                        request.grayModel(), false, false);
                 case STRESS -> createStress(request, pbrShader, fallbacks, materials, meshes);
             };
+        } catch (RuntimeException | Error failure) {
+            closeQuietly(materials, meshes, failure);
+            throw failure;
+        }
+    }
+
+    /** Same town lights/materials, with only the first western shop opened as a tavern. */
+    static Bundle createTavern(ShaderProgram pbrShader, PbrFallbackTextures fallbacks) {
+        return createTownVariant(pbrShader, fallbacks, true, false);
+    }
+
+    /** Downward-facing street fixtures with an open aperture and an offset support. */
+    static Bundle createVolumetricTown(ShaderProgram pbrShader, PbrFallbackTextures fallbacks) {
+        return createTownVariant(pbrShader, fallbacks, false, true);
+    }
+
+    private static Bundle createTownVariant(ShaderProgram pbrShader, PbrFallbackTextures fallbacks,
+                                            boolean openTavern, boolean openStreetLanterns) {
+        List<Material> materials = new ArrayList<>();
+        List<Mesh> meshes = new ArrayList<>();
+        try {
+            return createTown(pbrShader, fallbacks, materials, meshes, false, openTavern, openStreetLanterns);
         } catch (RuntimeException | Error failure) {
             closeQuietly(materials, meshes, failure);
             throw failure;
@@ -203,7 +230,7 @@ public final class ClusteredDemoSceneFactory {
 
         // Front alpha-blended panel with an opaque wall behind it: transparent
         // pixels must resolve their own cluster Z slice.
-        scene.add(MeshRenderer.of(plane("lab-glass", 6.0f, 5.0f), glassMaterial,
+        scene.add(MeshRenderer.of(track(meshes, plane("lab-glass", 6.0f, 5.0f)), glassMaterial,
                 Transform.identity().position(0.0f, 2.5f, 2.0f))
                 .withoutShadows());
 
@@ -244,214 +271,51 @@ public final class ClusteredDemoSceneFactory {
     }
 
     private static Bundle createTown(ShaderProgram pbrShader, PbrFallbackTextures fallbacks,
-                                     List<Material> materials, List<Mesh> meshes) {
-        Random random = new Random(242L);
-        Camera camera = new Camera(new Vector3f(7.5f, 2.8f, 7.5f),
-                new Vector3f(0.0f, 1.0f, 0.0f), -135.0f, -2.0f);
+                                     List<Material> materials, List<Mesh> meshes,
+                                     boolean grayModel, boolean openTavern, boolean openStreetLanterns) {
+        Camera camera = new Camera(new Vector3f(30.0f, 24.0f, 42.0f),
+                new Vector3f(0.0f, 1.0f, 0.0f), -125.0f, -25.0f);
         Scene scene = new Scene(camera);
-
-        Mesh street = track(meshes, plane("town-street", 110.0f, 110.0f));
-        Mesh box = track(meshes, box("town-box"));
-        Mesh smallBox = track(meshes, box("town-small-box"));
-        Mesh sphere = track(meshes, Mesh.from(PbrSphereMesh.create(24, 16)));
-
-        Material streetMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.05f, 0.055f, 0.075f, 1.0f), 0.0f, 0.35f, 0.0f));
-        Material plazaMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.12f, 0.12f, 0.125f, 1.0f), 0.0f, 0.6f, 0.0f));
-        Material wallMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.22f, 0.19f, 0.16f, 1.0f), 0.0f, 0.8f, 0.0f));
-        Material stoneMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.26f, 0.27f, 0.30f, 1.0f), 0.0f, 0.75f, 0.0f));
-        Material woodMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.28f, 0.18f, 0.11f, 1.0f), 0.0f, 0.7f, 0.0f));
-        Material foliageMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.10f, 0.22f, 0.12f, 1.0f), 0.0f, 0.9f, 0.0f));
-        Material lampMaterial = track(materials, material(pbrShader, fallbacks,
-                new Vector4f(0.09f, 0.09f, 0.10f, 1.0f), 0.0f, 0.45f, 0.0f));
-        Material windowGlow = track(materials, emissiveMaterial(pbrShader, fallbacks,
-                new Vector3f(1.0f, 0.72f, 0.38f), 2.0f, 0.5f));
-        Material lampGlow = track(materials, emissiveMaterial(pbrShader, fallbacks,
-                new Vector3f(1.0f, 0.86f, 0.62f), 3.0f, 0.4f));
-        Material skillGlow = track(materials, emissiveMaterial(pbrShader, fallbacks,
-                new Vector3f(0.35f, 0.65f, 1.0f), 1.2f, 0.25f));
-        Material torchGlow = track(materials, emissiveMaterial(pbrShader, fallbacks,
-                new Vector3f(1.0f, 0.45f, 0.12f), 2.4f, 0.4f));
-        scene.add(MeshRenderer.of(street, streetMaterial,
-                Transform.identity().rotationRadians((float) (-Math.PI * 0.5), 0.0f, 0.0f))
-                .withoutShadows());
-        scene.add(MeshRenderer.of(plane("town-plaza", 30.0f, 30.0f), plazaMaterial,
-                Transform.identity().rotationRadians((float) (-Math.PI * 0.5), 0.0f, 0.0f)
-                        .position(0.0f, 0.02f, 0.0f)).withoutShadows());
-
-        // Four streets on an 80x80 grid with two-storey shops on each block.
-        int windowIndex = 0;
-        for (int blockX = -1; blockX <= 1; blockX++) {
-            for (int blockZ = -1; blockZ <= 1; blockZ++) {
-                if (blockX == 0 && blockZ == 0) continue;
-                float centerX = blockX * 22.0f;
-                float centerZ = blockZ * 22.0f;
-                float height = 7.0f + (((blockX * 3 + blockZ) & 1) == 0 ? 0.0f : 3.5f);
-                scene.add(MeshRenderer.of(box, wallMaterial,
-                        Transform.identity().position(centerX, height * 0.5f, centerZ)
-                                .scale(14.0f, height, 14.0f)));
-                scene.add(MeshRenderer.of(box, stoneMaterial,
-                        Transform.identity().position(centerX, height + 1.2f, centerZ)
-                                .scale(12.6f, 1.2f, 12.6f)));
-                // Warm windows on every facade, two floors.
-                for (int column = -1; column <= 1; column++) {
-                    for (int floor = 0; floor < 2; floor++) {
-                        float y = floor == 0 ? 2.6f : height - 2.2f;
-                        for (int side = 0; side < 4; side++) {
-                            Transform transform = switch (side) {
-                                case 0 -> Transform.identity()
-                                        .position(centerX + column * 3.6f, y, centerZ - 7.05f)
-                                        .scale(1.7f, 1.3f, 0.15f);
-                                case 1 -> Transform.identity()
-                                        .position(centerX + column * 3.6f, y, centerZ + 7.05f)
-                                        .scale(1.7f, 1.3f, 0.15f);
-                                case 2 -> Transform.identity()
-                                        .position(centerX - 7.05f, y, centerZ + column * 3.6f)
-                                        .scale(0.15f, 1.3f, 1.7f);
-                                default -> Transform.identity()
-                                        .position(centerX + 7.05f, y, centerZ + column * 3.6f)
-                                        .scale(0.15f, 1.3f, 1.7f);
-                            };
-                            scene.add(MeshRenderer.of(smallBox, windowGlow, transform)
-                                    .withoutShadows());
-                            windowIndex++;
-                        }
-                    }
-                }
-            }
+        ClusteredTownModel.Anchors anchors = ClusteredTownModel.build(
+                scene, pbrShader, fallbacks, materials, meshes, grayModel, openTavern, openStreetLanterns);
+        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.45f, -0.8f, -0.3f),
+                new Vector3f(0.46f, 0.61f, 0.88f), 1.1f));
+        // Anchors come from the same transforms as the geometry: lamps cannot
+        // drift inside walls when a building moves or rotates.
+        for (Vector3f p : anchors.windows()) {
+            scene.addLight(SceneLight.point(p, new Vector3f(1.0f, .64f, .29f), 2.8f, 4.0f));
         }
-        // Street lamps along both boulevard rows, with glowing heads.
-        for (int row = -1; row <= 1; row += 2) {
-            for (int index = 0; index < 8; index++) {
-                float x = -16.8f + index * 4.8f;
-                scene.add(MeshRenderer.of(box, lampMaterial,
-                        Transform.identity().position(x, 2.9f, row * 9.0f)
-                                .scale(0.28f, 5.8f, 0.28f))
-                        .withoutShadows());
-                scene.add(MeshRenderer.of(sphere, lampGlow,
-                        Transform.identity().position(x, 5.9f, row * 9.0f)
-                                .scale(0.42f, 0.5f, 0.42f))
-                        .withoutShadows());
-            }
-        }
-        // Trees with trunks around the plaza.
-        for (int index = 0; index < 10; index++) {
-            float angle = index / 10.0f * (float) Math.PI * 2.0f;
-            float x = (float) Math.cos(angle) * 16.0f;
-            float z = (float) Math.sin(angle) * 16.0f;
-            scene.add(MeshRenderer.of(box, woodMaterial,
-                    Transform.identity().position(x, 1.4f, z).scale(0.35f, 2.8f, 0.35f)));
-            scene.add(MeshRenderer.of(sphere, foliageMaterial,
-                    Transform.identity().position(x, 3.4f, z).scale(1.7f, 1.5f, 1.7f)));
-            scene.add(MeshRenderer.of(sphere, foliageMaterial,
-                    Transform.identity().position(x, 4.3f, z).scale(1.1f, 1.1f, 1.1f)));
-        }
-        // Fountain and benches in the plaza.
-        scene.add(MeshRenderer.of(sphere, stoneMaterial,
-                Transform.identity().position(0.0f, 0.7f, 0.0f).scale(3.0f, 0.9f, 3.0f)));
-        scene.add(MeshRenderer.of(box, stoneMaterial,
-                Transform.identity().position(0.0f, 1.1f, 0.0f).scale(1.4f, 0.5f, 1.4f)));
-        scene.add(MeshRenderer.of(box, stoneMaterial,
-                Transform.identity().position(0.0f, 1.9f, 0.0f).scale(0.4f, 1.4f, 0.4f)));
-        scene.add(MeshRenderer.of(sphere, skillGlow,
-                Transform.identity().position(0.0f, 2.9f, 0.0f).scale(0.32f))
-                .withoutShadows());
-        for (int index = 0; index < 6; index++) {
-            float angle = index / 6.0f * (float) Math.PI * 2.0f;
-            float x = (float) Math.cos(angle) * 7.5f;
-            float z = (float) Math.sin(angle) * 7.5f;
-            scene.add(MeshRenderer.of(box, woodMaterial,
-                    Transform.identity().position(x, 0.45f, z)
-                            .rotationRadians(0.0f, -angle, 0.0f)
-                            .scale(2.2f, 0.25f, 0.6f)));
-            scene.add(MeshRenderer.of(box, woodMaterial,
-                    Transform.identity().position(x, 0.22f, z)
-                            .rotationRadians(0.0f, -angle, 0.0f)
-                            .scale(0.25f, 0.45f, 0.5f)));
-        }
-        // Arch over the south entrance.
-        scene.add(MeshRenderer.of(box, stoneMaterial,
-                Transform.identity().position(-5.5f, 3.5f, 18.0f).scale(1.2f, 7.0f, 1.2f)));
-        scene.add(MeshRenderer.of(box, stoneMaterial,
-                Transform.identity().position(5.5f, 3.5f, 18.0f).scale(1.2f, 7.0f, 1.2f)));
-        scene.add(MeshRenderer.of(box, stoneMaterial,
-                Transform.identity().position(0.0f, 7.4f, 18.0f).scale(12.2f, 1.1f, 1.4f)));
-
-        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(0.25f, -1.0f, 0.3f),
-                new Vector3f(0.16f, 0.2f, 0.38f), 0.5f));
-
-        // 128 local lights: 48 window lights, 16 street lamps, 16 shop lights,
-        // 16 torches, 32 coloured skill lights in the plaza.
-        int windowLights = 48;
-        int lampLights = 16;
-        int shopLights = 16;
-        int torchLights = 16;
-        int shadowRequests = 0;
-        for (int index = 0; index < windowLights; index++) {
-            int block = index % 8;
-            float x = -36.0f + block * 10.0f;
-            float z = index / 8 % 2 == 0 ? -8.0f : 8.0f;
-            scene.addLight(SceneLight.point(new Vector3f(x, 3.4f, z),
-                    new Vector3f(1.0f, 0.72f, 0.4f), 6.5f, 7.5f));
-        }
-        for (int index = 0; index < lampLights; index++) {
-            float x = -16.8f + (index % 8) * 4.8f;
-            float z = index < 8 ? -9.0f : 9.0f;
-            Vector3f position = new Vector3f(x, 5.9f, z);
-            Vector3f direction = new Vector3f(0.0f, -1.0f, 0.0f);
-            Vector3f color = new Vector3f(1.0f, 0.85f, 0.6f);
-            if (index < 4) {
-                // Only a subset wins a shadow slot; the rest still light the
-                // street through the unified light table.
-                scene.addLight(SceneLight.shadowedSpot(position, direction, color,
-                        45.0f, 13.0f, 0.25f, 0.7f), ShadowLightHints.priority(8 - index));
-                shadowRequests++;
+        for (int i = 0; i < anchors.lamps().size(); i++) {
+            Vector3f p = anchors.lamps().get(i);
+            Vector3f color = new Vector3f(1.0f, .72f, .38f);
+            if (i < 4) {
+                scene.addLight(SceneLight.shadowedSpot(p, new Vector3f(0,-1,0), color,
+                        32f, 9f, .4f, .95f), ShadowLightHints.priority(8 - i));
             } else {
-                scene.addLight(SceneLight.spot(position, direction, color,
-                        45.0f, 13.0f, 0.25f, 0.7f));
+                scene.addLight(SceneLight.spot(p, new Vector3f(0,-1,0), color, 32f, 9f, .4f, .95f));
             }
         }
-        for (int index = 0; index < shopLights; index++) {
-            float blockX = (index % 4 - 1.5f) * 22.0f;
-            float blockZ = (index / 4 % 2 == 0 ? -1.0f : 1.0f) * 22.0f;
-            scene.addLight(SceneLight.point(new Vector3f(blockX, 2.2f, blockZ),
-                    new Vector3f(0.6f, 0.9f, 1.0f), 3.5f, 6.0f));
+        for (Vector3f p : anchors.shops()) {
+            scene.addLight(SceneLight.point(p, new Vector3f(1f, .66f, .35f), 2f, 4f));
         }
-        for (int index = 0; index < torchLights; index++) {
-            float angle = index / (float) torchLights * (float) Math.PI * 2.0f;
-            Vector3f position = new Vector3f((float) Math.cos(angle) * 24.0f, 1.8f,
-                    (float) Math.sin(angle) * 24.0f);
-            Vector3f color = new Vector3f(1.0f, 0.5f, 0.15f);
-            if (index < 2) {
-                scene.addLight(SceneLight.shadowedPoint(position, color, 5.0f, 5.5f),
-                        ShadowLightHints.priority(6 - index));
-                shadowRequests++;
-            } else {
-                scene.addLight(SceneLight.point(position, color, 5.0f, 5.5f));
-            }
+        int torchStart = scene.lights().size();
+        for (int i = 0; i < anchors.torches().size(); i++) {
+            Vector3f p = anchors.torches().get(i);
+            Vector3f color = new Vector3f(1f, .5f, .17f);
+            float intensity = openTavern && i < 2 ? 18.0f : 3.0f;
+            float range = openTavern && i < 2 ? 6.0f : 4.0f;
+            if (i < 2) scene.addLight(SceneLight.shadowedPoint(p, color, intensity, range),
+                    ShadowLightHints.priority(6 - i));
+            else scene.addLight(SceneLight.point(p, color, intensity, range));
         }
-        Vector3f[] skillColors = {
-                new Vector3f(0.2f, 0.6f, 1.0f), new Vector3f(1.0f, 0.2f, 0.8f),
-                new Vector3f(0.2f, 1.0f, 0.5f)
-        };
-        for (int index = 0; index < 32; index++) {
-            scene.addLight(SceneLight.point(
-                    new Vector3f((random.nextFloat() - 0.5f) * 10.0f,
-                            1.2f + random.nextFloat() * 2.0f,
-                            (random.nextFloat() - 0.5f) * 10.0f),
-                    skillColors[index % skillColors.length], 6.0f, 6.0f));
+        int accentStart = scene.lights().size();
+        for (Vector3f p : anchors.accents()) {
+            scene.addLight(SceneLight.point(p, new Vector3f(.18f, .55f, .85f), .32f, 2.5f));
         }
-        return new Bundle(scene, materials, meshes, windowLights + lampLights + shopLights
-                + torchLights + 32, lampLights, shadowRequests,
-                1 + windowLights + lampLights + shopLights, torchLights,
-                1 + windowLights + lampLights + shopLights + torchLights, 32);
+        return new Bundle(scene, materials, meshes, scene.lights().size() - 1,
+                anchors.lamps().size(), 6, torchStart, anchors.torches().size(),
+                accentStart, anchors.accents().size());
     }
-
     private static Bundle createStress(Request request, ShaderProgram pbrShader,
                                        PbrFallbackTextures fallbacks,
                                        List<Material> materials, List<Mesh> meshes) {
@@ -521,17 +385,7 @@ public final class ClusteredDemoSceneFactory {
                 Map.of(), fallbacks);
     }
 
-    /** Dark albedo with an explicit emissive colour, used for windows and lamp heads. */
-    private static Material emissiveMaterial(ShaderProgram shader, PbrFallbackTextures fallbacks,
-                                             Vector3f color, float intensity, float roughness) {
-        return PbrMaterials.create(shader,
-                new PbrMaterialProperties(new Vector4f(0.03f, 0.03f, 0.03f, 1.0f),
-                        0.0f, roughness, 1.0f, 1.0f,
-                        new Vector3f(color).mul(intensity), Map.of()),
-                Map.of(), fallbacks);
-    }
-
-    private static Mesh plane(String name, float width, float height) {
+    static Mesh plane(String name, float width, float height) {
         MeshData data = BuiltinMeshData.texturedQuad(name);
         float[] source = data.vertices().clone();
         int stride = 8;
@@ -552,7 +406,7 @@ public final class ClusteredDemoSceneFactory {
             VertexAttribute.builder().index(2).size(3).type(GL_FLOAT)
                     .offsetBytes(5L * Float.BYTES).semantic(VertexSemantic.NORMAL).build());
 
-    private static Mesh box(String name) {
+    static Mesh box(String name) {
         float[][] normals = {
                 {0, 0, 1}, {0, 0, -1}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}
         };

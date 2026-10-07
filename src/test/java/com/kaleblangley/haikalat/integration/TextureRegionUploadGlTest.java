@@ -29,6 +29,43 @@ import static org.lwjgl.opengl.GL45.glGetTextureImage;
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class TextureRegionUploadGlTest {
     @Test
+    void rgba32fTypedUploadAndFramebufferRetainPrecisionAndAccountFullStorage() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (var texture = Texture2D.createEmpty(5, 3, org.lwjgl.opengl.GL30.GL_RGBA32F);
+                     var framebuffer = com.kaleblangley.haikalat.backend.framebuffer.Framebuffer.fromDescriptor(
+                             com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor.builder(5, 3)
+                                     .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.RGBA32F).build())) {
+                    float[] expected = {0.12345679f, 2.3456788f, 70000.125f, 0.9876543f};
+                    assertEquals(240, texture.requiredRegionBytes(0, 0, 5, 3));
+                    var payload = ByteBuffer.allocate(240).order(java.nio.ByteOrder.nativeOrder());
+                    for (int pixel = 0; pixel < 15; pixel++) for (float value : expected) payload.putFloat(value);
+                    payload.flip();
+                    var device = new GlRenderDevice();
+                    var commands = device.createCommandBuffer().uploadTextureRegion(texture, 0, 0, 5, 3, payload);
+                    for (int byteIndex = 0; byteIndex < payload.capacity(); byteIndex++) payload.put(byteIndex, (byte) 0);
+                    device.execute(commands);
+                    org.lwjgl.opengl.GL45.glClearNamedFramebufferfv(framebuffer.id(), org.lwjgl.opengl.GL11.GL_COLOR, 0, expected);
+                    for (int id : new int[]{texture.id(), framebuffer.colorAttachment()}) {
+                        assertEquals(org.lwjgl.opengl.GL30.GL_RGBA32F,
+                                org.lwjgl.opengl.GL45.glGetTextureLevelParameteri(id, 0, org.lwjgl.opengl.GL11.GL_TEXTURE_INTERNAL_FORMAT));
+                        var pixels = BufferUtils.createFloatBuffer(60);
+                        glGetTextureImage(id, 0, org.lwjgl.opengl.GL11.GL_RGBA, org.lwjgl.opengl.GL11.GL_FLOAT, pixels);
+                        for (int index = 0; index < 60; index++) assertEquals(expected[index % 4], pixels.get(index), 0);
+                    }
+                    assertEquals(480L, GlDebug.resources().liveResources().stream()
+                            .filter(resource -> resource.kind().equals("TEXTURE"))
+                            .mapToLong(GlDebug.ResourceInfo::estimatedBytes).sum());
+                    GlDebug.assertNoError("RGBA32F typed upload, framebuffer and full storage accounting");
+                }
+                assertEquals(0, GlDebug.resources().liveResources().size());
+            }
+        }
+    }
+
+    @Test
     void r8RegionUploadChangesOnlyTargetAndRestoresUnpackAlignment() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();

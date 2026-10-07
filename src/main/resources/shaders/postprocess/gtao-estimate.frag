@@ -180,6 +180,12 @@ void main() {
     float pixelRadius = clamp(projectedRadius, 1.0, maxPixelRadius);
     float visibility = 0.0;
     vec3 viewDirection = normalize(-centerView);
+    // Inverse projection is linear before the perspective divide.  Keep the
+    // center clip contribution and depth column once, then advance along each
+    // slice with one homogeneous step instead of a mat4 multiply per tap.
+    vec4 centerClipView = uInverseProjection
+            * vec4(fullUv * 2.0 - 1.0, 0.0, 1.0);
+    vec4 depthClipColumn = uInverseProjection[2];
 
     // Horizon-based GTAO: for every screen-space direction retain the highest
     // elevation angle found along the ray, then integrate those horizons over
@@ -203,17 +209,25 @@ void main() {
         vec2 horizon = lowHorizon;
         for (int side = 0; side < 2; side++) {
             vec2 sideAxis = side == 0 ? axis : -axis;
+            vec2 sampleUvStep = sideAxis
+                    * (pixelRadius / float(stepCount)) / uFullExtent;
+            vec4 sampleViewStep = uInverseProjection
+                    * vec4(sampleUvStep * 2.0, 0.0, 0.0);
             for (int step = 1; step <= 6; step++) {
                 if (step > stepCount) break;
-                float distance = pixelRadius * float(step) / float(stepCount);
-                vec2 sampleUv = fullUv + sideAxis * distance / uFullExtent;
+                vec2 sampleUv = fullUv + sampleUvStep * float(step);
                 if (any(lessThan(sampleUv, vec2(0.0)))
                         || any(greaterThan(sampleUv, vec2(1.0)))) {
                     continue;
                 }
                 float sampleDepth = texture(uDepth, sampleUv).r;
                 if (sampleDepth >= 0.999999) continue;
-                vec3 sampleView = reconstructView(sampleUv, sampleDepth);
+                vec4 homogeneousView = centerClipView
+                        + sampleViewStep * float(step)
+                        + depthClipColumn * (sampleDepth * 2.0 - 1.0);
+                if (any(isnan(homogeneousView)) || any(isinf(homogeneousView))
+                        || abs(homogeneousView.w) < 1.0e-6) continue;
+                vec3 sampleView = homogeneousView.xyz / homogeneousView.w;
                 vec3 sampleDirection = sampleView - centerView;
                 float sampleDistance = length(sampleDirection);
                 if (sampleDistance <= 1.0e-4) continue;

@@ -22,9 +22,13 @@ public final class EnvironmentBackgroundRenderer implements AutoCloseable {
     private final VertexArray vertexArray = new VertexArray();
     private final Sampler sampler = Sampler.create(new Sampler.Descriptor(GL_LINEAR, GL_LINEAR,
             GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE));
+    private float intensity;
+    private float rotationRadians;
 
     public EnvironmentBackgroundRenderer(PbrEnvironment environment) {
         this.environment = java.util.Objects.requireNonNull(environment, "environment");
+        intensity = environment.intensity();
+        rotationRadians = environment.rotationRadians();
     }
 
     public void render(CommandBuffer cmd, Camera camera, int width, int height) {
@@ -37,12 +41,24 @@ public final class EnvironmentBackgroundRenderer implements AutoCloseable {
                 .enableBlend(false).enableDepthTest(false).depthMask(false)
                 .bindTextureCube(UNIT, environment.radiance(), sampler)
                 .setUniformInt(shader, "uEnvironment", UNIT)
-                .setUniformFloat(shader, "uIntensity", environment.intensity())
-                .setUniformFloat(shader, "uRotation", environment.rotationRadians())
+                .setUniformFloat(shader, "uIntensity", intensity)
+                .setUniformFloat(shader, "uRotation", rotationRadians)
                 .setUniformMat4(shader, "uInverseProjection", inverseProjection)
                 .setUniformMat4(shader, "uInverseViewRotation", inverseViewRotation)
                 .bindVertexArray(vertexArray.id())
                 .drawArrays(GL_TRIANGLES, 0, 3);
+    }
+
+    /** Per-pipeline values; the borrowed environment object is never mutated. */
+    public void visualOverride(float intensity, float rotationRadians) {
+        if (!Float.isFinite(intensity) || intensity < 0.0f) {
+            throw new IllegalArgumentException("environment intensity must be finite and non-negative");
+        }
+        if (!Float.isFinite(rotationRadians)) {
+            throw new IllegalArgumentException("environment rotation must be finite");
+        }
+        this.intensity = intensity;
+        this.rotationRadians = rotationRadians;
     }
 
     @Override

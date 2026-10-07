@@ -47,6 +47,16 @@ class FramebufferDescriptorTest {
     }
 
     @Test
+    void rgba32fTextureUsesFourChannelFloatMetadata() {
+        var descriptor = FramebufferDescriptor.builder(5, 3)
+                .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.RGBA32F).build();
+        var color = descriptor.colorAttachments().getFirst();
+        assertEquals(org.lwjgl.opengl.GL30.GL_RGBA32F, color.internalFormat());
+        assertEquals(GL_RGBA, color.externalFormat());
+        assertEquals(GL_FLOAT, color.dataType());
+    }
+
+    @Test
     void r16fTextureUsesSingleChannelFloatMetadata() {
         FramebufferDescriptor descriptor = FramebufferDescriptor.builder(1, 1)
                 .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.R16F)

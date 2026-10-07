@@ -1,5 +1,17 @@
 # 变更记录
 
+## v0.24.3（候选，完整发布门禁未通过）
+
+- 修复 RenderGraph GPU query 的跨轮归档、尾帧有界回收和同帧 pass 配对；正常 benchmark 与 CPU 隔离归因拆成独立入口。
+- 增加与生产 PBR 同步的 test-only full-scan 参考、零灯 CPU A/B、完整 Upload/Bounds/Assign/Stats/Geometry 成本、候选/配置指纹和逐轮原始样本。
+- 将 Outdoor 构图、帧状态和历史资源拆为 generation 内唯一 owner，保留 resize/失败/成功帧事务。
+- 增加版本化 `VisualProfile`、原子 codec、方向光/IBL/曝光/Bloom/Outdoor typed 热更新与失败回滚；冻结晨雾、黄昏、夜镇三套 profile 和 60/240/420 帧路径。
+- 新增 v0.24.3 测量、profile、视觉基线与本地汇总任务；三场景各冻结 60/240/420 线性 HDR 参考，并输出误差图、fog-off/Bloom-off/固定曝光灰模对照。
+- 修复 TAA 颜色写入外部目标时 Bloom 首级提取因 framebuffer 查询为空而被跳过的问题；三场景的 Bloom 开关像素对照作为回归门禁。Outdoor 可见面板增加 profile 选择、完整配置保存/重载、曝光、对照、路径暂停和截图。
+- 增加 Outdoor 线性散射/透射率/历史拒绝三帧诊断、96-step 全分辨率 history-off HDR 对照和夜镇 light-count/overflow/shadow-slot 图像门禁；修复加载 profile 后 `--volume-quality=reference` 被覆盖的问题。
+- 最终候选正式正常路径矩阵通过 13 个配置的 3×(120 warmup + 300 measured) 门禁；增加有界批次回收，避免 300 帧超过 256 槽 query ring 后把丢样误当性能结果。
+- GTAO 优化尝试移除时域 pass 到 history 的整图复制，并复用 estimate 采样射线的逆投影增量；GL/JVM 回归通过，但旧 GTAO A/B CPU/历史基线门禁仍失败。上述正式矩阵对应优化前指纹，当前源码待重跑，不能据此发布。
+
 ## v0.24.2（待标记）
 
 版本号已准备为 `0.24.2`。发布准备及剩余验收限制见

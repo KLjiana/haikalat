@@ -8,11 +8,13 @@ import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -125,6 +127,12 @@ class GtaoShaderGlTest {
                                 value.name().equals("GtaoEstimatePass")).findFirst().orElseThrow();
                         assertEquals((pipeline.graph().width() + 1) / 2, estimate.width());
                         assertEquals((pipeline.graph().height() + 1) / 2, estimate.height());
+                        var temporal = descriptions.stream().filter(value ->
+                                value.name().equals(PostProcessTargets.GTAO_TEMPORAL_PASS))
+                                .findFirst().orElseThrow();
+                        assertEquals(RenderGraph.TargetKind.EXTERNAL, temporal.targetKind());
+                        assertEquals(0, temporal.width());
+                        assertEquals(0, temporal.height());
                         int oldWidth = pipeline.graph().width();
                         int oldHeight = pipeline.graph().height();
                         int resizedWidth = oldWidth + 16;

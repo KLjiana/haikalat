@@ -238,8 +238,12 @@ public final class DiagnosticsJsonExporter {
         Set<String> names = new HashSet<>();
         for (RenderGraph.PassDescription pass : graph.passes()) {
             requireValidUnicode(pass.name(), "graph.pass.name");
-            if (!names.add(pass.name()) || pass.width() <= 0 || pass.height() <= 0
-                    || pass.samples() <= 0) {
+            boolean dimensionless = pass.width() == 0 && pass.height() == 0;
+            boolean sized = pass.width() > 0 && pass.height() > 0;
+            boolean validDimensions = pass.targetKind() == RenderGraph.TargetKind.COMPUTE
+                    ? dimensionless
+                    : sized || pass.targetKind() == RenderGraph.TargetKind.EXTERNAL && dimensionless;
+            if (!names.add(pass.name()) || !validDimensions || pass.samples() <= 0) {
                 throw new IllegalArgumentException("invalid render graph pass");
             }
             for (String dependency : pass.directDependencies()) {
@@ -543,6 +547,9 @@ public final class DiagnosticsJsonExporter {
             else writeAttachment(json, pass.depthAttachment());
             json.writeBooleanField("clearColor", pass.clearColor());
             json.writeBooleanField("clearDepth", pass.clearDepth());
+            json.writeArrayFieldStart("borrowedExternalStorage");
+            for (String logicalName : pass.borrowedExternalStorage()) json.writeString(logicalName);
+            json.writeEndArray();
             json.writeEndObject();
         }
         json.writeEndArray();

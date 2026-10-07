@@ -14,7 +14,10 @@ import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
 import com.kaleblangley.haikalat.core.presentation.PresentationResult;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.backend.GpuTimer;
+import com.kaleblangley.haikalat.backend.state.HostGlState;
+import org.lwjgl.system.MemoryUtil;
 
+import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -22,11 +25,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.glReadPixels;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
+import static org.lwjgl.opengl.GL21.GL_PIXEL_PACK_BUFFER;
+import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
+import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_COMPLETE;
+import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_TEXTURE_2D;
+import static org.lwjgl.opengl.GL30.glBindFramebuffer;
+import static org.lwjgl.opengl.GL30.glCheckFramebufferStatus;
+import static org.lwjgl.opengl.GL30.glDeleteFramebuffers;
+import static org.lwjgl.opengl.GL30.glFramebufferTexture2D;
+import static org.lwjgl.opengl.GL30.glGenFramebuffers;
+import static org.lwjgl.opengl.GL30.glReadBuffer;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_HEIGHT;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WIDTH;
+import static org.lwjgl.opengl.GL45.glGetTextureLevelParameteri;
+
 public final class RenderGraph implements AutoCloseable {
     private static final GpuTimer.Sample PENDING_GPU_SAMPLE =
             new GpuTimer.Sample(GpuTimer.Status.PENDING, 0L, -1L, 0L, 0L);
     private final List<Pass> passes = new ArrayList<>();
     private final Map<String, Pass> passByName = new HashMap<>();
+    // Logical diagnostics/dependencies only. The graph never owns or closes this storage.
+    private final Map<String, List<String>> borrowedStorageByPass = new HashMap<>();
     private final Map<String, Texture2D> importedTextures = new HashMap<>();
     private final Map<String, ExternalAttachment> importedExternalAttachments = new HashMap<>();
     private final Map<String, PresentationTarget> importedPresentationTargets = new HashMap<>();
@@ -66,6 +90,8 @@ public final class RenderGraph implements AutoCloseable {
     private boolean topologySealed;
     private boolean closed;
     private long frameSequence;
+    private long lastGraphRecordNanos;
+    private long lastDeviceSubmitNanos;
     private boolean retainGpuSamples;
     private long topologyRevision;
     private Description cachedDescription;
@@ -220,6 +246,57 @@ public final class RenderGraph implements AutoCloseable {
         return textureAttachmentIds.getOrDefault(textureName, 0);
     }
 
+    /**
+     * Synchronously reads a single-sample graph color texture for explicit diagnostics.
+     * Pixels are bottom-up RGBA float values in linear texture space. The caller must
+     * run on the owning GL context after a completed frame; normal rendering never
+     * invokes this method.
+     */
+    public float[] readColorAttachmentRgbaFloat(String textureName) {
+        ensureOpen();
+        if (frameSequence == 0) {
+            throw new IllegalStateException("color readback requires a completed frame");
+        }
+        String name = Objects.requireNonNull(textureName, "textureName");
+        int textureId = getTextureAttachmentId(name);
+        if (textureId == 0) {
+            throw new IllegalArgumentException("unknown or unavailable color texture: " + name);
+        }
+        int attachmentWidth = glGetTextureLevelParameteri(textureId, 0, GL_TEXTURE_WIDTH);
+        int attachmentHeight = glGetTextureLevelParameteri(textureId, 0, GL_TEXTURE_HEIGHT);
+        if (attachmentWidth <= 0 || attachmentHeight <= 0) {
+            throw new GlException("color readback attachment has no extent: " + name);
+        }
+        int componentCount = Math.multiplyExact(Math.multiplyExact(
+                attachmentWidth, attachmentHeight), 4);
+        FloatBuffer pixels = MemoryUtil.memAllocFloat(componentCount);
+        try {
+            try (HostGlState ignored = HostGlState.capture()) {
+                int readFramebuffer = glGenFramebuffers();
+                try {
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer);
+                    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                            GL_TEXTURE_2D, textureId, 0);
+                    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                        throw new GlException("color readback framebuffer incomplete for " + name);
+                    }
+                    glReadBuffer(GL_COLOR_ATTACHMENT0);
+                    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                    glReadPixels(0, 0, attachmentWidth, attachmentHeight,
+                            GL_RGBA, GL_FLOAT, pixels);
+                } finally {
+                    glDeleteFramebuffers(readFramebuffer);
+                }
+            }
+            float[] result = new float[componentCount];
+            pixels.get(result);
+            return result;
+        } finally {
+            // Continuous diagnostic sequences must not retain native staging until a heap GC.
+            MemoryUtil.memFree(pixels);
+        }
+    }
+
     Framebuffer currentPassFramebuffer() {
         return currentFbo;
     }
@@ -327,6 +404,9 @@ public final class RenderGraph implements AutoCloseable {
         long currentFrameSequence = frameSequence++;
         Arrays.fill(cpuRecordNanos, 0L);
         GpuTimer.Sample aggregateGtaoSample = null;
+        long graphRecordStart = System.nanoTime();
+        boolean graphRecordCompleted = false;
+        boolean deviceSubmitStarted = false;
         try {
             for (int passIndex = 0; passIndex < sortedPasses.size(); passIndex++) {
                 Pass pass = sortedPasses.get(passIndex);
@@ -389,7 +469,15 @@ public final class RenderGraph implements AutoCloseable {
             lastRecordedCommandCount = cmd.commandCount();
             lastRecordedMatrixSnapshots = cmd.recordedMatrixSnapshotCount();
             lastRecordedObjectPayloads = cmd.recordedObjectPayloadCount();
-            device.execute(cmd);
+            lastGraphRecordNanos = System.nanoTime() - graphRecordStart;
+            graphRecordCompleted = true;
+            long deviceSubmitStart = System.nanoTime();
+            deviceSubmitStarted = true;
+            try {
+                device.execute(cmd);
+            } finally {
+                lastDeviceSubmitNanos = System.nanoTime() - deviceSubmitStart;
+            }
             List<PassProfile> passProfiles = new ArrayList<>(sortedPasses.size());
             if (aggregateGtaoTimer != null) {
                 aggregateGtaoSample = aggregateGtaoTimer.sample(currentFrameSequence);
@@ -415,6 +503,10 @@ public final class RenderGraph implements AutoCloseable {
             lastFrameProfile = new FrameProfile(0L, passProfiles, currentFrameSequence);
             return PresentationResult.RENDERED;
         } catch (RuntimeException | Error failure) {
+            if (!graphRecordCompleted) {
+                lastGraphRecordNanos = Math.max(0L, System.nanoTime() - graphRecordStart);
+            }
+            if (!deviceSubmitStarted) lastDeviceSubmitNanos = 0L;
             lastFrameProfile = failedProfile(currentFrameSequence);
             throw failure;
         } finally {
@@ -454,6 +546,12 @@ public final class RenderGraph implements AutoCloseable {
     public FrameProfile lastFrameProfile() {
         return lastFrameProfile;
     }
+
+    /** CPU wall time spent building the graph command buffer for the last frame. */
+    public long lastGraphRecordNanos() { return lastGraphRecordNanos; }
+
+    /** CPU wall time of the actual device execution/submission call for the last frame. */
+    public long lastDeviceSubmitNanos() { return lastDeviceSubmitNanos; }
 
     /** Enable lossless query collection before the first frame, for benchmarks only. */
     public void enableGpuSampleCollection() {
@@ -512,7 +610,7 @@ public final class RenderGraph implements AutoCloseable {
                         ? pass.colorTextureNames.get(index) : "color" + index;
                 colors.add(new AttachmentDescription(logicalName,
                         pass.colorFormats.get(index).name(),
-                        pass.samples > 1 ? StorageKind.RENDERBUFFER : StorageKind.TEXTURE));
+                        pass.samples > 1 && !pass.multisampleTextures ? StorageKind.RENDERBUFFER : StorageKind.TEXTURE));
             }
             AttachmentDescription depth = pass.createDepth
                     ? new AttachmentDescription(pass.depthTextureName == null ? "depth" : pass.depthTextureName,
@@ -521,7 +619,7 @@ public final class RenderGraph implements AutoCloseable {
                     : null;
             descriptions.add(new PassDescription(pass.name, pass.dependencies, kind,
                     targetWidth, targetHeight, pass.samples, colors, depth,
-                    pass.clearColor, pass.clearDepth));
+                    pass.clearColor, pass.clearDepth, borrowedStorageByPass.getOrDefault(pass.name, List.of())));
         }
         cachedDescription = new Description(width, height, topologyRevision, topologySealed,
                 compiledGraph.passNames(), descriptions);
@@ -551,13 +649,18 @@ public final class RenderGraph implements AutoCloseable {
             for (Pass pass : passes) {
                 if (pass.useBackbuffer || pass.externalTarget || isFixedSize(pass)
                         || pass.computeOnly) continue;
-                if (pass.sharedDepthPassName != null) {
-                    Framebuffer source = candidate.get(pass.sharedDepthPassName);
-                    if (source == null) {
+                if (pass.sharedDepthPassName != null || pass.sharedColorPassName != null) {
+                    Framebuffer source = pass.sharedDepthPassName == null ? null : candidate.get(pass.sharedDepthPassName);
+                    if (pass.sharedDepthPassName != null && source == null) {
                         throw new GlException("RenderGraph resize candidate cannot resolve shared depth pass '"
                                 + pass.sharedDepthPassName + "' for '" + pass.name + "'");
                     }
-                    candidate.createShared(pass.name, descriptorFor(pass, newWidth, newHeight), source);
+                    Framebuffer colorSource = pass.sharedColorPassName == null ? null
+                            : candidate.get(pass.sharedColorPassName);
+                    if (pass.sharedColorPassName != null && colorSource == null)
+                        throw new GlException("missing borrowed color resize source " + pass.sharedColorPassName);
+                    candidate.createShared(pass.name, descriptorFor(pass, newWidth, newHeight), colorSource, source,
+                            pass.sharedColorAttachmentIndices);
                 } else {
                     candidate.create(pass.name, descriptorFor(pass, newWidth, newHeight));
                 }
@@ -726,13 +829,18 @@ public final class RenderGraph implements AutoCloseable {
     private void allocatePassFramebuffer(Pass pass) {
         RenderTargetManager owner = isFixedSize(pass) ? fixedRenderTargets : renderTargets;
         Framebuffer framebuffer;
-        if (pass.sharedDepthPassName != null) {
-            Framebuffer source = getPassFramebuffer(pass.sharedDepthPassName);
-            if (source == null) {
+        if (pass.sharedDepthPassName != null || pass.sharedColorPassName != null) {
+            Framebuffer source = pass.sharedDepthPassName == null ? null : getPassFramebuffer(pass.sharedDepthPassName);
+            if (pass.sharedDepthPassName != null && source == null) {
                 throw new GlException("RenderGraph pass '" + pass.name
                         + "' shares depth from missing pass '" + pass.sharedDepthPassName + "'");
             }
-            framebuffer = owner.createShared(pass.name, descriptorFor(pass), source);
+            Framebuffer colorSource = pass.sharedColorPassName == null ? null
+                    : getPassFramebuffer(pass.sharedColorPassName);
+            if (pass.sharedColorPassName != null && colorSource == null)
+                throw new GlException("missing borrowed color source " + pass.sharedColorPassName);
+            framebuffer = owner.createShared(pass.name, descriptorFor(pass), colorSource, source,
+                    pass.sharedColorAttachmentIndices);
         } else {
             framebuffer = owner.create(pass.name, descriptorFor(pass));
         }
@@ -910,10 +1018,11 @@ public final class RenderGraph implements AutoCloseable {
                                   TargetKind targetKind, int width, int height, int samples,
                                   List<AttachmentDescription> colorAttachments,
                                   AttachmentDescription depthAttachment,
-                                  boolean clearColor, boolean clearDepth) {
+                                  boolean clearColor, boolean clearDepth, List<String> borrowedExternalStorage) {
         public PassDescription {
             directDependencies = List.copyOf(directDependencies);
             colorAttachments = List.copyOf(colorAttachments);
+            borrowedExternalStorage = List.copyOf(borrowedExternalStorage);
         }
     }
 
@@ -950,6 +1059,8 @@ public final class RenderGraph implements AutoCloseable {
         final boolean createDepth;
         final String depthTextureName;
         final String sharedDepthPassName;
+        final String sharedColorPassName;
+        final List<Integer> sharedColorAttachmentIndices;
         final boolean clearColor;
         final boolean clearDepth;
         final float clearR;
@@ -968,7 +1079,8 @@ public final class RenderGraph implements AutoCloseable {
              boolean multisampleTextures,
              int fixedWidth, int fixedHeight, float relativeWidthScale, float relativeHeightScale,
              boolean ceilRelativeSize,
-             boolean createDepth, String depthTextureName, String sharedDepthPassName,
+             boolean createDepth, String depthTextureName, String sharedDepthPassName, String sharedColorPassName,
+             List<Integer> sharedColorAttachmentIndices,
              boolean clearColor, boolean clearDepth,
              float clearR, float clearG, float clearB, float clearA, boolean useBackbuffer,
              boolean externalTarget, boolean computeOnly, String presentationTargetName,
@@ -987,6 +1099,8 @@ public final class RenderGraph implements AutoCloseable {
             this.createDepth = createDepth;
             this.depthTextureName = depthTextureName;
             this.sharedDepthPassName = sharedDepthPassName;
+            this.sharedColorPassName = sharedColorPassName;
+            this.sharedColorAttachmentIndices = sharedColorAttachmentIndices;
             this.clearColor = clearColor;
             this.clearDepth = clearDepth;
             this.clearR = clearR;
@@ -1017,6 +1131,8 @@ public final class RenderGraph implements AutoCloseable {
         private boolean createDepth;
         private String depthTextureName;
         private String sharedDepthPassName;
+        private String sharedColorPassName;
+        private List<Integer> sharedColorAttachmentIndices;
         private boolean clearColor = true;
         private boolean clearDepth = true;
         private float clearR = 0.08f;
@@ -1028,11 +1144,23 @@ public final class RenderGraph implements AutoCloseable {
         private boolean computeOnly;
         private String presentationTargetName;
         private final List<String> dependencies = new ArrayList<>();
+        private final List<String> borrowedStorage = new ArrayList<>();
         private PassExecutor executor;
 
         PassBuilder(RenderGraph graph, String name) {
             this.graph = graph;
             this.name = name;
+        }
+
+        /** Declares borrowed non-attachment storage; producer ordering uses explicit dependsOn edges. */
+        public PassBuilder borrowsExternalStorage(String... logicalNames) {
+            Objects.requireNonNull(logicalNames, "logicalNames");
+            for (String logicalName : logicalNames) {
+                String value = requireLogicalName(logicalName, "borrowed storage");
+                if (borrowedStorage.contains(value)) throw new IllegalArgumentException("duplicate borrowed storage " + value);
+                borrowedStorage.add(value);
+            }
+            return this;
         }
 
         /**
@@ -1158,6 +1286,11 @@ public final class RenderGraph implements AutoCloseable {
             return this;
         }
 
+        public PassBuilder createDepthTextureMS(String textureName,int sampleCount) {
+            if (sampleCount<2) throw new IllegalArgumentException("multisample depth requires at least two samples");
+            createDepthTexture(textureName); samples=sampleCount; return this;
+        }
+
         /**
          * Reuses the depth texture produced by {@code sourcePassName} instead of
          * allocating one.  The source pass must be added before this pass and the
@@ -1168,6 +1301,33 @@ public final class RenderGraph implements AutoCloseable {
             createDepth = true;
             depthTextureName = Objects.requireNonNull(textureName, "textureName");
             sharedDepthPassName = Objects.requireNonNull(sourcePassName, "sourcePassName");
+            return this;
+        }
+
+        /** Uses an existing pass's color storage with separate depth attachment and framebuffer identity. */
+        public PassBuilder shareColorTextures(List<String> textureAliases, List<RenderFormat> formats,
+                                              String sourcePassName, int sampleCount) {
+            return shareColorAttachments(textureAliases, formats, sourcePassName,
+                    java.util.stream.IntStream.range(0, textureAliases.size()).boxed().toList(), sampleCount);
+        }
+
+        /** Borrows selected color attachments into a separate target without acquiring texture ownership. */
+        public PassBuilder shareColorAttachments(List<String> textureAliases, List<RenderFormat> formats,
+                                                 String sourcePassName, List<Integer> sourceIndices, int sampleCount) {
+            requireGraphicsTarget("shareColorTextures");
+            if (!colorTextureNames.isEmpty()) throw new IllegalStateException("color storage already declared");
+            if (textureAliases.isEmpty() || textureAliases.size() != formats.size()
+                    || textureAliases.size() != sourceIndices.size() || sampleCount < 1
+                    || sourceIndices.stream().anyMatch(index -> index == null || index < 0)
+                    || new java.util.HashSet<>(sourceIndices).size() != sourceIndices.size())
+                throw new IllegalArgumentException("borrowed color aliases/formats/samples must match");
+            colorTextureNames.addAll(textureAliases);
+            colorFormats.addAll(formats);
+            samples = sampleCount;
+            multisampleTextures = sampleCount > 1;
+            sharedColorPassName = Objects.requireNonNull(sourcePassName, "sourcePassName");
+            sharedColorAttachmentIndices = List.copyOf(sourceIndices);
+            dependsOn(sourcePassName);
             return this;
         }
 
@@ -1311,6 +1471,8 @@ public final class RenderGraph implements AutoCloseable {
 
         public RenderGraph execute(PassExecutor executor) {
             this.executor = Objects.requireNonNull(executor, "executor");
+            if (sharedColorPassName != null && (clearColor || clearDepth))
+                throw new IllegalStateException("borrowed color target requires noClear");
             if (externalTarget && (clearColor || clearDepth)) {
                 throw new IllegalStateException("external-target pass must declare noClear()");
             }
@@ -1318,11 +1480,13 @@ public final class RenderGraph implements AutoCloseable {
                     multisampleTextures,
                     fixedWidth, fixedHeight, relativeWidthScale, relativeHeightScale,
                     ceilRelativeSize,
-                    createDepth, depthTextureName, sharedDepthPassName, clearColor, clearDepth,
+                    createDepth, depthTextureName, sharedDepthPassName, sharedColorPassName, sharedColorAttachmentIndices,
+                    clearColor, clearDepth,
                     clearR, clearG, clearB, clearA,
                     useBackbuffer, externalTarget, computeOnly, presentationTargetName,
                     List.copyOf(dependencies), executor);
             graph.addPassInternal(pass);
+            graph.borrowedStorageByPass.put(name, List.copyOf(borrowedStorage));
             return graph;
         }
 

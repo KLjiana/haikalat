@@ -1269,7 +1269,7 @@ class RenderPipelineGlTest {
                             RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
                                     .vsync(false).build())
                             .directionalCascades(new DirectionalCascadeSettings(
-                                    count, 1024, 0.6f, 0.08f));
+                                    count, 1024, 0.6f, 0.08f, Float.MAX_VALUE));
                     try {
                         pipeline.build();
                         pipeline.execute(new GlRenderDevice());
@@ -1347,7 +1347,7 @@ class RenderPipelineGlTest {
             RenderSettings settings = RenderSettings.builder()
                     .antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build();
             RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings)
-                    .directionalCascades(new DirectionalCascadeSettings(4, 512, 0.6f, 0.08f));
+                    .directionalCascades(new DirectionalCascadeSettings(4, 512, 0.6f, 0.08f, Float.MAX_VALUE));
             GlRenderDevice device = new GlRenderDevice();
             String previous = System.getProperty("haikalat.test.failShadowPassOnce");
             try {

@@ -14,7 +14,7 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 
 /**
  * Conservative reactive-mask producer.  It re-renders only materials that
- * declare a temporal distrust value and accumulates them additively; over
+ * declare a temporal distrust value and merges them with max; over
  * marking an occluded transparent pixel only reduces history reuse, it cannot
  * corrupt color.  The pass owns the shared {@code sceneReactive} texture.
  */
@@ -34,6 +34,7 @@ final class SceneReactivePass implements AutoCloseable {
         cameraUniforms.bind(program);
         cmd.bindShader(program)
                 .enableBlend(true)
+                .blendEquation(org.lwjgl.opengl.GL14.GL_MAX)
                 .blendFunc(GL_ONE, GL_ONE)
                 .enableDepthTest(false)
                 .enableCullFace(false)
@@ -60,7 +61,7 @@ final class SceneReactivePass implements AutoCloseable {
             cmd.drawMesh(renderer.mesh());
             draws++;
         }
-        cmd.enableBlend(false).enableDepthTest(true).depthMask(true);
+        cmd.blendEquation(org.lwjgl.opengl.GL14.GL_FUNC_ADD).enableBlend(false).enableDepthTest(true).depthMask(true);
         return draws;
     }
 

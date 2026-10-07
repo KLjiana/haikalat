@@ -19,9 +19,13 @@ public final class PbrMaterialBinder implements AutoCloseable {
     private final PbrEnvironment environment;
     private final Sampler cubeSampler;
     private final Sampler lutSampler;
+    private float intensity;
+    private float rotationRadians;
 
     public PbrMaterialBinder(PbrEnvironment environment) {
         this.environment = java.util.Objects.requireNonNull(environment, "environment");
+        intensity = environment.intensity();
+        rotationRadians = environment.rotationRadians();
         int units = glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
         if (units <= BRDF_LUT_UNIT) {
             throw new GlException("PBR requires at least " + (BRDF_LUT_UNIT + 1)
@@ -48,10 +52,22 @@ public final class PbrMaterialBinder implements AutoCloseable {
                 .trySetUniformInt(shader, "uIrradianceMap", IRRADIANCE_UNIT)
                 .trySetUniformInt(shader, "uPrefilteredMap", PREFILTERED_SPECULAR_UNIT)
                 .trySetUniformInt(shader, "uBrdfLut", BRDF_LUT_UNIT)
-                .trySetUniformFloat(shader, "uEnvironmentIntensity", environment.intensity())
-                .trySetUniformFloat(shader, "uEnvironmentRotation", environment.rotationRadians())
+                .trySetUniformFloat(shader, "uEnvironmentIntensity", intensity)
+                .trySetUniformFloat(shader, "uEnvironmentRotation", rotationRadians)
                 .trySetUniformFloat(shader, "uPrefilterMaxLod",
                         environment.prefilteredSpecular().mipLevels() - 1.0f);
+    }
+
+    /** Per-pipeline values; the borrowed environment object is never mutated. */
+    public void visualOverride(float intensity, float rotationRadians) {
+        if (!Float.isFinite(intensity) || intensity < 0.0f) {
+            throw new IllegalArgumentException("environment intensity must be finite and non-negative");
+        }
+        if (!Float.isFinite(rotationRadians)) {
+            throw new IllegalArgumentException("environment rotation must be finite");
+        }
+        this.intensity = intensity;
+        this.rotationRadians = rotationRadians;
     }
 
     @Override

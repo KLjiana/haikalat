@@ -11,7 +11,7 @@ record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnvironmentAv
     }
 
     void validate() {
-        if ((topology.colorGrading() || topology.fog()) && !topology.hdr()) {
+        if ((topology.colorGrading() || topology.fog() || topology.volumetricFog()) && !topology.hdr()) {
             throw new IllegalStateException("Color grading and fog require HDR tone mapping");
         }
         if (topology.hdrVfx() && !topology.hdr()) {

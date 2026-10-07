@@ -641,7 +641,7 @@ class GltfRuntimeGlTest {
                                 .vsync(false)
                                 .build(), environment)
                         .directionalCascades(new DirectionalCascadeSettings(
-                                4, 1024, 0.6f, 0.08f));
+                                4, 1024, 0.6f, 0.08f, Float.MAX_VALUE));
                 try {
                     pipeline.build();
                     pipeline.execute(device);

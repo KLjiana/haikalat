@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
+import static org.lwjgl.opengl.GL44.GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT;
 
 /**
  * Per-frame clustered lighting bridge between the CPU light table and the
@@ -32,7 +33,6 @@ final class ClusteredLightingBinder implements AutoCloseable {
     private final ClusteredLightingSettings settings;
     private final ByteBuffer packed;
     private final ByteBuffer packedBounds;
-    private final ByteBuffer zeroCounters;
     private final Map<Integer, Boolean> programCapabilities = new HashMap<>();
     private final com.kaleblangley.haikalat.backend.sync.GpuFence[] counterFences =
             new com.kaleblangley.haikalat.backend.sync.GpuFence[
@@ -59,8 +59,6 @@ final class ClusteredLightingBinder implements AutoCloseable {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.packed = LightTablePacker.allocate(resources.maxTotalLights());
         this.packedBounds = LightTablePacker.allocateBounds(settings.maxLocalLights());
-        this.zeroCounters = ByteBuffer.allocateDirect(ClusteredLightingResources.COUNTER_BYTES)
-                .order(ByteOrder.nativeOrder());
     }
 
     /** CPU-side frame staging: packs the light table and updates the parameter block. */
@@ -81,6 +79,9 @@ final class ClusteredLightingBinder implements AutoCloseable {
             }
             preparedStorage = storage;
         }
+        // This slot is about to receive GPU writes. Its old fence must no longer
+        // authorize a CPU snapshot while this frame is pending or partly failed.
+        closeCounterFence(counterWriteSlot);
         LightTablePacker.pack(table, plan, packed);
         LightTablePacker.packBounds(table, packedBounds);
         updateParameters(grid, table);
@@ -104,7 +105,11 @@ final class ClusteredLightingBinder implements AutoCloseable {
         if (stagedTable.localCount() > 0) {
             storage.uploadLightBounds(cmd, packedBounds);
         }
-        storage.uploadCounters(cmd, counterWriteSlot, zeroCounters);
+        cmd.bindShader(resources.statsProgram()).setUniformInt(resources.statsProgram(),"uResetCounters",1);
+        storage.bindClusterParameters(cmd);
+        storage.bindClusterHeadersRead(cmd);
+        storage.bindCountersReadWrite(cmd,counterWriteSlot);
+        cmd.dispatchCompute(1,1,1);
         cmd.memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
@@ -152,18 +157,17 @@ final class ClusteredLightingBinder implements AutoCloseable {
      */
     void recordStats(CommandBuffer cmd) {
         ClusteredLightingResources.ClusterStorage storage = requireStaged();
-        if (stagedTable.localCount() == 0) {
-            return;
-        }
         int counterSlot = counterWriteSlot;
         long counterSequence = preparedFrameSequence;
         int groups = (storage.clusterCount + 255) / 256;
-        cmd.bindShader(resources.statsProgram());
-        storage.bindClusterParameters(cmd);
-        storage.bindClusterHeadersRead(cmd);
-        storage.bindCountersReadWrite(cmd, counterSlot);
-        cmd.dispatchCompute(groups, 1, 1)
-                .memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT)
+        if(stagedTable.localCount()>0) {
+            cmd.bindShader(resources.statsProgram()).setUniformInt(resources.statsProgram(),"uResetCounters",0);
+            storage.bindClusterParameters(cmd);
+            storage.bindClusterHeadersRead(cmd);
+            storage.bindCountersReadWrite(cmd, counterSlot);
+            cmd.dispatchCompute(groups, 1, 1);
+        }
+        cmd.memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT)
                 .insertGpuFence(new com.kaleblangley.haikalat.backend.sync.GpuFenceTarget() {
                     @Override
                     public void insertGpuFence() {
@@ -257,6 +261,7 @@ final class ClusteredLightingBinder implements AutoCloseable {
 
     /** Discards staged bounds validity so the next frame re-dispatches them. */
     void frameFailed() {
+        for(int slot=0;slot<counterFences.length;slot++)closeCounterFence(slot);
         pendingBoundsDispatched = false;
         lastBoundsSignature = Long.MIN_VALUE;
         lastStorage = null;
@@ -279,6 +284,17 @@ final class ClusteredLightingBinder implements AutoCloseable {
         storage.bindClusterParameters(cmd);
         storage.bindForwardReads(cmd);
     }
+    void bindFineLightTable(CommandBuffer cmd) {
+        var storage=requireStaged();
+        storage.bindClusterParameters(cmd);
+        // Fine source and PBR read the same clusters at 2/3. Binding 14 belongs
+        // to native reactive domains; the VFX vertex light-independent data at
+        // binding 0 must remain intact while the fragment borrows the table at 13.
+        storage.bindClusterHeadersRead(cmd);
+        storage.bindClusterIndicesRead(cmd);
+        cmd.bindStorageBuffer(13,storage.lightTable,0,storage.lightTableBytes);
+    }
+    void bindVolumeLightTable(CommandBuffer cmd) { requireStaged().bindLightTableRead(cmd); }
 
     private boolean isLit(ShaderProgram shader) {
         Boolean known = programCapabilities.get(shader.id());

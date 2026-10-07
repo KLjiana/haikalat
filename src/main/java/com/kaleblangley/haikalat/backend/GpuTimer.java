@@ -58,9 +58,11 @@ public final class GpuTimer implements GlResource {
     public boolean begin(long submissionSequence) {
         ensureOpen();
         if (submissionSequence < 0L) throw new IllegalArgumentException("submissionSequence must be non-negative");
-        drainAvailable();
         lastAttemptSequence = submissionSequence;
         lastAttemptFailed = false;
+        // A free write slot needs no availability query. Readers collect completed
+        // samples; only ring reuse has to poll before deciding whether to skip.
+        if (pending[writeIndex]) drainAvailable();
         if (pending[writeIndex]) {
             skippedSubmissions++;
             lastAttemptSubmitted = false;

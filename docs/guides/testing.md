@@ -99,26 +99,17 @@ tile、camera cascade、skin/morph 变形、一次注入的 partial shadow failu
 记录预热后的 CPU/GPU、shadow GPU、caster references 与 dirty view，不把窗口创建 wall time 当作
 稳定帧性能。
 
-v0.24 室外环境专项使用独立的 HDR 样板，不改变默认无窗口 JVM 门禁：
+v0.25 天空/profile/物理体积雾用例按 [有侧重验收 v2](focused-acceptance-policy.md) 选择叶子入口：
 
 ```powershell
-.\gradlew.bat test --tests "*OutdoorEnvironmentSettingsTest" --rerun-tasks
-.\gradlew.bat test --tests "*OutdoorVolumeMathTest" --rerun-tasks
-.\gradlew.bat runOutdoorEnvironmentIntegration --rerun-tasks
-.\gradlew.bat runOutdoorEnvironmentReferenceIntegration --rerun-tasks
-.\gradlew.bat runOutdoorEnvironmentStabilityIntegration --rerun-tasks
-.\gradlew.bat runOutdoorEnvironmentDemo --args="--hidden --frames=8 --size=640x360 --preset=morning_fog --verify"
-.\gradlew.bat runOutdoorEnvironmentDemo --args="--hidden --frames=3 --size=640x360 --preset=clear_day --aa=msaa --verify"
-.\gradlew.bat runOutdoorEnvironmentDemo --args="--hidden --frames=3 --size=640x360 --preset=golden_hour --aa=taa --resize=2:480x270 --verify"
-.\gradlew.bat runOutdoorEnvironmentBenchmarks --rerun-tasks
-.\gradlew.bat localOutdoorVerification --rerun-tasks
+.\gradlew.bat test --tests "*OutdoorEnvironmentSettingsTest" --tests "*VisualProfileCodecTest"
+.\gradlew.bat runRender3dVisualProfileIntegration
+.\gradlew.bat runRender3dVolumetricFogIntegration
+.\gradlew.bat runRender3dVolumetricProfileUiSmoke
 ```
 
-`OUTDOOR_VERIFY` 必须包含 `DirectionalShadowPass`、`GeometryPass`、`OutdoorVolumePass`、
-独立 temporal/depth-history/upsample、tone mapping 和最终 AA/present。人工复核固定曝光观察树冠/墙体
-截断光束、远景高度雾、相机进入局部球/盒雾体、预设切换和关闭体积后的同场景基线；UI 不应
-被体积链染色。`localOutdoorVerification` 已包含 1080p/4K 开关配对五轮、稳定帧 allocation、
-3,600 帧/100 次切换和 10 次失败注入；正式发布仍须把同一候选交给 `releaseReadiness`。
+按变化另选 `runRender3dVolumetricFogQuality`、`runRender3dVolumetricFogQualityTemporal`、正式 `runRender3dVolumetricFogBenchmarks` 或扩展 `runRender3dVolumetricFogLifecycleSoak`；不常规附加 `--rerun-tasks` 或全部矩阵。
+`runOutdoorEnvironment*` 和 `localOutdoorVerification` 已退役，旧算法见 [独立参考](outdoor-reference.md)。旧纯数学/相机 reference 测试不能替代新生产 GL 证明，迁移与失败用例对应关系见 [M7 报告](../releases/v0.25.0-m7-migration-report.md)。
 
 人工视觉复核使用独立的 GTAO 接触场景，不依赖生产场景的构图：
 

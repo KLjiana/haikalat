@@ -84,7 +84,7 @@ public final class Render3dShadowBudgetDemo {
             RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                     renderSettings, environment)
                     .directionalCascades(new DirectionalCascadeSettings(
-                            4, options.csmAtlasSize(), 0.6f, 0.08f))
+                            4, options.csmAtlasSize(), 0.6f, 0.08f, Float.MAX_VALUE))
                     .localShadows(options.profile() == Profile.LEGACY
                             ? LocalShadowPipelineSettings.legacyDefaults()
                             : LocalShadowPipelineSettings.balanced());

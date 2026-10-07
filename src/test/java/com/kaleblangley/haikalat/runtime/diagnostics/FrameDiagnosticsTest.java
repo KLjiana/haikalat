@@ -269,6 +269,46 @@ class FrameDiagnosticsTest {
         assertTrue(basic.latest().preview().isEmpty());
     }
 
+    @Test
+    void graphExportAcceptsDimensionlessComputeAndExternalPassesOnly() throws Exception {
+        RenderGraph.PassDescription compute = new RenderGraph.PassDescription("ClusterCompute",
+                List.of(), RenderGraph.TargetKind.COMPUTE, 0, 0, 1,
+                List.of(), null, false, false, List.of());
+        RenderGraph.PassDescription external = new RenderGraph.PassDescription("External",
+                List.of("ClusterCompute"), RenderGraph.TargetKind.EXTERNAL, 0, 0, 1,
+                List.of(), null, false, false, List.of());
+        RenderGraph.Description validGraph = new RenderGraph.Description(16, 16, 0L, true,
+                List.of("ClusterCompute", "External"), List.of(compute, external));
+        Path validOutput = temporaryDirectory.resolve("dimensionless-graph.json");
+
+        DiagnosticsJsonExporter.export(captureWithGraph(validGraph), validOutput);
+
+        String json = Files.readString(validOutput);
+        assertTrue(json.contains("\"targetKind\" : \"COMPUTE\""));
+        assertTrue(json.contains("\"targetKind\" : \"EXTERNAL\""));
+
+        RenderGraph.PassDescription invalidManaged = new RenderGraph.PassDescription("Managed",
+                List.of(), RenderGraph.TargetKind.MANAGED, 0, 0, 1,
+                List.of(), null, false, false, List.of());
+        RenderGraph.Description invalidGraph = new RenderGraph.Description(16, 16, 0L, true,
+                List.of("Managed"), List.of(invalidManaged));
+        Path invalidOutput = temporaryDirectory.resolve("invalid-managed-graph.json");
+        assertThrows(IllegalArgumentException.class,
+                () -> DiagnosticsJsonExporter.export(captureWithGraph(invalidGraph), invalidOutput));
+        assertFalse(Files.exists(invalidOutput));
+    }
+
+    private static FrozenDiagnostics captureWithGraph(RenderGraph.Description graph) {
+        DiagnosticsSnapshot snapshot = new DiagnosticsSnapshot(0L, 7L, 7L,
+                DiagnosticsLevel.DETAILED, true, 60.0, 16_666_667L, profile(7L),
+                new DiagnosticsSnapshot.State(0L, 0L),
+                DiagnosticsSnapshot.ResourceSummary.EMPTY,
+                DiagnosticsSnapshot.MessageSummary.EMPTY, java.util.Optional.empty(),
+                DiagnosticsSnapshot.UploadSummary.EMPTY, java.util.Optional.empty(),
+                java.util.Optional.of(graph), java.util.Optional.empty());
+        return new FrozenDiagnostics(1, 0L, List.of(snapshot));
+    }
+
     private static FrameProfile profile(long sequence) {
         return new FrameProfile(10L, List.of(new PassProfile("Present", 2L, 4L,
                 PassProfile.GpuTimingStatus.AVAILABLE, sequence, 0L, 0L)), sequence);

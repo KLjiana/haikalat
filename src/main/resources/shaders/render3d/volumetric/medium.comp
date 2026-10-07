@@ -1,0 +1,35 @@
+layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
+layout(std430,binding=7) buffer VolumeDiagnostics { uint diagnostics[]; };
+layout(rgba16f,binding=0) writeonly uniform image3D uMedium;
+layout(rgba16f,binding=1) writeonly uniform image3D uEmission;
+
+void main() {
+    ivec3 p=ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(p,vGrid.xyz))) return;
+    vec3 world=volumeWorldPosition(p);
+    float height=exp(clamp(-(world.y-vEmissionHeight.w)*vSettings.x,-16.0,16.0));
+    float sigma=vAlbedoExtinction.w*height;
+    vec3 scattering=vAlbedoExtinction.rgb*sigma;
+    vec3 emission=vEmissionHeight.rgb*height;
+    for (int i=0;i<vCounts.x;i++) {
+        FogVolume v=fogVolumes[i];
+        vec3 delta=abs(world-v.centerShape.xyz);
+        float radius=v.centerShape.w < 0.5 ? length(delta)/v.extentExtinction.x
+            : max(max(delta.x/v.extentExtinction.x,delta.y/v.extentExtinction.y),delta.z/v.extentExtinction.z);
+        if (radius>=1.0) continue;
+        float weight=v.albedoFalloff.w > 0 ? 1.0-smoothstep(1.0-v.albedoFalloff.w,1.0,radius) : 1.0;
+        if (v.emissionNoiseScale.w > 0 && v.noiseAmount.x > 0) {
+            vec3 coordinate=(world-vWindSeed.xyz*vSettings.z)*v.emissionNoiseScale.w;
+            weight*=mix(1.0,valueNoise(coordinate),v.noiseAmount.x);
+        }
+        float localSigma=v.extentExtinction.w*weight;
+        sigma+=localSigma; scattering+=v.albedoFalloff.rgb*localSigma;
+        emission+=v.emissionNoiseScale.rgb*weight;
+    }
+    if (isnan(sigma)||isinf(sigma)||any(isnan(scattering))||any(isinf(scattering))||any(isnan(emission))||any(isinf(emission))) {
+        if(vDirtyHistory.w!=0) atomicAdd(diagnostics[0],1u); sigma=0.0; scattering=vec3(0.0); emission=vec3(0.0);
+    }
+    if (vDirtyHistory.w!=0 && (sigma>64.0 || any(greaterThan(emission,vec3(16.0))))) atomicAdd(diagnostics[1],1u);
+    imageStore(uMedium,p,vec4(min(scattering,vec3(64.0)),min(sigma,64.0)));
+    if (vCounts.y != 0) imageStore(uEmission,p,vec4(min(emission,vec3(16.0)),0.0));
+}

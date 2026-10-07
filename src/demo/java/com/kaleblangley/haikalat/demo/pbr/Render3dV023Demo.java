@@ -150,9 +150,10 @@ public final class Render3dV023Demo {
                                     .build())
                             .build())
                     .directionalCascades(new DirectionalCascadeSettings(
-                            CASCADE_COUNT, CASCADE_ATLAS_SIZE, 0.62f, 0.08f));
+                            CASCADE_COUNT, CASCADE_ATLAS_SIZE, 0.62f, 0.08f, Float.MAX_VALUE));
             try {
                 pipeline.build();
+                if (options.benchmark()) pipeline.enableBenchmarkCpuTiming();
                 renderLoop(window, driver, pipeline, scene.camera(), options);
             } finally {
                 pipeline.close();
@@ -278,7 +279,7 @@ public final class Render3dV023Demo {
                 driver.endFrame();
                 if (stableSamples != null) {
                     stableSamples.record(driver.statistics().lastFrameDurationNanos(),
-                            pipeline.graph().lastFrameProfile());
+                            pipeline.graph().lastFrameProfile(), pipeline.lastBenchmarkCpuTiming());
                 }
             } catch (RuntimeException | Error failure) {
                 driver.failFrame(pipeline.graph(), failure);
@@ -342,6 +343,12 @@ public final class Render3dV023Demo {
                     stable.gtaoCpuP95Millis(), stable.gtaoGpuP50Millis(), stable.gtaoGpuP95Millis(),
                     stable.gpuSamples(), stable.gtaoGpuSamples(), stable.allocationKiBPerFrame(),
                     stable.allocationTrendKiBPerFrame(), stable.allocationSamples());
+            System.out.printf(Locale.ROOT,
+                    "Render3D benchmark CPU sections preparationP50Ms=%.6f "
+                            + "lightPackP50Ms=%.6f graphRecordP50Ms=%.6f "
+                            + "deviceSubmitP50Ms=%.6f%n",
+                    stable.preparationP50Millis(), stable.lightPackP50Millis(),
+                    stable.graphRecordP50Millis(), stable.deviceSubmitP50Millis());
         }
         StringBuilder passSummary = new StringBuilder("Render3D benchmark passes:");
         for (PassProfile pass : profile.passes()) {
@@ -468,6 +475,10 @@ public final class Render3dV023Demo {
         private final List<Long> gtaoCpuNanos = new ArrayList<>();
         private final List<Long> gtaoGpuNanos = new ArrayList<>();
         private final List<Long> allocationBytes = new ArrayList<>();
+        private final List<Long> preparationNanos = new ArrayList<>();
+        private final List<Long> lightPackNanos = new ArrayList<>();
+        private final List<Long> graphRecordNanos = new ArrayList<>();
+        private final List<Long> deviceSubmitNanos = new ArrayList<>();
         private final ThreadMXBean allocationBean;
         private final long threadId;
         private long allocationStart = -1L;
@@ -496,7 +507,8 @@ public final class Render3dV023Demo {
                     : allocationBean.getThreadAllocatedBytes(threadId);
         }
 
-        private void record(long cpu, FrameProfile profile) {
+        private void record(long cpu, FrameProfile profile,
+                            RenderPipeline.BenchmarkCpuTiming timing) {
             long allocationSample = -1L;
             if (allocationStart >= 0L && allocationBean != null) {
                 long end = allocationBean.getThreadAllocatedBytes(threadId);
@@ -504,6 +516,12 @@ public final class Render3dV023Demo {
             }
             if (frame++ < warmupFrames) return;
             cpuNanos.add(cpu);
+            if (timing.available()) {
+                preparationNanos.add(timing.framePreparationNanos());
+                lightPackNanos.add(timing.lightPackAndRecordNanos());
+                graphRecordNanos.add(timing.graphRecordNanos());
+                deviceSubmitNanos.add(timing.deviceSubmitNanos());
+            }
             long gpu = profile.totalGpuNanos();
             if (gpu > 0L) gpuNanos.add(gpu);
             long gtaoCpu = profile.passes().stream()
@@ -521,20 +539,27 @@ public final class Render3dV023Demo {
 
         private BenchmarkResult snapshot(boolean gtao, int width, int height) {
             return new BenchmarkResult(gtao, width, height, cpuNanos, gpuNanos,
-                    gtaoCpuNanos, gtaoGpuNanos, allocationBytes);
+                    gtaoCpuNanos, gtaoGpuNanos, allocationBytes,
+                    preparationNanos, lightPackNanos, graphRecordNanos, deviceSubmitNanos);
         }
     }
 
     record BenchmarkResult(boolean gtao, int width, int height,
                            List<Long> cpuNanos, List<Long> gpuNanos,
                            List<Long> gtaoCpuNanos, List<Long> gtaoGpuNanos,
-                           List<Long> allocationBytes) {
+                           List<Long> allocationBytes, List<Long> preparationNanos,
+                           List<Long> lightPackNanos, List<Long> graphRecordNanos,
+                           List<Long> deviceSubmitNanos) {
         BenchmarkResult {
             cpuNanos = List.copyOf(cpuNanos);
             gpuNanos = List.copyOf(gpuNanos);
             gtaoCpuNanos = List.copyOf(gtaoCpuNanos);
             gtaoGpuNanos = List.copyOf(gtaoGpuNanos);
             allocationBytes = List.copyOf(allocationBytes);
+            preparationNanos = List.copyOf(preparationNanos);
+            lightPackNanos = List.copyOf(lightPackNanos);
+            graphRecordNanos = List.copyOf(graphRecordNanos);
+            deviceSubmitNanos = List.copyOf(deviceSubmitNanos);
         }
 
         int measuredFrames() { return cpuNanos.size(); }
@@ -560,6 +585,14 @@ public final class Render3dV023Demo {
         double gtaoGpuP50Millis() { return percentileMillis(gtaoGpuNanos, 0.50); }
 
         double gtaoGpuP95Millis() { return percentileMillis(gtaoGpuNanos, 0.95); }
+
+        double preparationP50Millis() { return percentileMillis(preparationNanos, 0.50); }
+
+        double lightPackP50Millis() { return percentileMillis(lightPackNanos, 0.50); }
+
+        double graphRecordP50Millis() { return percentileMillis(graphRecordNanos, 0.50); }
+
+        double deviceSubmitP50Millis() { return percentileMillis(deviceSubmitNanos, 0.50); }
 
         double allocationKiBPerFrame() {
             if (allocationBytes.isEmpty() || measuredFrames() == 0) return Double.NaN;

@@ -1,0 +1,16 @@
+layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
+layout(binding=0) uniform sampler3D uMedium;
+layout(binding=1) uniform sampler3D uEmission;
+layout(rgba32f,binding=0) writeonly uniform image3D uCurrentSource;
+void main() {
+    ivec3 p=ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(p,vGrid.xyz))) return;
+    // Match native refinement at the same froxel sample, before half history quantization.
+    vec4 medium;vec3 emission;volumeMediumAt(volumeWorldPosition(p),medium,emission);
+    vec3 q=emission;
+    if (uLightingEnabled!=0) q+=medium.rgb*volumeLighting(volumeWorldPosition(p));
+    if(any(isnan(q))||any(isinf(q))) {if(uVolumeDiagnosticsEnabled!=0)atomicAdd(diagnostics[0],1u); q=vec3(0.0);}
+    if(any(greaterThan(q,vec3(4096.0)))) {if(uVolumeDiagnosticsEnabled!=0)atomicAdd(diagnostics[2],1u); q=min(q,vec3(4096.0));}
+    // Coarse extinction keeps the medium/history half-storage contract.
+    imageStore(uCurrentSource,p,vec4(q,texelFetch(uMedium,p,0).a));
+}

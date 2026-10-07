@@ -1,0 +1,42 @@
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D uGuideOpaqueDepth;
+layout(rgba16f,binding=0) writeonly uniform image3D uGuideStorage;
+uniform mat4 uGuideRasterProjection,uGuideRasterInverseProjection;
+void main() {
+    ivec2 column=ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(column,vGrid.xy)))return;
+    vec3 stableNear=volumeProjectionPoint(volumePixel(column));
+    vec4 raster=uGuideRasterProjection*vec4(stableNear,1);
+    ivec2 p=clamp(ivec2((raster.xy/raster.w*0.5+0.5)*vExtentDepth.xy),ivec2(0),ivec2(vExtentDepth.xy)-1);
+    float raw=texelFetch(uGuideOpaqueDepth,p,0).r;
+    vec4 view=uGuideRasterInverseProjection*vec4(2.0*(vec2(p)+0.5)/vExtentDepth.xy-1,2.0*raw-1,1);
+    float depth=raw>=1 ? vExtentDepth.w : clamp(-view.z/view.w,0.0,vExtentDepth.w);
+    imageStore(uGuideStorage,ivec3(column,vGrid.z+1),vec4(depth,0,0,0));
+    uvec3 intervals=uvec3(0);vec4 selected[4]=vec4[](vec4(0),vec4(0),vec4(0),vec4(0));
+    int selectedCount=0;bool selectedOverflow=false;
+    vec3 origin=(vInverseView*vec4(vCounts.z!=0 ? vec3(0) : vec3(stableNear.xy,0),1)).xyz;
+    vec3 direction=normalize((vInverseView*vec4(vCounts.z!=0 ? stableNear : vec3(0,0,-1),0)).xyz);
+    vec3 diagonal=volumeProjectionPoint(volumePixel(column)+vec2(vGrid.w));
+    if(uLightingEnabled!=0)for(uint i=uLightHeader.x;i<uLightHeader.x+uLightHeader.y;i++) {
+        if(uVolumeHints[i].intensity<=0.0||uLights[i].colorIntensity.a<=0.0)continue;
+        vec3 light=uLights[i].positionRange.xyz;float d=-(uStableView*vec4(light,1)).z;
+        float radius=volumeNativeRefinementRadius(uLights[i]);
+        if(d+radius<=0.0||d-radius>=vExtentDepth.w)continue;
+        vec3 center=vCounts.z!=0 ? stableNear*(max(0.0,d)/-stableNear.z) : vec3(stableNear.xy,-max(0.0,d));
+        vec3 corner=vCounts.z!=0 ? diagonal*(max(0.0,d)/-diagonal.z) : vec3(diagonal.xy,-max(0.0,d));
+        float support=radius+length(corner-center);vec3 delta=light-origin;float along=dot(delta,direction);
+        if(dot(delta,delta)-along*along>support*support)continue;
+        if(selectedCount<16 && i<2047u) {selected[selectedCount/4][selectedCount%4]=float(i+1u);selectedCount++;}
+        else selectedOverflow=true;
+        int low=volumeInterval(max(0.0,d-radius)),high=volumeInterval(min(vExtentDepth.w,d+radius));
+        for(int z=low;z<=high;z++)intervals[z/32]|=1u<<uint(z%32);
+    }
+    // Bytes are exactly representable in half floats. No bit pattern passes
+    // through half conversion, and the existing prefix sampler owns the mask.
+    for(int i=0;i<3;i++) {
+        uint bits=intervals[i];
+        imageStore(uGuideStorage,ivec3(column,vGrid.z+2+i),vec4(bits&255u,(bits>>8)&255u,(bits>>16)&255u,bits>>24));
+    }
+    if(selectedOverflow)selected[3].w=-1.0;
+    for(int i=0;i<4;i++)imageStore(uGuideStorage,ivec3(column,vGrid.z+5+i),selected[i]);
+}
