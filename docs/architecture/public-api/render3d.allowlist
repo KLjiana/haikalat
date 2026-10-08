@@ -2,6 +2,9 @@
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
 
 advanced com.kaleblangley.haikalat.subsystems.render3d.Camera
+advanced com.kaleblangley.haikalat.subsystems.render3d.FogMediumSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.LightVolumeHints
+advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.ClusterDebugMode
 advanced com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings
@@ -37,7 +40,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.Transform
 advanced com.kaleblangley.haikalat.subsystems.render3d.LocalFogVolume
 advanced com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.StylizedSkySettings
-advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricSunSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.VisualSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
@@ -61,3 +64,5 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.SceneBufferView
 advanced com.kaleblangley.haikalat.subsystems.render3d.TaaSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.TaaResolveInputs
 advanced com.kaleblangley.haikalat.subsystems.render3d.TemporalDrawBinding
+advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView
+advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogDiagnostics

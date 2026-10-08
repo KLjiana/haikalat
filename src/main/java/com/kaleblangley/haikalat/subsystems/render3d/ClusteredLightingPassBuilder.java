@@ -17,7 +17,8 @@ final class ClusteredLightingPassBuilder {
     }
 
     static void addPasses(RenderGraph graph, PipelineTopology topology,
-                          ClusteredLightingBinder binder) {
+                          ClusteredLightingBinder binder,
+                          boolean fullScanReference) {
         RenderGraph.PassBuilder upload = graph.addPass(LIGHT_UPLOAD_PASS).computeOnly();
         if (topology.directionalShadow()) {
             upload.dependsOn(DirectionalShadowMap.PASS_NAME);
@@ -29,6 +30,12 @@ final class ClusteredLightingPassBuilder {
             upload.dependsOn(SpotShadowAtlas.PASS_NAME);
         }
         upload.execute((resources, cmd) -> binder.recordUpload(cmd));
+
+        // Benchmark-only full scan keeps the real light upload and shadow
+        // dependencies, but must not pay for clustered bounds/assign/stats.
+        if (fullScanReference) {
+            return;
+        }
 
         graph.addPass(CLUSTER_BOUNDS_PASS)
                 .computeOnly()

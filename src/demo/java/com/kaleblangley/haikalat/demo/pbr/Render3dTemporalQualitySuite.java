@@ -49,9 +49,12 @@ public final class Render3dTemporalQualitySuite {
         double taaAliasing = aliasingEnergy(taaFrames.get(converged));
         double noneSharpness = sharpness(noneFrames.get(converged));
         double taaSharpness = sharpness(taaFrames.get(converged));
+        double[] taaRecovery = options.cutFrame >= 0
+                ? recoveryError(taaFrames, options.cutFrame) : new double[0];
+        double[] noneRecovery = options.cutFrame >= 0
+                ? recoveryError(noneFrames, options.cutFrame) : new double[0];
         int ghostFrames = options.cutFrame >= 0
-                ? ghostDecayFrames(taaFrames, options.cutFrame, options.ghostThreshold)
-                : -1;
+                ? ghostDecayFrames(taaRecovery, options.ghostThreshold) : -1;
         double finalDifference = meanAbsDifference(taaFrames.get(options.frames - 1),
                 noneFrames.get(options.frames - 1));
 
@@ -66,6 +69,8 @@ public final class Render3dTemporalQualitySuite {
                 + "  \"taaEdgeSharpness\": " + round(taaSharpness) + ",\n"
                 + "  \"sharpnessRatio\": " + round(taaSharpness / Math.max(noneSharpness, 1.0e-9)) + ",\n"
                 + "  \"ghostDecayFrames\": " + ghostFrames + ",\n"
+                + "  \"ghostErrorByFrame\": " + jsonArray(taaRecovery) + ",\n"
+                + "  \"noneErrorByFrame\": " + jsonArray(noneRecovery) + ",\n"
                 + "  \"finalDifference\": " + round(finalDifference) + "\n"
                 + "}\n";
         try {
@@ -178,14 +183,29 @@ public final class Render3dTemporalQualitySuite {
         return sum / top;
     }
 
-    private static int ghostDecayFrames(List<float[]> frames, int cutFrame, double threshold) {
+    private static double[] recoveryError(List<float[]> frames, int cutFrame) {
         float[] settled = frames.get(frames.size() - 1);
+        double[] result = new double[frames.size() - cutFrame];
         for (int index = cutFrame; index < frames.size(); index++) {
-            if (meanAbsDifference(frames.get(index), settled) < threshold) {
-                return index - cutFrame;
-            }
+            result[index - cutFrame] = meanAbsDifference(frames.get(index), settled);
+        }
+        return result;
+    }
+
+    private static int ghostDecayFrames(double[] recovery, double threshold) {
+        for (int index = 0; index < recovery.length; index++) {
+            if (recovery[index] < threshold) return index;
         }
         return -1;
+    }
+
+    private static String jsonArray(double[] values) {
+        StringBuilder result = new StringBuilder("[");
+        for (int index = 0; index < values.length; index++) {
+            if (index != 0) result.append(", ");
+            result.append(round(values[index]));
+        }
+        return result.append(']').toString();
     }
 
     private static double meanAbsDifference(float[] left, float[] right) {

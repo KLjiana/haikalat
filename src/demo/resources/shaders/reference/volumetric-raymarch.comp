@@ -1,0 +1,135 @@
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D uReferenceOpaqueDepth;
+layout(binding=1) uniform sampler2D uReferenceOpaqueColor;
+layout(std430,binding=8) writeonly buffer ReferenceOutput { vec4 referencePixels[]; };
+struct ReferenceVolume { vec4 centerShape; vec4 extentExtinction; vec4 albedoFalloff; vec4 emissionNoiseScale; vec4 noiseAmount; vec4 reserved; };
+layout(std430,binding=6) readonly buffer ReferenceVolumes { ReferenceVolume referenceVolumes[]; };
+uniform int uReferenceWidth,uReferenceHeight,uReferenceStride,uReferenceRow,uReferenceRows;
+uniform int uReferenceSteps,uReferencePlane;
+uniform int uReferenceCountPlane;
+uniform int uReferenceProbeBase,uReferenceProbeX,uReferenceProbeY;
+
+// Same authored noise field, independently evaluated at the ray's sample position.
+float referenceRandom(ivec3 cell) {
+    uint h=uint(cell.x)*1597334677u ^ uint(cell.y)*3812015801u ^ uint(cell.z)*2798796415u ^ floatBitsToUint(vWindSeed.w);
+    h=(h^(h>>16))*2246822519u;h=(h^(h>>13))*3266489917u;h=h^(h>>16);
+    return float(h&0x00ffffffu)/16777215.0;
+}
+float referenceNoise(vec3 p) {
+    ivec3 c=ivec3(floor(p));vec3 t=p-vec3(c);t=t*t*(3.0-2.0*t);
+    float value=0.0;
+    for(int z=0;z<2;z++)for(int y=0;y<2;y++)for(int x=0;x<2;x++) {
+        vec3 w=mix(1.0-t,t,vec3(x,y,z));value+=w.x*w.y*w.z*referenceRandom(c+ivec3(x,y,z));
+    }
+    return value;
+}
+void referenceMedium(vec3 world,out float extinction,out vec3 scattering,out vec3 emission) {
+    float height=exp(clamp((vEmissionHeight.w-world.y)*vSettings.x,-16.0,16.0));
+    extinction=vAlbedoExtinction.w*height;scattering=vAlbedoExtinction.rgb*extinction;emission=vEmissionHeight.rgb*height;
+    for(int i=0;i<vCounts.x;i++) {
+        ReferenceVolume v=referenceVolumes[i];vec3 relative=world-v.centerShape.xyz;
+        float support=v.centerShape.w<0.5 ? sqrt(dot(relative,relative))/v.extentExtinction.x
+            : max(max(abs(relative.x)/v.extentExtinction.x,abs(relative.y)/v.extentExtinction.y),abs(relative.z)/v.extentExtinction.z);
+        if(support>=1.0)continue;
+        float edge=1.0;
+        if(v.albedoFalloff.w>0.0) {float t=clamp((support-1.0+v.albedoFalloff.w)/v.albedoFalloff.w,0.0,1.0);edge=1.0-t*t*(3.0-2.0*t);}
+        if(v.emissionNoiseScale.w>0.0&&v.noiseAmount.x>0.0)
+            edge*=1.0-v.noiseAmount.x+v.noiseAmount.x*referenceNoise((world-vWindSeed.xyz*vSettings.z)*v.emissionNoiseScale.w);
+        float sigma=v.extentExtinction.w*edge;extinction+=sigma;scattering+=v.albedoFalloff.rgb*sigma;emission+=v.emissionNoiseScale.rgb*edge;
+    }
+}
+float referenceBoundary(int boundary,int intervals,float farDepth) {
+    if(boundary==0)return 0.0;if(boundary==intervals)return farDepth;
+    // The near interval is included; geometric boundaries are fixed independently of production Nz.
+    if(vCounts.z==0)return farDepth*float(boundary)/float(intervals);
+    return vExtentDepth.z*exp(log(farDepth/vExtentDepth.z)*float(boundary-1)/float(intervals-1));
+}
+vec4 referenceTransport(vec3 projectionPoint,float endpoint,out int evaluations,out bool truncated) {
+    vec3 S=vec3(0.0);float T=1.0;
+    evaluations=0;truncated=false;
+    float cosine=vCounts.z!=0 ? -projectionPoint.z/length(projectionPoint) : 1.0;
+    vec3 V=normalize((vInverseView*vec4(vCounts.z!=0 ? -projectionPoint : vec3(0,0,1),0)).xyz);
+    for(int k=0;k<uReferenceSteps;k++) {
+        float a=referenceBoundary(k,uReferenceSteps,vExtentDepth.w),b=min(endpoint,referenceBoundary(k+1,uReferenceSteps,vExtentDepth.w));
+        if(a>=endpoint)break;
+        // Refine quadrature around inverse-square point emitters. Merely increasing a
+        // global log-grid can alias their 0.01-unit finite attenuation core forever.
+        float cursor=a;
+        for(int refinement=0;refinement<1024&&cursor<b;refinement++) {
+        vec3 startView=vCounts.z!=0 ? projectionPoint*(cursor/-projectionPoint.z) : vec3(projectionPoint.xy,-cursor);
+        vec3 startWorld=(vInverseView*vec4(startView,1.0)).xyz;float nearestSquared=1e20;
+        for(uint light=uLightHeader.x;light<uLightHeader.x+uLightHeader.y;light++) {
+            if(uVolumeHints[light].intensity<=0.0||uLights[light].colorIntensity.a<=0.0)continue;
+            vec3 delta=uLights[light].positionRange.xyz-startWorld;nearestSquared=min(nearestSquared,dot(delta,delta));
+        }
+        float limit=cosine*sqrt(max(nearestSquared,0.0001))*0.25*(512.0/float(uReferenceSteps));
+        float next=min(b,cursor+limit),center=(cursor+next)*0.5;
+        vec3 viewPoint=vCounts.z!=0 ? projectionPoint*(center/-projectionPoint.z) : vec3(projectionPoint.xy,-center);
+        vec3 world=(vInverseView*vec4(viewPoint,1.0)).xyz;
+        float sigma;vec3 sigmaS,emission;referenceMedium(world,sigma,sigmaS,emission);
+        vec3 light=vec3(0.0);
+        // Complete immutable light table, independent of cluster headers, capacity and overflow.
+        if(uLightingEnabled!=0)for(uint i=0u;i<uLightHeader.x+uLightHeader.y;i++)light+=volumeLightRadiance(i,world,V,center);
+        vec3 q=emission+sigmaS*light;float ds=(next-cursor)/cosine,tau=sigma*ds;
+        float attenuation=exp(-tau),weight;
+        if(abs(tau)<0.001)weight=ds*(1.0-tau/2.0+tau*tau/6.0-tau*tau*tau/24.0);
+        else weight=(1.0-attenuation)/sigma;
+        S+=T*q*weight;T*=attenuation;cursor=next;evaluations++;
+        }
+        if(cursor<b)truncated=true;
+    }
+    return vec4(S,T);
+}
+void main() {
+    ivec2 p=ivec2(gl_GlobalInvocationID.xy);if(p.x>=uReferenceWidth||p.y>=uReferenceRows)return;p.y+=uReferenceRow;
+    ivec2 nativePixel=min(p*uReferenceStride+uReferenceStride/2,ivec2(vExtentDepth.xy)-1);
+    vec2 pixel=vec2(nativePixel)+0.5,ndc=2.0*pixel/vExtentDepth.xy-1.0;
+    vec4 nearClip=vInverseProjection*vec4(ndc,-1,1);vec3 projectionPoint=nearClip.xyz/nearClip.w;
+    float deviceDepth=texelFetch(uReferenceOpaqueDepth,nativePixel,0).r;
+    vec4 endpointClip=vInverseProjection*vec4(ndc,2.0*deviceDepth-1.0,1);
+    float endpoint=deviceDepth>=1.0 ? vExtentDepth.w : clamp(-endpointClip.z/endpointClip.w,0.0,vExtentDepth.w);
+    int evaluations;bool truncated;
+    vec4 base=texelFetch(uReferenceOpaqueColor,nativePixel,0),transport=referenceTransport(projectionPoint,endpoint,evaluations,truncated);
+    int count=uReferenceWidth*uReferenceHeight,index=p.x+p.y*uReferenceWidth;
+    referencePixels[uReferencePlane*count+index]=vec4(transport.rgb+transport.a*base.rgb,1);
+    referencePixels[(uReferencePlane+1)*count+index]=transport;
+    vec4 candidate=volumeRefineNativeRay(pixel,endpoint,volumeQuery(pixel,endpoint));
+    // Plane zero was copied from the actual native opaque compositor attachment.
+    // The replicated production query is transport/probe diagnostics only.
+    referencePixels[count+index]=candidate;referencePixels[2*count+index]=base;
+    referencePixels[uReferenceCountPlane*count+index]=vec4(float(evaluations),truncated?1.0:0.0,endpoint,deviceDepth);
+    // This optional probe does not feed the independent image reference or its acceptance metrics.
+    if(nativePixel==ivec2(uReferenceProbeX,uReferenceProbeY)) {
+        vec3 endView=vCounts.z!=0 ? projectionPoint*(endpoint/-projectionPoint.z) : vec3(projectionPoint.xy,-endpoint);
+        referencePixels[uReferenceProbeBase]=(vInverseView*vec4(endView,1));
+        referencePixels[uReferenceProbeBase].w=endpoint;
+        referencePixels[uReferenceProbeBase+1]=candidate;
+        referencePixels[uReferenceProbeBase+2]=transport;
+        vec2 coordinate=vec2(volumeColumnCoordinate(pixel.x,vGrid.x,int(vExtentDepth.x)),
+                volumeColumnCoordinate(pixel.y,vGrid.y,int(vExtentDepth.y)));
+        ivec2 low=ivec2(floor(coordinate)),high=min(low+1,vGrid.xy-1);vec2 f=fract(coordinate);
+        vec4 fine[4];
+        for(int i=0;i<4;i++) {
+            ivec2 column=ivec2((i&1)==0?low.x:high.x,i<2?low.y:high.y);
+            vec2 columnPixel=volumePixel(column),columnNdc=2.0*columnPixel/vExtentDepth.xy-1;
+            vec4 columnClip=vInverseProjection*vec4(columnNdc,-1,1);
+            int countEvaluations;bool capped;
+            fine[i]=referenceTransport(columnClip.xyz/columnClip.w,endpoint,countEvaluations,capped);
+            referencePixels[uReferenceProbeBase+4+i]=fine[i];
+            ivec2 guidePixel=clamp(ivec2(columnPixel),ivec2(0),ivec2(vExtentDepth.xy)-1);
+            float guideRaw=texelFetch(uReferenceOpaqueDepth,guidePixel,0).r;
+            vec4 guideClip=vInverseProjection*vec4(2.0*(vec2(guidePixel)+0.5)/vExtentDepth.xy-1,2.0*guideRaw-1,1);
+            float guideDepth=guideRaw>=1 ? vExtentDepth.w : -guideClip.z/guideClip.w;
+            referencePixels[uReferenceProbeBase+8+i]=vec4(columnPixel,guideDepth,guideRaw);
+            referencePixels[uReferenceProbeBase+12+i]=volumeQueryColumn(column,endpoint);
+            int interval=volumeInterval(endpoint);float start=volumeBoundary(interval);
+            vec4 finePrefix=referenceTransport(columnClip.xyz/columnClip.w,start,countEvaluations,capped);
+            referencePixels[uReferenceProbeBase+16+i]=texelFetch(uVolumePrefix,ivec3(column,interval),0);
+            referencePixels[uReferenceProbeBase+20+i]=finePrefix;
+            referencePixels[uReferenceProbeBase+24+i]=finePrefix.a>1e-8
+                ? vec4((fine[i].rgb-finePrefix.rgb)/finePrefix.a,fine[i].a/finePrefix.a) : vec4(-1.0);
+            referencePixels[uReferenceProbeBase+28+i]=vec4(start,volumeSampleDepth(interval),endpoint,volumeRayCosine(column));
+        }
+        referencePixels[uReferenceProbeBase+3]=mix(mix(fine[0],fine[1],f.x),mix(fine[2],fine[3],f.x),f.y);
+    }
+}

@@ -40,15 +40,33 @@
 | RenderGraph GPU 资源预览 | 完整 | `render3d/preview`、typed framebuffer blit、`PreviewSummary` | F2 Graph 资源行、preview pane 与显示控件 | `PreviewContractsTest`、`GraphPreviewGlTest`、`runPreviewIntegration` | 支持 LDR/sRGB/HDR/R/RG/depth、MSAA resolve 和显式 PBR cubemap；backbuffer/任意外部资源不支持；冻结只冻结元数据，不捕获像素 |
 | 普通场景可见性与 Render Queue | 完整 | `Bounds3f`、`SceneFrameBuilder`、`Frustum`、`RenderQueueClass`、`RenderQueueSorter` | `SceneScalabilityDemo`、`GltfSceneScalabilityDemo`、`Render3dV023Demo` | `RenderQueueClassTest`、`RenderQueueSorterTest`、`TransformRevisionTest`、`SceneVisibilityGlTest`、`runRender3dV023Integration`、`localSceneSubmissionVerification` | OPAQUE/MASKED 使用稳定状态排序，ALPHA 使用 camera-space back-to-front 稳定排序，ADDITIVE 保持提交顺序；revisioned/fixed renderer 复用 model/bounds/queue，deformation revision 会失效 bounds。10k 基准中 O(N) culling + queue scan 未持续超过 2 ms，因此 v0.23 不实施 CPU spatial index；仍不包含层级 bounds、occlusion、GPU culling 或 MDI |
 
+## v0.25.0 当前构建与功能签收
+
+构建版本已更新为 `0.25.0`。多光源体积雾及其直接 Render3D 消费者普通功能验收为 `REUSED_PASS`；版本同步后的主包和源码包身份检查为 `PASS`，与旧包相比仅 `haikalat-build.properties` 的版本属性发生变化。详见[功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)和[版本核对](../releases/v0.25.0-version-identity-2026-10-08.md)。历史性能欠账保留，正式性能未重新评估，未创建发布 tag。
+
+以下版本小节保留各阶段的原始事实。
+
+## v0.24.3 已验证候选增量
+
+| 能力 | 状态 | 源码入口 | 自动化验证 | 当前限制 |
+| --- | --- | --- | --- | --- |
+| 带身份的 Clustered 性能对照 | 已验证 | `BenchmarkSampleCollector`、`Render3dClusteredBenchmarkSuite`、test-only `full-scan-reference.frag` | `runRender3dMeasurementIntegration`、`runRender3dClusteredBenchmarkSmoke`、`runRender3dClusteredBenchmarks` | 三轮正常运行报告已通过；full-scan 不进入生产 JAR，CPU isolation 仅作解释 |
+| Outdoor 内部职责拆分 | 已实现 | `OutdoorPassBuilder`、`OutdoorFrameState`、`OutdoorResources`、`PostProcessPassBuilder` | `runRender3dVisualProfileIntegration`、`localOutdoorVerification` | 仍是同一 RenderGraph/generation；未增加 Froxel、多光体积或第二套资源 owner |
+| 全局视觉 profile 与固定路径 | 已验证 | `VisualSettings`、demo `VisualProfileCodec`、`SceneCaptureSpec`、`VisualBaselineHdr`、`VisualBaselineDiagnostics`、`config/visual-*` | `runRender3dVisualProfileIntegration`、`runRender3dVisualBaselineContract`、`runRender3dVisualBaselineVariantQuality`、`runRender3dVisualDiagnosticQuality`、`runRender3dVisualBaselineQuality` | 单一全局 profile；三场景九帧线性 HDR 回归、final/fog-off/Bloom-off/灰模、Outdoor 内部附件与高采样 history-off 对照、夜镇 cluster debug 图已验证；没有空间混合或解析物理真值 |
+
 ## 构建基线
 
 - Java：Gradle Toolchain 固定为 21。
 - 默认命令：`compileJava demoClasses test`。
-- 正式稳定版本：`0.24.1`；上一正式稳定版本为 `0.24.0`。
+- 当前构建版本：`0.25.0`，普通功能验收已通过；正式发布状态见上述当前版本小节。
+- 历史稳定基线记录：`0.24.1`；`0.24.3` 当时为未标记候选，完整 `releaseReadiness` 因既有 GTAO 性能门禁失败，当时提交与 annotated tag 均未创建。
 - v0.24.1 统一 Scene Buffers 与原生 TAA 已完成候选验证，构建版本为 `0.24.1`；正式 tag 应指向最后一次 `releaseReadiness` 通过的提交。
 - v0.24.2 Clustered Forward 为未发布候选：核心实现、JVM/GL 读回证明、旋转视图对照、lab/town/stress、
   capture smoke 与两遍确定性 quality gate 已落地；正式 benchmark 门禁（1080p/4K assign 预算、
   覆盖率、overflow、extent）全部通过。仍未发布。
+- v0.24.3 收口增加正确的异步样本归档、同灯数 full-scan/零灯对照、Outdoor 内部拆分、
+  全局 profile 热更新和三场景固定重放。线性 HDR 回归参考、对照图、体积附件与较高采样
+  history-off 质量参考已通过；2026-09-23 GTAO 优化后，先前的正式性能指纹已过期，旧 GTAO A/B 门禁仍未通过。动态运动/遮挡/灯变后的完整时域恢复曲线留待后续专项验证，不据此宣称无残影。
 - v0.24.1 已知边界：内建风动/自定义变形上一帧参数协议、体积雾帧状态与雾区降权、离线高采样参考序列尚未纳入；见规划文档第 0 节。
 - 默认测试：纯 JVM 测试；真实 GL 类通过 `haikalat.glSmoke=true` 显式启用。
 - CI：Windows 与 Linux 均执行无窗口编译和纯 JVM 测试。

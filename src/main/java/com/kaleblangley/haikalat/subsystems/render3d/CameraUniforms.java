@@ -43,13 +43,6 @@ final class CameraUniforms implements AutoCloseable {
 
     static void applyTemporalJitter(Matrix4f projection, int width, int height,
                                     AntiAliasingMode mode, int frameIndex) {
-        if (mode != AntiAliasingMode.TAA || width <= 0 || height <= 0) {
-            return;
-        }
-        int phase = frameIndex & 3;
-        float jitterX = (phase & 1) == 0 ? -0.25f : 0.25f;
-        float jitterY = (phase & 2) == 0 ? -0.25f : 0.25f;
-        projection.m20(projection.m20() + (jitterX * 2.0f / width));
-        projection.m21(projection.m21() + (jitterY * 2.0f / height));
+        TemporalJitter.applyProjection(projection, width, height, mode, frameIndex);
     }
 }

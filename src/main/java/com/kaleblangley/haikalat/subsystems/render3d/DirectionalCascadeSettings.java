@@ -2,7 +2,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 
 /** Optional directional cascade atlas policy. A count of one preserves the legacy path. */
 public record DirectionalCascadeSettings(int cascadeCount, int atlasSize,
-                                         float splitLambda, float blendRange) {
+                                         float splitLambda, float blendRange, float shadowDistance) {
     public DirectionalCascadeSettings {
         if (cascadeCount < 1 || cascadeCount > 4) {
             throw new IllegalArgumentException("cascadeCount must be in [1, 4]");
@@ -17,14 +17,17 @@ public record DirectionalCascadeSettings(int cascadeCount, int atlasSize,
         if (!Float.isFinite(blendRange) || blendRange < 0.0f || blendRange > 0.25f) {
             throw new IllegalArgumentException("blendRange must be in [0, 0.25]");
         }
+        if (!Float.isFinite(shadowDistance) || shadowDistance <= 0) {
+            throw new IllegalArgumentException("shadowDistance must be finite and positive");
+        }
     }
 
     public static DirectionalCascadeSettings disabled() {
-        return new DirectionalCascadeSettings(1, 2048, 0.5f, 0.0f);
+        return new DirectionalCascadeSettings(1, 2048, 0.5f, 0.0f, Float.MAX_VALUE);
     }
 
     public static DirectionalCascadeSettings defaults() {
-        return new DirectionalCascadeSettings(4, 4096, 0.6f, 0.08f);
+        return new DirectionalCascadeSettings(4, 4096, 0.6f, 0.08f, Float.MAX_VALUE);
     }
 
     public boolean enabled() { return cascadeCount > 1; }

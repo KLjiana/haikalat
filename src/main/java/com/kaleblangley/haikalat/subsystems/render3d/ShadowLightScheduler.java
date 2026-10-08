@@ -255,8 +255,12 @@ final class ShadowLightScheduler {
                     0.0f, 0.0f, -1.0f, new Vector3f()).normalize();
             DirectionalCascadePlan plan = DirectionalCascadePlan.create(camera.position(), forward,
                     candidate.entry.light().direction(), verticalFov, aspect,
-                    camera.nearPlane(), camera.farPlane(), cascades.cascadeCount(),
+                    camera.nearPlane(), Math.min(camera.farPlane(),cascades.shadowDistance()), cascades.cascadeCount(),
                     cascades.splitLambda(), cascades.tileSize());
+            if (Math.abs(projection.m33()-1) < 0.00001f || projection.m20()!=0 || projection.m21()!=0) {
+                plan = DirectionalCascadePlan.fromCamera(camera,candidate.entry.light().direction(),
+                        Math.min(camera.farPlane(),cascades.shadowDistance()),cascades.cascadeCount(),cascades.splitLambda(),cascades.tileSize());
+            }
             matrices = plan.cascades().stream()
                     .map(DirectionalCascadePlan.Cascade::lightSpaceMatrix).toList();
             splits = new float[matrices.size()];
@@ -273,7 +277,7 @@ final class ShadowLightScheduler {
         } else {
             int size = map.settings().resolution();
             matrices = List.of(map.lightSpaceMatrix(candidate.entry.light(), camera.position()));
-            splits = new float[]{camera.farPlane()};
+            splits = new float[]{Math.min(camera.farPlane(),cascades.shadowDistance())};
             texelSizes = new float[]{1.0f};
             tiles.add(tile(0, 0, size, size, size, size));
         }

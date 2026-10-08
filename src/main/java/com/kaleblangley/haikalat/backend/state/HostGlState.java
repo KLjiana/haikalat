@@ -65,6 +65,8 @@ public final class HostGlState implements AutoCloseable {
     private final boolean scissorTest;
     private final boolean framebufferSrgb;
     private final boolean polygonOffsetFill;
+    private final boolean sampleShading;
+    private final float minimumSampleShading;
     private final int blendSrcRgb;
     private final int blendDstRgb;
     private final int blendSrcAlpha;
@@ -123,6 +125,8 @@ public final class HostGlState implements AutoCloseable {
         scissorTest = glIsEnabled(GL_SCISSOR_TEST);
         framebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
         polygonOffsetFill = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+        sampleShading = glIsEnabled(org.lwjgl.opengl.GL40.GL_SAMPLE_SHADING);
+        minimumSampleShading = glGetFloat(org.lwjgl.opengl.GL40.GL_MIN_SAMPLE_SHADING_VALUE);
         blendSrcRgb = glGetInteger(GL_BLEND_SRC_RGB);
         blendDstRgb = glGetInteger(GL_BLEND_DST_RGB);
         blendSrcAlpha = glGetInteger(GL_BLEND_SRC_ALPHA);
@@ -185,6 +189,7 @@ public final class HostGlState implements AutoCloseable {
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, drawIndirectBuffer);
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirectBuffer);
         restoreTextureUnits(textureUnits);
+        glActiveTexture(activeTexture);
         setEnabled(GL_BLEND, blend);
         setEnabled(GL_DEPTH_TEST, depthTest);
         setEnabled(GL_CULL_FACE, cullFace);
@@ -192,6 +197,8 @@ public final class HostGlState implements AutoCloseable {
         setEnabled(GL_SCISSOR_TEST, scissorTest);
         setEnabled(GL_FRAMEBUFFER_SRGB, framebufferSrgb);
         setEnabled(GL_POLYGON_OFFSET_FILL, polygonOffsetFill);
+        setEnabled(org.lwjgl.opengl.GL40.GL_SAMPLE_SHADING, sampleShading);
+        org.lwjgl.opengl.GL40.glMinSampleShading(minimumSampleShading);
         glBlendFuncSeparate(blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha);
         glBlendEquationSeparate(blendEquationRgb, blendEquationAlpha);
         glDepthFunc(depthFunc);

@@ -72,6 +72,15 @@ public final class RenderSettings {
         return toneMappingMode != ToneMappingMode.NONE;
     }
 
+    /** Returns a validated snapshot with the profile-controlled values replaced. */
+    public RenderSettings withVisualSettings(float manualExposure, BloomSettings bloom,
+                                             AntiAliasingMode antiAliasing) {
+        return builder().vsync(vsync).antiAliasingMode(antiAliasing).msaaSamples(msaaSamples)
+                .toneMappingMode(toneMappingMode).exposure(manualExposure)
+                .exposureMode(exposureMode).autoExposureSettings(autoExposureSettings)
+                .bloomSettings(bloom).sceneVisibility(sceneVisibility).build();
+    }
+
     public static final class Builder {
         private boolean vsync = true;
         private AntiAliasingMode antiAliasingMode = AntiAliasingMode.NONE;

@@ -28,6 +28,7 @@ public final class VfxRenderer implements AutoCloseable {
     private static final int COLOR_BYTES = 4 * Float.BYTES;
 
     private final ShaderProgram shader;
+    private final ShaderProgram fogShader;
     private final Mesh quad;
     private final VfxTextureCache textureCache;
     private final Map<MeshData, Mesh> meshCache = new IdentityHashMap<>();
@@ -40,21 +41,32 @@ public final class VfxRenderer implements AutoCloseable {
     private boolean closed;
 
     public VfxRenderer() {
+        this(false);
+    }
+
+    /** Compiles an additional own-depth fog variant when requested by an HDR fog recorder. */
+    public VfxRenderer(boolean volumetricFogCompatible) {
         ShaderProgram createdShader = null;
+        ShaderProgram createdFogShader = null;
         Mesh createdQuad = null;
         VfxTextureCache createdTextureCache = null;
         try {
             createdShader = ShaderProgram.fromResource(VfxRenderer.class,
                     "/shaders/render3d/vfx/vfx.vert", "/shaders/render3d/vfx/vfx.frag");
+            if (volumetricFogCompatible) createdFogShader=createdShader.withFragmentPrelude(
+                    com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView.SHADER_CONTRACT,
+                    com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView.fragmentPrelude());
             createdQuad = Mesh.from(BuiltinMeshData.texturedQuad("vfx-quad"));
             createdTextureCache = new VfxTextureCache();
         } catch (RuntimeException | Error failure) {
             closeSuppressing(createdTextureCache, failure);
             closeSuppressing(createdQuad, failure);
             closeSuppressing(createdShader, failure);
+            closeSuppressing(createdFogShader, failure);
             throw failure;
         }
         shader = createdShader;
+        fogShader=createdFogShader;
         quad = createdQuad;
         textureCache = createdTextureCache;
     }
@@ -72,7 +84,28 @@ public final class VfxRenderer implements AutoCloseable {
     public Statistics record(CommandBuffer commands, EffectSnapshot snapshot,
                              Matrix4fc projection, Matrix4fc view,
                              int sceneDepthTexture, int viewportWidth, int viewportHeight) {
+        return record(commands,snapshot,projection,view,sceneDepthTexture,viewportWidth,viewportHeight,null);
+    }
+
+    public Statistics record(CommandBuffer commands, EffectSnapshot snapshot,
+                             Matrix4fc projection, Matrix4fc view,
+                             int sceneDepthTexture, int viewportWidth, int viewportHeight,
+                             com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView fog) {
+        var result=recordInternal(commands,snapshot,projection,view,sceneDepthTexture,viewportWidth,viewportHeight,fog,false);
+        if (fog!=null) {
+            Matrix4f frozenProjection=new Matrix4f(projection), frozenView=new Matrix4f(view);
+            fog.recordReactive(maskCommands->recordInternal(maskCommands,snapshot,frozenProjection,frozenView,
+                    sceneDepthTexture,viewportWidth,viewportHeight,fog,true));
+        }
+        return result;
+    }
+    private Statistics recordInternal(CommandBuffer commands, EffectSnapshot snapshot,
+                             Matrix4fc projection, Matrix4fc view,int sceneDepthTexture,int viewportWidth,int viewportHeight,
+                             com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView fog,boolean reactiveOnly) {
         ensureOpen();
+        ShaderProgram shader=fog == null ? this.shader : fogShader;
+        if (shader==null) throw new IllegalStateException("construct VfxRenderer(true) before using volume fog");
+        if (fog != null) { fog.bind(commands,shader); commands.setUniformInt(shader,"uVolumeReactiveOnly",reactiveOnly?1:0); }
         Objects.requireNonNull(commands, "commands");
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(projection, "projection");
@@ -164,6 +197,11 @@ public final class VfxRenderer implements AutoCloseable {
                         .setUniformVec4(shader, "uUvRegion", uvVector(uv))
                         .setUniformVec4(shader, "uNextUvRegion", uvVector(uv))
                         .setUniformFloat(shader, "uFlipbookBlend", 0.0f);
+                if (fog != null) commands.blendFunc(org.lwjgl.opengl.GL11.GL_ONE,
+                        material.blendMode()==com.kaleblangley.haikalat.core.BlendMode.ADDITIVE
+                                ? org.lwjgl.opengl.GL11.GL_ONE : org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA);
+                if (reactiveOnly) commands.enableBlend(true).blendEquation(org.lwjgl.opengl.GL14.GL_MAX)
+                        .enableDepthTest(false).depthMask(false);
                 if (sceneDepthTexture != 0) {
                     commands.bindTexture(1, sceneDepthTexture)
                             .setUniformInt(shader, "uSceneDepth", 1)
@@ -213,7 +251,7 @@ public final class VfxRenderer implements AutoCloseable {
                                     ? ribbon.startWidth() : 1.0f,
                             primitive instanceof EffectSnapshot.RibbonSegment ribbon
                                     ? ribbon.endWidth() : 1.0f)
-                    .drawMesh(quad);
+                    .drawMesh(drawMesh);
         }
         lastStatistics = new Statistics(snapshot.primitiveCount(), particles, ribbons, decals, meshes,
                 (long) snapshot.primitiveCount() * (MAT4_BYTES + COLOR_BYTES),
@@ -240,6 +278,7 @@ public final class VfxRenderer implements AutoCloseable {
         failure = closeCollecting(textureCache, failure);
         failure = closeCollecting(quad, failure);
         failure = closeCollecting(shader, failure);
+        if (fogShader != null) failure=closeCollecting(fogShader,failure);
         closed = true;
         if (failure != null) throw failure;
     }

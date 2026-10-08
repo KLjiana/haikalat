@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
@@ -151,11 +152,17 @@ final class GtaoPasses implements AutoCloseable {
                         : PostProcessTargets.GTAO_DEPTH_PREPASS)
                 .execute(this::recordEstimate);
 
-        graph.addPass(PostProcessTargets.GTAO_TEMPORAL_PASS)
-                .createColor(PostProcessTargets.GTAO_TEMPORAL, RenderFormat.RG16F)
-                .relativeSizeCeil(0.5f)
-                .noClear()
-                .dependsOn(PostProcessTargets.GTAO_ESTIMATE_PASS)
+        RenderGraph.PassBuilder temporal = graph.addPass(PostProcessTargets.GTAO_TEMPORAL_PASS);
+        if (history == null) {
+            temporal.createColor(PostProcessTargets.GTAO_TEMPORAL, RenderFormat.RG16F)
+                    .relativeSizeCeil(0.5f);
+        } else {
+            // The candidate history color is also this frame's temporal output.
+            // Render directly into it instead of allocating a second RG16F
+            // target and copying the entire half-resolution image afterward.
+            temporal.writeToExternalTarget();
+        }
+        temporal.noClear().dependsOn(PostProcessTargets.GTAO_ESTIMATE_PASS)
                 .execute(this::recordTemporal);
 
         graph.addPass(PostProcessTargets.GTAO_DENOISE_HORIZONTAL_PASS)
@@ -315,6 +322,14 @@ final class GtaoPasses implements AutoCloseable {
         pendingFrame = false;
     }
 
+    void synchronizeTemporalImport(RenderGraph graph) {
+        if (history == null) return;
+        Framebuffer candidate = history.writeFramebuffer();
+        graph.importExternalColor(PostProcessTargets.GTAO_TEMPORAL,
+                ExternalAttachment.borrowedColor(candidate.colorAttachment(),
+                        RenderFormat.RG16F, candidate.width(), candidate.height()));
+    }
+
     /**
      * Returns the deterministic interleaved-gradient phase for one frame.
      * Temporal accumulation advances through eight sub-phases; a non-temporal
@@ -410,7 +425,7 @@ final class GtaoPasses implements AutoCloseable {
         // the SceneSurfacePass budget instead.  The transient color targets
         // include the RG16F octahedral normal cache emitted beside raw AO.
         long transientBytes = (sharedSurface ? fullPixels * 1L : fullPixels * 5L)
-                + halfPixels * 11L;
+                + halfPixels * (history == null ? 11L : 7L);
         long historyBytes = history == null ? 0L
                 : halfPixels * 8L;
         return new Render3dDiagnostics.AmbientOcclusionSummary(true, "", settings.quality().name(),
@@ -459,7 +474,8 @@ final class GtaoPasses implements AutoCloseable {
     }
 
     private void recordTemporal(PassResources resources, CommandBuffer commands) {
-        Framebuffer target = resources.currentTarget();
+        Framebuffer target = history == null ? resources.currentTarget()
+                : history.writeFramebuffer();
         if (target == null) return;
         int historyTexture = history == null ? 0 : history.readFramebuffer().colorAttachment();
         int depthTexture = sharedSurface
@@ -467,6 +483,7 @@ final class GtaoPasses implements AutoCloseable {
                 : resources.depthAttachment(PostProcessTargets.GTAO_DEPTH);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
+                .bindFramebuffer(target).viewport(0, 0, target.width(), target.height())
                 .bindShader(temporalProgram)
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_RAW))
                 .bindTexture(1, depthTexture)
@@ -498,7 +515,7 @@ final class GtaoPasses implements AutoCloseable {
                 "uHalfExtent", target.width(), target.height());
         command.bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES, 0, 6)
                 .enableDepthTest(true);
-        if (history != null) history.stage(commands, target);
+        if (history != null) history.stageRendered(target);
     }
 
     private void recordDenoise(PassResources resources, CommandBuffer commands) {

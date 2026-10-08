@@ -23,6 +23,7 @@ final class PipelineGeneration implements AutoCloseable {
     ClusteredLightingResources clusteredResources;
     ClusteredLightingBinder clusteredLightingBinder;
     PostProcessPassBuilder postProcess;
+    VolumetricPassBuilder volumetric;
     ShaderProgram shadowShader;
     ShaderProgram maskedShadowShader;
     ShaderProgram instancedShadowShader;
@@ -35,7 +36,6 @@ final class PipelineGeneration implements AutoCloseable {
     String finalPassName;
     PbrMaterialBinder pbrMaterialBinder;
     EnvironmentBackgroundRenderer environmentBackground;
-    OutdoorVolumetricSunPass outdoorVolumetricSun;
     StylizedSkyRenderer stylizedSky;
     final SceneFrameBuilder sceneFrameBuilder = new SceneFrameBuilder();
     GraphPreviewRenderer previewRenderer;
@@ -82,13 +82,17 @@ final class PipelineGeneration implements AutoCloseable {
         RenderGraph.ResizeCandidate graphCandidate = null;
         PostProcessPassBuilder.ResizeCandidate postProcessCandidate = null;
         ClusteredLightingResources.ResizeCandidate clusteredCandidate = null;
+        VolumetricResources.ResizeCandidate volumeCandidate = null;
         try {
+            if (volumetric != null) volumetric.validateExtentBudget(width,height);
             graphCandidate = graph.prepareResize(width, height);
             postProcessCandidate = postProcess.prepareResize(width, height);
             clusteredCandidate = clusteredResources.prepareResize(width, height);
+            if (volumetric != null) volumeCandidate = volumetric.prepareResize(width, height);
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
-                    graphCandidate, postProcessCandidate, clusteredCandidate);
+                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate);
         } catch (RuntimeException | Error failure) {
+            closeCandidate(volumeCandidate, failure);
             closeCandidate(clusteredCandidate, failure);
             closeCandidate(postProcessCandidate, failure);
             closeCandidate(graphCandidate, failure);
@@ -121,6 +125,7 @@ final class PipelineGeneration implements AutoCloseable {
         private final RenderGraph.ResizeCandidate graphCandidate;
         private final PostProcessPassBuilder.ResizeCandidate postProcessCandidate;
         private final ClusteredLightingResources.ResizeCandidate clusteredCandidate;
+        private final VolumetricResources.ResizeCandidate volumeCandidate;
         private boolean committed;
         private boolean closed;
 
@@ -128,7 +133,8 @@ final class PipelineGeneration implements AutoCloseable {
                                 PipelineTopology candidateTopology,
                                 RenderGraph.ResizeCandidate graphCandidate,
                                 PostProcessPassBuilder.ResizeCandidate postProcessCandidate,
-                                ClusteredLightingResources.ResizeCandidate clusteredCandidate) {
+                                ClusteredLightingResources.ResizeCandidate clusteredCandidate,
+                                VolumetricResources.ResizeCandidate volumeCandidate) {
             this.owner = owner;
             this.width = width;
             this.height = height;
@@ -136,6 +142,7 @@ final class PipelineGeneration implements AutoCloseable {
             this.graphCandidate = graphCandidate;
             this.postProcessCandidate = postProcessCandidate;
             this.clusteredCandidate = clusteredCandidate;
+            this.volumeCandidate = volumeCandidate;
         }
 
         private void validateFor(PipelineGeneration expectedOwner) {
@@ -155,6 +162,7 @@ final class PipelineGeneration implements AutoCloseable {
             owner.graph.commitResize(graphCandidate);
             owner.postProcess.commitResize(postProcessCandidate);
             owner.clusteredResources.commitResize(clusteredCandidate);
+            if (volumeCandidate != null) owner.volumetric.commitResize(volumeCandidate);
             owner.topology = candidateTopology;
             committed = true;
         }
@@ -164,6 +172,7 @@ final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
+            failure = closeOne(volumeCandidate, failure);
             failure = closeOne(clusteredCandidate, failure);
             failure = closeOne(postProcessCandidate, failure);
             failure = closeOne(graphCandidate, failure);
@@ -197,6 +206,7 @@ final class PipelineGeneration implements AutoCloseable {
         ShaderProgram localGtaoMaskedDepth = gtaoMaskedDepthShader;
         ShaderProgram localGtaoInstancedDepth = gtaoInstancedDepthShader;
         PostProcessPassBuilder localPostProcess = postProcess;
+        VolumetricPassBuilder localVolume = volumetric;
         CameraUniforms localCameraUniforms = cameraUniforms;
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
         SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
@@ -206,7 +216,6 @@ final class PipelineGeneration implements AutoCloseable {
         ClusteredLightingBinder localClusteredBinder = clusteredLightingBinder;
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
-        OutdoorVolumetricSunPass localOutdoorVolume = outdoorVolumetricSun;
         StylizedSkyRenderer localStylizedSky = stylizedSky;
         RenderGraph localGraph = graph;
         previewRenderer = null;
@@ -217,6 +226,7 @@ final class PipelineGeneration implements AutoCloseable {
         gtaoMaskedDepthShader = null;
         gtaoInstancedDepthShader = null;
         postProcess = null;
+        volumetric = null;
         cameraUniforms = null;
         sceneSurfacePass = null;
         sceneSurfaceResolvePass = null;
@@ -226,7 +236,6 @@ final class PipelineGeneration implements AutoCloseable {
         clusteredLightingBinder = null;
         pbrMaterialBinder = null;
         environmentBackground = null;
-        outdoorVolumetricSun = null;
         stylizedSky = null;
         graph = null;
         finalPassName = null;
@@ -240,6 +249,7 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localGtaoMaskedDepth, failure);
         failure = closeCollecting(localGtaoDepth, failure);
         failure = closeCollecting(localPostProcess, failure);
+        failure = closeCollecting(localVolume, failure);
         failure = closeCollecting(localCameraUniforms, failure);
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);
@@ -249,7 +259,6 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localClusteredResources, failure);
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);
-        failure = closeCollecting(localOutdoorVolume, failure);
         failure = closeCollecting(localStylizedSky, failure);
         failure = closeCollecting(localGraph, failure);
         if (failure != null) throw failure;

@@ -29,6 +29,8 @@
 - [v0.24 风格化室外环境与体积阳光计划](planning/v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)
 - [v0.24.1 统一 Scene Buffers 与 TAA 实施指南](planning/v0.24.1-scene-buffers-and-taa.md)
 - [v0.24.2 Clustered Forward 实施规划书](planning/v0.24.2-clustered-forward.md)
+- [v0.24.3 渲染收尾与视觉基线执行指南](planning/v0.24.3-rendering-consolidation-and-visual-baseline.md)
+- [v0.25.0 多光源体积雾执行计划](planning/v0.25.0-multilight-volumetric-fog.md)
 - [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
@@ -39,6 +41,7 @@
 渲染边界、抽象准入原则和已有抽象审计。
 
 - [渲染边界约定](architecture/render-boundaries.md)
+- [v0.25.0 体积雾坐标、绑定、合成与资源合同](architecture/v0.25.0-volumetric-contract.md)
 - [AsyncDemo 渲染线程契约](architecture/async-render-thread.md)
 - [抽象密度控制](architecture/abstraction-density.md)
 - [代码职责与重设计评估](architecture/code-design-review.md)
@@ -102,6 +105,10 @@
 - [v0.23.1 Render3D 光源与阴影深化正式版验收报告](releases/v0.23.1-release-report.md)
 - [v0.24.0 室外环境与体积阳光发布报告](releases/v0.24.0-release-report.md)
 - [v0.24.2 Clustered Forward 发布准备报告](releases/v0.24.2-release-report.md)
+- [v0.24.3 渲染收尾与视觉基线发布候选报告](releases/v0.24.3-release-report.md)
+- [v0.25.0 多光源体积雾实现与验收状态](releases/v0.25.0-release-report.md)
+- [v0.25.0 版本身份与打包核对](releases/v0.25.0-version-identity-2026-10-08.md)
+- [v0.25.0 体积雾开工基线](performance/v0.25.0-volumetric-baseline.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
 - [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)
 - [glTF Animation Graph sidecar 指南](guides/gltf-animation-state-machine.md)

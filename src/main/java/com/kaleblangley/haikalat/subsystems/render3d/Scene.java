@@ -73,7 +73,7 @@ public final class Scene {
         ShadowLightHints requiredHints = Objects.requireNonNull(hints, "hints");
         long stableId = NEXT_LIGHT_ID.getAndIncrement();
         lights.add(requiredLight);
-        lightEntries.add(new SceneLightEntry(stableId, requiredLight, requiredHints, 0L));
+        lightEntries.add(new SceneLightEntry(stableId, requiredLight, requiredHints, LightVolumeHints.DEFAULT, 0L));
         lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
@@ -107,6 +107,19 @@ public final class Scene {
         lightingRevision = Math.incrementExact(lightingRevision);
         return this;
     }
+
+    /** Updates volume participation without changing surface lighting or stable light identity. */
+    public Scene setLightVolumeHints(int index, LightVolumeHints hints) {
+        LightVolumeHints replacement = Objects.requireNonNull(hints, "hints");
+        SceneLightEntry previous = lightEntries.get(index);
+        if (!previous.volumeHints().equals(replacement)) {
+            lightEntries.set(index, previous.withVolumeHints(replacement));
+            lightingRevision = Math.incrementExact(lightingRevision);
+        }
+        return this;
+    }
+
+    public LightVolumeHints lightVolumeHints(int index) { return lightEntries.get(index).volumeHints(); }
 
     /**
      * Removes the light at {@code index}.  Remaining lights keep their stable

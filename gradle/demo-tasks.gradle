@@ -13,6 +13,133 @@ def registerDemoJavaExec = { taskName, taskGroup, descriptionText, mainClassName
     }
 }
 
+registerDemoJavaExec('runRender3dVolumetricFogBaseline', 'verification',
+        'Captures the v0.25 M0 source identity, real GL binding limits and resource budgets.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricBaseline', [])
+
+registerDemoJavaExec('runRender3dVolumetricFogDemo', 'demo',
+        'Runs the shared four-scene volumetric fog demo with strict schema 2 profiles and explicit HDR/slice captures.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricFogDemo', [])
+
+registerDemoJavaExec('runRender3dVolumetricFogQuality', 'verification',
+        'Compares native-pixel linear HDR with independent full-light 256/512+ ray references and runs the analytic/history GL contracts.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricFogQuality', [])
+tasks.named('runRender3dVolumetricFogQuality') {
+    dependsOn 'runRender3dVolumetricFogIntegration'
+    mustRunAfter 'check', 'publicApiGuard', 'assetManifestGuard'
+}
+
+registerDemoJavaExec('runRender3dVolumetricFogQualityTemporal', 'verification',
+        'Measures final linear HDR stability and light-off recovery in all four scenes and three independent history combinations.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricFogTemporalQuality', [])
+tasks.named('runRender3dVolumetricFogQualityTemporal') {
+    dependsOn 'runRender3dVolumetricFogIntegration'
+    mustRunAfter 'check', 'publicApiGuard', 'assetManifestGuard', 'runRender3dVolumetricFogQuality'
+    // Diagnostic snapshots are streamed to disk; bound GC-managed command staging during long matrices.
+    maxHeapSize = '1g'
+    jvmArgs '-XX:MaxDirectMemorySize=256m'
+}
+
+registerDemoJavaExec('runRender3dVolumetricFogBenchmarks', 'verification',
+        'Measures native 1080p/4K fog on/off with round-major A/B, same-frame GPU sums and every drain wait recorded.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricFogBenchmarks', [])
+tasks.named('runRender3dVolumetricFogBenchmarks') {
+    mustRunAfter 'check', 'publicApiGuard', 'assetManifestGuard', 'runRender3dVolumetricFogIntegration', 'runRender3dVolumetricFogQuality', 'runRender3dVolumetricFogQualityTemporal'
+}
+registerDemoJavaExec('runRender3dVolumetricFogCpuAttribution', 'verification',
+        'Runs explicitly nonformal CPU attribution with per-frame GPU isolation; it cannot satisfy the formal performance gate.',
+        'com.kaleblangley.haikalat.demo.pbr.Render3dVolumetricFogBenchmarks', ['--cpu-isolation'])
+tasks.named('runRender3dVolumetricFogCpuAttribution') {
+    mustRunAfter 'runRender3dVolumetricFogBenchmarks'
+}
+
+tasks.register('runRender3dVolumetricFogIntegration', Test) {
+    group = 'verification'
+    description = 'Runs the current v0.25 real-GL matrix: storage, transport, lights, shadows, composition and independent volumetric history/reactive.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    systemProperty 'haikalat.internal.volume.diagnostics', 'true'
+    filter {
+        includeTestsMatching '*.VolumetricTextureGlTest'
+        includeTestsMatching '*.VolumetricResourcesGlTest'
+        includeTestsMatching '*.VolumetricMediumGlTest'
+        includeTestsMatching '*.VolumetricGenerationGlTest'
+        includeTestsMatching '*.VolumetricLightingGlTest'
+        includeTestsMatching '*.VolumetricShadowGlTest'
+        includeTestsMatching '*.VolumetricCompositeGlTest'
+        includeTestsMatching '*.VolumetricTemporalGlTest'
+    }
+}
+
+// Explicit extension: keep long-lived resource soak out of routine short integration.
+tasks.register('runRender3dVolumetricFogLifecycleSoak', Test) {
+    group = 'verification'
+    description = 'Runs 3600 real volume frames, 100 resize/allocation rollbacks and 20 GPU-write failures with two isolated views.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    systemProperty 'haikalat.internal.volume.diagnostics', 'true'
+    filter { includeTestsMatching '*.VolumetricLifecycleSoakGlTest' }
+}
+
+tasks.register('runRender3dVolumetricFogWindIntegration', Test) {
+    group = 'verification'
+    description = 'Checks physical noisy-medium wind against independent CPU coefficients and successful time in three history combinations.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    systemProperty 'haikalat.internal.volume.diagnostics', 'true'
+    providers.gradleProperty('volumeWindEvidenceDir').orNull?.with { directory ->
+        systemProperty 'haikalat.volumeWindEvidenceDir', directory
+    }
+    filter { includeTestsMatching '*.VolumetricWindGlTest' }
+}
+
+tasks.register('runRender3dVolumetricTownIntegration', Test) {
+    group = 'verification'
+    description = 'Checks actual town lamp caster geometry against the closed fixture and unshadowed control.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    systemProperty 'haikalat.internal.volume.diagnostics', 'true'
+    providers.gradleProperty('volumeTownEvidenceDir').orNull?.with { directory ->
+        systemProperty 'haikalat.volumeTownEvidenceDir', directory
+    }
+    filter { includeTestsMatching '*.VolumetricTownLampGlTest' }
+}
+
+tasks.register('localRender3dV0250FoundationVerification') {
+    group = 'verification'
+    description = 'Verifies implemented v0.25 stages and existing clustered regressions; formal quality/performance gates remain pending.'
+    dependsOn 'check', 'publicApiGuard', 'assetManifestGuard',
+            'runRender3dVolumetricFogBaseline', 'runRender3dVolumetricFogIntegration',
+            'runRender3dClusteredIntegration'
+}
+
+tasks.register('localRender3dV0250Verification') {
+    group = 'verification'
+    description = 'Runs v0.25 foundations, independent image quality, final-HDR temporal sequences and the formal native performance matrix.'
+    dependsOn 'localRender3dV0250FoundationVerification', 'runRender3dVolumetricFogQuality',
+            'runRender3dVolumetricFogQualityTemporal', 'runRender3dVolumetricFogBenchmarks'
+}
+
+tasks.named('runRender3dVolumetricFogBaseline') {
+    mustRunAfter 'check', 'runRender3dVolumetricFogIntegration', 'runRender3dClusteredIntegration'
+}
+
 def learnMain = 'com.kaleblangley.haikalat.demo.LearnOpenGlDemo'
 def stressMain = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
 def pbrMain = 'com.kaleblangley.haikalat.demo.pbr.PbrDemo'
@@ -21,8 +148,8 @@ def render3dGtaoMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dGtaoDemo'
 def render3dTemporalMain = 'com.kaleblangley.haikalat.demo.pbr.Render3dTemporalDemo'
 def render3dShadowBudgetMain =
         'com.kaleblangley.haikalat.demo.gltf.Render3dShadowBudgetDemo'
-def render3dOutdoorMain =
-        'com.kaleblangley.haikalat.demo.pbr.Render3dOutdoorEnvironmentDemo'
+def render3dForestCaptureMain =
+        'com.kaleblangley.haikalat.demo.pbr.Render3dForestCaptureDemo'
 def gltfMain = 'com.kaleblangley.haikalat.demo.gltf.GltfDemo'
 def animationMain = 'com.kaleblangley.haikalat.demo.animation.AnimationDemo'
 def animationBenchmarkMain =
@@ -149,31 +276,6 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=18', '--size=640x360', '--resize=14:800x450',
                  '--environment-quality=test', '--csm-atlas=1024', '--dynamic', '--verify'],
                 'Runs deterministic per-view dynamic shadow culling, local invalidation and resize proof.']
-        ,runOutdoorEnvironmentIntegration   : [render3dOutdoorMain,
-                ['--hidden', '--frames=8', '--size=640x360', '--environment-quality=test',
-                 '--preset=morning_fog', '--aa=TAA', '--bloom', '--auto-exposure', '--gtao', '--verify'],
-                'Runs the deterministic v0.24 outdoor sky, CSM-aware volume, GTAO, Bloom and auto-exposure scene.']
-        ,runOutdoorEnvironmentDemo          : [render3dOutdoorMain,
-                ['--size=1280x720', '--environment-quality=test', '--preset=morning_fog'],
-                'Shows the v0.24 stylized outdoor environment and volume controls.']
-        ,runOutdoorEnvironmentCapture       : [render3dOutdoorMain,
-                ['--hidden', '--frames=48', '--size=1280x720', '--preset=morning_fog',
-                 '--capture=build/reports/outdoor-improved.png', '--no-vsync', '--verify'],
-                'Captures one deterministic outdoor frame with intentional pixel readback.']
-        ,runOutdoorEnvironmentReferenceIntegration: [render3dOutdoorMain,
-                ['--hidden', '--frames=8', '--size=640x360', '--environment-quality=test',
-                 '--preset=morning_fog', '--volume-quality=reference', '--verify'],
-                'Runs the high-sample, history-off reference volume path.']
-        ,runOutdoorEnvironmentStabilityIntegration: [render3dOutdoorMain,
-                ['--hidden', '--frames=3600', '--size=320x180', '--resize=120:480x270',
-                 '--environment-quality=test',
-                 '--preset=morning_fog', '--stability', '--verify'],
-                'Runs the v0.24 outdoor volume stability soak, preset switches and failure rollback.']
-        ,runOutdoorEnvironmentBenchmarks : [render3dOutdoorMain,
-                ['--hidden', '--frames=720', '--warmup=120', '--rounds=5', '--benchmark',
-                 '--benchmark-sizes=1920x1080,3840x2160', '--size=1920x1080', '--no-vsync', '--environment-quality=test',
-                 '--preset=morning_fog', '--verify'],
-                'Measures five paired enabled/disabled outdoor volume rounds at 1080p and 4K.']
         ,runGltfIntegration                : [gltfMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA', '--bloom', '--auto-exposure'],
                 'Runs static and skinned glTF scenes through PBR, shadow, IBL and post-processing.']
@@ -325,7 +427,9 @@ tasks.register('runRender3dClusteredIntegration', Test) {
     systemProperty 'haikalat.glReadback', 'true'
     filter {
         includeTestsMatching '*.ClusterAssignmentGlTest'
+        includeTestsMatching '*.ClusterDiagnosticResizeAuditGlTest'
         includeTestsMatching '*.ClusterLightingGlTest'
+        includeTestsMatching '*.ClusterShaderSynchronizationTest'
         includeTestsMatching '*.LightTableLayoutGlTest'
         includeTestsMatching '*.ClusterMathTest'
     }
@@ -383,20 +487,65 @@ tasks.register('runRender3dClusteredOverflowIntegration', JavaExec) {
 
 tasks.register('runRender3dClusteredBenchmarks', JavaExec) {
     group = 'verification'
-    description = 'Formal clustered matrix: 3 rounds x (120 warmup + 300 measured) with budget gates.'
-    dependsOn demoClasses
-    classpath = sourceSets.demo.runtimeClasspath
+    description = 'Formal normal-runtime clustered matrix with bounded GPU tail collection and budget gates.'
+    dependsOn demoClasses, testClasses
+    // The full-scan oracle shader is deliberately a test resource and must
+    // never leak into the production/demo runtime classpath.
+    classpath = sourceSets.demo.runtimeClasspath + sourceSets.test.output
+    mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredBenchmarkSuite'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+}
+
+tasks.register('runRender3dClusteredCpuAttribution', JavaExec) {
+    group = 'verification'
+    description = 'Runs the separate CPU-isolation attribution matrix; it is not formal runtime evidence.'
+    dependsOn demoClasses, testClasses
+    classpath = sourceSets.demo.runtimeClasspath + sourceSets.test.output
     mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredBenchmarkSuite'
     javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
     workingDir = projectDir
     args '--cpu-isolation'
 }
 
+tasks.register('runRender3dMeasurementIntegration', Test) {
+    group = 'verification'
+    description = 'Runs frame-identity collection plus the real GL query submit/drain chain.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    filter {
+        includeTestsMatching '*.BenchmarkSampleCollectorTest'
+        includeTestsMatching '*.SampleStatisticsTest'
+        includeTestsMatching '*.GpuTimerGlTest'
+    }
+}
+
+tasks.register('runRender3dVisualProfileIntegration', Test) {
+    group = 'verification'
+    description = 'Runs profile codec, hot-update, topology rollback and shared-environment isolation proofs.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    filter {
+        includeTestsMatching '*.VisualProfileCodecTest'
+        includeTestsMatching '*.VolumetricSettingsTest'
+        includeTestsMatching '*.VolumetricHistoryPlanTest'
+        includeTestsMatching '*.OutdoorEnvironmentGlTest'
+    }
+}
+
 tasks.register('runRender3dClusteredBenchmarkSmoke', JavaExec) {
     group = 'verification'
     description = 'Single-round informal clustered benchmark for fast local plumbing checks.'
-    dependsOn demoClasses
-    classpath = sourceSets.demo.runtimeClasspath
+    dependsOn demoClasses, testClasses
+    classpath = sourceSets.demo.runtimeClasspath + sourceSets.test.output
     mainClass = 'com.kaleblangley.haikalat.demo.pbr.Render3dClusteredBenchmarkSuite'
     javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
     workingDir = projectDir
@@ -437,6 +586,219 @@ tasks.register('localClusteredVerification') {
             'runRender3dClusteredQuality', 'runRender3dClusteredBenchmarks'
 }
 
+tasks.register('localRender3dV0243Verification') {
+    group = 'verification'
+    description = 'Runs the v0.24.3 measurement gate and affected clustered/temporal/outdoor regressions serially.'
+    dependsOn 'runRender3dMeasurementIntegration', 'runRender3dVisualProfileIntegration',
+            'runRender3dVisualBaselineQuality',
+            'runRender3dClusteredIntegration',
+            'runRender3dClusteredTownIntegration', 'runRender3dClusteredQuality',
+            'runRender3dTemporalIntegration', 'runRender3dTemporalQuality',
+            'runRender3dGtaoIntegration', 'runRender3dVisualProfileIntegration'
+}
+
+tasks.register('runRender3dVisualBaselineContract', Test) {
+    group = 'verification'
+    description = 'Validates all frozen profile, scene revision, camera path and capture-frame contracts.'
+    dependsOn testClasses
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    inputs.files(fileTree('config/visual-profiles'), fileTree('config/visual-baselines'))
+    filter { includeTestsMatching '*.VisualBaselineContractTest' }
+}
+
+tasks.register('runRender3dVisualBaselineVariantQuality', Test) {
+    group = 'verification'
+    description = 'Checks real final/fog-off/Bloom-off/gray-model pixels for all three frozen scenes.'
+    dependsOn testClasses, 'runRender3dForestMorningBaseline',
+            'runRender3dForestDuskBaseline', 'runRender3dTownNightBaseline',
+            'runRender3dForestMorningFogOffBaseline',
+            'runRender3dForestMorningBloomOffBaseline',
+            'runRender3dForestMorningGrayModelBaseline',
+            'runRender3dForestDuskFogOffBaseline',
+            'runRender3dForestDuskBloomOffBaseline',
+            'runRender3dForestDuskGrayModelBaseline',
+            'runRender3dTownNightFogOffBaseline',
+            'runRender3dTownNightBloomOffBaseline',
+            'runRender3dTownNightGrayModelBaseline'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'haikalat.visualVariantQuality.required', 'true'
+    inputs.files(fileTree('build/reports/render3d-v0243/visual') {
+        include '*-0420.png', 'variants/*-0420.png'
+    })
+    filter { includeTestsMatching '*.VisualBaselineVariantImageTest' }
+}
+
+tasks.register('runRender3dVolumetricProfileUiSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Builds the live profile controls and captures one overlay frame.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = render3dForestCaptureMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--overlay', '--no-vsync', '--frames=8', '--size=1280x720',
+            '--route', '--load-config=config/visual-profiles/forest_morning.properties',
+            '--capture=build/reports/render3d-v0243/visual/profile-ui.png'
+    inputs.file 'config/visual-profiles/forest_morning.properties'
+    outputs.file 'build/reports/render3d-v0243/visual/profile-ui.png'
+}
+
+tasks.register('runRender3dForestMorningBaseline', JavaExec) {
+    group = 'verification'
+    description = 'Replays the frozen forest morning profile/path and captures frames 60/240/420.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = render3dForestCaptureMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--no-vsync', '--frames=421', '--size=1280x720', '--route',
+            '--load-config=config/visual-profiles/forest_morning.properties',
+            '--capture-at=60:build/reports/render3d-v0243/visual/forest_morning-0060.png',
+            '--capture-at=240:build/reports/render3d-v0243/visual/forest_morning-0240.png',
+            '--capture-at=420:build/reports/render3d-v0243/visual/forest_morning-0420.png',
+            '--verify'
+    inputs.file 'config/visual-profiles/forest_morning.properties'
+    inputs.files(fileTree('config/visual-baselines/reference') { include 'forest_morning-*.h4f.gz' })
+    [60, 240, 420].each { frame ->
+        outputs.file "build/reports/render3d-v0243/visual/forest_morning-${String.format('%04d', frame)}.png"
+        outputs.file "build/reports/render3d-v0243/visual/hdr-error/forest_morning-${String.format('%04d', frame)}.h4f.gz.png"
+    }
+}
+
+tasks.register('runRender3dForestDuskBaseline', JavaExec) {
+    group = 'verification'
+    description = 'Replays the frozen forest dusk profile/path and captures frames 60/240/420.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = render3dForestCaptureMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--no-vsync', '--frames=421', '--size=1280x720', '--route',
+            '--load-config=config/visual-profiles/forest_dusk.properties',
+            '--capture-at=60:build/reports/render3d-v0243/visual/forest_dusk-0060.png',
+            '--capture-at=240:build/reports/render3d-v0243/visual/forest_dusk-0240.png',
+            '--capture-at=420:build/reports/render3d-v0243/visual/forest_dusk-0420.png',
+            '--verify'
+    inputs.file 'config/visual-profiles/forest_dusk.properties'
+    inputs.files(fileTree('config/visual-baselines/reference') { include 'forest_dusk-*.h4f.gz' })
+    [60, 240, 420].each { frame ->
+        outputs.file "build/reports/render3d-v0243/visual/forest_dusk-${String.format('%04d', frame)}.png"
+        outputs.file "build/reports/render3d-v0243/visual/hdr-error/forest_dusk-${String.format('%04d', frame)}.h4f.gz.png"
+    }
+}
+
+tasks.register('runRender3dTownNightBaseline', JavaExec) {
+    group = 'verification'
+    description = 'Replays clustered-town-v1 with the frozen town night profile and street path.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = clusteredMain
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--hidden', '--frames=421', '--size=1280x720', '--scene=town',
+            '--camera-path=street', '--profile=config/visual-profiles/town_night.properties',
+            '--capture-at=60:build/reports/render3d-v0243/visual/town_night-0060.png',
+            '--capture-at=240:build/reports/render3d-v0243/visual/town_night-0240.png',
+            '--capture-at=420:build/reports/render3d-v0243/visual/town_night-0420.png',
+            '--verify'
+    inputs.file 'config/visual-profiles/town_night.properties'
+    inputs.files(fileTree('config/visual-baselines/reference') { include 'town_night-*.h4f.gz' })
+    [60, 240, 420].each { frame ->
+        outputs.file "build/reports/render3d-v0243/visual/town_night-${String.format('%04d', frame)}.png"
+        outputs.file "build/reports/render3d-v0243/visual/hdr-error/town_night-${String.format('%04d', frame)}.h4f.gz.png"
+    }
+}
+
+[
+        [name: 'ForestMorning', main: render3dForestCaptureMain,
+         options: ['--route', '--load-config=config/visual-profiles/forest_morning.properties'],
+         id: 'forest_morning'],
+        [name: 'ForestDusk', main: render3dForestCaptureMain,
+         options: ['--route', '--load-config=config/visual-profiles/forest_dusk.properties'],
+         id: 'forest_dusk'],
+        [name: 'TownNight', main: clusteredMain,
+         options: ['--scene=town', '--camera-path=street',
+                   '--profile=config/visual-profiles/town_night.properties'],
+         id: 'town_night']
+].each { spec ->
+    [FogOff: spec.main == render3dForestCaptureMain ? '--fog=off' : '--fog=false',
+     BloomOff: spec.main == render3dForestCaptureMain ? '--bloom=off' : '--bloom=false',
+     GrayModel: '--gray-model'
+    ].each { variant, flag ->
+        tasks.register("runRender3d${spec.name}${variant}Baseline", JavaExec) {
+            group = 'verification'
+            description = "Captures ${spec.id} with ${variant} at the frozen frame 420."
+            dependsOn demoClasses
+            classpath = sourceSets.demo.runtimeClasspath
+            mainClass = spec.main
+            javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+            workingDir = projectDir
+            args '--hidden', '--frames=421', '--size=1280x720'
+            if (spec.main == render3dForestCaptureMain) args '--no-vsync'
+            args(*spec.options)
+            args flag,
+                    "--capture-at=420:build/reports/render3d-v0243/visual/variants/${spec.id}-${variant == 'FogOff' ? 'fog-off' : variant == 'BloomOff' ? 'bloom-off' : 'gray-model'}-0420.png"
+            inputs.file "config/visual-profiles/${spec.id}.properties"
+            outputs.file "build/reports/render3d-v0243/visual/variants/${spec.id}-${variant == 'FogOff' ? 'fog-off' : variant == 'BloomOff' ? 'bloom-off' : 'gray-model'}-0420.png"
+        }
+    }
+}
+
+['light-count', 'overflow', 'shadow-slot'].each { mode ->
+    String taskSuffix = mode.split('-').collect { it.capitalize() }.join('')
+    tasks.register("runRender3dTown${taskSuffix}Diagnostic", JavaExec) {
+        group = 'verification'
+        description = "Captures the real clustered-town ${mode} debug shader output."
+        dependsOn demoClasses
+        classpath = sourceSets.demo.runtimeClasspath
+        mainClass = clusteredMain
+        javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+        workingDir = projectDir
+        args '--hidden', '--frames=421', '--size=1280x720', '--scene=town',
+                '--camera-path=street', '--profile=config/visual-profiles/town_night.properties',
+                "--debug=${mode}",
+                "--capture-at=420:build/reports/render3d-v0243/visual/diagnostics/town_night-0420-${mode}.png",
+                '--verify'
+        inputs.file 'config/visual-profiles/town_night.properties'
+        outputs.file "build/reports/render3d-v0243/visual/diagnostics/town_night-0420-${mode}.png"
+    }
+}
+
+
+tasks.register('runRender3dVisualDiagnosticQuality') {
+    group = 'verification'
+    description = 'Checks independent physical-fog convergence and retains clustered-town debug captures.'
+    dependsOn 'runRender3dVolumetricFogQuality',
+            'runRender3dTownLightCountDiagnostic', 'runRender3dTownOverflowDiagnostic',
+            'runRender3dTownShadowSlotDiagnostic'
+}
+
+tasks.register('runRender3dVisualBaselineQuality') {
+    group = 'verification'
+    description = 'Runs the three-profile contract plus physical-fog, clustered-town and temporal image gates.'
+    dependsOn 'runRender3dVisualBaselineContract', 'runRender3dVisualProfileIntegration',
+            'runRender3dForestMorningBaseline', 'runRender3dForestDuskBaseline',
+            'runRender3dTownNightBaseline',
+            'runRender3dForestMorningFogOffBaseline',
+            'runRender3dForestMorningBloomOffBaseline',
+            'runRender3dForestMorningGrayModelBaseline',
+            'runRender3dForestDuskFogOffBaseline',
+            'runRender3dForestDuskBloomOffBaseline',
+            'runRender3dForestDuskGrayModelBaseline',
+            'runRender3dTownNightFogOffBaseline',
+            'runRender3dTownNightBloomOffBaseline',
+            'runRender3dTownNightGrayModelBaseline',
+            'runRender3dVisualBaselineVariantQuality',
+            'runRender3dVisualDiagnosticQuality',
+            'runRender3dVolumetricProfileUiSmoke',
+            'runRender3dVolumetricFogQuality', 'runRender3dClusteredQuality',
+            'runRender3dTemporalQuality'
+}
+
 tasks.register('runRender3dTemporalIntegration', Test) {
     group = 'verification'
     description = 'Runs the v0.24.1 scene buffer, velocity, TAA history and resolve GPU proofs.'
@@ -474,20 +836,12 @@ tasks.register('localGlVerification') {
             'runRender3dClusteredIntegration',
             'runRender3dGtaoIntegration',
             'runRender3dShadowBudgetIntegration', 'runRender3dDynamicShadowIntegration',
-            'runOutdoorEnvironmentIntegration', 'runOutdoorEnvironmentStabilityIntegration',
+            'runRender3dVolumetricFogIntegration', 'runRender3dVolumetricFogLifecycleSoak',
             'runStressTriangleIntegration', 'runStressCubeIntegration',
             'runStressIndexedCubeIntegration', 'runStressIndexedSsboCubeIntegration'
     dependsOn 'runStressQuadIntegration'
 }
 
-tasks.register('localOutdoorVerification') {
-    group = 'verification'
-    description = 'Runs the v0.24 outdoor environment integration, stability and benchmark smoke matrix.'
-    dependsOn 'runOutdoorEnvironmentIntegration',
-            'runOutdoorEnvironmentReferenceIntegration',
-            'runOutdoorEnvironmentStabilityIntegration',
-            'runOutdoorEnvironmentBenchmarks'
-}
 
 tasks.register('localShadowCullingVerification') {
     group = 'verification'
@@ -846,6 +1200,29 @@ tasks.named('runEmptyWindowDemo', JavaExec) {
 }
 
 def stressMainClass = 'com.kaleblangley.haikalat.demo.stress.StressDemo'
+
+tasks.named('runRender3dVisualProfileIntegration') {
+    mustRunAfter 'runRender3dMeasurementIntegration'
+}
+tasks.named('runRender3dForestMorningBaseline') {
+    mustRunAfter 'runRender3dVisualProfileIntegration'
+}
+tasks.named('runRender3dForestDuskBaseline') {
+    mustRunAfter 'runRender3dForestMorningBaseline'
+}
+tasks.named('runRender3dTownNightBaseline') {
+    mustRunAfter 'runRender3dForestDuskBaseline'
+}
+tasks.named('runRender3dVolumetricFogQuality') {
+    mustRunAfter 'runRender3dTownNightBaseline'
+}
+tasks.named('runRender3dClusteredQuality') {
+    mustRunAfter 'runRender3dVolumetricFogQuality'
+}
+tasks.named('runRender3dTemporalQuality') {
+    mustRunAfter 'runRender3dClusteredQuality'
+}
+
 [
         runStressTriangleDemo          : ['triangle', 'gpu',
                 'Runs the 1000000-triangle expanded procedural baseline.'],

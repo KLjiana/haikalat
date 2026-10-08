@@ -19,19 +19,42 @@ final class SceneSurfaceResolvePass implements AutoCloseable {
     private final ShaderProgram program;
     private final ScreenQuad quad;
     private boolean closed;
+    private final boolean depthOnly;
 
     SceneSurfaceResolvePass() {
-        this.program = ShaderProgram.fromResource(SceneSurfaceResolvePass.class,
+        this(false);
+    }
+    SceneSurfaceResolvePass(boolean depthOnly) {
+        this.depthOnly=depthOnly;
+        this.program = depthOnly ? ShaderProgram.fromSources(vertexSource(), """
+                #version 460 core
+                uniform sampler2DMS uDepth; uniform int uSamples;
+                layout(location=0) out float depth;
+                void main(){depth=1;for(int s=0;s<uSamples;s++)depth=min(depth,texelFetch(uDepth,ivec2(gl_FragCoord.xy),s).r);}
+                """) : ShaderProgram.fromResource(SceneSurfaceResolvePass.class,
                 "/shaders/postprocess/screen-quad.vert",
                 "/shaders/postprocess/scene-surface-resolve.frag");
         this.quad = new ScreenQuad();
+    }
+    private static String vertexSource() {
+        try (var input=SceneSurfaceResolvePass.class.getResourceAsStream("/shaders/postprocess/screen-quad.vert")) {
+            if (input==null) throw new GlException("missing screen quad shader");
+            return new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException failure) { throw new GlException("cannot load screen quad shader",failure); }
     }
 
     void record(CommandBuffer cmd, PassResources resources, int samples) {
         if (closed) throw new GlException("scene surface resolve pass is closed");
         Framebuffer source = resources.framebufferOfPass(PostProcessTargets.SCENE_SURFACE_PASS);
-        if (source == null || source.colorAttachmentCount() < 4
+        if (source == null || !depthOnly && source.colorAttachmentCount() < 4
                 || !source.depthAttachmentIsTexture()) {
+            return;
+        }
+        if (depthOnly) {
+            cmd.enableBlend(false).enableDepthTest(false).enableCullFace(false).enableFramebufferSrgb(false)
+                    .bindShader(program).bindTextureMultisample(4,source.depthAttachment())
+                    .setUniformInt(program,"uDepth",4).setUniformInt(program,"uSamples",samples)
+                    .bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES,0,6);
             return;
         }
         cmd.enableBlend(false).enableDepthTest(false).enableCullFace(false)

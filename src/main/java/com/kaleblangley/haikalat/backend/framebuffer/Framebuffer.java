@@ -60,6 +60,7 @@ public final class Framebuffer implements GlResource {
     private final int depthAttachment;
     private final FramebufferDescriptor.AttachmentStorage depthAttachmentStorage;
     private final boolean ownsDepthAttachment;
+    private final boolean ownsColorAttachments;
     private final FramebufferDescriptor descriptor;
     private final long resourceSequence;
     private final long[] colorResourceSequences;
@@ -91,29 +92,50 @@ public final class Framebuffer implements GlResource {
                         FramebufferDescriptor.AttachmentStorage depthAttachmentStorage,
                         boolean ownsDepthAttachment,
                         FramebufferDescriptor descriptor) {
+        this(id, colorAttachments, colorAttachmentStorage, depthAttachment,
+                depthAttachmentStorage, ownsDepthAttachment, true, descriptor);
+    }
+
+    private Framebuffer(int id, int[] colorAttachments,
+                        FramebufferDescriptor.AttachmentStorage[] colorAttachmentStorage,
+                        int depthAttachment, FramebufferDescriptor.AttachmentStorage depthAttachmentStorage,
+                        boolean ownsDepthAttachment, boolean ownsColorAttachments,
+                        FramebufferDescriptor descriptor) {
         this.id = id;
         this.colorAttachments = colorAttachments.clone();
         this.colorAttachmentStorage = colorAttachmentStorage.clone();
         this.depthAttachment = depthAttachment;
         this.depthAttachmentStorage = depthAttachmentStorage;
         this.ownsDepthAttachment = ownsDepthAttachment;
+        this.ownsColorAttachments = ownsColorAttachments;
         this.descriptor = descriptor;
         resourceSequence = GlDebug.trackResource("FRAMEBUFFER", id,
                 "Framebuffer " + descriptor.width() + "x" + descriptor.height(), 0L);
         colorResourceSequences = new long[colorAttachments.length];
-        long estimatedAttachmentBytes = (long) descriptor.width() * descriptor.height()
-                * Math.max(1, descriptor.samples()) * 4L;
+        long pixels = (long) descriptor.width() * descriptor.height() * Math.max(1, descriptor.samples());
         for (int index = 0; index < colorAttachments.length; index++) {
+            if (!ownsColorAttachments) { colorResourceSequences[index] = -1L; continue; }
             colorResourceSequences[index] = GlDebug.trackResource(
-                    colorAttachmentStorage[index] == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D
+                    colorAttachmentStorage[index] != FramebufferDescriptor.AttachmentStorage.RENDERBUFFER
                             ? "TEXTURE" : "RENDERBUFFER",
-                    colorAttachments[index], "Framebuffer color[" + index + "]", estimatedAttachmentBytes);
+                    colorAttachments[index], "Framebuffer color[" + index + "]",
+                    pixels * attachmentBytes(descriptor.colorAttachments().get(index).internalFormat()));
         }
         depthResourceSequence = depthAttachment == 0 || !ownsDepthAttachment ? -1L
                 : GlDebug.trackResource(
-                depthAttachmentStorage == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D
+                depthAttachmentStorage != FramebufferDescriptor.AttachmentStorage.RENDERBUFFER
                         ? "TEXTURE" : "RENDERBUFFER", depthAttachment,
-                "Framebuffer depth", estimatedAttachmentBytes);
+                "Framebuffer depth", pixels * 4L);
+    }
+
+    private static int attachmentBytes(int format) {
+        return switch (format) {
+            case org.lwjgl.opengl.GL30.GL_R8 -> 1;
+            case org.lwjgl.opengl.GL30.GL_R16F -> 2;
+            case org.lwjgl.opengl.GL30.GL_RGBA16F, org.lwjgl.opengl.GL30.GL_RG32F -> 8;
+            case org.lwjgl.opengl.GL30.GL_RGBA32F -> 16;
+            default -> 4;
+        };
     }
 
     public static Framebuffer singleSampled(int width, int height) {
@@ -151,7 +173,8 @@ public final class Framebuffer implements GlResource {
         int[] colors = new int[descriptor.colorAttachments().size()];
         FramebufferDescriptor.AttachmentStorage[] colorStorage =
                 new FramebufferDescriptor.AttachmentStorage[colors.length];
-
+        int depth = 0;
+        try {
         for (int i = 0; i < colors.length; i++) {
             FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().get(i);
             int attachmentPoint = GL_COLOR_ATTACHMENT0 + i;
@@ -160,7 +183,7 @@ public final class Framebuffer implements GlResource {
             labelAttachment(colors[i], color.storage(), "Framebuffer color[" + i + "]");
         }
 
-        int depth = createDepthAttachment(descriptor);
+        depth = createDepthAttachment(descriptor);
         labelAttachment(depth, descriptor.depthAttachment().storage(), "Framebuffer depth");
 
         configureDrawBuffers(colors.length);
@@ -169,6 +192,12 @@ public final class Framebuffer implements GlResource {
 
         return new Framebuffer(fbo, colors, colorStorage, depth,
                 descriptor.depthAttachment().storage(), true, descriptor);
+        } catch (RuntimeException | Error failure) {
+            for (int i=0;i<colors.length;i++) if (colors[i]!=0) deleteAttachment(colors[i],colorStorage[i]);
+            if (depth!=0) deleteAttachment(depth,descriptor.depthAttachment().storage());
+            glDeleteFramebuffers(fbo);
+            throw failure;
+        } finally { glBindFramebuffer(GL_FRAMEBUFFER,0); }
     }
 
     /**
@@ -178,8 +207,29 @@ public final class Framebuffer implements GlResource {
      */
     public static Framebuffer fromDescriptorSharingDepth(FramebufferDescriptor descriptor,
                                                          Framebuffer depthSource) {
+        return fromDescriptorSharingAttachments(descriptor, null, depthSource);
+    }
+
+    /** Borrows graph-owned textures without acquiring their storage ownership. */
+    public static Framebuffer fromDescriptorSharingAttachments(FramebufferDescriptor descriptor,
+                                                               Framebuffer colorSource, Framebuffer depthSource) {
+        return fromDescriptorSharingAttachments(descriptor, colorSource, depthSource, null);
+    }
+
+    /** Borrows selected color textures in source order, with an optional shared depth texture. */
+    public static Framebuffer fromDescriptorSharingAttachments(FramebufferDescriptor descriptor,
+                                                               Framebuffer colorSource, Framebuffer depthSource,
+                                                               java.util.List<Integer> colorIndices) {
         java.util.Objects.requireNonNull(descriptor, "descriptor");
-        java.util.Objects.requireNonNull(depthSource, "depthSource");
+        if (colorSource == null && depthSource == null)
+            throw new IllegalArgumentException("a shared attachment source is required");
+        if (depthSource == null && descriptor.depthAttachment().storage()
+                != FramebufferDescriptor.AttachmentStorage.NONE)
+            throw new IllegalArgumentException("color-only borrowing requires a descriptor without depth");
+        if (colorIndices != null && colorSource == null)
+            throw new IllegalArgumentException("color indices require a color source");
+        if (depthSource != null) {
+        depthSource.ensureOpen();
         if (!depthSource.depthAttachmentIsTexture() || depthSource.depthAttachment() == 0) {
             throw new IllegalArgumentException(
                     "shared depth source must expose a depth texture attachment");
@@ -195,31 +245,76 @@ public final class Framebuffer implements GlResource {
                     + depthSource.samples() + " does not match framebuffer samples "
                     + descriptor.samples());
         }
+        }
+        int count = descriptor.colorAttachments().size();
+        int[] indices = new int[count];
+        if (colorIndices != null && colorIndices.size() != count)
+            throw new IllegalArgumentException("borrowed color index count must match the descriptor");
+        java.util.Set<Integer> selected = new java.util.HashSet<>();
+        for (int index = 0; index < count; index++) {
+            indices[index] = colorIndices == null ? index
+                    : java.util.Objects.requireNonNull(colorIndices.get(index), "color index");
+            if (indices[index] < 0 || !selected.add(indices[index]))
+                throw new IllegalArgumentException("borrowed color indices must be nonnegative and unique");
+        }
+        if (colorSource != null) {
+            colorSource.ensureOpen();
+            if (colorSource.width() != descriptor.width() || colorSource.height() != descriptor.height()
+                    || colorSource.samples() != descriptor.samples()) {
+                throw new IllegalArgumentException("borrowed color extent/samples must match");
+            }
+            for (int index = 0; index < count; index++) {
+                int sourceIndex = indices[index];
+                if (sourceIndex >= colorSource.colorAttachments.length
+                        || !colorSource.colorAttachmentIsTexture(sourceIndex)
+                        || colorSource.descriptor.colorAttachments().get(sourceIndex).internalFormat()
+                        != descriptor.colorAttachments().get(index).internalFormat()) {
+                    throw new IllegalArgumentException("borrowed color texture format must match");
+                }
+            }
+        }
         int fbo = glGenFramebuffers();
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_FRAMEBUFFER, fbo,
-                "Framebuffer " + descriptor.width() + "x" + descriptor.height() + " shared-depth");
+                "Framebuffer " + descriptor.width() + "x" + descriptor.height() + " shared-attachments");
 
         int[] colors = new int[descriptor.colorAttachments().size()];
         FramebufferDescriptor.AttachmentStorage[] colorStorage =
                 new FramebufferDescriptor.AttachmentStorage[colors.length];
+        try {
         for (int i = 0; i < colors.length; i++) {
             FramebufferDescriptor.ColorAttachment color = descriptor.colorAttachments().get(i);
-            colors[i] = createColorAttachment(descriptor, color, GL_COLOR_ATTACHMENT0 + i);
-            colorStorage[i] = color.storage();
-            labelAttachment(colors[i], color.storage(), "Framebuffer color[" + i + "]");
+            if (colorSource == null) {
+                colors[i] = createColorAttachment(descriptor, color, GL_COLOR_ATTACHMENT0 + i);
+                colorStorage[i] = color.storage();
+                labelAttachment(colors[i], color.storage(), "Framebuffer color[" + i + "]");
+            } else {
+                colors[i] = colorSource.colorAttachments[indices[i]];
+                colorStorage[i] = colorSource.colorAttachmentStorage[indices[i]];
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
+                        descriptor.samples() > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, colors[i], 0);
+            }
         }
+        if (depthSource != null) {
         int depthTarget = depthSource.descriptor().depthAttachment().storage()
                 == FramebufferDescriptor.AttachmentStorage.TEXTURE_2D_MULTISAMPLE
                 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
         glFramebufferTexture2D(GL_FRAMEBUFFER, org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT,
                 depthTarget, depthSource.depthAttachment(), 0);
+        }
         configureDrawBuffers(colors.length);
         ensureComplete();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        return new Framebuffer(fbo, colors, colorStorage, depthSource.depthAttachment(),
-                FramebufferDescriptor.AttachmentStorage.TEXTURE_2D, false, descriptor);
+        return new Framebuffer(fbo, colors, colorStorage, depthSource == null ? 0 : depthSource.depthAttachment(),
+                depthSource == null ? FramebufferDescriptor.AttachmentStorage.NONE : depthSource.depthAttachmentStorage,
+                false, colorSource == null, descriptor);
+        } catch (RuntimeException | Error failure) {
+            if (colorSource==null) for (int i=0;i<colors.length;i++)
+                if (colors[i]!=0) deleteAttachment(colors[i],colorStorage[i]);
+            glDeleteFramebuffers(fbo);
+            throw failure;
+        } finally { glBindFramebuffer(GL_FRAMEBUFFER,0); }
     }
 
     public Framebuffer bind() {
@@ -340,6 +435,7 @@ public final class Framebuffer implements GlResource {
             return;
         }
         for (int i = 0; i < colorAttachments.length; i++) {
+            if (!ownsColorAttachments) continue;
             deleteAttachment(colorAttachments[i], colorAttachmentStorage[i]);
             GlDebug.closeResource(colorResourceSequences[i]);
         }

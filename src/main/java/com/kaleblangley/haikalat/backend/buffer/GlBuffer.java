@@ -128,11 +128,26 @@ public final class GlBuffer implements GlResource, BufferUploadTarget {
         return this;
     }
 
-    /** 在不重新绑定 target 的情况下，将 buffer range 读回调用方持有的 direct storage。 */
+    /** Explicit synchronous readback, including visibility of preceding shader writes. */
     public GlBuffer read(long offsetBytes, ByteBuffer destination) {
         ensureOpen();
         Objects.requireNonNull(destination, "destination");
+        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
         glGetNamedBufferSubData(id, offsetBytes, destination);
+        return this;
+    }
+
+    /** Reads an explicit diagnostic snapshot without migrating the producer storage to the CPU. */
+    public GlBuffer readSnapshot(long offsetBytes,ByteBuffer destination) {
+        ensureOpen();Objects.requireNonNull(destination,"destination");
+        if(offsetBytes<0||!destination.isDirect()||!destination.hasRemaining())
+            throw new IllegalArgumentException("snapshot requires a nonempty direct destination and nonnegative offset");
+        try(var staging=new GlBuffer(org.lwjgl.opengl.GL31.GL_COPY_WRITE_BUFFER,org.lwjgl.opengl.GL15.GL_STREAM_READ)) {
+            staging.allocateStorage(destination.remaining(),0);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            glCopyNamedBufferSubData(id,staging.id(),offsetBytes,0,destination.remaining());
+            staging.read(0,destination);
+        }
         return this;
     }
 

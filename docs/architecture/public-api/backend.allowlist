@@ -27,6 +27,7 @@ advanced com.kaleblangley.haikalat.backend.sync.GpuFenceTarget
 advanced com.kaleblangley.haikalat.backend.texture.ImageAccess
 advanced com.kaleblangley.haikalat.backend.texture.Sampler
 advanced com.kaleblangley.haikalat.backend.texture.Texture2D
+advanced com.kaleblangley.haikalat.backend.texture.Texture3D
 advanced com.kaleblangley.haikalat.backend.texture.TextureColorSpace
 advanced com.kaleblangley.haikalat.backend.texture.TextureCube
 advanced com.kaleblangley.haikalat.backend.UniformBlock

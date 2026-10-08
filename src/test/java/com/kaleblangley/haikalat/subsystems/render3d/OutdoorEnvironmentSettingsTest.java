@@ -2,73 +2,50 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
-
 import java.util.ArrayList;
 import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class OutdoorEnvironmentSettingsTest {
-    @Test
-    void presetsAreFiniteAndLocalVolumeBudgetIsBounded() {
-        assertTrue(OutdoorEnvironmentSettings.morningFog().volumetricSun().enabled());
+    @Test void skyPresetsAreFiniteAndPhysicalVolumeBudgetIsBounded() {
+        assertTrue(OutdoorEnvironmentSettings.morningFog().enabled());
         assertTrue(OutdoorEnvironmentSettings.clearDay().sky().sunDirection().isFinite());
         List<LocalFogVolume> volumes = new ArrayList<>();
-        for (int index = 0; index < OutdoorEnvironmentSettings.MAX_LOCAL_VOLUMES; index++) {
-            volumes.add(LocalFogVolume.sphere(new Vector3f(index, 0.0f, -index), 1.0f,
-                    0.1f, new Vector3f(0.5f)));
-        }
-        assertEquals(8, OutdoorEnvironmentSettings.morningFog()
-                .withLocalFogVolumes(volumes).localFogVolumes().size());
-        volumes.add(LocalFogVolume.sphere(new Vector3f(), 1.0f, 0.1f, new Vector3f(1.0f)));
-        assertThrows(IllegalArgumentException.class,
-                () -> OutdoorEnvironmentSettings.morningFog().withLocalFogVolumes(volumes));
+        for (int i=0;i<VolumetricFogSettings.MAX_LOCAL_VOLUMES;i++)
+            volumes.add(LocalFogVolume.sphere(new Vector3f(i,0,-i),1,.1f,new Vector3f(.5f)));
+        var accepted = fog(volumes, new Vector3f());
+        volumes.clear();
+        assertEquals(8, accepted.localVolumes().size());
+        var excess = new ArrayList<>(accepted.localVolumes());
+        excess.add(LocalFogVolume.sphere(new Vector3f(),1,.1f,new Vector3f(1)));
+        assertThrows(IllegalArgumentException.class, () -> fog(excess, new Vector3f()));
     }
-
-    @Test
-    void rejectsInvalidSunAndDisabledVolumeCombinations() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new VolumetricSunSettings(true, 3, 2, 20.0f, 0.1f,
-                        new Vector3f(1.0f), 0.0f, 0.8f, 0.1f, 0.1f));
-        assertThrows(IllegalArgumentException.class,
-                () -> new OutdoorEnvironmentSettings(false, "disabled", StylizedSkySettings.clearDay(),
-                        VolumetricSunSettings.balanced(),
-                        com.kaleblangley.haikalat.subsystems.postprocess.FogSettings.disabled(),
-                        List.of(), 0, 0.0f));
-        assertThrows(IllegalArgumentException.class,
-                () -> OutdoorEnvironmentSettings.disabled().withLocalFogVolumes(List.of(
-                        LocalFogVolume.sphere(new Vector3f(), 1.0f, 0.1f, new Vector3f(1.0f)))));
+    @Test void rejectsInvalidSkyAndIndependentVolumeInputs() {
+        assertThrows(IllegalArgumentException.class, () -> new OutdoorEnvironmentSettings(true," ",StylizedSkySettings.clearDay()));
+        assertThrows(NullPointerException.class, () -> new OutdoorEnvironmentSettings(false,"disabled",null));
+        assertThrows(IllegalArgumentException.class, () -> fog(List.of(),new Vector3f(Float.NaN,0,0)));
+        // Disabling the sky does not disable independently authored physical fog.
+        var visual = new VisualSettings(1,1,0,com.kaleblangley.haikalat.core.AntiAliasingMode.NONE,
+                com.kaleblangley.haikalat.runtime.BloomSettings.disabled(),OutdoorEnvironmentSettings.disabled())
+                .withVolumetricFog(fog(List.of(),new Vector3f()));
+        assertTrue(visual.volumetricFog().enabled());
     }
-
-    @Test
-    void qualitySnapshotKeepsPresetAndChangesOnlyVolumeShape() {
-        OutdoorEnvironmentSettings base = OutdoorEnvironmentSettings.morningFog();
-        VolumetricSunSettings high = new VolumetricSunSettings(true, 96, 1,
-                base.volumetricSun().maximumDistance(), base.volumetricSun().density(),
-                base.volumetricSun().scatteringColor(), base.volumetricSun().anisotropy(),
-                0.0f, base.volumetricSun().depthRejectThreshold(), 0.0f);
-        OutdoorEnvironmentSettings replacement = base.withVolumetricSun(high);
-        assertEquals(base.preset(), replacement.preset());
-        assertEquals(1, replacement.volumetricSun().downsample());
-        assertEquals(base.globalFog(), replacement.globalFog());
+    @Test void skyReplacementKeepsIdentityAndIndependentMedium() {
+        var base=OutdoorEnvironmentSettings.morningFog();
+        var changed=base.withSky(StylizedSkySettings.goldenHour());
+        assertEquals(base.preset(),changed.preset());
+        assertEquals(base.enabled(),changed.enabled());
+        assertEquals(StylizedSkySettings.morningFog(),base.sky());
+        assertEquals(StylizedSkySettings.goldenHour(),changed.sky());
     }
-
-    @Test
-    void parameterSnapshotsAreImmutableAndKeepTheResourceContract() {
-        OutdoorEnvironmentSettings base = OutdoorEnvironmentSettings.morningFog();
-        OutdoorEnvironmentSettings changed = base
-                .withNoiseSeed(99)
-                .withWindSpeed(0.75f)
-                .withSky(new StylizedSkySettings(base.sky().zenithColor(), base.sky().horizonColor(),
-                        base.sky().nadirColor(), base.sky().sunDirection(), base.sky().sunColor(),
-                        4.0f, base.sky().sunAngularRadius(), base.sky().haloIntensity(),
-                        base.sky().environmentIntensity()));
-        assertEquals(1337, base.noiseSeed());
-        assertEquals(0.12f, base.windSpeed());
-        assertEquals(99, changed.noiseSeed());
-        assertEquals(0.75f, changed.windSpeed());
-        assertEquals(4.0f, changed.sky().sunIntensity());
-        assertTrue(changed.enabled());
-        assertEquals(base.volumetricSun().enabled(), changed.volumetricSun().enabled());
+    @Test void physicalWindAndMediumSnapshotsAreImmutable() {
+        var wind=new Vector3f(.75f,0,.02f);var settings=fog(List.of(),wind);
+        wind.zero();settings.wind().zero();settings.globalMedium().albedo().zero();
+        assertEquals(new Vector3f(.75f,0,.02f),settings.wind());
+        assertEquals(new Vector3f(.8f),settings.globalMedium().albedo());
+    }
+    private static VolumetricFogSettings fog(List<LocalFogVolume> volumes,Vector3f wind) {
+        return new VolumetricFogSettings(true,32,VolumetricFogSettings.Quality.BALANCED,
+                new FogMediumSettings(.01f,new Vector3f(.8f),new Vector3f(),0,0),volumes,0,true,.8f,99,wind);
     }
 }

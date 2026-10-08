@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
@@ -47,6 +48,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 
 public final class RenderPipeline {
+    private static final String FULL_SCAN_BENCHMARK_PROPERTY =
+            "haikalat.internal.benchmark.fullScanReference";
     private static final String HOST_COLOR_IMPORT = "HaikalatHostColor";
     private static final String HOST_DEPTH_IMPORT = "HaikalatHostDepth";
     private static final String HOST_STENCIL_IMPORT = "HaikalatHostStencil";
@@ -90,7 +93,7 @@ public final class RenderPipeline {
     private final RenderWindow window;
     private Scene scene;
     private final InstancedRenderer instanced;
-    private final RenderSettings settings;
+    private RenderSettings settings;
     private DirectionalShadowMap directionalShadowMap = DirectionalShadowMap.defaults();
     private DirectionalCascadeSettings directionalCascadeSettings =
             DirectionalCascadeSettings.disabled();
@@ -121,6 +124,9 @@ public final class RenderPipeline {
     private int lastPointShadowCasterDrawCount;
     private int lastSpotShadowCasterDrawCount;
     private PbrEnvironment pbrEnvironment;
+    private float iblIntensity;
+    private float iblRotationRadians;
+    private long visualSettingsRevision;
     private long sceneFastPathReplacementCount;
     private long sceneGraphRebuildCount;
     private SceneFrame currentSceneFrame;
@@ -134,8 +140,11 @@ public final class RenderPipeline {
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private OutdoorEnvironmentSettings outdoorEnvironment = OutdoorEnvironmentSettings.disabled();
+    private VolumetricFogSettings volumetricFogSettings = VolumetricFogSettings.disabled();
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
+    private FogCameraPassExecutor fogAwareHdrVfxRecorder;
+    private boolean hdrVfxFogOptOut;
     private RenderFrameContext activeFrameContext;
     private RenderFrameContext lastFrameContext;
     private RenderFrameContext lastFailedFrameContext;
@@ -153,6 +162,9 @@ public final class RenderPipeline {
     private boolean topologyRebuiltPending;
     private boolean lastFrameTopologyRebuilt;
     private String lastFailureStage = "";
+    private boolean benchmarkCpuTimingEnabled;
+    private long currentLightPackNanos;
+    private BenchmarkCpuTiming lastBenchmarkCpuTiming = BenchmarkCpuTiming.UNAVAILABLE;
 
     public RenderPipeline(RenderWindow window, Camera camera, List<SceneObject> sceneObjects, InstancedRenderer instanced) {
         this(window, camera, sceneObjects, instanced, RenderSettings.builder().build(), null);
@@ -171,6 +183,7 @@ public final class RenderPipeline {
         this.instanced = instanced;
         this.settings = Objects.requireNonNull(settings, "settings");
         this.pbrEnvironment = pbrEnvironment;
+        initializeIblOverrides(pbrEnvironment);
     }
 
     public RenderPipeline(RenderWindow window, Scene scene, InstancedRenderer instanced, RenderSettings settings) {
@@ -184,6 +197,7 @@ public final class RenderPipeline {
         this.instanced = instanced;
         this.settings = Objects.requireNonNull(settings, "settings");
         this.pbrEnvironment = pbrEnvironment;
+        initializeIblOverrides(pbrEnvironment);
     }
 
     /**
@@ -252,10 +266,6 @@ public final class RenderPipeline {
             throw new IllegalStateException("outdoor environment must be configured before build");
         }
         OutdoorEnvironmentSettings required = Objects.requireNonNull(value, "outdoorEnvironment");
-        if (required.volumetricSun().enabled() && hdrVfxRecorder != null) {
-            throw new IllegalArgumentException(
-                    "outdoor volumetric sun cannot be combined with a custom HDR VFX recorder");
-        }
         outdoorEnvironment = required;
         topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         return this;
@@ -266,15 +276,155 @@ public final class RenderPipeline {
         return outdoorEnvironment;
     }
 
+    /** Configures independently lit three-dimensional fog before build. */
+    public RenderPipeline volumetricFog(VolumetricFogSettings value) {
+        if (activeGeneration != null) throw new IllegalStateException("use applyVolumetricFog after build");
+        volumetricFogSettings = Objects.requireNonNull(value, "volumetricFog");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    public VolumetricFogSettings volumetricFog() { return volumetricFogSettings; }
+
+    /** Publishes scalar updates or a fully built replacement generation at a frame boundary. */
+    public void applyVolumetricFog(VolumetricFogSettings value) {
+        VolumetricFogSettings replacement = Objects.requireNonNull(value, "volumetricFog");
+        if (executing) throw new IllegalStateException("fog changes are only allowed at frame boundaries");
+        if (replacement.equals(volumetricFogSettings)) return;
+        if (activeGeneration == null) { volumetricFog(replacement); return; }
+        VolumetricFogSettings previous = volumetricFogSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        volumetricFogSettings = replacement;
+        try {
+            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
+                    activeGeneration.graph.width(), activeGeneration.graph.height(),
+                    hdrVfxRecorder != null, embedded,
+                    directionalCascadeSettings, localShadowSettings, replacement);
+            if (!topology.equals(activeGeneration.topology)) activateGeneration(createGeneration(scene, topology));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) volumetricFogSettings = previous;
+            throw failure;
+        }
+    }
+
+    /** Returns the immutable global visual values that will be used by the next frame. */
+    public VisualSettings visualSettings() {
+        SceneLight direct = firstDirectionalLight();
+        StylizedSkySettings fallback = outdoorEnvironment.sky();
+        return new VisualSettings(settings.exposure(), iblIntensity, iblRotationRadians,
+                direct == null ? fallback.sunDirection() : direct.direction(),
+                direct == null ? fallback.sunColor() : direct.color(),
+                direct == null ? fallback.sunIntensity() : direct.intensity(),
+                settings.antiAliasingMode(), settings.bloomSettings(), outdoorEnvironment,
+                volumetricFogSettings);
+    }
+
+    public long visualSettingsRevision() {
+        return visualSettingsRevision;
+    }
+
+    /** Enables allocation-free benchmark timing before frame execution. */
+    public void enableBenchmarkCpuTiming() {
+        if (executing) throw new IllegalStateException("cannot enable benchmark timing during a frame");
+        benchmarkCpuTimingEnabled = true;
+    }
+
+    public BenchmarkCpuTiming lastBenchmarkCpuTiming() {
+        return lastBenchmarkCpuTiming;
+    }
+
     /**
-     * Returns whether both independent outdoor volume histories were accepted
-     * for the most recently completed frame.  A false value is intentionally
-     * conservative: it also covers a resize, camera/scene/environment change,
-     * or a failed frame before the next successful commit.
+     * Atomically applies scalar profile values or builds a complete candidate
+     * generation when AA/Bloom/Outdoor resource shape changes.
      */
-    public boolean outdoorVolumeHistoryValid() {
-        return activeGeneration != null && activeGeneration.postProcess != null
-                && activeGeneration.postProcess.outdoorHistoryValid();
+    public void applyVisualSettings(VisualSettings value) {
+        applyVisualSettingsCandidate(value, pbrEnvironment);
+    }
+
+    /** Atomically applies a visual profile and its borrowed IBL environment. */
+    public void applyVisualSettings(VisualSettings value, PbrEnvironment environment) {
+        applyVisualSettingsCandidate(value, Objects.requireNonNull(environment, "environment"));
+    }
+
+    private void applyVisualSettingsCandidate(VisualSettings value,
+                                              PbrEnvironment environment) {
+        VisualSettings replacement = Objects.requireNonNull(value, "visualSettings");
+        VisualSettings previousVisual = visualSettings();
+        PbrEnvironment previousEnvironment = pbrEnvironment;
+        boolean environmentChanged = previousEnvironment != environment;
+        if (replacement.equals(previousVisual) && !environmentChanged) return;
+        if (executing) throw new IllegalStateException("visual settings changes are only allowed at frame start");
+        if (firstDirectionalLight() == null) {
+            throw new IllegalStateException(
+                    "visual directional-light update requires an existing directional light");
+        }
+        RenderSettings replacementRender = settings.withVisualSettings(
+                replacement.manualExposure(), replacement.bloom(),
+                replacement.antiAliasingMode());
+        RenderSettings previousRender = settings;
+        OutdoorEnvironmentSettings previousOutdoor = outdoorEnvironment;
+        VolumetricFogSettings previousVolume = volumetricFogSettings;
+        float previousIblIntensity = iblIntensity;
+        float previousIblRotation = iblRotationRadians;
+        PipelineGeneration previousGeneration = activeGeneration;
+        pbrEnvironment = environment;
+        boolean lightingChanged = Float.compare(previousIblIntensity,
+                replacement.iblIntensity()) != 0
+                || Float.compare(previousIblRotation, replacement.iblRotationRadians()) != 0;
+        lightingChanged |= !previousVisual.directionalLightDirection()
+                .equals(replacement.directionalLightDirection())
+                || !previousVisual.directionalLightColor()
+                .equals(replacement.directionalLightColor())
+                || Float.compare(previousVisual.directionalLightIntensity(),
+                replacement.directionalLightIntensity()) != 0;
+        boolean outdoorChanged = !previousOutdoor.equals(replacement.outdoor());
+        settings = replacementRender;
+        outdoorEnvironment = replacement.outdoor();
+        volumetricFogSettings = replacement.volumetricFog();
+        iblIntensity = replacement.iblIntensity();
+        iblRotationRadians = replacement.iblRotationRadians();
+        try {
+            if (activeGeneration == null) {
+                applyProfileDirectionalLight(replacement);
+                visualSettingsRevision = Math.incrementExact(visualSettingsRevision);
+                return;
+            }
+            PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
+                    postProcessSettings, activeGeneration.graph.width(), activeGeneration.graph.height(),
+                    hdrVfxRecorder != null, embedded,
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings);
+            boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration,
+                    outdoorEnvironment);
+            if (!activeGeneration.topology.equals(candidateTopology) || outdoorPassShapeChanged
+                    || environmentChanged) {
+                PipelineGeneration candidate = createGeneration(scene, candidateTopology);
+                synchronizeOutdoorSun(scene);
+                activateGeneration(candidate);
+            } else {
+                activeGeneration.postProcess.updateVisualScalars(replacement.manualExposure(),
+                        replacement.bloom());
+                applyIblOverrides(activeGeneration);
+                if (outdoorChanged) {
+                    synchronizeOutdoorSun(scene);
+                }
+                if (lightingChanged) {
+                    activeGeneration.postProcess.invalidateTemporalHistory();
+                }
+            }
+            applyProfileDirectionalLight(replacement);
+            visualSettingsRevision = Math.incrementExact(visualSettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                settings = previousRender;
+                outdoorEnvironment = previousOutdoor;
+                volumetricFogSettings = previousVolume;
+                iblIntensity = previousIblIntensity;
+                iblRotationRadians = previousIblRotation;
+                pbrEnvironment = previousEnvironment;
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -288,12 +438,20 @@ public final class RenderPipeline {
     /** Atomically replaces the outdoor preset and its borrowed, caller-owned IBL. */
     public void applyOutdoorEnvironment(OutdoorEnvironmentSettings value, PbrEnvironment environment) {
         PbrEnvironment previous = pbrEnvironment;
+        float previousIntensity = iblIntensity;
+        float previousRotation = iblRotationRadians;
         PipelineGeneration previousGeneration = activeGeneration;
         pbrEnvironment = Objects.requireNonNull(environment, "environment");
+        iblIntensity = environment.intensity();
+        iblRotationRadians = environment.rotationRadians();
         try {
             applyOutdoorEnvironment(value, previous != environment);
         } catch (RuntimeException | Error failure) {
-            if (activeGeneration == previousGeneration) pbrEnvironment = previous;
+            if (activeGeneration == previousGeneration) {
+                pbrEnvironment = previous;
+                iblIntensity = previousIntensity;
+                iblRotationRadians = previousRotation;
+            }
             throw failure;
         }
     }
@@ -309,25 +467,14 @@ public final class RenderPipeline {
         PipelineGeneration previousGeneration = activeGeneration;
         outdoorEnvironment = replacement;
         try {
-            validateOutdoorEnvironment(scene);
             PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
                     postProcessSettings, activeGeneration.graph.width(), activeGeneration.graph.height(),
-                    hdrVfxRecorder != null || outdoorEnvironment.volumetricSun().enabled(), embedded,
-                    directionalCascadeSettings, localShadowSettings);
-            boolean outdoorPassShapeChanged =
-                    (activeGeneration.stylizedSky != null) != outdoorEnvironment.enabled()
-                    || (activeGeneration.outdoorVolumetricSun != null)
-                    != outdoorEnvironment.volumetricSun().enabled()
-                    || activeGeneration.postProcess.outdoorDownsample()
-                    != (outdoorEnvironment.volumetricSun().enabled()
-                    ? outdoorEnvironment.volumetricSun().downsample() : 2);
+                    hdrVfxRecorder != null, embedded,
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings);
+            boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration, replacement);
             if (!replaceEnvironment && activeGeneration.topology.equals(candidateTopology) && !outdoorPassShapeChanged) {
-                // Sky/medium parameters are frame-boundary state even when
-                // the graph topology stays unchanged.  Do not blend the old
-                // preset's scattering into the new one.
+                // The active sky reads the immutable appearance at frame boundaries.
                 synchronizeOutdoorSun(scene);
-                activeGeneration.postProcess.updateOutdoorSettings(replacement.volumetricSun());
-                activeGeneration.postProcess.invalidateOutdoorHistory();
                 return;
             }
             PipelineGeneration candidate = createGeneration(scene, candidateTopology);
@@ -416,6 +563,22 @@ public final class RenderPipeline {
         return this;
     }
 
+    /** Records depth-aware HDR VFX against the current fog field before the final MSAA resolve. */
+    public RenderPipeline hdrVfxWithFog(FogCameraPassExecutor recorder) {
+        if (activeGeneration != null || hdrVfxRecorder != null)
+            throw new IllegalStateException("HDR VFX must be configured once before build");
+        fogAwareHdrVfxRecorder=Objects.requireNonNull(recorder);
+        hdrVfxRecorder=(res,cmd)->fogAwareHdrVfxRecorder.execute(res,cmd,fogRasterCamera(),
+                requireGeneration().volumetric == null ? null : requireGeneration().volumetric.borrowedView());
+        return this;
+    }
+
+    /** Explicitly opts a custom HDR recorder out of volumetric attenuation. */
+    public RenderPipeline hdrVfxFogOptOut(boolean value) {
+        if (activeGeneration != null) throw new IllegalStateException("HDR VFX policy must be configured before build");
+        hdrVfxFogOptOut=value; return this;
+    }
+
     public void build() {
         if (embedded) {
             try (HostGlState ignored = HostGlState.capture()) {
@@ -437,11 +600,9 @@ public final class RenderPipeline {
                     + Math.max(2, settings.msaaSamples())
                     + "; provide a matching resolvable host depth target");
         }
-        validateOutdoorEnvironment(scene);
         PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
-                postProcessSettings, w, h, hdrVfxRecorder != null
-                        || outdoorEnvironment.volumetricSun().enabled(), embedded,
-                directionalCascadeSettings, localShadowSettings);
+                postProcessSettings, w, h, hdrVfxRecorder != null, embedded,
+                directionalCascadeSettings, localShadowSettings, volumetricFogSettings);
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -453,11 +614,15 @@ public final class RenderPipeline {
         lastCandidateGenerationId = candidate.id;
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
+            if (topology.volumetricFog() && postProcessSettings.fog().enabled())
+                throw new IllegalStateException("volumetric fog replaces analytic fog; disable the other fog path");
+            if (topology.volumetricFog() && hdrVfxRecorder != null && fogAwareHdrVfxRecorder == null && !hdrVfxFogOptOut)
+                throw new IllegalStateException("custom HDR VFX must use hdrVfxWithFog or explicitly opt out of fog");
             validatePbrVertexLayouts(generationScene);
             candidate.graph = new RenderGraph(topology.width(), topology.height());
             candidate.cameraUniforms = new CameraUniforms();
             if ((topology.directionalShadow() || topology.pointShadow() || topology.spotShadow())
-                    && topology.pbrMaterials()) {
+                    && (topology.pbrMaterials() || topology.volumetricFog())) {
                 candidate.shadowSamplingBlock = new ShadowSamplingBlock();
             }
             candidate.clusteredResources = new ClusteredLightingResources(
@@ -465,27 +630,27 @@ public final class RenderPipeline {
             candidate.clusteredLightingBinder = new ClusteredLightingBinder(
                     candidate.clusteredResources, clusteredLightingSettings);
             ClusteredLightingPassBuilder.addPasses(candidate.graph, topology,
-                    candidate.clusteredLightingBinder);
+                    candidate.clusteredLightingBinder,
+                    Boolean.getBoolean(FULL_SCAN_BENCHMARK_PROPERTY));
+            if (topology.volumetricFog()) {
+                candidate.volumetric = new VolumetricPassBuilder(candidate.id,
+                        topology.width(), topology.height(), volumetricFogSettings,
+                        candidate.clusteredResources.maxTotalLights());
+                candidate.volumetric.configureColorBudget(topology);
+                candidate.volumetric.addPasses(candidate.graph, candidate.clusteredLightingBinder,
+                        (res, cmd, shader) -> recordVolumeShadowInputs(candidate, res, cmd, shader));
+            }
             if (topology.pbrMaterials()) {
                 candidate.pbrMaterialBinder = new PbrMaterialBinder(pbrEnvironment);
                 candidate.environmentBackground = new EnvironmentBackgroundRenderer(pbrEnvironment);
+                applyIblOverrides(candidate);
             }
             if (outdoorEnvironment.enabled()) {
                 candidate.stylizedSky = new StylizedSkyRenderer();
-                if (outdoorEnvironment.volumetricSun().enabled()) {
-                    candidate.outdoorVolumetricSun = new OutdoorVolumetricSunPass();
-                }
             }
             candidate.postProcess = PostProcessPassBuilder.create(
                     settings, postProcessSettings, window, topology.width(), topology.height(),
-                    hdrVfxRecorder,
-                    candidate.outdoorVolumetricSun == null ? null
-                            : (resources, commands, sceneColor, sceneDepth) ->
-                            recordOutdoorVolume(candidate, resources, commands, sceneColor, sceneDepth),
-                    outdoorEnvironment.volumetricSun().historyWeight(),
-                    outdoorEnvironment.volumetricSun().depthRejectThreshold(),
-                    candidate.outdoorVolumetricSun == null
-                            ? 2 : outdoorEnvironment.volumetricSun().downsample(),
+                    topology.volumetricFog() ? null : hdrVfxRecorder,
                     topology.sceneBuffers().requiresSurfacePass(),
                     topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
                     reactiveExecutor());
@@ -512,7 +677,7 @@ public final class RenderPipeline {
             if (topology.sceneBuffers().requiresSurfacePass()) {
                 candidate.sceneSurfacePass = new SceneSurfacePass();
                 if (topology.sampleCount() > 1) {
-                    candidate.sceneSurfaceResolvePass = new SceneSurfaceResolvePass();
+                    candidate.sceneSurfaceResolvePass = new SceneSurfaceResolvePass(ForwardPassBuilder.depthOnlyFogSurface(topology));
                 }
             }
             if (topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)) {
@@ -542,6 +707,11 @@ public final class RenderPipeline {
                     localShadowSettings.cacheStaticTiles(),
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
                     surfaceExecutor(), surfaceResolveExecutor(), geometryExecutor());
+            if (candidate.volumetric != null) {
+                candidate.volumetric.addColorPasses(candidate.graph,generationScene,topology,volumetricTransparentExecutor());
+                candidate.volumetric.addReactivePass(candidate.graph,topology,volumetricReactiveExecutor());
+                candidate.postProcess.sceneColorInput(VolumetricPassBuilder.SCENE_COLOR,VolumetricPassBuilder.TRANSPARENT_PASS);
+            }
             candidate.postProcess.addFinalPass(candidate.graph);
             candidate.finalPassName = candidate.postProcess.finalPassName();
             candidate.previewRenderer = new GraphPreviewRenderer(
@@ -567,6 +737,77 @@ public final class RenderPipeline {
         return generation == null ? null : generation.graph;
     }
 
+    /** Explicit, synchronous linear HDR diagnostic readback before Bloom/tone mapping. */
+    public float[] captureLinearHdrRgbaFloat() {
+        PipelineGeneration generation = activeGeneration;
+        if (generation == null || executing) {
+            throw new IllegalStateException("HDR capture requires a completed pipeline frame");
+        }
+        return generation.graph.readColorAttachmentRgbaFloat(
+                generation.postProcess.linearHdrTextureName());
+    }
+
+    public VolumetricFogDiagnostics volumetricFogDiagnostics() {
+        PipelineGeneration generation=activeGeneration;
+        if (generation==null || generation.volumetric==null || executing)
+            return VolumetricFogDiagnostics.UNAVAILABLE;
+        var volume=generation.volumetric;var frame=volume.frameState().previous();
+        if(frame==null) return VolumetricFogDiagnostics.UNAVAILABLE;
+        var resources=volume.resources();var grid=frame.grid();var history=volume.historyPlan();
+        return new VolumetricFogDiagnostics(volume.currentOutput().available(),generation.id,frame.sequence(),
+                grid.nx(),grid.ny(),grid.nz(),resources.bytes(),resources.residentBytes(),resources.historyValid(),
+                history.count(),history.reason().name(),history.shadowRefit(),frame.successfulIndex(),
+                frame.samplePhase(),frame.samplePhaseX(),frame.samplePhaseY(),frame.timeSeconds());
+    }
+
+    /** Synchronous diagnostics only; layer bounds use Nz+1 for the two prefix fields. */
+    public float[] captureVolumetricSlice(VolumetricFogDiagnostics.Field field,int layer) {
+        PipelineGeneration generation=activeGeneration;
+        if(generation==null || generation.volumetric==null || executing
+                || !generation.volumetric.currentOutput().available())
+            throw new IllegalStateException("volume slice capture requires a completed valid fog frame");
+        var resources=generation.volumetric.resources();
+        var texture=switch(Objects.requireNonNull(field,"field")) {
+            case MEDIUM -> resources.medium(); case SOURCE -> resources.source();
+            case SCATTERING_TRANSMISSION -> resources.prefix(); case HISTORY_REJECTION -> resources.reject();
+            case REACTIVE_PREFIX -> resources.reactivePrefix();
+        };
+        return texture.readLayerRgbaFloat(layer);
+    }
+
+    /** Synchronous diagnostic readback; requires counters enabled before the captured frame. */
+    public VolumetricFogDiagnostics.Counters captureVolumetricCounters() {
+        PipelineGeneration generation=activeGeneration;
+        if(generation==null||generation.volumetric==null||executing
+                ||!generation.volumetric.currentOutput().available())
+            throw new IllegalStateException("volume counter capture requires a completed valid fog frame");
+        var volume=generation.volumetric;
+        if(!volume.diagnosticCountersEnabled())
+            throw new IllegalStateException("enable haikalat.internal.volume.diagnostics before the captured frame");
+        var bytes=java.nio.ByteBuffer.allocateDirect(VolumetricResources.DIAGNOSTICS_BYTES)
+                .order(java.nio.ByteOrder.nativeOrder());volume.resources().diagnostics().readSnapshot(0,bytes);
+        java.util.function.IntToLongFunction counter=i->Integer.toUnsignedLong(bytes.getInt(i*4));
+        var histogram=new java.util.ArrayList<Long>(992);for(int i=16;i<=1007;i++)histogram.add(counter.applyAsLong(i));
+        var reasons=new java.util.ArrayList<Long>(6);for(int i=1012;i<=1017;i++)reasons.add(counter.applyAsLong(i));
+        return new VolumetricFogDiagnostics.Counters(volume.frameState().previous().sequence(),
+                counter.applyAsLong(4),counter.applyAsLong(5),counter.applyAsLong(6),counter.applyAsLong(7),
+                counter.applyAsLong(10),counter.applyAsLong(8),counter.applyAsLong(9),
+                counter.applyAsLong(0),counter.applyAsLong(1),counter.applyAsLong(2),counter.applyAsLong(3),
+                counter.applyAsLong(1010),counter.applyAsLong(1011),histogram,reasons);
+    }
+
+    /** Full resolution R8 reactive channel, returned as RGBA floats for explicit diagnostic export. */
+    public float[] captureVolumetricReactiveRgbaFloat() {
+        PipelineGeneration generation=activeGeneration;
+        if(generation==null||generation.volumetric==null||executing
+                ||!generation.volumetric.currentOutput().available())
+            throw new IllegalStateException("volume reactive capture requires a completed valid fog frame");
+        String name=generation.topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)
+                ?com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_REACTIVE
+                :VolumetricPassBuilder.REACTIVE_TEXTURE;
+        return generation.graph.readColorAttachmentRgbaFloat(name);
+    }
+
     /**
      * Transactionally replaces the scene at a frame boundary.
      *
@@ -585,16 +826,14 @@ public final class RenderPipeline {
             scene = candidateScene;
             return;
         }
-        validateOutdoorEnvironment(candidateScene);
         PipelineTopology candidateTopology = PipelineTopology.capture(candidateScene, settings,
                 postProcessSettings, generation.graph.width(), generation.graph.height(),
-                hdrVfxRecorder != null || outdoorEnvironment.volumetricSun().enabled(), embedded,
+                hdrVfxRecorder != null, embedded,
                 directionalCascadeSettings,
-                localShadowSettings);
+                localShadowSettings, volumetricFogSettings);
         if (generation.topology.equals(candidateTopology)) {
             synchronizeOutdoorSun(candidateScene);
             scene = candidateScene;
-            generation.postProcess.invalidateOutdoorHistory();
             currentSceneFrame = null;
             currentShadowCasterPlan = null;
             shadowCasterPlanner.reset();
@@ -888,6 +1127,8 @@ public final class RenderPipeline {
 
     private PresentationResult executeFrame(RenderDevice device, float deltaSeconds,
                                             Camera camera, PresentationTarget target) {
+        long preparationStart = benchmarkCpuTimingEnabled ? System.nanoTime() : 0L;
+        currentLightPackNanos = 0L;
         PipelineGeneration generation = activeGeneration;
         if (generation == null) {
             throw new IllegalStateException("RenderPipeline must be built before execute");
@@ -945,24 +1186,6 @@ public final class RenderPipeline {
                     temporalActive ? temporalFrameState.previous() : null);
             postProcessFrameStarted = true;
             FrameInvalidation invalidation = activeFrameContext.invalidation();
-            if (invalidation.invalidated(FrameInvalidation.Domain.MEMBERSHIP)
-                    || invalidation.invalidated(FrameInvalidation.Domain.MATERIAL_RENDER_STATE)
-                    || invalidation.invalidated(FrameInvalidation.Domain.LIGHTING)) {
-                validateOutdoorEnvironment(scene);
-            }
-            if (invalidation.invalidated(FrameInvalidation.Domain.MEMBERSHIP)
-                    || invalidation.invalidated(FrameInvalidation.Domain.TRANSFORM_MODEL)
-                    || invalidation.invalidated(FrameInvalidation.Domain.MATERIAL_RENDER_STATE)
-                    || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS)) {
-                generation.postProcess.invalidateGtaoHistory();
-            }
-            if (invalidation.invalidated(FrameInvalidation.Domain.MEMBERSHIP)
-                    || invalidation.invalidated(FrameInvalidation.Domain.TRANSFORM_MODEL)
-                    || invalidation.invalidated(FrameInvalidation.Domain.MATERIAL_RENDER_STATE)
-                    || invalidation.invalidated(FrameInvalidation.Domain.LIGHTING)
-                    || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS)) {
-                generation.postProcess.invalidateOutdoorHistory();
-            }
             if (generation.previewRenderer != null) {
                 generation.previewRenderer.prepare(device, previewFrameSequence);
             }
@@ -976,9 +1199,23 @@ public final class RenderPipeline {
                 temporalSceneState.beginFrame(builtFrame);
             }
             activeFrameContext.verifySceneStable(scene, topologySettingsRevision);
+            if (generation.volumetric != null) {
+                generation.volumetric.prepareTransparentVariants(builtFrame);
+                generation.volumetric.shadowPolicy(directionalShadowMap.settings(),localShadowSettings,directionalCascadeSettings);
+                generation.volumetric.prepareFrame(activeFrameContext, volumetricFogSettings,currentShadowFramePlan);
+                generation.volumetric.rasterProjection(temporalFrameState.current().inverseJitteredProjection());
+            }
             generation.postProcess.synchronizeTemporalImports(generation.graph);
+            long preparationTotalNanos = benchmarkCpuTimingEnabled
+                    ? System.nanoTime() - preparationStart : 0L;
             frameStage = "pass-callback";
             PresentationResult result = generation.graph.execute(device, target);
+            if (benchmarkCpuTimingEnabled) {
+                long preparationOnly = Math.max(0L, preparationTotalNanos - currentLightPackNanos);
+                lastBenchmarkCpuTiming = new BenchmarkCpuTiming(true, preparationOnly,
+                        currentLightPackNanos, generation.graph.lastGraphRecordNanos(),
+                        generation.graph.lastDeviceSubmitNanos());
+            }
             frameStage = "frame-finalize";
             long commandRecordNanos = 0L;
             for (var pass : generation.graph.lastFrameProfile().passes()) {
@@ -1004,20 +1241,19 @@ public final class RenderPipeline {
             // Fallible finalization first: nothing is published until every
             // temporal owner has completed its potentially failing work.
             generation.postProcess.prepareFrameSuccess();
+            if (generation.volumetric != null) generation.volumetric.prepareFrameSuccess();
             if (generation.sceneSurfacePass != null) {
                 temporalSceneState.prepareFinalization();
             }
             // Infallible publish phase.
             generation.postProcess.frameSucceeded();
+            if (generation.volumetric != null) generation.volumetric.frameSucceeded();
             if (temporalActive) {
                 temporalFrameState.commitSuccessfulFrame();
             }
             if (generation.sceneSurfacePass != null) {
                 temporalSceneState.commitSuccessfulFrame();
                 if (instanced != null) instanced.commitFrame();
-            }
-            if (generation.outdoorVolumetricSun != null) {
-                generation.outdoorVolumetricSun.frameSucceeded(activeFrameContext.deltaSeconds());
             }
             generation.shadowCache.frameSucceeded();
             generation.clusteredLightingBinder.frameSucceeded();
@@ -1061,6 +1297,7 @@ public final class RenderPipeline {
                 }
             }
             if (postProcessFrameStarted) generation.postProcess.frameFailed();
+            if (generation.volumetric != null) generation.volumetric.frameFailed();
             temporalFrameState.discardFrame();
             if (generation.sceneSurfacePass != null) {
                 temporalSceneState.discardFrame();
@@ -1190,6 +1427,25 @@ public final class RenderPipeline {
         return generation;
     }
 
+    private void initializeIblOverrides(PbrEnvironment environment) {
+        iblIntensity = environment == null ? 0.0f : environment.intensity();
+        iblRotationRadians = environment == null ? 0.0f : environment.rotationRadians();
+    }
+
+    private void applyIblOverrides(PipelineGeneration generation) {
+        if (generation.pbrMaterialBinder != null) {
+            generation.pbrMaterialBinder.visualOverride(iblIntensity, iblRotationRadians);
+        }
+        if (generation.environmentBackground != null) {
+            generation.environmentBackground.visualOverride(iblIntensity, iblRotationRadians);
+        }
+    }
+
+    private static boolean outdoorPassShapeChanged(PipelineGeneration generation,
+                                                   OutdoorEnvironmentSettings environment) {
+        return (generation.stylizedSky != null) != environment.enabled();
+    }
+
     private static RuntimeException closeCollecting(AutoCloseable resource, RuntimeException failure) {
         if (resource == null) {
             return failure;
@@ -1229,6 +1485,7 @@ public final class RenderPipeline {
     private PassExecutor reactiveExecutor() {
         return (res, cmd) -> {
             PipelineGeneration generation = requireGeneration();
+            if (generation.volumetric!=null) volumetricReactiveExecutor().execute(res,cmd);
             if (generation.sceneReactivePass == null) return;
             generation.sceneReactivePass.record(cmd, sceneFrame(), generation.cameraUniforms);
         };
@@ -1285,6 +1542,7 @@ public final class RenderPipeline {
         if (instanced != null) instanced.invalidatePreviousFrame();
         if (activeGeneration != null) {
             activeGeneration.postProcess.invalidateTemporalHistory();
+            if (activeGeneration.volumetric != null) activeGeneration.volumetric.invalidateHistory();
         }
     }
 
@@ -1321,7 +1579,60 @@ public final class RenderPipeline {
                         ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
                 !plan.spots().isEmpty()
                         ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0,
-                gtaoTexture);
+                gtaoTexture,requireGeneration().volumetric == null ? 0 : 1);
+        };
+    }
+
+    private void recordVolumeShadowInputs(PipelineGeneration generation,
+                                          com.kaleblangley.haikalat.core.graph.PassResources res,
+                                          CommandBuffer cmd, ShaderProgram shader) {
+        ShadowFramePlan plan = shadowFramePlan();
+        int directional = plan.directional().isPresent() ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0;
+        int point = plan.points().isEmpty() ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME);
+        int spot = plan.spots().isEmpty() ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME);
+        boolean fineFog=shader.hasStorageBlock("FineLightTableBlock");
+        java.util.function.UnaryOperator<String> uniform=fineFog?VolumetricFogView::fineUniform:java.util.function.UnaryOperator.identity();
+        cmd.bindTexture(7,directional).bindTexture(11,point).bindTexture(12,spot)
+                .setUniformInt(shader,uniform.apply("uHasDirectionalShadow"),directional != 0 ? 1 : 0)
+                .setUniformInt(shader,uniform.apply("uHasPointShadow"),point != 0 ? 1 : 0)
+                .setUniformInt(shader,uniform.apply("uHasSpotShadow"),spot != 0 ? 1 : 0)
+                .setUniformFloat(shader,uniform.apply("uVolumeDirectionalBias"),directionalShadowMap.settings().bias())
+                .setUniformFloat(shader,uniform.apply("uVolumePointBias"),localShadowSettings.point().bias())
+                .setUniformFloat(shader,uniform.apply("uVolumeSpotBias"),localShadowSettings.spot().bias());
+        if (generation.shadowSamplingBlock != null) generation.shadowSamplingBlock.bind(cmd);
+        generation.shadowFrameBinder.bind(cmd, shader, activeFrameContext.camera(),
+                lastDirectionalLightSpaceMatrix, lastDirectionalCascadeMatrices, lastDirectionalCascadeSplits,
+                directionalCascadeSettings, plan,fineFog);
+        for (int index=0;index<4;index++) {
+            ShadowTileRect rect = plan.directional().isPresent()
+                    ? plan.directional().orElseThrow().tiles().get(Math.min(index,plan.directional().orElseThrow().tiles().size()-1))
+                    : new ShadowTileRect(0,0,1,1,0,0,1,1);
+            cmd.setUniformVec4(shader,uniform.apply("uVolumeCascadeRects["+index+"]"),new Vector4f(rect.minU(),rect.minV(),rect.maxU(),rect.maxV()));
+        }
+    }
+
+    private PassExecutor volumetricTransparentExecutor() {
+        return (res,cmd)-> {
+            requireGeneration().volumetric.fragmentInputs(res);
+            var plan=shadowFramePlan();
+            cmd.sampleShading(requireGeneration().topology.sampleCount()>1,requireGeneration().topology.sampleCount()>1 ? 1 : 0);
+            renderScene(cmd,plan.directional().isPresent() ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
+                    plan.points().isEmpty() ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME),
+                    plan.spots().isEmpty() ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME),0,2);
+            if (hdrVfxRecorder != null) hdrVfxRecorder.execute(res,cmd);
+            cmd.sampleShading(false,0).enableBlend(false).depthMask(true).enableDepthTest(true);
+        };
+    }
+
+    private PassExecutor volumetricReactiveExecutor() {
+        return (res,cmd)-> {
+            requireGeneration().volumetric.fragmentInputs(res);
+            var generation=requireGeneration(); var plan=shadowFramePlan();
+            generation.volumetric.recordReactive(res,cmd);
+            renderScene(cmd,plan.directional().isPresent() ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
+                    plan.points().isEmpty() ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME),
+                    plan.spots().isEmpty() ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME),0,3);
+            generation.volumetric.recordReactiveVfx(cmd);
         };
     }
 
@@ -1340,50 +1651,32 @@ public final class RenderPipeline {
         }
     }
 
-    private void validateOutdoorEnvironment(Scene candidateScene) {
-        if (!outdoorEnvironment.volumetricSun().enabled()) return;
-        if (!settings.hdrEnabled()) {
-            throw new IllegalStateException("v0.24 outdoor volumetric sunlight requires HDR output");
+    private SceneLight firstDirectionalLight() {
+        for (SceneLight light : scene.lights()) {
+            if (light.type() == LightType.DIRECTIONAL) return light;
         }
-        if (hdrVfxRecorder != null) {
-            throw new IllegalStateException(
-                    "v0.24 outdoor volumetric sunlight cannot share the HDR VFX composite");
-        }
-        if (postProcessSettings.fog().enabled()) {
-            throw new IllegalStateException(
-                    "global analytic fog must be disabled when outdoor volume owns the ray interval");
-        }
-        boolean hasShadowedSun = candidateScene.lights().stream()
-                .anyMatch(light -> light.type() == LightType.DIRECTIONAL && light.castShadows());
-        if (!hasShadowedSun) {
-            throw new IllegalStateException(
-                    "v0.24 outdoor volumetric sunlight requires one shadowed directional sun");
-        }
-        for (MeshRenderer renderer : candidateScene.renderers()) {
-            RenderQueueClass queue = RenderQueueClass.classify(renderer.material());
-            if (queue == RenderQueueClass.TRANSPARENT_ALPHA
-                    || queue == RenderQueueClass.TRANSPARENT_ADDITIVE) {
-                throw new IllegalStateException(
-                        "ALPHA/ADDITIVE materials are unsupported while outdoor volume is enabled");
-            }
-        }
+        return null;
     }
 
-    private void recordOutdoorVolume(PipelineGeneration generation,
-                                     com.kaleblangley.haikalat.core.graph.PassResources resources,
-                                     CommandBuffer commands, int sceneColorTexture,
-                                     int sceneDepthTexture) {
-        if (generation.outdoorVolumetricSun == null) return;
-        ShadowFramePlan plan = currentShadowFramePlan;
-        if (plan == null || plan.directional().isEmpty()) {
-            throw new IllegalStateException("outdoor volume frame has no valid directional shadow plan");
+    private void applyProfileDirectionalLight(VisualSettings replacement) {
+        List<SceneLight> lights = scene.lights();
+        for (int index = 0; index < lights.size(); index++) {
+            SceneLight current = lights.get(index);
+            if (current.type() != LightType.DIRECTIONAL) continue;
+            if (current.direction().equals(replacement.directionalLightDirection())
+                    && current.color().equals(replacement.directionalLightColor())
+                    && Float.compare(current.intensity(), replacement.directionalLightIntensity()) == 0) return;
+            SceneLight updated = new SceneLight(LightType.DIRECTIONAL,
+                    replacement.directionalLightColor(),
+                    replacement.directionalLightIntensity(),
+                    replacement.directionalLightDirection(), current.position(),
+                    current.range(), current.innerConeRadians(), current.outerConeRadians(),
+                    current.castShadows());
+            if (!updated.equals(current)) scene.setLight(index, updated);
+            return;
         }
-        ShadowFramePlan.DirectionalPlan directional = plan.directional().orElseThrow();
-        int shadowTexture = resources.depthAttachment(DirectionalShadowMap.TEXTURE_NAME);
-        generation.outdoorVolumetricSun.recordIntoCurrentTarget(commands,
-                sceneColorTexture, sceneDepthTexture, shadowTexture, frameCamera(),
-                outdoorEnvironment, directional.matrices(), directional.splits(), activeFrameIndex,
-                frameWidth(), frameHeight(), settings.antiAliasingMode(), directional.entry().light());
+        throw new IllegalStateException(
+                "visual directional-light update requires an existing directional light");
     }
 
     private PassExecutor gtaoDepthExecutor() {
@@ -1839,7 +2132,7 @@ public final class RenderPipeline {
 
     private void renderScene(CommandBuffer cmd, int shadowTexture,
                              int pointShadowTexture, int spotShadowTexture,
-                             int gtaoTexture) {
+                             int gtaoTexture,int segment) {
         PipelineGeneration generation = requireGeneration();
         SceneFrame frame = sceneFrame();
         boolean gtaoEnabled = generation.topology.gtaoEnabled();
@@ -1857,10 +2150,10 @@ public final class RenderPipeline {
             generation.cameraUniforms.update(cmd, camera, frameWidth(), frameHeight(),
                     settings.antiAliasingMode(), activeFrameIndex);
         }
-        if (generation.stylizedSky != null) {
+        if (segment < 2 && generation.stylizedSky != null) {
             generation.stylizedSky.render(cmd, camera, frameWidth(), frameHeight(),
                     outdoorEnvironment.sky());
-        } else if (generation.environmentBackground != null) {
+        } else if (segment < 2 && generation.environmentBackground != null) {
             generation.environmentBackground.render(cmd, camera, frameWidth(), frameHeight());
         }
 
@@ -1876,11 +2169,14 @@ public final class RenderPipeline {
         int boundMorphTargetCount = -1;
         for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
             int entry = frame.forwardEntry(queueIndex);
+            if (segment == 1 && !frame.castsOpaqueShadow(entry)
+                    || segment >= 2 && frame.castsOpaqueShadow(entry)) continue;
             MeshRenderer renderer = frame.renderer(entry);
             Matrix4f model = frame.model(entry);
             MaterialInstance material = renderer.material();
             Material materialTemplate = material.material();
-            ShaderProgram shader = materialTemplate.shader();
+            if (segment==3 && materialTemplate.volumetricFogOptOut()) continue;
+            ShaderProgram shader = segment >= 2 ? generation.volumetric.transparentShader(materialTemplate) : materialTemplate.shader();
             boolean castsOpaque = gtaoEnabled && frame.castsOpaqueShadow(entry);
             boolean materialHasOverrides = material.hasOverrides();
             boolean mirrored = frame.mirrored(entry);
@@ -1894,7 +2190,12 @@ public final class RenderPipeline {
                     && (boundMaterialTemplate != materialTemplate
                     || boundMaterialHasOverrides || materialHasOverrides);
             if (materialBindingChanged) {
-                material.bind(cmd);
+                material.bind(cmd,shader);
+                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) {
+                    cmd.blendFunc(org.lwjgl.opengl.GL11.GL_ONE,materialTemplate.blendMode() == BlendMode.ADDITIVE
+                            ? org.lwjgl.opengl.GL11.GL_ONE : org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA)
+                            .setUniformInt(shader,"uVolumeAdditive",materialTemplate.blendMode()==BlendMode.ADDITIVE ? 1 : 0);
+                }
             }
             boundMaterial = material;
             boundMaterialTemplate = materialTemplate;
@@ -1914,7 +2215,10 @@ public final class RenderPipeline {
                 if (gtaoEnabled) boundGtaoTexture = materialGtaoTexture;
                 boundSkinningEnabled = -1;
                 boundMorphTargetCount = -1;
+                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) generation.volumetric.bindQuery(cmd,shader);
             }
+            if (segment==3) cmd.setUniformInt(shader,"uVolumeReactiveOnly",1).enableBlend(true)
+                    .blendEquation(org.lwjgl.opengl.GL14.GL_MAX).enableDepthTest(false).depthMask(false);
             cmd.setUniformMat4(shader, "uModel", model);
             SceneDrawBinding drawBinding = renderer.drawBinding();
             int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
@@ -1938,7 +2242,7 @@ public final class RenderPipeline {
             cmd.drawMesh(renderer.mesh());
         }
 
-        if (instanced != null) {
+        if (segment < 2 && instanced != null) {
             cmd.bindShader(instanced.shader());
             cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
             bindFrameState(instanced.shader(), cmd, shadowTexture,
@@ -1955,8 +2259,11 @@ public final class RenderPipeline {
         PipelineGeneration generation = requireGeneration();
         FrameInvalidation invalidation = context.invalidation();
         Matrix4f view = context.camera().getViewMatrix(new Matrix4f());
+        long lightPackNanos = 0L;
+        long lightPackStart = benchmarkCpuTimingEnabled ? System.nanoTime() : 0L;
         currentLightTable = FrameLightTable.build(context.lightEntries(), view,
                 clusteredLightingSettings);
+        if (benchmarkCpuTimingEnabled) lightPackNanos += System.nanoTime() - lightPackStart;
         float jitterFootprint = settings.antiAliasingMode() == AntiAliasingMode.TAA ? 0.5f : 0.0f;
         currentClusterGrid = ClusterGrid.create(context.camera(), context.width(),
                 context.height(), clusteredLightingSettings, jitterFootprint);
@@ -2032,8 +2339,11 @@ public final class RenderPipeline {
         if (generation.shadowSamplingBlock != null) {
             generation.shadowSamplingBlock.update(currentShadowFramePlan, localShadowSettings);
         }
+        lightPackStart = benchmarkCpuTimingEnabled ? System.nanoTime() : 0L;
         generation.clusteredLightingBinder.prepare(currentClusterGrid, currentLightTable,
                 currentShadowFramePlan, context.frameSequence());
+        if (benchmarkCpuTimingEnabled) lightPackNanos += System.nanoTime() - lightPackStart;
+        currentLightPackNanos = lightPackNanos;
         currentSceneFrame = built;
         return built;
     }
@@ -2298,6 +2608,27 @@ public final class RenderPipeline {
         return context == null ? scene.camera() : context.camera();
     }
 
+    @FunctionalInterface
+    public interface FogCameraPassExecutor {
+        void execute(com.kaleblangley.haikalat.core.graph.PassResources resources,
+                     CommandBuffer commands, ExternalCamera camera, VolumetricFogView fog);
+    }
+
+    /** Non-overlapping CPU benchmark sections from the most recent frame. */
+    public record BenchmarkCpuTiming(boolean available, long framePreparationNanos,
+                                     long lightPackAndRecordNanos, long graphRecordNanos,
+                                     long deviceSubmitNanos) {
+        public static final BenchmarkCpuTiming UNAVAILABLE = new BenchmarkCpuTiming(
+                false, 0L, 0L, 0L, 0L);
+
+        public BenchmarkCpuTiming {
+            if (framePreparationNanos < 0L || lightPackAndRecordNanos < 0L
+                    || graphRecordNanos < 0L || deviceSubmitNanos < 0L) {
+                throw new IllegalArgumentException("benchmark CPU timings must be non-negative");
+            }
+        }
+    }
+
     private ExternalCamera externalFrameCamera() {
         RenderFrameContext context = activeFrameContext;
         if (context != null) return context.camera();
@@ -2317,6 +2648,15 @@ public final class RenderPipeline {
     private int frameWidth() {
         RenderFrameContext context = activeFrameContext;
         return context == null ? Math.max(1, window.width()) : context.width();
+    }
+
+    private ExternalCamera fogRasterCamera() {
+        ExternalCamera stable=externalFrameCamera();
+        if (requireGeneration().volumetric == null) return stable;
+        var frame=temporalFrameState.current();
+        return new ExternalCamera(frame.view(),frame.jitteredProjection(),
+                new Matrix4f(frame.jitteredProjection()).mul(frame.view()),stable.position(),stable.partialTick(),
+                stable.nearPlane(),stable.farPlane(),stable.revision());
     }
 
     private int frameHeight() {

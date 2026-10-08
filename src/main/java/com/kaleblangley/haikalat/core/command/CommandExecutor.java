@@ -2,6 +2,8 @@ package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.GpuTimer;
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -9,6 +11,7 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.Texture3D;
 import com.kaleblangley.haikalat.backend.texture.TextureCube;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -47,6 +50,8 @@ final class CommandExecutor {
         Objects.requireNonNull(cache, "cache");
         boolean injectFailureAfterDraw = Boolean.getBoolean(
                 "haikalat.test.failShadowPassOnce");
+        boolean injectPartialVolumeFailure = Boolean.getBoolean("haikalat.test.failVolumePartialHistoryOnce");
+        int activeProgram = 0;
         int integerCursor = 0;
         int longCursor = 0;
         int objectCursor = 0;
@@ -61,7 +66,9 @@ final class CommandExecutor {
             for (int command = 0; command < stream.commandCount(); command++) {
                 byte opcode = stream.opcodeAt(command);
                 switch (opcode) {
-                case USE_PROGRAM -> cache.useProgram(stream.integerAt(integerCursor++));
+                case USE_PROGRAM -> {
+                    activeProgram=stream.integerAt(integerCursor++); cache.useProgram(activeProgram);
+                }
                 case BIND_VERTEX_ARRAY -> cache.bindVertexArray(stream.integerAt(integerCursor++));
                 case BIND_TEXTURE_2D -> cache.bindTexture2D(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
@@ -72,6 +79,23 @@ final class CommandExecutor {
                     TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
                     texture.ensureOpen();
                     cache.bindTextureCube(unit, texture.id());
+                }
+                case BIND_TEXTURE_3D -> {
+                    int unit = stream.integerAt(integerCursor++);
+                    Texture3D texture = (Texture3D) stream.objectAt(objectCursor++);
+                    texture.ensureOpen();
+                    cache.bindTexture3D(unit, texture.id());
+                }
+                case BIND_IMAGE_3D, BIND_IMAGE_3D_LAYER -> {
+                    int unit = stream.integerAt(integerCursor++);
+                    int level = stream.integerAt(integerCursor++);
+                    int layer = stream.integerAt(integerCursor++);
+                    int access = stream.integerAt(integerCursor++);
+                    int format = stream.integerAt(integerCursor++);
+                    Texture3D texture = (Texture3D) stream.objectAt(objectCursor++);
+                    texture.ensureOpen();
+                    cache.bindImageTexture(unit, texture.id(), level,
+                            opcode == BIND_IMAGE_3D, layer, access, format);
                 }
                 case BIND_FRAMEBUFFER -> cache.bindFramebuffer(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
@@ -112,19 +136,17 @@ final class CommandExecutor {
                     block.flush();
                     cache.bindUniformBufferRange(bindingPoint, buffer, 0L, size);
                 }
-                case BIND_UNIFORM_BUFFER -> {
+                case BIND_UNIFORM_BUFFER, BIND_STORAGE_BUFFER -> {
                     int bindingPoint = stream.integerAt(integerCursor++);
                     int buffer = stream.integerAt(integerCursor++);
                     long offset = stream.longAt(longCursor++);
                     long size = stream.longAt(longCursor++);
-                    cache.bindUniformBufferRange(bindingPoint, buffer, offset, size);
-                }
-                case BIND_STORAGE_BUFFER -> {
-                    int bindingPoint = stream.integerAt(integerCursor++);
-                    int buffer = stream.integerAt(integerCursor++);
-                    long offset = stream.longAt(longCursor++);
-                    long size = stream.longAt(longCursor++);
-                    cache.bindStorageBufferRange(bindingPoint, buffer, offset, size);
+                    BufferUploadTarget target = (BufferUploadTarget) stream.objectAt(objectCursor++);
+                    if (target instanceof GlResource resource && resource.isClosed()) {
+                        throw new GlException("Buffer is closed");
+                    }
+                    if (opcode == BIND_UNIFORM_BUFFER) cache.bindUniformBufferRange(bindingPoint, buffer, offset, size);
+                    else cache.bindStorageBufferRange(bindingPoint, buffer, offset, size);
                 }
                 case BIND_IMAGE -> cache.bindImageTexture(
                         stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
@@ -150,12 +172,25 @@ final class CommandExecutor {
                     cache.bindImageTexture(unit, texture.id(), mipLevel, true, 0, access, format);
                 }
                 case DISPATCH_COMPUTE -> {
-                    glDispatchCompute(stream.integerAt(integerCursor++),
-                            stream.integerAt(integerCursor++), stream.integerAt(integerCursor++));
+                    int x=stream.integerAt(integerCursor++), y=stream.integerAt(integerCursor++), z=stream.integerAt(integerCursor++);
+                    // Test-only backend fault: the recorder remains typed and the read history is untouched.
+                    // Uniform probes are completely absent from ordinary execution.
+                    boolean partial=injectPartialVolumeFailure && activeProgram!=0
+                            && org.lwjgl.opengl.GL20.glGetUniformLocation(activeProgram,"uCurrentSource")>=0
+                            && org.lwjgl.opengl.GL20.glGetUniformLocation(activeProgram,"uPreviousSource")>=0;
+                    glDispatchCompute(x,y,partial?1:z);
+                    if(partial) {
+                        System.clearProperty("haikalat.test.failVolumePartialHistoryOnce");
+                        glMemoryBarrier(org.lwjgl.opengl.GL42.GL_TEXTURE_UPDATE_BARRIER_BIT|org.lwjgl.opengl.GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+                        throw new GlException("injected volume failure after partial history write");
+                    }
                 }
                 case MEMORY_BARRIER -> {
                     glMemoryBarrier(stream.integerAt(integerCursor++));
                 }
+                case BLEND_EQUATION -> cache.blendEquation(stream.integerAt(integerCursor++));
+                case SAMPLE_SHADING -> cache.sampleShading(stream.integerAt(integerCursor++) != 0,
+                        Float.intBitsToFloat(stream.integerAt(integerCursor++)));
                 case GENERATE_CUBE_MIPMAPS -> {
                     TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
                     texture.ensureOpen();

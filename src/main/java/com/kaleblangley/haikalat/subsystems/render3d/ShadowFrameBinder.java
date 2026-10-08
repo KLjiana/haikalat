@@ -20,6 +20,12 @@ final class ShadowFrameBinder {
               Matrix4f directionalLightSpace, List<Matrix4f> cascadeMatrices,
               float[] cascadeSplits, DirectionalCascadeSettings cascadeSettings,
               ShadowFramePlan plan) {
+        bind(cmd,shader,camera,directionalLightSpace,cascadeMatrices,cascadeSplits,cascadeSettings,plan,false);
+    }
+    void bind(CommandBuffer cmd, ShaderProgram shader, Camera camera,
+              Matrix4f directionalLightSpace, List<Matrix4f> cascadeMatrices,
+              float[] cascadeSplits, DirectionalCascadeSettings cascadeSettings,
+              ShadowFramePlan plan,boolean fineFog) {
         Objects.requireNonNull(cmd, "cmd");
         Objects.requireNonNull(shader, "shader");
         Objects.requireNonNull(camera, "camera");
@@ -29,21 +35,22 @@ final class ShadowFrameBinder {
         Objects.requireNonNull(cascadeSettings, "cascadeSettings");
         Objects.requireNonNull(plan, "plan");
 
-        cmd.trySetUniformVec3(shader, "uCameraPosition", camera.position());
-        cmd.trySetUniformMat4(shader, "uDirectionalLightSpace", directionalLightSpace);
+        java.util.function.UnaryOperator<String> uniform=fineFog?VolumetricFogView::fineUniform:java.util.function.UnaryOperator.identity();
+        cmd.trySetUniformVec3(shader, uniform.apply("uCameraPosition"), camera.position());
+        cmd.trySetUniformMat4(shader, uniform.apply("uDirectionalLightSpace"), directionalLightSpace);
         int cascadeCount = Math.max(1, cascadeMatrices.size());
-        cmd.trySetUniformInt(shader, "uDirectionalCascadeCount", cascadeCount)
-                .trySetUniformFloat(shader, "uDirectionalCascadeBlendRange",
+        cmd.trySetUniformInt(shader, uniform.apply("uDirectionalCascadeCount"), cascadeCount)
+                .trySetUniformFloat(shader, uniform.apply("uDirectionalCascadeBlendRange"),
                         cascadeSettings.blendRange());
         for (int index = 0; index < 4; index++) {
             Matrix4f matrix = cascadeMatrices.isEmpty() ? directionalLightSpace
                     : cascadeMatrices.get(Math.min(index, cascadeMatrices.size() - 1));
             float split = cascadeSplits.length == 0 ? CameraProjection.FAR_PLANE
                     : cascadeSplits[Math.min(index, cascadeSplits.length - 1)];
-            cmd.trySetUniformMat4(shader, "uDirectionalCascadeMatrices[" + index + "]", matrix)
-                    .trySetUniformFloat(shader, "uDirectionalCascadeSplits[" + index + "]", split);
+            cmd.trySetUniformMat4(shader, uniform.apply("uDirectionalCascadeMatrices[" + index + "]"), matrix)
+                    .trySetUniformFloat(shader, uniform.apply("uDirectionalCascadeSplits[" + index + "]"), split);
         }
-        cmd.trySetUniformInt(shader, "uDirectionalShadowFrameLightIndex",
+        cmd.trySetUniformInt(shader, uniform.apply("uDirectionalShadowFrameLightIndex"),
                 plan.directional().map(ShadowFramePlan.DirectionalPlan::frameLightIndex)
                         .orElse(-1));
     }

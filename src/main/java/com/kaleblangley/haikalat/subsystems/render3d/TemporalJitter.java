@@ -39,14 +39,24 @@ final class TemporalJitter {
         int phase = frameIndex & 3;
         float jitterX = (phase & 1) == 0 ? -0.25f : 0.25f;
         float jitterY = (phase & 2) == 0 ? -0.25f : 0.25f;
-        projection.m20(projection.m20() + (jitterX * 2.0f / width));
-        projection.m21(projection.m21() + (jitterY * 2.0f / height));
+        float deltaX = jitterX * 2.0f / width;
+        float deltaY = jitterY * 2.0f / height;
+        // Translate clip XY by -delta * clip W. Perspective changes m20/m21;
+        // orthographic changes m30/m31, retaining a depth-independent offset.
+        projection.m00(projection.m00() - deltaX * projection.m03());
+        projection.m10(projection.m10() - deltaX * projection.m13());
+        projection.m20(projection.m20() - deltaX * projection.m23());
+        projection.m30(projection.m30() - deltaX * projection.m33());
+        projection.m01(projection.m01() - deltaY * projection.m03());
+        projection.m11(projection.m11() - deltaY * projection.m13());
+        projection.m21(projection.m21() - deltaY * projection.m23());
+        projection.m31(projection.m31() - deltaY * projection.m33());
     }
 
     /**
      * UV-space offset produced by the jittered projection relative to the
-     * stable projection.  Derived from clip = P * view with w = -view.z:
-     * NDC delta is {@code -delta.m20} / {@code -delta.m21}.
+     * stable projection. Clip XY is translated by -delta * clip W, so the
+     * NDC offset is independent of depth for both perspective and orthographic cameras.
      */
     static Vector2f uvOffset(AntiAliasingMode mode, int frameIndex, int width, int height,
                              Vector2f destination) {

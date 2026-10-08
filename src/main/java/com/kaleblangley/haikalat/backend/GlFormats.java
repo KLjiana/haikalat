@@ -4,6 +4,7 @@ package com.kaleblangley.haikalat.backend;
 import static org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24;
 import static org.lwjgl.opengl.GL30.GL_DEPTH24_STENCIL8;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
+import static org.lwjgl.opengl.GL30.GL_RGBA32F;
 import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.GL_R16F;
 import static org.lwjgl.opengl.GL30.GL_R32F;
@@ -21,6 +22,7 @@ public final class GlFormats {
             case RGBA8 -> GL_RGBA8;
             case SRGB8_ALPHA8 -> GL_SRGB8_ALPHA8;
             case RGBA16F -> GL_RGBA16F;
+            case RGBA32F -> GL_RGBA32F;
             case R8 -> GL_R8;
             case R16F -> GL_R16F;
             case RG16F -> GL_RG16F;

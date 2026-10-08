@@ -35,10 +35,21 @@ public final class RenderTargetManager implements AutoCloseable {
      */
     public Framebuffer createShared(String name, FramebufferDescriptor descriptor,
                                     Framebuffer depthSource) {
+        return createShared(name, descriptor, null, depthSource);
+    }
+
+    public Framebuffer createShared(String name, FramebufferDescriptor descriptor,
+                                    Framebuffer colorSource, Framebuffer depthSource) {
+        return createShared(name, descriptor, colorSource, depthSource, null);
+    }
+
+    public Framebuffer createShared(String name, FramebufferDescriptor descriptor,
+                                    Framebuffer colorSource, Framebuffer depthSource,
+                                    java.util.List<Integer> colorIndices) {
         ensureOpen();
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(descriptor, "descriptor");
-        Framebuffer candidate = Framebuffer.fromDescriptorSharingDepth(descriptor, depthSource);
+        Framebuffer candidate = Framebuffer.fromDescriptorSharingAttachments(descriptor, colorSource, depthSource, colorIndices);
         Framebuffer previous = targets.put(name, candidate);
         descriptors.put(name, descriptor);
         if (previous != null) previous.close();

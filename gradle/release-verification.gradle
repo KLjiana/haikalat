@@ -355,7 +355,73 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('shader.frag') == 'Runtime shader'
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
-        assert policies.size() == 24
+        // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
+        assert policies.size() == 37
+        def volumeProfileCold = policies.find { it.owner == 'render3d/volume-profile-cold' }
+        assert volumeProfileCold != null && volumeProfileCold.maximum == 18
+        assert volumeProfileCold.entry == '.*OutdoorEnvironmentGlTest.*'
+        def volumeProfileDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def volumeProfileMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 30 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-OutdoorEnvironmentGlTest.xml', volumeProfileDevice + volumeProfileMessage * 18, policies).violations.isEmpty()
+        assert !auditGlText('TEST-OutdoorEnvironmentGlTest.xml', volumeProfileDevice + volumeProfileMessage * 19, policies).violations.isEmpty()
+        def volumeSoakPolicy = policies.find { it.owner == 'render3d/volume-lifecycle-soak' }
+        assert volumeSoakPolicy != null && volumeSoakPolicy.id == 131218
+        assert volumeSoakPolicy.maximum == 8
+        assert volumeSoakPolicy.entry == '.*VolumetricLifecycleSoakGlTest.*'
+        String soakDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX 3050 Laptop GPU version=4.6.0 NVIDIA 576.88\n'
+        String soakSpecialization = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 18 is being recompiled based on GL state.\n'
+        String soakEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.VolumetricLifecycleSoakGlTest.xml'
+        assert auditGlText(soakEntry, soakDevice + soakSpecialization * 8, policies).violations.isEmpty()
+        assert !auditGlText(soakEntry, soakDevice + soakSpecialization * 9, policies).violations.isEmpty()
+        assert !auditGlText(soakEntry, soakDevice + 'OpenGL ERROR [HIGH] source=API id=42: unexpected', policies).violations.isEmpty()
+        def windColdPolicy = policies.find { it.owner == 'render3d/volume-wind-cold' }
+        def windSnapshotPolicy = policies.find { it.owner == 'render3d/volume-wind-staging' }
+        assert windColdPolicy.id == 131218 && windColdPolicy.maximum == 12
+        assert windSnapshotPolicy.id == 131186 && windSnapshotPolicy.maximum == 78
+        assert windColdPolicy.entry == '.*VolumetricWindGlTest.*'
+        assert windSnapshotPolicy.entry == '.*VolumetricWindGlTest.*'
+        String windEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.VolumetricWindGlTest.xml'
+        assert auditGlText(windEntry, soakDevice + soakSpecialization * 12, policies).violations.isEmpty()
+        assert !auditGlText(windEntry, soakDevice + soakSpecialization * 13, policies).violations.isEmpty()
+        def volumeReadbackPolicy=policies.find { it.owner == 'render3d/volume-quality-readback' && it.id == 131186 }
+        assert volumeReadbackPolicy != null && volumeReadbackPolicy.maximum == 160
+        assert volumeReadbackPolicy.entry == '.*runRender3dVolumetricFogQuality.*'
+        String volumeBufferReadback='OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX 3050 Laptop GPU version=4.6.0 NVIDIA 576.88\nOpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 is being copied/moved from VIDEO memory to HOST memory.'
+        assert auditGlText('runRender3dVolumetricFogQuality',volumeBufferReadback,policies).violations.isEmpty()
+        assert !auditGlText('runRender3dVolumetricFogBenchmarks',volumeBufferReadback,policies).violations.isEmpty()
+        assert !auditGlText(soakEntry, volumeBufferReadback, policies).violations.isEmpty()
+        def volumeSoakStagingPolicy = policies.find { it.owner == 'render3d/volume-lifecycle-soak-staging' }
+        assert volumeSoakStagingPolicy.id == 131186 && volumeSoakStagingPolicy.maximum == 200
+        assert volumeSoakStagingPolicy.entry == '.*VolumetricLifecycleSoakGlTest.*'
+        String soakStaging = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=36663 (bound to NONE, usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        assert auditGlText(soakEntry, soakDevice + soakStaging * 200, policies).violations.isEmpty()
+        assert !auditGlText(soakEntry, soakDevice + soakStaging * 201, policies).violations.isEmpty()
+        assert auditGlText(windEntry, soakDevice + soakStaging * 78, policies).violations.isEmpty()
+        assert !auditGlText(windEntry, soakDevice + soakStaging * 79, policies).violations.isEmpty()
+        assert !auditGlText(windEntry, volumeBufferReadback, policies).violations.isEmpty()
+
+        def townColdPolicy = policies.find { it.owner == 'render3d/volume-town-cold' }
+        def townStagingPolicy = policies.find { it.owner == 'render3d/volume-town-staging' }
+        assert townColdPolicy.id == 131218 && townColdPolicy.maximum == 6
+        assert townStagingPolicy.id == 131186 && townStagingPolicy.maximum == 3
+        assert townColdPolicy.entry == '.*VolumetricTownLampGlTest.*'
+        assert townStagingPolicy.entry == '.*VolumetricTownLampGlTest.*'
+        String townEntry = 'TEST-com.kaleblangley.haikalat.demo.pbr.VolumetricTownLampGlTest.xml'
+        assert auditGlText(townEntry, soakDevice + soakSpecialization * 6 + soakStaging * 3, policies).violations.isEmpty()
+        assert !auditGlText(townEntry, soakDevice + soakSpecialization * 7, policies).violations.isEmpty()
+        assert !auditGlText(townEntry, soakDevice + soakStaging * 4, policies).violations.isEmpty()
+        assert !auditGlText(townEntry, volumeBufferReadback, policies).violations.isEmpty()
+        assert !auditGlText(townEntry, soakDevice + 'OpenGL ERROR [HIGH] source=API id=42: unexpected', policies).violations.isEmpty()
+
+        def temporalBufferPolicy=policies.find { it.owner == 'render3d/volume-temporal-readback' && it.id == 131186 }
+        def temporalPixelPolicy=policies.find { it.owner == 'render3d/volume-temporal-readback' && it.id == 131154 }
+        assert temporalBufferPolicy.maximum == 4*7*36
+        assert temporalPixelPolicy.maximum == 4*7*36+4*4*193
+        String migrationLine=volumeBufferReadback.substring(volumeBufferReadback.indexOf('\n')+1)
+        String deviceLine=volumeBufferReadback.substring(0,volumeBufferReadback.indexOf('\n')+1)
+        assert auditGlText('runRender3dVolumetricFogQualityTemporal',deviceLine+(migrationLine+'\n')*1008,policies).violations.isEmpty()
+        assert !auditGlText('runRender3dVolumetricFogQualityTemporal',deviceLine+(migrationLine+'\n')*1009,policies).violations.isEmpty()
+        assert !auditGlText('runRender3dVolumetricFogQuality',deviceLine+(migrationLine+'\n')*161,policies).violations.isEmpty()
         def clusteredReadbackPolicy = policies.find { it.owner == 'render3d/clustered' && it.id == 131186 }
         assert clusteredReadbackPolicy != null
         assert clusteredReadbackPolicy.entry.contains('ClusterAssignmentGlTest')
@@ -368,23 +434,38 @@ tasks.register('releaseVerificationContracts') {
             it.owner == 'render3d/clustered' && it.id == 131154
                     && it.entry.contains('runRender3dClusteredQuality')
         } != null
-        def outdoorStabilityPolicy = policies.find { it.owner == 'render3d/outdoor-stability' }
-        assert outdoorStabilityPolicy != null
-        assert outdoorStabilityPolicy.entry == '.*runOutdoorEnvironmentStabilityIntegration.*'
-        assert outdoorStabilityPolicy.id == 131218
-        assert outdoorStabilityPolicy.maximum == 512
-        def outdoorCapturePolicy = policies.find { it.owner == 'render3d/capture' }
-        assert outdoorCapturePolicy != null
-        assert outdoorCapturePolicy.entry == '.*runOutdoorEnvironmentCapture.*'
-        assert outdoorCapturePolicy.id == 131154
-        assert outdoorCapturePolicy.maximum == 1
-        assert outdoorCapturePolicy.severity == 'MEDIUM'
-        assert outdoorCapturePolicy.source == 'API'
-        assert outdoorCapturePolicy.type == 'PERFORMANCE'
+        assert !policies.any { it.entry.contains('runOutdoorEnvironment') || it.entry.contains('localOutdoorVerification') }
+        def visualBaselinePolicy = policies.find { it.owner == 'render3d/visual-baseline' }
+        assert visualBaselinePolicy != null
+        assert visualBaselinePolicy.entry ==
+                '.*runRender3d((ForestMorning|ForestDusk|TownNight)(Baseline|FogOffBaseline|BloomOffBaseline|GrayModelBaseline)|VolumetricProfileUiSmoke).*'
+        assert visualBaselinePolicy.id == 131154
+        assert visualBaselinePolicy.maximum == 6
+        def visualBaselineShaderPolicy = policies.find {
+            it.owner == 'render3d/visual-baseline-shader'
+        }
+        assert visualBaselineShaderPolicy != null
+        assert visualBaselineShaderPolicy.entry ==
+                '.*runRender3dTownNight(Baseline|FogOffBaseline|BloomOffBaseline|GrayModelBaseline).*'
+        assert visualBaselineShaderPolicy.id == 131218
+        assert visualBaselineShaderPolicy.maximum == 8
+        def visualDiagnosticPolicy = policies.find { it.owner == 'render3d/visual-diagnostics' }
+        assert visualDiagnosticPolicy != null
+        assert visualDiagnosticPolicy.id == 131154
+        assert visualDiagnosticPolicy.maximum == 9
+        assert visualDiagnosticPolicy.entry == '.*runRender3d(Town(LightCount|Overflow|ShadowSlot)Diagnostic).*'
+        def townDiagnosticShaderPolicy = policies.find {
+            it.owner == 'render3d/visual-diagnostics-shader'
+        }
+        assert townDiagnosticShaderPolicy != null
+        assert townDiagnosticShaderPolicy.id == 131218
+        assert townDiagnosticShaderPolicy.maximum == 8
         def captureReadback = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n' +
                 'OpenGL PERFORMANCE [MEDIUM] source=API id=131154: Pixel transfer is synchronized with 3D rendering.'
-        assert auditGlText('runOutdoorEnvironmentCapture', captureReadback, policies).violations.isEmpty()
-        assert !auditGlText('runOutdoorEnvironmentBenchmarks', captureReadback, policies).violations.isEmpty()
+        assert auditGlText('runRender3dForestMorningBaseline', captureReadback, policies).violations.isEmpty()
+        assert auditGlText('runRender3dTownLightCountDiagnostic', captureReadback,
+                policies).violations.isEmpty()
+        assert !auditGlText('runRender3dVolumetricFogBenchmarks', captureReadback, policies).violations.isEmpty()
         def textBenchmarkPolicy = policies.find { it.owner == 'text/rendering' }
         assert textBenchmarkPolicy != null
         assert textBenchmarkPolicy.id == 131218
@@ -442,13 +523,7 @@ tasks.register('releaseVerificationContracts') {
         assert gtaoPixelPolicy.source == 'API'
         assert gtaoPixelPolicy.type == 'PERFORMANCE'
         assert gtaoPixelPolicy.maximum == 12
-        def outdoorPolicy = policies.find {
-            it.owner == 'render3d/outdoor'
-        }
-        assert outdoorPolicy != null
-        assert outdoorPolicy.id == 131218
-        assert outdoorPolicy.severity == 'MEDIUM'
-        assert outdoorPolicy.maximum == 128
+        assert !policies.any { it.owner == 'render3d/outdoor' }
         assert gtaoPixelPolicy.expiry == LocalDate.of(2027, 2, 20)
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
                 'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
@@ -478,12 +553,6 @@ tasks.register('releaseVerificationContracts') {
                         + 'Program/shader state performance warning: Vertex shader in program 12 '
                         + 'is being recompiled based on GL state, and was not found in the disk cache', policies)
         assert allowedGtao.violations.isEmpty()
-        def allowedOutdoor = auditGlText('runOutdoorEnvironmentIntegration',
-                'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
-                        + 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: '
-                        + 'Program/shader state performance warning: Vertex shader in program 12 '
-                        + 'is being recompiled based on GL state, and was not found in the disk cache', policies)
-        assert allowedOutdoor.violations.isEmpty()
         def rejected = auditGlText('runUnknownIntegration',
                 'OpenGL PERFORMANCE [MEDIUM] source=API id=424242: unknown', policies)
         assert rejected.violations.size() == 1
@@ -492,15 +561,17 @@ tasks.register('releaseVerificationContracts') {
     }
 }
 
-tasks.named('glSmoke', Test) { Test smoke ->
-    inputs.file glPolicyFile
-    doLast {
-        Map<String, File> reportFiles = [:]
-        fileTree(smoke.reports.junitXml.outputLocation.get().asFile).matching { include '*.xml' }
-                .files.each { reportFiles[it.name] = it }
-        def audit = auditGlFiles(reportFiles)
-        if (!audit.violations.isEmpty()) {
-            throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
+['glSmoke', 'runRender3dVolumetricFogLifecycleSoak', 'runRender3dVolumetricFogWindIntegration', 'runRender3dVolumetricTownIntegration'].each { String name ->
+    tasks.named(name, Test) { Test smoke ->
+        inputs.file glPolicyFile
+        doLast {
+            Map<String, File> reportFiles = [:]
+            fileTree(smoke.reports.junitXml.outputLocation.get().asFile).matching { include '*.xml' }
+                    .files.each { reportFiles[it.name] = it }
+            def audit = auditGlFiles(reportFiles)
+            if (!audit.violations.isEmpty()) {
+                throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
+            }
         }
     }
 }
@@ -541,7 +612,7 @@ tasks.withType(JavaExec).configureEach { JavaExec integration ->
 
 def glPolicyProducerTasks = {
     Set<Task> visited = new LinkedHashSet<>()
-    List<Task> pending = ['localGlVerification', 'localOutdoorVerification',
+    List<Task> pending = ['localGlVerification', 'runRender3dVolumetricFogIntegration',
                           'runSceneSubmissionStaticBenchmarks',
                           'runPreviewBenchmarks', 'runRender3dGtaoBenchmarks']
             .collect { tasks.named(it).get() }
@@ -1106,7 +1177,12 @@ def releaseReadinessEntries = ['releaseGitGuard', 'releaseMetadataGuard', 'asset
                                'runRender3dGtaoIntegration', 'runRender3dGtaoBenchmarks',
                                'runRender3dTemporalIntegration', 'runRender3dTemporalDemoIntegration',
                                'runRender3dTemporalBenchmarks', 'runRender3dTemporalQuality',
-                               'localOutdoorVerification',
+                               'runRender3dVolumetricFogIntegration',
+                               'runRender3dMeasurementIntegration',
+                               'runRender3dVisualProfileIntegration',
+                               'runRender3dVisualBaselineQuality',
+                               'runRender3dClusteredBenchmarks',
+                               'localRender3dV0243Verification',
                                'localReleaseVerification',
                                'runSceneSubmissionStaticBenchmarks', 'runSceneSubmissionStaticGate',
                                'glDebugPolicyGuard',

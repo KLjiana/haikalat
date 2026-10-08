@@ -2,6 +2,8 @@ package com.kaleblangley.haikalat.core.command;
 
 import com.kaleblangley.haikalat.backend.GpuTimer;
 import com.kaleblangley.haikalat.backend.GlFormats;
+import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.UniformBlock;
 import com.kaleblangley.haikalat.backend.buffer.BufferUploadTarget;
@@ -11,6 +13,7 @@ import com.kaleblangley.haikalat.backend.state.StateCache;
 import com.kaleblangley.haikalat.backend.sync.GpuFenceTarget;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.Texture3D;
 import com.kaleblangley.haikalat.backend.texture.TextureCube;
 import com.kaleblangley.haikalat.backend.texture.ImageAccess;
 import com.kaleblangley.haikalat.core.BlendMode;
@@ -86,6 +89,11 @@ public final class CommandBuffer {
     static final byte UNIFORM_MAT4_PRIMITIVE = 51;
     static final byte UPLOAD_BUFFER_REGION = 52;
     static final byte PREPARE_INSTANCED_BATCH_PERSISTENT = 53;
+    static final byte BIND_TEXTURE_3D = 54;
+    static final byte BIND_IMAGE_3D = 55;
+    static final byte BIND_IMAGE_3D_LAYER = 56;
+    static final byte SAMPLE_SHADING = 57;
+    static final byte BLEND_EQUATION = 58;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -122,6 +130,23 @@ public final class CommandBuffer {
         integer(unit);
         integer(texture);
         return this;
+    }
+
+    /** Controls per-sample fragment evaluation; callers restore it after their draw. */
+    public CommandBuffer sampleShading(boolean enabled, float minimumFraction) {
+        if (!Float.isFinite(minimumFraction) || minimumFraction < 0 || minimumFraction > 1)
+            throw new IllegalArgumentException("minimum sample shading must be in [0, 1]");
+        flushPendingState();
+        opcode(SAMPLE_SHADING); integer(enabled ? 1 : 0); integer(floatBits(minimumFraction));
+        return this;
+    }
+    /** Applies the same blend equation to RGB and alpha. */
+    public CommandBuffer blendEquation(int equation) {
+        if (equation!=org.lwjgl.opengl.GL14.GL_FUNC_ADD && equation!=org.lwjgl.opengl.GL14.GL_FUNC_SUBTRACT
+                && equation!=org.lwjgl.opengl.GL14.GL_FUNC_REVERSE_SUBTRACT
+                && equation!=org.lwjgl.opengl.GL14.GL_MIN && equation!=org.lwjgl.opengl.GL14.GL_MAX)
+            throw new IllegalArgumentException("unsupported blend equation");
+        flushPendingState(); opcode(BLEND_EQUATION); integer(equation); return this;
     }
 
     public CommandBuffer bindFramebuffer(int target, int fbo) {
@@ -197,6 +222,56 @@ public final class CommandBuffer {
         return bindTextureCube(unit, texture, null);
     }
 
+    /** Records a 3D sampler binding with record-time and execution-time lifecycle checks. */
+    public CommandBuffer bindTexture3D(int unit, Texture3D texture, Sampler sampler) {
+        Objects.requireNonNull(texture, "texture").ensureOpen();
+        if (unit < 0) throw new IllegalArgumentException("texture unit must be non-negative");
+        if (sampler != null) sampler.ensureOpen();
+        opcode(BIND_TEXTURE_3D);
+        integer(unit);
+        object(texture);
+        if (sampler == null) {
+            opcode(BIND_SAMPLER);
+            integer(unit);
+            integer(0);
+        } else {
+            bindSampler(unit, sampler);
+        }
+        return this;
+    }
+
+    public CommandBuffer bindTexture3D(int unit, Texture3D texture) {
+        return bindTexture3D(unit, texture, null);
+    }
+
+    /** Binds the entire 3D volume as a layered image3D. */
+    public CommandBuffer bindImageTexture(int unit, Texture3D texture, int mipLevel,
+                                          ImageAccess access, RenderFormat format) {
+        return bindImage3D(BIND_IMAGE_3D, unit, texture, mipLevel, 0, access, format);
+    }
+
+    /** Binds one Z layer as a non-layered image2D; it cannot be used as image3D. */
+    public CommandBuffer bindImageTextureLayer(int unit, Texture3D texture, int mipLevel, int layer,
+                                               ImageAccess access, RenderFormat format) {
+        return bindImage3D(BIND_IMAGE_3D_LAYER, unit, texture, mipLevel, layer, access, format);
+    }
+
+    private CommandBuffer bindImage3D(byte command, int unit, Texture3D texture, int mipLevel, int layer,
+                                       ImageAccess access, RenderFormat format) {
+        Objects.requireNonNull(texture, "texture").ensureOpen();
+        Objects.requireNonNull(access, "access");
+        Objects.requireNonNull(format, "format");
+        if (unit < 0 || mipLevel != 0 || layer < 0 || layer >= texture.depth()) {
+            throw new IllegalArgumentException("invalid 3D image unit/level/layer");
+        }
+        if (texture.format() != format) throw new IllegalArgumentException("3D image format must match storage format");
+        opcode(command);
+        integer(unit); integer(mipLevel); integer(layer);
+        integer(access.glValue()); integer(GlFormats.toGl(format));
+        object(texture);
+        return this;
+    }
+
     /**
      * 记录正式的动态纹理 region upload 边界。
      *
@@ -266,25 +341,35 @@ public final class CommandBuffer {
     public CommandBuffer bindUniformBuffer(int bindingPoint, BufferUploadTarget buffer,
                                            long offsetBytes, long sizeBytes) {
         Objects.requireNonNull(buffer, "buffer");
+        requireOpenBuffer(buffer);
         validateBufferRange(bindingPoint, offsetBytes, sizeBytes, "uniform");
         opcode(BIND_UNIFORM_BUFFER);
         integer(bindingPoint);
         integer(buffer.id());
         longValue(offsetBytes);
         longValue(sizeBytes);
+        object(buffer);
         return this;
     }
 
     public CommandBuffer bindStorageBuffer(int bindingPoint, BufferUploadTarget buffer,
                                            long offsetBytes, long sizeBytes) {
         Objects.requireNonNull(buffer, "buffer");
+        requireOpenBuffer(buffer);
         validateBufferRange(bindingPoint, offsetBytes, sizeBytes, "shader storage");
         opcode(BIND_STORAGE_BUFFER);
         integer(bindingPoint);
         integer(buffer.id());
         longValue(offsetBytes);
         longValue(sizeBytes);
+        object(buffer);
         return this;
+    }
+
+    private static void requireOpenBuffer(BufferUploadTarget buffer) {
+        if (buffer instanceof GlResource resource && resource.isClosed()) {
+            throw new GlException("Buffer is closed");
+        }
     }
 
     public CommandBuffer bindImage(int unit, Texture2D texture, int level,

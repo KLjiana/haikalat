@@ -63,6 +63,7 @@ final class ForwardPassBuilder {
         String surfaceDepthName = multisampledSurface
                 ? PostProcessTargets.SCENE_DEPTH_MS : PostProcessTargets.SCENE_DEPTH;
         if (surfacePass) {
+            boolean depthOnly=depthOnlyFogSurface(topology);
             java.util.List<String> surfaceColors = multisampledSurface
                     ? java.util.List.of(PostProcessTargets.SCENE_NORMAL_MS,
                     PostProcessTargets.SCENE_VELOCITY_MS,
@@ -75,7 +76,10 @@ final class ForwardPassBuilder {
             java.util.List<RenderFormat> surfaceFormats = java.util.List.of(
                     RenderFormat.RG16F, RenderFormat.RG16F, RenderFormat.R32F, RenderFormat.R8);
             RenderGraph.PassBuilder surface = graph.addPass(PostProcessTargets.SCENE_SURFACE_PASS);
-            if (multisampledSurface) {
+            if (depthOnly) {
+                if (multisampledSurface) surface.createDepthTextureMS(surfaceDepthName,Math.max(2,settings.msaaSamples()));
+                else surface.createDepthTexture(surfaceDepthName);
+            } else if (multisampledSurface) {
                 surface.createColorsMS(surfaceColors, surfaceFormats,
                         Math.max(2, settings.msaaSamples()));
             } else {
@@ -91,15 +95,16 @@ final class ForwardPassBuilder {
             if (hasSpotShadow) surface.dependsOn(SpotShadowAtlas.PASS_NAME);
             surface.execute(surfaceExecutor);
             if (multisampledSurface) {
-                graph.addPass(PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS)
-                        .createColors(java.util.List.of(PostProcessTargets.SCENE_NORMAL,
+                RenderGraph.PassBuilder resolve=graph.addPass(PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS);
+                if (depthOnly) resolve.createColor(PostProcessTargets.SCENE_DEPTH,RenderFormat.R32F);
+                else resolve.createColors(java.util.List.of(PostProcessTargets.SCENE_NORMAL,
                                         PostProcessTargets.SCENE_VELOCITY,
                                         PostProcessTargets.SCENE_PREVIOUS_DEPTH,
                                         PostProcessTargets.SCENE_VALIDITY,
                                         PostProcessTargets.SCENE_DEPTH),
                                 java.util.List.of(RenderFormat.RG16F, RenderFormat.RG16F,
-                                        RenderFormat.R32F, RenderFormat.R8, RenderFormat.R32F))
-                        .noClear()
+                                        RenderFormat.R32F, RenderFormat.R8, RenderFormat.R32F));
+                resolve.noClear()
                         .dependsOn(PostProcessTargets.SCENE_SURFACE_PASS)
                         .execute(surfaceResolveExecutor);
             }
@@ -108,8 +113,9 @@ final class ForwardPassBuilder {
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
         RenderFormat sceneFormat = sceneColorFormat(settings);
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
-            geometry.createColorMS(PostProcessTargets.SCENE_COLOR, sceneFormat,
-                    Math.max(2, settings.msaaSamples()));
+            if (topology.volumetricFog()) geometry.createColorsMS(java.util.List.of(PostProcessTargets.SCENE_COLOR),
+                    java.util.List.of(sceneFormat),Math.max(2,settings.msaaSamples()));
+            else geometry.createColorMS(PostProcessTargets.SCENE_COLOR, sceneFormat,Math.max(2, settings.msaaSamples()));
         } else {
             geometry.createColor(PostProcessTargets.SCENE_COLOR, sceneFormat);
         }
@@ -132,7 +138,9 @@ final class ForwardPassBuilder {
         }
         if (hasPointShadow) geometry.dependsOn(PointShadowAtlas.PASS_NAME);
         if (hasSpotShadow) geometry.dependsOn(SpotShadowAtlas.PASS_NAME);
-        geometry.dependsOn(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS);
+        geometry.dependsOn(graph.hasPass(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS)
+                ? ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS
+                : ClusteredLightingPassBuilder.LIGHT_UPLOAD_PASS);
         if (topology.gtaoEnabled()) {
             geometry.dependsOn(PostProcessTargets.GTAO_UPSAMPLE_PASS);
         }
@@ -141,5 +149,11 @@ final class ForwardPassBuilder {
 
     static RenderFormat sceneColorFormat(RenderSettings settings) {
         return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.SRGB8_ALPHA8;
+    }
+
+    static boolean depthOnlyFogSurface(PipelineTopology topology) {
+        return topology.volumetricFog() && !topology.sceneBuffers().requires(SceneBufferChannel.NORMAL)
+                && !topology.sceneBuffers().requires(SceneBufferChannel.VELOCITY)
+                && !topology.sceneBuffers().requires(SceneBufferChannel.VALIDITY);
     }
 }

@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
+import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,6 +82,38 @@ public final class DirectionalCascadePlan {
 
     public List<Cascade> cascades() {
         return cascades;
+    }
+
+    /** Standard orthographic/asymmetric camera fitting, including the camera's orientation. */
+    static DirectionalCascadePlan fromCamera(ExternalCamera camera, Vector3fc lightDirection,
+                                             float far, int count, float lambda, int resolution) {
+        float near = camera.nearPlane();
+        if (!Float.isFinite(far) || far <= near) throw new IllegalArgumentException("CSM distance must exceed camera near");
+        Matrix4f inverseProjection = camera.inverseProjection(), inverseView = camera.inverseView();
+        boolean perspective = Math.abs(camera.projection().m33()) < 0.00001f;
+        Vector3f direction = finite(lightDirection,"lightDirection").normalize();
+        List<Cascade> result = new ArrayList<>(count);
+        float start = near;
+        for (int index=0;index<count;index++) {
+            float ratio=(index+1f)/count;
+            float end=index==count-1 ? far : lambda*near*(float)Math.pow(far/near,ratio)+(1-lambda)*(near+(far-near)*ratio);
+            Vector3f[] corners = new Vector3f[8]; Vector3f center = new Vector3f();
+            for (int corner=0;corner<8;corner++) {
+                Vector4f projected=inverseProjection.transform(new Vector4f((corner&1)==0?-1:1,(corner&2)==0?-1:1,-1,1));
+                projected.div(projected.w);
+                float depth=(corner&4)==0 ? start : end;
+                Vector3f point=perspective ? new Vector3f(projected.x,projected.y,projected.z).mul(depth/-projected.z)
+                        : new Vector3f(projected.x,projected.y,-depth);
+                corners[corner]=inverseView.transformPosition(point);center.add(point);
+            }
+            center.div(8);float radius=0;
+            for (Vector3f corner:corners) radius=Math.max(radius,corner.distance(center));
+            radius=(float)Math.ceil(radius*16)/16;
+            float texel=2*radius/resolution;
+            result.add(new Cascade(index,start,end,radius,texel,stabilizedMatrix(center,direction,radius,texel)));
+            start=end;
+        }
+        return new DirectionalCascadePlan(result);
     }
 
     public int select(float positiveViewDepth) {

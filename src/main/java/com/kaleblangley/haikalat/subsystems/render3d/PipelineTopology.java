@@ -34,13 +34,16 @@ record PipelineTopology(int width,
                         boolean gtaoEnabled,
                         int gtaoHalfWidth,
                         int gtaoHalfHeight,
-                        SceneBufferRequirements sceneBuffers) {
+                        SceneBufferRequirements sceneBuffers,
+                        boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                        boolean volumetricEmission) {
     PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
         }
         Objects.requireNonNull(antiAliasingMode, "antiAliasingMode");
         Objects.requireNonNull(sceneBuffers, "sceneBuffers");
+        Objects.requireNonNull(volumetricQuality, "volumetricQuality");
         if (sampleCount < 1) {
             throw new IllegalArgumentException("pipeline topology sample count must be positive");
         }
@@ -76,6 +79,14 @@ record PipelineTopology(int width,
                                     boolean hdrVfx, boolean embedded,
                                     DirectionalCascadeSettings cascades,
                                     LocalShadowPipelineSettings localShadows) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, VolumetricFogSettings.disabled());
+    }
+
+    static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -113,7 +124,12 @@ record PipelineTopology(int width,
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
                 effects.gtao().enabled(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
-                sceneBufferRequirements(scene, settings, effects, samples, hdrVfx));
+                sceneBufferRequirements(scene, settings, effects, samples, hdrVfx)
+                        .merge(volume.enabled() ? SceneBufferRequirements.fog().withSamples(samples) : SceneBufferRequirements.none())
+                        .merge(volume.enabled() && settings.antiAliasingMode() == AntiAliasingMode.TAA
+                                ? SceneBufferRequirements.of(SceneBufferChannel.REACTIVE).withSamples(samples) : SceneBufferRequirements.none()),
+                volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
+                volume.enabled() && volume.hasEmission());
     }
 
     private static SceneBufferRequirements sceneBufferRequirements(Scene scene,
@@ -161,6 +177,7 @@ record PipelineTopology(int width,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
-                gtaoEnabled, (width + 1) / 2, (height + 1) / 2, sceneBuffers);
+                gtaoEnabled, (width + 1) / 2, (height + 1) / 2, sceneBuffers,
+                volumetricFog, volumetricQuality, volumetricEmission);
     }
 }

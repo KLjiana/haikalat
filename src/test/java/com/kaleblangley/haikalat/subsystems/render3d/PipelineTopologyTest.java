@@ -40,7 +40,7 @@ class PipelineTopologyTest {
                 DirectionalCascadeSettings.disabled()));
         assertNotEquals(base, PipelineTopology.capture(
                 scene, settings, effects, 1280, 720, false, false,
-                new DirectionalCascadeSettings(4, 4096, 0.6f, 0.08f)));
+                new DirectionalCascadeSettings(4, 4096, 0.6f, 0.08f, Float.MAX_VALUE)));
 
         scene.addLight(SceneLight.shadowedPoint(new Vector3f(), new Vector3f(1.0f), 1.0f, 10.0f));
         PipelineTopology shadowed = PipelineTopology.capture(

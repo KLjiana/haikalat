@@ -65,6 +65,7 @@ public final class ShaderProgram implements GlResource {
     private static final int RECENT_UNIFORM_SET_COUNT = 32;
     private final int id;
     private final Set<ShaderStage> stages;
+    private Map<ShaderStage, SourceUnit> sourceUnits = Map.of();
     private final long resourceSequence;
     private final Map<String, Integer> uniformLocations = new HashMap<>();
     private final Map<String, Integer> uniformBlockIndices = new HashMap<>();
@@ -129,6 +130,24 @@ public final class ShaderProgram implements GlResource {
 
     public boolean isCompute() {
         return stages.size() == 1 && stages.contains(ShaderStage.COMPUTE);
+    }
+
+    /** Derives a caller-owned graphics program, preserving every original non-fragment stage. */
+    public ShaderProgram withFragmentPrelude(String requiredContractMarker, String prelude) {
+        ensureOpen();
+        SourceUnit fragment = sourceUnits.get(ShaderStage.FRAGMENT);
+        if (fragment == null || !fragment.source().contains(Objects.requireNonNull(requiredContractMarker)))
+            throw new IllegalArgumentException("fragment shader does not declare contract " + requiredContractMarker);
+        String source = fragment.source();
+        int versionEnd = source.indexOf('\n');
+        if (!source.stripLeading().startsWith("#version") || versionEnd < 0)
+            throw new IllegalArgumentException("fragment variant requires an explicit first-line GLSL version");
+        EnumMap<ShaderStage, SourceUnit> candidate = new EnumMap<>(ShaderStage.class);
+        candidate.putAll(sourceUnits);
+        candidate.put(ShaderStage.FRAGMENT, new SourceUnit(source.substring(0, versionEnd + 1)
+                + Objects.requireNonNull(prelude) + "\n" + source.substring(versionEnd + 1),
+                fragment.debugName() + " contract variant"));
+        return link(candidate);
     }
 
     public ShaderProgram use() {
@@ -417,7 +436,9 @@ public final class ShaderProgram implements GlResource {
                 throw new GlException("Program link failed for " + sources.keySet() + ":\n"
                         + glGetProgramInfoLog(program));
             }
-            return new ShaderProgram(program, sources.keySet());
+            ShaderProgram result = new ShaderProgram(program, sources.keySet());
+            result.sourceUnits = Map.copyOf(sources);
+            return result;
         } catch (RuntimeException error) {
             glDeleteProgram(program);
             throw error;

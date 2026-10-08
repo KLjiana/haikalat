@@ -1,4 +1,5 @@
 #version 460 core
+// HAIKALAT_VOLUME_FOG_CONTRACT
 
 #define POINT_SHADOW_FACE_COUNT 6
 
@@ -23,6 +24,7 @@ layout(std430, binding = 3) readonly buffer ClusterIndicesBlock {
     uint uClusterIndices[];
 };
 
+#ifndef HAIKALAT_VOLUME_FOG
 layout(std140, binding = 5) uniform ShadowSamplingBlock {
     ivec4 uPointShadowMeta[2];
     mat4 uPointSlotMatrices[2 * POINT_SHADOW_FACE_COUNT];
@@ -32,6 +34,7 @@ layout(std140, binding = 5) uniform ShadowSamplingBlock {
     vec4 uSpotTileRects[4];
     ivec4 uShadowQualityMeta;
 };
+#endif
 
 layout(std140, binding = 6) uniform ClusterParametersBlock {
     mat4 uStableView;
@@ -59,9 +62,11 @@ uniform sampler2D uNormalMap;
 uniform sampler2D uMetallicRoughnessMap;
 uniform sampler2D uOcclusionMap;
 uniform sampler2D uEmissiveMap;
+#ifndef HAIKALAT_VOLUME_FOG
 uniform sampler2D uShadowMap;
 uniform sampler2D uPointShadowMap;
 uniform sampler2D uSpotShadowMap;
+#endif
 uniform samplerCube uIrradianceMap;
 uniform samplerCube uPrefilteredMap;
 uniform sampler2D uBrdfLut;
@@ -475,4 +480,7 @@ void main() {
     vec3 emissive = texture(uEmissiveMap, vTexCoord).rgb * uEmissiveFactor;
     FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)),
             uAlphaMode == 2 ? baseSample.a : 1.0);
+#ifdef HAIKALAT_VOLUME_FOG
+    FragColor = volumeFogSurface(FragColor, vWorldPosition, uVolumeAdditive != 0);
+#endif
 }

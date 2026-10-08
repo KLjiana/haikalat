@@ -311,8 +311,8 @@ class RenderPipelineTest {
 
     @Test
     void cameraUniformsAppliesJitterOnlyForTaa() {
-        Matrix4f none = new Matrix4f();
-        Matrix4f taa = new Matrix4f();
+        Matrix4f none = new Matrix4f().perspective(1.0f, 1.0f, 0.1f, 100.0f);
+        Matrix4f taa = new Matrix4f(none);
 
         CameraUniforms.applyTemporalJitter(none, 100, 100, AntiAliasingMode.FXAA, 0);
         CameraUniforms.applyTemporalJitter(taa, 100, 100, AntiAliasingMode.TAA, 0);

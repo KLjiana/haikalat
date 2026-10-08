@@ -3,7 +3,6 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
-import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
 /**
  * Candidate-first, double-buffered GTAO history.  The read buffer is never
@@ -38,15 +37,11 @@ final class GtaoHistory implements AutoCloseable {
         staged = false;
     }
 
-    void stage(CommandBuffer commands, Framebuffer source) {
+    void stageRendered(Framebuffer target) {
         ensureOpen();
-        if (source == null || source.width() != writeFramebuffer().width()
-                || source.height() != writeFramebuffer().height()) {
-            throw new IllegalArgumentException("GTAO history source extent does not match half resolution");
+        if (target != writeFramebuffer()) {
+            throw new IllegalArgumentException("GTAO temporal output must use the candidate history target");
         }
-        commands.blitColor(source, writeFramebuffer())
-                .bindFramebuffer(source)
-                .viewport(0, 0, source.width(), source.height());
         staged = true;
     }
 

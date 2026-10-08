@@ -26,6 +26,30 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class SceneReactiveGlTest {
     @Test
+    void overlappingDeclarationsMergeWithMaxAndKeepTheirUnitIntervalMeaning() {
+        try(var window=new GlfwWindow.Builder().dimensions(32,32).title("Reactive max merge").visible(false).build()) {
+            window.bindContext();GL.createCapabilities();
+            try(var shader=ShaderProgram.fromResource(getClass(),"/shaders/render3d/surface/scene-surface.vert","/shaders/render3d/surface/scene-reactive.frag");
+                var mesh=Mesh.from(BuiltinMeshData.texturedQuad("reactive-max"));
+                var target=Framebuffer.fromDescriptor(FramebufferDescriptor.builder(32,32).colorTexture(RenderFormat.R8).build());
+                var cameraUniforms=new CameraUniforms();var pass=new SceneReactivePass();
+                var material=Material.builder(shader).temporalReactive(.6f).build()) {
+                var camera=new Camera(new Vector3f(0,0,5));var scene=new Scene(camera);
+                scene.add(MeshRenderer.of(mesh,material,Transform.at(0,0,0)));
+                scene.add(MeshRenderer.of(mesh,material,Transform.at(0,0,0)));
+                var frame=new SceneFrameBuilder().build(scene,32,32,new Matrix4f(),false,false,0);
+                var device=new GlRenderDevice();var cmd=device.createCommandBuffer();
+                cmd.bindFramebuffer(GL_FRAMEBUFFER,target.id()).viewport(0,0,32,32).clearColor(0,0,0,0).clear(true,false);
+                cameraUniforms.update(cmd,camera,32,32,AntiAliasingMode.NONE,0);
+                assertEquals(2,pass.record(cmd,frame,cameraUniforms));device.execute(cmd);
+                var pixel=BufferUtils.createFloatBuffer(1);glReadPixels(16,16,1,1,GL_RED,GL_FLOAT,pixel);
+                assertEquals(.6,pixel.get(0),.004,"overlap does not sum distrust values");
+                assertEquals(org.lwjgl.opengl.GL14.GL_FUNC_ADD,glGetInteger(org.lwjgl.opengl.GL20.GL_BLEND_EQUATION_RGB));
+            }
+        }
+    }
+
+    @Test
     void skinAndMorphMasksCoverDeformedRatherThanRestPositions() {
         try (var window = new GlfwWindow.Builder().dimensions(96, 96).title("Reactive deformation").visible(false).build()) {
             window.bindContext(); GL.createCapabilities();

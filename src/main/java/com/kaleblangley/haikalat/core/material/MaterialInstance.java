@@ -133,6 +133,18 @@ public final class MaterialInstance {
         return cmd;
     }
 
+    /** Binds identical material values/textures to a pipeline-owned shader variant. */
+    public CommandBuffer bind(CommandBuffer cmd, com.kaleblangley.haikalat.backend.shader.ShaderProgram variant) {
+        if (variant == material.shader()) return bind(cmd);
+        cmd.bindShader(variant).materialState(material.blendMode(), material.depthTest())
+                .enableCullFace(material.cullMode() == com.kaleblangley.haikalat.core.CullMode.BACK);
+        material.bindDefaultTextures(cmd);
+        for (var binding : textureOverrides.values()) cmd.bindTexture(binding.unit(), binding.texture(), binding.sampler());
+        for (var entry : material.defaultUniforms().entrySet()) entry.getValue().apply(cmd, variant, entry.getKey().name());
+        for (var entry : uniformOverrides.entrySet()) entry.getValue().apply(cmd, variant, entry.getKey().name());
+        return cmd;
+    }
+
     public Material material() {
         return material;
     }

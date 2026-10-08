@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.demo.pbr;
 import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
+import com.kaleblangley.haikalat.subsystems.render3d.VisualSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
@@ -33,6 +34,22 @@ final class OutdoorEnvironmentResources implements AutoCloseable {
         PbrEnvironment candidate = environmentFor(settings);
         try {
             pipeline.applyOutdoorEnvironment(settings, candidate);
+            active = candidate;
+        } finally {
+            var entries = cache.entrySet().iterator();
+            while (cache.size() > 4 && entries.hasNext()) {
+                var entry = entries.next();
+                if (entry.getValue() == active) continue;
+                entries.remove();
+                entry.getValue().close();
+            }
+        }
+    }
+
+    void applyProfile(RenderPipeline pipeline, VisualSettings settings) {
+        PbrEnvironment candidate = environmentFor(settings.outdoor());
+        try {
+            pipeline.applyVisualSettings(settings, candidate);
             active = candidate;
         } finally {
             var entries = cache.entrySet().iterator();

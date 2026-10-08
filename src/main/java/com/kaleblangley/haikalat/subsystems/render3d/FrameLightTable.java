@@ -32,12 +32,13 @@ final class FrameLightTable {
                   float innerConeRadians,
                   float outerConeRadians,
                   boolean castShadows,
-                  Vector3f viewPosition) {
+                  Vector3f viewPosition, LightVolumeHints volumeHints) {
         Record {
             position = new Vector3f(Objects.requireNonNull(position, "position"));
             direction = new Vector3f(Objects.requireNonNull(direction, "direction"));
             color = new Vector3f(Objects.requireNonNull(color, "color"));
             viewPosition = new Vector3f(Objects.requireNonNull(viewPosition, "viewPosition"));
+            volumeHints = Objects.requireNonNull(volumeHints, "volumeHints");
         }
 
         int gpuType() {
@@ -74,7 +75,7 @@ final class FrameLightTable {
             Record record = new Record(entry.stableId(), light.type(),
                     light.position(), light.direction(), light.color(), light.intensity(),
                     light.range(), light.innerConeRadians(), light.outerConeRadians(),
-                    light.castShadows(), viewPosition);
+                    light.castShadows(), viewPosition, entry.volumeHints());
             if (light.type() == LightType.DIRECTIONAL) {
                 directional.add(record);
             } else {

@@ -49,15 +49,15 @@ class PreviewContractsTest {
                 List.of(new RenderGraph.AttachmentDescription("sceneColor", "RGBA16F",
                         RenderGraph.StorageKind.RENDERBUFFER)),
                 new RenderGraph.AttachmentDescription("depth", "DEPTH24_STENCIL8",
-                        RenderGraph.StorageKind.RENDERBUFFER), true, true);
+                        RenderGraph.StorageKind.RENDERBUFFER), true, true, List.of());
         RenderGraph.PassDescription resolve = new RenderGraph.PassDescription(
                 "Resolve", List.of("Geometry"), RenderGraph.TargetKind.MANAGED,
                 1280, 720, 1,
                 List.of(new RenderGraph.AttachmentDescription("resolved", "RGBA16F",
-                        RenderGraph.StorageKind.TEXTURE)), null, false, false);
+                        RenderGraph.StorageKind.TEXTURE)), null, false, false, List.of());
         RenderGraph.PassDescription present = new RenderGraph.PassDescription(
                 "Present", List.of("Resolve"), RenderGraph.TargetKind.BACKBUFFER,
-                1280, 720, 1, List.of(), null, false, false);
+                1280, 720, 1, List.of(), null, false, false, List.of());
         RenderGraph.Description graph = new RenderGraph.Description(1280, 720, 9L, true,
                 List.of("Geometry", "Resolve", "Present"),
                 List.of(geometry, resolve, present));

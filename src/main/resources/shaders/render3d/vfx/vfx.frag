@@ -1,4 +1,5 @@
 #version 460 core
+// HAIKALAT_VOLUME_FOG_CONTRACT
 
 uniform vec4 uColor;
 uniform sampler2D uTexture;
@@ -48,4 +49,7 @@ void main() {
     vec3 rgb = sampledColor * uColor.rgb * uEmissiveIntensity;
     if (uAdditive != 0) rgb *= alpha;
     fragColor = vec4(rgb, alpha);
+#ifdef HAIKALAT_VOLUME_FOG
+    fragColor = volumeFogRasterSurface(fragColor,uAdditive != 0);
+#endif
 }

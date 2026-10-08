@@ -20,7 +20,7 @@ class ShadowCacheStateTest {
                 320, 180, 0.0f, 0, 0, 0L, null);
         ShadowCacheState cache = new ShadowCacheState();
         LocalShadowPipelineSettings settings = LocalShadowPipelineSettings.balanced();
-        DirectionalCascadeSettings cascades = new DirectionalCascadeSettings(2, 256, 0.5f, 0.0f);
+        DirectionalCascadeSettings cascades = new DirectionalCascadeSettings(2, 256, 0.5f, 0.0f, Float.MAX_VALUE);
 
         ShadowFramePlan initial = plan(scene, new Matrix4f().identity(), new Matrix4f().identity());
         ShadowFramePlan first = cache.prepare(initial, context, scene, settings, cascades);

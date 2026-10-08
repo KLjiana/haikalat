@@ -5,6 +5,7 @@ public enum RenderFormat {
     RGBA8,
     SRGB8_ALPHA8,
     RGBA16F,
+    RGBA32F,
     R8,
     R16F,
     RG16F,

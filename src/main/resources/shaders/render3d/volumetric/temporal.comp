@@ -1,0 +1,111 @@
+layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
+layout(binding=0) uniform sampler3D uCurrentSource;
+layout(binding=1) uniform sampler3D uPreviousSource;
+layout(binding=2) uniform sampler3D uMedium;
+layout(std430,binding=5) readonly buffer VolumeDirtyDomains { vec4 dirtyDomains[]; };
+layout(std430,binding=7) buffer VolumeDiagnostics { uint diagnostics[]; };
+layout(rgba16f,binding=0) writeonly uniform image3D uFilteredSource;
+layout(r8,binding=1) writeonly uniform image3D uHistoryReject;
+layout(r8,binding=2) writeonly uniform image3D uLightOffReactive;
+
+float previousBoundary(int k) {
+    if (k==0) return 0.0;
+    if (k==vGrid.z) return vPreviousDepthTime.y;
+    return vCounts.z!=0 ? vPreviousDepthTime.x*pow(vPreviousDepthTime.y/vPreviousDepthTime.x,float(k-1)/float(vGrid.z-1))
+        : vPreviousDepthTime.y*float(k)/float(vGrid.z);
+}
+float previousSampleDepth(int z) { return mix(previousBoundary(z),previousBoundary(z+1),vJitterHistory.y); }
+float previousLayer(float depth) {
+    if (depth<=previousSampleDepth(0)) return 0.0;
+    if (depth>=previousSampleDepth(vGrid.z-1)) return float(vGrid.z-1);
+    int lo=0,hi=vGrid.z-1;
+    while (lo+1<hi) { int mid=(lo+hi)/2; if (previousSampleDepth(mid)<=depth) lo=mid; else hi=mid; }
+    return float(lo)+(depth-previousSampleDepth(lo))/(previousSampleDepth(hi)-previousSampleDepth(lo));
+}
+float previousColumn(float pixel,int count,int extent,float phase) {
+    if (count==1) return 0.0;
+    int lo=clamp(int(floor(pixel/float(vGrid.w)-phase)),0,count-2);
+    float a=mix(float(lo*vGrid.w),float(min((lo+1)*vGrid.w,extent)),phase);
+    float b=mix(float((lo+1)*vGrid.w),float(min((lo+2)*vGrid.w,extent)),phase);
+    return float(lo)+clamp((pixel-a)/(b-a),0.0,1.0);
+}
+int dirty(vec3 world) {
+    int flags=0;
+    for (int i=0;i<vDirtyHistory.x;i++) {
+        vec4 c=dirtyDomains[i*2]; vec3 delta=abs(world-c.xyz);
+        if (c.w>=0.0 ? dot(delta,delta)<=c.w*c.w : all(lessThanEqual(delta,dirtyDomains[i*2+1].xyz)))
+            flags |= int(dirtyDomains[i*2+1].w)==1 ? 3 : 1;
+    }
+    return flags;
+}
+void main() {
+    ivec3 p=ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(p,vGrid.xyz))) return;
+    vec4 current=texelFetch(uCurrentSource,p,0);
+    vec3 world=volumeWorldPosition(p);
+    int dirtyFlags=dirty(world);
+    bool lightOff=(dirtyFlags&2)!=0 || (vDirtyHistory.y&128)!=0;
+    int cause=0;
+    float weight=vSettings.w;
+    if (vCounts.w==0 || vDirtyHistory.y!=0) cause=7;
+    else if (dirtyFlags!=0) cause=2;
+    vec4 previous=vec4(0.0);
+    if (cause==0) {
+        vec4 clip=vPreviousViewProjection*vec4(world,1.0);
+        float depth=-(vPreviousView*vec4(world,1.0)).z;
+        vec2 uv=clip.xy/clip.w*0.5+0.5;
+        if (clip.w<=0.0 || depth<0.0 || depth>vPreviousDepthTime.y || any(lessThan(uv,vec2(0.0))) || any(greaterThan(uv,vec2(1.0)))) cause=4;
+        else {
+            vec2 pixel=uv*vExtentDepth.xy;
+            vec3 c=vec3(previousColumn(pixel.x,vGrid.x,int(vExtentDepth.x),vSpatialJitter.z),
+                        previousColumn(pixel.y,vGrid.y,int(vExtentDepth.y),vSpatialJitter.w),previousLayer(depth));
+            // Hardware trilinear uses texel centers; Z is derived from physical sample depths.
+            previous=textureLod(uPreviousSource,(c+0.5)/vec3(vGrid.xyz),0.0);
+            if (any(isnan(previous)) || any(isinf(previous))) cause=4;
+            else if (abs(previous.a-current.a)>vJitterHistory.z+vJitterHistory.w*max(previous.a,current.a)) cause=3;
+        }
+    }
+    vec3 low=current.rgb,high=current.rgb;
+    const ivec3 axes[6]=ivec3[](ivec3(1,0,0),ivec3(-1,0,0),ivec3(0,1,0),ivec3(0,-1,0),ivec3(0,0,1),ivec3(0,0,-1));
+    for (int i=0;i<6;i++) {
+        ivec3 n=p+axes[i];
+        if (all(greaterThanEqual(n,ivec3(0))) && all(lessThan(n,vGrid.xyz))) {
+            vec3 q=texelFetch(uCurrentSource,n,0).rgb; low=min(low,q); high=max(high,q);
+        }
+    }
+    float sourceChange=0.0;
+    if (cause==0) {
+        vec3 clipped=clamp(previous.rgb,low,high);
+        sourceChange=length(clipped-current.rgb)/max(length(current.rgb),vHistoryConfidence.w);
+        // Camera-only shadow refits must prove source consistency locally, never reset all history.
+        if (vHistoryConfidence.z>0.5 && sourceChange>vHistoryConfidence.x) cause=6;
+        vec3 currentV=vCounts.z!=0 ? normalize(vInverseView[3].xyz-world) : normalize(vInverseView[2].xyz);
+        vec3 oldV=vCounts.z!=0 ? normalize(vPreviousInverseView[3].xyz-world) : normalize(vPreviousInverseView[2].xyz);
+        float cosine=dot(currentV,oldV);
+        float viewConfidence=abs(vSettings.y)>0.25 ? clamp((cosine-vHistoryConfidence.y)/(1.0-vHistoryConfidence.y),0.0,1.0) : 1.0;
+        // Wind changes the source at this world point; it is never used to translate the whole medium.
+        float windConfidence=volumeWindConfidence(world,current.a,current.rgb);
+        weight*=viewConfidence*windConfidence;
+        if (weight<=0.0001 && vDirtyHistory.z!=0) cause=5;
+        previous.rgb=clipped;
+    }
+    float reactive=cause!=0 ? 1.0 : clamp(sourceChange/vHistoryConfidence.x,0.0,1.0);
+    if (cause!=0 || vDirtyHistory.z==0) weight=0.0;
+    imageStore(uFilteredSource,p,vec4(mix(current.rgb,previous.rgb,weight),current.a));
+    imageStore(uHistoryReject,p,vec4(max(reactive,vDirtyHistory.z!=0 ? 1.0-weight/max(vSettings.w,0.0001) : 0.0)));
+    // A known light removal must reach the final color history even when its
+    // radiance change is too small for the ordinary energy-weighted response.
+    float offReactive=0.0;
+    if(lightOff) {
+        vec4 oldSource=vCounts.w!=0 ? texelFetch(uPreviousSource,p,0) : vec4(0.0);
+        bool scattering=any(greaterThan(texelFetch(uMedium,p,0).rgb,vec3(0.0)))
+            || (oldSource.a>0.0 && any(greaterThan(oldSource.rgb,vec3(0.0))));
+        offReactive=scattering ? 1.0 : 0.0;
+    }
+    imageStore(uLightOffReactive,p,vec4(offReactive));
+    if (vDirtyHistory.w!=0) {
+        atomicAdd(diagnostics[1010],1u);
+        if (cause==0 && weight>0.0) atomicAdd(diagnostics[1011],1u);
+        if (cause!=0) atomicAdd(diagnostics[1010+cause],1u);
+    }
+}

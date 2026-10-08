@@ -29,8 +29,15 @@ layout(std140, binding = 6) uniform ClusterParametersBlock {
 shared uint sOverflowClusters;
 shared uint sMaxInline;
 shared uint sDropped;
+uniform int uResetCounters;
 
 void main() {
+    // Persistent CPU-readable storage cannot be renamed by a CPU subdata upload.
+    // Clear on the GPU before reuse so the upload stage never waits for old stats.
+    if(uResetCounters!=0) {
+        if(gl_GlobalInvocationID.x==0u)uClusterCounters[0]=uvec4(0);
+        return;
+    }
     if (gl_LocalInvocationIndex == 0u) {
         sOverflowClusters = 0u;
         sMaxInline = 0u;

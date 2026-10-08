@@ -80,8 +80,11 @@ public record StylizedSkySettings(Vector3f zenithColor, Vector3f horizonColor,
         Objects.requireNonNull(value, name);
         if (!value.isFinite()) throw new IllegalArgumentException(name + " must be finite");
         Vector3f result = new Vector3f(value);
-        if (result.lengthSquared() <= 1.0e-10f) throw new IllegalArgumentException(name + " must be non-zero");
-        return result.normalize();
+        float lengthSquared = result.lengthSquared();
+        if (lengthSquared <= 1.0e-10f) throw new IllegalArgumentException(name + " must be non-zero");
+        // Avoid repeatedly perturbing an already-normalized direction during
+        // profile save/load round trips.
+        return Math.abs(lengthSquared - 1.0f) <= 1.0e-6f ? result : result.normalize();
     }
 
     private static void nonNegative(float value, String name) {

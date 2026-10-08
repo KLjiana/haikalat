@@ -42,6 +42,7 @@ public final class Material implements GlResource {
     private final ResourceOwnership resourceOwnership;
     private final MaterialModel model;
     private final CullMode cullMode;
+    private final boolean volumetricFogOptOut;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -53,6 +54,7 @@ public final class Material implements GlResource {
         this.resourceOwnership = builder.resourceOwnership;
         this.model = builder.model;
         this.cullMode = builder.cullMode;
+        this.volumetricFogOptOut = builder.volumetricFogOptOut;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -110,6 +112,7 @@ public final class Material implements GlResource {
     }
 
     public CullMode cullMode() { return cullMode; }
+    public boolean volumetricFogOptOut() { return volumetricFogOptOut; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -179,6 +182,10 @@ public final class Material implements GlResource {
         private ResourceOwnership resourceOwnership = ResourceOwnership.BORROWED;
         private MaterialModel model = MaterialModel.LEGACY;
         private CullMode cullMode = CullMode.NONE;
+        private boolean volumetricFogOptOut;
+
+        /** Explicitly exempts a custom transparent shader from the depth-aware volume contract. */
+        public Builder volumetricFogOptOut(boolean value) { volumetricFogOptOut = value; return this; }
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;

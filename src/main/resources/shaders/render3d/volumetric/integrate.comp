@@ -1,0 +1,36 @@
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(binding=0) uniform sampler3D uFilteredSource;
+layout(binding=1) uniform sampler3D uReject;
+layout(binding=2) uniform sampler3D uPreviousSource;
+layout(binding=3) uniform sampler3D uLightOffReactive;
+layout(rgba16f,binding=0) writeonly uniform image3D uPrefix;
+layout(r8,binding=1) writeonly uniform image3D uReactivePrefix;
+layout(std430,binding=7) buffer VolumeDiagnostics { uint diagnostics[]; };
+void main() {
+    ivec2 c=ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(c,vGrid.xy))) return;
+    vec4 st=vec4(0.0,0.0,0.0,1.0);
+    imageStore(uPrefix,ivec3(c,0),st);
+    // The guide pass fills this extra plane after opaque geometry. Standalone
+    // transport and a failed/unrecorded guide never consume uninitialized storage.
+    for(int i=1;i<=8;i++)imageStore(uPrefix,ivec3(c,vGrid.z+i),vec4(0.0));
+    float reactiveEnergy=0.0;
+    imageStore(uReactivePrefix,ivec3(c,0),vec4(0.0));
+    // float32 accumulator survives the whole column. Only boundary storage is half precision.
+    float cosine=volumeRayCosine(c);
+    for (int z=0;z<vGrid.z;z++) {
+        vec4 q=texelFetch(uFilteredSource,ivec3(c,z),0);
+        float ds=(volumeBoundary(z+1)-volumeBoundary(z))/cosine;
+        vec4 old=vCounts.w!=0 ? texelFetch(uPreviousSource,ivec3(c,z),0) : q;
+        vec3 change=vCounts.w!=0 ? abs(q.rgb-old.rgb) : q.rgb;
+        float signal=st.a*(volumeIntegralWeight(q.a,ds)*length(change)+abs(q.a-old.a)*ds);
+        reactiveEnergy+=texelFetch(uReject,ivec3(c,z),0).r*signal;
+        if(ds>0.0 && st.a>0.0 && texelFetch(uLightOffReactive,ivec3(c,z),0).r>0.5)
+            reactiveEnergy=max(reactiveEnergy,vHistoryConfidence.w);
+        st=volumeIntegrateSegment(st,q,ds);
+        if (any(isnan(st)) || any(isinf(st))) { if(vDirtyHistory.w!=0)atomicAdd(diagnostics[0],1u); st=vec4(0.0); }
+        if (any(greaterThan(st.rgb,vec3(32768.0)))) { if(vDirtyHistory.w!=0)atomicAdd(diagnostics[3],1u); st.rgb=min(st.rgb,vec3(32768.0)); }
+        imageStore(uPrefix,ivec3(c,z+1),st);
+        imageStore(uReactivePrefix,ivec3(c,z+1),vec4(clamp(reactiveEnergy/vHistoryConfidence.w,0.0,1.0)));
+    }
+}

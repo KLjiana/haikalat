@@ -16,15 +16,24 @@ class TemporalJitterTest {
     void uvOffsetMatchesProjectedPointDelta() {
         int width = 1280;
         int height = 720;
-        for (int frame = 0; frame < 8; frame++) {
-            Matrix4f stable = new Matrix4f().perspective((float) Math.toRadians(60.0f),
-                    width / (float) height, 0.1f, 100.0f);
+        Matrix4f[] projections = {
+                new Matrix4f().perspective((float) Math.toRadians(60.0f), width / (float) height, 0.1f, 100.0f),
+                new Matrix4f().ortho(-8, 8, -4, 4, 0.1f, 100.0f),
+                new Matrix4f().frustum(-0.08f, 0.12f, -0.05f, 0.07f, 0.1f, 100.0f)
+        };
+        for (Matrix4f stable : projections) for (float depth : new float[]{0.125f, 5.0f, 60.0f})
+                for (int frame = 0; frame < 8; frame++) {
             Matrix4f jittered = new Matrix4f(stable);
             TemporalJitter.applyProjection(jittered, width, height, AntiAliasingMode.TAA, frame);
 
-            Vector4f world = new Vector4f(0.0f, 0.0f, -5.0f, 1.0f);
+            Matrix4f uniformProjection = new Matrix4f(stable);
+            CameraUniforms.applyTemporalJitter(uniformProjection, width, height, AntiAliasingMode.TAA, frame);
+            assertEquals(jittered, uniformProjection, "raster uniforms and successful-frame projection agree");
+            Vector4f world = new Vector4f(0.01f, -0.02f, -depth, 1.0f);
             Vector4f stableClip = stable.transform(new Vector4f(world));
             Vector4f jitteredClip = jittered.transform(new Vector4f(world));
+            assertEquals(stableClip.z, jitteredClip.z, "jitter preserves clip depth");
+            assertEquals(stableClip.w, jitteredClip.w, "jitter preserves perspective division");
             float stableU = stableClip.x / stableClip.w * 0.5f + 0.5f;
             float jitteredU = jitteredClip.x / jitteredClip.w * 0.5f + 0.5f;
             float stableV = stableClip.y / stableClip.w * 0.5f + 0.5f;

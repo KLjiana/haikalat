@@ -23,7 +23,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.StylizedSkySettings;
-import com.kaleblangley.haikalat.subsystems.render3d.VolumetricSunSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.VisualSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
@@ -56,6 +56,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -103,14 +104,51 @@ public final class Render3dClusteredDemo {
 
     private static void run(GlfwWindow window, Options options) {
         boolean town = options.kind() == Kind.TOWN;
+        VisualProfile profile = options.profilePath() == null ? null
+                : VisualProfileCodec.load(options.profilePath(),
+                VisualProfile.outdoorCompatibility(OutdoorEnvironmentSettings.disabled()));
+        VisualSettings profileSettings = profile == null ? null : profile.settings();
+        if (profileSettings != null && !options.bloom()) {
+            BloomSettings currentBloom = profileSettings.bloom();
+            profileSettings = new VisualSettings(profileSettings.manualExposure(),
+                    profileSettings.iblIntensity(), profileSettings.iblRotationRadians(),
+                    profileSettings.directionalLightDirection(),
+                    profileSettings.directionalLightColor(),
+                    profileSettings.directionalLightIntensity(),
+                    profileSettings.antiAliasingMode(),
+                    new BloomSettings(false, currentBloom.threshold(), currentBloom.softKnee(),
+                            currentBloom.intensity(), currentBloom.maxLevels()),
+                    profileSettings.outdoor(), profileSettings.volumetricFog());
+        }
+        if (profileSettings != null && options.grayModel()) {
+            profileSettings = new VisualSettings(1.0f, profileSettings.iblIntensity(),
+                    profileSettings.iblRotationRadians(),
+                    profileSettings.directionalLightDirection(),
+                    profileSettings.directionalLightColor(),
+                    profileSettings.directionalLightIntensity(),
+                    profileSettings.antiAliasingMode(),
+                    new BloomSettings(false, profileSettings.bloom().threshold(),
+                            profileSettings.bloom().softKnee(),
+                            profileSettings.bloom().intensity(),
+                            profileSettings.bloom().maxLevels()),
+                    profileSettings.outdoor());
+        }
+        if (profileSettings != null && (!options.fog() || options.grayModel())) {
+            profileSettings = profileSettings.withVolumetricFog(
+                    com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings.disabled());
+        }
         RenderSettings settings = RenderSettings.builder()
                 .vsync(!options.hidden())
-                .antiAliasingMode(options.antiAliasing())
+                .antiAliasingMode(profileSettings == null ? options.antiAliasing()
+                        : profileSettings.antiAliasingMode())
                 .msaaSamples(4)
                 .toneMappingMode(ToneMappingMode.ACES)
                 .exposureMode(ExposureMode.MANUAL)
-                .exposure(town ? 1.3f : 1.15f)
-                .bloomSettings(town && options.bloom()
+                .exposure(profileSettings == null ? options.grayModel() ? 1.0f
+                        : town ? 1.05f : 1.15f
+                        : profileSettings.manualExposure())
+                .bloomSettings(profileSettings != null ? profileSettings.bloom()
+                        : town && options.bloom()
                         ? BloomSettings.builder().enabled(true).threshold(1.4f)
                                 .softKnee(0.45f).intensity(0.15f).maxLevels(4).build()
                         : BloomSettings.builder().enabled(options.kind() == Kind.LAB
@@ -135,22 +173,28 @@ public final class Render3dClusteredDemo {
             if (town) {
                 // Night town: dim the studio IBL so local lamps and lit windows
                 // carry the image; the environment still supplies reflections.
-                environment.intensity(0.25f);
+                environment.intensity(0.55f);
             }
             Request request = options.kind() == Kind.TOWN
-                    ? Request.town()
+                    ? Request.town(options.grayModel())
                     : options.kind() == Kind.LAB
                     ? Request.lab(options.lights(), options.spots(), options.seed())
                     : Request.stress(options.lights(), options.stressMode(), options.seed());
             Bundle bundle = ClusteredDemoSceneFactory.create(request, shader, fallbacks);
             try {
+                if (profile != null) VolumetricDemoSceneFactory.applyLights(bundle.scene, profile, false);
                 RenderPipeline pipeline = new RenderPipeline(window, bundle.scene, null,
                         settings, environment)
                         .clusteredLighting(clustered)
                         .clusteredDebug(options.debugMode())
                         .localShadows(LocalShadowPipelineSettings.balanced());
                 if (town) {
-                    if (options.fog()) {
+                    pipeline.outdoorEnvironment(new OutdoorEnvironmentSettings(true, "town-night",
+                            new StylizedSkySettings(new Vector3f(.006f, .012f, .035f),
+                                    new Vector3f(.045f, .065f, .11f), new Vector3f(.018f, .025f, .04f),
+                                    new Vector3f(-.45f, -.8f, -.3f), new Vector3f(.46f, .61f, .88f),
+                                    1.1f, .015f, .035f, .55f)));
+                    if (options.fog() && !options.grayModel()) {
                         pipeline.postProcessSettings(PostProcessSettings.builder()
                                 .fog(FogSettings.builder()
                                         .color(0.03f, 0.045f, 0.10f)
@@ -164,6 +208,7 @@ public final class Render3dClusteredDemo {
                     }
                 }
                 try {
+                    if (profileSettings != null) pipeline.applyVisualSettings(profileSettings);
                     pipeline.build();
                     runFrames(window, driver, pipeline, bundle, options);
                 } finally {
@@ -255,6 +300,23 @@ public final class Render3dClusteredDemo {
                     captured.add(capture(window, capture.path()));
                 }
             }
+            for (CaptureAt capture : options.captureHdrAt()) {
+                if (capture.frame() == frame) {
+                    VisualBaselineHdr.save(Path.of(capture.path()), VisualBaselineHdr.downsample(
+                            pipeline.captureLinearHdrRgbaFloat(), window.width(), window.height()));
+                }
+            }
+            for (CaptureAt comparison : options.compareHdrAt()) {
+                if (comparison.frame() == frame) {
+                    VisualBaselineHdr.Image actual = VisualBaselineHdr.downsample(
+                            pipeline.captureLinearHdrRgbaFloat(), window.width(), window.height());
+                    Path reference = Path.of(comparison.path());
+                    Path errorMap = Path.of("build/reports/render3d-v0243/visual/hdr-error",
+                            reference.getFileName().toString() + ".png");
+                    System.out.println("Clustered linear HDR " + reference + ": "
+                            + VisualBaselineHdr.compare(VisualBaselineHdr.load(reference), actual, errorMap));
+                }
+            }
             if (window.shouldClose()) {
                 break;
             }
@@ -324,15 +386,7 @@ public final class Render3dClusteredDemo {
 
     private static void updateCamera(Camera camera, CameraPath path, int frame) {
         if (path == CameraPath.STATIC || path == CameraPath.FREE) return;
-        // Approach the plaza through the south arch, ease in/out, then pull
-        // back; x=3.5 clears the arch pillars and the tree ring.
-        float loop = (frame % 480) / 480.0f;
-        float phase = loop < 0.5f ? loop * 2.0f : (1.0f - loop) * 2.0f;
-        float eased = phase * phase * (3.0f - 2.0f * phase);
-        float z = 40.0f - 28.0f * eased;
-        camera.setPosition(new Vector3f(3.5f, 4.6f, z));
-        camera.setYaw(-90.0f + 5.0f * (float) Math.sin(frame * 0.01f));
-        camera.setPitch(-4.0f);
+        SceneCaptureRoutes.apply(camera, "street", frame);
     }
 
     private static void updateMovingLights(Bundle bundle, Vector3f[] colors,
@@ -511,7 +565,8 @@ public final class Render3dClusteredDemo {
                 float pulse = 0.75f + 0.25f * (float) Math.sin(
                         frame * 0.045f + index * 0.9f);
                 intensity = baseIntensity[index] * pulse;
-                color.mul(0.75f + 0.25f * (float) Math.sin(frame * 0.03f + index));
+                // Animate intensity only: multiplying the previous frame's
+                // colour made these lights irreversibly fade to black.
             }
             scene.setLight(sceneIndex, withIntensity(light, color, intensity));
         }
@@ -634,8 +689,9 @@ public final class Render3dClusteredDemo {
                            ClusterDebugMode debugMode, boolean pauseLights, boolean pauseCamera,
                            boolean hidden, boolean verify, boolean benchmark, String capture,
                            int captureFrame, int resizeFrame, int resizeWidth, int resizeHeight,
-                           StressMode stressMode, List<CaptureAt> captureAt, String summary,
-                           boolean bloom, boolean fog) {
+                           StressMode stressMode, List<CaptureAt> captureAt,
+                           List<CaptureAt> captureHdrAt, List<CaptureAt> compareHdrAt, String summary,
+                           boolean bloom, boolean fog, boolean grayModel, Path profilePath) {
 
         static Options parse(String[] arguments) {
             Kind kind = Kind.TOWN;
@@ -660,9 +716,13 @@ public final class Render3dClusteredDemo {
             String capture = null;
             int captureFrame = -1;
             List<CaptureAt> captureAt = new ArrayList<>();
+            List<CaptureAt> captureHdrAt = new ArrayList<>();
+            List<CaptureAt> compareHdrAt = new ArrayList<>();
             String summary = null;
             boolean bloom = true;
             boolean fog = true;
+            boolean grayModel = false;
+            Path profilePath = null;
             int resizeFrame = -1;
             int resizeWidth = 0;
             int resizeHeight = 0;
@@ -717,9 +777,19 @@ public final class Render3dClusteredDemo {
                         String[] parts = value.split(":", 2);
                         captureAt.add(new CaptureAt(Integer.parseInt(parts[0]), parts[1]));
                     }
+                    case "--capture-hdr-at" -> {
+                        String[] parts = value.split(":", 2);
+                        captureHdrAt.add(new CaptureAt(Integer.parseInt(parts[0]), parts[1]));
+                    }
+                    case "--compare-hdr-at" -> {
+                        String[] parts = value.split(":", 2);
+                        compareHdrAt.add(new CaptureAt(Integer.parseInt(parts[0]), parts[1]));
+                    }
                     case "--summary" -> summary = value;
                     case "--bloom" -> bloom = Boolean.parseBoolean(value);
                     case "--fog" -> fog = Boolean.parseBoolean(value);
+                    case "--gray-model" -> grayModel = true;
+                    case "--profile" -> profilePath = Path.of(value);
                     case "--resize" -> {
                         String[] parts = value.split(":");
                         resizeFrame = Integer.parseInt(parts[0]);
@@ -733,6 +803,9 @@ public final class Render3dClusteredDemo {
             if (hideable(kind) && lights <= 0) {
                 throw new IllegalArgumentException("--lights must be positive");
             }
+            if (grayModel && kind != Kind.TOWN) {
+                throw new IllegalArgumentException("--gray-model currently requires --scene=town");
+            }
             if (hidden && frames < 0) {
                 frames = DEFAULT_FRAMES;
             }
@@ -740,7 +813,8 @@ public final class Render3dClusteredDemo {
                     antiAliasing, tileSize, zSlices, clusterCapacity, cameraPath, frames, warmup,
                     debugMode, pauseLights, pauseCamera, hidden, verify, benchmark, capture,
                     captureFrame, resizeFrame, resizeWidth, resizeHeight, stressMode,
-                    List.copyOf(captureAt), summary, bloom, fog);
+                    List.copyOf(captureAt), List.copyOf(captureHdrAt),
+                    List.copyOf(compareHdrAt), summary, bloom, fog, grayModel, profilePath);
         }
 
         private static boolean hideable(Kind kind) {
