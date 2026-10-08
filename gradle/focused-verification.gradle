@@ -1,0 +1,256 @@
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+import java.time.OffsetDateTime
+import java.time.Duration
+
+// Long historical matrices are opt-in. Ordinary acceptance has no performance prerequisite.
+def extendedRoots = ['releaseReadiness', 'writeReleaseReadiness', 'localReleaseVerification',
+                     'localGlVerification', 'localOutdoorVerification',
+                     'localRender3dV0243Verification', 'runRender3dVisualBaselineQuality'] as Set
+gradle.taskGraph.whenReady { graph ->
+    def selected = graph.allTasks.findAll {
+        String name = it.name.toLowerCase(Locale.ROOT)
+        extendedRoots.contains(it.name) || name.contains('soak')
+                || (name.startsWith('run') && name.contains('benchmark') && !name.endsWith('smoke'))
+    }
+    if (!selected.isEmpty() && providers.gradleProperty('extendedVerification').orNull != 'true') {
+        throw new GradleException('Extended verification is opt-in: ' + selected*.name.join(', ')
+                + '. Use verify.ps1 for bounded daily acceptance, or explicitly pass -PextendedVerification=true for the full matrix.')
+    }
+}
+tasks.withType(Test).configureEach {
+    timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('soak') ? 5 : 2)
+}
+tasks.withType(JavaExec).configureEach {
+    if (group == 'verification') {
+        timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('benchmark') ? 10 : 3)
+    }
+}
+
+// Explicit v0.24.3 logic scope. This is not automatic impact selection or release approval.
+def jvmCases = [
+        'BenchmarkSampleCollectorTest', 'VisualProfileCodecTest', 'VisualBaselineContractTest',
+        'FrameDiagnosticsTest', 'ClusterShaderSynchronizationTest', 'ClusterMathTest',
+        'GtaoAnalyticReferenceTest', 'GtaoSettingsTest', 'GtaoPassesTest',
+        'OutdoorFrameStateTest', 'OutdoorEnvironmentSettingsTest', 'OutdoorVolumeMathTest',
+        'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
+        'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
+        'RenderGraphCompilerTest'
+]
+def glCases = [
+        'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
+        'OutdoorEnvironmentGlTest', 'TemporalTransactionGlTest',
+        'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest'
+]
+def guards = ['assetManifestGuard', 'dependencyLockGuard', 'publicApiGuard',
+              'architectureGuard', 'releaseVerificationContracts', 'focusedVerificationContracts']
+def runId = UUID.randomUUID().toString()
+def startedAt = OffsetDateTime.now().toString()
+def startedNanos = System.nanoTime()
+Map initialCandidate = [:]
+Map observed = [:]
+
+def gitText = { List<String> args ->
+    def process = new ProcessBuilder((['git', '-c', "safe.directory=${projectDir.toString().replace('\\', '/')}",
+                                      '-c', 'core.excludesFile='] + args).collect { it.toString() })
+            .directory(projectDir).redirectErrorStream(true).start()
+    String output = process.inputStream.getText('UTF-8')
+    if (process.waitFor() != 0) throw new GradleException("Cannot snapshot candidate: ${output}")
+    output
+}
+def snapshot = {
+    def digest = MessageDigest.getInstance('SHA-256')
+    List<String> paths = gitText(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+            .split('\u0000').findAll { !it.isEmpty() }.unique().sort()
+    paths.each { path ->
+        digest.update(path.getBytes('UTF-8'))
+        digest.update((byte) 0)
+        File input = file(path)
+        if (input.isFile()) {
+            def content = MessageDigest.getInstance('SHA-256')
+            input.withInputStream { stream ->
+                byte[] buffer = new byte[65536]
+                int count
+                while ((count = stream.read(buffer)) != -1) content.update(buffer, 0, count)
+            }
+            digest.update(content.digest())
+        } else {
+            digest.update('MISSING'.getBytes('UTF-8'))
+        }
+        digest.update((byte) 0)
+    }
+    [head: gitText(['rev-parse', 'HEAD']).trim(),
+     status: gitText(['status', '--porcelain=v1', '--untracked-files=all']).readLines(),
+     workingTreeSha256: digest.digest().encodeHex().toString(), fileCount: paths.size()]
+}
+def verdict = { boolean failed, boolean executed, boolean skipped, List required, Map results ->
+    if (failed) return 'FAIL'
+    if (!executed || skipped) return 'NOT_RUN'
+    if (!required.every { name ->
+        def r = results[name]
+        r != null && r.total > 0 && r.failed == 0 && r.skipped == 0
+    }) return 'INCOMPLETE'
+    'PASS'
+}
+def taskOutcome = { task ->
+    def state = task.state
+    if (state.failure != null) return 'FAIL'
+    if (!state.executed) return 'NOT_RUN'
+    if (state.noSource) return 'NOT_RUN'
+    if (state.upToDate || state.skipMessage == 'FROM-CACHE') return 'REUSED_TASK_OUTPUT'
+    if (state.skipped && !(task.actions.isEmpty() && state.skipMessage == 'UP-TO-DATE')) return 'NOT_RUN'
+    'PASS'
+}
+
+tasks.register('focusedVerificationContracts') {
+    group = 'verification'
+    description = 'Checks focused evidence verdicts, including empty, skipped and partial test runs.'
+    doLast {
+        def pass = [Case: [total: 1, failed: 0, skipped: 0]]
+        assert verdict(false, true, false, ['Case'], pass) == 'PASS'
+        assert verdict(true, true, false, ['Case'], pass) == 'FAIL'
+        assert verdict(false, false, false, ['Case'], pass) == 'NOT_RUN'
+        assert verdict(false, true, true, ['Case'], pass) == 'NOT_RUN'
+        assert verdict(false, true, false, ['Case'], [:]) == 'INCOMPLETE'
+        assert verdict(false, true, false, ['Case', 'Missing'], pass) == 'INCOMPLETE'
+        assert verdict(false, true, false, ['Case'], [Case: [total: 0, failed: 0, skipped: 0]]) == 'INCOMPLETE'
+        assert verdict(false, true, false, ['Case'], [Case: [total: 1, failed: 0, skipped: 1]]) == 'INCOMPLETE'
+        assert verdict(false, true, false, ['Case'], [Case: [total: 1, failed: 1, skipped: 0]]) == 'INCOMPLETE'
+        assert jvmCases.intersect(glCases).isEmpty()
+        (jvmCases + glCases).each { name ->
+            assert fileTree('src/test/java').matching { include "**/${name}.java" }.files.size() == 1
+        }
+    }
+}
+
+tasks.register('captureLogicCandidate') {
+    group = 'verification'
+    description = 'Fingerprints the actual working tree without requiring staging or a release commit.'
+    doLast { initialCandidate = snapshot() }
+}
+
+def registerTests = { String name, List<String> cases, boolean gl ->
+    tasks.register(name, Test) {
+        group = 'verification'
+        description = gl ? 'Runs focused Render3D pixel and lifecycle contracts, without benchmarks.'
+                : 'Runs the explicit Render3D JVM logic contracts, without a desktop.'
+        dependsOn 'captureLogicCandidate', 'testClasses'
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        systemProperty 'haikalat.glSmoke', gl.toString()
+        maxParallelForks = 1
+        filter { cases.each { includeTestsMatching "*.${it}" } }
+        doFirst {
+            if (!filter.commandLineIncludePatterns.isEmpty()) {
+                throw new GradleException('Scoped logic contracts cannot be narrowed with --tests; use test/glSmoke for ad hoc probes.')
+            }
+        }
+        // Until evidence reuse has a validated input contract, always obtain fresh test events.
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+        Map results = Collections.synchronizedMap([:])
+        observed[name] = results
+        afterTest { descriptor, result ->
+            String className = descriptor.className.tokenize('.').last()
+            synchronized (results) {
+                Map counts = results.computeIfAbsent(className) { [total: 0L, failed: 0L, skipped: 0L] }
+                counts.total++
+                counts.failed += result.failedTestCount
+                counts.skipped += result.skippedTestCount
+            }
+        }
+    }
+}
+registerTests('focusedRender3dJvmTest', jvmCases, false)
+registerTests('focusedRender3dGlTest', glCases, true)
+tasks.named('focusedRender3dGlTest') { dependsOn 'logicVerification' }
+tasks.named('focusedRender3dJvmTest') { mustRunAfter guards }
+
+tasks.register('logicVerification') {
+    group = 'verification'
+    description = 'Validates current Render3D JVM logic and guards; no staging, GPU or performance prerequisite.'
+    dependsOn 'captureLogicCandidate', 'focusedRender3dJvmTest'
+    dependsOn guards
+}
+tasks.register('render3dLogicVerification') {
+    group = 'verification'
+    description = 'Adds focused real-GL pixel/lifecycle validation to logicVerification; not release readiness.'
+    dependsOn 'logicVerification', 'focusedRender3dGlTest'
+}
+
+tasks.register('acceptance') {
+    group = 'verification'
+    description = 'Daily Render3D correctness acceptance; performance matrices and long soaks are excluded.'
+    dependsOn 'render3dLogicVerification'
+}
+
+def writeLogicReport = tasks.register('writeLogicVerificationReport') {
+    group = 'verification'
+    description = 'Writes evidence even when a logic dependency fails; missing or skipped cases cannot pass.'
+    mustRunAfter 'logicVerification', 'render3dLogicVerification', 'focusedRender3dJvmTest',
+            'focusedRender3dGlTest', 'captureLogicCandidate'
+    mustRunAfter guards
+    doLast {
+        boolean withGl = gradle.taskGraph.hasTask(tasks.named('render3dLogicVerification').get())
+                || gradle.taskGraph.hasTask(tasks.named('focusedRender3dGlTest').get())
+        def suites = [focusedRender3dJvmTest: jvmCases]
+        if (withGl) suites.focusedRender3dGlTest = glCases
+        def testEvidence = suites.collect { name, required ->
+            def task = tasks.named(name).get()
+            Map results = observed[name] ?: [:]
+            [task: name, verdict: verdict(task.state.failure != null, task.state.executed,
+                                         task.state.skipped, required, results),
+             requiredClasses: required, results: results,
+             error: task.state.failure?.message,
+             xml: "build/test-results/${name}"]
+        }
+        def guardEvidence = guards.collect { name ->
+            def task = tasks.named(name).get()
+            [task: name, outcome: taskOutcome(task), error: task.state.failure?.message]
+        }
+        Map finalCandidate = [:]
+        String snapshotError = null
+        try {
+            finalCandidate = snapshot()
+        } catch (Exception failure) {
+            snapshotError = failure.message
+        }
+        boolean stable = !initialCandidate.isEmpty() && initialCandidate == finalCandidate
+        boolean success = stable && testEvidence.every { it.verdict == 'PASS' }
+                && guardEvidence.every { it.outcome in ['PASS', 'REUSED_TASK_OUTPUT'] }
+        def evidence = [schemaVersion: 1, policy: 'focused-acceptance-v2', runId: runId,
+                        startedAt: startedAt, generatedAt: OffsetDateTime.now().toString(),
+                        wallSeconds: (System.nanoTime() - startedNanos) / 1e9,
+                        scope: withGl ? 'render3d-logic-and-gl' : 'render3d-jvm-logic',
+                        candidate: initialCandidate, finalCandidate: finalCandidate,
+                        candidateStable: stable, snapshotError: snapshotError,
+                        tests: testEvidence, guards: guardEvidence,
+                        success: success, releaseReady: false,
+                        notEvaluated: ['formal-performance', 'full-visual-quality', 'long-soak',
+                                       'release-metadata-and-clean-tree', 'unrelated-subsystems']]
+        File directory = layout.buildDirectory.dir("reports/logic-verification/${runId}").get().asFile
+        directory.mkdirs()
+        testEvidence.findAll { !it.results.isEmpty() }.each { entry ->
+            File original = file(entry.xml)
+            File archived = new File(directory, "test-results/${entry.task}")
+            archived.mkdirs()
+            fileTree(original).matching { include '*.xml' }.files.each { source ->
+                new File(archived, source.name).bytes = source.bytes
+            }
+            entry.xml = project.relativePath(archived).replace('\\', '/')
+        }
+        String json = JsonOutput.prettyPrint(JsonOutput.toJson(evidence)) + '\n'
+        new File(directory, 'report.json').setText(json, 'UTF-8')
+        new File(directory.parentFile, 'latest.json').setText(json, 'UTF-8')
+        logger.lifecycle("Logic verification: ${success ? 'PASS' : 'INCOMPLETE/FAIL'}; ${directory}/report.json")
+        if (!success) throw new GradleException('Logic verification evidence is incomplete or failed; see report.json')
+    }
+}
+// The snapshot is scheduled before test compilation too, so compilation failures still finalize.
+['captureLogicCandidate', 'focusedRender3dJvmTest', 'focusedRender3dGlTest',
+ 'logicVerification', 'render3dLogicVerification'].each { name ->
+    tasks.named(name) { finalizedBy writeLogicReport }
+}
+tasks.named('compileJava') { mustRunAfter 'captureLogicCandidate' }
+guards.each { name -> tasks.named(name) { mustRunAfter 'captureLogicCandidate' } }
