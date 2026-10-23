@@ -6,7 +6,9 @@ import java.time.Duration
 // Long historical matrices are opt-in. Ordinary acceptance has no performance prerequisite.
 def extendedRoots = ['releaseReadiness', 'writeReleaseReadiness', 'localReleaseVerification',
                      'localGlVerification', 'localOutdoorVerification',
-                     'localRender3dV0243Verification', 'runRender3dVisualBaselineQuality'] as Set
+                     'localRender3dV0243Verification', 'runRender3dVisualBaselineQuality',
+                     'localRender3dV0250Verification', 'runRender3dVolumetricFogQuality',
+                     'runRender3dVolumetricFogQualityTemporal', 'runRender3dVolumetricFogCpuAttribution'] as Set
 gradle.taskGraph.whenReady { graph ->
     def selected = graph.allTasks.findAll {
         String name = it.name.toLowerCase(Locale.ROOT)
@@ -27,12 +29,14 @@ tasks.withType(JavaExec).configureEach {
     }
 }
 
-// Explicit v0.24.3 logic scope. This is not automatic impact selection or release approval.
+// Explicit v0.25 logic scope. This is not automatic impact selection or release approval.
 def jvmCases = [
         'BenchmarkSampleCollectorTest', 'VisualProfileCodecTest', 'VisualBaselineContractTest',
         'FrameDiagnosticsTest', 'ClusterShaderSynchronizationTest', 'ClusterMathTest',
         'GtaoAnalyticReferenceTest', 'GtaoSettingsTest', 'GtaoPassesTest',
-        'OutdoorFrameStateTest', 'OutdoorEnvironmentSettingsTest', 'OutdoorVolumeMathTest',
+        'OutdoorEnvironmentSettingsTest',
+        'VolumetricSettingsTest', 'VolumetricGridTest', 'VolumetricHistoryPlanTest',
+        'LightVolumeHintsTest', 'VolumetricBaselineContractTest', 'VolumetricTemporalMetricsTest',
         'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
         'RenderGraphCompilerTest'
@@ -40,7 +44,11 @@ def jvmCases = [
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
         'OutdoorEnvironmentGlTest', 'TemporalTransactionGlTest',
-        'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest'
+        'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest',
+        'VolumetricTextureGlTest',
+        'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
+        'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
+        'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera'
 ]
 def guards = ['assetManifestGuard', 'dependencyLockGuard', 'publicApiGuard',
               'architectureGuard', 'releaseVerificationContracts', 'focusedVerificationContracts']
@@ -117,8 +125,17 @@ tasks.register('focusedVerificationContracts') {
         assert verdict(false, true, false, ['Case'], [Case: [total: 1, failed: 0, skipped: 1]]) == 'INCOMPLETE'
         assert verdict(false, true, false, ['Case'], [Case: [total: 1, failed: 1, skipped: 0]]) == 'INCOMPLETE'
         assert jvmCases.intersect(glCases).isEmpty()
+        assert tasks.findByName('acceptance') != null
+        assert jvmCases.containsAll(['VolumetricGridTest', 'VolumetricHistoryPlanTest'])
+        ['VolumetricGenerationGlTest', 'VolumetricCompositeGlTest', 'VolumetricTemporalGlTest'].each { name ->
+            assert glCases.any { it.startsWith(name + '.') }
+        }
+        assert !(jvmCases + glCases).any { it.contains('Soak') }
         (jvmCases + glCases).each { name ->
-            assert fileTree('src/test/java').matching { include "**/${name}.java" }.files.size() == 1
+            String className = name.tokenize('.').first()
+            def sources = fileTree('src/test/java').matching { include "**/${className}.java" }.files
+            assert sources.size() == 1
+            if (name.contains('.')) assert sources.first().getText('UTF-8').contains(name.tokenize('.').last() + '(')
         }
     }
 }
@@ -139,6 +156,8 @@ def registerTests = { String name, List<String> cases, boolean gl ->
         classpath = sourceSets.test.runtimeClasspath
         useJUnitPlatform()
         systemProperty 'haikalat.glSmoke', gl.toString()
+        systemProperty 'haikalat.glReadback', gl.toString()
+        systemProperty 'haikalat.internal.volume.diagnostics', gl.toString()
         maxParallelForks = 1
         filter { cases.each { includeTestsMatching "*.${it}" } }
         doFirst {
@@ -153,8 +172,10 @@ def registerTests = { String name, List<String> cases, boolean gl ->
         observed[name] = results
         afterTest { descriptor, result ->
             String className = descriptor.className.tokenize('.').last()
+            String methodName = descriptor.name.replaceAll(/\(.*$/, '')
+            String caseId = cases.contains(className) ? className : "${className}.${methodName}".toString()
             synchronized (results) {
-                Map counts = results.computeIfAbsent(className) { [total: 0L, failed: 0L, skipped: 0L] }
+                Map counts = results.computeIfAbsent(caseId) { [total: 0L, failed: 0L, skipped: 0L] }
                 counts.total++
                 counts.failed += result.failedTestCount
                 counts.skipped += result.skippedTestCount
@@ -201,7 +222,7 @@ def writeLogicReport = tasks.register('writeLogicVerificationReport') {
             Map results = observed[name] ?: [:]
             [task: name, verdict: verdict(task.state.failure != null, task.state.executed,
                                          task.state.skipped, required, results),
-             requiredClasses: required, results: results,
+             requiredCases: required, results: results,
              error: task.state.failure?.message,
              xml: "build/test-results/${name}"]
         }
@@ -228,6 +249,7 @@ def writeLogicReport = tasks.register('writeLogicVerificationReport') {
                         tests: testEvidence, guards: guardEvidence,
                         success: success, releaseReady: false,
                         notEvaluated: ['formal-performance', 'full-visual-quality', 'long-soak',
+                                       'full-volumetric-light-shadow-composite-temporal-matrices',
                                        'release-metadata-and-clean-tree', 'unrelated-subsystems']]
         File directory = layout.buildDirectory.dir("reports/logic-verification/${runId}").get().asFile
         directory.mkdirs()

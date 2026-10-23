@@ -4,7 +4,18 @@
 
 按[更新后的规范第 0 节](focused-acceptance-policy.md#0-2026-10-08-减负规则优先于下文原时间目标)，普通功能签收不强制跑 benchmark，默认总时限 5 分钟、默认零次自动重试。正确性错误继续阻断；历史性能失败作为欠账保留。
 
-主检出目录已提供 `verify.ps1` 和固定逻辑任务；本 0.25 工作树尚未合入这些执行器文件，不应在这里调用不存在的命令，也不能运行主检出目录的脚本后声称验证了本候选。本轮只有规范与报告变化，按第 8 节核对输入和原始结果后复用已有正确性证据，新增 JVM/GL/benchmark 执行均为 0。详见[本轮功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)。
+合并收尾已将 `gradle/focused-verification.gradle` 接入 `build.gradle`。当前工作树可直接使用：
+
+```powershell
+.\verify.ps1                # 23 个 JVM 类 + 8 个 GL 类及 3 个指定 GL 方法，总限时 300 秒
+.\verify.ps1 -Mode Jvm      # 仅 JVM 与 guard；二选一，不必叠加执行
+```
+
+固定范围加入 0.25 的网格/设置/历史计划、3D 纹理、视觉参数候选与代次事务、透明资源借用、GPU 部分写入后的历史恢复；旧 Outdoor 测试参考不代替新生产链。三个新生产 GL 方法精确登记且逐项核对实际执行，不因同类中另一个测试通过就算覆盖。GL 任务显式启用 readback 和 volume diagnostics，并复用现有严格 GL 日志审计。完整体积光照/阴影/合成/时域矩阵、长 soak、完整图像与性能不在日常范围内。清单见 `gradle/focused-verification.gradle`，尚不具备自动影响分析。
+
+报告在 `build/reports/bounded-verification/<runId>/result.json` 和 `build/reports/logic-verification/<runId>/report.json`，失败/超时不算通过。扩展质量矩阵、完整发布和长测必须显式传 `'-PextendedVerification=true'`；若要受总体时限约束，使用 `verify.ps1 -Mode Extended -TimeoutSeconds 1800`。日常没有重跑旧性能矩阵的前置条件。此前原始证据复用范围仍见[0.25 功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)。
+
+Windows checkout 必须遵守 `.gitattributes` 中已冻结 shader 的 LF 约束。合并收尾发现 19 项资源被 `core.autocrlf=true` 转成 CRLF；逐字节恢复 LF 后均匹配原 manifest，未修改哈希期望或 shader 逻辑。新增文本资源应同时固定换行格式，避免在另一检出产生假资产变更。
 
 
 This project uses three test categories. The default Gradle `test` task must stay safe for CI machines without a desktop OpenGL environment.

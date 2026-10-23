@@ -31,6 +31,7 @@
 - [v0.24.2 Clustered Forward 实施规划书](planning/v0.24.2-clustered-forward.md)
 - [v0.24.3 渲染收尾与视觉基线执行指南](planning/v0.24.3-rendering-consolidation-and-visual-baseline.md)
 - [v0.25.0 多光源体积雾执行计划](planning/v0.25.0-multilight-volumetric-fog.md)
+- [v0.25.1 风格化场景控制执行规划](planning/v0.25.1-stylized-scene-control.md)
 - [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
@@ -108,6 +109,7 @@
 - [v0.24.3 渲染收尾与视觉基线发布候选报告](releases/v0.24.3-release-report.md)
 - [v0.25.0 多光源体积雾实现与验收状态](releases/v0.25.0-release-report.md)
 - [v0.25.0 版本身份与打包核对](releases/v0.25.0-version-identity-2026-10-08.md)
+- [v0.25.0 合并收尾与 v0.25.1 开工记录](releases/v0.25.0-merge-cleanup-2026-10-08.md)
 - [v0.25.0 体积雾开工基线](performance/v0.25.0-volumetric-baseline.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
 - [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)

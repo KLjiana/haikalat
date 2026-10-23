@@ -318,3 +318,5 @@ tasks.named('localGlVerification') {
 tasks.named('embeddedGlVerification') {
     mustRunAfter 'glSmoke'
 }
+
+apply from: 'gradle/focused-verification.gradle'

@@ -561,8 +561,9 @@ tasks.register('releaseVerificationContracts') {
     }
 }
 
-['glSmoke', 'runRender3dVolumetricFogLifecycleSoak', 'runRender3dVolumetricFogWindIntegration', 'runRender3dVolumetricTownIntegration'].each { String name ->
-    tasks.named(name, Test) { Test smoke ->
+tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest',
+        'runRender3dVolumetricFogLifecycleSoak', 'runRender3dVolumetricFogWindIntegration',
+        'runRender3dVolumetricTownIntegration'] }.configureEach { Test smoke ->
         inputs.file glPolicyFile
         doLast {
             Map<String, File> reportFiles = [:]
@@ -573,7 +574,6 @@ tasks.register('releaseVerificationContracts') {
                 throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
             }
         }
-    }
 }
 
 tasks.withType(JavaExec).configureEach { JavaExec integration ->

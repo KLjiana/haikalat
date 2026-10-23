@@ -1,0 +1,20 @@
+# These assets are fingerprinted as LF bytes. Keep Windows checkout identical to the accepted manifest.
+src/main/resources/shaders/postprocess/gtao-estimate.frag text eol=lf
+src/main/resources/shaders/render3d/clustered/cluster-stats.comp text eol=lf
+src/main/resources/shaders/render3d/pbr/pbr-forward.frag text eol=lf
+src/main/resources/shaders/render3d/vfx/vfx.frag text eol=lf
+src/main/resources/shaders/render3d/volumetric/composite.frag text eol=lf
+src/main/resources/shaders/render3d/volumetric/integrate.comp text eol=lf
+src/main/resources/shaders/render3d/volumetric/medium.comp text eol=lf
+src/main/resources/shaders/render3d/volumetric/reactive.frag text eol=lf
+src/main/resources/shaders/render3d/volumetric/source.comp text eol=lf
+src/main/resources/shaders/render3d/volumetric/surface-guide.comp text eol=lf
+src/main/resources/shaders/render3d/volumetric/temporal.comp text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-common.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-lighting.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-native-reactive.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-noise.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-query.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-reactive.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-surface.glsl text eol=lf
+src/demo/resources/shaders/reference/volumetric-raymarch.comp text eol=lf
