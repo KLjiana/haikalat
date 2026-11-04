@@ -356,7 +356,10 @@ tasks.register('releaseVerificationContracts') {
         assert purposeFor('model.gltf') == 'Model asset'
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
-        assert policies.size() == 37
+        assert policies.size() == 38
+        def vlsReadback = policies.find { it.owner == 'ui/vls-demo' }
+        assert vlsReadback != null && vlsReadback.id == 131154 && vlsReadback.maximum == 1
+        assert vlsReadback.entry == '^runVlsIntegration$'
         def volumeProfileCold = policies.find { it.owner == 'render3d/volume-profile-cold' }
         assert volumeProfileCold != null && volumeProfileCold.maximum == 18
         assert volumeProfileCold.entry == '.*OutdoorEnvironmentGlTest.*'
@@ -561,7 +564,7 @@ tasks.register('releaseVerificationContracts') {
     }
 }
 
-tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest', 'uiCompositorGlVerification',
+tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest', 'uiCompositorGlVerification', 'uiCompositorCacheSoak',
         'runRender3dVolumetricFogLifecycleSoak', 'runRender3dVolumetricFogWindIntegration',
         'runRender3dVolumetricTownIntegration'] }.configureEach { Test smoke ->
         inputs.file glPolicyFile
@@ -570,6 +573,7 @@ tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest', 
             fileTree(smoke.reports.junitXml.outputLocation.get().asFile).matching { include '*.xml' }
                     .files.each { reportFiles[it.name] = it }
             def audit = auditGlFiles(reportFiles)
+            smoke.extensions.extraProperties.set('glLogAuditStatus',audit.violations.isEmpty()?'PASS':'FAIL')
             if (!audit.violations.isEmpty()) {
                 throw new GradleException('OpenGL debug-log gate failed:\n- ' + audit.violations.join('\n- '))
             }
@@ -594,6 +598,7 @@ tasks.withType(JavaExec).configureEach { JavaExec integration ->
         output.flush()
         output.close()
         def audit = auditGlFiles([(integration.name): logFile])
+        integration.extensions.extraProperties.set('glLogAuditStatus',audit.violations.isEmpty()?'PASS':'FAIL')
         int exit = executionResult.get().exitValue
         if (exit != 0) {
             GradleException processFailure = new GradleException(

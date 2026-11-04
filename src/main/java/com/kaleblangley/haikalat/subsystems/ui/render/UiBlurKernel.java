@@ -6,10 +6,10 @@ public final class UiBlurKernel {
     }
 
     public static float[] gaussian(float radius) {
-        if (!Float.isFinite(radius) || radius < 0.0f) {
-            throw new IllegalArgumentException("radius must be finite and non-negative");
+        if (!Float.isFinite(radius) || radius < 0.0f || radius > 256.0f) {
+            throw new IllegalArgumentException("Gaussian radius must be within 0..256 filter pixels");
         }
-        int halfWidth = Math.min(32, Math.max(0, (int) Math.ceil(radius)));
+        int halfWidth = (int) Math.ceil(radius);
         float[] weights = new float[halfWidth + 1];
         if (halfWidth == 0) {
             weights[0] = 1.0f;

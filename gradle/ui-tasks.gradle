@@ -1,4 +1,46 @@
 def uiDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.UiDemo'
+
+tasks.register('runUiCompositorDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs independent layers/content-blur/backdrop-blur/cache-lifecycle examples.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.UiCompositorDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+}
+tasks.register('runUiCompositorIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Replays all four compositor examples through real pointer input and linear pixel checks.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.UiCompositorDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--verify', '--case=all'
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('runVlsDemo', JavaExec) {
+    group = 'application'
+    description = 'Runs the VLS 2.0 expedition UI over a procedural voxel landscape.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.VlsDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+}
+
+tasks.register('runVlsIntegration', JavaExec) {
+    group = 'verification'
+    description = 'Verifies VLS pointer dispatch, task unlocks, inventory and reduced motion on real GL.'
+    dependsOn demoClasses
+    classpath = sourceSets.demo.runtimeClasspath
+    mainClass = 'com.kaleblangley.haikalat.demo.ui.VlsDemo'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    workingDir = projectDir
+    args '--verify', '--capture=build/reports/vls/interaction.png'
+}
 def modernUiDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.ModernUiDemo'
 def markdownTextDemoMainClass = 'com.kaleblangley.haikalat.demo.ui.MarkdownTextDemoMain'
 

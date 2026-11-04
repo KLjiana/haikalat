@@ -21,6 +21,81 @@ import static org.lwjgl.opengl.GL45.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class UiCompositorGlTest {
+    @Test void recycledCpuAtlasPageWithTheSameLogicalPageAndUvInvalidatesRealCachedGlyphPixels() {
+        try(var window=new GlfwWindow.Builder().dimensions(32,32).visible(false).title("UI glyph generation cache").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
+            try(var output=OwnedPresentationTarget.create(32,32,RenderFormat.RGBA16F,false,0);
+                var atlas=new com.kaleblangley.haikalat.subsystems.text.GlyphAtlas(8,8,1,1);
+                var renderer=new UiRenderer(16,8,8,1);var graph=new RenderGraph(32,32);
+                var compositor=new UiCompositor(UiAttachmentOptions.builder().enableCompositor(true)
+                        .layers(List.of(UiLayerDescription.builder("panel",new UiScreenRect(0,0,16,16)).build())).build())) {
+                var description=UiLayerDescription.builder("panel",new UiScreenRect(0,0,16,16)).build();
+                var list=new UiDisplayList().beginLayer(description);
+                list.beginGlyphRun(0,0,UiBlendMode.PREMULTIPLIED_ALPHA);list.addGlyph(new UiScreenRect(0,0,16,16),new UiUvRect(.125f,.125f,.875f,.875f),0xffffffff);
+                list.endGlyphRun();list.endLayer();var snapshot=UiRenderSnapshot.capture(1,32,32,32,32,1,1,list,new UiBatcher());
+                graph.addPass("Display").writeToBackbuffer().noClear().execute((r,c)->c.clearColor(0,0,1,1).clear(true,false));
+                java.util.function.BiConsumer<com.kaleblangley.haikalat.core.graph.PassResources,com.kaleblangley.haikalat.core.command.CommandBuffer> record=
+                        (r,c)->compositor.recordCurrentPass(snapshot,renderer,r,c);
+                String last=compositor.registerPasses(graph,"Display",record);
+                graph.addPass("Overlay").writeToBackbuffer().dependsOn(last).noClear().execute((r,c)->compositor.recordOverlay(record,r,c));graph.compile();
+                for(int glyph=1;glyph<=2;glyph++) {
+                    var key=new com.kaleblangley.haikalat.subsystems.text.GlyphKey(new com.kaleblangley.haikalat.subsystems.text.FontFaceId(1),glyph,16);
+                    byte[] coverage=new byte[36];Arrays.fill(coverage,glyph==1?(byte)255:0);
+                    var request=atlas.lookup(key,k->new com.kaleblangley.haikalat.subsystems.text.GlyphBitmap(k,6,6,0,6,6,0,coverage)).uploadRequest().orElseThrow();
+                    var commands=device.createCommandBuffer();renderer.recordGlyphUploads(List.of(request),commands);device.execute(commands);glFinish();
+                    graph.execute(device,output.target());var results=renderer.drainCompletedGlyphUploads();assertEquals(1,results.size());assertTrue(results.getFirst().succeeded());atlas.publishUpload(request);
+                    assertPixel(read(output,32,32),32,8,8,glyph==1?1:0,glyph==1?1:0,1);
+                    if(glyph==2){assertTrue(atlas.statistics().evictions()>0);assertEquals("GLYPH_ATLAS",compositor.runtimeStatistics().cache().get("panel"));}
+                    graph.execute(device,output.target());assertEquals("HIT",compositor.runtimeStatistics().cache().get("panel"));assertEquals(0,compositor.runtimeStatistics().draws());
+                }
+                GlDebug.assertNoError("UI atlas recycle through typed upload, snapshot, cache and real glyph draw");
+            }
+        }
+    }
+    @Test void growingContentDropsOptionalFilteringWithinTheCandidatePeakAndRestoresItAfterShrinking() {
+        try(var window=new GlfwWindow.Builder().dimensions(64,64).visible(false).title("UI runtime budget").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
+            try(var output=OwnedPresentationTarget.create(64,64,RenderFormat.RGBA16F,false,0);
+                var graph=new RenderGraph(64,64);var ui=UiSystem.create(window,colorConfig())) {
+                graph.addPass("Display").writeToBackbuffer().noClear().execute((r,c)->c.enableScissor(false).clearColor(0,0,1,1).clear(true,false));
+                var description=UiLayerDescription.builder("panel",new UiScreenRect(0,0,20,20)).opacity(.5f).blur(4,2).build();
+                var group=new Panel();group.style(style(20,20));group.layerDescription(description);
+                var red=new Panel();red.style(style(20,20));red.addStyleClass("red");group.add(red);ui.document().root().add(group);
+                ui.attachTo(graph,"Display",UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(description)).maximumIntermediatePixels(3000).build());graph.compile();
+                var input=input(64,64);ui.update(input.snapshot(),0);graph.execute(device,output.target());assertEquals(2,ui.compositorRuntimeStatistics().blurDraws());
+                group.style(style(40,40));red.style(style(40,40));ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals(1,ui.compositorDiagnostics().activeLayers());assertEquals(0,ui.compositorDiagnostics().directFallbacks());
+                assertEquals(0,ui.compositorRuntimeStatistics().blurDraws());assertEquals((40L*40+2)*8,ui.compositorRuntimeStatistics().bytes());
+                assertTrue(ui.compositorRuntimeStatistics().peakBytes()<=3000L*8);assertPixel(read(output,64,64),64,30,30,.5,0,.5);
+                assertTrue(ui.compositorDiagnostics().fallbacks().stream().anyMatch(f->f.reason()==UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET));
+                assertTrue(graph.description().passes().stream().filter(p->p.name().startsWith("UiBlur/")).allMatch(p->p.width()==1&&p.height()==1));
+                ui.update(input.snapshot(),0);graph.execute(device,output.target());assertEquals("HIT",ui.compositorRuntimeStatistics().cache().get("panel"));
+                group.style(style(20,20));red.style(style(20,20));ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals(2,ui.compositorRuntimeStatistics().blurDraws());assertTrue(ui.compositorDiagnostics().fallbacks().isEmpty());
+                assertPixel(read(output,64,64),64,30,30,0,0,1);GlDebug.assertNoError("UI runtime optional effect budget and restoration");
+            }
+        }
+    }
+    @Test void largeRadiusPreservesTheGaussianSupportBeyondThirtyTwoFilterPixels() {
+        try(var window=new GlfwWindow.Builder().dimensions(129,129).visible(false).title("UI wide Gaussian support").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
+            try(var output=OwnedPresentationTarget.create(129,129,RenderFormat.RGBA16F,false,0);
+                var graph=new RenderGraph(129,129);var ui=UiSystem.create(window,colorConfig())) {
+                graph.addPass("Display").writeToBackbuffer().noClear().execute((r,c)->c.enableScissor(false).clearColor(0,0,1,1).clear(true,false));
+                var description=UiLayerDescription.builder("stripe",new UiScreenRect(0,0,129,129)).blur(40,1).build();
+                var group=new Panel();group.style(style(129,129));group.layerDescription(description);
+                var stripe=new Panel();stripe.style(style(1,129));stripe.addStyleClass("red");stripe.visualTransform(UiVisualTransform.translation(64,0));group.add(stripe);
+                ui.document().root().add(group);ui.attachTo(graph,"Display",UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(description)).build());graph.compile();
+                var input=input(129,129);ui.update(input.snapshot(),0);graph.execute(device,output.target());var image=read(output,129,129);
+                double sum=0;for(int i=-40;i<=40;i++)sum+=Math.exp(-.5*Math.pow(i/(40.0/3),2));
+                for(int x=-42;x<=42;x++) {
+                    double expected=Math.abs(x)>40?0:Math.exp(-.5*Math.pow(x/(40.0/3),2))/sum;
+                    assertEquals(expected,image[(64*129+64+x)*4],.00005,"independent full-support Gaussian at offset "+x);
+                }
+                GlDebug.assertNoError("UI Gaussian radius above 32");
+            }
+        }
+    }
     @Test void limitedBudgetDropsOnlyOptionalBlurAndKeepsTheCorrectGroupAlpha() {
         try(var window=new GlfwWindow.Builder().dimensions(96,64).visible(false).title("UI budget fallback").build()) {
             window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();

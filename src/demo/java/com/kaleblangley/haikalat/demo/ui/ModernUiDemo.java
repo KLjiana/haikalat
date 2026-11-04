@@ -250,10 +250,8 @@ public final class ModernUiDemo {
                         new UiScreenRect(24.0, 24.0,
                                 Math.max(1.0, width - 48.0),
                                 Math.max(1.0, height - 48.0)))
-                .mask(UiLayerDescription.MaskMode.ROUNDED)
-                .effect(UiLayerDescription.Effect.DROP_SHADOW)
-                .effect(UiLayerDescription.Effect.GLOW)
-                .blur(12.0f, 2)
+                // Rounded corners and decorative shadows use the existing SDF theme.
+                // Keep UI text sharp; unsupported compositor effects are rejected.
                 .cachePolicy(UiLayerDescription.CachePolicy.WHEN_CLEAN)
                 .dirtyRevision(1L)
                 .build();

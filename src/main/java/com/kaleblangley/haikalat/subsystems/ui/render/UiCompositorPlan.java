@@ -36,6 +36,9 @@ final class UiCompositorPlan {
     }
 
     static UiCompositorPlan build(UiAttachmentOptions options) {
+        return build(options,Set.of());
+    }
+    static UiCompositorPlan build(UiAttachmentOptions options,Set<String> forceDisableEffects) {
         Objects.requireNonNull(options, "options");
         if (!options.compositorEnabled() || options.layers().isEmpty()) return EMPTY;
         List<UiLayerDescription> ordered = new ArrayList<>(options.layers());
@@ -48,21 +51,25 @@ final class UiCompositorPlan {
         Set<String> disabledEffects = new HashSet<>();
         for (UiLayerDescription layer : ordered) {
             UiCompositor.FallbackReason rejected = null;
-            long requestedPixels=estimatedPixels(layer,true);
+            boolean droppedEffect=forceDisableEffects.contains(layer.id());
+            long requestedPixels=estimatedPixels(layer,!droppedEffect);
             if (accepted.size() >= options.maximumLayers()) {
                 rejected = UiCompositor.FallbackReason.LAYER_LIMIT;
-            } else if (pixels+requestedPixels > options.maximumIntermediatePixels()) {
+            } else if (requestedPixels==Long.MAX_VALUE||requestedPixels > options.maximumIntermediatePixels()-pixels) {
                 long plain=estimatedPixels(layer,false);
-                if(pixels+plain<=options.maximumIntermediatePixels()) {
-                    requestedPixels=plain;disabledEffects.add(layer.id());
-                    fallbacks.add(new UiCompositor.Fallback(layer.id(),UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET));
-                } else rejected=UiCompositor.FallbackReason.PIXEL_BUDGET;
+                if(plain!=Long.MAX_VALUE&&plain<=options.maximumIntermediatePixels()-pixels) {
+                    requestedPixels=plain;droppedEffect=true;
+                } else rejected=plain==Long.MAX_VALUE?UiCompositor.FallbackReason.EXTENT_LIMIT:UiCompositor.FallbackReason.PIXEL_BUDGET;
             }
             if (rejected != null) {
                 fallbacks.add(new UiCompositor.Fallback(layer.id(), rejected));
                 continue;
             }
             accepted.add(layer);
+            if(droppedEffect) {
+                disabledEffects.add(layer.id());
+                fallbacks.add(new UiCompositor.Fallback(layer.id(),UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET));
+            }
             pixels += requestedPixels;
         }
         return new UiCompositorPlan(accepted, fallbacks, pixels, ordered.size(), disabledEffects);
@@ -75,7 +82,7 @@ final class UiCompositorPlan {
         double padding=blur?layer.blurRadius():0;
         long width=(long)Math.ceil((layer.bounds().width()+padding*2)*layer.framebufferScale());
         long height=(long)Math.ceil((layer.bounds().height()+padding*2)*layer.framebufferScale());
-        if(width<1||height<1||width>4096||height>4096)throw new IllegalArgumentException("UI layer allocation extent outside 1..4096: "+layer.id());
+        if(width<1||height<1||width>4096||height>4096)return Long.MAX_VALUE;
         long pixels=Math.multiplyExact(width,height);
         if(blur){int d=layer.blurDownsample();pixels=Math.addExact(pixels,Math.multiplyExact(2L,Math.multiplyExact((width+d-1)/d,(height+d-1)/d)));}
         return pixels;

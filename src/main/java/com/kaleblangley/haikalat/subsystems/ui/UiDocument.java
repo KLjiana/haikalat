@@ -122,6 +122,22 @@ public final class UiDocument implements AutoCloseable {
 
     /** 返回叠加所有祖先 scroll/transform 后的逻辑可视矩形。 */
     public LayoutBox visualLayoutBox(UiNode node) {
+        VisualMapping mapping=visualMapping(node);
+        LayoutBox box = node.layoutBox();
+        var transformed = mapping.matrix.transformBounds(box.x() + mapping.offsetX, box.y() + mapping.offsetY,
+                box.width(), box.height());
+        return new LayoutBox((float) transformed.x(), (float) transformed.y(),
+                (float) transformed.width(), (float) transformed.height());
+    }
+
+    /** Converts a logical pointer position to node-local coordinates using ancestor scroll/transform. */
+    public UiVisualTransform.Point pointInNode(UiNode node,double x,double y) {
+        VisualMapping mapping=visualMapping(node);
+        var point=mapping.matrix.inverseTransform(x,y);var box=node.layoutBox();
+        return new UiVisualTransform.Point(point.x()-box.x()-mapping.offsetX,point.y()-box.y()-mapping.offsetY);
+    }
+
+    private VisualMapping visualMapping(UiNode node) {
         ensureOpen();
         if (node == null || node.document() != this || node.isClosed()) {
             throw new IllegalArgumentException("visual layout node must be an open document member");
@@ -140,12 +156,9 @@ public final class UiDocument implements AutoCloseable {
                 offsetY += current.childVisualOffsetY();
             }
         }
-        LayoutBox box = node.layoutBox();
-        var transformed = matrix.transformBounds(box.x() + offsetX, box.y() + offsetY,
-                box.width(), box.height());
-        return new LayoutBox((float) transformed.x(), (float) transformed.y(),
-                (float) transformed.width(), (float) transformed.height());
+        return new VisualMapping(matrix,offsetX,offsetY);
     }
+    private record VisualMapping(UiVisualTransform.Matrix matrix,double offsetX,double offsetY) { }
 
     public List<UiNode> pathTo(UiNode node) {
         ensureOpen();
@@ -273,7 +286,8 @@ public final class UiDocument implements AutoCloseable {
             }
         }
         List<TransformedClip> childClips = ancestorClips;
-        if (node.clipChildren()) {
+        if (node.clipChildren()||node.style().overflow()!=com.kaleblangley.haikalat.subsystems.ui.style.UiStyle.Overflow.VISIBLE
+                ||(node.layerDescription()!=null&&node.layerDescription().maskMode()==com.kaleblangley.haikalat.subsystems.ui.render.UiLayerDescription.MaskMode.CLIP)) {
             childClips = new ArrayList<>(ancestorClips.size() + 1);
             childClips.addAll(ancestorClips);
             childClips.add(new TransformedClip(transform, boxX, boxY, boxWidth, boxHeight));

@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** 当前 OpenGL context 中可缓存 native 状态的删除代次。 */
+/** 当前 OpenGL context 中绕过状态缓存的 native 状态变更代次。 */
 final class GlContextStateEpoch {
     static final long NO_CONTEXT = Long.MIN_VALUE;
 
@@ -25,7 +25,7 @@ final class GlContextStateEpoch {
         return epoch(capabilities).value.get();
     }
 
-    static void deleted() {
+    static void changed() {
         GLCapabilities capabilities = capabilitiesOrNull();
         if (capabilities == null) return;
         epoch(capabilities).value.set(nextToken());

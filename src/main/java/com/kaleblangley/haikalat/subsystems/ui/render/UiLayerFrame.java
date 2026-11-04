@@ -85,6 +85,41 @@ final class UiLayerFrame {
     Collection<Layer> layers() { return layers.values(); }
     List<Operation> operations(String id) { return id.isEmpty() ? root : layers.get(id).operations(); }
 
+    /** Include unclipped overflow and effect outsets of nested layers in the actual raster extent. */
+    UiScreenRect rasterBounds(String id,UiRenderSnapshot snapshot,java.util.function.Predicate<UiLayerDescription> filtered) {
+        Layer layer=layers.get(id);UiScreenRect result=layer.bounds();
+        var batches=snapshot.batches();var list=snapshot.displayList();
+        for(var operation:layer.operations()) {
+            if(operation.child()!=null) {
+                var child=layers.get(operation.child());var bounds=rasterBounds(operation.child(),snapshot,filtered);
+                if(filtered.test(child.description())) {
+                    double p=child.description().blurRadius();bounds=new UiScreenRect(bounds.x()-p,bounds.y()-p,bounds.width()+2*p,bounds.height()+2*p);
+                }
+                result=union(result,bounds);continue;
+            }
+            int batch=operation.batch();
+            for(int q=batches.firstQuad(batch);q<batches.firstQuad(batch)+batches.quadCount(batch);q++) {
+                double left=Double.POSITIVE_INFINITY,top=left,right=Double.NEGATIVE_INFINITY,bottom=right;
+                for(int corner=0;corner<4;corner++) {
+                    double x=list.quadX(q)+(corner==1||corner==2?list.quadWidth(q):0),y=list.quadY(q)+(corner>=2?list.quadHeight(q):0);
+                    double tx=list.quadTransformM00(q)*x+list.quadTransformM01(q)*y+list.quadTransformX(q);
+                    double ty=list.quadTransformM10(q)*x+list.quadTransformM11(q)*y+list.quadTransformY(q);
+                    left=Math.min(left,tx);right=Math.max(right,tx);top=Math.min(top,ty);bottom=Math.max(bottom,ty);
+                }
+                var bounds=new UiScreenRect(left,top,right-left,bottom-top);
+                if(batches.hasClip(batch))bounds=bounds.intersect(batches.clip(batch));
+                result=union(result,bounds);
+            }
+        }
+        if(layer.description().maskMode()==UiLayerDescription.MaskMode.CLIP)result=result.intersect(layer.bounds());
+        return layer.clip()==null?result:result.intersect(layer.clip());
+    }
+    private static UiScreenRect union(UiScreenRect a,UiScreenRect b) {
+        if(a.isEmpty())return b;if(b.isEmpty())return a;
+        double x=Math.min(a.x(),b.x()),y=Math.min(a.y(),b.y());
+        return new UiScreenRect(x,y,Math.max(a.right(),b.right())-x,Math.max(a.bottom(),b.bottom())-y);
+    }
+
     static UiScreenRect intersection(UiScreenRect a, UiScreenRect b) {
         double x = Math.max(a.x(), b.x()), y = Math.max(a.y(), b.y());
         return new UiScreenRect(x, y, Math.max(0, Math.min(a.x()+a.width(),b.x()+b.width())-x),

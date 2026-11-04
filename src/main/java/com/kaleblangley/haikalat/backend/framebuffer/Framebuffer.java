@@ -165,6 +165,7 @@ public final class Framebuffer implements GlResource {
     }
 
     public static Framebuffer fromDescriptor(FramebufferDescriptor descriptor) {
+        CreationBindings bindings=CreationBindings.capture();
         int fbo = glGenFramebuffers();
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_FRAMEBUFFER, fbo,
@@ -188,8 +189,6 @@ public final class Framebuffer implements GlResource {
 
         configureDrawBuffers(colors.length);
         ensureComplete();
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
         return new Framebuffer(fbo, colors, colorStorage, depth,
                 descriptor.depthAttachment().storage(), true, descriptor);
         } catch (RuntimeException | Error failure) {
@@ -197,7 +196,9 @@ public final class Framebuffer implements GlResource {
             if (depth!=0) deleteAttachment(depth,descriptor.depthAttachment().storage());
             glDeleteFramebuffers(fbo);
             throw failure;
-        } finally { glBindFramebuffer(GL_FRAMEBUFFER,0); }
+        } finally {
+            bindings.restore();
+        }
     }
 
     /**
@@ -273,6 +274,7 @@ public final class Framebuffer implements GlResource {
                 }
             }
         }
+        CreationBindings bindings=CreationBindings.capture();
         int fbo = glGenFramebuffers();
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         GlDebug.labelObject(org.lwjgl.opengl.GL43.GL_FRAMEBUFFER, fbo,
@@ -304,8 +306,6 @@ public final class Framebuffer implements GlResource {
         }
         configureDrawBuffers(colors.length);
         ensureComplete();
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
         return new Framebuffer(fbo, colors, colorStorage, depthSource == null ? 0 : depthSource.depthAttachment(),
                 depthSource == null ? FramebufferDescriptor.AttachmentStorage.NONE : depthSource.depthAttachmentStorage,
                 false, colorSource == null, descriptor);
@@ -314,7 +314,28 @@ public final class Framebuffer implements GlResource {
                 if (colors[i]!=0) deleteAttachment(colors[i],colorStorage[i]);
             glDeleteFramebuffers(fbo);
             throw failure;
-        } finally { glBindFramebuffer(GL_FRAMEBUFFER,0); }
+        } finally {
+            bindings.restore();
+        }
+    }
+
+    /** Resource construction must not leave its own attachments in a host-state snapshot. */
+    private record CreationBindings(int draw,int read,int texture2d,int textureMs,int renderbuffer) {
+        static CreationBindings capture() {
+            return new CreationBindings(
+                    org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER_BINDING),
+                    org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER_BINDING),
+                    org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_TEXTURE_BINDING_2D),
+                    org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL32.GL_TEXTURE_BINDING_2D_MULTISAMPLE),
+                    org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL30.GL_RENDERBUFFER_BINDING));
+        }
+        void restore() {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER,draw);glBindFramebuffer(GL_READ_FRAMEBUFFER,read);
+            org.lwjgl.opengl.GL11.glBindTexture(org.lwjgl.opengl.GL11.GL_TEXTURE_2D,texture2d);
+            org.lwjgl.opengl.GL11.glBindTexture(org.lwjgl.opengl.GL32.GL_TEXTURE_2D_MULTISAMPLE,textureMs);
+            glBindRenderbuffer(GL_RENDERBUFFER,renderbuffer);
+            GlDebug.contextStateChanged();
+        }
     }
 
     public Framebuffer bind() {

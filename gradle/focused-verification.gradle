@@ -1,4 +1,5 @@
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import java.time.OffsetDateTime
 import java.time.Duration
@@ -277,14 +278,33 @@ def writeLogicReport = tasks.register('writeLogicVerificationReport') {
 tasks.named('compileJava') { mustRunAfter 'captureLogicCandidate' }
 guards.each { name -> tasks.named(name) { mustRunAfter 'captureLogicCandidate' } }
 
-tasks.register('captureUiCompositorCandidate') { doLast { initialCandidate = snapshot() } }
+tasks.register('captureUiCompositorCandidate') {
+    doLast {
+        initialCandidate = snapshot()
+        println "UI_COMPOSITOR_RUN_ID=${runId}"
+        File inputs=layout.buildDirectory.dir("reports/ui-compositor-v0260/${runId}/inputs").get().asFile
+        inputs.mkdirs()
+        List<String> paths=gitText(['ls-files','-z','--cached','--others','--exclude-standard']).split('\u0000').findAll { !it.isEmpty() }.unique().sort()
+        List identities=paths.collect { path ->
+            File source=file(path)
+            [path:path,bytes:source.isFile()?source.length():null,sha256:source.isFile()?MessageDigest.getInstance('SHA-256').digest(source.bytes).encodeHex().toString():'MISSING']
+        }
+        new File(inputs,'identity.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson([candidate:initialCandidate,files:identities]))+'\n','UTF-8')
+        new File(inputs,'working-tree.patch').setText(gitText(['-c','core.safecrlf=false','diff','HEAD','--binary','--no-ext-diff']),'UTF-8')
+        gitText(['ls-files','-z','--others','--exclude-standard']).split('\u0000').findAll { !it.isEmpty() }.each { path ->
+            File source=file(path),copy=new File(inputs,'untracked/'+path)
+            if(source.isFile()){copy.parentFile.mkdirs();java.nio.file.Files.copy(source.toPath(),copy.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING)}
+        }
+    }
+}
 tasks.named('compileJava') { mustRunAfter 'captureUiCompositorCandidate' }
 
 // UI compositor leaves use the same fresh execution and required-case event contracts.
-def uiCompositorCases = [uiCompositorJvmVerification: ['UiLayerFrameTest', 'UiCompositorFoundationTest', 'UiSystemTest'],
-    uiCompositorGlVerification: ['UiCompositorGlTest', 'UiRendererGlTest']]
+def uiCompositorCases = [uiCompositorJvmVerification: ['UiLayerFrameTest', 'UiCompositorFoundationTest', 'UiSystemTest', 'UiPainterTest', 'UiInputRouterTest'],
+    uiCompositorGlVerification: ['UiCompositorGlTest', 'UiCompositorLifecycleGlTest', 'UiCompositorSourceGlTest', 'UiRendererGlTest'],
+    uiCompositorCacheSoak: ['UiCompositorCacheSoakGlTest']]
 uiCompositorCases.each { String taskName, List<String> required ->
-    registerTests(taskName, required, taskName == 'uiCompositorGlVerification')
+    registerTests(taskName, required, taskName != 'uiCompositorJvmVerification')
     String status = 'NOT_RUN'
     tasks.named(taskName, Test) {
         setDependsOn(['captureUiCompositorCandidate', 'testClasses'])
@@ -296,9 +316,9 @@ uiCompositorCases.each { String taskName, List<String> required ->
                 File output = layout.buildDirectory.file("reports/ui-compositor-v0260/${runId}/${taskName}.json").get().asFile
                 output.parentFile.mkdirs()
                 output.setText(JsonOutput.prettyPrint(JsonOutput.toJson([schemaVersion: 1, runId: runId,
-                    task: taskName, status: status, execution: 'FRESH', requiredCases: required,
+                    task: taskName, status: 'PENDING_TASK_GATES', testStatus: status, execution: 'FRESH', requiredCases: required,
                     results: observed[taskName], candidate: initialCandidate, candidateStable: stable,
-                    performance: 'NOT_EVALUATED', featureAcceptance: taskName == 'uiCompositorGlVerification' ? 'INTERNAL_GL_CHECKPOINT' : 'INTERNAL_CPU_CHECKPOINT', releaseReady: false])) + '\n', 'UTF-8')
+                    performance: 'NOT_EVALUATED', featureAcceptance: taskName == 'uiCompositorJvmVerification' ? 'INTERNAL_CPU_CHECKPOINT' : 'INTERNAL_GL_CHECKPOINT', releaseReady: false])) + '\n', 'UTF-8')
             }
         }
         doLast { if (status != 'PASS') throw new GradleException('UI compositor contracts incomplete: ' + status) }
@@ -309,5 +329,105 @@ tasks.named('uiCompositorGlVerification') { mustRunAfter 'uiCompositorJvmVerific
 tasks.register('uiCompositorVerification') {
     group = 'verification'
     description = 'Scoped UI compositor correctness; no performance or unrelated rendering matrices.'
-    dependsOn 'uiCompositorJvmVerification', 'uiCompositorGlVerification', 'publicApiGuard', 'architectureGuard', 'assetManifestGuard'
+    dependsOn 'uiCompositorJvmVerification', 'uiCompositorGlVerification', 'publicApiGuard', 'architectureGuard', 'assetManifestGuard', 'focusedVerificationContracts', 'releaseVerificationContracts'
 }
+tasks.register('uiCompositorConsumerVerification') {
+    group = 'verification'
+    description = 'Scoped compositor checks and short VLS/modern-menu consumer runs.'
+    dependsOn 'uiCompositorVerification', 'runUiCompositorIntegration', 'runVlsIntegration', 'runModernUiIntegration'
+}
+tasks.register('uiCompositorDemoVerification') {
+    group = 'verification'
+    dependsOn 'runUiCompositorIntegration', 'publicApiGuard', 'architectureGuard', 'assetManifestGuard'
+}
+File uiDemoOutput=layout.buildDirectory.dir("reports/ui-compositor-v0260/${runId}/demos").get().asFile
+tasks.named('runUiCompositorIntegration') {
+    dependsOn 'captureUiCompositorCandidate'
+    mustRunAfter 'uiCompositorVerification'
+    doFirst { args '--output='+uiDemoOutput.absolutePath }
+    doLast {
+        ['layers','content-blur','backdrop-blur','cache-lifecycle'].each { name ->
+            File evidence=new File(uiDemoOutput,"${name}/evidence.json")
+            if(!evidence.isFile())throw new GradleException('Missing compositor case: '+name)
+            def result=new JsonSlurper().parse(evidence)
+            if(result.status!='PASS'||result.case!=name||result.attemptedFrames!=96||result.markerHits<1||!result.nativePresentationVerified)
+                throw new GradleException('Incomplete compositor case: '+name)
+        }
+    }
+}
+tasks.named('runVlsIntegration') { mustRunAfter 'runUiCompositorIntegration' }
+tasks.named('runModernUiIntegration') { mustRunAfter 'runVlsIntegration' }
+
+def uiConsumers = ['runUiCompositorIntegration', 'runVlsIntegration', 'runModernUiIntegration']
+uiConsumers.each { name -> tasks.named(name) { outputs.upToDateWhen { false }; outputs.cacheIf { false } } }
+def uiGuards = ['publicApiGuard', 'architectureGuard', 'assetManifestGuard', 'focusedVerificationContracts', 'releaseVerificationContracts']
+uiGuards.each { name -> tasks.named(name) { mustRunAfter 'captureUiCompositorCandidate' } }
+def uiEvidenceTasks = uiCompositorCases.keySet().toList() + uiConsumers + uiGuards
+def uiReport = tasks.register('writeUiCompositorVerificationReport') {
+    group = 'verification'
+    description = 'Writes final UI outcomes after test, process and GL-log gates, including dependency failures.'
+    mustRunAfter uiEvidenceTasks
+    doLast {
+        File directory = layout.buildDirectory.dir("reports/ui-compositor-v0260/${runId}").get().asFile
+        directory.mkdirs()
+        Set<String> selected = gradle.taskGraph.allTasks*.name as Set
+        Map finalCandidate = snapshot()
+        boolean stable = !initialCandidate.isEmpty() && initialCandidate == finalCandidate
+        List entries = uiEvidenceTasks.findAll { selected.contains(it) }.collect { String name ->
+            Task leaf = tasks.named(name).get()
+            List required = uiCompositorCases[name] ?: []
+            Map actual = observed[name] ?: [:]
+            if(name=='runUiCompositorIntegration') {
+                required=['layers','content-blur','backdrop-blur','cache-lifecycle']
+                actual=[:]
+                required.each { id ->
+                    File evidence=new File(uiDemoOutput,"${id}/evidence.json")
+                    if(evidence.isFile()) {
+                        def proof=new JsonSlurper().parse(evidence)
+                        actual[id]=[total:proof.attemptedFrames,failed:proof.status=='PASS'?0:1,skipped:0]
+                    }
+                }
+            }
+            if(name in ['runVlsIntegration','runModernUiIntegration']) {
+                required=[name=='runVlsIntegration'?'VLS_INTERACTION_REPLAY':'MODERN_UI_PIXEL_REPLAY'];actual=[:]
+                File log=layout.buildDirectory.file("reports/gl/${name}.log").get().asFile
+                if(log.isFile()) {
+                    String content=log.getText('UTF-8')
+                    boolean proof=name=='runVlsIntegration'?(content=~ /VlsDemo \| frames=100 \| framebuffer=1100x720 .*interactionProof=true/).find():
+                            (content=~ /ModernUiDemo \| frames 90 \| framebuffer 1280x720 .*layers 1 .*non-clear [1-9][0-9]*/).find()
+                    if(proof)actual[required.first()]=[total:1,failed:0,skipped:0]
+                }
+            }
+            String outcome = taskOutcome(leaf)
+            String tests = required.isEmpty() ? 'NOT_APPLICABLE' : verdict(leaf.state.failure != null,
+                    leaf.state.executed, leaf.state.skipped, required, actual)
+            boolean gl = (uiCompositorCases.containsKey(name) && name != 'uiCompositorJvmVerification') || uiConsumers.contains(name)
+            String logAudit = gl ? (leaf.extensions.extraProperties.has('glLogAuditStatus') ?
+                    leaf.extensions.extraProperties.get('glLogAuditStatus').toString() : 'NOT_RUN') : 'NOT_APPLICABLE'
+            if (outcome == 'PASS' && ((!required.isEmpty() && tests != 'PASS') || (gl && logAudit != 'PASS'))) outcome = 'INCOMPLETE'
+            Map entry = [task: name, status: outcome, testStatus: tests, glLogAudit: logAudit,
+                requiredCases: required, results: actual, execution: leaf.state.didWork ? 'FRESH' : 'NO_FRESH_WORK',
+                failure: leaf.state.failure?.toString()]
+            new File(directory,"${name}.json").setText(JsonOutput.prettyPrint(JsonOutput.toJson(entry))+'\n','UTF-8')
+            if(leaf instanceof Test&&leaf.state.executed) {
+                copy {from leaf.reports.junitXml.outputLocation;include '*.xml';into new File(directory,"junit/${name}")}
+            } else if(leaf instanceof JavaExec&&leaf.state.executed) {
+                File log=layout.buildDirectory.file("reports/gl/${name}.log").get().asFile
+                if(log.isFile())copy {from log;into new File(directory,'logs')}
+            }
+            entry
+        }
+        List failures = gradle.taskGraph.allTasks.findAll { it.state.failure != null }.collect { [task: it.name, failure: it.state.failure.toString()] }
+        String status = !stable ? 'SOURCE_CHANGED' : entries.isEmpty() ? 'NOT_RUN' :
+                (!failures.isEmpty() || entries.any { it.status != 'PASS' }) ? 'FAIL' : 'PASS'
+        Map report = [schemaVersion: 2, runId: runId, status: status, candidate: initialCandidate,
+            finalCandidate: finalCandidate, candidateStable: stable, entries: entries, failures: failures,
+            environment: [os: System.getProperty('os.name'), java: System.getProperty('java.version')],
+            featureAcceptance: 'SCOPED_AUTOMATED_CHECKPOINT', performance: 'NOT_EVALUATED',
+            humanVisualAcceptance: 'NOT_EVALUATED', releaseReady: false]
+        new File(directory,'summary.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson(report))+'\n','UTF-8')
+        if(status != 'PASS') throw new GradleException('UI scoped evidence: '+status+'; report='+directory)
+    }
+}
+// Capture executes before compilation; its finalizer also survives a failed compile/test dependency.
+tasks.named('captureUiCompositorCandidate') { finalizedBy uiReport }

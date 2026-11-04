@@ -82,11 +82,11 @@ public final class Slider extends UiNode {
                     dragging = true;
                     event.requestFocus();
                     event.capturePointer(pointer.pointerId());
-                    updateFromPointer(pointer.x());
+                    updateFromPointer(pointer.x(),pointer.y());
                 }
             }
             case POINTER_MOVE -> {
-                if (dragging && event instanceof PointerEvent pointer) updateFromPointer(pointer.x());
+                if (dragging && event instanceof PointerEvent pointer) updateFromPointer(pointer.x(),pointer.y());
             }
             case POINTER_UP, POINTER_CANCEL -> {
                 if (event instanceof PointerEvent pointer) event.releasePointer(pointer.pointerId());
@@ -117,9 +117,10 @@ public final class Slider extends UiNode {
         }
     }
 
-    private void updateFromPointer(double x) {
+    private void updateFromPointer(double x,double y) {
         double width = layoutBox().width();
-        double normalized = width <= 0.0 ? 0.0 : (x - layoutBox().x()) / width;
+        double localX=document()==null?x-layoutBox().x():document().pointInNode(this,x,y).x();
+        double normalized = width <= 0.0 ? 0.0 : localX / width;
         value(minimum + Math.max(0.0, Math.min(1.0, normalized)) * (maximum - minimum));
     }
 

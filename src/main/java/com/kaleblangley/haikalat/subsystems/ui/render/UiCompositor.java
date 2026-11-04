@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.LongSupplier;
 
 /** Executes registered subtrees at their original paint positions; graph owns every attachment. */
 public final class UiCompositor implements AutoCloseable {
@@ -32,20 +33,34 @@ public final class UiCompositor implements AutoCloseable {
     private boolean resolveBackdrop;
     private String backdropFailure;
     private final Set<String> backdropLayers=new HashSet<>();
+    private final Set<String> runtimeDisabledEffects=new HashSet<>();
     private static final String RESOLVE="UiCompositor/BackdropResolve";
     private long bytes,peakBytes;
+    private LongSupplier retainedPixels=()->0L;
     private final Map<String,UiScreenRect> views=new HashMap<>();
 
     public UiCompositor(UiAttachmentOptions options) {this.options=Objects.requireNonNull(options);}
+    /** Counts UI storage retained by the attachment owner outside this graph. */
+    public void retainedIntermediatePixels(LongSupplier retainedPixels) {
+        this.retainedPixels=Objects.requireNonNull(retainedPixels);
+    }
     /** Preflight for an attachment candidate while the previous graph remains alive. */
     public static long initialPixels(RenderGraph graph,String dependency,UiAttachmentOptions options) {
-        var probe=new UiCompositor(options);probe.plan=UiCompositorPlan.build(options);
+        return new UiCompositor(options).preflight(graph,dependency);
+    }
+    private long preflight(RenderGraph graph,String dependency) {
+        plan=UiCompositorPlan.build(options);
         for(var layer:options.layers())validateSupported(layer);
-        probe.validateBackdrop(graph,dependency);
-        long pixels=probe.plan.intermediatePixels();
-        if(probe.resolveBackdrop) {
-            var source=graph.description().passes().stream().filter(p->p.name().equals(probe.backdropProducer)).findFirst().orElseThrow();
+        validateBackdrop(graph,dependency);
+        long pixels=plan.intermediatePixels();
+        if(resolveBackdrop) {
+            var source=graph.description().passes().stream().filter(p->p.name().equals(backdropProducer)).findFirst().orElseThrow();
             pixels=Math.addExact(pixels,Math.multiplyExact((long)source.width(),source.height()));
+            if(pixels>options.maximumIntermediatePixels()&&plan.acceptedLayers().stream().noneMatch(l->l.backdropRequired())) {
+                var disabled=new HashSet<String>();
+                for(var layer:plan.acceptedLayers())if(layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR))disabled.add(layer.id());
+                plan=UiCompositorPlan.build(options,disabled);validateBackdrop(graph,dependency);pixels=plan.intermediatePixels();
+            }
         }
         if(pixels>options.maximumIntermediatePixels())throw new IllegalArgumentException("UI initial allocation budget includes backdrop resolve");
         return pixels;
@@ -60,11 +75,8 @@ public final class UiCompositor implements AutoCloseable {
     public String registerPasses(RenderGraph graph,String dependency,BiConsumer<PassResources,CommandBuffer> recorder) {
         Objects.requireNonNull(graph);Objects.requireNonNull(recorder);
         if(registered||graph.isTopologySealed())throw new IllegalStateException("compositor topology is already fixed");
-        plan=UiCompositorPlan.build(options);
-        for(var layer:options.layers())validateSupported(layer);
         this.graph=graph;
-        validateBackdrop(graph,dependency);
-        bytes=Math.multiplyExact(initialPixels(graph,dependency,options),8);peakBytes=bytes;
+        bytes=Math.multiplyExact(preflight(graph,dependency),8);peakBytes=bytes;
         if(plan==UiCompositorPlan.EMPTY){registered=true;return dependency;}
         var layers=new ArrayList<>(plan.acceptedLayers());
         Map<String,UiLayerDescription> byId=new HashMap<>();options.layers().forEach(l->byId.put(l.id(),l));
@@ -114,6 +126,7 @@ public final class UiCompositor implements AutoCloseable {
         if(PREPARE.equals(phase)){prepare(snapshot,renderer,r);return true;}
         if(frame==null||prepared==null)throw new IllegalStateException("UI frame was not prepared");
         if(phase.equals("@resolve")) {
+            if(backdropLayers.isEmpty())return true;
             var source=r.framebufferOfPass(backdropProducer);var target=r.currentTarget();
             c.enableFramebufferSrgb(false).blitFramebuffer(source.id(),target.id(),source.width(),source.height(),target.width(),target.height(),
                     org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT,org.lwjgl.opengl.GL11.GL_NEAREST,backdropAttachment);
@@ -142,62 +155,39 @@ public final class UiCompositor implements AutoCloseable {
     }
     private void prepare(UiRenderSnapshot snapshot,UiRenderer renderer,PassResources resources) {
         this.currentResources=resources;this.renderer=renderer;renderer.abort(prepared);prepared=null;composites=0;blurDraws=0;views.clear();backdropLayers.clear();cache.begin();cacheHits.clear();cacheDecisions.clear();
+        runtimeDisabledEffects.clear();
         Set<String> accepted=new HashSet<>(plan.acceptedIds());
         frame=UiLayerFrame.build(snapshot,options.layers(),accepted);
-        var extents=new LinkedHashMap<String,RenderGraph.TargetExtent>();
         double sx=(double)resources.framePresentationTarget().width()/Math.max(1,snapshot.windowWidth());
         double sy=(double)resources.framePresentationTarget().height()/Math.max(1,snapshot.windowHeight());
-        long total=0,extra=0;
         if(backdropProducer!=null) {
             var source=resources.framebufferOfPass(backdropProducer);
             int texture=source.colorAttachment(backdropAttachment);
             if(source.colorAttachmentIsTexture(backdropAttachment)&&resources.framePresentationTarget().color().isPresent()
                     && resources.framePresentationTarget().color().get().textureId()==texture)
                 throw new IllegalArgumentException("backdrop source aliases the current presentation color");
-            if(resolveBackdrop)extents.put(RESOLVE,new RenderGraph.TargetExtent(source.width(),source.height()));
         }
-        for(var layer:frame.layers()) {
-            validateSupported(layer.description());
-            var bounds=layer.bounds().intersect(new UiScreenRect(0,0,snapshot.windowWidth(),snapshot.windowHeight()));
-            if(layer.clip()!=null)bounds=bounds.intersect(layer.clip());
-            if(bounds.isEmpty())bounds=new UiScreenRect(bounds.x(),bounds.y(),1/sx,1/sy);
-            double padding=hasBlur(layer.description())?layer.description().blurRadius():0;
-            bounds=new UiScreenRect(bounds.x()-padding,bounds.y()-padding,bounds.width()+padding*2,bounds.height()+padding*2);
-            views.put(layer.description().id(),bounds);
-            int width=Math.max(1,(int)Math.ceil(bounds.width()*sx*layer.description().framebufferScale()));
-            int height=Math.max(1,(int)Math.ceil(bounds.height()*sy*layer.description().framebufferScale()));
-            extents.put(LAYER_PASS_PREFIX+layer.description().id(),new RenderGraph.TargetExtent(width,height));
-            if(hasBlur(layer.description())) {
-                int downsample=layer.description().blurDownsample();
-                var extent=new RenderGraph.TargetExtent((width+downsample-1)/downsample,(height+downsample-1)/downsample);
-                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Horizontal",extent);
-                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Vertical",extent);
+        var extents=layerExtents(snapshot,sx,sy);
+        var allocation=allocation(extents);var fallbacks=new ArrayList<>(plan.fallbacks());
+        if(allocation.peak()>options.maximumIntermediatePixels()||!withinExtentLimit(extents)) {
+            for(var layer:frame.layers())if(hasBlur(layer.description())) {
+                runtimeDisabledEffects.add(layer.description().id());
+                fallbacks.add(new Fallback(layer.description().id(),FallbackReason.OPTIONAL_EFFECT_BUDGET));
             }
-            if(hasBlur(layer.description())&&layer.description().effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)&&backdropProducer!=null)
-                backdropLayers.add(layer.description().id());
+            extents=layerExtents(snapshot,sx,sy);allocation=allocation(extents);
         }
-        long current=0;
-        for(var pass:graph.description().passes()) {
-            if(!pass.name().startsWith(LAYER_PASS_PREFIX)&&!pass.name().startsWith(BLUR_PASS_PREFIX)&&!pass.name().equals(RESOLVE))continue;
-            var target=resources.framebufferOfPass(pass.name());current=Math.addExact(current,(long)target.width()*target.height());
-            var wanted=extents.get(pass.name());
-            if(wanted!=null&&(target.width()!=wanted.width()||target.height()!=wanted.height()))
-                extra=Math.addExact(extra,(long)wanted.width()*wanted.height());
-            total=Math.addExact(total,wanted==null?(long)target.width()*target.height():(long)wanted.width()*wanted.height());
-        }
-        peakBytes=Math.multiplyExact(Math.max(total,current+extra),8);bytes=Math.multiplyExact(total,8);
-        if(Math.max(total,current+extra)>options.maximumIntermediatePixels()) {
-            bytes=Math.multiplyExact(current,8);
-            frame=UiLayerFrame.build(snapshot,options.layers(),Set.of());views.clear();
-            var fallbacks=new ArrayList<>(plan.fallbacks());
-            for(var layer:plan.acceptedLayers())fallbacks.add(new Fallback(layer.id(),FallbackReason.PIXEL_BUDGET));
-            diagnostics=new Diagnostics(List.of(),fallbacks,0,0,fallbacks.size());
+        peakBytes=Math.multiplyExact(allocation.peak(),8);bytes=Math.multiplyExact(allocation.total(),8);
+        if(allocation.peak()>options.maximumIntermediatePixels()||!withinExtentLimit(extents)) {
+            bytes=Math.multiplyExact(allocation.current(),8);
+            peakBytes=Math.multiplyExact(Math.addExact(allocation.current(),retainedPixels.getAsLong()),8);
+            frame=UiLayerFrame.build(snapshot,options.layers(),Set.of());views.clear();backdropLayers.clear();
+            for(var layer:plan.acceptedLayers())fallbacks.add(new Fallback(layer.id(),withinExtentLimit(extents)?FallbackReason.PIXEL_BUDGET:FallbackReason.EXTENT_LIMIT));
+            diagnostics=new Diagnostics(List.of(),fallbacks,allocation.current(),0,options.layers().size());
         } else {
             graph.resizeManagedTargets(extents);
-            var fallbacks=new ArrayList<>(plan.fallbacks());
             if(backdropFailure!=null)for(var layer:plan.acceptedLayers())
                 if(layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR))fallbacks.add(new Fallback(layer.id(),FallbackReason.BACKDROP_SOURCE_UNAVAILABLE));
-            diagnostics=new Diagnostics(plan.acceptedIds(),fallbacks,total,plan.acceptedLayers().size(),plan.directFallbacks());
+            diagnostics=new Diagnostics(plan.acceptedIds(),fallbacks,allocation.total(),plan.acceptedLayers().size(),plan.directFallbacks());
         }
         if(!views.isEmpty()&&gpu==null)gpu=new UiCompositeGpu();
         var mapping=new HashMap<String,String>();
@@ -221,6 +211,54 @@ public final class UiCompositor implements AutoCloseable {
                 ||frame.layers().stream().anyMatch(layer->!cacheHits.contains(layer.description().id())&&layer.operations().stream().anyMatch(op->op.batch()>=0));
         prepared=renderer.prepare(snapshot,needsVertices);
     }
+    private Map<String,RenderGraph.TargetExtent> layerExtents(UiRenderSnapshot snapshot,double sx,double sy) {
+        views.clear();backdropLayers.clear();var extents=new LinkedHashMap<String,RenderGraph.TargetExtent>();
+        for(var layer:frame.layers()) {
+            validateSupported(layer.description());
+            var bounds=frame.rasterBounds(layer.description().id(),snapshot,this::hasBlur)
+                    .intersect(new UiScreenRect(0,0,snapshot.windowWidth(),snapshot.windowHeight()));
+            if(layer.clip()!=null)bounds=bounds.intersect(layer.clip());
+            if(bounds.isEmpty())bounds=new UiScreenRect(bounds.x(),bounds.y(),1/sx,1/sy);
+            double padding=hasBlur(layer.description())?layer.description().blurRadius():0;
+            bounds=new UiScreenRect(bounds.x()-padding,bounds.y()-padding,bounds.width()+padding*2,bounds.height()+padding*2);
+            views.put(layer.description().id(),bounds);
+            int width=Math.max(1,(int)Math.ceil(bounds.width()*sx*layer.description().framebufferScale()));
+            int height=Math.max(1,(int)Math.ceil(bounds.height()*sy*layer.description().framebufferScale()));
+            extents.put(LAYER_PASS_PREFIX+layer.description().id(),new RenderGraph.TargetExtent(width,height));
+            if(hasBlur(layer.description())) {
+                int downsample=layer.description().blurDownsample();
+                var extent=new RenderGraph.TargetExtent((width+downsample-1)/downsample,(height+downsample-1)/downsample);
+                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Horizontal",extent);
+                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Vertical",extent);
+            } else if(graph.hasPass(BLUR_PASS_PREFIX+layer.description().id()+"/Horizontal")) {
+                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Horizontal",new RenderGraph.TargetExtent(1,1));
+                extents.put(BLUR_PASS_PREFIX+layer.description().id()+"/Vertical",new RenderGraph.TargetExtent(1,1));
+            }
+            if(hasBlur(layer.description())&&layer.description().effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)&&backdropProducer!=null)
+                backdropLayers.add(layer.description().id());
+        }
+        if(resolveBackdrop) {
+            var source=currentResources.framebufferOfPass(backdropProducer);
+            extents.put(RESOLVE,backdropLayers.isEmpty()?new RenderGraph.TargetExtent(1,1):new RenderGraph.TargetExtent(source.width(),source.height()));
+        }
+        return extents;
+    }
+    private record Allocation(long current,long total,long peak) { }
+    private static boolean withinExtentLimit(Map<String,RenderGraph.TargetExtent> extents) {
+        return extents.values().stream().allMatch(e->e.width()<=4096&&e.height()<=4096);
+    }
+    private Allocation allocation(Map<String,RenderGraph.TargetExtent> extents) {
+        long current=0,total=0,extra=0;
+        for(var pass:graph.description().passes()) {
+            if(!pass.name().startsWith(LAYER_PASS_PREFIX)&&!pass.name().startsWith(BLUR_PASS_PREFIX)&&!pass.name().equals(RESOLVE))continue;
+            var target=currentResources.framebufferOfPass(pass.name());current=Math.addExact(current,(long)target.width()*target.height());
+            var wanted=extents.get(pass.name());
+            if(wanted!=null&&(target.width()!=wanted.width()||target.height()!=wanted.height()))
+                extra=Math.addExact(extra,(long)wanted.width()*wanted.height());
+            total=Math.addExact(total,wanted==null?(long)target.width()*target.height():(long)wanted.width()*wanted.height());
+        }
+        return new Allocation(current,total,Math.addExact(Math.max(total,current+extra),retainedPixels.getAsLong()));
+    }
     private void composite(String id,CommandBuffer c,int framebuffer,int width,int height,boolean srgb,UiScreenRect view) {
         var layer=frame.layer(id);var bounds=views.get(id);
         if(layer==null||bounds==null)return;
@@ -236,7 +274,8 @@ public final class UiCompositor implements AutoCloseable {
         return currentResources.framebufferOfPass(LAYER_PASS_PREFIX+id);
     }
     private boolean hasBlur(UiLayerDescription layer) {
-        return !plan.disabledEffects().contains(layer.id())&&(layer.effects().contains(UiLayerDescription.Effect.BLUR)||layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR));
+        return !plan.disabledEffects().contains(layer.id())&&!runtimeDisabledEffects.contains(layer.id())
+                &&(layer.effects().contains(UiLayerDescription.Effect.BLUR)||layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR));
     }
     private int initialWidth(UiLayerDescription layer) {return Math.max(1,(int)Math.ceil((layer.bounds().width()+2*(hasBlur(layer)?layer.blurRadius():0))*layer.framebufferScale()));}
     private int initialHeight(UiLayerDescription layer) {return Math.max(1,(int)Math.ceil((layer.bounds().height()+2*(hasBlur(layer)?layer.blurRadius():0))*layer.framebufferScale()));}
@@ -256,7 +295,7 @@ public final class UiCompositor implements AutoCloseable {
     }
     private void recordBlur(String id,boolean horizontal,PassResources resources,CommandBuffer commands) {
         var layer=frame.layer(id);
-        if(layer==null||cacheHits.contains(id)||!views.containsKey(id)||layer.description().blurRadius()==0)return;
+        if(layer==null||cacheHits.contains(id)||!views.containsKey(id)||!hasBlur(layer.description())||layer.description().blurRadius()==0)return;
         if(layer.description().effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)&&!backdropLayers.contains(id))return;
         var view=views.get(id);UiScreenRect inputView=view;int texture;
         if(!horizontal)texture=resources.framebufferOfPass(BLUR_PASS_PREFIX+id+"/Horizontal").colorAttachment();
@@ -269,7 +308,8 @@ public final class UiCompositor implements AutoCloseable {
         gpu.blur(commands,texture,layer.description().blurRadius(),horizontal,output.id(),output.width(),output.height(),inputView,view);blurDraws++;
     }
     private void validateBackdrop(RenderGraph graph,String dependency) {
-        if(options.layers().stream().noneMatch(l->hasBlur(l)&&l.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)))return;
+        backdropProducer=null;resolveBackdrop=false;backdropFailure=null;backdropAttachment=0;
+        if(plan.acceptedLayers().stream().noneMatch(l->hasBlur(l)&&l.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)))return;
         if(options.backdropSource().isAvailable()) {
             var description=graph.description();int dependencyIndex=description.executionOrder().indexOf(dependency);
             for(var pass:description.passes())for(int i=0;i<pass.colorAttachments().size();i++) {
@@ -305,6 +345,7 @@ public final class UiCompositor implements AutoCloseable {
 
     public enum FallbackReason {
         LAYER_LIMIT,
+        EXTENT_LIMIT,
         PIXEL_BUDGET,
         OPTIONAL_EFFECT_BUDGET,
         BACKDROP_SOURCE_UNAVAILABLE,

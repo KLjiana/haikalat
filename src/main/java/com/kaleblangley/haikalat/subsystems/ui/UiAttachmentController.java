@@ -5,12 +5,17 @@ import com.kaleblangley.haikalat.core.graph.*;
 import com.kaleblangley.haikalat.subsystems.ui.render.*;
 import java.util.Objects;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 /** Frame-boundary attachment publication. Graph storage always remains owned by its caller. */
 final class UiAttachmentController implements AutoCloseable {
     private final String overlayPassName;
     private Binding active;
+    private final List<Binding> retiring=new ArrayList<>();
+    private Candidate pending;
+    private long allocationPeakBytes;
     private boolean closed;
     private static final class Binding {
         final RenderGraph graph;
@@ -43,6 +48,7 @@ final class UiAttachmentController implements AutoCloseable {
             String last=dependency;
             if(options!=null) {
                 binding.compositor=new UiCompositor(options);
+                binding.compositor.retainedIntermediatePixels(()->retainedPixels(binding));
                 last=binding.compositor.registerPasses(graph,dependency,(r,c)->record(binding,r,c));
             }
             graph.observeFrames((sequence,failure)->{
@@ -67,15 +73,18 @@ final class UiAttachmentController implements AutoCloseable {
                       BiConsumer<PassResources,CommandBuffer> recorder,RenderGraph.FrameObserver completion) {
         if(closed||active==null)throw new IllegalStateException("prepareAttachment requires an active UI");
         if(active.frameOpen)throw new IllegalStateException("UI attachment edits require a frame boundary");
+        if(pending!=null)throw new IllegalStateException("a UI attachment candidate is already pending");
         if(graph==active.graph)throw new IllegalArgumentException("UI topology needs a separate candidate graph");
-        long oldPixels=active.graph.isClosed()||active.compositor==null?0:active.compositor.runtimeStatistics().bytes()/8;
+        long oldPixels=retainedPixels(null);
         long newPixels=UiCompositor.initialPixels(graph,dependency,options);
         if(Math.addExact(oldPixels,newPixels)>options.maximumIntermediatePixels())
             throw new IllegalArgumentException("UI candidate peak budget includes retiring attachment: "+(oldPixels+newPixels));
         Binding candidate=build(graph,dependency,null,options,recorder,completion);
         try {
             graph.compile();if(candidate.compositor!=null)candidate.compositor.preparePrograms();
-            return new Candidate(active,candidate);
+            allocationPeakBytes=Math.max(allocationPeakBytes,Math.multiplyExact(oldPixels+newPixels,8));
+            pending=new Candidate(active,candidate);
+            return pending;
         } catch(RuntimeException|Error failure) {
             if(candidate.compositor!=null)try{candidate.compositor.close();}catch(Throwable cleanup){failure.addSuppressed(cleanup);}
             throw failure;
@@ -86,12 +95,15 @@ final class UiAttachmentController implements AutoCloseable {
         private boolean committed,disposed;
         Candidate(Binding expected,Binding candidate){this.expected=expected;this.candidate=candidate;}
         void commit() {
-            if(disposed||committed||closed||active!=expected)throw new IllegalStateException("stale UI attachment candidate");
+            if(disposed||committed||closed||active!=expected||pending!=this)throw new IllegalStateException("stale UI attachment candidate");
             if(active.frameOpen)throw new IllegalStateException("UI attachment edits require a frame boundary");
-            active=candidate;committed=true;
+            active=candidate;committed=true;pending=null;retiring.add(expected);
             if(expected.compositor!=null)expected.compositor.close();
         }
-        @Override public void close(){if(disposed)return;disposed=true;if(!committed&&candidate.compositor!=null)candidate.compositor.close();}
+        @Override public void close(){
+            if(disposed)return;disposed=true;if(pending==this)pending=null;
+            if(!committed){retiring.add(candidate);if(candidate.compositor!=null)candidate.compositor.close();}
+        }
     }
     void rebind(RenderGraph graph,String dependency) {
         if(active!=null&&graph==active.graph)return;
@@ -103,13 +115,36 @@ final class UiAttachmentController implements AutoCloseable {
     }
     boolean isAttached(){return active!=null;}
     UiCompositor.Diagnostics diagnostics(){return active==null||active.compositor==null?UiCompositor.Diagnostics.EMPTY:active.compositor.diagnostics();}
-    UiCompositor.RuntimeStatistics runtimeStatistics(){return active==null||active.compositor==null?new UiCompositor.RuntimeStatistics(0,0,0,0,0,Map.of()):active.compositor.runtimeStatistics();}
+    UiCompositor.RuntimeStatistics runtimeStatistics(){
+        var value=active==null||active.compositor==null?new UiCompositor.RuntimeStatistics(0,0,0,0,0,Map.of()):active.compositor.runtimeStatistics();
+        long bytes=Math.addExact(value.bytes(),Math.multiplyExact(retainedPixels(active),8));
+        allocationPeakBytes=Math.max(allocationPeakBytes,Math.max(bytes,value.peakBytes()));
+        return new UiCompositor.RuntimeStatistics(bytes,allocationPeakBytes,value.composites(),value.blurDraws(),value.draws(),value.cache());
+    }
+    private long retainedPixels(Binding excluded){
+        retiring.removeIf(binding->binding.graph.isClosed());
+        long pixels=active==excluded?0:pixels(active);
+        for(var binding:retiring)if(binding!=excluded&&binding!=active)pixels=Math.addExact(pixels,pixels(binding));
+        if(pending!=null&&pending.candidate!=excluded&&pending.candidate!=active)
+            pixels=Math.addExact(pixels,pixels(pending.candidate));
+        return pixels;
+    }
+    private static long pixels(Binding binding){
+        return binding==null||binding.graph.isClosed()||binding.compositor==null?0:binding.compositor.runtimeStatistics().bytes()/8;
+    }
     boolean hasFrameObserver(){return active!=null&&active.completion!=null;}
     boolean beginsFrame(){return active==null||active.compositor==null||active.compositor.beginsFrame();}
     boolean recordCompositor(UiRenderSnapshot snapshot,UiRenderer renderer,PassResources resources,CommandBuffer commands) {
         return active!=null&&active.compositor!=null&&active.compositor.recordCurrentPass(snapshot,renderer,resources,commands);
     }
-    @Override public void close(){if(closed)return;closed=true;Binding previous=active;active=null;if(previous!=null&&previous.compositor!=null)previous.compositor.close();}
+    @Override public void close(){
+        if(closed)return;closed=true;
+        if(pending!=null)pending.close();
+        Binding previous=active;active=null;
+        if(previous!=null&&previous.compositor!=null)previous.compositor.close();
+        for(var binding:retiring)if(binding.compositor!=null)binding.compositor.close();
+        retiring.clear();
+    }
     private void validateGraph(RenderGraph graph,String dependency) {
         if(closed)throw new IllegalStateException("UI attachment is closed");
         Objects.requireNonNull(graph);Objects.requireNonNull(dependency);

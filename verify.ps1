@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Focused', 'Jvm', 'UiJvm', 'Ui', 'Extended')]
+    [ValidateSet('Focused', 'Jvm', 'UiJvm', 'Ui', 'UiDemos', 'UiConsumers', 'UiSoak', 'Extended')]
     [string] $Mode = 'Focused',
     [ValidateRange(1, 1800)]
     [int] $TimeoutSeconds = 300
@@ -19,11 +19,15 @@ $task = switch ($Mode) {
     'Jvm' { 'logicVerification' }
     'UiJvm' { 'uiCompositorJvmVerification' }
     'Ui' { 'uiCompositorVerification' }
+    'UiDemos' { 'uiCompositorDemoVerification' }
+    'UiConsumers' { 'uiCompositorConsumerVerification' }
+    'UiSoak' { 'uiCompositorCacheSoak' }
     'Extended' { 'releaseReadiness' }
     default { 'acceptance' }
 }
 # Use an isolated single-use Gradle daemon, so a deadline never kills another build's shared daemon.
 $arguments = @($task, '--no-daemon', '--console=plain')
+if ($Mode -eq 'UiSoak') { $arguments += '-PextendedVerification=true' }
 if ($Mode -eq 'Extended') {
     $versionMatch = [regex]::Match((Get-Content (Join-Path $workspace 'build.gradle') -Raw),
         "(?m)^version\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'\s*$")
@@ -81,6 +85,21 @@ try {
     }
     $env:GRADLE_USER_HOME = $previousGradleHome
     $watch.Stop()
+    $uiEvidencePath = $null
+    $uiEvidenceStatus = 'NOT_APPLICABLE'
+    if ($Mode.StartsWith('Ui')) {
+        $uiEvidenceStatus = 'NOT_WRITTEN'
+        if (Test-Path -LiteralPath $stdout) {
+            $uiRun = [regex]::Match((Get-Content -LiteralPath $stdout -Raw), 'UI_COMPOSITOR_RUN_ID=([0-9a-f-]{36})')
+            if ($uiRun.Success) {
+                $uiEvidencePath = Join-Path $workspace ('build/reports/ui-compositor-v0260/' + $uiRun.Groups[1].Value + '/summary.json')
+                if (Test-Path -LiteralPath $uiEvidencePath) {
+                    $uiEvidenceStatus = (Get-Content -LiteralPath $uiEvidencePath -Raw | ConvertFrom-Json).status
+                }
+            }
+        }
+        if ($status -eq 'PASS' -and $uiEvidenceStatus -ne 'PASS') { $status = 'FAIL'; $exitCode = 1 }
+    }
     $result = [ordered]@{
         schemaVersion = 1; runId = $runId; mode = $Mode; task = $task
         startedAt = $startedAt; finishedAt = [DateTimeOffset]::Now.ToString('o')
@@ -89,6 +108,7 @@ try {
         performance = $(if ($Mode -eq 'Extended') { 'REQUIRED_BY_LEGACY_RELEASE' } else { 'NOT_REQUIRED' })
         releaseReady = ($Mode -eq 'Extended' -and $status -eq 'PASS')
         error = $failure; stdout = $stdout; stderr = $stderr
+        scopedEvidence = $uiEvidencePath; scopedEvidenceStatus = $uiEvidenceStatus
     }
     $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 }

@@ -77,16 +77,23 @@ public final class UiPainter {
     private void paintStructuralRoot(UiDocument document, UiNode root, UiDisplayList output) {
         if (root.visibility() != UiVisibility.VISIBLE) return;
         UiScreenRect bounds = bounds(root, 0.0, 0.0);
+        output.pushTransform(root.visualTransform(),bounds);
+        try {
+        boolean layered=root.layerDescription()!=null;
+        if(layered)output.beginLayer(root.layerDescription(),bounds,root.id().value());
+        try {
         boolean clipped = clipsChildren(root);
         if (clipped) output.pushClip(bounds);
         try {
             for (UiNode child : root.children()) {
-                paintNode(document, child, 0.0, 0.0, output);
+                paintNode(document, child, root.childVisualOffsetX(), root.childVisualOffsetY(), output);
             }
         } finally {
             if (clipped) output.popClip();
         }
         root.clearDirty(UiDirtyFlag.PAINT);
+        } finally {if(layered)output.endLayer();}
+        } finally {output.popTransform();}
     }
 
     private void paintNode(UiDocument document, UiNode node,
@@ -419,7 +426,8 @@ public final class UiPainter {
     }
 
     private static boolean clipsChildren(UiNode node) {
-        return node.clipChildren() || node.style().overflow() != UiStyle.Overflow.VISIBLE;
+        return node.clipChildren() || node.style().overflow() != UiStyle.Overflow.VISIBLE
+                || (node.layerDescription()!=null&&node.layerDescription().maskMode()==UiLayerDescription.MaskMode.CLIP);
     }
 
     private static UiScreenRect bounds(UiNode node, double offsetX, double offsetY) {

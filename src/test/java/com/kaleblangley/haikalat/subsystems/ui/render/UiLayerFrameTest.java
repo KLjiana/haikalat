@@ -5,6 +5,14 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class UiLayerFrameTest {
+    @Test void paddedExtentLimitDropsTheOptionalEffectAndOversizedMandatoryStorageFallsBackExplicitly() {
+        var effect=UiLayerDescription.builder("wide",new UiScreenRect(0,0,4090,10)).blur(8,2).build();
+        var plan=UiCompositorPlan.build(UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(effect)).build());
+        assertEquals(List.of("wide"),plan.acceptedIds());assertEquals(Set.of("wide"),plan.disabledEffects());assertEquals(40900,plan.intermediatePixels());
+        var oversized=UiLayerDescription.builder("oversized",new UiScreenRect(0,0,4097,10)).build();
+        var rejected=UiCompositorPlan.build(UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(oversized)).maximumIntermediatePixels(Long.MAX_VALUE).build());
+        assertTrue(rejected.acceptedIds().isEmpty());assertEquals(UiCompositor.FallbackReason.EXTENT_LIMIT,rejected.fallbacks().getFirst().reason());
+    }
     private static UiLayerDescription layer(String id, String parent) {
         return UiLayerDescription.builder(id, new UiScreenRect(10,20,80,40)).parent(parent).build();
     }

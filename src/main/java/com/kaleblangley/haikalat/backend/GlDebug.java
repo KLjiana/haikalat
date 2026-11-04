@@ -210,7 +210,7 @@ public final class GlDebug {
 
     /** 幂等关闭登记；不要求删除时 context 仍是 current。 */
     public static synchronized void closeResource(long resourceSequence) {
-        GlContextStateEpoch.deleted();
+        GlContextStateEpoch.changed();
         if (resourceSequence < 0L) return;
         ContextFacts facts = RESOURCE_OWNERS.remove(resourceSequence);
         if (facts != null && facts.resources.remove(resourceSequence) != null) {
@@ -238,13 +238,18 @@ public final class GlDebug {
     }
 
     /**
-     * 返回当前 context 的可缓存资源删除代次。
+     * 返回当前 context 的可缓存 native 状态变更代次。
      *
      * <p>该 advanced backend 入口只供提交边界同步状态缓存；没有 LWJGL
      * capabilities 时返回稳定的无 context 标记，不查询 GLFW 或 OpenGL 状态。
      */
     public static long contextStateEpoch() {
         return GlContextStateEpoch.current();
+    }
+
+    /** Backend resource factories call this after changing bindings outside a command buffer. */
+    public static void contextStateChanged() {
+        GlContextStateEpoch.changed();
     }
 
     static String formatError(String context, int error) {
