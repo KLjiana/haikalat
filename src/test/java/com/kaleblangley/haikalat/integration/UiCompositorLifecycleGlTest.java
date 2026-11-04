@@ -31,6 +31,61 @@ import static org.lwjgl.opengl.GL45.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class UiCompositorLifecycleGlTest {
+    @Test void asynchronousCompositorClosesGpuOnRenderThreadBeforeContextFreeUpdateOwnerClose() throws Exception {
+        try(var renders=java.util.concurrent.Executors.newSingleThreadExecutor(r->new Thread(r,"ui-compositor-render"));
+            var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI asynchronous close").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
+            try(var tracking=GlDebug.acquireResourceTracking()) {
+                var baseline=GlDebug.resources();
+                try(var output=OwnedPresentationTarget.create(97,65,RenderFormat.RGBA16F,false,0);
+                    var graph=background(new AtomicBoolean());
+                    var ui=UiSystem.create(window,config(true),
+                            new com.kaleblangley.haikalat.subsystems.windowing.input.UnavailableTextInputAdapter("async compositor test"))) {
+                    // Initial topology allocates targets with a current context; then the host hands it off.
+                    var layer=UiLayerDescription.builder("panel",new UiScreenRect(0,0,40,30)).opacity(.5f).blur(4,2).build();
+                    var panel=new Panel();panel.style(style(40,30));panel.addStyleClass("red");panel.layerDescription(layer);
+                    var text=new Label("async");text.style(style(40,12));text.visualTransform(UiVisualTransform.translation(0,18));panel.add(text);
+                    ui.document().root().add(panel);ui.attachTo(graph,"Display",options(layer,30000));
+                    graph.compile();var graphOnly=GlDebug.resources().liveResources();var input=input(97,65,97,65);
+                    var presentation=output.target();
+                    var capabilities=GL.getCapabilities();window.releaseContext();GL.setCapabilities(null);
+                    try {
+                        renders.submit(()->{window.bindContext();GL.setCapabilities(capabilities);}).get(10,java.util.concurrent.TimeUnit.SECONDS);
+                        for(int frame=0;frame<2;frame++) {
+                            ui.update(input.snapshot(),1.0f/60);
+                            renders.submit(()->{graph.execute(device,presentation);pixel(presentation,8,8,.5,0,.5);}).get(10,java.util.concurrent.TimeUnit.SECONDS);
+                            if(frame==0)assertEquals(2,ui.compositorRuntimeStatistics().blurDraws());
+                        }
+                        var live=renders.submit(()->GlDebug.resources().liveResources()).get(10,java.util.concurrent.TimeUnit.SECONDS);
+                        assertTrue(live.stream().filter(r->r.kind().equals("PROGRAM")).count()>=3,"primitive, blur and composite programs must really exist");
+                        assertEquals(0L,org.lwjgl.glfw.GLFW.glfwGetCurrentContext());
+                        assertThrows(IllegalStateException.class,ui::close,"close must reject missing render-owner shutdown before deleting anything");
+                        assertFalse(ui.isClosed(),"a rejected close must remain recoverable");
+                        renders.submit(()->{
+                            assertEquals(live,GlDebug.resources().liveResources());
+                            ui.closeRenderResources();ui.closeRenderResources();
+                            assertEquals(graphOnly,GlDebug.resources().liveResources().stream().filter(r->!r.kind().equals("QUERY")).toList(),
+                                    "all UI GPU owners must already be gone while graph and presentation remain caller-owned");
+                            assertFalse(graph.isClosed());assertTrue(glIsFramebuffer(presentation.drawFramebufferId()));
+                        }).get(10,java.util.concurrent.TimeUnit.SECONDS);
+                        assertEquals(0L,org.lwjgl.glfw.GLFW.glfwGetCurrentContext());
+                        assertThrows(IllegalStateException.class,GL::getCapabilities,"the update owner must have no LWJGL GL capabilities");
+                        ui.close();ui.close();assertTrue(ui.isClosed());
+                    } finally {
+                        try {
+                            renders.submit(()->{
+                                try {ui.closeRenderResources();graph.close();}
+                                finally {window.releaseContext();GL.setCapabilities(null);}
+                            }).get(10,java.util.concurrent.TimeUnit.SECONDS);
+                        } finally {window.bindContext();GL.setCapabilities(capabilities);}
+                    }
+                }
+                assertEquals(baseline.liveResources(),GlDebug.resources().liveResources());
+                assertEquals(baseline.estimatedBytes(),GlDebug.resources().estimatedBytes());
+                GlDebug.assertNoError("asynchronous compositor shutdown on separate owners");
+            }
+        }
+    }
     @Test void candidatePeakDisablesOptionalBlurBeforeRejectingAnOtherwiseAffordableGroup() {
         try(var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI candidate optional budget").build()) {
             window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
@@ -356,7 +411,10 @@ class UiCompositorLifecycleGlTest {
         return UiStyle.builder().positionType(UiStyle.PositionType.ABSOLUTE).width(UiLength.points(w)).height(UiLength.points(h)).flexShrink(0).build();
     }
     private static UiConfig config() {
-        return UiConfig.builder().styleResolver((widget,classes,states,inherited)->new ComputedStyle(
+        return config(false);
+    }
+    private static UiConfig config(boolean asynchronous) {
+        return UiConfig.builder().asynchronousSnapshots(asynchronous).styleResolver((widget,classes,states,inherited)->new ComputedStyle(
                 classes.contains("red")?new UiColor(1,0,0,1):UiColor.TRANSPARENT,UiColor.WHITE,UiColor.TRANSPARENT,0,0,1,12,
                 com.kaleblangley.haikalat.subsystems.ui.text.UiTextEngine.DEFAULT_FONT_FAMILY)).build();
     }
@@ -367,8 +425,11 @@ class UiCompositorLifecycleGlTest {
         ui.update(input.snapshot(),0);graph.execute(device,output.target());
     }
     private static void pixel(OwnedPresentationTarget output,int x,int y,double r,double g,double b) {
-        float[] value=new float[4];glBindFramebuffer(GL_READ_FRAMEBUFFER,output.target().readFramebufferId());
-        glReadPixels(x,output.target().height()-1-y,1,1,GL_RGBA,GL_FLOAT,value);
+        pixel(output.target(),x,y,r,g,b);
+    }
+    private static void pixel(PresentationTarget output,int x,int y,double r,double g,double b) {
+        float[] value=new float[4];glBindFramebuffer(GL_READ_FRAMEBUFFER,output.readFramebufferId());
+        glReadPixels(x,output.height()-1-y,1,1,GL_RGBA,GL_FLOAT,value);
         assertEquals(r,value[0],.002,"red at "+x+","+y);assertEquals(g,value[1],.002,"green at "+x+","+y);assertEquals(b,value[2],.002,"blue at "+x+","+y);
     }
 }

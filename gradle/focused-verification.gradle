@@ -361,7 +361,12 @@ tasks.named('runModernUiIntegration') { mustRunAfter 'runVlsIntegration' }
 def uiConsumers = ['runUiCompositorIntegration', 'runVlsIntegration', 'runModernUiIntegration']
 uiConsumers.each { name -> tasks.named(name) { outputs.upToDateWhen { false }; outputs.cacheIf { false } } }
 def uiGuards = ['publicApiGuard', 'architectureGuard', 'assetManifestGuard', 'focusedVerificationContracts', 'releaseVerificationContracts']
-uiGuards.each { name -> tasks.named(name) { mustRunAfter 'captureUiCompositorCandidate' } }
+uiGuards.each { name -> tasks.named(name) {
+    mustRunAfter 'captureUiCompositorCandidate'
+    // A UI report requires this invocation's guard execution, not a cached Test task result.
+    outputs.upToDateWhen { !gradle.taskGraph.hasTask(':captureUiCompositorCandidate') }
+    outputs.cacheIf { !gradle.taskGraph.hasTask(':captureUiCompositorCandidate') }
+} }
 def uiEvidenceTasks = uiCompositorCases.keySet().toList() + uiConsumers + uiGuards
 def uiReport = tasks.register('writeUiCompositorVerificationReport') {
     group = 'verification'

@@ -234,6 +234,11 @@ public final class UiRenderer implements AutoCloseable {
         closed = true;
     }
 
+    /** Checks ownership before a coordinated shutdown deletes any UI GPU owner. */
+    public void checkCloseThread() {
+        resources.checkCloseThread();
+    }
+
     private boolean configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
                                         int batch, UiRenderSnapshot snapshot,
                                         int framebufferWidth, int framebufferHeight,UiScreenRect view) {

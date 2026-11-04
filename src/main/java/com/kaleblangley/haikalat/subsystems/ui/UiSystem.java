@@ -338,7 +338,11 @@ public final class UiSystem implements AutoCloseable {
         attachments.attach(graph, dependencyPass, beforeOverlay, this::recordOverlay);
     }
 
-    /** Attaches the UI with deterministic UI-owned compositor passes. */
+    /**
+     * Attaches UI compositor passes on the update owner with a current GL context.
+     * Managed targets are allocated while registering topology. Asynchronous hosts may perform this
+     * setup before handing the context to the render thread; subsequent snapshot updates need no GL.
+     */
     public void attachTo(RenderGraph graph, String dependencyPass,
                          UiAttachmentOptions options) {
         updateThread.check();
@@ -407,7 +411,7 @@ public final class UiSystem implements AutoCloseable {
     }
 
     /**
-     * 在拥有 OpenGL context 的 render 线程释放 UI GPU 资源。
+     * 在拥有 OpenGL context 的 render 线程释放全部 UI GPU 资源，包括 Compositor。
      *
      * <p>同步模式无需显式调用，{@link #close()} 会在同一线程完成全部清理。异步模式下，
      * 如果 renderer 已经在独立 render 线程初始化，必须先在该 render 线程调用本方法，再回到
@@ -415,24 +419,32 @@ public final class UiSystem implements AutoCloseable {
      */
     public void closeRenderResources() {
         synchronized (renderLifecycle) {
-            if (renderer.isClosed()) return;
-            releaseLastRenderedLease();
-            renderer.close();
-            lastRenderedSnapshot = null;
+            RuntimeException failure = closeRenderResources(null);
+            if (failure != null) throw failure;
         }
+    }
+
+    private RuntimeException closeRenderResources(RuntimeException failure) {
+        renderer.checkCloseThread();
+        releaseLastRenderedLease();
+        // Compositor may abort a prepared draw, so its owner must close before the vertex ring.
+        failure = closeCollect(attachments, failure);
+        failure = closeCollect(renderer, failure);
+        lastRenderedSnapshot = null;
+        return failure;
     }
 
     @Override
     public void close() {
         updateThread.check();
         if (closed) return;
-        closed = true;
         RuntimeException failure = null;
-        snapshotPublisher.close();
         synchronized (renderLifecycle) {
-            releaseLastRenderedLease();
-            if (!renderer.isClosed()) failure = closeCollect(renderer, failure);
-            lastRenderedSnapshot = null;
+            // Reject a missing render-thread shutdown before changing any CPU/GPU lifecycle state.
+            renderer.checkCloseThread();
+            closed = true;
+            snapshotPublisher.close();
+            failure = closeRenderResources(failure);
         }
         try {
             updateCoordinator.deactivateTextInput();
@@ -446,7 +458,6 @@ public final class UiSystem implements AutoCloseable {
         failure = closeCollect(timeline, failure);
         failure = closeCollect(animations, failure);
         failure = closeCollect(document, failure);
-        failure = closeCollect(attachments, failure);
         if (failure != null) throw failure;
     }
 

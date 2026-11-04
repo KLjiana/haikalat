@@ -1,6 +1,6 @@
 # UI Compositor 接入与支持范围
 
-更新：2026-11-05，v0.26 功能交付。构建版本仍为 `0.25.0`；功能验证不代表正式性能、人工体验或发布就绪。完整证据见[验收记录](../releases/v0.26.0-ui-compositor-acceptance.md)。
+更新：2026-11-05，v0.26 核心功能及独立复核修复。构建版本仍为 `0.25.0`；整版签收待复核，功能验证不代表正式性能、人工体验或发布就绪。历史证据见[验收记录](../releases/v0.26.0-ui-compositor-acceptance.md)，本轮见[关闭与重复入口补验](../releases/v0.26.0-review-fixes-2026-11-05.md)。
 
 ## 从一个子树开始
 
@@ -26,7 +26,7 @@ try (var graph = new RenderGraph(window.width(), window.height());
             .enableCompositor(true).layers(List.of(layer)).build());
     graph.compile();
     // 每帧：先消费新的 WindowInputSnapshot，再执行 graph；宿主自行 swap/present。
-    ui.update(window.inputSnapshot(), 1.0 / 60.0);
+    ui.update(window.inputSnapshot(), 1.0f / 60.0f);
     graph.execute(device, presentationTarget);
 }
 ```
@@ -109,6 +109,8 @@ ui.attachTo(graph, "Display", options);
 
 graph 独占 UI 附件；UI 只拥有自己的程序、ring 和 glyph 资源。借用 presentation FBO/color/depth 不删除、不重建 storage。通过 `RenderPipeline` embedded 入口恢复成功/异常出口的宿主 GL 状态；直接使用 `RenderGraph.execute` 的宿主仍按既有 graph 调用合同管理外围状态。
 
+异步宿主的初始 compositor attach 在 update owner 且 current GL context 下完成，因为注册 managed pass 即分配 target。随后可把 context 交给 render 线程，update owner 只发布 CPU snapshot。退出时先停帧，在拥有该 context 的 render 线程调用 `ui.closeRenderResources()`，再在无 context 的 update owner 调用 `ui.close()`；两阶段都可重复调用。render 阶段关闭全部 attachment/Compositor GPU owner 后再关闭 renderer/ring；update 阶段仅余 CPU 状态。漏掉 render 阶段时，owner 检查会在修改关闭状态、释放 snapshot 或删除 GPU 资源前拒绝，以便按正确顺序恢复关闭。graph 与宿主目标仍由调用方在各自 owner/current context 下关闭。
+
 `ui.compositorDiagnostics()` 提供 active IDs、fallback 及像素数量；`compositorRuntimeStatistics()` 提供实际存储 bytes、候选峰值 peakBytes、primitive draws、blurDraws、composites 和逐层 cache reason。draws 不包含另外两个绘制计数，均为最近帧的记录量，缓存只在提交成功后有效。`HIT`、`FAILED_FRAME`、`TARGET_REPLACED`、`INSTANCE`、`AUTHOR_DIRTY`、`EFFECT_PARAMETERS`、`CLIP_LAYOUT`、`IMAGE_DEPENDENCY`、`GLYPH_ATLAS`、`CHILD_CHANGED`、`PAINT_CONTENT` 等原因由真实依赖决定；这些诊断不等于正式性能测量。
 
 ## 独立 Demo 与定向检查
@@ -126,5 +128,7 @@ graph 独占 UI 附件；UI 只拥有自己的程序、ring 和 glyph 资源。�
 默认可见 960×540，有限回放为每例 96 帧，640×360 并实际 resize 到 641×361。各例有 Effect、Reset、Pause、Step、Replay、Capture、Resize、参数 Slider 及专用控制；D01 Move/Scale、D02 Down/Zero、D03 Source/Advance、D04 Image/Child 和开发失败注入。诊断显示在独立 DEV 行，业务操作不要求 native ID 或绑定槽。
 
 `UiJvm` 仅 JVM，`Ui` 为核心 JVM+GL+guard，`UiDemos` 仅四例及 guard；不要机械叠加重复执行。统一报告归档到 `build/reports/ui-compositor-v0260/<run-id>/`，包含输入身份/patch/untracked、门禁后的任务状态、JUnit XML、GL 日志和 Demo 的 `evidence.json/final.png/final.rgba32f`。raw 为左上起始、小端 float32、线性预乘 RGBA；PNG 只作可查看输出，数值 oracle 比较线性结果。
+
+UI 模式选中的五个 guard 禁用 up-to-date/build-cache，汇总仍要求本次 FRESH/PASS；无 UI capture 的其他入口保留原缓存策略。补验要求原样连续运行两次 UiConsumers，两轮均核对实际执行，不要求清理 Gradle 状态或手动 `--rerun-tasks`。它们是两次独立的 300 秒检查，零自动重试。
 
 本机只验证了实际列出的尺寸与 NVIDIA OpenGL 环境。人工可见交互、Minecraft 客户端及正式性能矩阵状态独立记录；隐藏 GL、自动输入回放和图片查看不能替代它们。

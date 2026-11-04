@@ -152,6 +152,10 @@ final class UiRenderResourceOwner implements AutoCloseable {
         return closed;
     }
 
+    void checkCloseThread() {
+        if (!closed && renderThread != null) assertRenderThread();
+    }
+
     long ringWaitNanos() {
         return vertexRing == null ? 0L : vertexRing.waitNanos();
     }
@@ -159,7 +163,7 @@ final class UiRenderResourceOwner implements AutoCloseable {
     @Override
     public void close() {
         if (closed) return;
-        if (renderThread != null) assertRenderThread();
+        checkCloseThread();
         RuntimeException failure = null;
         for (int index = vertexArrays.size() - 1; index >= 0; index--) {
             try {
