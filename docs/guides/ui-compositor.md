@@ -85,6 +85,8 @@ ui.attachTo(graph, "Display", options);
 
 `available` 只声明逻辑资源名。接入校验实际 producer、执行先后、managed 可读附件和 `RGBA8/RGBA16F/SRGB8_ALPHA8` 编码；MSAA 来源先显式 resolve 到单采样线性 target。当前不支持直接把外部 imported/backbuffer 当作背景源；宿主先提供 managed 显示颜色 pass。运行时拒绝来源纹理与当前 presentation color alias，滤波也不允许输入输出同纹理。
 
+单采样与 MSAA4 分别检查了上述三种颜色格式。sRGB MSAA resolve 开启 `FRAMEBUFFER_SRGB` 才会解码 read buffer；目的地为线性 RGBA16F，不再次编码。这遵循 [OpenGL 4.6 §18.3.1](https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf)。
+
 所有玻璃面板使用同一个本帧 UI 前来源，互相叠加按 source-over；不能模糊已经画好的其他窗口。缺失的可选源产生 `BACKDROP_SOURCE_UNAVAILABLE`，保留内容、输入与组透明度。需要拒绝缺失源时设置 `backdropRequired(true)`；预算依然按下述受限分配合同处理。来源可用性或逻辑名变化通过 attachment 候选重配，不修改旧 graph 的 live 配置。
 
 ## 缓存与重配

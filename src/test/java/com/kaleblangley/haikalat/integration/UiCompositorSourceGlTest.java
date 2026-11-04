@@ -108,24 +108,25 @@ class UiCompositorSourceGlTest {
     @Test void srgbTextureAndMsaaResolveSupplyLinearBackdropAndPresentationAliasesAreRejected() {
         try(var window=window(64,64)) {
             init(window);var device=new GlRenderDevice();
+            for(var sourceFormat:List.of(RenderFormat.RGBA8,RenderFormat.RGBA16F,RenderFormat.SRGB8_ALPHA8))
             for(boolean msaa:List.of(false,true)) {
                 try(var output=OwnedPresentationTarget.create(64,64,RenderFormat.RGBA16F,false,0);var graph=new RenderGraph(64,64);var ui=UiSystem.create(window,config())) {
                     var sourceFbo=new AtomicInteger();var sourceTexture=new AtomicInteger();var source=graph.addPass("Source");
-                    if(msaa)source.createColorMS("SourceColor",RenderFormat.RGBA16F,4);else source.createColor("SourceColor",RenderFormat.SRGB8_ALPHA8);
+                    if(msaa)source.createColorMS("SourceColor",sourceFormat,4);else source.createColor("SourceColor",sourceFormat);
                     source.fixedSize(64,64).noClear().execute((r,c)->{sourceFbo.set(r.currentTarget().id());sourceTexture.set(r.currentTarget().colorAttachment());c.clearColor(.25f,.125f,.5f,1).clear(true,false);});
                     graph.addPass("Display").writeToBackbuffer().dependsOn("Source").noClear().execute((r,c)->c.clearColor(0,0,1,1).clear(true,false));
                     var description=UiLayerDescription.builder("panel",new UiScreenRect(0,0,52,40)).backdropBlur(2,1).build();
                     var group=group(ui,description,52,40);var marker=new Panel();marker.style(style(1,1));marker.addStyleClass("green");marker.visualTransform(UiVisualTransform.translation(16,16));group.add(marker);
                     ui.attachTo(graph,"Display",options(description,UiBackdropSource.available("SourceColor"),100000));graph.compile();var input=input(64,64);
                     ui.update(input.snapshot(),0);graph.execute(device,output.target());float[] p=pixel(output,8,8);
-                    assertEquals(msaa?.25:srgbRoundTrip(.25),p[0],.003);
-                    assertEquals(msaa?.125:srgbRoundTrip(.125),p[1],.003);
-                    assertEquals(msaa?.5:srgbRoundTrip(.5),p[2],.003);
+                    assertEquals(sourceFormat==RenderFormat.SRGB8_ALPHA8?srgbRoundTrip(.25):.25,p[0],.003,sourceFormat+" msaa="+msaa);
+                    assertEquals(sourceFormat==RenderFormat.SRGB8_ALPHA8?srgbRoundTrip(.125):.125,p[1],.003);
+                    assertEquals(sourceFormat==RenderFormat.SRGB8_ALPHA8?srgbRoundTrip(.5):.5,p[2],.003);
                     assertEquals(1,pixel(output,16,16)[1],.002,"a real sharp marker must overlay the filtered background");
                     assertEquals(msaa,graph.hasPass("UiCompositor/BackdropResolve"));
                     assertEquals((56L*44*3+(msaa?64L*64:0))*8,ui.compositorRuntimeStatistics().bytes());
                     if(!msaa) {
-                        var aliased=PresentationTarget.borrowed(sourceFbo.get(),ExternalAttachment.borrowedColor(sourceTexture.get(),RenderFormat.SRGB8_ALPHA8,64,64),null,64,64,1);
+                        var aliased=PresentationTarget.borrowed(sourceFbo.get(),ExternalAttachment.borrowedColor(sourceTexture.get(),sourceFormat,64,64),null,64,64,1);
                         ui.update(input.snapshot(),0);assertThrows(IllegalArgumentException.class,()->graph.execute(device,aliased));
                         ui.update(input.snapshot(),0);graph.execute(device,output.target());assertEquals(.25,pixel(output,8,8)[0],.003);
                     }

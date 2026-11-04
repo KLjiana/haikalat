@@ -148,7 +148,8 @@ public final class UiCompositor implements AutoCloseable {
         if(phase.equals("@resolve")) {
             if(backdropLayers.isEmpty())return true;
             var source=r.framebufferOfPass(backdropProducer);var target=r.currentTarget();
-            c.enableFramebufferSrgb(false).blitFramebuffer(source.id(),target.id(),source.width(),source.height(),target.width(),target.height(),
+            // Blit read-side sRGB decoding also needs this flag; the RGBA16F destination stays linear.
+            c.enableFramebufferSrgb(true).blitFramebuffer(source.id(),target.id(),source.width(),source.height(),target.width(),target.height(),
                     org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT,org.lwjgl.opengl.GL11.GL_NEAREST,backdropAttachment);
             return true;
         }
