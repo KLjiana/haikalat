@@ -6,7 +6,13 @@ import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
 
-/** Immutable description of one explicitly requested UI compositor layer. */
+/**
+ * Immutable advanced configuration shared by a node snapshot and an attachment's registered topology.
+ * Runtime attachment supports premultiplied alpha, NONE/CLIP masks and one of BLUR/BACKDROP_BLUR.
+ * Other effects, ROUNDED, nondefault blend or zOrder are explicitly rejected at attachment/recording.
+ * Blur radius is in logical pixels and clamped to 0..64; downsample is 1, 2 or 4.
+ * WHEN_CLEAN and ALWAYS both validate dependencies; neither freezes mutable content.
+ */
 public final class UiLayerDescription {
     private final String id;
     private final String parentId;

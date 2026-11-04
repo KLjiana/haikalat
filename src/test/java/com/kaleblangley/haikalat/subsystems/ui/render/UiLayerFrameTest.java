@@ -42,6 +42,10 @@ class UiLayerFrameTest {
                 new UiDisplayList().beginLayer(a).endLayer().beginLayer(a).endLayer()),List.of(a),Set.of("a")));
         assertThrows(IllegalArgumentException.class,()->UiLayerFrame.build(UiRenderSnapshot.capture(1,
                 new UiDisplayList().beginLayer(a).beginLayer(b).endLayer().endLayer()),List.of(a,b),Set.of("a","b")));
+        var unsupported=UiLayerDescription.builder("a",a.bounds()).mask(UiLayerDescription.MaskMode.ROUNDED).build();
+        assertThrows(IllegalArgumentException.class,()->UiLayerFrame.build(UiRenderSnapshot.capture(1,
+                new UiDisplayList().beginLayer(unsupported).endLayer()),List.of(a),Set.of()),
+                "direct budget fallback must not bypass live-description validation");
     }
     @Test void budgetFallbackFlattensOnlyTheRejectedLayerWithoutDuplicatingItsPrimitives() {
         var a=layer("a", "");var b=layer("b", "a");
@@ -59,5 +63,10 @@ class UiLayerFrameTest {
         assertEquals(List.of("panel"),limited.acceptedIds());assertEquals(52L*40,limited.intermediatePixels());
         assertEquals(Set.of("panel"),limited.disabledEffects());assertEquals(0,limited.directFallbacks());
         assertEquals(UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET,limited.fallbacks().getFirst().reason());
+        var first=UiLayerDescription.builder("first",new UiScreenRect(0,0,20,20)).blur(4,2).build();
+        var second=UiLayerDescription.builder("second",new UiScreenRect(0,0,20,20)).build();
+        var multiple=UiCompositorPlan.build(UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(first,second)).maximumIntermediatePixels(1400).build());
+        assertEquals(List.of("first","second"),multiple.acceptedIds());assertEquals(800,multiple.intermediatePixels());
+        assertEquals(Set.of("first"),multiple.disabledEffects());assertEquals(0,multiple.directFallbacks());
     }
 }

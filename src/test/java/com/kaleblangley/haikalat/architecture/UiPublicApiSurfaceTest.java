@@ -46,7 +46,9 @@ class UiPublicApiSurfaceTest {
                 "com.kaleblangley.haikalat.subsystems.ui.UiNode"));
         classified.forEach((type, category) -> {
             if (type.contains(".render.")) {
-                assertEquals("internal", category,
+                boolean configurationOrDiagnostics=Set.of("UiAttachmentOptions","UiBackdropSource","UiBlendMode",
+                        "UiCompositor","UiLayerDescription","UiScreenRect").contains(type.substring(type.lastIndexOf('.')+1));
+                assertEquals(configurationOrDiagnostics?"advanced":"internal", category,
                         "UI renderer protocol must not become public API implicitly: " + type);
             }
         });

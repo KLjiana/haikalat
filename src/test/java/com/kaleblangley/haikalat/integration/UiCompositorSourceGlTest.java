@@ -92,6 +92,12 @@ class UiCompositorSourceGlTest {
                 assertFalse(graph.isTopologySealed());assertFalse(graph.hasPass("UiLayer/panel"));
             }
             try(var graph=display(64,64);var ui=UiSystem.create(window,config())) {
+                var strict=UiLayerDescription.builder("panel",bounds).backdropBlur(2,1).backdropRequired(true).build();
+                var failure=assertThrows(IllegalArgumentException.class,()->ui.attachTo(graph,"Display",options(strict,UiBackdropSource.unavailable(),900)));
+                assertTrue(failure.getMessage().contains("required pre-UI backdrop"),"budget degradation cannot hide a required source contract");
+                assertFalse(graph.hasPass("UiCompositor/Prepare"));
+            }
+            try(var graph=display(64,64);var ui=UiSystem.create(window,config())) {
                 graph.addPass("Late").createColor("LateColor",RenderFormat.RGBA16F).fixedSize(64,64).dependsOn("Display").execute((r,c)->{});
                 assertThrows(IllegalArgumentException.class,()->ui.attachTo(graph,"Display",options(description,UiBackdropSource.available("LateColor"),100000)));
                 assertFalse(graph.hasPass("UiLayer/panel"));

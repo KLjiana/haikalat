@@ -3,7 +3,11 @@ package com.kaleblangley.haikalat.subsystems.ui.render;
 import java.util.List;
 import java.util.Objects;
 
-/** Options for attaching the UI overlay and its optional compositor topology. */
+/**
+ * Advanced options for UiSystem attachment before graph topology is sealed.
+ * Intermediate-pixel budget counts RGBA16F attachments, including retained and candidate storage;
+ * each pixel costs eight bytes. Layer IDs/parents/effect kinds stay fixed until reconfiguration.
+ */
 public final class UiAttachmentOptions {
     private final boolean compositorEnabled;
     private final UiBackdropSource backdropSource;

@@ -48,6 +48,7 @@ final class UiLayerFrame {
                 case POP_CLIP -> clips.pop();
                 case LAYER_BEGIN -> {
                     var description = list.primitiveLayer(i);
+                    UiCompositor.validateSupported(description);
                     String id = description.id();
                     var declared = topology.get(id);
                     if (declared == null) throw new IllegalArgumentException("unregistered UI layer: " + id);

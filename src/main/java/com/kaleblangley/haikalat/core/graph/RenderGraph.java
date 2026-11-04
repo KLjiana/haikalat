@@ -89,6 +89,7 @@ public final class RenderGraph implements AutoCloseable {
     private FrameProfile lastFrameProfile = FrameProfile.EMPTY;
     private boolean topologySealed;
     private boolean closed;
+    private volatile boolean executing;
     private long frameSequence;
     private long lastGraphRecordNanos;
     private long lastDeviceSubmitNanos;
@@ -215,6 +216,9 @@ public final class RenderGraph implements AutoCloseable {
 
     /** Whether this graph has released its resources and may no longer execute. */
     public boolean isClosed() { return closed; }
+
+    /** True from execute entry through submission and completion callbacks. */
+    public boolean isExecuting() { return executing; }
 
     public void importTexture(String name, Texture2D texture) {
         ensureOpen();
@@ -428,6 +432,17 @@ public final class RenderGraph implements AutoCloseable {
      * @return whether commands were executed or skipped because the host extent is zero
      */
     public PresentationResult execute(RenderDevice device, PresentationTarget target) {
+        ensureOpen();
+        if (executing) throw new IllegalStateException("RenderGraph execution is already in progress");
+        executing = true;
+        try {
+            return executeFrame(device, target);
+        } finally {
+            executing = false;
+        }
+    }
+
+    private PresentationResult executeFrame(RenderDevice device, PresentationTarget target) {
         ensureOpen();
         Objects.requireNonNull(device, "device");
         PresentationTarget frameTarget = Objects.requireNonNull(target, "target");

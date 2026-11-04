@@ -39,6 +39,9 @@ final class UiCompositorPlan {
         return build(options,Set.of());
     }
     static UiCompositorPlan build(UiAttachmentOptions options,Set<String> forceDisableEffects) {
+        return build(options,forceDisableEffects,options.maximumIntermediatePixels());
+    }
+    static UiCompositorPlan build(UiAttachmentOptions options,Set<String> forceDisableEffects,long maximumPixels) {
         Objects.requireNonNull(options, "options");
         if (!options.compositorEnabled() || options.layers().isEmpty()) return EMPTY;
         List<UiLayerDescription> ordered = new ArrayList<>(options.layers());
@@ -49,28 +52,28 @@ final class UiCompositorPlan {
         List<UiCompositor.Fallback> fallbacks = new ArrayList<>();
         long pixels = 0L;
         Set<String> disabledEffects = new HashSet<>();
+        // Reserve every affordable group before spending any budget on optional filtering.
         for (UiLayerDescription layer : ordered) {
             UiCompositor.FallbackReason rejected = null;
-            boolean droppedEffect=forceDisableEffects.contains(layer.id());
-            long requestedPixels=estimatedPixels(layer,!droppedEffect);
+            long plain=estimatedPixels(layer,false);
             if (accepted.size() >= options.maximumLayers()) {
                 rejected = UiCompositor.FallbackReason.LAYER_LIMIT;
-            } else if (requestedPixels==Long.MAX_VALUE||requestedPixels > options.maximumIntermediatePixels()-pixels) {
-                long plain=estimatedPixels(layer,false);
-                if(plain!=Long.MAX_VALUE&&plain<=options.maximumIntermediatePixels()-pixels) {
-                    requestedPixels=plain;droppedEffect=true;
-                } else rejected=plain==Long.MAX_VALUE?UiCompositor.FallbackReason.EXTENT_LIMIT:UiCompositor.FallbackReason.PIXEL_BUDGET;
+            } else if (plain==Long.MAX_VALUE||plain > maximumPixels-pixels) {
+                rejected=plain==Long.MAX_VALUE?UiCompositor.FallbackReason.EXTENT_LIMIT:UiCompositor.FallbackReason.PIXEL_BUDGET;
             }
             if (rejected != null) {
                 fallbacks.add(new UiCompositor.Fallback(layer.id(), rejected));
                 continue;
             }
             accepted.add(layer);
-            if(droppedEffect) {
+            pixels += plain;
+        }
+        for(UiLayerDescription layer:accepted) {
+            long requested=estimatedPixels(layer,true),plain=estimatedPixels(layer,false);
+            if(forceDisableEffects.contains(layer.id())||requested==Long.MAX_VALUE||requested-plain>maximumPixels-pixels) {
                 disabledEffects.add(layer.id());
                 fallbacks.add(new UiCompositor.Fallback(layer.id(),UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET));
-            }
-            pixels += requestedPixels;
+            } else pixels+=requested-plain;
         }
         return new UiCompositorPlan(accepted, fallbacks, pixels, ordered.size(), disabledEffects);
     }

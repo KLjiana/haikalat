@@ -31,6 +31,86 @@ import static org.lwjgl.opengl.GL45.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class UiCompositorLifecycleGlTest {
+    @Test void candidatePeakDisablesOptionalBlurBeforeRejectingAnOtherwiseAffordableGroup() {
+        try(var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI candidate optional budget").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();
+            try(var tracking=GlDebug.acquireResourceTracking()) {
+                var baseline=GlDebug.resources();
+                try(var output=OwnedPresentationTarget.create(97,65,RenderFormat.RGBA16F,false,0);
+                    var old=background(new AtomicBoolean());var next=background(new AtomicBoolean());var ui=UiSystem.create(window,config())) {
+                    var bounds=new UiScreenRect(0,0,20,20);
+                    var before=UiLayerDescription.builder("panel",bounds).opacity(.5f).build();
+                    var after=UiLayerDescription.builder("panel",bounds).opacity(.5f).blur(4,2).build();
+                    var panel=new Panel();panel.style(style(20,20));panel.addStyleClass("red");panel.layerDescription(before);ui.document().root().add(panel);
+                    ui.attachTo(old,"Display",options(before,1400));old.compile();var input=input(97,65,97,65);
+                    render(ui,old,device,output,input);pixel(output,8,8,.5,0,.5);
+                    try(var candidate=ui.prepareAttachment(next,"Display",options(after,1400))) {
+                        assertEquals(800L*8,ui.compositorRuntimeStatistics().bytes());
+                        render(ui,old,device,output,input);pixel(output,8,8,.5,0,.5);
+                        candidate.commit();panel.layerDescription(after);render(ui,next,device,output,input);
+                        pixel(output,8,8,.5,0,.5);assertEquals(0,ui.compositorRuntimeStatistics().blurDraws());
+                        assertFalse(next.hasPass("UiBlur/panel/Horizontal"));
+                        assertEquals(UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET,ui.compositorDiagnostics().fallbacks().getFirst().reason());
+                        assertEquals(0,ui.compositorDiagnostics().directFallbacks());
+                        assertTrue(ui.compositorRuntimeStatistics().peakBytes()<=1400L*8);
+                        old.close();assertEquals(400L*8,ui.compositorRuntimeStatistics().bytes());
+                    }
+                }
+                assertEquals(baseline.liveResources(),GlDebug.resources().liveResources());
+                assertEquals(baseline.estimatedBytes(),GlDebug.resources().estimatedBytes());
+                GlDebug.assertNoError("candidate optional effect budget");
+            }
+        }
+    }
+    @Test void attachmentPublicationRejectsCallbacksBeforeUiRecordingAndUncommittedCandidateExecution() {
+        try(var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI frame boundary").build()) {
+            window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();
+            try(var tracking=GlDebug.acquireResourceTracking()) {
+                var baseline=GlDebug.resources();var device=new GlRenderDevice();
+                var oldCallback=new java.util.concurrent.atomic.AtomicReference<Runnable>(()->{});
+                var nextCallback=new java.util.concurrent.atomic.AtomicReference<Runnable>(()->{});
+                try(var output=OwnedPresentationTarget.create(97,65,RenderFormat.RGBA16F,false,0);
+                    var old=callbackBackground(oldCallback);var next=callbackBackground(nextCallback);
+                    var third=background(new AtomicBoolean());var ui=UiSystem.create(window,config())) {
+                    var layer=UiLayerDescription.builder("panel",new UiScreenRect(0,0,40,30)).opacity(.5f).build();
+                    var panel=new Panel();panel.style(style(40,30));panel.addStyleClass("red");panel.layerDescription(layer);
+                    ui.document().root().add(panel);var options=options(layer,10000);
+                    ui.attachTo(old,"Display",options);old.compile();var input=input(97,65,97,65);
+                    render(ui,old,device,output,input);
+                    try(var candidate=ui.prepareAttachment(next,"Display",options)) {
+                        oldCallback.set(()->{
+                            assertTrue(old.isExecuting());
+                            assertThrows(IllegalStateException.class,()->ui.prepareAttachment(third,"Display",options));
+                            assertFalse(third.hasPass(UiSystem.OVERLAY_PASS_NAME));
+                            assertThrows(IllegalStateException.class,candidate::commit);
+                            assertThrows(IllegalStateException.class,()->old.execute(device,output.target()));
+                        });
+                        render(ui,old,device,output,input);pixel(output,8,8,.5,0,.5);assertFalse(old.isExecuting());
+                        oldCallback.set(()->{});
+                        nextCallback.set(()->{
+                            assertTrue(next.isExecuting());
+                            assertThrows(IllegalStateException.class,candidate::commit);
+                        });
+                        assertThrows(IllegalStateException.class,()->next.execute(device,output.target()));
+                        assertFalse(next.isExecuting(),"failure releases the graph execution guard");
+                        render(ui,old,device,output,input);pixel(output,8,8,.5,0,.5);
+                        nextCallback.set(()->{});candidate.commit();
+                        render(ui,next,device,output,input);pixel(output,8,8,.5,0,.5);
+                    }
+                }
+                assertEquals(baseline.liveResources(),GlDebug.resources().liveResources());
+                assertEquals(baseline.estimatedBytes(),GlDebug.resources().estimatedBytes());
+                GlDebug.assertNoError("UI frame boundary publication");
+            }
+        }
+    }
+    private static RenderGraph callbackBackground(java.util.concurrent.atomic.AtomicReference<Runnable> callback) {
+        var graph=new RenderGraph(97,65);
+        graph.addPass("Display").writeToBackbuffer().noClear().execute((r,c)->{
+            callback.get().run();c.enableScissor(false).clearColor(0,0,1,1).clear(true,false);
+        });
+        return graph;
+    }
     @Test void structuralRootLayerGroupsItsChildrenAndSharesItsTransformWithHitTesting() {
         try(var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI root layer").build()) {
             window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();var device=new GlRenderDevice();

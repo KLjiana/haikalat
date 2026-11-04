@@ -8,7 +8,11 @@ import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
 
-/** Executes registered subtrees at their original paint positions; graph owns every attachment. */
+/**
+ * Executes registered subtrees at their original paint positions; graph owns every attachment.
+ * Applications configure layers through UiSystem. The nested diagnostic records are advanced views;
+ * direct registration/recording methods are engine integration hooks, not a standalone UI entry point.
+ */
 public final class UiCompositor implements AutoCloseable {
     public static final String LAYER_PASS_PREFIX="UiLayer/";
     public static final String BLUR_PASS_PREFIX="UiBlur/";
@@ -48,21 +52,37 @@ public final class UiCompositor implements AutoCloseable {
     public static long initialPixels(RenderGraph graph,String dependency,UiAttachmentOptions options) {
         return new UiCompositor(options).preflight(graph,dependency);
     }
+    /** Candidate preflight includes still-live storage without sacrificing an otherwise accepted group. */
+    public static long initialPixels(RenderGraph graph,String dependency,UiAttachmentOptions options,long retained) {
+        var compositor=new UiCompositor(options);compositor.retainedIntermediatePixels(()->retained);
+        return compositor.preflight(graph,dependency);
+    }
     private long preflight(RenderGraph graph,String dependency) {
         plan=UiCompositorPlan.build(options);
+        long retained=retainedPixels.getAsLong();
+        if(retained<0)throw new IllegalArgumentException("retained UI storage must be non-negative");
+        long available=options.maximumIntermediatePixels()-retained;
+        if(available<0)throw new IllegalArgumentException("UI candidate peak budget includes retiring attachment");
+        var retainedPlan=UiCompositorPlan.build(options,Set.of(),available);
+        if(!retainedPlan.acceptedIds().containsAll(plan.acceptedIds()))
+            throw new IllegalArgumentException("UI candidate peak budget cannot preserve accepted groups");
+        plan=retainedPlan;
         for(var layer:options.layers())validateSupported(layer);
         validateBackdrop(graph,dependency);
         long pixels=plan.intermediatePixels();
         if(resolveBackdrop) {
             var source=graph.description().passes().stream().filter(p->p.name().equals(backdropProducer)).findFirst().orElseThrow();
             pixels=Math.addExact(pixels,Math.multiplyExact((long)source.width(),source.height()));
-            if(pixels>options.maximumIntermediatePixels()&&plan.acceptedLayers().stream().noneMatch(l->l.backdropRequired())) {
+            if(pixels>available&&plan.acceptedLayers().stream().noneMatch(l->l.backdropRequired())) {
                 var disabled=new HashSet<String>();
                 for(var layer:plan.acceptedLayers())if(layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR))disabled.add(layer.id());
-                plan=UiCompositorPlan.build(options,disabled);validateBackdrop(graph,dependency);pixels=plan.intermediatePixels();
+                var disabledPlan=UiCompositorPlan.build(options,disabled,available);
+                if(!disabledPlan.acceptedIds().containsAll(plan.acceptedIds()))
+                    throw new IllegalArgumentException("UI candidate resolve budget cannot preserve accepted groups");
+                plan=disabledPlan;validateBackdrop(graph,dependency);pixels=plan.intermediatePixels();
             }
         }
-        if(pixels>options.maximumIntermediatePixels())throw new IllegalArgumentException("UI initial allocation budget includes backdrop resolve");
+        if(pixels>available)throw new IllegalArgumentException("UI initial allocation budget includes backdrop resolve and retiring attachment");
         return pixels;
     }
     public void preparePrograms() {
@@ -309,7 +329,9 @@ public final class UiCompositor implements AutoCloseable {
     }
     private void validateBackdrop(RenderGraph graph,String dependency) {
         backdropProducer=null;resolveBackdrop=false;backdropFailure=null;backdropAttachment=0;
-        if(plan.acceptedLayers().stream().noneMatch(l->hasBlur(l)&&l.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)))return;
+        boolean needed=plan.acceptedLayers().stream().anyMatch(l->hasBlur(l)&&l.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR));
+        boolean required=options.layers().stream().anyMatch(l->l.backdropRequired());
+        if(!needed&&!required)return;
         if(options.backdropSource().isAvailable()) {
             var description=graph.description();int dependencyIndex=description.executionOrder().indexOf(dependency);
             for(var pass:description.passes())for(int i=0;i<pass.colorAttachments().size();i++) {
@@ -319,18 +341,18 @@ public final class UiCompositor implements AutoCloseable {
                         throw new IllegalArgumentException("backdrop producer must precede UI: "+pass.name());
                     if(!Set.of("RGBA8","RGBA16F","SRGB8_ALPHA8").contains(attachment.format()))
                         throw new IllegalArgumentException("unsupported backdrop color encoding: "+attachment.format());
-                    backdropProducer=pass.name();backdropAttachment=i;resolveBackdrop=pass.samples()>1;
+                    if(needed){backdropProducer=pass.name();backdropAttachment=i;resolveBackdrop=pass.samples()>1;}
                     return;
                 }
             }
         }
-        if(options.layers().stream().anyMatch(l->l.backdropRequired()))throw new IllegalArgumentException("required pre-UI backdrop source is unavailable");
+        if(required)throw new IllegalArgumentException("required pre-UI backdrop source is unavailable");
         backdropFailure="explicit pre-UI source is unavailable";
     }
     private static int depth(UiLayerDescription layer,Map<String,UiLayerDescription> byId) {
         int depth=0;while(!layer.parentId().isEmpty()){depth++;layer=byId.get(layer.parentId());}return depth;
     }
-    private static void validateSupported(UiLayerDescription layer) {
+    static void validateSupported(UiLayerDescription layer) {
         if(layer.blendMode()!=UiBlendMode.PREMULTIPLIED_ALPHA||layer.maskMode()==UiLayerDescription.MaskMode.ROUNDED||layer.zOrder()!=0
                 ||layer.effects().stream().anyMatch(e->e!=UiLayerDescription.Effect.BLUR&&e!=UiLayerDescription.Effect.BACKDROP_BLUR)
                 ||(layer.effects().contains(UiLayerDescription.Effect.BLUR)&&layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR)))

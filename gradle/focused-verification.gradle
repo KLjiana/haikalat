@@ -300,8 +300,8 @@ tasks.register('captureUiCompositorCandidate') {
 tasks.named('compileJava') { mustRunAfter 'captureUiCompositorCandidate' }
 
 // UI compositor leaves use the same fresh execution and required-case event contracts.
-def uiCompositorCases = [uiCompositorJvmVerification: ['UiLayerFrameTest', 'UiCompositorFoundationTest', 'UiSystemTest', 'UiPainterTest', 'UiInputRouterTest'],
-    uiCompositorGlVerification: ['UiCompositorGlTest', 'UiCompositorLifecycleGlTest', 'UiCompositorSourceGlTest', 'UiRendererGlTest'],
+def uiCompositorCases = [uiCompositorJvmVerification: ['UiLayerFrameTest', 'UiCompositorFoundationTest', 'UiSystemTest', 'UiPainterTest', 'UiInputRouterTest', 'UiPublicApiSurfaceTest'],
+    uiCompositorGlVerification: ['UiCompositorGlTest', 'UiCompositorLifecycleGlTest', 'UiCompositorSourceGlTest', 'UiRendererGlTest', 'RenderTargetManagerGlTest'],
     uiCompositorCacheSoak: ['UiCompositorCacheSoakGlTest']]
 uiCompositorCases.each { String taskName, List<String> required ->
     registerTests(taskName, required, taskName != 'uiCompositorJvmVerification')

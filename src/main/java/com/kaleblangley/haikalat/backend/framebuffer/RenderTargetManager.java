@@ -63,6 +63,12 @@ public final class RenderTargetManager implements AutoCloseable {
 
     /** Replaces a named subset atomically; unrelated targets keep their storage and identity. */
     public void replaceSelected(Map<String, FramebufferDescriptor> replacements) {
+        replaceSelected(replacements, Framebuffer::fromDescriptor);
+    }
+
+    // Package-local allocation seam lets failure tests exercise partial native allocation and rollback.
+    void replaceSelected(Map<String, FramebufferDescriptor> replacements,
+                         java.util.function.Function<FramebufferDescriptor, Framebuffer> allocate) {
         ensureOpen();
         Map<String, Framebuffer> candidates = new LinkedHashMap<>();
         for (String name : replacements.keySet()) {
@@ -70,7 +76,7 @@ public final class RenderTargetManager implements AutoCloseable {
         }
         try {
             for (var entry : replacements.entrySet())
-                candidates.put(entry.getKey(), Framebuffer.fromDescriptor(entry.getValue()));
+                candidates.put(entry.getKey(), allocate.apply(entry.getValue()));
         } catch (RuntimeException | Error failure) {
             closeCandidateTargets(candidates, failure);
             throw failure;

@@ -17,9 +17,15 @@ v0.11 RC 的 Java 可见性不是兼容性承诺。UI 实现存在跨子包协�
 allowlist；它们继续作为 UI 的稳定输入边界单独维护。
 
 v0.19.4 新增的 property timeline、visual transform 与 UI effect definition/bridge 保持
-`advanced`。render 包中的 SDF arena、layer/compositor、attachment options、blur kernel 和
-effect renderer 虽因跨包 snapshot 协作保持 Java `public`，但仍分类为 `internal`；它们不承诺
-native texture/framebuffer、ring slot 或任意 GL callback。
+`advanced`。v0.26 将 `UiLayerDescription`、`UiAttachmentOptions`、`UiBackdropSource`、
+`UiScreenRect`、`UiBlendMode` 和提供诊断记录的 `UiCompositor` 明确提升为 `advanced`；
+应用通过 `UiSystem` 使用这些配置值，限制、示例与帧边界协议见 [Compositor 指南](../guides/ui-compositor.md)。
+实际 Demo 在 UI 实现包之外消费同一 API，像素与生命周期测试验证行为。
+
+SDF arena、display list/snapshot、batcher、renderer、blur kernel 与 effect renderer 仍为
+`internal`，不承诺 native texture/framebuffer、ring slot 或任意 GL callback。
+`UiCompositor` 的直接注册/record 方法是引擎集成钩子；废弃的无 recorder 注册重载明确失败，
+不能绕开 `UiSystem` 自建一套空执行拓扑。
 
 ## 修改规则
 

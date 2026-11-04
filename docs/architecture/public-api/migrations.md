@@ -38,3 +38,17 @@ canonical record 中新增 `clustered` 组件，`SelectedShadowLight`/`RejectedS
 `ClusterDebugMode`。自定义 lit shader 必须改用 binding 0 light table、binding 2/3 cluster list、
 binding 6 `ClusterParametersBlock` 和 binding 5 `ShadowSamplingBlock`，旧的
 `uDirectionalLights/uPointLights/uSpotLights` 数组合同不再接受。
+
+v0.26 没有删除 stable 类型或修改构建版本。UI layer/options/backdrop/screen rect/blend 与
+Compositor 诊断记录所属类型提升为 advanced，具体清单见 `ui.allowlist`；renderer/snapshot/ring
+等实现仍为 internal。`UiSystem.prepareAttachment` 和 `AttachmentCandidate.commit/close` 提供
+候选 graph 协议，调用方拥有 graph，并须在 update owner/current GL context 的帧边界操作。
+`RenderGraph.isExecuting()` 覆盖记录、提交和完成回调，是查询而非并发锁。
+
+原先接受但静默无效的图层 Glow/shadow/color transform/tint、ROUNDED mask、非预乘 blend 和
+非零 zOrder 现在明确报 `UNSUPPORTED_EFFECT`。同层内容与背景模糊也明确拒绝；普通主题 SDF/文字
+特效不受此枚举限制。背景缺失保留普通内容与组透明度；旧 topology-only compositor 注册重载不再
+能冒充可执行合成器。已有应用改用 `UiSystem.attachTo`，迁移示例见 [指南](../../guides/ui-compositor.md)。
+
+`GlDebug.contextStateEpoch()` 现在也反映绕过设备缓存的 framebuffer 构造/绑定恢复，
+`contextStateChanged()` 供底层资源代码通知 native 状态变化；两者都不是资源所有权或跨 context 同步工具。

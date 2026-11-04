@@ -1,18 +1,18 @@
-# 现代 UI 动画、合成与 VFX（0.19.2～0.19.4）
+# 现代 UI 动画、合成与 VFX（0.19.2～0.26）
 
 `0.19.4` 在保留普通 quad/image/glyph 路径的前提下，增加三条相互解耦的能力：
 
 - `UiVisualTransform`、`UiPropertyTrack` 与 `UiTimeline` 只修改 UI snapshot 属性，不修改
   Yoga 尺寸，也不持有 GL 状态；
-- `UiLayerDescription` 与 `UiCompositor` 只为显式 layer 注册 UI-owned RenderGraph
-  target，超出 layer/pixel budget 或缺少 backdrop source 时继续走 direct UI；
+- `UiLayerDescription` 最初只注册图层拓扑；0.26 已实现实际子树离屏、组透明度、两类模糊与静态缓存，
+  附件由 RenderGraph 所有，预算不足会明确降级；
 - `UiEffectBridge` 只消费稳定 `UiAnimationSignal`，固定种子 CPU effect 由
   `UiEffectRenderer` 转换为已有 SDF/quad primitive。
 
 ## 动画
 
 节点视觉变换以归一化 origin 表示，`(0.5, 0.5)` 是 bounds 中心。父变换由子节点继承，
-paint snapshot 保存每个 quad 的仿射矩阵；命中测试对同一矩阵求逆。非零或非有限 scale 在构造
+paint snapshot 保存每个 quad 的仿射矩阵；命中测试对同一矩阵求逆。零或非有限 scale 在构造
 阶段拒绝。
 
 ```java
@@ -31,14 +31,16 @@ ui.timeline().play(sequence);
 
 ## Layer 与 compositor
 
-`UiAttachmentOptions` 必须在 RenderGraph topology seal 前传给 `UiSystem.attachTo`。没有显式
-layer 时不会创建 target。blur 使用线性 `RGBA16F` 双轴 managed target；普通 layer 使用
-`SRGB8_ALPHA8`。当前 snapshot 以 direct UI 作为始终可用的视觉 fallback；managed layer
-拓扑负责预算、resize、格式、顺序和生命周期，后续可在不修改 tree API 的情况下替换 record
-阶段。
+`UiAttachmentOptions` 在 topology seal 前传给 `UiSystem.attachTo`。同一不可变 snapshot 按原 paint
+顺序拆成 direct 与离屏区间，子树只绘制一次；普通层和滤波均使用线性预乘 `RGBA16F`，最终按目标
+真实格式编码一次。关闭 compositor 时没有图层存储与滤波 pass。
 
-backdrop 不可用时会记录 `BACKDROP_SOURCE_UNAVAILABLE`，不会读取 backbuffer 或绑定虚构纹理。
-默认上限是 64 个 layer、16M intermediate pixels、单 layer 4096×4096、blur radius 64。
+背景模糊只读取显式 UI 前显示颜色源，缺失可选源会报告 `BACKDROP_SOURCE_UNAVAILABLE`，保留内容与组透明度。
+缓存追踪实际内容、图片/glyph generation、父子几何与效果参数，GPU 失败后重绘。配置结构变化使用候选
+graph 帧边界发布，不能在回调中切换；受限预算优先关闭可选模糊，再明确报告 direct fallback。
+
+完整枚举支持矩阵、代码示例、颜色/坐标、缓存及所有权见 [UI Compositor 指南](ui-compositor.md)。
+图层 Glow、shadow、tint、color transform、ROUNDED mask 和非预乘 blend 均明确拒绝；既有 SDF 与文字特效独立保留。
 
 ## UI VFX
 
@@ -64,6 +66,9 @@ tone mapping 之后的 UI overlay，不进入 scene auto exposure 或 Bloom。
 .\gradlew.bat localUiVerification
 ```
 
-`runModernUiIntegration` 使用独立的隐藏 OpenGL 4.6 窗口执行 60 帧、
-SDF/property animation、managed layer topology、shimmer/ripple/confetti 和最终
+`runModernUiIntegration` 使用独立的隐藏 OpenGL 4.6 窗口执行 90 帧、
+SDF/property animation、实际子树合成、shimmer/ripple/confetti 和最终
 backbuffer 像素证明；它不会创建旧 `UiDemo` 场景。
+
+0.26 的普通功能签收使用 `./verify.ps1 -Mode UiConsumers -TimeoutSeconds 300`；定向缓存长测单独使用
+`-Mode UiSoak`，不自动运行完整 UI、IME 或性能矩阵。证据与人工/性能状态见 [0.26 验收记录](../releases/v0.26.0-ui-compositor-acceptance.md)。

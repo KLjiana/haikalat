@@ -17,6 +17,21 @@
 
 Windows checkout 必须遵守 `.gitattributes` 中已冻结 shader 的 LF 约束。合并收尾发现 19 项资源被 `core.autocrlf=true` 转成 CRLF；逐字节恢复 LF 后均匹配原 manifest，未修改哈希期望或 shader 逻辑。新增文本资源应同时固定换行格式，避免在另一检出产生假资产变更。
 
+### 0.26 UI Compositor 定向入口（2026-11-05）
+
+```powershell
+.\verify.ps1 -Mode UiConsumers -TimeoutSeconds 300 # 核心 JVM/GL、四个 Demo、VLS/Modern、guard
+.\verify.ps1 -Mode UiSoak -TimeoutSeconds 300      # 单独安排的 3600 帧缓存长测
+```
+
+两个范围独立，各自包含 Gradle 启动且零自动重试。局部开发可只选 `UiJvm`、`Ui` 或 `UiDemos`，
+不必再叠加 `UiConsumers` 重跑。每个必需类/例核对实际执行数和零 skip，GL 日志审计完成后才写 PASS；
+失败/编译中止仍归档 NOT_RUN/FAIL，不用旧 XML 或已有 PNG 补成通过。
+报告位于 `build/reports/ui-compositor-v0260/<run-id>/`，包含候选身份、patch/untracked、JUnit XML、
+JavaExec 日志和四例线性 raw/PNG/evidence。输入变化标记 SOURCE_CHANGED。
+这不是正式性能或人工可见交互验收；完整支持与产物索引见 [指南](ui-compositor.md) 和
+[功能验收记录](../releases/v0.26.0-ui-compositor-acceptance.md)。旧的大范围验证入口不因新增本域任务而自动执行。
+
 
 This project uses three test categories. The default Gradle `test` task must stay safe for CI machines without a desktop OpenGL environment.
 

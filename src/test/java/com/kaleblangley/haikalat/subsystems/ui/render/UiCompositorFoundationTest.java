@@ -10,6 +10,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UiCompositorFoundationTest {
     @Test
+    void unsupportedOptionsFailBeforeAnyUiPassIsRegistered() {
+        var rejected = new java.util.ArrayList<UiLayerDescription>();
+        var bounds = new UiScreenRect(0, 0, 20, 20);
+        for (var effect : UiLayerDescription.Effect.values())
+            if (effect != UiLayerDescription.Effect.BLUR && effect != UiLayerDescription.Effect.BACKDROP_BLUR)
+                rejected.add(UiLayerDescription.builder("unsupported", bounds).effect(effect).build());
+        for (var blend : UiBlendMode.values())
+            if (blend != UiBlendMode.PREMULTIPLIED_ALPHA)
+                rejected.add(UiLayerDescription.builder("unsupported", bounds).blendMode(blend).build());
+        rejected.add(UiLayerDescription.builder("unsupported", bounds).mask(UiLayerDescription.MaskMode.ROUNDED).build());
+        rejected.add(UiLayerDescription.builder("unsupported", bounds).zOrder(1).build());
+        rejected.add(UiLayerDescription.builder("unsupported", bounds).blur(2, 1).backdropBlur(2, 1).build());
+        for (var description : rejected) {
+            try (var graph = new com.kaleblangley.haikalat.core.graph.RenderGraph(20, 20)) {
+                graph.addPass("Display").writeToBackbuffer().execute((r, c) -> {});
+                var options = UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(description)).build();
+                var error = assertThrows(IllegalArgumentException.class, () -> UiCompositor.initialPixels(graph, "Display", options));
+                assertTrue(error.getMessage().contains("UNSUPPORTED_EFFECT"));
+                assertTrue(error.getMessage().contains("unsupported"));
+                assertEquals(List.of("Display"), graph.description().executionOrder());
+            }
+        }
+    }
+    @Test
     void layerDescriptionClampsBlurAndDisplayListKeepsBalancedBoundaries() {
         UiLayerDescription layer = UiLayerDescription.builder("glass_panel",
                         new UiScreenRect(10, 20, 400, 260))

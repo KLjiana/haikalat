@@ -356,7 +356,12 @@ public final class UiSystem implements AutoCloseable {
         ensureOpen("UiSystem compositor runtime statistics");return attachments.runtimeStatistics();
     }
 
-    /** Builds a separate graph attachment before publication. The caller retains graph ownership. */
+    /**
+     * Prepares and compiles a separate graph attachment without retiring the active one.
+     * Call on the update owner with a current GL context while both graphs are idle; asynchronous
+     * hosts must coordinate a frame boundary. The caller owns both graphs and must close a rejected
+     * or abandoned graph. Commit first, then retire the old graph. Only one candidate may be pending.
+     */
     public AttachmentCandidate prepareAttachment(RenderGraph graph,String dependency,UiAttachmentOptions options) {
         updateThread.check();ensureOpen("UiSystem attachment candidate");
         return new AttachmentCandidate(attachments.prepare(graph,dependency,options,this::recordOverlay,this::completeOverlayFrame));

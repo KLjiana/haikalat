@@ -72,11 +72,11 @@ final class UiAttachmentController implements AutoCloseable {
     Candidate prepare(RenderGraph graph,String dependency,UiAttachmentOptions options,
                       BiConsumer<PassResources,CommandBuffer> recorder,RenderGraph.FrameObserver completion) {
         if(closed||active==null)throw new IllegalStateException("prepareAttachment requires an active UI");
-        if(active.frameOpen)throw new IllegalStateException("UI attachment edits require a frame boundary");
+        requireFrameBoundary();
         if(pending!=null)throw new IllegalStateException("a UI attachment candidate is already pending");
         if(graph==active.graph)throw new IllegalArgumentException("UI topology needs a separate candidate graph");
         long oldPixels=retainedPixels(null);
-        long newPixels=UiCompositor.initialPixels(graph,dependency,options);
+        long newPixels=UiCompositor.initialPixels(graph,dependency,options,oldPixels);
         if(Math.addExact(oldPixels,newPixels)>options.maximumIntermediatePixels())
             throw new IllegalArgumentException("UI candidate peak budget includes retiring attachment: "+(oldPixels+newPixels));
         Binding candidate=build(graph,dependency,null,options,recorder,completion);
@@ -96,7 +96,8 @@ final class UiAttachmentController implements AutoCloseable {
         Candidate(Binding expected,Binding candidate){this.expected=expected;this.candidate=candidate;}
         void commit() {
             if(disposed||committed||closed||active!=expected||pending!=this)throw new IllegalStateException("stale UI attachment candidate");
-            if(active.frameOpen)throw new IllegalStateException("UI attachment edits require a frame boundary");
+            requireFrameBoundary();
+            if(candidate.graph.isExecuting())throw new IllegalStateException("UI attachment edits require a frame boundary");
             active=candidate;committed=true;pending=null;retiring.add(expected);
             if(expected.compositor!=null)expected.compositor.close();
         }
@@ -114,6 +115,10 @@ final class UiAttachmentController implements AutoCloseable {
         if(previous.compositor!=null)previous.compositor.close();
     }
     boolean isAttached(){return active!=null;}
+    private void requireFrameBoundary() {
+        if(active!=null&&(active.frameOpen||active.graph.isExecuting()))
+            throw new IllegalStateException("UI attachment edits require a frame boundary");
+    }
     UiCompositor.Diagnostics diagnostics(){return active==null||active.compositor==null?UiCompositor.Diagnostics.EMPTY:active.compositor.diagnostics();}
     UiCompositor.RuntimeStatistics runtimeStatistics(){
         var value=active==null||active.compositor==null?new UiCompositor.RuntimeStatistics(0,0,0,0,0,Map.of()):active.compositor.runtimeStatistics();
@@ -148,6 +153,7 @@ final class UiAttachmentController implements AutoCloseable {
     private void validateGraph(RenderGraph graph,String dependency) {
         if(closed)throw new IllegalStateException("UI attachment is closed");
         Objects.requireNonNull(graph);Objects.requireNonNull(dependency);
+        if(graph.isExecuting())throw new IllegalStateException("UI attachment edits require a frame boundary");
         if(graph.isTopologySealed())throw new IllegalStateException("RenderGraph topology is already sealed");
         if(!graph.hasPass(dependency)||!graph.passWritesToBackbuffer(dependency))throw new IllegalArgumentException("UI dependency must write the presentation target: "+dependency);
         if(graph.hasPass(overlayPassName))throw new IllegalStateException("RenderGraph already contains "+overlayPassName);

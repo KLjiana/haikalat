@@ -113,6 +113,21 @@ class UiCompositorGlTest {
                 assertTrue(graph.description().passes().stream().noneMatch(p->p.name().startsWith("UiBlur/")));
                 assertEquals(52L*40*8,ui.compositorRuntimeStatistics().bytes());GlDebug.assertNoError("UI optional-effect budget fallback");
             }
+            try(var output=OwnedPresentationTarget.create(96,64,RenderFormat.RGBA16F,false,0);
+                var graph=new RenderGraph(96,64);var ui=UiSystem.create(window,colorConfig())) {
+                graph.addPass("Background").writeToBackbuffer().noClear().execute((r,c)->c.enableScissor(false).clearColor(0,0,1,1).clear(true,false));
+                var first=UiLayerDescription.builder("first",new UiScreenRect(0,0,20,20)).opacity(.5f).blur(4,2).build();
+                var second=UiLayerDescription.builder("second",new UiScreenRect(0,0,20,20)).opacity(.5f).build();
+                var red=new Panel();red.style(style(20,20));red.addStyleClass("red");red.layerDescription(first);
+                var green=new Panel();green.style(style(20,20));green.addStyleClass("green");green.layerDescription(second);
+                green.visualTransform(UiVisualTransform.translation(24,0));ui.document().root().add(red);ui.document().root().add(green);
+                ui.attachTo(graph,"Background",UiAttachmentOptions.builder().enableCompositor(true).layers(List.of(first,second)).maximumIntermediatePixels(1400).build());
+                graph.compile();ui.update(input(96,64).snapshot(),0);graph.execute(device,output.target());
+                var pixels=read(output,96,64);assertPixel(pixels,96,5,5,.5,0,.5);assertPixel(pixels,96,29,5,0,.5,.5);
+                assertEquals(2,ui.compositorDiagnostics().activeLayers());assertEquals(0,ui.compositorDiagnostics().directFallbacks());
+                assertEquals(800L*8,ui.compositorRuntimeStatistics().bytes());assertEquals(0,ui.compositorRuntimeStatistics().blurDraws());
+                GlDebug.assertNoError("UI all group allocations precede optional filtering");
+            }
         }
     }
     @Test void staticCacheSkipsRecordedDrawsAndTracksChildrenOpacityTranslationAndFailedSubmission() {
@@ -153,6 +168,30 @@ class UiCompositorGlTest {
                 ui.update(input.snapshot(),0);graph.execute(device,output.target());
                 assertEquals("FAILED_FRAME",ui.compositorRuntimeStatistics().cache().get("parent"));
                 assertPixel(read(output,96,64),96,39,10,.25,0,.75);
+                parent.layerDescription(UiLayerDescription.builder("parent",parentDescription.bounds()).opacity(.25f).blur(2,1)
+                        .cachePolicy(UiLayerDescription.CachePolicy.ALWAYS).build());
+                child.layerDescription(UiLayerDescription.builder("child",childDescription.bounds()).parent("parent").opacity(1)
+                        .cachePolicy(UiLayerDescription.CachePolicy.ALWAYS).build());
+                ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals("HIT",ui.compositorRuntimeStatistics().cache().get("parent"));
+                child.removeStyleClass("red");child.addStyleClass("green");ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals("CHILD_CHANGED",ui.compositorRuntimeStatistics().cache().get("parent"),"ALWAYS must still invalidate changed content");
+                assertPixel(read(output,96,64),96,39,10,0,.25,.75);
+                child.layerDescription(UiLayerDescription.builder("child",childDescription.bounds()).parent("parent").opacity(1)
+                        .cachePolicy(UiLayerDescription.CachePolicy.NONE).build());
+                ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals("CACHE_DISABLED",ui.compositorRuntimeStatistics().cache().get("child"));
+                assertEquals("UNTRACKED_DEPENDENCY",ui.compositorRuntimeStatistics().cache().get("parent"));
+                assertTrue(ui.compositorRuntimeStatistics().draws()>0);
+                assertPixel(read(output,96,64),96,39,10,0,.25,.75);
+                child.layerDescription(UiLayerDescription.builder("child",childDescription.bounds()).parent("parent").opacity(1).build());
+                ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                parent.close();
+                var replacement=new Panel();replacement.style(style(52,40));replacement.addStyleClass("green");
+                replacement.layerDescription(UiLayerDescription.builder("parent",parentDescription.bounds()).opacity(.25f).blur(2,1).build());
+                ui.document().root().add(replacement);ui.update(input.snapshot(),0);graph.execute(device,output.target());
+                assertEquals("INSTANCE",ui.compositorRuntimeStatistics().cache().get("parent"),"stable layer ID does not preserve a detached node instance");
+                assertPixel(read(output,96,64),96,10,10,0,.25,.75);
                 GlDebug.assertNoError("UI cache success-frame and partial-write recovery");
             }
         }
