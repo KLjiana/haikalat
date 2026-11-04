@@ -6,13 +6,14 @@ layout(location = 2) in vec4 aColor;
 layout(location = 3) in vec2 aLocal;
 
 uniform vec2 uViewport;
+uniform vec2 uOrigin;
 
 out vec2 vUv;
 out vec4 vColor;
 out vec2 vLocal;
 
 void main() {
-    vec2 normalized = aPosition / uViewport;
+    vec2 normalized = (aPosition - uOrigin) / uViewport;
     gl_Position = vec4(normalized.x * 2.0 - 1.0,
                        1.0 - normalized.y * 2.0,
                        0.0, 1.0);

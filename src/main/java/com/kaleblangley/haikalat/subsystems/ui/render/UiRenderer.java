@@ -44,6 +44,7 @@ public final class UiRenderer implements AutoCloseable {
     private int lastDrawCalls;
     private int lastQuadCount;
     private boolean closed;
+    private long glyphGeneration;
 
     public UiRenderer() {
         this(DEFAULT_MAXIMUM_QUADS);
@@ -94,82 +95,84 @@ public final class UiRenderer implements AutoCloseable {
      */
     public void record(UiRenderSnapshot snapshot, CommandBuffer commands,
                        PresentationTarget target) {
-        ensureOpen();
-        Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(commands, "commands");
-        int framebufferWidth = target == null
-                ? snapshot.framebufferWidth() : target.width();
-        int framebufferHeight = target == null
-                ? snapshot.framebufferHeight() : target.height();
-        if (target != null && !target.isRenderable()) {
-            lastDrawCalls = 0;
-            lastQuadCount = 0;
-            return;
+        int width=target==null?snapshot.framebufferWidth():target.width();
+        int height=target==null?snapshot.framebufferHeight():target.height();
+        if (width==0||height==0||snapshot.windowWidth()==0||snapshot.windowHeight()==0) {
+            lastDrawCalls=0;lastQuadCount=0;return;
         }
-        resources.claimOrAssertRenderThread();
-        resources.pollGlyphGpuCompletions();
-        lastDrawCalls = 0;
-        lastQuadCount = 0;
-        recordPassState(commands, target, framebufferWidth, framebufferHeight);
-
-        UiDisplayList displayList = snapshot.displayList();
-        UiBatcher.Result batches = snapshot.batches();
-        if (displayList.quadCount() == 0 || batches.size() == 0
-                || framebufferWidth == 0 || framebufferHeight == 0
-                || snapshot.windowWidth() == 0 || snapshot.windowHeight() == 0) {
-            commands.enableScissor(false);
-            return;
-        }
-        if (displayList.quadCount() > maximumQuads) {
-            throw new IllegalArgumentException("UI snapshot contains " + displayList.quadCount()
-                    + " quads, renderer capacity is " + maximumQuads);
-        }
-        int drawCount = validateAndCountDraws(batches);
-        resources.ensureInitialized();
-        resources.assertRenderThread();
-
-        UiVertexRing.WriteSlice slice = resources.vertexRing().beginWrite(displayList.quadCount());
-        boolean submitted = false;
+        PreparedDraw prepared=prepare(snapshot);
         try {
-            writeVertices(displayList, slice.bytes());
-            resources.ensureVertexArrayCount(drawCount);
+            var operations=new java.util.ArrayList<UiLayerFrame.Operation>();
+            for(int i=0;i<snapshot.batches().size();i++)operations.add(UiLayerFrame.Operation.draw(i));
+            recordSegment(prepared, commands, target==null?0:target.drawFramebufferId(), width,height,
+                    target==null||target.colorFormat()==RenderFormat.SRGB8_ALPHA8,
+                    new UiScreenRect(0,0,snapshot.windowWidth(),snapshot.windowHeight()),operations,
+                    child->{throw new IllegalStateException("unexpected child in direct UI");});
+            finish(prepared,commands);
+        } catch(RuntimeException|Error failure) {abort(prepared);throw failure;}
+    }
 
-            commands.bindShader(resources.shader())
-                    .setUniformVec2(resources.shader(), "uViewport",
-                            snapshot.windowWidth(), snapshot.windowHeight())
-                    .setUniformInt(resources.shader(), "uTexture", TEXTURE_UNIT);
+    /** One persistent-ring write shared by every offscreen and direct consumer of this snapshot. */
+    final class PreparedDraw {
+        final UiRenderSnapshot snapshot;
+        final UiVertexRing.WriteSlice slice;
+        int drawIndex;
+        boolean finished;
+        PreparedDraw(UiRenderSnapshot snapshot,UiVertexRing.WriteSlice slice) {this.snapshot=snapshot;this.slice=slice;}
+    }
 
-            int drawIndex = 0;
-            int drawnQuads = 0;
-            for (int batch = 0; batch < batches.size(); batch++) {
-                if (!configureBatchState(commands, batches, batch, snapshot,
-                        framebufferWidth, framebufferHeight)) continue;
-                int firstQuad = batches.firstQuad(batch);
-                int remaining = batches.quadCount(batch);
-                drawnQuads += remaining;
-                while (remaining > 0) {
-                    int part = Math.min(remaining, MAX_QUADS_PER_DRAW);
-                    VertexArray vao = resources.vertexArray(drawIndex++);
-                    long vertexOffset = (long) slice.slotOffsetBytes()
-                            + (long) firstQuad * UiVertexRing.VERTICES_PER_QUAD
-                            * UiVertexRing.VERTEX_STRIDE_BYTES;
-                    glVertexArrayVertexBuffer(vao.id(), 0, resources.vertexRing().buffer().id(),
-                            vertexOffset, UiVertexRing.VERTEX_STRIDE_BYTES);
-                    commands.bindVertexArray(vao.id())
-                            .drawElements(GL_TRIANGLES, part * 6, GL_UNSIGNED_SHORT);
-                    firstQuad += part;
-                    remaining -= part;
-                }
+    PreparedDraw prepare(UiRenderSnapshot snapshot) {
+        return prepare(snapshot,true);
+    }
+    PreparedDraw prepare(UiRenderSnapshot snapshot,boolean needsVertices) {
+        ensureOpen();Objects.requireNonNull(snapshot,"snapshot");
+        resources.claimOrAssertRenderThread();resources.pollGlyphGpuCompletions();
+        lastDrawCalls=0;lastQuadCount=0;
+        if(snapshot.displayList().quadCount()==0||!needsVertices)return new PreparedDraw(snapshot,null);
+        if(snapshot.displayList().quadCount()>maximumQuads)throw new IllegalArgumentException("UI snapshot exceeds ring capacity");
+        int count=validateAndCountDraws(snapshot.batches());
+        resources.ensureInitialized();resources.ensureVertexArrayCount(count);
+        UiVertexRing.WriteSlice slice=resources.vertexRing().beginWrite(snapshot.displayList().quadCount());
+        try {writeVertices(snapshot.displayList(),slice.bytes());return new PreparedDraw(snapshot,slice);}
+        catch(RuntimeException|Error failure){resources.vertexRing().abortWrite();throw failure;}
+    }
+
+    void recordSegment(PreparedDraw prepared, CommandBuffer commands,int framebuffer,int width,int height,
+                       boolean srgb,UiScreenRect view,List<UiLayerFrame.Operation> operations,
+                       java.util.function.Consumer<String> composite) {
+        commands.bindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER,framebuffer).viewport(0,0,width,height)
+                .enableFramebufferSrgb(srgb).enableBlend(true).blendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA)
+                .enableDepthTest(false).depthMask(false).enableCullFace(false).enableScissor(false);
+        var snapshot=prepared.snapshot;var batches=snapshot.batches();
+        for(var operation:operations) {
+            if(operation.child()!=null){composite.accept(operation.child());continue;}
+            if(prepared.slice==null)continue;
+            commands.bindShader(resources.shader()).setUniformVec2(resources.shader(),"uViewport",(float)view.width(),(float)view.height())
+                    .setUniformVec2(resources.shader(),"uOrigin",(float)view.x(),(float)view.y())
+                    .setUniformInt(resources.shader(),"uTexture",TEXTURE_UNIT);
+            int batch=operation.batch();
+            if(!configureBatchState(commands,batches,batch,snapshot,width,height,view))continue;
+            int first=batches.firstQuad(batch),remaining=batches.quadCount(batch);lastQuadCount+=remaining;
+            while(remaining>0) {
+                int part=Math.min(remaining,MAX_QUADS_PER_DRAW);
+                VertexArray vao=resources.vertexArray(prepared.drawIndex++);
+                long offset=(long)prepared.slice.slotOffsetBytes()+(long)first*UiVertexRing.VERTICES_PER_QUAD*UiVertexRing.VERTEX_STRIDE_BYTES;
+                glVertexArrayVertexBuffer(vao.id(),0,resources.vertexRing().buffer().id(),offset,UiVertexRing.VERTEX_STRIDE_BYTES);
+                commands.bindVertexArray(vao.id()).drawElements(GL_TRIANGLES,part*6,GL_UNSIGNED_SHORT);
+                first+=part;remaining-=part;lastDrawCalls++;
             }
-            commands.enableScissor(false);
-            resources.vertexRing().markSubmitted();
-            commands.insertGpuFence(resources.vertexRing());
-            submitted = true;
-            lastDrawCalls = drawIndex;
-            lastQuadCount = drawnQuads;
-        } finally {
-            if (!submitted) resources.vertexRing().abortWrite();
         }
+        commands.enableScissor(false);
+    }
+
+    void finish(PreparedDraw prepared,CommandBuffer commands) {
+        if(prepared.finished)throw new IllegalStateException("UI snapshot already submitted");
+        if(prepared.slice!=null){resources.vertexRing().markSubmitted();commands.insertGpuFence(resources.vertexRing());}
+        prepared.finished=true;
+    }
+    void abort(PreparedDraw prepared) {
+        if(prepared!=null&&prepared.slice!=null&&!prepared.finished)resources.vertexRing().abortWrite();
     }
 
     public boolean isInitialized() {
@@ -206,8 +209,13 @@ public final class UiRenderer implements AutoCloseable {
     public UiGlyphAtlasGpu.UploadSubmission recordGlyphUploads(
             Iterable<GlyphUploadRequest> requests, CommandBuffer commands) {
         ensureOpen();
+        glyphGeneration++;
         return resources.recordGlyphUploads(requests, commands);
     }
+
+    long glyphGeneration() { return glyphGeneration; }
+    long imageGeneration(long id) { return imageResolver.generation(new UiImageId(id)); }
+    UiImageRegion imageRegion(long id) { return imageResolver.resolve(new UiImageId(id)).orElse(null); }
 
     /** 由 UI/update 线程安全获取一个完整 glyph 上传结果。 */
     public Optional<UiGlyphUploadResult> pollCompletedGlyphUpload() {
@@ -228,7 +236,7 @@ public final class UiRenderer implements AutoCloseable {
 
     private boolean configureBatchState(CommandBuffer commands, UiBatcher.Result batches,
                                         int batch, UiRenderSnapshot snapshot,
-                                        int framebufferWidth, int framebufferHeight) {
+                                        int framebufferWidth, int framebufferHeight,UiScreenRect view) {
         int texture = batches.texture(batch);
         if (batches.shader(batch) == UiShaderVariant.TEXTURED && batches.imageId(batch) >= 0L) {
             UiImageRegion resolved = imageResolver.resolve(new UiImageId(batches.imageId(batch)))
@@ -246,17 +254,11 @@ public final class UiRenderer implements AutoCloseable {
             recordTextEffectUniforms(commands, snapshot.displayList(), batches, batch);
         }
         if (batches.hasClip(batch)) {
-            double scaleX = snapshot.windowWidth() == 0 ? 1.0
-                    : (double) framebufferWidth / snapshot.windowWidth();
-            double scaleY = snapshot.windowHeight() == 0 ? 1.0
-                    : (double) framebufferHeight / snapshot.windowHeight();
-            GlScissorRect scissor = batches.glScissor(batch,
-                    scaleX, scaleY, framebufferWidth, framebufferHeight);
-            commands.scissor(scissor.x(), scissor.y(), scissor.width(), scissor.height())
-                    .enableScissor(true);
-        } else {
-            commands.enableScissor(false);
-        }
+            UiScreenRect clip=batches.clip(batch).intersect(view);
+            UiScreenRect local=new UiScreenRect(clip.x()-view.x(),clip.y()-view.y(),clip.width(),clip.height());
+            GlScissorRect scissor=local.toGlScissor(framebufferWidth/view.width(),framebufferHeight/view.height(),framebufferWidth,framebufferHeight);
+            commands.scissor(scissor.x(),scissor.y(),scissor.width(),scissor.height()).enableScissor(true);
+        } else commands.enableScissor(false);
         if (batches.shader(batch) == UiShaderVariant.TEXTURED
                 || batches.shader(batch) == UiShaderVariant.GLYPH) {
             texture = batches.shader(batch) == UiShaderVariant.GLYPH

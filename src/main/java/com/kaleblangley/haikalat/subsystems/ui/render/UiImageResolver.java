@@ -11,6 +11,9 @@ public interface UiImageResolver {
     /** 返回图片当前可用的纹理区域；资源尚未就绪时返回空。 */
     Optional<UiImageRegion> resolve(UiImageId imageId);
 
+    /** Monotonic content generation, including in-place uploads. Negative means not safely cacheable. */
+    default long generation(UiImageId imageId) { return -1; }
+
     /** 返回始终报告资源尚未就绪的解析器。 */
     static UiImageResolver empty() {
         return imageId -> {

@@ -61,6 +61,27 @@ public final class RenderTargetManager implements AutoCloseable {
         return targets.get(name);
     }
 
+    /** Replaces a named subset atomically; unrelated targets keep their storage and identity. */
+    public void replaceSelected(Map<String, FramebufferDescriptor> replacements) {
+        ensureOpen();
+        Map<String, Framebuffer> candidates = new LinkedHashMap<>();
+        for (String name : replacements.keySet()) {
+            if (!targets.containsKey(name)) throw new IllegalArgumentException("unknown target: " + name);
+        }
+        try {
+            for (var entry : replacements.entrySet())
+                candidates.put(entry.getKey(), Framebuffer.fromDescriptor(entry.getValue()));
+        } catch (RuntimeException | Error failure) {
+            closeCandidateTargets(candidates, failure);
+            throw failure;
+        }
+        Map<String, Framebuffer> retired = new LinkedHashMap<>();
+        candidates.forEach((name, target) -> retired.put(name, targets.put(name, target)));
+        descriptors.putAll(replacements);
+        RuntimeException failure = closeTargets(retired);
+        if (failure != null) throw failure;
+    }
+
     public FramebufferDescriptor descriptor(String name) {
         ensureOpen();
         return descriptors.get(name);

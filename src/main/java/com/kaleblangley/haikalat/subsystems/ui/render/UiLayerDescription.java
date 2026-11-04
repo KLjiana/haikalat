@@ -137,6 +137,13 @@ public final class UiLayerDescription {
             if (radius > 0.0f) effects.add(Effect.BLUR);
             return this;
         }
+        /** Blurs the explicitly supplied pre-UI background while leaving this subtree sharp. */
+        public Builder backdropBlur(float radius, int downsample) {
+            blurRadius = radius;
+            blurDownsample = downsample;
+            effects.add(Effect.BACKDROP_BLUR);
+            return this;
+        }
         public Builder colorTransform(float brightness, float contrast, float saturation) {
             this.brightness = brightness;
             this.contrast = contrast;

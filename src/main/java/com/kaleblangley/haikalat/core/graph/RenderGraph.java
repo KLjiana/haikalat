@@ -95,6 +95,8 @@ public final class RenderGraph implements AutoCloseable {
     private boolean retainGpuSamples;
     private long topologyRevision;
     private Description cachedDescription;
+    private final List<FrameObserver> frameObservers = new ArrayList<>();
+    private final Map<String, TargetExtent> managedTargetExtents = new HashMap<>();
 
     public RenderGraph(int width, int height) {
         this(width, height, true);
@@ -118,6 +120,54 @@ public final class RenderGraph implements AutoCloseable {
 
     public int height() {
         return height;
+    }
+
+    /** Resource consumers commit validity only after this graph's complete submission succeeds. */
+    public void observeFrames(FrameObserver observer) {
+        ensureOpen();
+        ensureTopologyMutable();
+        frameObservers.add(Objects.requireNonNull(observer, "observer"));
+    }
+
+    @FunctionalInterface
+    public interface FrameObserver {
+        void completed(long sequence, Throwable failure);
+    }
+
+    public record TargetExtent(int width, int height) {
+        public TargetExtent {
+            if (width < 1 || height < 1) throw new IllegalArgumentException("target extent must be positive");
+        }
+    }
+
+    /** Updates independent fixed managed targets without rebuilding unrelated graph attachments. */
+    public void resizeManagedTargets(Map<String, TargetExtent> extents) {
+        ensureOpen();
+        if (sortedPasses == null) throw new IllegalStateException("compile graph before resizing managed targets");
+        Map<String, FramebufferDescriptor> candidates = new java.util.LinkedHashMap<>();
+        for (var entry : extents.entrySet()) {
+            Pass pass = passByName.get(entry.getKey());
+            if (pass == null || !isFixedSize(pass) || pass.sharedColorPassName != null
+                    || pass.sharedDepthPassName != null || pass.externalTarget || pass.useBackbuffer)
+                throw new IllegalArgumentException("target cannot be resized independently: " + entry.getKey());
+            var target = getPassFramebuffer(pass.name);
+            var extent = Objects.requireNonNull(entry.getValue(), "extent");
+            if (target != null && (target.width() != extent.width() || target.height() != extent.height()))
+                candidates.put(pass.name, fixedRenderTargets.descriptor(pass.name).resized(extent.width(), extent.height()));
+        }
+        if (!candidates.isEmpty()) {
+            try { fixedRenderTargets.replaceSelected(candidates); }
+            finally {
+                for (var entry : extents.entrySet()) {
+                    var active = getPassFramebuffer(entry.getKey());
+                    if (active != null && active.width() == entry.getValue().width()
+                            && active.height() == entry.getValue().height()) managedTargetExtents.put(entry.getKey(), entry.getValue());
+                }
+                refreshAttachmentLookup();
+            }
+        }
+        managedTargetExtents.putAll(extents);
+        cachedDescription = null;
     }
 
     public PassBuilder addPass(String name) {
@@ -501,6 +551,7 @@ public final class RenderGraph implements AutoCloseable {
                         sample.sampleAgeFrames(), sample.skippedSubmissions()));
             }
             lastFrameProfile = new FrameProfile(0L, passProfiles, currentFrameSequence);
+            for (FrameObserver observer : frameObservers) observer.completed(currentFrameSequence, null);
             return PresentationResult.RENDERED;
         } catch (RuntimeException | Error failure) {
             if (!graphRecordCompleted) {
@@ -508,6 +559,10 @@ public final class RenderGraph implements AutoCloseable {
             }
             if (!deviceSubmitStarted) lastDeviceSubmitNanos = 0L;
             lastFrameProfile = failedProfile(currentFrameSequence);
+            for (FrameObserver observer : frameObservers) {
+                try { observer.completed(currentFrameSequence, failure); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            }
             throw failure;
         } finally {
             currentPresentationTarget = null;
@@ -604,6 +659,8 @@ public final class RenderGraph implements AutoCloseable {
                     : kind == TargetKind.EXTERNAL ? 0
                     : targetDimension(height, pass.fixedHeight, pass.relativeHeightScale,
                     pass.ceilRelativeSize);
+            TargetExtent actualExtent = managedTargetExtents.get(pass.name);
+            if (actualExtent != null) { targetWidth = actualExtent.width(); targetHeight = actualExtent.height(); }
             List<AttachmentDescription> colors = new ArrayList<>(pass.colorFormats.size());
             for (int index = 0; index < pass.colorFormats.size(); index++) {
                 String logicalName = index < pass.colorTextureNames.size()
@@ -822,6 +879,8 @@ public final class RenderGraph implements AutoCloseable {
         importedExternalAttachments.clear();
         importedPresentationTargets.clear();
         importedTextures.clear();
+        frameObservers.clear();
+        managedTargetExtents.clear();
         closed = true;
         if (failure != null) throw failure;
     }
@@ -860,6 +919,8 @@ public final class RenderGraph implements AutoCloseable {
                 pass.ceilRelativeSize);
         int targetHeight = targetDimension(windowHeight, pass.fixedHeight, pass.relativeHeightScale,
                 pass.ceilRelativeSize);
+        TargetExtent extent = managedTargetExtents.get(pass.name);
+        if (extent != null) { targetWidth = extent.width(); targetHeight = extent.height(); }
         FramebufferDescriptor.Builder builder = FramebufferDescriptor.builder(targetWidth, targetHeight)
                 .samples(pass.samples);
         boolean multisampled = pass.samples > 1;

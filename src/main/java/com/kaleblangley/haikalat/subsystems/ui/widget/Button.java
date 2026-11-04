@@ -63,7 +63,7 @@ public class Button extends Panel {
             case POINTER_UP -> {
                 if (event instanceof PointerEvent pointer) {
                     boolean activate = enabled() && pressed()
-                            && layoutBox().contains(pointer.x(), pointer.y());
+                            && containsVisiblePointer(pointer.x(), pointer.y());
                     setPressed(false);
                     event.releasePointer(pointer.pointerId());
                     if (activate) activate();
@@ -90,6 +90,12 @@ public class Button extends Panel {
             }
             default -> { }
         }
+    }
+
+    private boolean containsVisiblePointer(double x,double y) {
+        if(document()==null)return layoutBox().contains(x,y);
+        for(var node=document().hitTest(x,y);node!=null;node=node.parent())if(node==this)return true;
+        return false;
     }
 
     protected void activate() {

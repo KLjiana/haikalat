@@ -17,20 +17,22 @@ import java.util.Set;
  * untouched when planning fails.</p>
  */
 final class UiCompositorPlan {
-    static final UiCompositorPlan EMPTY = new UiCompositorPlan(List.of(), List.of(), 0L, 0);
+    static final UiCompositorPlan EMPTY = new UiCompositorPlan(List.of(), List.of(), 0L, 0, Set.of());
 
     private final List<UiLayerDescription> acceptedLayers;
     private final List<UiCompositor.Fallback> fallbacks;
     private final long intermediatePixels;
     private final int requestedLayers;
+    private final Set<String> disabledEffects;
 
     private UiCompositorPlan(List<UiLayerDescription> acceptedLayers,
                              List<UiCompositor.Fallback> fallbacks,
-                             long intermediatePixels, int requestedLayers) {
+                             long intermediatePixels, int requestedLayers, Set<String> disabledEffects) {
         this.acceptedLayers = List.copyOf(acceptedLayers);
         this.fallbacks = List.copyOf(fallbacks);
         this.intermediatePixels = intermediatePixels;
         this.requestedLayers = requestedLayers;
+        this.disabledEffects=Set.copyOf(disabledEffects);
     }
 
     static UiCompositorPlan build(UiAttachmentOptions options) {
@@ -43,19 +45,18 @@ final class UiCompositorPlan {
         List<UiLayerDescription> accepted = new ArrayList<>();
         List<UiCompositor.Fallback> fallbacks = new ArrayList<>();
         long pixels = 0L;
+        Set<String> disabledEffects = new HashSet<>();
         for (UiLayerDescription layer : ordered) {
             UiCompositor.FallbackReason rejected = null;
-            long layerPixels = layer.estimatedPixels();
-            int intermediateCount = layer.effects().contains(UiLayerDescription.Effect.BLUR)
-                    || layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR) ? 3 : 1;
-            long requestedPixels = Math.multiplyExact(layerPixels, intermediateCount);
+            long requestedPixels=estimatedPixels(layer,true);
             if (accepted.size() >= options.maximumLayers()) {
                 rejected = UiCompositor.FallbackReason.LAYER_LIMIT;
-            } else if (layerPixels > 4096L * 4096L
-                    || pixels + requestedPixels > options.maximumIntermediatePixels()) {
-                rejected = UiCompositor.FallbackReason.PIXEL_BUDGET;
-            } else if (layer.backdropRequired() && !options.backdropSource().isAvailable()) {
-                rejected = UiCompositor.FallbackReason.BACKDROP_SOURCE_UNAVAILABLE;
+            } else if (pixels+requestedPixels > options.maximumIntermediatePixels()) {
+                long plain=estimatedPixels(layer,false);
+                if(pixels+plain<=options.maximumIntermediatePixels()) {
+                    requestedPixels=plain;disabledEffects.add(layer.id());
+                    fallbacks.add(new UiCompositor.Fallback(layer.id(),UiCompositor.FallbackReason.OPTIONAL_EFFECT_BUDGET));
+                } else rejected=UiCompositor.FallbackReason.PIXEL_BUDGET;
             }
             if (rejected != null) {
                 fallbacks.add(new UiCompositor.Fallback(layer.id(), rejected));
@@ -64,7 +65,20 @@ final class UiCompositorPlan {
             accepted.add(layer);
             pixels += requestedPixels;
         }
-        return new UiCompositorPlan(accepted, fallbacks, pixels, ordered.size());
+        return new UiCompositorPlan(accepted, fallbacks, pixels, ordered.size(), disabledEffects);
+    }
+
+    Set<String> disabledEffects() {return disabledEffects;}
+    int directFallbacks() {return requestedLayers-acceptedLayers.size();}
+    private static long estimatedPixels(UiLayerDescription layer,boolean effects) {
+        boolean blur=effects&&(layer.effects().contains(UiLayerDescription.Effect.BLUR)||layer.effects().contains(UiLayerDescription.Effect.BACKDROP_BLUR));
+        double padding=blur?layer.blurRadius():0;
+        long width=(long)Math.ceil((layer.bounds().width()+padding*2)*layer.framebufferScale());
+        long height=(long)Math.ceil((layer.bounds().height()+padding*2)*layer.framebufferScale());
+        if(width<1||height<1||width>4096||height>4096)throw new IllegalArgumentException("UI layer allocation extent outside 1..4096: "+layer.id());
+        long pixels=Math.multiplyExact(width,height);
+        if(blur){int d=layer.blurDownsample();pixels=Math.addExact(pixels,Math.multiplyExact(2L,Math.multiplyExact((width+d-1)/d,(height+d-1)/d)));}
+        return pixels;
     }
 
     List<UiLayerDescription> acceptedLayers() {
@@ -105,6 +119,7 @@ final class UiCompositorPlan {
                     throw new IllegalArgumentException("UI layer parent cycle at " + current.id());
                 }
                 current = byId.get(current.parentId());
+                if(visited.size()>=8)throw new IllegalArgumentException("UI layer nesting exceeds 8: "+layer.id());
             }
         }
     }

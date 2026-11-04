@@ -561,7 +561,7 @@ tasks.register('releaseVerificationContracts') {
     }
 }
 
-tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest',
+tasks.withType(Test).matching { it.name in ['glSmoke', 'focusedRender3dGlTest', 'uiCompositorGlVerification',
         'runRender3dVolumetricFogLifecycleSoak', 'runRender3dVolumetricFogWindIntegration',
         'runRender3dVolumetricTownIntegration'] }.configureEach { Test smoke ->
         inputs.file glPolicyFile

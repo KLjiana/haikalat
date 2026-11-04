@@ -536,10 +536,26 @@ public final class UiDisplayList {
     }
 
     public UiDisplayList beginLayer(UiLayerDescription description) {
+        return beginLayer(description, Objects.requireNonNull(description, "description").bounds());
+    }
+
+    /** Records the same visual geometry used by the painter and input snapshot. */
+    public UiDisplayList beginLayer(UiLayerDescription description, UiScreenRect visualBounds) {
+        return beginLayer(description, visualBounds, 0);
+    }
+
+    public UiDisplayList beginLayer(UiLayerDescription description, UiScreenRect visualBounds,long instanceId) {
         ensureRecordable();
         int primitive = appendPrimitive(UiPrimitiveKind.LAYER_BEGIN, null,
                 -1, -1, null, -1, 0);
         primitiveLayers[primitive] = Objects.requireNonNull(description, "description");
+        primitiveImageIds[primitive] = instanceId;
+        UiScreenRect bounds = transform.transformBounds(visualBounds.x(), visualBounds.y(),
+                visualBounds.width(), visualBounds.height());
+        primitiveClipX[primitive] = bounds.x();
+        primitiveClipY[primitive] = bounds.y();
+        primitiveClipWidth[primitive] = bounds.width();
+        primitiveClipHeight[primitive] = bounds.height();
         layerDepth++;
         return this;
     }
@@ -785,6 +801,17 @@ public final class UiDisplayList {
             throw new IllegalArgumentException("primitive is not LAYER_BEGIN");
         }
         return primitiveLayers[primitiveIndex];
+    }
+
+    public UiScreenRect primitiveLayerBounds(int primitiveIndex) {
+        primitiveLayer(primitiveIndex);
+        return new UiScreenRect(primitiveClipX[primitiveIndex], primitiveClipY[primitiveIndex],
+                primitiveClipWidth[primitiveIndex], primitiveClipHeight[primitiveIndex]);
+    }
+
+    public long primitiveLayerInstance(int primitiveIndex) {
+        primitiveLayer(primitiveIndex);
+        return primitiveImageIds[primitiveIndex];
     }
 
     /** 返回文本特效类型 (0=none, 1=outline, 2=shadow, 3=glow, 4=inner_glow, 5=gradient)。 */

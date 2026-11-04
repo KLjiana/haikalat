@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Focused', 'Jvm', 'Extended')]
+    [ValidateSet('Focused', 'Jvm', 'UiJvm', 'Ui', 'Extended')]
     [string] $Mode = 'Focused',
     [ValidateRange(1, 1800)]
     [int] $TimeoutSeconds = 300
@@ -17,6 +17,8 @@ $worker = Join-Path $reportDirectory 'worker.ps1'
 $reportPath = Join-Path $reportDirectory 'result.json'
 $task = switch ($Mode) {
     'Jvm' { 'logicVerification' }
+    'UiJvm' { 'uiCompositorJvmVerification' }
+    'Ui' { 'uiCompositorVerification' }
     'Extended' { 'releaseReadiness' }
     default { 'acceptance' }
 }

@@ -276,3 +276,38 @@ def writeLogicReport = tasks.register('writeLogicVerificationReport') {
 }
 tasks.named('compileJava') { mustRunAfter 'captureLogicCandidate' }
 guards.each { name -> tasks.named(name) { mustRunAfter 'captureLogicCandidate' } }
+
+tasks.register('captureUiCompositorCandidate') { doLast { initialCandidate = snapshot() } }
+tasks.named('compileJava') { mustRunAfter 'captureUiCompositorCandidate' }
+
+// UI compositor leaves use the same fresh execution and required-case event contracts.
+def uiCompositorCases = [uiCompositorJvmVerification: ['UiLayerFrameTest', 'UiCompositorFoundationTest', 'UiSystemTest'],
+    uiCompositorGlVerification: ['UiCompositorGlTest', 'UiRendererGlTest']]
+uiCompositorCases.each { String taskName, List<String> required ->
+    registerTests(taskName, required, taskName == 'uiCompositorGlVerification')
+    String status = 'NOT_RUN'
+    tasks.named(taskName, Test) {
+        setDependsOn(['captureUiCompositorCandidate', 'testClasses'])
+        afterSuite { descriptor, result ->
+            if (descriptor.parent == null) {
+                boolean stable = initialCandidate == snapshot()
+                status = verdict(result.failedTestCount > 0, true, false, required, observed[taskName])
+                if (!stable) status = 'SOURCE_CHANGED'
+                File output = layout.buildDirectory.file("reports/ui-compositor-v0260/${runId}/${taskName}.json").get().asFile
+                output.parentFile.mkdirs()
+                output.setText(JsonOutput.prettyPrint(JsonOutput.toJson([schemaVersion: 1, runId: runId,
+                    task: taskName, status: status, execution: 'FRESH', requiredCases: required,
+                    results: observed[taskName], candidate: initialCandidate, candidateStable: stable,
+                    performance: 'NOT_EVALUATED', featureAcceptance: taskName == 'uiCompositorGlVerification' ? 'INTERNAL_GL_CHECKPOINT' : 'INTERNAL_CPU_CHECKPOINT', releaseReady: false])) + '\n', 'UTF-8')
+            }
+        }
+        doLast { if (status != 'PASS') throw new GradleException('UI compositor contracts incomplete: ' + status) }
+    }
+}
+
+tasks.named('uiCompositorGlVerification') { mustRunAfter 'uiCompositorJvmVerification' }
+tasks.register('uiCompositorVerification') {
+    group = 'verification'
+    description = 'Scoped UI compositor correctness; no performance or unrelated rendering matrices.'
+    dependsOn 'uiCompositorJvmVerification', 'uiCompositorGlVerification', 'publicApiGuard', 'architectureGuard', 'assetManifestGuard'
+}

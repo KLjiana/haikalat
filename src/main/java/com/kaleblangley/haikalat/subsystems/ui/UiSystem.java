@@ -52,6 +52,8 @@ public final class UiSystem implements AutoCloseable {
 
     private final RenderWindow window;
     private final UiConfig config;
+    private UiImageResolver imageResolver;
+    private final java.util.Map<UiId,String> imageDependencies=new java.util.HashMap<>();
     private final UiThreadGuard updateThread = new UiThreadGuard("UiSystem update state");
     private final UiDocument document;
     private final UiUpdateCoordinator updateCoordinator;
@@ -72,6 +74,8 @@ public final class UiSystem implements AutoCloseable {
     private final UiDiagnostics diagnostics = new UiDiagnostics();
     private final Object renderLifecycle = new Object();
     private final Set<Long> submittedGlyphUploads = ConcurrentHashMap.newKeySet();
+    private List<GlyphUploadRequest> currentFrameGlyphUploads = List.of();
+    private UiGlyphAtlasGpu.UploadSubmission currentFrameGlyphSubmission;
     private UiRenderSnapshot lastRenderedSnapshot;
     private UiSnapshotExchange.Lease lastRenderedLease;
     private UiBatchBreakStats lastBatchBreaks = UiBatchBreakStats.EMPTY;
@@ -88,6 +92,7 @@ public final class UiSystem implements AutoCloseable {
                      TextInputAdapter textInputAdapter, UiImageResolver imageResolver) {
         this.window = Objects.requireNonNull(window, "window");
         this.config = Objects.requireNonNull(config, "config");
+        this.imageResolver = imageResolver;
         this.document = Objects.requireNonNull(document, "document");
         this.layoutEngine = Objects.requireNonNull(layoutEngine, "layoutEngine");
         this.textEngine = Objects.requireNonNull(textEngine, "textEngine");
@@ -238,6 +243,7 @@ public final class UiSystem implements AutoCloseable {
         float boundedDelta = Math.min(deltaSeconds, config.maximumDeltaSeconds());
         long updateStart = System.nanoTime();
         boolean glyphStateChanged = applyCompletedGlyphUploads();
+        applyImageChanges();
         textEngine.beginFrame(input.contentScaleX(), input.contentScaleY());
         updateCoordinator.routeInput(input);
         stylePass.resolve(document);
@@ -337,13 +343,30 @@ public final class UiSystem implements AutoCloseable {
                          UiAttachmentOptions options) {
         updateThread.check();
         ensureOpen("UiSystem graph attachment");
-        attachments.attach(graph, dependencyPass, options, this::recordOverlay);
+        attachments.attach(graph, dependencyPass, options, this::recordOverlay, this::completeOverlayFrame);
     }
 
     public UiCompositor.Diagnostics compositorDiagnostics() {
         updateThread.check();
         ensureOpen("UiSystem compositor diagnostics");
         return attachments.diagnostics();
+    }
+
+    public UiCompositor.RuntimeStatistics compositorRuntimeStatistics() {
+        ensureOpen("UiSystem compositor runtime statistics");return attachments.runtimeStatistics();
+    }
+
+    /** Builds a separate graph attachment before publication. The caller retains graph ownership. */
+    public AttachmentCandidate prepareAttachment(RenderGraph graph,String dependency,UiAttachmentOptions options) {
+        updateThread.check();ensureOpen("UiSystem attachment candidate");
+        return new AttachmentCandidate(attachments.prepare(graph,dependency,options,this::recordOverlay,this::completeOverlayFrame));
+    }
+
+    public final class AttachmentCandidate implements AutoCloseable {
+        private final UiAttachmentController.Candidate candidate;
+        private AttachmentCandidate(UiAttachmentController.Candidate candidate){this.candidate=candidate;}
+        public void commit(){updateThread.check();ensureOpen("UiSystem attachment publication");candidate.commit();}
+        @Override public void close(){updateThread.check();candidate.close();}
     }
 
     /** Reattaches the existing UI after its previous pipeline graph was retired. */
@@ -418,7 +441,7 @@ public final class UiSystem implements AutoCloseable {
         failure = closeCollect(timeline, failure);
         failure = closeCollect(animations, failure);
         failure = closeCollect(document, failure);
-        attachments.close();
+        failure = closeCollect(attachments, failure);
         if (failure != null) throw failure;
     }
 
@@ -426,7 +449,7 @@ public final class UiSystem implements AutoCloseable {
                                com.kaleblangley.haikalat.core.command.CommandBuffer commands) {
         ensureOpen("UiRenderer");
         synchronized (renderLifecycle) {
-            UiSnapshotExchange.Lease acquired = snapshotPublisher.tryAcquire();
+            UiSnapshotExchange.Lease acquired = attachments.beginsFrame() ? snapshotPublisher.tryAcquire() : null;
             if (acquired != null) {
                 UiSnapshotExchange.Lease replaced = lastRenderedLease;
                 lastRenderedLease = acquired;
@@ -446,15 +469,29 @@ public final class UiSystem implements AutoCloseable {
             try {
                 if (!claimedUploads.isEmpty()) {
                     uploadSubmission = renderer.recordGlyphUploads(claimedUploads, commands);
+                    if(attachments.hasFrameObserver()) {
+                        currentFrameGlyphUploads = claimedUploads;
+                        currentFrameGlyphSubmission = uploadSubmission;
+                    }
                 }
-                renderer.record(lastRenderedSnapshot, commands,
-                        passResources.presentationTarget());
+                if (!attachments.recordCompositor(lastRenderedSnapshot, renderer, passResources, commands))
+                    renderer.record(lastRenderedSnapshot, commands, passResources.presentationTarget());
             } catch (RuntimeException | Error failure) {
                 if (uploadSubmission != null) uploadSubmission.executionFailed(failure);
                 releaseGlyphUploadClaims(claimedUploads);
                 throw failure;
             }
             diagnostics.recordRender(System.nanoTime() - start, renderer.lastDrawCalls());
+        }
+    }
+
+    private void completeOverlayFrame(long sequence,Throwable failure) {
+        synchronized(renderLifecycle) {
+            if(failure!=null) {
+                if(currentFrameGlyphSubmission!=null)currentFrameGlyphSubmission.executionFailed(failure);
+                releaseGlyphUploadClaims(currentFrameGlyphUploads);
+            }
+            currentFrameGlyphUploads=List.of();currentFrameGlyphSubmission=null;
         }
     }
 
@@ -466,6 +503,17 @@ public final class UiSystem implements AutoCloseable {
 
     private void ensureOpen(String resource) {
         if (closed) throw new IllegalStateException(resource + " cannot be used after UiSystem.close");
+    }
+
+    private void applyImageChanges() {
+        var seen=new java.util.HashSet<UiId>();
+        for(var node:document.paintOrder())if(node instanceof com.kaleblangley.haikalat.subsystems.ui.widget.Image image) {
+            seen.add(node.id());
+            String stamp=imageResolver.generation(image.imageId())+"/"+imageResolver.resolve(image.imageId());
+            String previous=imageDependencies.put(node.id(),stamp);
+            if(!stamp.equals(previous))node.markDirty(UiDirtyFlag.MEASURE,UiDirtyFlag.LAYOUT,UiDirtyFlag.PAINT);
+        }
+        imageDependencies.keySet().retainAll(seen);
     }
 
     private boolean applyCompletedGlyphUploads() {

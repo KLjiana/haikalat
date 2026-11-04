@@ -101,7 +101,7 @@ public final class UiPainter {
         output.pushTransform(node.visualTransform(), transformBounds);
         try {
         boolean layered = node.layerDescription() != null;
-        if (layered) output.beginLayer(node.layerDescription());
+        if (layered) output.beginLayer(node.layerDescription(), transformBounds, node.id().value());
         try {
         boolean clipped = clipsChildren(node);
         boolean scalarPanel = node instanceof Panel
