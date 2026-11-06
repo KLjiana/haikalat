@@ -40,17 +40,42 @@ final class PipelineGeneration implements AutoCloseable {
     final SceneFrameBuilder sceneFrameBuilder = new SceneFrameBuilder();
     GraphPreviewRenderer previewRenderer;
     private boolean closed;
+    private boolean retired;
+    boolean submitted;
+
+    void retire() { retired = true; }
+    private final java.util.Set<AutoCloseable> borrowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    PipelineGeneration reuseSource;
+    VolumetricAllocationPlan volumeAllocation;
+    VolumetricFogSettings volumeSettings;
+
+    <T extends AutoCloseable> T borrow(T resource) {
+        if (resource != null) borrowed.add(resource);
+        return resource;
+    }
+
+    /** The graph and all private owners are validated before publication; no GL deletion occurs here. */
+    void adoptBorrowedResources(PipelineGeneration source) {
+        if (reuseSource == null) return;
+        if (source != reuseSource || source.closed) throw new IllegalStateException("stale pipeline donor");
+        source.postProcess.validateTransferTo(postProcess);
+        graph.commitReplacement();
+        source.postProcess.transferResourcesTo(postProcess);
+        source.borrowed.addAll(borrowed);
+        borrowed.clear();
+        reuseSource = null;
+    }
 
     PipelineGeneration(PipelineTopology topology) {
         this.topology = topology;
     }
 
     boolean isClosed() {
-        return closed;
+        return closed || retired;
     }
 
     void resize(int width, int height) {
-        if (closed) throw new IllegalStateException("PipelineGeneration is closed");
+        if (isClosed()) throw new IllegalStateException("PipelineGeneration is closed");
         if (width <= 0 || height <= 0
                 || graph.width() == width && graph.height() == height) return;
         ResizeCandidate candidate = null;
@@ -84,13 +109,16 @@ final class PipelineGeneration implements AutoCloseable {
         ClusteredLightingResources.ResizeCandidate clusteredCandidate = null;
         VolumetricResources.ResizeCandidate volumeCandidate = null;
         try {
+            var allocation = VolumetricAllocationPlan.prepare(width, height, volumeSettings,
+                    clusteredResources.maxTotalLights(), topology.sampleCount(), topology.hdrVfx(),
+                    volumeAllocation == null ? 0 : volumeAllocation.activeBytes());
             if (volumetric != null) volumetric.validateExtentBudget(width,height);
             graphCandidate = graph.prepareResize(width, height);
             postProcessCandidate = postProcess.prepareResize(width, height);
             clusteredCandidate = clusteredResources.prepareResize(width, height);
             if (volumetric != null) volumeCandidate = volumetric.prepareResize(width, height);
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
-                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate);
+                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate, allocation);
         } catch (RuntimeException | Error failure) {
             closeCandidate(volumeCandidate, failure);
             closeCandidate(clusteredCandidate, failure);
@@ -126,6 +154,7 @@ final class PipelineGeneration implements AutoCloseable {
         private final PostProcessPassBuilder.ResizeCandidate postProcessCandidate;
         private final ClusteredLightingResources.ResizeCandidate clusteredCandidate;
         private final VolumetricResources.ResizeCandidate volumeCandidate;
+        private final VolumetricAllocationPlan allocation;
         private boolean committed;
         private boolean closed;
 
@@ -134,7 +163,7 @@ final class PipelineGeneration implements AutoCloseable {
                                 RenderGraph.ResizeCandidate graphCandidate,
                                 PostProcessPassBuilder.ResizeCandidate postProcessCandidate,
                                 ClusteredLightingResources.ResizeCandidate clusteredCandidate,
-                                VolumetricResources.ResizeCandidate volumeCandidate) {
+                                VolumetricResources.ResizeCandidate volumeCandidate, VolumetricAllocationPlan allocation) {
             this.owner = owner;
             this.width = width;
             this.height = height;
@@ -143,6 +172,7 @@ final class PipelineGeneration implements AutoCloseable {
             this.postProcessCandidate = postProcessCandidate;
             this.clusteredCandidate = clusteredCandidate;
             this.volumeCandidate = volumeCandidate;
+            this.allocation = allocation;
         }
 
         private void validateFor(PipelineGeneration expectedOwner) {
@@ -164,6 +194,7 @@ final class PipelineGeneration implements AutoCloseable {
             owner.clusteredResources.commitResize(clusteredCandidate);
             if (volumeCandidate != null) owner.volumetric.commitResize(volumeCandidate);
             owner.topology = candidateTopology;
+            owner.volumeAllocation = allocation;
             committed = true;
         }
 
@@ -264,9 +295,9 @@ final class PipelineGeneration implements AutoCloseable {
         if (failure != null) throw failure;
     }
 
-    private static RuntimeException closeCollecting(AutoCloseable resource,
+    private RuntimeException closeCollecting(AutoCloseable resource,
                                                      RuntimeException failure) {
-        if (resource == null) return failure;
+        if (resource == null || borrowed.contains(resource)) return failure;
         try {
             resource.close();
         } catch (Exception cleanupFailure) {

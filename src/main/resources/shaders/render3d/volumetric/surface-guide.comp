@@ -2,6 +2,7 @@ layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D uGuideOpaqueDepth;
 layout(rgba16f,binding=0) writeonly uniform image3D uGuideStorage;
 uniform mat4 uGuideRasterProjection,uGuideRasterInverseProjection;
+layout(std430,binding=15) writeonly buffer VolumeFineMediumCache { vec4 fineMediumCache[]; };
 void main() {
     ivec2 column=ivec2(gl_GlobalInvocationID.xy);
     if(any(greaterThanEqual(column,vGrid.xy)))return;
@@ -39,4 +40,18 @@ void main() {
     }
     if(selectedOverflow)selected[3].w=-1.0;
     for(int i=0;i<4;i++)imageStore(uGuideStorage,ivec3(column,vGrid.z+5+i),selected[i]);
+    // Bounded FP32 medium cache, independent of the selected light. The first
+    // three supported intervals are shared by neighboring native pixels;
+    // all other intervals keep the exact uncached evaluation.
+    int base=(column.x+vGrid.x*column.y)*3,slot=0;
+    if(vDirtyHistory.w==0)for(int word=0;word<3 && slot<3;word++) {
+        uint bits=intervals[word];
+        while(bits!=0u && slot<3) {
+            int z=word*32+findLSB(bits);bits&=bits-1u;
+            if(z>=vGrid.z)continue;
+            vec4 medium;vec3 emission;volumeMediumAt(volumeWorldPosition(ivec3(column,z)),medium,emission);
+            fineMediumCache[base+slot++]=vec4(medium.rgb,float(z));
+        }
+    }
+    for(;slot<3;slot++)fineMediumCache[base+slot]=vec4(0,0,0,-1);
 }

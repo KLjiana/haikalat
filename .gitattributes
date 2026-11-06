@@ -19,6 +19,7 @@ src/main/resources/shaders/render3d/volumetric/source.comp text eol=lf
 src/main/resources/shaders/render3d/volumetric/surface-guide.comp text eol=lf
 src/main/resources/shaders/render3d/volumetric/temporal.comp text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-common.glsl text eol=lf
+src/main/resources/shaders/render3d/volumetric/volume-fine.glsl text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-lighting.glsl text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-native-reactive.glsl text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-noise.glsl text eol=lf
@@ -26,3 +27,5 @@ src/main/resources/shaders/render3d/volumetric/volume-query.glsl text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-reactive.glsl text eol=lf
 src/main/resources/shaders/render3d/volumetric/volume-surface.glsl text eol=lf
 src/demo/resources/shaders/reference/volumetric-raymarch.comp text eol=lf
+# A unified patch needs a single space on blank context lines.
+tools/acceptance/v0270-host/host-acceptance.patch whitespace=-blank-at-eol

@@ -265,7 +265,9 @@ public final class Render3dVolumetricFogBenchmarks {
             }
         }
         double coverage=gpuDeltas.size()/(double)(off.size()*options.measured);double gpuP95=p95(gpuDeltas),cpuP95=p95(cpuDeltas);
-        double budget=config.height==1080?inputs.gpu1080:inputs.gpu4k;boolean budgetApplies=config.budget&&!options.isolation;
+        // 4K is record-only unless benchmark.gate4k=true; it is still measured and reported.
+        double budget=config.height==1080?inputs.gpu1080:inputs.gpu4k;
+        boolean budgetApplies=config.budget&&!options.isolation&&(config.height==1080||inputs.gate4k);
         var result=new LinkedHashMap<String,Object>();result.put("configuration",config);result.put("scope",scope);result.put("gpuPairedCoverage",coverage);
         result.put("gpuPairedDeltaP50Ms",percentile(gpuDeltas,.5));result.put("gpuPairedDeltaP95Ms",gpuP95);
         result.put("cpuExecutePairedDeltaP50Ms",percentile(cpuDeltas,.5));result.put("cpuExecutePairedDeltaP95Ms",cpuP95);
@@ -348,7 +350,7 @@ public final class Render3dVolumetricFogBenchmarks {
         boolean formal(){return !isolation&&rounds>=3&&warmup>=120&&measured>=300;}
     }
     private record Inputs(String sceneRevision,int seed,String cameraPath,int cameraFrame,float fogDistance,float overlapRange,int batch,long timeout,
-                          double coverage,double gpu1080,double gpu4k,double cpuBudget,long ownedBudget,long residentBudget,long peakBudget) {
+                          double coverage,double gpu1080,double gpu4k,boolean gate4k,double cpuBudget,long ownedBudget,long residentBudget,long peakBudget) {
         static Inputs load() throws Exception {
             Properties p=new Properties(),g=new Properties();try(var in=Files.newInputStream(Path.of("config/volumetric-fog/benchmark.properties"))){p.load(in);}
             try(var in=Files.newInputStream(Path.of("config/volumetric-fog/verification.properties"))){g.load(in);}
@@ -357,6 +359,7 @@ public final class Render3dVolumetricFogBenchmarks {
             return new Inputs(p.getProperty("sceneRevision"),Integer.parseInt(p.getProperty("seed")),p.getProperty("cameraPath"),Integer.parseInt(p.getProperty("cameraFrame")),
                     Float.parseFloat(p.getProperty("fogDistance")),Float.parseFloat(p.getProperty("overlapRange")),Integer.parseInt(p.getProperty("drainBatchFrames")),Long.parseLong(p.getProperty("drainTimeoutMillis")),
                     Double.parseDouble(g.getProperty("benchmark.minimumCoverage")),Double.parseDouble(g.getProperty("benchmark.gpuDelta1080pMs")),Double.parseDouble(g.getProperty("benchmark.gpuDelta4kMs")),
+                    !"false".equals(g.getProperty("benchmark.gate4k","true")),
                     Double.parseDouble(g.getProperty("benchmark.cpuExecuteDeltaMs")),Long.parseLong(g.getProperty("budget.owned3dBytes")),Long.parseLong(g.getProperty("budget.singleSampleBytes")),Long.parseLong(g.getProperty("budget.singleSampleTransactionBytes")));
         }
     }

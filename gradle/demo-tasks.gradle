@@ -68,6 +68,8 @@ tasks.register('runRender3dVolumetricFogIntegration', Test) {
         includeTestsMatching '*.VolumetricResourcesGlTest'
         includeTestsMatching '*.VolumetricMediumGlTest'
         includeTestsMatching '*.VolumetricGenerationGlTest'
+        includeTestsMatching '*.VolumetricModularityGlTest'
+        includeTestsMatching '*.RenderTargetManagerGlTest'
         includeTestsMatching '*.VolumetricLightingGlTest'
         includeTestsMatching '*.VolumetricShadowGlTest'
         includeTestsMatching '*.VolumetricCompositeGlTest'

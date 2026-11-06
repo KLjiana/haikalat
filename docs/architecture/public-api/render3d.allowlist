@@ -66,3 +66,4 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.TaaResolveInputs
 advanced com.kaleblangley.haikalat.subsystems.render3d.TemporalDrawBinding
 advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView
 advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.render3d.VolumetricAllocationDiagnostics

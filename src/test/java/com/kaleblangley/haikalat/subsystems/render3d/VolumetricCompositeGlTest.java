@@ -28,6 +28,82 @@ import static org.lwjgl.opengl.GL46.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class VolumetricCompositeGlTest {
+    @Test void boundedFp32MediumCacheMatchesUncachedNativePixelsAcrossSamplingModes() {
+        String prior=System.getProperty("haikalat.internal.volume.diagnostics");
+        System.setProperty("haikalat.internal.volume.diagnostics","false");
+        try(var window=VolumetricGenerationGlTest.window()) {
+            window.bindContext();GL.createCapabilities();
+            try(var tracking=GlDebug.acquireResourceTracking()) {
+                try(var shader=ShaderProgram.fromSources(VERTEX,FRAGMENT);var mesh=Mesh.from(BuiltinMeshData.texturedQuad("medium-cache"))) {
+                    for(boolean ortho:new boolean[]{false,true})for(var aa:new AntiAliasingMode[]{AntiAliasingMode.NONE,AntiAliasingMode.TAA,AntiAliasingMode.MSAA}) {
+                        var size=new VolumetricGenerationGlTest.Size();var scene=new Scene(VolumetricMediumGlTest.camera(ortho,33f/17));
+                        add(scene,mesh,shader,10,new Vector4f(.2f,.4f,.6f,1),BlendMode.OPAQUE);
+                        scene.addLight(SceneLight.point(new Vector3f(.45f,0,-5.3f),new Vector3f(1),5,8));
+                        var local=new LocalFogVolume(LocalFogVolume.Shape.BOX,new Vector3f(0,0,-5),new Vector3f(8,8,8),.02f,
+                                new Vector3f(.7f),new Vector3f(.001f),.35f,.2f,.2f);
+                        var fog=new VolumetricFogSettings(true,32,VolumetricFogSettings.Quality.BALANCED,
+                                FogMediumSettings.homogeneous(.01f,new Vector3f(.7f),new Vector3f()),List.of(local),.25f,true,.9f,242,new Vector3f());
+                        var settings=RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES).antiAliasingMode(aa).msaaSamples(4).vsync(false).build();
+                        var cached=new RenderPipeline(size,scene,null,settings).volumetricFog(fog);
+                        var original=new RenderPipeline(size,scene,null,settings).volumetricFog(fog);
+                        try {
+                            cached.build();original.build();original.activeGenerationForTest().volumetric.diagnosticFineMediumCache(false);
+                            var device=new GlRenderDevice();
+                            for(int frame=0;frame<3;frame++) {
+                                cached.execute(device);original.execute(device);
+                                assertArrayEquals(original.captureLinearHdrRgbaFloat(),cached.captureLinearHdrRgbaFloat(),.000001f,
+                                        "FP32 cache native pixels ortho="+ortho+" aa="+aa+" frame="+frame);
+                            }
+                            var resources=cached.activeGenerationForTest().volumetric.resources();
+                            var records=new float[(int)resources.fineMediumCacheBytes()/4];glGetNamedBufferSubData(resources.fineMediumCache().id(),0,records);
+                            boolean populated=false;for(int i=3;i<records.length;i+=4)if(records[i]>=0)populated=true;
+                            assertTrue(populated,"fixture must actually exercise a populated bounded cache");
+                        }finally{cached.close();original.close();}
+                    }
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+            GlDebug.assertNoError("bounded FP32 medium cache native consumers");
+        }finally{if(prior==null)System.clearProperty("haikalat.internal.volume.diagnostics");else System.setProperty("haikalat.internal.volume.diagnostics",prior);}
+    }
+
+    @Test void repeatedFogSwitchesKeepTransparentAndPersistentVfxConsumersUsableWithoutStaleQueries() {
+        try(var window=VolumetricGenerationGlTest.window()) {
+            window.bindContext();GL.createCapabilities();
+            try(var tracking=GlDebug.acquireResourceTracking()) {
+                try(var shader=ShaderProgram.fromSources(VERTEX,FRAGMENT);
+                    var mesh=Mesh.from(BuiltinMeshData.texturedQuad("switch-consumer"));var vfx=new VfxRenderer(true)) {
+                    var particle=new EffectSnapshot.ParticleSprite(1,new Vector3f(0,0,-4),32,0,new Vector4f(.1f,.4f,.8f,.3f),36);
+                    var material=VfxMaterial.builder("persistent-switch-smoke").softParticleDistance(0).build();
+                    var snapshot=new EffectSnapshot(List.of(particle),List.of(),List.of(),List.of(),List.of(particle),
+                            new VfxVisualSet(material,material,material,material));
+                    for(var aa:new AntiAliasingMode[]{AntiAliasingMode.NONE,AntiAliasingMode.MSAA}) {
+                        var size=new VolumetricGenerationGlTest.Size();
+                        var scene=new Scene(VolumetricMediumGlTest.camera(true,33f/17));
+                        add(scene,mesh,shader,10,new Vector4f(.8f,.2f,.1f,1),BlendMode.OPAQUE);
+                        add(scene,mesh,shader,6,new Vector4f(.2f,.8f,.3f,.4f),BlendMode.ALPHA);
+                        var p=new RenderPipeline(size,scene,null,RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                                .antiAliasingMode(aa).msaaSamples(4).vsync(false).build());
+                        p.hdrVfxWithFog((res,cmd,camera,fog)->vfx.record(cmd,snapshot,camera.projection(),camera.view(),
+                                fog==null?0:res.colorAttachment(fog.softParticleDepthName()),33,17,fog));
+                        try {
+                            p.build();var device=new GlRenderDevice();p.execute(device);var off=p.captureLinearHdrRgbaFloat();
+                            for(int cycle=0;cycle<4;cycle++) {
+                                p.applyVolumetricFog(VolumetricGenerationGlTest.fog(.2f));p.execute(device);
+                                assertFalse(java.util.Arrays.equals(off,p.captureLinearHdrRgbaFloat()));
+                                assertTrue(p.volumetricFogDiagnostics().available());
+                                p.applyVolumetricFog(VolumetricFogSettings.disabled());p.execute(device);p.drainRetirementsForTest();
+                                assertArrayEquals(off,p.captureLinearHdrRgbaFloat(),0f,"off transparent/VFX pixels changed: "+aa+" cycle="+cycle);
+                                assertFalse(p.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
+                            }
+                        }finally{p.close();}
+                    }
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+                GlDebug.assertNoError("persistent transparent and VFX consumers across fog generations");
+            }
+        }
+    }
     @Test void controlledNearLampAblationReachesOpaqueAlphaAndHdrQueries() {
         try(var window=VolumetricGenerationGlTest.window()) {
             window.bindContext();GL.createCapabilities();
@@ -92,6 +168,7 @@ class VolumetricCompositeGlTest {
                 assertStorageBlock(fog,"FineClusterHeadersBlock",2,false,true);
                 assertStorageBlock(fog,"FineClusterIndicesBlock",3,false,true);
                 assertStorageBlock(fog,"VolumeReactiveDomains",14,false,true);
+                assertStorageBlock(fog,"VolumeFineMediumCache",15,false,true);
                 int cachedSource=glGetUniformLocation(fog.id(),"uVolumeCurrentSource");
                 assertTrue(cachedSource>=0,"native refinement must consume the current source cache");
                 assertEquals(21,glGetUniformi(fog.id(),cachedSource));

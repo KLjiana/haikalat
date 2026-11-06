@@ -52,7 +52,7 @@ public final class VolumetricFogView {
         var shared=java.util.Set.of("uShadowMap","uPointShadowMap","uSpotShadowMap","uPointShadowMeta",
                 "uPointSlotMatrices","uPointFaceRects","uSpotShadowMeta","uSpotSlotMatrices","uSpotTileRects",
                 "uShadowQualityMeta","uVolumePrefix","uVolumeSource","uVolumeSurfaceGuideEnabled","uFineOmittedLight",
-                "uVolumeCurrentSource","uVolumeCurrentSourceEnabled");
+                "uVolumeCurrentSource","uVolumeCurrentSourceEnabled","uVolumeFineMediumCacheEnabled");
         return java.util.regex.Pattern.compile("\\b(u[A-Z][A-Za-z0-9_]*|LightRecord|VolumeHint|FogVolume|FogVolumes|fogVolumes|diagnostics|LightTableBlock|ClusterHeadersBlock|ClusterIndicesBlock|ClusterParametersBlock|LightVolumeHintsBlock|VolumeDiagnostics)\\b")
                 .matcher(source).replaceAll(match->{
                     String name=match.group();

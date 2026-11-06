@@ -6,7 +6,6 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 
-import java.util.HashSet;
 import java.util.Set;
 
 final class CameraUniforms implements AutoCloseable {
@@ -15,7 +14,7 @@ final class CameraUniforms implements AutoCloseable {
     private static final int BLOCK_SIZE_BYTES = 2 * 16 * Float.BYTES;
 
     private final UniformBlock block = new UniformBlock(BLOCK_SIZE_BYTES);
-    private final Set<Integer> boundPrograms = new HashSet<>();
+    private final Set<ShaderProgram> boundPrograms = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
 
@@ -30,7 +29,7 @@ final class CameraUniforms implements AutoCloseable {
     }
 
     void bind(ShaderProgram shader) {
-        if (boundPrograms.add(shader.id())) {
+        if (boundPrograms.add(shader)) {
             shader.bindUniformBlock(BLOCK_NAME, BLOCK_BINDING);
         }
     }

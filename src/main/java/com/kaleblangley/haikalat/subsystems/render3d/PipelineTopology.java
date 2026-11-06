@@ -66,6 +66,21 @@ record PipelineTopology(int width,
         }
     }
 
+    /** Fog may add surface/reactive channels; all other resource-shaping inputs must match. */
+    boolean sameNonVolumetricStructure(PipelineTopology other) {
+        return width == other.width && height == other.height && antiAliasingMode == other.antiAliasingMode
+                && sampleCount == other.sampleCount && hdr == other.hdr && bloom == other.bloom
+                && bloomLevels == other.bloomLevels && automaticExposure == other.automaticExposure
+                && colorGrading == other.colorGrading && fog == other.fog
+                && directionalShadow == other.directionalShadow && pointShadow == other.pointShadow
+                && spotShadow == other.spotShadow && directionalCascadeCount == other.directionalCascadeCount
+                && directionalShadowAtlasSize == other.directionalShadowAtlasSize
+                && pointShadowCapacity == other.pointShadowCapacity && pointShadowResolution == other.pointShadowResolution
+                && spotShadowCapacity == other.spotShadowCapacity && spotShadowResolution == other.spotShadowResolution
+                && pbrMaterials == other.pbrMaterials && hdrVfx == other.hdrVfx && embedded == other.embedded
+                && gtaoEnabled == other.gtaoEnabled && gtaoHalfWidth == other.gtaoHalfWidth && gtaoHalfHeight == other.gtaoHalfHeight;
+    }
+
     static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
                                     boolean hdrVfx, boolean embedded,

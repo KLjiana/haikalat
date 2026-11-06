@@ -147,3 +147,10 @@ volume-composite	fragment	ubo	6	cluster-parameters	existing
 volume-composite-msaa	fragment	ssbo	2	cluster-headers	existing
 volume-composite-msaa	fragment	ssbo	3	cluster-indices	existing
 volume-composite-msaa	fragment	ubo	6	cluster-parameters	existing
+pbr-forward	fragment	ssbo	15	volume-fine-medium-cache	existing
+hdr-vfx	fragment	ssbo	15	volume-fine-medium-cache	existing
+volume-composite	fragment	ssbo	15	volume-fine-medium-cache	existing
+volume-composite-msaa	fragment	ssbo	15	volume-fine-medium-cache	existing
+volume-surface-guide	compute	ssbo	6	fog-volumes	existing
+volume-surface-guide	compute	ssbo	7	volume-diagnostics	existing
+volume-surface-guide	compute	ssbo	15	volume-fine-medium-cache	existing

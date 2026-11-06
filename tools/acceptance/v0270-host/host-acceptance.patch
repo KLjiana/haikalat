@@ -1,0 +1,250 @@
+diff --git a/HaikalatHost/build.gradle b/HaikalatHost/build.gradle
+index 95c3fa8..ef4b659 100644
+--- a/HaikalatHost/build.gradle
++++ b/HaikalatHost/build.gradle
+@@ -38,6 +38,8 @@ neoForge {
+ 
+     runs {
+         client {
++            systemProperty 'haikalathost.v0270Acceptance', providers.gradleProperty('v0270Acceptance').getOrElse('false')
++            systemProperty 'haikalathost.v0270Evidence', rootProject.file('build/reports/v0270-host/runtime').absolutePath
+             def quickPlayWorld = providers.gradleProperty('haikalathostQuickPlayWorld').orNull
+             if (quickPlayWorld != null && !quickPlayWorld.isBlank()) {
+                 programArguments.addAll '--quickPlaySingleplayer', quickPlayWorld
+diff --git a/HaikalatHost/src/main/java/org/hismeo/haikalathost/HaikalatHost.java b/HaikalatHost/src/main/java/org/hismeo/haikalathost/HaikalatHost.java
+index bc191da..a5e6900 100644
+--- a/HaikalatHost/src/main/java/org/hismeo/haikalathost/HaikalatHost.java
++++ b/HaikalatHost/src/main/java/org/hismeo/haikalathost/HaikalatHost.java
+@@ -16,6 +16,13 @@ public final class HaikalatHost {
+     private final ClientLifecycleHooks lifecycleHooks;
+ 
+     public HaikalatHost(IEventBus modEventBus) {
++        if (Boolean.getBoolean("haikalathost.v0270Acceptance")) {
++            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
++                    org.hismeo.haikalathost.internal.diagnostics.V0270VolumetricAcceptance::configureFixture);
++            modEventBus.addListener((org.hismeo.haikalathost.api.client.advanced.event.RegisterHaikalatExtensionsEvent event) ->
++                    event.register(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(MOD_ID, "v0270_acceptance"),
++                            new org.hismeo.haikalathost.internal.diagnostics.V0270VolumetricAcceptance()));
++        }
+         lifecycleHooks = new ClientLifecycleHooks();
+         lifecycleHooks.register(modEventBus);
+     }
+--- /dev/null
++++ b/HaikalatHost/src/main/java/org/hismeo/haikalathost/internal/diagnostics/V0270VolumetricAcceptance.java
+@@ -0,0 +1,200 @@
++package org.hismeo.haikalathost.internal.diagnostics;
++
++import com.kaleblangley.haikalat.backend.GlDebug;
++import com.kaleblangley.haikalat.core.AntiAliasingMode;
++import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
++import com.kaleblangley.haikalat.runtime.RenderSettings;
++import com.kaleblangley.haikalat.runtime.ToneMappingMode;
++import com.kaleblangley.haikalat.subsystems.render3d.*;
++import org.hismeo.haikalathost.HaikalatHost;
++import org.hismeo.haikalathost.api.client.advanced.*;
++import org.joml.Vector3f;
++import org.lwjgl.system.MemoryUtil;
++import org.lwjgl.stb.STBImageWrite;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.nio.ByteBuffer;
++import java.nio.file.*;
++import java.time.Instant;
++import java.util.*;
++import static org.lwjgl.opengl.GL46.*;
++import static org.lwjgl.glfw.GLFW.glfwGetCurrentContext;
++
++/** Opt-in acceptance consumer in an isolated worktree. Never included in ordinary Host activation. */
++public final class V0270VolumetricAcceptance implements HaikalatRenderExtension {
++    private static Object configuredLevel;
++    public static void configureFixture(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
++        var client=net.minecraft.client.Minecraft.getInstance();
++        if(client.level==null){configuredLevel=null;return;}
++        if(client.level==configuredLevel||client.player==null||client.getSingleplayerServer()==null)return;
++        configuredLevel=client.level;
++        var id=client.player.getUUID();var server=client.getSingleplayerServer();
++        server.execute(()->{var player=server.getPlayerList().getPlayer(id);if(player!=null){
++            player.setGameMode(net.minecraft.world.level.GameType.SPECTATOR);player.setInvulnerable(true);
++            HaikalatHost.LOGGER.info("V0270_HOST fixture spectator camera; survival hurt/bobbing projection is outside this test");
++        }});
++    }
++    private final Path directory=Path.of(System.getProperty("haikalathost.v0270Evidence"));
++    private final Set<Long> owned=new HashSet<>();
++    private GlDebug.ResourceTrackingLease tracking;
++    private RenderPipeline pipeline;
++    private long ownerThread, nativeContext, sequence, pollAt, frames, world;
++    private boolean released;
++    private String capture;
++    private long observedTarget=-1;
++
++    @Override public void initialize(HaikalatEngineContext context) {
++        ownerThread=Thread.currentThread().threadId();nativeContext=glfwGetCurrentContext();
++        tracking=GlDebug.acquireResourceTracking();
++        try {Files.createDirectories(directory);Files.writeString(directory.resolve("events.csv"),
++                "utc,event,command,world,frame,thread,context,target,width,height,targetGeneration,fog,graphRevision,ownedLive,estimatedBytes,detail\n");}
++        catch(IOException failure){throw new UncheckedIOException(failure);}
++        event("initialize",null,"engine="+getClass().getProtectionDomain().getCodeSource()+" gl="+GlDebug.contextInfo());
++    }
++
++    @Override public void render(HaikalatFrameContext frame) {
++        requireOwner();frames++;
++        Set<Long> before=live();
++        try {
++            if(pipeline==null&&!released) {create(frame);world++;event("world-first-frame",frame,"");}
++            if(frame.target().generation()!=observedTarget) {
++                observedTarget=frame.target().generation();event("target-change",frame,"");
++            }
++            poll(frame);
++            if(pipeline!=null) pipeline.render(frame.device(),frame.camera(),frame.target(),frame.deltaSeconds());
++            validateBorrowed(frame.target());
++            GlDebug.assertNoError("v0270 real Minecraft consumer");
++            account(before);
++            if(capture!=null) {
++                capture(frame.target(),capture);event("captured",frame,capture);capture=null;
++            }
++        } catch(RuntimeException|Error failure) {account(before);event("FAIL",frame,failure.toString());throw failure;}
++    }
++
++    private void create(HaikalatFrameContext frame) {
++        var scene=new Scene(new Camera());
++        scene.addLight(SceneLight.directional(new Vector3f(0,-1,-1),new Vector3f(.6f,.8f,1),2));
++        pipeline=new RenderPipeline(frame.target(),scene,null,RenderSettings.builder()
++                .antiAliasingMode(AntiAliasingMode.NONE).toneMappingMode(ToneMappingMode.ACES).vsync(false).build());
++        pipeline.build();
++    }
++
++    private VolumetricFogSettings fog(float density,VolumetricFogSettings.Quality quality) {
++        return new VolumetricFogSettings(true,32,quality,
++                FogMediumSettings.homogeneous(density,new Vector3f(.7f),new Vector3f(.002f,.004f,.01f)),
++                List.of(),0,false,.9f,242,new Vector3f());
++    }
++
++    private void poll(HaikalatFrameContext frame) {
++        long now=System.nanoTime();if(now<pollAt)return;pollAt=now+200_000_000L;
++        Path command=directory.resolve("control.txt");if(!Files.isRegularFile(command))return;
++        String text;
++        try{text=Files.readString(command).strip();}catch(IOException failure){throw new UncheckedIOException(failure);}
++        if(text.isEmpty())return;
++        String[] parts=text.split("\\s+",2);long next=Long.parseLong(parts[0]);if(next<=sequence)return;
++        sequence=next;String operation=parts[1];
++        if(pipeline==null&&!operation.equals("RELEASE")&&!operation.equals("STOP")) {released=false;create(frame);world++;}
++        switch(operation) {
++            case "ENABLE" -> pipeline.applyVolumetricFog(fog(.015f,VolumetricFogSettings.Quality.BALANCED));
++            case "DENSITY" -> {
++                var graph=pipeline.graph();long revision=graph.description().topologyRevision();
++                pipeline.applyVolumetricFog(fog(.08f,pipeline.volumetricFog().quality()));
++                if(pipeline.graph()!=graph||graph.description().topologyRevision()!=revision)
++                    throw new IllegalStateException("scalar density rebuilt the real host graph");
++            }
++            case "QUALITY" -> pipeline.applyVolumetricFog(fog(.08f,VolumetricFogSettings.Quality.HIGH));
++            case "DISABLE" -> pipeline.applyVolumetricFog(VolumetricFogSettings.disabled());
++            case "FAIL_PREPARE" -> {
++                var graph=pipeline.graph();var old=pipeline.volumetricFog();
++                System.setProperty("haikalat.test.failVolumeGraph","true");boolean failed=false;
++                try{pipeline.applyVolumetricFog(fog(.04f,old.quality()==VolumetricFogSettings.Quality.HIGH
++                        ?VolumetricFogSettings.Quality.BALANCED:VolumetricFogSettings.Quality.HIGH));}
++                catch(RuntimeException expected){failed=true;event("expected-candidate-failure",frame,expected.toString());}
++                finally{System.clearProperty("haikalat.test.failVolumeGraph");}
++                if(!failed||pipeline.graph()!=graph||!pipeline.volumetricFog().equals(old))throw new IllegalStateException("candidate rollback violated");
++            }
++            case "FAIL_RELOAD" -> {
++                var graph=pipeline.graph();boolean failed=false;
++                System.setProperty("haikalat.test.failVolumeCompilation","0");
++                try{pipeline.build();}catch(RuntimeException expected){failed=true;event("expected-rebuild-failure",frame,expected.toString());}
++                finally{System.clearProperty("haikalat.test.failVolumeCompilation");}
++                if(!failed||pipeline.graph()!=graph)throw new IllegalStateException("reload rollback violated");
++            }
++            case "REBUILD" -> pipeline.build();
++            case "MC_RELOAD" -> net.minecraft.client.Minecraft.getInstance().tell(() ->
++                    net.minecraft.client.Minecraft.getInstance().reloadResourcePacks());
++            case "RESIZE" -> {
++                org.lwjgl.glfw.GLFW.glfwRestoreWindow(nativeContext);
++                int width=frame.target().width()==961?1281:961;
++                org.lwjgl.glfw.GLFW.glfwSetWindowSize(nativeContext,width,width==961?541:721);
++            }
++            case "SWITCH_WORLD" -> net.minecraft.client.Minecraft.getInstance().tell(() -> {
++                var minecraft=net.minecraft.client.Minecraft.getInstance();
++                minecraft.level.disconnect();
++                minecraft.disconnect();
++                new net.minecraft.client.gui.screens.worldselection.WorldOpenFlows(minecraft,minecraft.getLevelSource())
++                        .openWorld("V0270Acceptance2",()->{throw new IllegalStateException("acceptance world switch failed");});
++            });
++            case "STOP" -> net.minecraft.client.Minecraft.getInstance().tell(net.minecraft.client.Minecraft.getInstance()::stop);
++            case "RELEASE" -> {release();released=true;validateBorrowed(frame.target());}
++            case "CAPTURE" -> { }
++            default -> throw new IllegalArgumentException("unknown acceptance command "+operation);
++        }
++        capture=String.format(Locale.ROOT,"world-%02d-command-%03d-%s",world,sequence,operation);
++        event("operation",frame,operation);
++    }
++
++    @Override public void resourcesReloaded(HaikalatReloadContext context) {
++        requireOwner();Set<Long> before=live();
++        try {if(pipeline!=null)pipeline.build();event("minecraft-resource-reload",null,"resourceGeneration="+context.resourceGeneration());}
++        finally{account(before);}
++    }
++    @Override public void worldClosed(HaikalatEngineContext context) {
++        requireOwner();release();released=false;event("minecraft-world-closed",null,"");
++    }
++    @Override public void close(HaikalatEngineContext context) {
++        requireOwner();release();event("minecraft-shutdown",null,"");tracking.close();
++    }
++    private void release() {
++        if(pipeline!=null){pipeline.close();pipeline=null;}
++        long outstanding=live().stream().filter(owned::contains).count();
++        if(outstanding!=0)throw new IllegalStateException("acceptance consumer leaked "+outstanding+" tracked objects");
++    }
++    private void requireOwner() {
++        if(Thread.currentThread().threadId()!=ownerThread||glfwGetCurrentContext()!=nativeContext)
++            throw new IllegalStateException("wrong actual Minecraft owner/context");
++    }
++    private Set<Long> live() {
++        Set<Long> result=new HashSet<>();for(var r:GlDebug.resources().liveResources())result.add(r.resourceSequence());return result;
++    }
++    private void account(Set<Long> before) {for(long id:live())if(!before.contains(id))owned.add(id);}
++    private void validateBorrowed(PresentationTarget target) {
++        if(!glIsFramebuffer(target.drawFramebufferId()))throw new IllegalStateException("Minecraft framebuffer was destroyed");
++        for(var attachment:List.of(target.color(),target.depth()))if(attachment.isPresent()&&!glIsTexture(attachment.orElseThrow().textureId()))
++            throw new IllegalStateException("Minecraft borrowed attachment was destroyed");
++    }
++    private void event(String kind,HaikalatFrameContext frame,String detail) {
++        if(pipeline!=null)detail+=" allocation="+pipeline.volumetricAllocationDiagnostics();
++        var target=frame==null?null:frame.target();var resources=GlDebug.resources();
++        long ownLive=resources.liveResources().stream().filter(r->owned.contains(r.resourceSequence())).count();
++        String row=Instant.now()+","+kind+","+sequence+","+world+","+frames+","+Thread.currentThread().threadId()+","+glfwGetCurrentContext()+","+
++                (target==null?-1:target.drawFramebufferId())+","+(target==null?0:target.width())+","+(target==null?0:target.height())+","+
++                (target==null?-1:target.generation())+","+(pipeline!=null&&pipeline.volumetricFog().enabled())+","+
++                (pipeline==null?-1:pipeline.graph().description().topologyRevision())+","+ownLive+","+resources.estimatedBytes()+","+detail.replace(',',';').replace('\n',' ')+"\n";
++        try{Files.writeString(directory.resolve("events.csv"),row,StandardOpenOption.APPEND);}catch(IOException failure){throw new UncheckedIOException(failure);}
++        HaikalatHost.LOGGER.info("V0270_HOST {} command={} world={} {}",kind,sequence,world,detail);
++    }
++    private void capture(PresentationTarget target,String name) {
++        int width=target.width(),height=target.height();ByteBuffer pixels=MemoryUtil.memAlloc(Math.multiplyExact(width*height,4));
++        ByteBuffer flipped=MemoryUtil.memAlloc(pixels.capacity());
++        try {
++            glBindFramebuffer(GL_READ_FRAMEBUFFER,target.readFramebufferId());glReadBuffer(GL_COLOR_ATTACHMENT0);
++            glBindBuffer(GL_PIXEL_PACK_BUFFER,0);glPixelStorei(GL_PACK_ALIGNMENT,1);
++            glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
++            int stride=width*4;for(int y=height-1;y>=0;y--)flipped.put(pixels.slice(y*stride,stride));flipped.flip();
++            if(!STBImageWrite.stbi_write_png(directory.resolve(name+".png").toString(),width,height,4,flipped,stride))
++                throw new IllegalStateException("host PNG capture failed");
++        }finally{MemoryUtil.memFree(flipped);MemoryUtil.memFree(pixels);}
++    }
++}
+--- /dev/null
++++ b/docs/reports/v0270-host-acceptance.md
+@@ -0,0 +1,13 @@
++# Haikalat v0.27.0 第一阶段实际宿主验收
++
++2026-11-06。隔离 detached worktree 基于 `2e9ba7ff3fbf6497a4e718d6cddfd77000a80404`；原 Project-Crystal-Fracture 工作区与原存档未修改。Minecraft 1.21.1、NeoForge 21.1.215、Java 21.0.3、RTX 3050 Laptop / driver 576.88。构建坐标仍为 Haikalat 0.25.0，使用本地候选替换，不依赖原 `haikalat_version=0.20.1`。
++
++候选源指纹 `ad64e10daaf4260ca9aa51852920b997f0f6ac583a33b9e08032d889ec86187a`，JAR SHA256 `01a4ab4ed63e0dfcad407037c124ce96b5edcbc91e782d9f808dd8160d4c1199`。已逐字节哈希核对 Host 展开后的 RenderPipeline.class、新诊断类型及 volume-lighting.glsl 与候选 JAR 一致。
++
++opt-in `V0270VolumetricAcceptance` 从正式扩展注册、scheduler、MinecraftEmbeddedRenderBridge、同步 HaikalatRuntime 到借用 presentation target 绘制。正常游戏启动不注册该消费者。使用复制存档 `V0270AcceptanceSafe` 和 `V0270Acceptance2`，标准旁观者投影，关闭 bobView。
++
++`build/reports/v0270-host/run-client-diagnostics-final.log` 退出 0，51 秒，12 个任务中 3 个执行、9 个复用。`runtime/operation-results.json` 的 17 项操作全部 PASS：启用、密度、质量、候选/重建失败、Minecraft resource reload、停用、再次启用、resize、正常退出后开另一个世界、第二世界调参/失败/恢复、释放及关闭。`runtime-verification.json` 核对 18 张实际目标抓图和事件：同一 Render thread 1、同一 native Context，854×480 → 961×541 → 1281×721；两个世界退出及最终 shutdown 的消费者 ownedLive 均为 0。RELEASE 后 30 帧仍成功抓取 Minecraft framebuffer，ownedLive 为 0。候选峰值上界 92,459,517 字节，观察到的最大退役队列为 1；这是分配估算，不是驱动显存测量。
++
++这是真实客户端自动化回调验收，不是人工操作或多人验收。启动时原 adapter 曾跳过一次非有限 camera，随后正常进入本序列；验收消费者没有 FAIL。日志中的“Haikalat 0.20.1”是旧 adapter 诊断文本，运行身份以候选 JAR/展开资源哈希为准。早期生存受伤/摇晃斜投影失败、引导页、重复 options 及缺少连接断开步骤的驱动失败均保留在同目录；修正测试环境/驱动后才得到本轮成功。当前不声称支持这些未覆盖投影。宿主图像不是固定相机的密度数值 A/B，严格像素对照来自引擎生产 GL/Quality 验收。
++
++复跑补丁、依赖替换 init script、驱动和操作说明位于 learnopengl 的 `tools/acceptance/v0270-host/`；框架阶段结论位于 `docs/releases/v0.27.0-phase1-review.md`。

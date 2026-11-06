@@ -160,6 +160,15 @@ final class ClusterGrid {
         return other != null && signature == other.signature;
     }
 
+    /** Exact input equality for retaining GPU light assignment and its parameters. */
+    boolean sameFrameParametersAs(ClusterGrid other) {
+        return other != null && width == other.width && height == other.height
+                && tileSize == other.tileSize && zSlices == other.zSlices
+                && nearPlane == other.nearPlane && farPlane == other.farPlane
+                && perspective == other.perspective && edgeExpansionPixels == other.edgeExpansionPixels
+                && view.equals(other.view) && stableProjection.equals(other.stableProjection);
+    }
+
     private static long signatureOf(int width, int height, int tileSize, int zSlices,
                                     float nearPlane, float farPlane, boolean perspective,
                                     float edgeExpansionPixels, Matrix4f projection) {

@@ -86,6 +86,7 @@ class VolumetricGenerationGlTest {
                     assertEquals(generation.id,output.generationId()); assertEquals(3,output.grid().nx());
                     VolumetricMediumGlTest.diagnosticsZero(generation.volumetric);
                     pipeline.applyVolumetricFog(VolumetricFogSettings.disabled());
+                    pipeline.drainRetirementsForTest();
                     assertTrue(generation.isClosed()); assertTrue(output.prefix().isClosed());
                     assertNull(pipeline.activeGenerationForTest().volumetric);
                 } finally { pipeline.close(); pipeline.close(); }

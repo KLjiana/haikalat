@@ -18,6 +18,19 @@ bool volumeNativeSpotNodesUnlit(LightRecord light,vec3 first,vec3 last) {
 uniform int uFineOmittedLight=-1;
 layout(binding=21) uniform sampler3D uVolumeCurrentSource;
 uniform int uVolumeCurrentSourceEnabled=0;
+layout(std430,binding=15) readonly buffer VolumeFineMediumCache { vec4 fineMediumCache[]; };
+uniform int uVolumeFineMediumCacheEnabled=0;
+
+vec3 volumeFineColumnMedium(ivec2 column,int z,vec3 world) {
+    if(uVolumeFineMediumCacheEnabled!=0 && vDirtyHistory.w==0) {
+        int base=(column.x+vGrid.x*column.y)*3;
+        for(int slot=0;slot<3;slot++) {
+            vec4 cached=fineMediumCache[base+slot];
+            if(cached.w==float(z))return cached.rgb;
+        }
+    }
+    vec4 medium;vec3 emission;volumeMediumAt(world,medium,emission);return medium.rgb;
+}
 
 vec3 volumeFineFiniteSource(vec3 q) {
     if(any(isnan(q))||any(isinf(q))) {
@@ -120,6 +133,9 @@ vec4 volumeRefineNativeRay(vec2 pixel,float depth,vec4 coarse) {
         // other light in the same cluster.
         const float nodes[8]=float[](0.019855072,0.101666761,0.237233795,0.408282679,0.591717321,0.762766205,0.898333239,0.980144928);
         const float weights[8]=float[](0.050614268,0.111190517,0.156853323,0.181341892,0.181341892,0.156853323,0.111190517,0.050614268);
+        // 4-point Gauss-Legendre on [0,1] for lamps without an allocated shadow.
+        const float nodes4[4]=float[](0.069431844,0.330009478,0.669990522,0.930568156);
+        const float weights4[4]=float[](0.173927423,0.326072577,0.326072577,0.173927423);
         uint pendingSlots=selectedSlots;
         uint candidates=overflow ? uLightHeader.y : uint(bitCount(selectedSlots));
         for(uint candidate=0u;candidate<candidates;candidate++) {
@@ -157,9 +173,7 @@ vec4 volumeRefineNativeRay(vec2 pixel,float depth,vec4 coarse) {
                 for(int j=0;j<4;j++)if(columnWeights[j]>0.0) {
                     // Medium at a reconstruction point is independent of the
                     // selected lamp; keep its FP32 value for this interval.
-                    vec4 columnMedium;vec3 columnEmission;
-                    volumeMediumAt(columnWorld[j],columnMedium,columnEmission);
-                    columnScattering[j]=columnMedium.rgb;
+                    columnScattering[j]=volumeFineColumnMedium(columns[j],z,columnWorld[j]);
                     correction+=volumeFineColumnSource(columns[j],z,columnWorld[j])*columnWeights[j]
                         -w[j]*volumeFineColumnContribution(columns[j],z,b);
                 }
@@ -182,9 +196,15 @@ vec4 volumeRefineNativeRay(vec2 pixel,float depth,vec4 coarse) {
             bool allocatedSpotShadow=uLights[i].metadata.x==2 && (uVolumeHints[i].flags&1u)!=0u
                 && uHasSpotShadow!=0 && slot>=0 && slot<4
                 && uSpotShadowMeta[slot].y!=0 && uSpotShadowMeta[slot].x==int(i);
-            // PCF visibility is piecewise rather than smooth. Four angular panels
-            // resolve thin caster edges without multiplying work for other lamps.
-            int panels=allocatedSpotShadow ? 4 : 1;
+            bool allocatedPointShadow=uLights[i].metadata.x==1 && (uVolumeHints[i].flags&1u)!=0u
+                && uHasPointShadow!=0 && slot>=0 && slot<2
+                && uPointShadowMeta[slot].y!=0 && uPointShadowMeta[slot].x==int(i);
+            // PCF visibility is piecewise rather than smooth. Two angular panels
+            // resolve caster edges within the relaxed v0.27 performance budget.
+            int panels=allocatedSpotShadow ? 2 : 1;
+            // Without an allocated shadow the Jacobian-cancelled integrand is smooth:
+            // 4-point Gauss-Legendre suffices; shadowed lamps keep 8 nodes per panel.
+            int nodeCount=(allocatedSpotShadow||allocatedPointShadow) ? 8 : 4;
             for(int panel=0;panel<panels;panel++) {
                 float panelStart=mix(start,stop,float(panel)/float(panels));
                 float panelStop=mix(start,stop,float(panel+1)/float(panels));
@@ -193,10 +213,11 @@ vec4 volumeRefineNativeRay(vec2 pixel,float depth,vec4 coarse) {
                     vec3 last=origin+direction*(along+scale*tan(mix(panelStart,panelStop,nodes[7])));
                     if(volumeNativeSpotNodesUnlit(uLights[i],first,last))continue;
                 }
-                for(int j=0;j<8;j++) {
-                    float angle=mix(panelStart,panelStop,nodes[j]),t=along+scale*tan(angle),cosAngle=cos(angle);
+                for(int j=0;j<nodeCount;j++) {
+                    float node=nodeCount==8 ? nodes[j] : nodes4[j],weight=nodeCount==8 ? weights[j] : weights4[j];
+                    float angle=mix(panelStart,panelStop,node),t=along+scale*tan(angle),cosAngle=cos(angle);
                     correction+=volumeFineLamp(i,origin+direction*t,nativeMediumCandidates)*tStart*exp(-sigma*(t-a/cosine))
-                        *((panelStop-panelStart)*weights[j]*scale/(cosAngle*cosAngle));
+                        *((panelStop-panelStart)*weight*scale/(cosAngle*cosAngle));
                 }
             }
         }

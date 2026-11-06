@@ -5,7 +5,6 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -33,7 +32,17 @@ final class ClusteredLightingBinder implements AutoCloseable {
     private final ClusteredLightingSettings settings;
     private final ByteBuffer packed;
     private final ByteBuffer packedBounds;
-    private final Map<Integer, Boolean> programCapabilities = new HashMap<>();
+    private final ByteBuffer committedPacked;
+    private ClusterGrid committedGrid;
+    private ClusteredLightingResources.ClusterStorage committedAssignmentStorage;
+    private boolean reuseAssignment;
+    private boolean pendingAssignment;
+    private long assignmentEpoch;
+    private final long[] counterEpochs = new long[ClusteredLightingResources.COUNTER_SLOT_COUNT];
+    private CounterSnapshot cachedCounterSnapshot;
+    private long cachedCounterEpoch = -1;
+    // Native program IDs may be recycled while this lighting owner survives many fog generations.
+    private final Map<ShaderProgram, Boolean> programCapabilities = new java.util.WeakHashMap<>();
     private final com.kaleblangley.haikalat.backend.sync.GpuFence[] counterFences =
             new com.kaleblangley.haikalat.backend.sync.GpuFence[
                     ClusteredLightingResources.COUNTER_SLOT_COUNT];
@@ -59,6 +68,8 @@ final class ClusteredLightingBinder implements AutoCloseable {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.packed = LightTablePacker.allocate(resources.maxTotalLights());
         this.packedBounds = LightTablePacker.allocateBounds(settings.maxLocalLights());
+        this.committedPacked = LightTablePacker.allocate(resources.maxTotalLights());
+        committedPacked.limit(0);
     }
 
     /** CPU-side frame staging: packs the light table and updates the parameter block. */
@@ -78,13 +89,21 @@ final class ClusteredLightingBinder implements AutoCloseable {
                 closeCounterFence(slot);
             }
             preparedStorage = storage;
+            committedAssignmentStorage = null;
+            cachedCounterSnapshot = null;
         }
         // This slot is about to receive GPU writes. Its old fence must no longer
         // authorize a CPU snapshot while this frame is pending or partly failed.
-        closeCounterFence(counterWriteSlot);
         LightTablePacker.pack(table, plan, packed);
         LightTablePacker.packBounds(table, packedBounds);
-        updateParameters(grid, table);
+        reuseAssignment = storage == committedAssignmentStorage
+                && grid.sameFrameParametersAs(committedGrid) && committedPacked.mismatch(packed) == -1;
+        pendingAssignment = false;
+        if (!reuseAssignment) {
+            closeCounterFence(counterWriteSlot);
+            assignmentEpoch = Math.incrementExact(assignmentEpoch);
+            updateParameters(grid, table);
+        }
         stagedGrid = grid;
         stagedTable = table;
         preparedFrameSequence = frameSequence;
@@ -98,9 +117,25 @@ final class ClusteredLightingBinder implements AutoCloseable {
         return stagedTable;
     }
 
+    VolumetricLightingInputs volumetricInputs() {
+        return new VolumetricLightingInputs() {
+            public FrameLightTable frameTable(long sequence) {
+                requireStaged();
+                if (preparedFrameSequence != sequence) throw new IllegalStateException("stale volumetric light frame");
+                return stagedTable;
+            }
+            public void bindCompute(CommandBuffer commands, ShaderProgram shader) {
+                bindForward(commands, shader);
+                if (shader.hasStorageBlock(ClusteredLightingResources.LIGHT_TABLE_BLOCK)) bindVolumeLightTable(commands);
+            }
+            public void bindFine(CommandBuffer commands) { bindFineLightTable(commands); }
+        };
+    }
+
     /** Uploads the light table and clears this frame's diagnostic counter slot. */
     void recordUpload(CommandBuffer cmd) {
         ClusteredLightingResources.ClusterStorage storage = requireStaged();
+        if (reuseAssignment) return;
         storage.uploadLightTable(cmd, packed);
         if (stagedTable.localCount() > 0) {
             storage.uploadLightBounds(cmd, packedBounds);
@@ -136,7 +171,7 @@ final class ClusteredLightingBinder implements AutoCloseable {
     /** Dispatches deterministic cluster assignment for the current frame. */
     void recordAssign(CommandBuffer cmd) {
         ClusteredLightingResources.ClusterStorage storage = requireStaged();
-        if (stagedTable.localCount() == 0) {
+        if (reuseAssignment || stagedTable.localCount() == 0) {
             return;
         }
         cmd.bindShader(resources.assignProgram());
@@ -157,8 +192,11 @@ final class ClusteredLightingBinder implements AutoCloseable {
      */
     void recordStats(CommandBuffer cmd) {
         ClusteredLightingResources.ClusterStorage storage = requireStaged();
+        if (reuseAssignment) return;
+        pendingAssignment = true;
         int counterSlot = counterWriteSlot;
         long counterSequence = preparedFrameSequence;
+        long counterEpoch = assignmentEpoch;
         int groups = (storage.clusterCount + 255) / 256;
         if(stagedTable.localCount()>0) {
             cmd.bindShader(resources.statsProgram()).setUniformInt(resources.statsProgram(),"uResetCounters",0);
@@ -175,6 +213,7 @@ final class ClusteredLightingBinder implements AutoCloseable {
                         counterFences[counterSlot] =
                                 com.kaleblangley.haikalat.backend.sync.GpuFence.insert();
                         counterSequences[counterSlot] = counterSequence;
+                        counterEpochs[counterSlot] = counterEpoch;
                         counterFenceStorages[counterSlot] = storage;
                     }
 
@@ -207,7 +246,8 @@ final class ClusteredLightingBinder implements AutoCloseable {
             }
         }
         if (selected < 0) {
-            return null;
+            return current == committedAssignmentStorage && cachedCounterEpoch == assignmentEpoch
+                    ? cachedCounterSnapshot : null;
         }
         int[] values = resources.storage().readCounters(selected);
         for (int slot = 0; slot < counterFences.length; slot++) {
@@ -216,8 +256,10 @@ final class ClusteredLightingBinder implements AutoCloseable {
                 closeCounterFence(slot);
             }
         }
+        cachedCounterEpoch = counterEpochs[selected];
+        cachedCounterSnapshot = new CounterSnapshot(selectedSequence, values[0], values[1], values[2]);
         closeCounterFence(selected);
-        return new CounterSnapshot(selectedSequence, values[0], values[1], values[2]);
+        return cachedCounterSnapshot;
     }
 
     /** Explicit debug/test-only blocking aggregation; never used by diagnostics. */
@@ -257,6 +299,12 @@ final class ClusteredLightingBinder implements AutoCloseable {
             lastStorage = pendingStorage;
         }
         pendingBoundsDispatched = false;
+        if (pendingAssignment) {
+            committedPacked.clear().put(packed.duplicate()).flip();
+            committedGrid = stagedGrid;
+            committedAssignmentStorage = preparedStorage;
+        }
+        pendingAssignment = false;
     }
 
     /** Discards staged bounds validity so the next frame re-dispatches them. */
@@ -265,6 +313,9 @@ final class ClusteredLightingBinder implements AutoCloseable {
         pendingBoundsDispatched = false;
         lastBoundsSignature = Long.MIN_VALUE;
         lastStorage = null;
+        committedAssignmentStorage = null;
+        cachedCounterSnapshot = null;
+        pendingAssignment = false;
     }
 
     /**
@@ -297,18 +348,18 @@ final class ClusteredLightingBinder implements AutoCloseable {
     void bindVolumeLightTable(CommandBuffer cmd) { requireStaged().bindLightTableRead(cmd); }
 
     private boolean isLit(ShaderProgram shader) {
-        Boolean known = programCapabilities.get(shader.id());
+        Boolean known = programCapabilities.get(shader);
         if (known != null) {
             return known;
         }
         if (!shader.hasUniformBlock(ClusteredLightingResources.CLUSTER_PARAMETERS_BLOCK)) {
-            programCapabilities.put(shader.id(), false);
+            programCapabilities.put(shader, false);
             return false;
         }
         shader.storageBlockIndex(ClusteredLightingResources.LIGHT_TABLE_BLOCK);
         shader.bindUniformBlock(ClusteredLightingResources.CLUSTER_PARAMETERS_BLOCK,
                 ClusteredLightingResources.CLUSTER_PARAMETERS_BINDING);
-        programCapabilities.put(shader.id(), true);
+        programCapabilities.put(shader, true);
         return true;
     }
 

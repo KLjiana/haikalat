@@ -1,5 +1,16 @@
 # 变更记录
 
+## v0.27.0 第一阶段（构建版本仍为 0.25.0）
+
+- 2026-11-07 当前候选补充验收完成：补齐 FP32 缓存的资源核算与 SSBO 绑定清单；完整独立参考质量/时序各 12 组按原门槛通过，真实 Minecraft 17 操作/两世界/18 抓图通过。求积质量取舍单列，性能复用相同运行输入的正式样本，详见[当前候选报告](../releases/v0.27.0-current-candidate-review-2026-11-07.md)。
+- 2026-11-07 按所有者决定调整 RTX 3050 Laptop 本机预算：1080p 雾 GPU/CPU 增量 p95 分别为 2.75/0.65 ms，4K 只记录。已有单配置正式样本按新预算通过；旧严格合同及失败保持原身份，见[本机预算政策](../performance/v0.27.0-rtx3050-budget-policy.md)。
+- 体积雾改为候选提交、局部资源转交和有界 fence 退役，保留不相关光照、阴影与后处理 owner；同步入口检查原渲染线程及原生 Context。
+- 收窄光照与场景表面借用合同，修复零局部光源时读取未初始化 cluster header，以及跨代复用按原生 program ID 缓存能力的问题。
+- 新增 advanced `VolumetricAllocationDiagnostics` 与 `RenderPipeline.volumetricAllocationDiagnostics()`；字节均为保守估算。现有 Render3D 诊断附加成功帧 TAA 失效原因，不改变既有构造器。
+- 验收范围、Minecraft 实际回调证据、性能欠账及阶段状态见 [第一阶段报告](../releases/v0.27.0-phase1-review.md)；不代表完整发布门禁通过。
+- 首次阶段范围澄清：当时原 GPU/CPU 绝对性能预算未达标，仅确认固定场景没有超容差回退；该次澄清只复核旧证据。2026-11-07 的新增运行另列；Minecraft 仍未证明与地形/光照的统一视觉整合。
+- RenderPipeline 仍承担较多装配与事务职责，当前签收限于体积雾边界与生命周期试点，不代表全面模块化完成。
+
 ## v0.25.0（普通功能验收通过）
 
 - 实现 Directional/Point/Spot 多光源体积雾、全局/局部介质、froxel 光照与积分、时域历史，以及透明/VFX/TAA/MSAA 合成；迁移旧 Outdoor 生产路径。

@@ -13,6 +13,47 @@ import static org.lwjgl.opengl.GL45.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class RenderTargetManagerGlTest {
+    @Test void candidateBorrowsAbortWithoutDeletionAndCommitTransfersExactlyOnce() {
+        try (var window = new GlfwWindow.Builder().dimensions(16,16).visible(false).title("target transfer").build()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                var descriptor = FramebufferDescriptor.colorOnly(8,8,GL_RGBA16F);
+                var source = new RenderTargetManager();
+                try (var candidate = new RenderTargetManager()) {
+                    var target = source.create("color", descriptor); clear(target, 1, 0);
+                    try (var aborted = new RenderTargetManager()) {
+                        assertTrue(aborted.borrowCompatible("color", descriptor, source));
+                        assertThrows(IllegalStateException.class, () -> aborted.create("color", descriptor));
+                        assertThrows(IllegalStateException.class, () -> aborted.resize(16, 16));
+                        assertThrows(IllegalStateException.class, () -> aborted.replaceSelected(Map.of("color", descriptor)));
+                    }
+                    pixel(target, 1, 0); assertTrue(glIsFramebuffer(target.id()));
+                    assertFalse(candidate.borrowCompatible("wrong", descriptor, source));
+                    assertTrue(candidate.borrowCompatible("color", descriptor, source));
+                    candidate.validateBorrowed(); candidate.commitBorrowed(); source.close();
+                    assertSame(target, candidate.get("color")); pixel(target, 1, 0);
+                    candidate.commitBorrowed(); // Idempotent after transfer.
+                } finally { source.close(); }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+        }
+    }
+
+    @Test void changedDonorCannotPublishStaleBorrowAndAbortedCandidateNeverClosesReplacement() {
+        try (var window = new GlfwWindow.Builder().dimensions(16,16).visible(false).title("stale target donor").build()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking(); var source = new RenderTargetManager()) {
+                var descriptor = FramebufferDescriptor.colorOnly(8,8,GL_RGBA16F);
+                source.create("color", descriptor);
+                try (var candidate = new RenderTargetManager()) {
+                    assertTrue(candidate.borrowCompatible("color", descriptor, source));
+                    source.create("color", descriptor);
+                    assertThrows(IllegalStateException.class, candidate::commitBorrowed);
+                }
+                clear(source.get("color"), 0, 1); pixel(source.get("color"), 0, 1);
+            }
+        }
+    }
     @Test void partialNativeReplacementFailurePreservesAllOldTargetsAndReleasesOnlyCandidates() {
         try(var window=new GlfwWindow.Builder().dimensions(97,65).visible(false).title("UI target allocation rollback").build()) {
             window.bindContext();GL.createCapabilities();GlDebug.enableDebugCallback();

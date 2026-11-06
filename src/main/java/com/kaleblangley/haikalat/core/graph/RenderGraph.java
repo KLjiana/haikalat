@@ -98,6 +98,36 @@ public final class RenderGraph implements AutoCloseable {
     private Description cachedDescription;
     private final List<FrameObserver> frameObservers = new ArrayList<>();
     private final Map<String, TargetExtent> managedTargetExtents = new HashMap<>();
+    private RenderGraph replacementSource;
+    private long replacementSourceRevision;
+
+    /** Builds a candidate which borrows compatible targets until commitReplacement(). */
+    public static RenderGraph replacementOf(RenderGraph source) {
+        Objects.requireNonNull(source, "source").ensureOpen();
+        if (source.executing || source.replacementSource != null)
+            throw new IllegalStateException("cannot replace an executing or uncommitted graph");
+        RenderGraph candidate = new RenderGraph(source.width, source.height, source.allocateResources);
+        candidate.replacementSource = source;
+        candidate.replacementSourceRevision = source.topologyRevision;
+        return candidate;
+    }
+
+    /** Compile/validate before moving any target ownership; the donor must then be retired. */
+    public void commitReplacement() {
+        ensureOpen();
+        if (replacementSource == null) return;
+        replacementSource.ensureOpen();
+        if (replacementSource.executing || replacementSource.topologyRevision != replacementSourceRevision)
+            throw new IllegalStateException("replacement source changed during preparation");
+        compile();
+        if (allocateResources) {
+            renderTargets.validateBorrowed();
+            fixedRenderTargets.validateBorrowed();
+            renderTargets.commitBorrowed();
+            fixedRenderTargets.commitBorrowed();
+        }
+        replacementSource = null;
+    }
 
     public RenderGraph(int width, int height) {
         this(width, height, true);
@@ -444,6 +474,7 @@ public final class RenderGraph implements AutoCloseable {
 
     private PresentationResult executeFrame(RenderDevice device, PresentationTarget target) {
         ensureOpen();
+        if (replacementSource != null) throw new IllegalStateException("candidate graph has not been committed");
         Objects.requireNonNull(device, "device");
         PresentationTarget frameTarget = Objects.requireNonNull(target, "target");
         if (!frameTarget.isRenderable()) {
@@ -704,6 +735,7 @@ public final class RenderGraph implements AutoCloseable {
      */
     public ResizeCandidate prepareResize(int newWidth, int newHeight) {
         ensureOpen();
+        if (replacementSource != null) throw new IllegalStateException("cannot resize an uncommitted graph");
         if (newWidth <= 0 || newHeight <= 0
                 || newWidth == width && newHeight == height) {
             return ResizeCandidate.noop(this, newWidth, newHeight);
@@ -902,6 +934,11 @@ public final class RenderGraph implements AutoCloseable {
 
     private void allocatePassFramebuffer(Pass pass) {
         RenderTargetManager owner = isFixedSize(pass) ? fixedRenderTargets : renderTargets;
+        if (canBorrowTarget(pass) && owner.borrowCompatible(pass.name, descriptorFor(pass),
+                isFixedSize(pass) ? replacementSource.fixedRenderTargets : replacementSource.renderTargets)) {
+            registerPassAttachments(pass, owner.get(pass.name));
+            return;
+        }
         Framebuffer framebuffer;
         if (pass.sharedDepthPassName != null || pass.sharedColorPassName != null) {
             Framebuffer source = pass.sharedDepthPassName == null ? null : getPassFramebuffer(pass.sharedDepthPassName);
@@ -919,6 +956,22 @@ public final class RenderGraph implements AutoCloseable {
             framebuffer = owner.create(pass.name, descriptorFor(pass));
         }
         registerPassAttachments(pass, framebuffer);
+    }
+
+    private boolean canBorrowTarget(Pass pass) {
+        if (replacementSource == null) return false;
+        Pass old = replacementSource.passByName.get(pass.name);
+        if (old == null || isFixedSize(old) != isFixedSize(pass)
+                || !old.colorTextureNames.equals(pass.colorTextureNames)
+                || !Objects.equals(old.depthTextureName, pass.depthTextureName)
+                || !Objects.equals(old.sharedDepthPassName, pass.sharedDepthPassName)
+                || !Objects.equals(old.sharedColorPassName, pass.sharedColorPassName)
+                || !Objects.equals(old.sharedColorAttachmentIndices, pass.sharedColorAttachmentIndices)) return false;
+        // A borrowed framebuffer embeds attachment IDs. Equal descriptors alone cannot validate its sources.
+        for (String source : new String[]{pass.sharedDepthPassName, pass.sharedColorPassName}) {
+            if (source != null && getPassFramebuffer(source) != replacementSource.getPassFramebuffer(source)) return false;
+        }
+        return true;
     }
 
     private static boolean isFixedSize(Pass pass) {

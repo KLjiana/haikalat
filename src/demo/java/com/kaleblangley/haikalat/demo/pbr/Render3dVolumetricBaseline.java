@@ -127,6 +127,11 @@ public final class Render3dVolumetricBaseline {
         if (!"1".equals(result.getProperty("schema"))) throw new IllegalArgumentException("unsupported volumetric contract schema");
         for (String key : result.stringPropertyNames()) {
             if (key.equals("quality.referenceSteps") || key.equals("history.sampleXySequenceBases")) continue;
+            if (key.equals("benchmark.gate4k")) {
+                String flag = result.getProperty(key);
+                if (!flag.equals("true") && !flag.equals("false")) throw new IllegalArgumentException("invalid contract value: " + key);
+                continue;
+            }
             double value = Double.parseDouble(result.getProperty(key));
             if (!Double.isFinite(value) || value <= 0) throw new IllegalArgumentException("invalid contract value: " + key);
         }
@@ -153,7 +158,9 @@ public final class Render3dVolumetricBaseline {
         // Reconstruction guide, interval bytes and exact light indices are separate from transport boundaries.
         long prefixExtras=1L+integer(settings,"reconstruction.surfaceGuideLayers")
                 +integer(settings,"reconstruction.nearLightIntervalMaskLayers")+integer(settings,"reconstruction.nearLightIndexLayers");
-        long owned = Math.addExact(Math.addExact(Math.multiplyExact(voxels, 59), columns * (8*prefixExtras+1)),
+        // The native refinement cache owns three FP32 vec4 records per column.
+        // Keep it in the independent pre-allocation estimate as well as the live owner.
+        long owned = Math.addExact(Math.addExact(Math.multiplyExact(voxels, 59), columns * (8*prefixExtras+1+3*16)),
                 integer(settings, "limits.parameterBytes"));
         long pixels = Math.multiplyExact((long) width, height);
         long fullSize = Math.multiplyExact(pixels, 1L + 8L * samples);

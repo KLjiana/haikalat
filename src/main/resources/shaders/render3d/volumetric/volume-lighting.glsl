@@ -131,7 +131,9 @@ vec3 volumeLightingOmitting(vec3 world,int omitted) {
     for(uint i=0u;i<uLightHeader.x;i++)if(int(i)!=omitted)radiance+=volumeLightRadiance(i,world,V,depth);
     int cluster=volumeLightingCluster(world); uvec4 header=uvec4(0u);
     #ifndef VOLUME_FULL_SCAN
-    if (cluster>=0) header=uClusterHeaders[cluster];
+    // The producer intentionally skips cluster assignment when there are no local lights.
+    // Fresh or resized header storage is then undefined and must never drive a candidate loop.
+    if (cluster>=0 && uLightHeader.y>0u) header=uClusterHeaders[cluster];
     bool fullScan=cluster<0 || header.z!=0u;
     #else
     bool fullScan=true;

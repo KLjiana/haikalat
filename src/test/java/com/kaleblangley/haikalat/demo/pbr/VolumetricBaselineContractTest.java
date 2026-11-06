@@ -33,9 +33,9 @@ class VolumetricBaselineContractTest {
     void balanced4kIncludesAllVolumesExtraBoundaryParametersAndFullSizeOutputs() throws IOException {
         var row = Render3dVolumetricBaseline.budget(Render3dVolumetricBaseline.settings(), "balanced", 3840, 2160, 1);
         assertEquals(240, row.get("nx")); assertEquals(135, row.get("ny")); assertEquals(64, row.get("nz"));
-        assertEquals(124_740_368L, row.get("owned3dAndParametersBytes"));
-        assertEquals(199_389_968L, row.get("steadyBytes"));
-        assertEquals(398_779_936L, row.get("transactionPeakBytes"));
+        assertEquals(126_295_568L, row.get("owned3dAndParametersBytes"));
+        assertEquals(200_945_168L, row.get("steadyBytes"));
+        assertEquals(401_890_336L, row.get("transactionPeakBytes"));
         assertEquals(true, row.get("withinBudget"));
     }
 
@@ -43,7 +43,7 @@ class VolumetricBaselineContractTest {
     void msaaIsBudgetedSeparatelyAndHigh4kIsExplicitlyRejected() throws IOException {
         var settings = Render3dVolumetricBaseline.settings();
         var msaa = Render3dVolumetricBaseline.budget(settings, "balanced", 3840, 2160, 4);
-        assertEquals(398_455_568L, msaa.get("steadyBytes"));
+        assertEquals(400_010_768L, msaa.get("steadyBytes"));
         assertEquals(true, msaa.get("withinBudget"));
         assertEquals(false, Render3dVolumetricBaseline.budget(settings, "high", 3840, 2160, 1).get("withinBudget"));
         assertThrows(IllegalArgumentException.class,

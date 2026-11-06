@@ -16,6 +16,8 @@ final class VolumetricResources implements AutoCloseable {
     static final int LIGHT_HINTS_BYTES = 256 * 16;
     static final int DIRTY_DOMAINS_BYTES = 2048;
     static final int DIAGNOSTICS_BYTES = 4096;
+    static final int FINE_MEDIUM_SLOTS = 3;
+    static long fineMediumBytes(int nx, int ny) { return Math.multiplyExact(Math.multiplyExact((long)nx,ny),16L*FINE_MEDIUM_SLOTS); }
     static final int PARAMETER_BYTES = PARAMETERS_BYTES + VOLUMES_BYTES + LIGHT_HINTS_BYTES
             + DIRTY_DOMAINS_BYTES + DIAGNOSTICS_BYTES;
     private final long memoryBudget;
@@ -54,9 +56,9 @@ final class VolumetricResources implements AutoCloseable {
         // Boundaries, depth guide, three byte-encoded masks and sixteen exact light indices.
         long prefix = Texture3D.estimatedByteSize(nx, ny, Math.addExact(nz, 9), RenderFormat.RGBA16F);
         long reactivePrefix=Texture3D.estimatedByteSize(nx,ny,Math.addExact(nz,1),RenderFormat.R8);
-        return Math.addExact(reactivePrefix,Math.addExact(PARAMETER_BYTES-LIGHT_HINTS_BYTES+hintsBytes, Math.addExact(prefix,
+        return Math.addExact(fineMediumBytes(nx,ny),Math.addExact(reactivePrefix,Math.addExact(PARAMETER_BYTES-LIGHT_HINTS_BYTES+hintsBytes, Math.addExact(prefix,
                 Math.addExact(Math.multiplyExact(rgba, emission ? 6L : 5L),
-                        Math.multiplyExact(Texture3D.estimatedByteSize(nx, ny, nz, RenderFormat.R8),2)))));
+                        Math.multiplyExact(Texture3D.estimatedByteSize(nx, ny, nz, RenderFormat.R8),2))))));
     }
 
     Texture3D medium() { ensureOpen(); return storage.textures[0]; }
@@ -74,6 +76,8 @@ final class VolumetricResources implements AutoCloseable {
     int lightHintsBytes() { return lightHintsBytes; }
     GlBuffer dirtyDomains() { ensureOpen(); return storage.buffers[3]; }
     GlBuffer diagnostics() { ensureOpen(); return storage.buffers[4]; }
+    GlBuffer fineMediumCache() { ensureOpen(); return storage.buffers[5]; }
+    long fineMediumCacheBytes() { ensureOpen(); return fineMediumBytes(storage.nx,storage.ny); }
     long bytes() { ensureOpen(); return storage.bytes; }
     long residentBytes() { ensureOpen(); return residentBytes; }
     long revision() { ensureOpen(); return revision; }
@@ -171,7 +175,7 @@ final class VolumetricResources implements AutoCloseable {
         final boolean emission;
         final long bytes;
         final Texture3D[] textures = new Texture3D[9];
-        final GlBuffer[] buffers = new GlBuffer[5];
+        final GlBuffer[] buffers = new GlBuffer[6];
         boolean closed;
 
         Storage(int nx, int ny, int nz, boolean emission, int hintsBytes) {
@@ -184,7 +188,7 @@ final class VolumetricResources implements AutoCloseable {
                     textures[index] = Texture3D.create(nx, ny, index == 5 ? Math.addExact(nz, 9) : index == 7 ? Math.addExact(nz, 1) : nz,
                             index >= 6 ? RenderFormat.R8 : index == 2 ? RenderFormat.RGBA32F : RenderFormat.RGBA16F);
                 }
-                int[] sizes = {PARAMETERS_BYTES, VOLUMES_BYTES, hintsBytes, DIRTY_DOMAINS_BYTES, DIAGNOSTICS_BYTES};
+                long[] sizes = {PARAMETERS_BYTES, VOLUMES_BYTES, hintsBytes, DIRTY_DOMAINS_BYTES, DIAGNOSTICS_BYTES, fineMediumBytes(nx,ny)};
                 for (int index = 0; index < buffers.length; index++) {
                     injectAllocationFailure(textures.length + index);
                     buffers[index] = new GlBuffer(index == 0 ? GL_UNIFORM_BUFFER : GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW);

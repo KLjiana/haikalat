@@ -25,6 +25,70 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Long-lived resources must survive real resize transactions and discarded GPU writes. */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class VolumetricLifecycleSoakGlTest {
+    @Test void twoHundredSwitchesWithResizeWorldReplacementAndCandidateFailureReturnToDisabledBaseline() throws Exception {
+        var trace=java.nio.file.Path.of("build/reports/modularity-v0270/switch-trace.csv");
+        java.nio.file.Files.createDirectories(trace.getParent());
+        java.nio.file.Files.writeString(trace,"cycle,phase,estimatedBytes\n");
+        try (var window = VolumetricGenerationGlTest.window()) {
+            window.bindContext(); GL.createCapabilities(); GlDebug.enableDebugCallback();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                var size = new VolumetricGenerationGlTest.Size();
+                var pipeline = VolumetricGenerationGlTest.pipeline(size, VolumetricFogSettings.disabled());
+                long maximumBytes = 0;
+                Map<Integer, Long> disabledBytes = new HashMap<>();
+                try {
+                    pipeline.build(); var device = new GlRenderDevice();
+                    trace(trace, -1, "built");
+                    var lights = pipeline.activeGenerationForTest().clusteredResources;
+                    for (int cycle=0;cycle<200;cycle++) {
+                        trace(trace, cycle, "begin");
+                        if (cycle%20==0) {
+                            size.width = size.width==33 ? 65 : 33; size.height = size.width==33 ? 17 : 33;
+                            pipeline.resize(size.width, size.height);
+                            pipeline.replaceScene(new Scene(VolumetricMediumGlTest.camera(false,(float)size.width/size.height)));
+                            trace(trace, cycle, "resized-world");
+                        }
+                        if (cycle%17==0) {
+                            long bytes = GlDebug.resources().estimatedBytes();
+                            System.setProperty("haikalat.test.failVolumeGraph","true");
+                            try { assertThrows(RuntimeException.class, () -> pipeline.applyVolumetricFog(VolumetricGenerationGlTest.fog(.2f))); }
+                            finally { System.clearProperty("haikalat.test.failVolumeGraph"); }
+                            assertEquals(bytes,GlDebug.resources().estimatedBytes());
+                            trace(trace, cycle, "graph-failure-cleaned");
+                        }
+                        pipeline.applyVolumetricFog(VolumetricGenerationGlTest.fog(.2f));
+                        trace(trace, cycle, "enabled");
+                        pipeline.execute(device);
+                        trace(trace, cycle, "drawn");
+                        maximumBytes = Math.max(maximumBytes,GlDebug.resources().estimatedBytes());
+                        assertSame(lights,pipeline.activeGenerationForTest().clusteredResources);
+                        var prefix = pipeline.activeGenerationForTest().volumetric.resources().prefix();
+                        pipeline.applyVolumetricFog(VolumetricFogSettings.disabled());
+                        trace(trace, cycle, "disabled");
+                        for(int i=0;i<4;i++)pipeline.execute(device);
+                        pipeline.drainRetirementsForTest();
+                        assertTrue(prefix.isClosed());
+                        assertNull(pipeline.activeGenerationForTest().volumetric);
+                        long bytes=GlDebug.resources().estimatedBytes();
+                        var baseline=disabledBytes.putIfAbsent(size.width,bytes);
+                        if(baseline!=null)assertEquals(baseline.longValue(),bytes,"disabled resource bytes grew at cycle "+cycle);
+                        trace(trace, cycle, "settled");
+                    }
+                    System.out.println("V0270_SWITCH_SOAK cycles=200 disabledBytes="+disabledBytes+" maxActiveEstimatedBytes="+maximumBytes);
+                } catch (Throwable failure) {
+                    var stack=new java.io.StringWriter(); failure.printStackTrace(new java.io.PrintWriter(stack));
+                    java.nio.file.Files.writeString(trace.resolveSibling("switch-java-failure.txt"),stack.toString());
+                    throw failure;
+                } finally { pipeline.close(); }
+                var resources=GlDebug.resources();
+                assertTrue(resources.liveResources().isEmpty()); assertEquals(resources.createdCount(),resources.closedCount());
+                GlDebug.assertNoError("200 module switches");
+            }
+        }
+    }
+    private static void trace(java.nio.file.Path path,int cycle,String phase) throws java.io.IOException {
+        java.nio.file.Files.writeString(path,cycle+","+phase+","+GlDebug.resources().estimatedBytes()+"\n",java.nio.file.StandardOpenOption.APPEND);
+    }
     private static final int FRAMES = 3600;
     private static final int RESIZE_INTERVAL = 36;
     private static final int GPU_FAILURE_INTERVAL = 180;

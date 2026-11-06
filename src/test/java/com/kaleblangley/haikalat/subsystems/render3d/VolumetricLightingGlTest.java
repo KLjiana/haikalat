@@ -21,6 +21,34 @@ import static org.lwjgl.opengl.GL46.*;
 
 @EnabledIfSystemProperty(named="haikalat.glSmoke",matches="true")
 class VolumetricLightingGlTest {
+    @Test void zeroLocalLightFramesNeverReadUndefinedOrStaleClusterHeadersAfterResize() {
+        try (var window=VolumetricGenerationGlTest.window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var tracking=GlDebug.acquireResourceTracking()) {
+                var size=new VolumetricGenerationGlTest.Size();
+                var scene=new Scene(VolumetricMediumGlTest.camera(true,33f/17));
+                scene.addLight(SceneLight.directional(new Vector3f(0,-1,-1),new Vector3f(1),2));
+                var p=pipeline(size,scene,fog(0),64);
+                try {
+                    p.build(); var device=new GlRenderDevice();
+                    for(int round=0;round<2;round++) {
+                        p.execute(device);
+                        var expected=VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric.resources().source());
+                        var storage=p.activeGenerationForTest().clusteredResources.storage();
+                        // Valid native allocations, deliberately stale contents: the producer skips assignment at count zero.
+                        glClearNamedBufferData(storage.clusterHeaders.id(),GL_RGBA32UI,GL_RGBA_INTEGER,GL_UNSIGNED_INT,new int[]{0,1,0,0});
+                        glClearNamedBufferData(storage.clusterIndices.id(),GL_R32UI,GL_RED_INTEGER,GL_UNSIGNED_INT,new int[]{0});
+                        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+                        p.execute(device);
+                        assertArrayEquals(expected,VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric.resources().source()),0f);
+                        if(round==0) {p.resize(65,33);size.width=65;size.height=33;}
+                    }
+                } finally {p.close();}
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+                GlDebug.assertNoError("zero-local-light borrowed cluster storage");
+            }
+        }
+    }
     static VolumetricFogSettings fog(float g) {
         return new VolumetricFogSettings(true,32,VolumetricFogSettings.Quality.BALANCED,
                 FogMediumSettings.homogeneous(.04f,new Vector3f(.7f,.8f,.9f),new Vector3f(.001f)),List.of(),

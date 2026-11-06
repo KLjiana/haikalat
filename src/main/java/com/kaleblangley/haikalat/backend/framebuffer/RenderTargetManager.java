@@ -13,10 +13,12 @@ import java.util.Objects;
 public final class RenderTargetManager implements AutoCloseable {
     private final Map<String, FramebufferDescriptor> descriptors = new LinkedHashMap<>();
     private final Map<String, Framebuffer> targets = new LinkedHashMap<>();
+    private final Map<String, RenderTargetManager> borrowed = new LinkedHashMap<>();
     private boolean closed;
 
     public Framebuffer create(String name, FramebufferDescriptor descriptor) {
         ensureOpen();
+        requireOwnedMutation(name);
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(descriptor, "descriptor");
         // Allocate the replacement before touching the active target. A failed allocation
@@ -47,6 +49,7 @@ public final class RenderTargetManager implements AutoCloseable {
                                     Framebuffer colorSource, Framebuffer depthSource,
                                     java.util.List<Integer> colorIndices) {
         ensureOpen();
+        requireOwnedMutation(name);
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(descriptor, "descriptor");
         Framebuffer candidate = Framebuffer.fromDescriptorSharingAttachments(descriptor, colorSource, depthSource, colorIndices);
@@ -61,6 +64,41 @@ public final class RenderTargetManager implements AutoCloseable {
         return targets.get(name);
     }
 
+    /** Candidate-only borrow. The source remains the sole owner until commitBorrowed(). */
+    public boolean borrowCompatible(String name, FramebufferDescriptor descriptor, RenderTargetManager source) {
+        ensureOpen();
+        source.ensureOpen();
+        if (source == this || targets.containsKey(name) || source.borrowed.containsKey(name))
+            throw new IllegalStateException("target borrow requires distinct, exclusive owners: " + name);
+        Framebuffer target = source.targets.get(name);
+        if (target == null || !descriptor.equals(source.descriptors.get(name))) return false;
+        targets.put(name, target);
+        descriptors.put(name, descriptor);
+        borrowed.put(name, source);
+        return true;
+    }
+
+    /** Checks every donor before any ownership is moved. Does not call GL. */
+    public void validateBorrowed() {
+        ensureOpen();
+        for (var entry : borrowed.entrySet()) {
+            RenderTargetManager source = entry.getValue();
+            source.ensureOpen();
+            if (source.targets.get(entry.getKey()) != targets.get(entry.getKey()))
+                throw new IllegalStateException("stale target donor: " + entry.getKey());
+        }
+    }
+
+    /** Transfers validated candidate borrows without allocating or deleting GL objects. */
+    public void commitBorrowed() {
+        validateBorrowed();
+        for (var entry : borrowed.entrySet()) {
+            entry.getValue().targets.remove(entry.getKey());
+            entry.getValue().descriptors.remove(entry.getKey());
+        }
+        borrowed.clear();
+    }
+
     /** Replaces a named subset atomically; unrelated targets keep their storage and identity. */
     public void replaceSelected(Map<String, FramebufferDescriptor> replacements) {
         replaceSelected(replacements, Framebuffer::fromDescriptor);
@@ -72,6 +110,7 @@ public final class RenderTargetManager implements AutoCloseable {
         ensureOpen();
         Map<String, Framebuffer> candidates = new LinkedHashMap<>();
         for (String name : replacements.keySet()) {
+            requireOwnedMutation(name);
             if (!targets.containsKey(name)) throw new IllegalArgumentException("unknown target: " + name);
         }
         try {
@@ -95,6 +134,7 @@ public final class RenderTargetManager implements AutoCloseable {
 
     public void resize(int width, int height) {
         ensureOpen();
+        if (!borrowed.isEmpty()) throw new IllegalStateException("cannot resize uncommitted borrowed targets");
         Map<String, FramebufferDescriptor> candidates = new LinkedHashMap<>();
         for (Map.Entry<String, FramebufferDescriptor> entry : descriptors.entrySet()) {
             candidates.put(entry.getKey(), entry.getValue().resized(width, height));
@@ -141,6 +181,8 @@ public final class RenderTargetManager implements AutoCloseable {
 
     private RuntimeException closeTargets() {
         Map<String, Framebuffer> previous = new LinkedHashMap<>(targets);
+        borrowed.keySet().forEach(previous::remove);
+        borrowed.clear();
         targets.clear();
         return closeTargets(previous);
     }
@@ -172,5 +214,9 @@ public final class RenderTargetManager implements AutoCloseable {
         if (closed) {
             throw new IllegalStateException("RenderTargetManager is closed");
         }
+    }
+
+    private void requireOwnedMutation(String name) {
+        if (borrowed.containsKey(name)) throw new IllegalStateException("cannot mutate an uncommitted borrowed target: " + name);
     }
 }

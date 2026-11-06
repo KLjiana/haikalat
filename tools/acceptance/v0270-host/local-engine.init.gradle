@@ -1,0 +1,14 @@
+gradle.projectsEvaluated {
+    def candidate = gradle.startParameter.projectProperties['v0270EngineJar']
+    if (candidate == null || !new File(candidate).isFile()) {
+        throw new GradleException('Supply -Pv0270EngineJar=<absolute candidate JAR>')
+    }
+    allprojects { p ->
+        p.configurations.each { c ->
+            c.dependencies.findAll { it.group == 'com.github.KLjiana' && it.name == 'haikalat' }.toList().each { dependency ->
+                c.dependencies.remove(dependency)
+                p.dependencies.add(c.name, p.files(candidate))
+            }
+        }
+    }
+}

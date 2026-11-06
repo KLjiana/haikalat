@@ -59,6 +59,8 @@ final class VolumetricPassBuilder implements AutoCloseable {
     private String softParticleDepthName;
     private int colorSamples=1;
     private boolean colorVfx;
+    private boolean fineMediumCacheEnabled = true;
+    void diagnosticFineMediumCache(boolean enabled) { fineMediumCacheEnabled=enabled; }
 
     void configureColorBudget(PipelineTopology topology) {
         colorSamples=topology.sampleCount(); colorVfx=topology.hdrVfx();
@@ -82,9 +84,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
     private final ParameterUploadCache volumeUploads = new ParameterUploadCache(8*VOLUME_STRIDE);
     private final ParameterUploadCache dirtyUploads = new ParameterUploadCache(VolumetricResources.DIRTY_DOMAINS_BYTES);
     private final ParameterUploadCache hintUploads;
-    private ClusteredLightingBinder borrowedLighting;
+    private VolumetricLightingInputs borrowedLighting;
     private LightingInputs lightingInputs;
     private PassResources fragmentInputs;
+    private VolumetricSurfaceInputs surfaceInputs;
     private long integratedSequence = -1;
     private boolean closed;
 
@@ -132,9 +135,9 @@ final class VolumetricPassBuilder implements AutoCloseable {
     static String shaderSource(String name, boolean fullScanReference) {
         return "#version 460 core\n" + (fullScanReference ? "#define VOLUME_FULL_SCAN\n" : "")
                 + resource("volume-common.glsl") + "\n"
-                + (name.equals("medium.comp") || name.equals("temporal.comp") || name.equals("source.comp") ? resource("volume-noise.glsl")+"\n" : "")
+                + (name.equals("medium.comp") || name.equals("temporal.comp") || name.equals("source.comp") || name.equals("surface-guide.comp") ? resource("volume-noise.glsl")+"\n" : "")
                 + (name.equals("source.comp") || name.equals("surface-guide.comp") ? resource("volume-lighting.glsl") + "\n" : "")
-                + (name.equals("source.comp") ? resource("volume-medium.glsl")+"\n" : "") + resource(name);
+                + (name.equals("source.comp") || name.equals("surface-guide.comp") ? resource("volume-medium.glsl")+"\n" : "") + resource(name);
     }
     static String resource(String name) {
         String path = "/shaders/render3d/volumetric/" + name;
@@ -144,15 +147,16 @@ final class VolumetricPassBuilder implements AutoCloseable {
         } catch (IOException failure) { throw new IllegalStateException("cannot read volume shader " + path, failure); }
     }
 
-    void addPasses(RenderGraph graph, ClusteredLightingBinder lightingBinder, LightingInputs inputs) {
+    void addPasses(RenderGraph graph, VolumetricLightingInputs lightingBinder, String lightingProducer, LightingInputs inputs) {
+        if (lightingBinder != null && (lightingProducer == null || !graph.hasPass(lightingProducer)))
+            throw new IllegalArgumentException("volumetric lighting requires a declared producer");
         borrowedLighting = lightingBinder; lightingInputs = inputs;
         graph.addPass(MEDIUM_PASS).computeOnly()
                 .borrowsExternalStorage("volume.medium", "volume.emission", "volume.parameters", "volume.localVolumes")
                 .execute((res, cmd) -> recordMedium(cmd));
-        graph.addPass(LIGHTING_PASS).computeOnly().dependsOn(MEDIUM_PASS)
-                .dependsOn(graph.hasPass(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS)
-                        ? ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS : ClusteredLightingPassBuilder.LIGHT_UPLOAD_PASS)
-                .borrowsExternalStorage("volume.medium", "volume.emission", "volume.currentSource", "volume.lightHints",
+        var lightPass = graph.addPass(LIGHTING_PASS).computeOnly().dependsOn(MEDIUM_PASS);
+        if (lightingProducer != null) lightPass.dependsOn(lightingProducer);
+        lightPass.borrowsExternalStorage("volume.medium", "volume.emission", "volume.currentSource", "volume.lightHints",
                         "lighting.lightTable", "lighting.clusterHeaders", "lighting.clusterIndices", "shadows.allocatedAtlases")
                 .execute((res, cmd) -> {
                     if (diagnosticSourceRecorder == null) recordSource(res, cmd, lighting, resources.source());
@@ -166,8 +170,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
                 .execute((res, cmd) -> recordIntegrate(cmd));
     }
 
-    void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology,
+    void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
                         RenderGraph.PassExecutor transparentExecutor) {
+        surfaceInputs.validate(graph, topology);
+        this.surfaceInputs = surfaceInputs;
         for (MeshRenderer renderer : scene.renderers()) {
             var material=renderer.material().material();
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
@@ -189,43 +195,43 @@ final class VolumetricPassBuilder implements AutoCloseable {
         compositeQuad=new ScreenQuad();
         surfaceGuide=compile("surface-guide.comp",5);
         var guide=graph.addPass(SURFACE_GUIDE_PASS).computeOnly().dependsOn(INTEGRATE_PASS)
-                .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS)
+                .dependsOn(surfaceInputs.geometryPass())
                 .borrowsExternalStorage("volume.prefix","scene.depth","volume.lightHints","lighting.lightTable","lighting.clusterParameters");
-        if(ms)guide.dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS);
+        if(ms)guide.dependsOn(surfaceInputs.resolvePass());
         guide.execute((res,cmd)->recordSurfaceGuide(res,cmd,ms));
         reactive=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
                 "#version 460 core\n"
                         +resource("volume-common.glsl")+"\n"+resource("volume-query.glsl")+"\n"
                         +resource("volume-reactive.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
                         +resource("volume-native-reactive.glsl")+"\n"+resource("reactive.frag"));
-        softParticleDepthName=ms ? com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH : "volume.softParticleDepth";
+        softParticleDepthName=ms ? surfaceInputs.depthTexture() : "volume.softParticleDepth";
         if (topology.hdrVfx() && !ms) {
             softDepthCopy=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
                     "#version 460 core\nlayout(binding=0) uniform sampler2D uDepth; layout(location=0) out float depth;"
                             +"void main(){depth=texelFetch(uDepth,ivec2(gl_FragCoord.xy),0).r;}");
             graph.addPass("VolumetricSoftDepthCopy").createColor(softParticleDepthName,RenderFormat.R32F).noClear()
-                    .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_PASS)
+                    .dependsOn(surfaceInputs.surfacePass())
                     .execute((res,cmd)->cmd.bindShader(softDepthCopy).enableDepthTest(false).enableBlend(false)
-                            .bindTexture(0,res.depthAttachment(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH))
+                            .bindTexture(0,res.depthAttachment(surfaceInputs.depthTexture()))
                             .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6));
         }
         RenderGraph.PassBuilder pass=graph.addPass(COMPOSITE_PASS);
         if (ms) pass.createColorsMS(java.util.List.of(COMPOSITE_COLOR),java.util.List.of(RenderFormat.RGBA16F),topology.sampleCount());
         else pass.createColors(java.util.List.of(COMPOSITE_COLOR,OPAQUE_REACTIVE),java.util.List.of(RenderFormat.RGBA16F,RenderFormat.R8));
-        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS)
+        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(surfaceInputs.geometryPass())
                 .borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes","volume.lightHints",
                         "volume.dirtyDomains","lighting.lightTable","lighting.clusterHeaders","lighting.clusterIndices","shadows.allocatedAtlases")
                 .execute((res,cmd)->recordComposite(res,cmd,ms));
         RenderGraph.PassBuilder transparent=graph.addPass(TRANSPARENT_PASS)
                 .shareColorTextures(java.util.List.of(SCENE_COLOR),java.util.List.of(RenderFormat.RGBA16F),COMPOSITE_PASS,topology.sampleCount())
-                .shareDepthTexture(ms ? com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH_MS
-                                : com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH,
-                        com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_PASS)
-                .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_PASS)
+                .shareDepthTexture(ms ? surfaceInputs.multisampleDepthTexture()
+                                : surfaceInputs.depthTexture(),
+                        surfaceInputs.surfacePass())
+                .dependsOn(surfaceInputs.surfacePass())
                 .noClear().borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes",
                         "volume.lightHints","volume.diagnostics","volume.dirtyDomains","lighting.lightTable","shadows.allocatedAtlases");
         if (topology.hdrVfx()) transparent.dependsOn(ms
-                ? com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS : "VolumetricSoftDepthCopy");
+                ? surfaceInputs.resolvePass() : "VolumetricSoftDepthCopy");
         transparent.execute(transparentExecutor);
     }
     void addReactivePass(RenderGraph graph,PipelineTopology topology,RenderGraph.PassExecutor executor) {
@@ -235,7 +241,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
         if (topology.sampleCount()==1) pass.shareColorAttachments(java.util.List.of(REACTIVE_TEXTURE),
                 java.util.List.of(RenderFormat.R8),COMPOSITE_PASS,java.util.List.of(1),1).noClear();
         else pass.createColor(REACTIVE_TEXTURE,RenderFormat.R8).clearColor(0,0,0,0)
-                .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS);
+                .dependsOn(surfaceInputs.resolvePass());
         pass.execute(executor);
     }
     void recordReactive(PassResources inputs,CommandBuffer cmd) {
@@ -282,9 +288,9 @@ final class VolumetricPassBuilder implements AutoCloseable {
     }
 
     private void recordComposite(PassResources inputs,CommandBuffer cmd,boolean ms) {
-        var geometry=inputs.framebufferOfPass(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS);
+        var geometry=inputs.framebufferOfPass(surfaceInputs.geometryPass());
         var frame=requireFrame();
-        opaqueDepthTexture=ms ? inputs.colorAttachment(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH) : geometry.depthAttachment();
+        opaqueDepthTexture=ms ? inputs.colorAttachment(surfaceInputs.depthTexture()) : geometry.depthAttachment();
         cmd.bindShader(composite).enableBlend(false).enableDepthTest(false).depthMask(false)
                 .enableCullFace(false).enableFramebufferSrgb(false).sampleShading(ms,ms ? 1 : 0);
         bindQuery(cmd,composite);
@@ -303,15 +309,18 @@ final class VolumetricPassBuilder implements AutoCloseable {
     private final org.joml.Matrix4f guideRasterProjection=new org.joml.Matrix4f();
     private void recordSurfaceGuide(PassResources inputs,CommandBuffer cmd,boolean ms) {
         var frame=requireFrame();
-        int depth=ms ? inputs.colorAttachment(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_DEPTH)
-                : inputs.framebufferOfPass(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS).depthAttachment();
+        int depth=ms ? inputs.colorAttachment(surfaceInputs.depthTexture())
+                : inputs.framebufferOfPass(surfaceInputs.geometryPass()).depthAttachment();
         bindLightingInputs(inputs,cmd,surfaceGuide);
         cmd.memoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT).bindShader(surfaceGuide).bindTexture(0,depth)
+                .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES)
+                .bindStorageBuffer(7,resources.diagnostics(),0,VolumetricResources.DIAGNOSTICS_BYTES)
+                .bindStorageBuffer(15,resources.fineMediumCache(),0,resources.fineMediumCacheBytes())
                 .bindImageTexture(0,resources.prefix(),0,ImageAccess.WRITE_ONLY,RenderFormat.RGBA16F)
                 .setUniformMat4(surfaceGuide,"uGuideRasterProjection",guideRasterProjection.set(rasterInverseProjection).invert())
                 .setUniformMat4(surfaceGuide,"uGuideRasterInverseProjection",rasterInverseProjection)
                 .dispatchCompute((frame.grid().nx()+7)/8,(frame.grid().ny()+7)/8,1)
-                .memoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+                .memoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
         surfaceGuideSequence=frame.sequence();
     }
     private final org.joml.Matrix4f rasterInverseProjection=new org.joml.Matrix4f();
@@ -354,7 +363,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
                     .bindStorageBuffer(4,resources.lightHints(),0,resources.lightHintsBytes())
                     .bindStorageBuffer(5,resources.diagnostics(),0,VolumetricResources.DIAGNOSTICS_BYTES)
                     .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES);
-            if(borrowedLighting!=null)borrowedLighting.bindFineLightTable(cmd);
+            if(borrowedLighting!=null)borrowedLighting.bindFine(cmd);
             if(lightingInputs!=null)lightingInputs.record(fragmentInputs,cmd,shader);
         }
         cmd.bindTexture3D(14,resources.prefix()).bindTexture3D(15,querySource())
@@ -365,6 +374,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
                 .bindTexture3D(19,resources.reactivePrefix()).bindTexture3D(20,resources.lightOffReactive());
         cmd.trySetUniformInt(shader,"uVolumeReactiveOnly",0);
         cmd.trySetUniformInt(shader,"uVolumeSurfaceGuideEnabled",surfaceGuideSequence==requireFrame().sequence() ? 1 : 0);
+        if(shader.hasStorageBlock("VolumeFineMediumCache")) {
+            cmd.bindStorageBuffer(15,resources.fineMediumCache(),0,resources.fineMediumCacheBytes());
+            cmd.trySetUniformInt(shader,"uVolumeFineMediumCacheEnabled",fineMediumCacheEnabled && surfaceGuideSequence==requireFrame().sequence() ? 1 : 0);
+        }
         cmd.trySetUniformMat4(shader,"uVolumeRasterInverseProjection",rasterInverseProjection);
     }
     void fragmentInputs(PassResources inputs) { requireFrame();fragmentInputs=java.util.Objects.requireNonNull(inputs); }
@@ -399,10 +412,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
             throw new IllegalStateException("volume extent changed without a resize transaction");
         }
         historyPlan.prepare(context,frame,frameState.previous(),frameState.valid() && resources.historyValid(),
-                borrowedLighting==null ? null : borrowedLighting.stagedTable(),shadows);
+                borrowedLighting==null ? null : borrowedLighting.frameTable(context.frameSequence()),shadows);
         pack(frame);
         if (borrowedLighting != null) {
-            LightVolumePacker.pack(borrowedLighting.stagedTable(), lightHints);
+            LightVolumePacker.pack(borrowedLighting.frameTable(context.frameSequence()), lightHints);
         } else lightHints.limit(0);
         integratedSequence = -1;
         surfaceGuideSequence = -1;
@@ -507,10 +520,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
         if (borrowedLighting != null) {
             if (lightHints.hasRemaining()) hintUploads.record(cmd,resources.lightHints(),lightHints);
             cmd.bindStorageBuffer(4, resources.lightHints(),0,resources.lightHintsBytes());
-            borrowedLighting.bindForward(cmd,shader);
-            // Indexed near-light queries can optimize away ClusterParametersBlock.
-            // They still require an explicit table binding in this pass.
-            if(shader.hasStorageBlock(ClusteredLightingResources.LIGHT_TABLE_BLOCK))borrowedLighting.bindVolumeLightTable(cmd);
+            borrowedLighting.bindCompute(cmd,shader);
             if (lightingInputs != null && shader!=surfaceGuide) lightingInputs.record(inputs,cmd,shader);
         }
     }

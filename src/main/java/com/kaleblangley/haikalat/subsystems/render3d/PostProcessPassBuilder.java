@@ -57,6 +57,9 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final org.joml.Matrix4f previousTaaStableViewProjection = new org.joml.Matrix4f();
     private final org.joml.Matrix4f taaInverseView = new org.joml.Matrix4f();
     private boolean previousTaaFrameValid;
+    enum TaaInvalidationReason { NONE, FIRST_FRAME, VOLUMETRIC_SETTINGS, VOLUMETRIC_TOPOLOGY, RESIZE, EXPLICIT_RESET }
+    private TaaInvalidationReason pendingTaaInvalidation = TaaInvalidationReason.FIRST_FRAME;
+    private TaaInvalidationReason completedTaaInvalidation = TaaInvalidationReason.NONE;
     private final Matrix4f fogInverseViewProjection = new Matrix4f();
     private final Matrix4f fogProjection = new Matrix4f();
     private final Matrix4f fogView = new Matrix4f();
@@ -66,6 +69,31 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private String linearHdrTextureName;
     private String sceneColorInput=PostProcessTargets.SCENE_COLOR;
     private String sceneColorProducer=PostProcessTargets.GEOMETRY_PASS;
+    private boolean ownsResources = true;
+
+    /** Independent assembly state over borrowed GPU owners; preparation never mutates active callbacks. */
+    PostProcessPassBuilder replacementAssembly(RenderSettings replacement, boolean surface, boolean reactive,
+                                                RenderGraph.PassExecutor vfx, RenderGraph.PassExecutor recorder) {
+        var candidate = new PostProcessPassBuilder(replacement, effects, window, fxaa, taa, taaHistory,
+                toneMapping, bloom, autoExposure, fog, gtao, vfx, surface, reactive, recorder);
+        candidate.ownsResources = false;
+        return candidate;
+    }
+
+    void validateTransferTo(PostProcessPassBuilder candidate) {
+        if (!ownsResources || candidate.ownsResources || candidate.taaHistory != taaHistory
+                || candidate.toneMapping != toneMapping || candidate.gtao != gtao
+                || candidate.fxaa != fxaa || candidate.taa != taa || candidate.bloom != bloom
+                || candidate.autoExposure != autoExposure || candidate.fog != fog)
+            throw new IllegalStateException("invalid postprocess ownership transfer");
+    }
+
+    void transferResourcesTo(PostProcessPassBuilder candidate) {
+        validateTransferTo(candidate);
+        ownsResources = false;
+        candidate.ownsResources = true;
+        candidate.invalidateTemporalHistory(TaaInvalidationReason.VOLUMETRIC_TOPOLOGY);
+    }
 
     void sceneColorInput(String texture,String producer) {
         sceneColorInput=Objects.requireNonNull(texture); sceneColorProducer=Objects.requireNonNull(producer);
@@ -713,6 +741,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
         }
         if (gtao != null) gtao.frameSucceeded();
         if (taaHistory != null) taaHistory.commitSuccessfulFrame();
+        completedTaaInvalidation = taaHistory == null ? TaaInvalidationReason.NONE : pendingTaaInvalidation;
+        pendingTaaInvalidation = TaaInvalidationReason.NONE;
         previousTaaFrameValid = true;
     }
 
@@ -729,8 +759,17 @@ final class PostProcessPassBuilder implements AutoCloseable {
     }
 
     void invalidateTemporalHistory() {
+        invalidateTemporalHistory(TaaInvalidationReason.EXPLICIT_RESET);
+    }
+
+    void invalidateTemporalHistory(TaaInvalidationReason reason) {
         if (taaHistory != null) taaHistory.invalidate();
+        pendingTaaInvalidation = Objects.requireNonNull(reason, "reason");
         previousTaaFrameValid = false;
+    }
+
+    String completedTaaInvalidationReason() {
+        return completedTaaInvalidation == TaaInvalidationReason.NONE ? "" : "TAA_" + completedTaaInvalidation.name();
     }
 
     /** Test/diagnostic access to the TAA history owner. */
@@ -822,7 +861,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
 
         private void commitInto(PostProcessPassBuilder expectedOwner) {
             validateFor(expectedOwner);
-            if (taaCandidate != null) owner.taaHistory.commitResize(taaCandidate);
+            if (taaCandidate != null) {
+                owner.taaHistory.commitResize(taaCandidate);
+                owner.pendingTaaInvalidation = TaaInvalidationReason.RESIZE;
+            }
             if (gtaoCandidate != null) owner.gtao.commitResize(gtaoCandidate);
             committed = true;
         }
@@ -853,6 +895,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!ownsResources) return;
+        ownsResources = false;
         RuntimeException failure = null;
         failure = closeCollecting(fog, failure);
         failure = closeCollecting(gtao, failure);

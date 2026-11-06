@@ -45,7 +45,7 @@ class VolumetricResourcesGlTest {
                 long liveBytes = GlDebug.resources().estimatedBytes();
                 int liveCount = GlDebug.resources().liveResources().size();
                 assertEquals(resources.bytes(), liveBytes);
-                for (int allocation = 0; allocation < 14; allocation++) {
+                for (int allocation = 0; allocation < 15; allocation++) {
                     System.setProperty("haikalat.test.failVolumeAllocation", Integer.toString(allocation));
                     try {
                         assertThrows(IllegalStateException.class, () -> resources.prepareResize(5,7,9,true));
@@ -186,8 +186,9 @@ class VolumetricResourcesGlTest {
                      var shader = ShaderProgram.fromComputeSource(FILL.replace("rgba16f","rgba32f"))) {
                     assertEquals(RenderFormat.RGBA32F,resources.source().format());
                     long storageBytes = resources.bytes();
-                    assertEquals(124_722_960L, storageBytes);
+                    assertEquals(126_278_160L, storageBytes);
                     assertTrue(storageBytes < BUDGET);
+                    assertTrue(storageBytes+9L*3840*2160 < 192L*1024*1024,"keep the original private plus native-color budget");
                     GlRenderDevice device = new GlRenderDevice();
                     write(device,shader,resources.source(),0.12345679f);
                     var sample = BufferUtils.createFloatBuffer(4);
