@@ -179,8 +179,14 @@ public final class CommandBuffer {
         return this;
     }
 
+    /** A null sampler restores the bound texture's own sampling parameters. */
     public CommandBuffer bindSampler(int unit, Sampler sampler) {
-        Objects.requireNonNull(sampler, "sampler");
+        if (sampler == null) {
+            opcode(BIND_SAMPLER);
+            integer(unit);
+            integer(0);
+            return this;
+        }
         opcode(BIND_CHECKED_SAMPLER);
         integer(unit);
         integer(sampler.id());

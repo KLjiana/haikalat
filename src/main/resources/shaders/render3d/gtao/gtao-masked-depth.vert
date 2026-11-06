@@ -2,6 +2,7 @@
 
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec2 aTexCoord;
+layout(location = 4) in vec4 aColor;
 layout(location = 5) in vec4 aJoints;
 layout(location = 6) in vec4 aWeights;
 
@@ -15,6 +16,7 @@ uniform int uSkinningEnabled;
 uniform int uMorphTargetCount;
 uniform int uMorphVertexCount;
 out vec2 vTexCoord;
+out vec4 vVertexColor;
 
 mat4 skinMatrix() {
     if (uSkinningEnabled == 0) return mat4(1.0);
@@ -39,6 +41,7 @@ vec3 morphPosition() {
 
 void main() {
     vTexCoord = aTexCoord;
+    vVertexColor = aColor;
     gl_Position = uProjection * uView * uModel * skinMatrix()
         * vec4(morphPosition(), 1.0);
 }

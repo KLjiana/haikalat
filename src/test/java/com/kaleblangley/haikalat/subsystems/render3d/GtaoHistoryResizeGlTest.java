@@ -12,6 +12,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** Verifies GTAO history allocation failure cannot retire the active pair. */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class GtaoHistoryResizeGlTest {
+    @Test void staleAndClosedResizeCandidatesCannotReplaceCurrentHistory() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(64, 48).title("GTAO stale resize").visible(false).build()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var history = new GtaoHistory(16, 12);
+                 var stale = history.prepareResize(24, 20);
+                 var current = history.prepareResize(25, 21)) {
+                history.commitResize(current);
+                int published = history.readFramebuffer().id();
+                assertThrows(IllegalStateException.class, () -> history.commitResize(stale));
+                assertEquals(published, history.readFramebuffer().id());
+                assertThrows(IllegalArgumentException.class, () -> history.prepareResize(0, 1));
+                var cancelled = history.prepareResize(20, 20); cancelled.close();
+                assertThrows(IllegalStateException.class, () -> history.commitResize(cancelled));
+            }
+        }
+    }
+
     @Test
     void injectedGtaoAllocationFailureLeavesActivePairUntouched() {
         try (GlfwWindow window = new GlfwWindow.Builder()

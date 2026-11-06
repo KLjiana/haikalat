@@ -32,6 +32,7 @@ record PipelineTopology(int width,
                         boolean hdrVfx,
                         boolean embedded,
                         boolean gtaoEnabled,
+                        boolean gtaoTemporal,
                         int gtaoHalfWidth,
                         int gtaoHalfHeight,
                         SceneBufferRequirements sceneBuffers,
@@ -66,8 +67,8 @@ record PipelineTopology(int width,
         }
     }
 
-    /** Fog may add surface/reactive channels; all other resource-shaping inputs must match. */
-    boolean sameNonVolumetricStructure(PipelineTopology other) {
+    /** Fog and GTAO may alter shared surfaces; unrelated resource shapes must match. */
+    boolean sameNonModuleStructure(PipelineTopology other) {
         return width == other.width && height == other.height && antiAliasingMode == other.antiAliasingMode
                 && sampleCount == other.sampleCount && hdr == other.hdr && bloom == other.bloom
                 && bloomLevels == other.bloomLevels && automaticExposure == other.automaticExposure
@@ -77,8 +78,11 @@ record PipelineTopology(int width,
                 && directionalShadowAtlasSize == other.directionalShadowAtlasSize
                 && pointShadowCapacity == other.pointShadowCapacity && pointShadowResolution == other.pointShadowResolution
                 && spotShadowCapacity == other.spotShadowCapacity && spotShadowResolution == other.spotShadowResolution
-                && pbrMaterials == other.pbrMaterials && hdrVfx == other.hdrVfx && embedded == other.embedded
-                && gtaoEnabled == other.gtaoEnabled && gtaoHalfWidth == other.gtaoHalfWidth && gtaoHalfHeight == other.gtaoHalfHeight;
+                && pbrMaterials == other.pbrMaterials && hdrVfx == other.hdrVfx && embedded == other.embedded;
+    }
+
+    boolean sameNonVolumetricStructure(PipelineTopology other) {
+        return sameNonModuleStructure(other) && gtaoEnabled == other.gtaoEnabled && gtaoTemporal == other.gtaoTemporal;
     }
 
     static PipelineTopology capture(Scene scene, RenderSettings settings,
@@ -137,7 +141,7 @@ record PipelineTopology(int width,
                 cascades.atlasSize(), localShadows.maxPointLights(),
                 localShadows.point().resolution(), localShadows.maxSpotLights(),
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
-                effects.gtao().enabled(), (Math.max(1, width) + 1) / 2,
+                effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
                 sceneBufferRequirements(scene, settings, effects, samples, hdrVfx)
                         .merge(volume.enabled() ? SceneBufferRequirements.fog().withSamples(samples) : SceneBufferRequirements.none())
@@ -192,7 +196,7 @@ record PipelineTopology(int width,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
-                gtaoEnabled, (width + 1) / 2, (height + 1) / 2, sceneBuffers,
+                gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneBuffers,
                 volumetricFog, volumetricQuality, volumetricEmission);
     }
 }

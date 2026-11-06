@@ -233,7 +233,10 @@ final class SceneSurfacePass implements AutoCloseable {
         float cutoffValue = cutoff instanceof UniformValue.FloatVal value ? value.value() : 0.5f;
         Vector4f factorValue = factor instanceof UniformValue.Vec4Val value
                 ? value.value() : new Vector4f(1.0f);
+        UniformValue vertexColor = instance.uniformOverrides().get(UniformKey.int1("uHasVertexColor"));
+        if (vertexColor == null) vertexColor = material.defaultUniforms().get(UniformKey.int1("uHasVertexColor"));
         cmd.setUniformInt(shader, "uBaseColorMap", 0)
+                .setUniformInt(shader, "uHasVertexColor", vertexColor instanceof UniformValue.IntVal value ? value.value() : 0)
                 .setUniformFloat(shader, "uAlphaCutoff", cutoffValue)
                 .setUniformVec4(shader, "uBaseColorFactor", factorValue);
     }

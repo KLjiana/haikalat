@@ -58,8 +58,8 @@ final class GtaoHistory implements AutoCloseable {
 
     ResizeCandidate prepareResize(int width, int height) {
         ensureOpen();
-        if (width <= 0 || height <= 0
-                || buffers[0].width() == width && buffers[0].height() == height) {
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException("GTAO history extent must be positive");
+        if (buffers[0].width() == width && buffers[0].height() == height) {
             return new ResizeCandidate(this, null);
         }
         if (Boolean.getBoolean("haikalat.test.failGtaoResizeAllocation")) {
@@ -84,6 +84,7 @@ final class GtaoHistory implements AutoCloseable {
 
     static final class ResizeCandidate implements AutoCloseable {
         private final GtaoHistory owner;
+        private final Framebuffer[] originalPair;
         private Framebuffer[] candidate;
         private Framebuffer[] retired;
         private boolean committed;
@@ -91,6 +92,7 @@ final class GtaoHistory implements AutoCloseable {
 
         private ResizeCandidate(GtaoHistory owner, Framebuffer[] candidate) {
             this.owner = owner;
+            this.originalPair = owner.buffers;
             this.candidate = candidate;
         }
 
@@ -100,6 +102,8 @@ final class GtaoHistory implements AutoCloseable {
             }
             if (closed) throw new IllegalStateException("GTAO resize candidate is closed");
             if (committed) throw new IllegalStateException("GTAO resize candidate already committed");
+            owner.ensureOpen();
+            if (owner.buffers != originalPair) throw new IllegalStateException("stale GTAO history resize candidate");
             if (candidate != null) {
                 retired = owner.buffers;
                 owner.buffers = candidate;
@@ -158,13 +162,20 @@ final class GtaoHistory implements AutoCloseable {
         }
         Framebuffer first = null;
         try {
+            failAllocation(0);
             first = create(width, height);
+            failAllocation(1);
             Framebuffer second = create(width, height);
             return new Framebuffer[]{first, second};
         } catch (RuntimeException failure) {
             if (first != null) first.close();
             throw failure;
         }
+    }
+
+    private static void failAllocation(int ordinal) {
+        if (Integer.getInteger("haikalat.test.failGtaoAllocation", -1) == ordinal)
+            throw new IllegalStateException("injected GTAO history allocation failure " + ordinal);
     }
 
     private static Framebuffer create(int width, int height) {

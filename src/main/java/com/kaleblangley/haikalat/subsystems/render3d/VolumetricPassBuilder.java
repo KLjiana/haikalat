@@ -85,6 +85,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
     private final ParameterUploadCache dirtyUploads = new ParameterUploadCache(VolumetricResources.DIRTY_DOMAINS_BYTES);
     private final ParameterUploadCache hintUploads;
     private VolumetricLightingInputs borrowedLighting;
+    private boolean lightingAssemblyInitialized;
     private LightingInputs lightingInputs;
     private PassResources fragmentInputs;
     private VolumetricSurfaceInputs surfaceInputs;
@@ -147,10 +148,24 @@ final class VolumetricPassBuilder implements AutoCloseable {
         } catch (IOException failure) { throw new IllegalStateException("cannot read volume shader " + path, failure); }
     }
 
+    boolean compatibleScene(Scene scene, PipelineTopology topology) {
+        if (closed || colorSamples != topology.sampleCount() || colorVfx != topology.hdrVfx()) return false;
+        for (var renderer : scene.renderers()) {
+            var material = renderer.material().material();
+            if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
+                    && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) return false;
+        }
+        return true;
+    }
+
     void addPasses(RenderGraph graph, VolumetricLightingInputs lightingBinder, String lightingProducer, LightingInputs inputs) {
         if (lightingBinder != null && (lightingProducer == null || !graph.hasPass(lightingProducer)))
             throw new IllegalArgumentException("volumetric lighting requires a declared producer");
-        borrowedLighting = lightingBinder; lightingInputs = inputs;
+        if (!lightingAssemblyInitialized) {
+            borrowedLighting = lightingBinder; lightingInputs = inputs; lightingAssemblyInitialized = true;
+        } else if (borrowedLighting != lightingBinder) {
+            throw new IllegalArgumentException("reused fog owner requires the same borrowed lighting storage");
+        }
         graph.addPass(MEDIUM_PASS).computeOnly()
                 .borrowsExternalStorage("volume.medium", "volume.emission", "volume.parameters", "volume.localVolumes")
                 .execute((res, cmd) -> recordMedium(cmd));
@@ -173,42 +188,52 @@ final class VolumetricPassBuilder implements AutoCloseable {
     void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
                         RenderGraph.PassExecutor transparentExecutor) {
         surfaceInputs.validate(graph, topology);
-        this.surfaceInputs = surfaceInputs;
+        if (this.surfaceInputs == null) this.surfaceInputs = surfaceInputs;
+        else if (!this.surfaceInputs.equals(surfaceInputs) || colorSamples != topology.sampleCount()
+                || colorVfx != topology.hdrVfx())
+            throw new IllegalArgumentException("reused fog owner requires compatible surface/color inputs");
         for (MeshRenderer renderer : scene.renderers()) {
             var material=renderer.material().material();
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
                     && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) {
+                if (composite != null) throw new IllegalArgumentException("reused fog owner cannot compile new material variants during candidate assembly");
                 transparentVariants.put(material.shader(), material.shader().withFragmentPrelude(
                         VolumetricFogView.SHADER_CONTRACT, VolumetricFogView.fragmentPrelude()));
             }
         }
         boolean ms=topology.sampleCount()>1;
-        if (Integer.getInteger("haikalat.test.failVolumeCompilation",-1)==3)
-            throw new IllegalStateException("injected fog composite compilation failure");
-        composite=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
-                "#version 460 core\n"+(ms ? "#define VOLUME_MSAA\n" : "")
-                        +resource("volume-common.glsl")+"\n"+resource("volume-query.glsl")+"\n"
-                        +(ms ? "" : resource("volume-reactive.glsl")+"\n")
-                        +resource("volume-lighting.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
-                        +resource("volume-medium.glsl")+"\n"+resource("volume-fine.glsl")+"\n"
-                        +resource("composite.frag"));
-        compositeQuad=new ScreenQuad();
-        surfaceGuide=compile("surface-guide.comp",5);
+        if (composite == null) {
+            if (Integer.getInteger("haikalat.test.failVolumeCompilation",-1)==3)
+                throw new IllegalStateException("injected fog composite compilation failure");
+            composite=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
+                    "#version 460 core\n"+(ms ? "#define VOLUME_MSAA\n" : "")
+                            +resource("volume-common.glsl")+"\n"+resource("volume-query.glsl")+"\n"
+                            +(ms ? "" : resource("volume-reactive.glsl")+"\n")
+                            +resource("volume-lighting.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
+                            +resource("volume-medium.glsl")+"\n"+resource("volume-fine.glsl")+"\n"
+                            +resource("composite.frag"));
+            compositeQuad=new ScreenQuad();
+            surfaceGuide=compile("surface-guide.comp",5);
+        }
         var guide=graph.addPass(SURFACE_GUIDE_PASS).computeOnly().dependsOn(INTEGRATE_PASS)
                 .dependsOn(surfaceInputs.geometryPass())
                 .borrowsExternalStorage("volume.prefix","scene.depth","volume.lightHints","lighting.lightTable","lighting.clusterParameters");
         if(ms)guide.dependsOn(surfaceInputs.resolvePass());
         guide.execute((res,cmd)->recordSurfaceGuide(res,cmd,ms));
-        reactive=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
-                "#version 460 core\n"
-                        +resource("volume-common.glsl")+"\n"+resource("volume-query.glsl")+"\n"
-                        +resource("volume-reactive.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
-                        +resource("volume-native-reactive.glsl")+"\n"+resource("reactive.frag"));
-        softParticleDepthName=ms ? surfaceInputs.depthTexture() : "volume.softParticleDepth";
+        if (reactive == null) {
+            reactive=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
+                    "#version 460 core\n"
+                            +resource("volume-common.glsl")+"\n"+resource("volume-query.glsl")+"\n"
+                            +resource("volume-reactive.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
+                            +resource("volume-native-reactive.glsl")+"\n"+resource("reactive.frag"));
+        }
+        if (softParticleDepthName == null) softParticleDepthName=ms ? surfaceInputs.depthTexture() : "volume.softParticleDepth";
         if (topology.hdrVfx() && !ms) {
-            softDepthCopy=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
-                    "#version 460 core\nlayout(binding=0) uniform sampler2D uDepth; layout(location=0) out float depth;"
-                            +"void main(){depth=texelFetch(uDepth,ivec2(gl_FragCoord.xy),0).r;}");
+            if (softDepthCopy == null) {
+                softDepthCopy=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
+                        "#version 460 core\nlayout(binding=0) uniform sampler2D uDepth; layout(location=0) out float depth;"
+                                +"void main(){depth=texelFetch(uDepth,ivec2(gl_FragCoord.xy),0).r;}");
+            }
             graph.addPass("VolumetricSoftDepthCopy").createColor(softParticleDepthName,RenderFormat.R32F).noClear()
                     .dependsOn(surfaceInputs.surfacePass())
                     .execute((res,cmd)->cmd.bindShader(softDepthCopy).enableDepthTest(false).enableBlend(false)

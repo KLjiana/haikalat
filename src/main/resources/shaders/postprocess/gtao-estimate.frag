@@ -116,9 +116,9 @@ vec2 encodeOctahedral(vec3 normal) {
 }
 
 vec3 decodeOctahedral(vec2 encoded) {
-    vec3 normal = vec3(encoded * 2.0 - 1.0, 1.0
-            - abs(encoded.x * 2.0 - 1.0)
-            - abs(encoded.y * 2.0 - 1.0));
+    // SceneSurfacePass stores signed octahedral coordinates in RG16F.
+    // The local GTAO normal cache uses a separate unsigned encoding.
+    vec3 normal = vec3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
     if (normal.z < 0.0) {
         normal.xy = (1.0 - abs(normal.yx))
                 * vec2(normal.x >= 0.0 ? 1.0 : -1.0,

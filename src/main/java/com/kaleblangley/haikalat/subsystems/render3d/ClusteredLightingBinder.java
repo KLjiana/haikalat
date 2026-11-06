@@ -117,8 +117,7 @@ final class ClusteredLightingBinder implements AutoCloseable {
         return stagedTable;
     }
 
-    VolumetricLightingInputs volumetricInputs() {
-        return new VolumetricLightingInputs() {
+    private final VolumetricLightingInputs volumeInputs = new VolumetricLightingInputs() {
             public FrameLightTable frameTable(long sequence) {
                 requireStaged();
                 if (preparedFrameSequence != sequence) throw new IllegalStateException("stale volumetric light frame");
@@ -130,7 +129,8 @@ final class ClusteredLightingBinder implements AutoCloseable {
             }
             public void bindFine(CommandBuffer commands) { bindFineLightTable(commands); }
         };
-    }
+
+    VolumetricLightingInputs volumetricInputs() { return volumeInputs; }
 
     /** Uploads the light table and clears this frame's diagnostic counter slot. */
     void recordUpload(CommandBuffer cmd) {

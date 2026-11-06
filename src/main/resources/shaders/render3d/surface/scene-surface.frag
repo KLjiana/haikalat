@@ -1,6 +1,7 @@
 #version 460 core
 
 in vec2 vTexCoord;
+in vec4 vVertexColor;
 in vec3 vWorldNormal;
 in vec3 vWorldPosition;
 in vec4 vCurrentClip;
@@ -14,6 +15,7 @@ layout(location = 2) out float outPreviousDepth;
 layout(location = 3) out float outValidity;
 
 uniform int uMasked;
+uniform int uHasVertexColor;
 uniform int uDerivativeNormal;
 uniform float uAlphaCutoff;
 uniform vec4 uBaseColorFactor;
@@ -41,6 +43,7 @@ vec3 surfaceNormal() {
 void main() {
     if (uMasked != 0) {
         vec4 base = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor;
+        if (uHasVertexColor != 0) base *= vVertexColor;
         if (base.a < uAlphaCutoff) {
             discard;
         }

@@ -105,6 +105,7 @@ public final class RenderPipeline {
     private PointShadowAtlas pointShadowAtlas = PointShadowAtlas.defaults();
     private SpotShadowAtlas spotShadowAtlas = SpotShadowAtlas.defaults();
     private PipelineGeneration activeGeneration;
+    private int maximumTextureDimension;
     private final java.util.ArrayDeque<RetiredGeneration> retiredGenerations = new java.util.ArrayDeque<>();
     private long lastVolumeCandidatePeakBytes;
     private record RetiredGeneration(PipelineGeneration generation, com.kaleblangley.haikalat.backend.sync.GpuFence fence) { }
@@ -360,6 +361,44 @@ public final class RenderPipeline {
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) volumetricFogSettings = previous;
+            throw failure;
+        }
+    }
+
+    /** Current advanced GTAO configuration; does not expose private resources. */
+    public com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings gtao() { return postProcessSettings.gtao(); }
+
+    /** Updates only GTAO at a synchronous render-owner frame boundary. */
+    public void applyGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings replacement) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) { applyGtaoInternal(replacement); }
+        } else applyGtaoInternal(replacement);
+    }
+
+    private void applyGtaoInternal(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings replacement) {
+        Objects.requireNonNull(replacement, "gtao");
+        if (executing) throw new IllegalStateException("GTAO changes are only allowed at frame boundaries");
+        if (replacement.equals(gtao())) return;
+        var previous = postProcessSettings;
+        var before = activeGeneration;
+        postProcessSettings = new PostProcessSettings(previous.colorGrading(), previous.fog(), replacement);
+        try {
+            if (before != null) {
+                var topology = PipelineTopology.capture(scene, settings, postProcessSettings,
+                        before.graph.width(), before.graph.height(), hdrVfxRecorder != null, embedded,
+                        directionalCascadeSettings, localShadowSettings, volumetricFogSettings);
+                if (!topology.equals(before.topology)) activateGeneration(createGeneration(scene, topology, before));
+                else {
+                    if (before.gtao != null) {
+                        before.gtao.applySettings(replacement);
+                        before.postProcess.invalidateTemporalHistory(PostProcessPassBuilder.TaaInvalidationReason.GTAO_SETTINGS);
+                    }
+                }
+            }
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == before) postProcessSettings = previous;
             throw failure;
         }
     }
@@ -690,14 +729,27 @@ public final class RenderPipeline {
             gpuOwner = Thread.currentThread();
             gpuContext = org.lwjgl.opengl.GL.getCapabilities();
             glfwContext = org.lwjgl.glfw.GLFW.glfwGetCurrentContext();
+            maximumTextureDimension = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MAX_TEXTURE_SIZE);
         }
-        if (reusable != null && !topology.sameNonVolumetricStructure(reusable.topology)) reusable = null;
+        if (reusable != null && !topology.sameNonModuleStructure(reusable.topology)) reusable = null;
         PipelineGeneration candidate = new PipelineGeneration(topology);
+        candidate.maximumTextureDimension = maximumTextureDimension;
         candidate.volumeSettings = volumetricFogSettings;
         candidate.reuseSource = reusable;
+        candidate.inheritUnrelatedState(reusable);
         lastCandidateGenerationId = candidate.id;
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
+            GtaoAllocationPlan.validateDeviceExtent(topology.width(), topology.height(), maximumTextureDimension);
+            if (Boolean.getBoolean("haikalat.test.failGtaoPrepare"))
+                throw new IllegalStateException("injected GTAO CPU preparation failure");
+            long retainedGtaoBytes = activeGeneration == null || activeGeneration.gtaoAllocation == null
+                    ? 0 : activeGeneration.gtaoAllocation.activeBytes();
+            for (var retired : retiredGenerations) if (retired.generation().gtaoAllocation != null)
+                retainedGtaoBytes = Math.addExact(retainedGtaoBytes, retired.generation().gtaoAllocation.activeBytes());
+            candidate.gtaoAllocation = GtaoAllocationPlan.prepare(topology.width(), topology.height(),
+                    postProcessSettings.gtao(), !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth"), retainedGtaoBytes, reusable != null && reusable.gtao != null
+                            && reusable.gtao.compatible(postProcessSettings.gtao(), !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth")));
             long retiringVolumeBytes = activeGeneration == null || activeGeneration.volumeAllocation == null ? 0
                     : activeGeneration.volumeAllocation.activeBytes();
             for (var retired : retiredGenerations)
@@ -727,16 +779,8 @@ public final class RenderPipeline {
             ClusteredLightingPassBuilder.addPasses(candidate.graph, topology,
                     candidate.clusteredLightingBinder,
                     Boolean.getBoolean(FULL_SCAN_BENCHMARK_PROPERTY));
-            if (topology.volumetricFog()) {
-                candidate.volumetric = new VolumetricPassBuilder(candidate.id,
-                        topology.width(), topology.height(), volumetricFogSettings,
-                        candidate.clusteredResources.maxTotalLights());
-                candidate.volumetric.configureColorBudget(topology);
-                candidate.volumetric.addPasses(candidate.graph, candidate.clusteredLightingBinder.volumetricInputs(),
-                        candidate.graph.hasPass(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS)
-                                ? ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS : ClusteredLightingPassBuilder.LIGHT_UPLOAD_PASS,
-                        (res, cmd, shader) -> recordVolumeShadowInputs(candidate, res, cmd, shader));
-            }
+            candidate.assembleVolumetric(volumetricFogSettings, generationScene, reusable,
+                    (res, cmd, shader) -> recordVolumeShadowInputs(requireGeneration(), res, cmd, shader));
             if (topology.pbrMaterials()) {
                 candidate.pbrMaterialBinder = reusable == null ? new PbrMaterialBinder(pbrEnvironment) : candidate.borrow(reusable.pbrMaterialBinder);
                 candidate.environmentBackground = reusable == null ? new EnvironmentBackgroundRenderer(pbrEnvironment) : candidate.borrow(reusable.environmentBackground);
@@ -745,7 +789,7 @@ public final class RenderPipeline {
             if (outdoorEnvironment.enabled()) {
                 candidate.stylizedSky = reusable == null ? new StylizedSkyRenderer() : candidate.borrow(reusable.stylizedSky);
             }
-            candidate.postProcess = reusable != null ? reusable.postProcess.replacementAssembly(settings,
+            candidate.postProcess = reusable != null ? reusable.postProcess.replacementAssembly(settings, postProcessSettings,
                     topology.sceneBuffers().requiresSurfacePass(),
                     topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
                     topology.volumetricFog() ? null : hdrVfxRecorder, reactiveExecutor()) : PostProcessPassBuilder.create(
@@ -754,29 +798,8 @@ public final class RenderPipeline {
                     topology.sceneBuffers().requiresSurfacePass(),
                     topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
                     reactiveExecutor());
-            boolean gtaoShared = topology.gtaoEnabled()
-                    && topology.sceneBuffers().requiresSurfacePass()
-                    && topology.sceneBuffers().requires(SceneBufferChannel.NORMAL);
-            if (topology.gtaoEnabled()) {
-                if (!gtaoShared) {
-                    candidate.gtaoDepthShader = reusable != null && reusable.gtaoDepthShader != null
-                            ? candidate.borrow(reusable.gtaoDepthShader) : ShaderProgram.fromResource(RenderPipeline.class,
-                            "/shaders/render3d/gtao/gtao-depth.vert",
-                            "/shaders/render3d/gtao/gtao-depth.frag");
-                    candidate.gtaoMaskedDepthShader = reusable != null && reusable.gtaoMaskedDepthShader != null
-                            ? candidate.borrow(reusable.gtaoMaskedDepthShader) : ShaderProgram.fromResource(RenderPipeline.class,
-                            "/shaders/render3d/gtao/gtao-masked-depth.vert",
-                            "/shaders/render3d/gtao/gtao-masked-depth.frag");
-                    if (instanced != null) {
-                        candidate.gtaoInstancedDepthShader = reusable != null && reusable.gtaoInstancedDepthShader != null
-                                ? candidate.borrow(reusable.gtaoInstancedDepthShader) : ShaderProgram.fromResource(RenderPipeline.class,
-                                "/shaders/render3d/gtao/gtao-instanced-depth.vert",
-                                "/shaders/render3d/gtao/gtao-depth.frag");
-                    }
-                }
-                candidate.postProcess.addGtaoPreGeometryPasses(candidate.graph,
-                        gtaoDepthExecutor(), gtaoShared);
-            }
+            candidate.assembleGtao(postProcessSettings.gtao(), reusable, instanced != null,
+                    !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth"));
             if (topology.sceneBuffers().requiresSurfacePass()) {
                 candidate.sceneSurfacePass = reusable != null && reusable.sceneSurfacePass != null
                         ? candidate.borrow(reusable.sceneSurfacePass) : new SceneSurfacePass();
@@ -833,7 +856,10 @@ public final class RenderPipeline {
                     PREVIEW_GENERATIONS.incrementAndGet());
             if (Boolean.getBoolean("haikalat.test.failVolumeGraph"))
                 candidate.graph.addPass("InvalidVolumeCandidate").computeOnly().dependsOn("MissingVolumeProducer").execute((res, cmd) -> {});
+            if (Boolean.getBoolean("haikalat.test.failGtaoGraph"))
+                candidate.graph.addPass("InvalidGtaoCandidate").computeOnly().dependsOn("MissingGtaoProducer").execute((res, cmd) -> {});
             candidate.graph.compile();
+            if (candidate.gtaoInputs != null) candidate.gtaoInputs.validate();
             generationBuildCount++;
             lastFailureStage = "";
             return candidate;
@@ -949,6 +975,7 @@ public final class RenderPipeline {
      * active graph remains alive, then retires the old graph after success.</p>
      */
     public void replaceScene(Scene candidateScene) {
+        requireGpuOwner();
         Objects.requireNonNull(candidateScene, "candidateScene");
         if (executing) {
             throw new IllegalStateException("scene replacement is only allowed at frame start");
@@ -971,6 +998,8 @@ public final class RenderPipeline {
             shadowCasterPlanner.reset();
             activeFrameContext = null;
             frameStateInvalidationByMaterial.clear();
+            resetTemporalHistory();
+            if (generation.gtao != null) generation.gtao.invalidateHistory(GtaoPasses.InvalidationReason.WORLD);
             sceneFastPathReplacementCount++;
             return;
         }
@@ -1089,6 +1118,8 @@ public final class RenderPipeline {
         if (lastFailureStage.isEmpty()) {
             String taaReason = generation.postProcess.completedTaaInvalidationReason();
             if (!taaReason.isEmpty()) reasons.add(taaReason);
+            if (generation.gtao != null && !generation.gtao.completedInvalidationReason().isEmpty())
+                reasons.add(generation.gtao.completedInvalidationReason());
         }
         var queues = new Render3dDiagnostics.QueueSummary(visibility.opaqueDraws(),
                 visibility.maskedDraws(), visibility.alphaDraws(), visibility.additiveDraws(),
@@ -1167,8 +1198,9 @@ public final class RenderPipeline {
                 visibility.modelCacheMisses(), visibility.boundsCacheHits(),
                 visibility.boundsCacheMisses(), generationBuildCount, generationFailureCount,
                 generationReuseCount, generationBuildCount + generationFailureCount);
-        var ambientOcclusion = generation.postProcess.gtaoDiagnostics(
-                generation.topology.width(), generation.topology.height());
+        var ambientOcclusion = generation.gtao == null
+                ? GtaoPasses.disabledDiagnostics(generation.topology.width(), generation.topology.height())
+                : generation.gtao.diagnostics(generation.topology.width(), generation.topology.height());
         ClusteredLightingDiagnostics clustered = clusteredDiagnostics(generation);
         return new Render3dDiagnostics(visibility.available(), revisions,
                 context.invalidation().bits(), reasons,
@@ -1339,12 +1371,15 @@ public final class RenderPipeline {
                 temporalSceneState.beginFrame(builtFrame);
             }
             activeFrameContext.verifySceneStable(scene, topologySettingsRevision);
+            if (generation.gtao != null) generation.gtao.prepareFrame(activeFrameContext, builtFrame,
+                    generation.cameraUniforms, instanced, generation.gtaoInputs);
             if (generation.volumetric != null) {
                 generation.volumetric.prepareTransparentVariants(builtFrame);
                 generation.volumetric.shadowPolicy(directionalShadowMap.settings(),localShadowSettings,directionalCascadeSettings);
                 generation.volumetric.prepareFrame(activeFrameContext, volumetricFogSettings,currentShadowFramePlan);
                 generation.volumetric.rasterProjection(temporalFrameState.current().inverseJitteredProjection());
             }
+            if (generation.gtao != null) generation.gtao.synchronizeTemporalImport(generation.graph);
             generation.postProcess.synchronizeTemporalImports(generation.graph);
             long preparationTotalNanos = benchmarkCpuTimingEnabled
                     ? System.nanoTime() - preparationStart : 0L;
@@ -1388,6 +1423,7 @@ public final class RenderPipeline {
             }
             // Infallible publish phase.
             generation.postProcess.frameSucceeded();
+            if (generation.gtao != null) generation.gtao.frameSucceeded();
             if (generation.volumetric != null) generation.volumetric.frameSucceeded();
             if (temporalActive) {
                 temporalFrameState.commitSuccessfulFrame();
@@ -1438,6 +1474,7 @@ public final class RenderPipeline {
                 }
             }
             if (postProcessFrameStarted) generation.postProcess.frameFailed();
+            if (generation.gtao != null) generation.gtao.frameFailed();
             if (generation.volumetric != null) generation.volumetric.frameFailed();
             temporalFrameState.discardFrame();
             if (generation.sceneSurfacePass != null) {
@@ -1542,6 +1579,7 @@ public final class RenderPipeline {
             throw new IllegalArgumentException("cannot activate a closed PipelineGeneration");
         }
         PipelineGeneration retired = activeGeneration;
+        boolean reusesSceneState = candidate.reuseSource != null;
         try {
             candidate.adoptBorrowedResources(retired);
         } catch (RuntimeException | Error failure) {
@@ -1549,6 +1587,14 @@ public final class RenderPipeline {
             throw failure;
         }
         activeGeneration = candidate;
+        boolean gtaoSettingsChanged = candidate.gtao != null && !candidate.gtao.settings().equals(postProcessSettings.gtao());
+        if (gtaoSettingsChanged) candidate.gtao.applySettings(postProcessSettings.gtao());
+        if (reusesSceneState && candidate.postProcess != null) {
+            boolean gtaoChanged = retired.gtao != candidate.gtao || gtaoSettingsChanged;
+            candidate.postProcess.invalidateTemporalHistory(gtaoChanged
+                    ? PostProcessPassBuilder.TaaInvalidationReason.GTAO_TOPOLOGY
+                    : PostProcessPassBuilder.TaaInvalidationReason.VOLUMETRIC_TOPOLOGY);
+        }
         applyIblOverrides(candidate);
         currentSceneFrame = null;
         currentShadowFramePlan = null;
@@ -1556,7 +1602,7 @@ public final class RenderPipeline {
         lastDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
         pendingDirectionalCascadeCasterCounts = NO_CASCADE_COUNTS;
         pendingDirectionalCascadeCount = -1;
-        shadowCasterPlanner.reset();
+        if (!reusesSceneState) shadowCasterPlanner.reset();
         frameStateInvalidationByMaterial.clear();
         topologySettingsRevision++;
         topologyRebuiltPending = true;
@@ -1583,6 +1629,11 @@ public final class RenderPipeline {
         if (Boolean.getBoolean("haikalat.test.failVolumeRetirement")) {
             System.clearProperty("haikalat.test.failVolumeRetirement");
             var injected = new IllegalStateException("injected volume retirement failure after publication");
+            if (failure == null) failure = injected; else failure.addSuppressed(injected);
+        }
+        if (Boolean.getBoolean("haikalat.test.failGtaoRetirement")) {
+            System.clearProperty("haikalat.test.failGtaoRetirement");
+            var injected = new IllegalStateException("injected GTAO retirement failure after publication");
             if (failure == null) failure = injected; else failure.addSuppressed(injected);
         }
         if (failure != null) { lastFailureStage = "retirement-after-publication"; throw failure; }
@@ -1706,11 +1757,15 @@ public final class RenderPipeline {
     }
 
     /** Drops all temporal history (camera cut, resize, scene replacement, explicit reset). */
-    public void resetTemporalHistory() {        temporalFrameState.invalidate();
+    public void resetTemporalHistory() {
+        requireGpuOwner();
+        if (executing) throw new IllegalStateException("history reset is only allowed at frame boundaries");
+        temporalFrameState.invalidate();
         temporalSceneState.invalidate();
         if (instanced != null) instanced.invalidatePreviousFrame();
         if (activeGeneration != null) {
             activeGeneration.postProcess.invalidateTemporalHistory();
+            if (activeGeneration.gtao != null) activeGeneration.gtao.invalidateHistory();
             if (activeGeneration.volumetric != null) activeGeneration.volumetric.invalidateHistory();
         }
     }
@@ -1846,111 +1901,6 @@ public final class RenderPipeline {
         }
         throw new IllegalStateException(
                 "visual directional-light update requires an existing directional light");
-    }
-
-    private PassExecutor gtaoDepthExecutor() {
-        return (res, cmd) -> {
-            PipelineGeneration generation = requireGeneration();
-            SceneFrame frame = sceneFrame();
-            generation.cameraUniforms.update(cmd, frameCamera(), frameWidth(), frameHeight(),
-                    settings.antiAliasingMode(), activeFrameIndex);
-            ShaderProgram depthShader = generation.gtaoDepthShader;
-            cmd.bindShader(depthShader)
-                    .enableBlend(false).enableDepthTest(true).depthMask(true)
-                    // Establish a deterministic raster state, then override it
-                    // for every regular renderer from its Material.cullMode.
-                    .frontFace(FrontFace.CCW).enableCullFace(true);
-            generation.cameraUniforms.bind(depthShader);
-            ShaderProgram boundShader = depthShader;
-            com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
-            boolean frontFaceBound = false;
-            boolean cullBound = false;
-            boolean boundMirrored = false;
-            boolean boundCull = false;
-            int boundSkinningEnabled = -1;
-            int boundMorphTargetCount = -1;
-            for (int queueIndex = 0; queueIndex < frame.forwardCount; queueIndex++) {
-                int entry = frame.forwardEntry(queueIndex);
-                MeshRenderer renderer = frame.renderer(entry);
-                if (!frame.castsOpaqueShadow(entry)) continue;
-                boolean mirrored = frame.mirrored(entry);
-                boolean cull = renderer.material().material().cullMode() == CullMode.BACK;
-                if (!frontFaceBound || mirrored != boundMirrored) {
-                    cmd.frontFace(mirrored ? FrontFace.CW : FrontFace.CCW);
-                    frontFaceBound = true;
-                    boundMirrored = mirrored;
-                }
-                if (!cullBound || cull != boundCull) {
-                    cmd.enableCullFace(cull);
-                    cullBound = true;
-                    boundCull = cull;
-                }
-                ShaderProgram shader = frame.masked(entry)
-                        ? generation.gtaoMaskedDepthShader : generation.gtaoDepthShader;
-                if (shader != boundShader) {
-                    cmd.bindShader(shader);
-                    generation.cameraUniforms.bind(shader);
-                    boundShader = shader;
-                    boundSkinningEnabled = -1;
-                    boundMorphTargetCount = -1;
-                }
-                if (shader == generation.gtaoMaskedDepthShader) {
-                    bindGtaoMaskedMaterial(cmd, shader, renderer.material());
-                }
-                cmd.setUniformMat4(shader, "uModel", frame.model(entry));
-                SceneDrawBinding binding = renderer.drawBinding();
-                int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
-                int morphTargetCount = binding.morphTargetCount();
-                if (skinningEnabled != boundSkinningEnabled) {
-                    cmd.trySetUniformInt(shader, "uSkinningEnabled", skinningEnabled);
-                    boundSkinningEnabled = skinningEnabled;
-                }
-                if (morphTargetCount != boundMorphTargetCount) {
-                    cmd.trySetUniformInt(shader, "uMorphTargetCount", morphTargetCount);
-                    boundMorphTargetCount = morphTargetCount;
-                }
-                if (binding != SceneDrawBinding.NONE) {
-                    binding.record(cmd, shader, activeFrameIndex, SceneDrawBinding.Pass.DEPTH_PREPASS);
-                }
-                if (renderer.mesh() != boundMesh) {
-                    cmd.bindMesh(renderer.mesh());
-                    boundMesh = renderer.mesh();
-                }
-                cmd.drawMesh(renderer.mesh());
-                generation.postProcess.recordGtaoDepthPrepassDraw();
-            }
-            if (instanced != null && generation.gtaoInstancedDepthShader != null) {
-                // Instanced depth uses its own winding convention; do not inherit
-                // a mirrored/cull state from the last regular mesh.
-                cmd.enableCullFace(false).frontFace(FrontFace.CCW);
-                cmd.bindShader(generation.gtaoInstancedDepthShader);
-                generation.cameraUniforms.bind(generation.gtaoInstancedDepthShader);
-                instanced.renderDepth(cmd, generation.gtaoInstancedDepthShader);
-                generation.postProcess.recordGtaoDepthPrepassDraw();
-            }
-        };
-    }
-
-    private void bindGtaoMaskedMaterial(CommandBuffer cmd, ShaderProgram shader,
-                                        MaterialInstance instance) {
-        Material material = instance.material();
-        Material.TextureBinding baseColor = instance.textureOverrides().get(0);
-        if (baseColor == null) {
-            for (Material.TextureBinding binding : material.defaultTextures()) {
-                if (binding.unit() == 0) { baseColor = binding; break; }
-            }
-        }
-        if (baseColor != null) cmd.bindTexture(0, baseColor.texture(), baseColor.sampler());
-        UniformValue cutoff = instance.uniformOverrides().get(UniformKey.float1("uAlphaCutoff"));
-        if (cutoff == null) cutoff = material.defaultUniforms().get(UniformKey.float1("uAlphaCutoff"));
-        UniformValue factor = instance.uniformOverrides().get(UniformKey.vec4("uBaseColorFactor"));
-        if (factor == null) factor = material.defaultUniforms().get(UniformKey.vec4("uBaseColorFactor"));
-        float cutoffValue = cutoff instanceof UniformValue.FloatVal value ? value.value() : 0.5f;
-        Vector4f factorValue = factor instanceof UniformValue.Vec4Val value
-                ? value.value() : new Vector4f(1.0f);
-        cmd.setUniformInt(shader, "uBaseColorMap", 0)
-                .setUniformFloat(shader, "uAlphaCutoff", cutoffValue)
-                .setUniformVec4(shader, "uBaseColorFactor", factorValue);
     }
 
     private void copyHostAttachments(com.kaleblangley.haikalat.core.graph.PassResources resources,
@@ -2608,12 +2558,11 @@ public final class RenderPipeline {
                 .trySetUniformInt(shader, "uSpotShadowMap", SPOT_SHADOW_TEXTURE_UNIT)
                 .trySetUniformFloat(shader, "uSpotShadowBias", localShadowSettings.spot().bias());
         if (hasSpotShadow) cmd.bindTexture(SPOT_SHADOW_TEXTURE_UNIT, spotShadowTexture);
-        if (generation.topology.gtaoEnabled()) {
-            boolean hasGtao = gtaoTexture != 0;
-            cmd.trySetUniformInt(shader, "uGtaoEnabled", hasGtao ? 1 : 0)
-                    .trySetUniformInt(shader, "uGtaoMap", GTAO_TEXTURE_UNIT);
-            if (hasGtao) cmd.bindTexture(GTAO_TEXTURE_UNIT, gtaoTexture);
-        }
+        boolean hasGtao = generation.topology.gtaoEnabled() && gtaoTexture != 0;
+        cmd.trySetUniformInt(shader, "uGtaoEnabled", hasGtao ? 1 : 0)
+                .trySetUniformInt(shader, "uGtaoMap", GTAO_TEXTURE_UNIT)
+                .bindSampler(GTAO_TEXTURE_UNIT, null)
+                .bindTexture(GTAO_TEXTURE_UNIT, hasGtao ? gtaoTexture : 0);
         if (generation.shadowSamplingBlock != null) generation.shadowSamplingBlock.bind(cmd);
         generation.clusteredLightingBinder.bindForward(cmd, shader);
         cmd.trySetUniformInt(shader, "uClusterDebugMode", clusterDebugMode.ordinal());

@@ -45,6 +45,7 @@ uniform int uMorphVertexCount;
 uniform int uPreviousValid;
 
 out vec2 vTexCoord;
+out vec4 vVertexColor;
 out vec3 vWorldNormal;
 out vec3 vWorldPosition;
 out vec4 vCurrentClip;
@@ -123,6 +124,7 @@ void main() {
 
     mat3 normalMatrix = transpose(inverse(mat3(currentModelSkin)));
     vTexCoord = aTexCoord;
+    vVertexColor = aColor;
     vWorldPosition = world.xyz;
     vWorldNormal = normalize(normalMatrix * localNormal);
     vCurrentClip = uCurrentStableViewProjection * world;

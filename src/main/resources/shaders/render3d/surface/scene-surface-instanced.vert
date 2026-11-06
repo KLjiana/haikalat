@@ -19,6 +19,7 @@ uniform vec3 uCameraPosition;
 uniform int uPreviousValid;
 
 out vec2 vTexCoord;
+out vec4 vVertexColor;
 out vec3 vWorldNormal;
 out vec3 vWorldPosition;
 out vec4 vCurrentClip;
@@ -33,6 +34,7 @@ void main() {
     vec4 previousWorld = previousInstance * vec4(aPos, 1.0);
 
     vTexCoord = vec2(0.0);
+    vVertexColor = vec4(1.0);
     vWorldPosition = world.xyz;
     // The instanced vertex layout carries no normal attribute; use the
     // geometric surface normal from screen-space derivatives.
