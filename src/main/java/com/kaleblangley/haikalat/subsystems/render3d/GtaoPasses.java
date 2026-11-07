@@ -41,6 +41,7 @@ final class GtaoPasses implements AutoCloseable {
     private GtaoSurfaceInputs preparedInputs;
     private SceneFrame preparedScene;
     private CameraUniforms preparedUniforms;
+    private SceneDeformationDefaults preparedDeformationDefaults;
     private InstancedRenderer preparedInstances;
     private Camera preparedCamera;
     private int preparedFrameIndex;
@@ -170,6 +171,7 @@ final class GtaoPasses implements AutoCloseable {
                     .clearDepthOnly()
                     .execute((res, cmd) -> {
                         requireFrame(inputs);
+                        preparedDeformationDefaults.record(cmd);
                         depthPrepassDraws += dedicatedDepth.record(cmd, preparedScene, preparedCamera,
                                 preparedUniforms, preparedInstances, inputs.aa(), preparedFrameIndex, width, height);
                     });
@@ -216,10 +218,11 @@ final class GtaoPasses implements AutoCloseable {
     }
 
     void prepareFrame(RenderFrameContext context, SceneFrame scene, CameraUniforms uniforms,
-                      InstancedRenderer instances, GtaoSurfaceInputs inputs) {
+                      InstancedRenderer instances, GtaoSurfaceInputs inputs, SceneDeformationDefaults deformationDefaults) {
         ensureOpen(); inputs.validateFrame(context.width(), context.height());
         preparedInputs = inputs; preparedScene = Objects.requireNonNull(scene);
         preparedUniforms = Objects.requireNonNull(uniforms); preparedInstances = instances;
+        preparedDeformationDefaults = Objects.requireNonNull(deformationDefaults);
         preparedCamera = context.camera(); preparedFrameIndex = context.frameIndex();
         beginFrame(context.camera(), context.width(), context.height(), context.frameIndex(), inputs.aa());
     }

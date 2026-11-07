@@ -20,7 +20,9 @@ public final class GpuFence implements GlResource {
     }
 
     public static GpuFence insert() {
-        return new GpuFence(glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0));
+        long handle = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (handle == 0L) throw new GlException("failed to create GPU fence");
+        return new GpuFence(handle);
     }
 
     public boolean waitFor(long timeoutNanos) {

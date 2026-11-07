@@ -143,6 +143,87 @@ class GtaoModularityGlTest {
         }
     }
 
+    @Test void activeSkinMorphAndStaticDrawsKeepValidStorageAndCorrectSharedNormals() throws Exception {
+        Files.writeString(evidence().resolve("active-storage-layout.csv"), "block,slot,minimumBytes,boundRangeBytes\n");
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            org.lwjgl.opengl.GL20.glVertexAttrib4f(5, 0, 0, 0, 0);
+            org.lwjgl.opengl.GL20.glVertexAttrib4f(6, 1, 0, 0, 0);
+            try (var joints = com.kaleblangley.haikalat.backend.buffer.GlBuffer.shaderStorageBuffer(org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW).allocate(64);
+                 var deltas = com.kaleblangley.haikalat.backend.buffer.GlBuffer.shaderStorageBuffer(org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW).allocate(288);
+                 var weights = com.kaleblangley.haikalat.backend.buffer.GlBuffer.shaderStorageBuffer(org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW).allocate(16);
+                 var fixture = new Fixture()) {
+                for (var aa : new AntiAliasingMode[]{AntiAliasingMode.NONE, AntiAliasingMode.TAA, AntiAliasingMode.MSAA}) {
+                    for (int mode = 1; mode <= 3; mode++) {
+                        boolean skin = mode != 2, morph = mode != 1;
+                        var joint = new org.joml.Matrix4f().rotateY(skin ? .3f : 0);
+                        var palette = org.lwjgl.BufferUtils.createByteBuffer(64); joint.get(palette.asFloatBuffer());
+                        var delta = org.lwjgl.BufferUtils.createByteBuffer(288);
+                        for (int vertex = 0; vertex < 6; vertex++) for (int component = 0; component < 12; component++)
+                            delta.putFloat(component == 0 ? .15f : component == 4 ? .3f : 0);
+                        delta.flip(); var weight = org.lwjgl.BufferUtils.createByteBuffer(4).putFloat(1).flip();
+                        SceneDrawBinding binding = new SceneDrawBinding() {
+                            @Override public boolean skinningEnabled() { return skin; }
+                            @Override public int morphTargetCount() { return morph ? 1 : 0; }
+                            @Override public void record(com.kaleblangley.haikalat.core.command.CommandBuffer commands,
+                                                         ShaderProgram program, int frame, Pass pass) {
+                                if (skin) commands.uploadBufferRegion(joints, 0, palette).bindStorageBuffer(7, joints, 0, 64);
+                                if (morph) commands.uploadBufferRegion(deltas, 0, delta).bindStorageBuffer(8, deltas, 0, 288)
+                                        .uploadBufferRegion(weights, 0, weight).bindStorageBuffer(9, weights, 0, 16);
+                                commands.trySetUniformInt(program, "uMorphVertexCount", 6);
+                            }
+                        };
+                        var transform = Transform.at(0, 0, -1).scale(3, 2, 1);
+                        var content = new Scene(fixture.camera).add(new MeshRenderer(fixture.mesh, fixture.material.createInstance(),
+                                transform, (model, frame) -> transform.matrix(model), true, binding));
+                        for (var light : fixture.scene.lights()) content.addLight(light);
+                        var p = fixture.pipeline(content, aa, GtaoSettings.defaults().withEnabled(true));
+                        p.build(); var device = new GlRenderDevice();
+                        var modelSkin = transform.matrix(new org.joml.Matrix4f()).mul(joint);
+                        var expected = new org.joml.Matrix3f(modelSkin).invert().transpose()
+                                .transform(new Vector3f(morph ? .3f : 0, 0, 1)).normalize();
+                        float divisor = Math.abs(expected.x) + Math.abs(expected.y) + Math.abs(expected.z);
+                        expected.div(divisor);
+                        for (int frame = 0; frame < 2; frame++) {
+                            p.execute(device);
+                            assertActiveDeformationStorage(p);
+                            float[] normals = p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_NORMAL);
+                            int covered = 0;
+                            for (int pixel = 0; pixel < normals.length; pixel += 4) {
+                                assertTrue(Float.isFinite(normals[pixel]) && Float.isFinite(normals[pixel + 1]));
+                                if (Math.abs(normals[pixel]) + Math.abs(normals[pixel + 1]) < .001f) continue;
+                                assertEquals(expected.x, normals[pixel], .002f, aa + " mode=" + mode);
+                                assertEquals(expected.y, normals[pixel + 1], .002f); covered++;
+                            }
+                            assertTrue(covered > 100);
+                        }
+                        p.close();
+                    }
+                }
+                GlDebug.assertNoError("skin/morph shared normal and storage contracts");
+            }
+        }
+    }
+
+    private static void assertActiveDeformationStorage(RenderPipeline pipeline) throws Exception {
+        var field = SceneSurfacePass.class.getDeclaredField("surfaceProgram"); field.setAccessible(true);
+        var program = (ShaderProgram) field.get(pipeline.activeGenerationForTest().sceneSurfacePass);
+        for (String block : java.util.List.of("JointPaletteBlock", "MorphDeltaBlock", "MorphWeightBlock",
+                "PreviousJointPaletteBlock", "PreviousMorphWeightBlock")) {
+            var properties = org.lwjgl.BufferUtils.createIntBuffer(2).put(new int[]{org.lwjgl.opengl.GL43.GL_BUFFER_BINDING,
+                    org.lwjgl.opengl.GL43.GL_BUFFER_DATA_SIZE}).flip();
+            var values = org.lwjgl.BufferUtils.createIntBuffer(2);
+            org.lwjgl.opengl.GL43.glGetProgramResourceiv(program.id(), org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BLOCK,
+                    program.storageBlockIndex(block), properties, null, values);
+            int slot = values.get(0);
+            long range = org.lwjgl.opengl.GL32.glGetInteger64i(org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER_SIZE, slot);
+            Files.writeString(evidence().resolve("active-storage-layout.csv"), block + "," + slot + "," + values.get(1)
+                    + "," + range + "\n", java.nio.file.StandardOpenOption.APPEND);
+            assertTrue(org.lwjgl.opengl.GL30.glGetIntegeri(org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER_BINDING, slot) != 0, block);
+            assertTrue(range >= values.get(1), block + " minimum=" + values.get(1));
+        }
+    }
+
     @Test void embeddedGtaoTransitionsPreserveBorrowedAttachmentsAndHostState() {
         try (var window = window()) {
             window.bindContext(); GL.createCapabilities();
@@ -153,7 +234,8 @@ class GtaoModularityGlTest {
                  var second = com.kaleblangley.haikalat.backend.framebuffer.Framebuffer.fromDescriptor(
                          com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor.builder(97, 65)
                                  .colorTexture(com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F).depthTexture().build());
-                 var hostSampler = com.kaleblangley.haikalat.backend.texture.Sampler.nearestRepeat()) {
+                 var hostSampler = com.kaleblangley.haikalat.backend.texture.Sampler.nearestRepeat();
+                 var hostStorage = com.kaleblangley.haikalat.backend.buffer.GlBuffer.shaderStorageBuffer(org.lwjgl.opengl.GL15.GL_STATIC_DRAW).upload(new float[16])) {
                 var target = borrowed(first, 1);
                 var p = new RenderPipeline(target, fixture.scene, null, RenderSettings.builder()
                         .antiAliasingMode(AntiAliasingMode.NONE).toneMappingMode(ToneMappingMode.ACES).vsync(false).build(), fixture.environment);
@@ -166,22 +248,31 @@ class GtaoModularityGlTest {
                     org.lwjgl.opengl.GL11.glViewport(3, 4, 41, 27);
                     org.lwjgl.opengl.GL13.glActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0 + 13);
                     for (int unit : new int[]{0, 1, 13}) org.lwjgl.opengl.GL33.glBindSampler(unit, hostSampler.id());
+                    for (int slot = 7; slot <= 11; slot++) org.lwjgl.opengl.GL30.glBindBufferBase(org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER, slot, hostStorage.id());
                     p.applyGtao(GtaoSettings.defaults().withEnabled(step % 2 == 0));
                     assertHost(host.id(), hostSampler.id());
                     var camera = ExternalCamera.of(fixture.camera.getViewMatrix(new org.joml.Matrix4f()),
                             CameraProjection.stable(fixture.camera, host.width(), host.height(), new org.joml.Matrix4f()), fixture.camera.position(), 0);
                     p.execute(device, camera, target); assertHost(host.id(), hostSampler.id());
+                    assertHostStorage(hostStorage.id());
                     assertTrue(org.lwjgl.opengl.GL30.glIsFramebuffer(host.id()));
                     assertTrue(org.lwjgl.opengl.GL11.glIsTexture(host.colorAttachment()));
                     assertTrue(org.lwjgl.opengl.GL11.glIsTexture(host.depthAttachment()));
                     if (step % 2 == 0) assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
                 }
                 p.close();
+                assertHostStorage(hostStorage.id());
                 assertTrue(org.lwjgl.opengl.GL30.glIsFramebuffer(first.id())); assertTrue(org.lwjgl.opengl.GL30.glIsFramebuffer(second.id()));
                 assertTrue(org.lwjgl.opengl.GL11.glIsTexture(first.depthAttachment())); assertTrue(org.lwjgl.opengl.GL11.glIsTexture(second.depthAttachment()));
                 GlDebug.assertNoError("embedded GTAO target lifecycle");
             }
         }
+    }
+
+    private static void assertHostStorage(int buffer) {
+        assertTrue(org.lwjgl.opengl.GL15.glIsBuffer(buffer));
+        for (int slot = 7; slot <= 11; slot++)
+            assertEquals(buffer, org.lwjgl.opengl.GL30.glGetIntegeri(org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER_BINDING, slot));
     }
 
     private static com.kaleblangley.haikalat.core.presentation.PresentationTarget borrowed(
@@ -213,16 +304,28 @@ class GtaoModularityGlTest {
                 var device = new GlRenderDevice(); p.execute(device); p.execute(device);
                 var cache = p.activeGenerationForTest().shadowCache;
                 var shadowShader = p.activeGenerationForTest().shadowShader;
+                int atlas = boundTexture2d(7);
+                assertTrue(atlas > 0 && org.lwjgl.opengl.GL11.glIsTexture(atlas));
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
                 p.applyGtao(GtaoSettings.defaults().withEnabled(true)); p.execute(device);
                 assertSame(cache, p.activeGenerationForTest().shadowCache);
                 assertSame(shadowShader, p.activeGenerationForTest().shadowShader);
+                assertEquals(atlas, boundTexture2d(7), "the PBR consumer must retain the native shadow atlas");
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
                 p.applyGtao(GtaoSettings.disabled()); p.execute(device);
                 assertSame(cache, p.activeGenerationForTest().shadowCache);
+                assertEquals(atlas, boundTexture2d(7));
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
             }
         }
+    }
+
+    private static int boundTexture2d(int unit) {
+        int active = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL13.GL_ACTIVE_TEXTURE);
+        try {
+            org.lwjgl.opengl.GL13.glActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0 + unit);
+            return org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_TEXTURE_BINDING_2D);
+        } finally { org.lwjgl.opengl.GL13.glActiveTexture(active); }
     }
 
     @Test void fiftyCyclesWithTemporalResizeFailuresAndFogReturnToDisabledBaseline() throws Exception {
@@ -409,6 +512,52 @@ class GtaoModularityGlTest {
         }
     }
 
+    @Test void failedRetirementFenceKeepsOldAoReachableAndRetriesWithoutRollingBackPublication() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (var fixture = new Fixture()) {
+                    var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
+                    p.build(); var device = new GlRenderDevice(); p.execute(device);
+                    var old = p.activeGenerationForTest();
+                    var oldAo = old.gtao;
+                    var oldRead = oldAo.historyForTest().readFramebuffer();
+                    System.setProperty("haikalat.test.failRetirementFence", "true");
+                    try {
+                        var failure = assertThrows(IllegalStateException.class, () -> p.applyGtao(GtaoSettings.disabled()));
+                        assertEquals("injected retirement fence creation failure", failure.getMessage());
+                        assertFalse(p.gtao().enabled()); assertNotSame(old, p.activeGenerationForTest());
+                        assertEquals("retirement-after-publication", p.lastRender3dDiagnostics().failureStage());
+                        assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
+                        assertSame(oldAo, old.gtao); assertFalse(oldRead.isClosed());
+                        assertThrows(IllegalStateException.class, p::drainRetirementsForTest);
+                        assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
+                        assertSame(oldAo, old.gtao); assertFalse(oldRead.isClosed());
+                    } finally { System.clearProperty("haikalat.test.failRetirementFence"); }
+                    p.drainRetirementsForTest();
+                    assertEquals(0, p.volumetricAllocationDiagnostics().retiringGenerations());
+                    assertNull(old.gtao); assertTrue(oldRead.isClosed());
+                    p.execute(device);
+                    assertFalse(p.gtao().enabled());
+                    assertTrue(p.graph().description().passes().stream().noneMatch(pass -> pass.name().startsWith("Gtao")));
+                    var closing = p.activeGenerationForTest();
+                    System.setProperty("haikalat.test.failRetirementFence", "true");
+                    try {
+                        assertThrows(IllegalStateException.class, p::close);
+                        assertNotNull(closing.graph);
+                        assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
+                        assertThrows(IllegalStateException.class, () -> p.execute(device));
+                    } finally { System.clearProperty("haikalat.test.failRetirementFence"); }
+                    p.close();
+                    assertNull(closing.graph);
+                }
+                assertEquals(0, GlDebug.resources().liveResources().size());
+                assertEquals(GlDebug.resources().createdCount(), GlDebug.resources().closedCount());
+                GlDebug.assertNoError("retirement fence failure recovery");
+            }
+        }
+    }
+
     @Test void publishedGtaoSurvivesRetirementFailureAndContinuesDrawing() {
         try (var window = window()) {
             window.bindContext(); GL.createCapabilities();
@@ -490,9 +639,14 @@ class GtaoModularityGlTest {
                 assertEquals(96, p.graph().width()); assertSame(read, owner.gtao.historyForTest().readFramebuffer());
                 assertEquals(bytes, GlDebug.resources().estimatedBytes()); assertEquals(live, GlDebug.resources().liveResources().size());
                 p.execute(device); assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
+                var stableRead = owner.gtao.historyForTest().readFramebuffer();
                 long created = GlDebug.resources().createdCount();
                 assertThrows(IllegalArgumentException.class, () -> p.resize(32768, 32768));
                 assertEquals(created, GlDebug.resources().createdCount(), "AO budget must reject before any candidate GL allocation");
+                int deviceLimit = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MAX_TEXTURE_SIZE);
+                assertThrows(IllegalArgumentException.class, () -> p.resize(deviceLimit + 1, 1));
+                assertEquals(created, GlDebug.resources().createdCount(), "a narrow over-limit extent must also reject before allocation");
+                assertEquals(96, p.graph().width()); assertSame(stableRead, owner.gtao.historyForTest().readFramebuffer());
                 p.resize(97, 65); fixture.size.width = 97; fixture.size.height = 65; p.execute(device);
                 assertEquals(49, owner.gtao.historyForTest().readFramebuffer().width());
                 assertEquals(33, owner.gtao.historyForTest().readFramebuffer().height());
@@ -613,6 +767,28 @@ class GtaoModularityGlTest {
         }
     }
 
+    @Test void repeatedColdSamplingModesKeepFiniteNormalInputs() throws Exception {
+        var hashes = new java.util.TreeMap<String, String>();
+        var rows = new StringBuilder("cycle,file,sha256\n");
+        try {
+            for (int cycle = 0; cycle < 64; cycle++) {
+                try { correctedContactSceneReferenceAcrossSamplingModes(); }
+                catch (AssertionError failure) { throw new AssertionError("cold pipeline cycle=" + cycle, failure); }
+                try (var files = Files.list(evidence())) {
+                    var references = files.filter(p -> p.getFileName().toString().startsWith("reference-")).sorted().toList();
+                    assertEquals(18, references.size());
+                    for (var file : references) {
+                        String name = file.getFileName().toString();
+                        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
+                        rows.append(cycle).append(',').append(name).append(',').append(hash).append('\n');
+                        if (cycle == 0) hashes.put(name, hash);
+                        else assertEquals(hashes.get(name), hash, "cold pixel drift: cycle=" + cycle + " file=" + name);
+                    }
+                }
+            }
+        } finally { Files.writeString(evidence().resolve("cold-cycle-pixels.csv"), rows); }
+    }
+
     @Test void correctedContactSceneReferenceAcrossSamplingModes() throws Exception {
         try (var window = window()) {
             window.bindContext(); GL.createCapabilities();
@@ -622,6 +798,8 @@ class GtaoModularityGlTest {
                     fixture.camera.setPosition(new Vector3f(2, 1.4f, 4));
                     var p = fixture.pipeline(aa, GtaoSettings.defaults().withEnabled(true));
                     p.build(); var device = new GlRenderDevice();
+                    // The mesh has a normal array; the context's generic value must never replace it.
+                    org.lwjgl.opengl.GL20.glVertexAttrib3f(2, 9, 8, 7);
                     for (int frame = 0; frame < 3; frame++) {
                         if (frame == 1) fixture.camera.setPosition(new Vector3f(2.1f, 1.4f, 4));
                         if (frame == 2) { fixture.size.width = 97; fixture.size.height = 65; p.resize(97, 65); }
@@ -629,8 +807,15 @@ class GtaoModularityGlTest {
                         float[] ao = p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL);
                         saveFloats("reference-" + aa + "-" + frame + "-ao", ao);
                         saveFloats("reference-" + aa + "-" + frame + "-hdr", p.captureLinearHdrRgbaFloat());
-                        try { assertAo(ao); } catch (AssertionError failure) {
+                        try {
+                            assertAo(ao);
+                            float[] sharedNormal = p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_NORMAL);
+                            for (int pixel = 0; pixel < sharedNormal.length; pixel += 4)
+                                assertTrue(Float.isFinite(sharedNormal[pixel]) && Float.isFinite(sharedNormal[pixel + 1]),
+                                        "shared producer normals must be finite");
+                        } catch (AssertionError failure) {
                             saveFloats("failed-" + aa + "-" + frame + "-normal", p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_NORMAL));
+                            saveFloats("failed-" + aa + "-" + frame + "-shared-normal", p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_NORMAL));
                             if (aa == AntiAliasingMode.MSAA) saveFloats("failed-" + aa + "-" + frame + "-depth", p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_DEPTH));
                             throw new AssertionError("contact reference " + aa + " frame=" + frame, failure);
                         }

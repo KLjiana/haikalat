@@ -108,24 +108,38 @@ public final class RenderPipeline {
     private int maximumTextureDimension;
     private final java.util.ArrayDeque<RetiredGeneration> retiredGenerations = new java.util.ArrayDeque<>();
     private long lastVolumeCandidatePeakBytes;
-    private record RetiredGeneration(PipelineGeneration generation, com.kaleblangley.haikalat.backend.sync.GpuFence fence) { }
+    private static final class RetiredGeneration {
+        private final PipelineGeneration generation;
+        private com.kaleblangley.haikalat.backend.sync.GpuFence fence;
+
+        private RetiredGeneration(PipelineGeneration generation) { this.generation = generation; }
+    }
+
+    private void fenceRetirement(RetiredGeneration retired) {
+        if (retired.fence != null) return;
+        if (Boolean.getBoolean("haikalat.test.failRetirementFence"))
+            throw new IllegalStateException("injected retirement fence creation failure");
+        retired.fence = com.kaleblangley.haikalat.backend.sync.GpuFence.insert();
+    }
 
     private void collectRetiredGenerations(boolean wait) {
         RuntimeException failure = null;
         boolean collected = false;
         while (!retiredGenerations.isEmpty()) {
             var retired = retiredGenerations.peekFirst();
-            if (!retired.fence().isSignaled()) {
+            try { fenceRetirement(retired); }
+            catch (RuntimeException failureToFence) { lastFailureStage = "retirement-after-publication"; throw failureToFence; }
+            if (!retired.fence.isSignaled()) {
                 if (!wait) break;
-                if (!retired.fence().waitFor(java.util.concurrent.TimeUnit.SECONDS.toNanos(5))) {
+                if (!retired.fence.waitFor(java.util.concurrent.TimeUnit.SECONDS.toNanos(5))) {
                     lastFailureStage = "retirement-timeout";
                     throw new IllegalStateException("timed out waiting for pipeline retirement fence");
                 }
             }
             retiredGenerations.removeFirst();
             collected = true;
-            failure = closeCollecting(retired.fence(), failure);
-            failure = closeCollecting(retired.generation(), failure);
+            failure = closeCollecting(retired.fence, failure);
+            failure = closeCollecting(retired.generation, failure);
         }
         if (collected) for (RenderDevice device : usedDevices) device.invalidateState();
         if (failure != null) { lastFailureStage = "retirement-after-publication"; throw failure; }
@@ -745,16 +759,16 @@ public final class RenderPipeline {
                 throw new IllegalStateException("injected GTAO CPU preparation failure");
             long retainedGtaoBytes = activeGeneration == null || activeGeneration.gtaoAllocation == null
                     ? 0 : activeGeneration.gtaoAllocation.activeBytes();
-            for (var retired : retiredGenerations) if (retired.generation().gtaoAllocation != null)
-                retainedGtaoBytes = Math.addExact(retainedGtaoBytes, retired.generation().gtaoAllocation.activeBytes());
+            for (var retired : retiredGenerations) if (retired.generation.gtaoAllocation != null)
+                retainedGtaoBytes = Math.addExact(retainedGtaoBytes, retired.generation.gtaoAllocation.activeBytes());
             candidate.gtaoAllocation = GtaoAllocationPlan.prepare(topology.width(), topology.height(),
                     postProcessSettings.gtao(), !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth"), retainedGtaoBytes, reusable != null && reusable.gtao != null
                             && reusable.gtao.compatible(postProcessSettings.gtao(), !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth")));
             long retiringVolumeBytes = activeGeneration == null || activeGeneration.volumeAllocation == null ? 0
                     : activeGeneration.volumeAllocation.activeBytes();
             for (var retired : retiredGenerations)
-                if (retired.generation().volumeAllocation != null)
-                    retiringVolumeBytes = Math.addExact(retiringVolumeBytes, retired.generation().volumeAllocation.activeBytes());
+                if (retired.generation.volumeAllocation != null)
+                    retiringVolumeBytes = Math.addExact(retiringVolumeBytes, retired.generation.volumeAllocation.activeBytes());
             candidate.volumeAllocation = VolumetricAllocationPlan.prepare(topology.width(), topology.height(),
                     volumetricFogSettings, clusteredLightingSettings.maxLocalLights() + clusteredLightingSettings.maxDirectionalLights(),
                     topology.sampleCount(), topology.hdrVfx(), retiringVolumeBytes);
@@ -767,6 +781,8 @@ public final class RenderPipeline {
             candidate.graph = reusable == null ? new RenderGraph(topology.width(), topology.height())
                     : RenderGraph.replacementOf(reusable.graph);
             candidate.cameraUniforms = reusable == null ? new CameraUniforms() : candidate.borrow(reusable.cameraUniforms);
+            candidate.deformationDefaults = reusable == null ? new SceneDeformationDefaults()
+                    : candidate.borrow(reusable.deformationDefaults);
             if ((topology.directionalShadow() || topology.pointShadow() || topology.spotShadow())
                     && (topology.pbrMaterials() || topology.volumetricFog())) {
                 candidate.shadowSamplingBlock = reusable != null && reusable.shadowSamplingBlock != null
@@ -898,8 +914,8 @@ public final class RenderPipeline {
         VolumetricAllocationPlan allocation = generation == null ? null : generation.volumeAllocation;
         long retiring = 0;
         for (var retired : retiredGenerations)
-            if (retired.generation().volumeAllocation != null)
-                retiring = Math.addExact(retiring, retired.generation().volumeAllocation.activeBytes());
+            if (retired.generation.volumeAllocation != null)
+                retiring = Math.addExact(retiring, retired.generation.volumeAllocation.activeBytes());
         return new VolumetricAllocationDiagnostics(allocation == null ? 0 : allocation.privateBytes(),
                 allocation == null ? 0 : allocation.colorBytes(), retiring,
                 lastVolumeCandidatePeakBytes, retiredGenerations.size());
@@ -1372,7 +1388,7 @@ public final class RenderPipeline {
             }
             activeFrameContext.verifySceneStable(scene, topologySettingsRevision);
             if (generation.gtao != null) generation.gtao.prepareFrame(activeFrameContext, builtFrame,
-                    generation.cameraUniforms, instanced, generation.gtaoInputs);
+                    generation.cameraUniforms, instanced, generation.gtaoInputs, generation.deformationDefaults);
             if (generation.volumetric != null) {
                 generation.volumetric.prepareTransparentVariants(builtFrame);
                 generation.volumetric.shadowPolicy(directionalShadowMap.settings(),localShadowSettings,directionalCascadeSettings);
@@ -1615,8 +1631,12 @@ public final class RenderPipeline {
         generation.retire();
         RuntimeException failure = null;
         if (generation.submitted) {
-            retiredGenerations.addLast(new RetiredGeneration(generation,
-                    com.kaleblangley.haikalat.backend.sync.GpuFence.insert()));
+            // Keep the owner reachable even if creating its completion fence fails.
+            // A later fence covers these submissions and any intervening work.
+            var pending = new RetiredGeneration(generation);
+            retiredGenerations.addLast(pending);
+            try { fenceRetirement(pending); }
+            catch (RuntimeException fenceFailure) { failure = fenceFailure; }
         } else failure = closeCollecting(generation, failure);
         for (RenderDevice device : List.copyOf(usedDevices)) {
             try {
@@ -1696,6 +1716,7 @@ public final class RenderPipeline {
             // surface draws; the forward geometry pass reuses it.
             generation.cameraUniforms.update(cmd, frameCamera(), frameWidth(), frameHeight(),
                     settings.antiAliasingMode(), activeFrameIndex);
+            generation.deformationDefaults.record(cmd);
             generation.sceneSurfacePass.record(cmd, frame, temporalSceneState, current,
                     temporalFrameState.previous(), instanced, activeFrameIndex,
                     generation.cameraUniforms);
@@ -1707,6 +1728,7 @@ public final class RenderPipeline {
             PipelineGeneration generation = requireGeneration();
             if (generation.volumetric!=null) volumetricReactiveExecutor().execute(res,cmd);
             if (generation.sceneReactivePass == null) return;
+            generation.deformationDefaults.record(cmd);
             generation.sceneReactivePass.record(cmd, sceneFrame(), generation.cameraUniforms);
         };
     }
@@ -2006,6 +2028,7 @@ public final class RenderPipeline {
 
     private int recordDirectionalShadowCasters(CommandBuffer cmd, SceneFrame frame,
                                                 Matrix4f lightSpace, int view) {
+        requireGeneration().deformationDefaults.record(cmd);
         ShaderProgram boundShader = requireGeneration().shadowShader;
         cmd.bindShader(boundShader).setUniformMat4(boundShader, "uLightSpace", lightSpace);
         com.kaleblangley.haikalat.core.mesh.Mesh boundMesh = null;
@@ -2162,6 +2185,7 @@ public final class RenderPipeline {
 
     private int recordAllShadowCasters(CommandBuffer cmd, SceneFrame frame, Matrix4f lightSpace,
                                        int view) {
+        requireGeneration().deformationDefaults.record(cmd);
         ShaderProgram boundShader = requireGeneration().shadowShader;
         // Point faces and spot tiles are recorded back-to-back.  The previous view
         // may have ended with the masked or instanced program bound, so DSA uniform
@@ -2253,6 +2277,7 @@ public final class RenderPipeline {
                              int pointShadowTexture, int spotShadowTexture,
                              int gtaoTexture,int segment) {
         PipelineGeneration generation = requireGeneration();
+        generation.deformationDefaults.record(cmd);
         SceneFrame frame = sceneFrame();
         boolean gtaoEnabled = generation.topology.gtaoEnabled();
         boolean sharedDepth = generation.topology.sceneBuffers().requiresSurfacePass();

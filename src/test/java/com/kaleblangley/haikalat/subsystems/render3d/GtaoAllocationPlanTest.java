@@ -5,6 +5,14 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GtaoAllocationPlanTest {
+    @Test void deviceLimitRejectsNarrowOversizeAndInvalidExtentsWithoutGl() {
+        GtaoAllocationPlan.validateDeviceExtent(16384, 1, 16384);
+        assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.validateDeviceExtent(16385, 1, 16384));
+        assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.validateDeviceExtent(1, 16385, 16384));
+        assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.validateDeviceExtent(0, 1, 16384));
+        assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.validateDeviceExtent(1, 1, 0));
+    }
+
     @Test void budgetsUseActualAoFormatsAndCeilHalfExtents() {
         var settings = GtaoSettings.defaults().withEnabled(true);
         var plan = GtaoAllocationPlan.prepare(97, 65, settings, true, 0, false);

@@ -164,7 +164,7 @@ pass failure，恢复帧必须以 `FRAME_FAILURE` 重建 dirty view。窗口同�
 .\gradlew.bat localShadowCullingVerification --rerun-tasks
 ```
 
-## GTAO 环境遮蔽（v0.23.2）
+## GTAO 环境遮蔽（v0.23.2，0.27.1 边界迁移中）
 
 GTAO 默认关闭，只对包含 metallic-roughness PBR 材质且启用了 HDR 的场景提供正式保证。通过同一个
 `PostProcessSettings` 配置入口启用：
@@ -177,7 +177,8 @@ RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, envi
         .postProcessSettings(effects);
 ```
 
-启用后，pipeline 会在 PBR geometry 前执行 `GtaoDepthPrepass`、半分辨率 estimate、temporal、一次
+默认共享表面路径在 PBR geometry 前执行 `SceneSurfacePass`，MSAA 时先执行
+`SceneSurfaceResolvePass`，再执行半分辨率 estimate、temporal、一次
 深度/法线感知 3×3 双边去噪和上采样。estimate 同时写出 `gtaoRaw` 与 `gtaoNormal`（RG16F
 octahedral normal cache），去噪和上采样复用这份几何信息，不再为每个邻居重复重建法线。一次去噪替代旧的 H/V 两次全屏 pass，以减少稳定帧的
 FBO、timer 和 draw 开销；AO 只乘到 diffuse/specular IBL 的间接光；直接光、emissive、天空、BLEND/ADDITIVE、
@@ -187,12 +188,28 @@ camera cut 会保守拒绝旧 history。
 
 GTAO visibility 绑定 fragment texture unit 13。材质不得覆盖该 unit；未声明 `uGtaoEnabled`/
 `uGtaoMap` 的自定义 shader 仍可运行，但不会自动接收 AO。F2 graph preview 可选择
-`GtaoDepthPrepass/gtaoDepth`、`GtaoEstimatePass/gtaoRaw`、`GtaoEstimatePass/gtaoNormal`、
+共享深度/法线、`GtaoEstimatePass/gtaoRaw`、`GtaoEstimatePass/gtaoNormal`、
 `GtaoTemporalPass/gtaoTemporal`、
 去噪 target 和 `GtaoUpsamplePass/gtaoFinal`；R8 按线性灰度显示，白色表示无遮蔽。
 
 诊断通过 `pipeline.lastRender3dDiagnostics().ambientOcclusion()` 报告开关、质量、半/全分辨率、
-temporal/history 有效位和估算显存。完整真实 GL 与 1080p/4K 性能门禁在 `v0.23.2` 发布前执行。
+temporal/history 有效位和 AO 专属字节估算。`invalidationReasons()` 区分 GTAO 的首次使用、设置、拒绝策略、resize、相机突变、运动相位、失败和世界切换。格式估算不等于实测显存，也不代表整个 Pipeline 的内存上限。
+
+0.27.1 已接入 advanced 的同步运行入口，必须在持有原 Context 的 render owner 线程、两帧之间调用：
+
+```java
+pipeline.applyGtao(pipeline.gtao().withEnabled(true));
+pipeline.applyGtao(pipeline.gtao().withQuality(GtaoQuality.HIGH));
+GtaoSettings ao = pipeline.gtao();
+pipeline.applyGtao(new GtaoSettings(ao.enabled(), ao.quality(), 1.5f,
+        ao.strength(), ao.thickness(), ao.temporal(), ao.historyWeight(),
+        ao.depthRejectionThreshold()));
+pipeline.applyGtao(pipeline.gtao().withEnabled(false));
+```
+
+半径、强度、厚度、quality 和时域策略更新保留图及私有存储：估计值变化拒绝旧 AO 像素，historyWeight 可以保留历史内容，depthRejectionThreshold 触发可诊断的策略失效。enabled 和 temporal 变化采用完整候选事务。停用会关闭专属程序和 history，明确清除 PBR 的 AO uniform/纹理/sampler。独立 depth prepass 是保留的内部兼容路径，默认 shared 路径不重复绘制这条 prepass。
+
+本机 NONE／TAA／MSAA4 首帧、相机移动和奇数尺寸已通过原生像素与打包 JAR 复验。MSAA 冷启动由表面绘制绑定顺序修复，保留原 GTAO 算法。性能为 `NOT_EVALUATED`；本轮没有重新启动 Minecraft，也没有证明地形或光照的统一视觉整合。状态与预算范围见 [GTAO 模块合同](../architecture/v0.27.1-gtao-module-contract.md)和[复核记录](../releases/v0.27.1-review.md)。
 
 ## Fog、MSAA 与资源生命周期
 

@@ -65,15 +65,14 @@ final class SceneSurfacePass implements AutoCloseable {
         Objects.requireNonNull(frame, "frame");
         TemporalFrameState.FrameParameters previousFrame = previous == null ? current : previous;
         bindCameraUniforms(cmd, surfaceProgram, cameraUniforms, current, previousFrame);
-        cmd.bindShader(surfaceProgram)
-                .enableBlend(false)
+        cmd.enableBlend(false)
                 .enableDepthTest(true)
                 .depthMask(true)
                 .frontFace(FrontFace.CCW)
                 .enableCullFace(true)
                 .setUniformInt(surfaceProgram, "uDerivativeNormal", 0);
 
-        ShaderProgram boundShader = surfaceProgram;
+        boolean programBound = false;
         Mesh boundMesh = null;
         boolean frontFaceBound = false;
         boolean cullBound = false;
@@ -138,6 +137,12 @@ final class SceneSurfacePass implements AutoCloseable {
             if (renderer.mesh() != boundMesh) {
                 cmd.bindMesh(renderer.mesh());
                 boundMesh = renderer.mesh();
+            }
+            if (!programBound) {
+                // First use must see the mesh's attribute arrays, not the preceding pass's VAO.
+                // Cold MSAA specialization can otherwise read the generic normal attribute.
+                cmd.bindShader(surfaceProgram);
+                programBound = true;
             }
             cmd.drawMesh(renderer.mesh());
         }

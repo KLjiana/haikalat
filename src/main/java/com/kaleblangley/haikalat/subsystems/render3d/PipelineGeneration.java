@@ -16,6 +16,7 @@ final class PipelineGeneration implements AutoCloseable {
     PipelineTopology topology;
     RenderGraph graph;
     CameraUniforms cameraUniforms;
+    SceneDeformationDefaults deformationDefaults;
     ShadowSamplingBlock shadowSamplingBlock;
     ShadowLightScheduler shadowLightScheduler = new ShadowLightScheduler();
     ShadowCacheState shadowCache = new ShadowCacheState();
@@ -286,6 +287,7 @@ final class PipelineGeneration implements AutoCloseable {
         PostProcessPassBuilder localPostProcess = postProcess;
         VolumetricPassBuilder localVolume = volumetric;
         CameraUniforms localCameraUniforms = cameraUniforms;
+        SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
         SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
         SceneReactivePass localSceneReactive = sceneReactivePass;
@@ -305,6 +307,7 @@ final class PipelineGeneration implements AutoCloseable {
         postProcess = null;
         volumetric = null;
         cameraUniforms = null;
+        deformationDefaults = null;
         sceneSurfacePass = null;
         sceneSurfaceResolvePass = null;
         sceneReactivePass = null;
@@ -329,6 +332,7 @@ final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);
         failure = closeCollecting(localSceneReactive, failure);
+        failure = closeCollecting(localDeformationDefaults, failure);
         failure = closeCollecting(localShadowSamplingBlock, failure);
         failure = closeCollecting(localClusteredBinder, failure);
         failure = closeCollecting(localClusteredResources, failure);

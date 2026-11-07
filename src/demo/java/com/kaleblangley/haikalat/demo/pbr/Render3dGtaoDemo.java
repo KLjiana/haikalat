@@ -243,6 +243,7 @@ public final class Render3dGtaoDemo {
     private static void renderLoop(GlfwWindow window, FrameDriver driver,
                                    RenderPipeline pipeline, Camera camera, Options options) {
         FrameClock clock = new FrameClock();
+        Vector3f originalPosition = camera.position();
         int frame = 0;
         while (!window.shouldClose()
                 && (options.frames() <= 0 || frame < options.frames())) {
@@ -254,6 +255,7 @@ public final class Render3dGtaoDemo {
                 window.requestClose();
             }
             if (window.consumeResize()) pipeline.resize(window.width(), window.height());
+            if (options.exerciseRuntime()) exerciseRuntime(pipeline, camera, originalPosition, options.gtaoSettings(), frame);
 
             driver.beginFrame();
             try {
@@ -263,6 +265,13 @@ public final class Render3dGtaoDemo {
             } catch (RuntimeException | Error failure) {
                 driver.failFrame(pipeline.graph(), failure);
                 throw failure;
+            }
+            if (options.exerciseRuntime() && options.capturePath() != null && (frame == 1 || frame == 3)) {
+                Path capture = Path.of(options.capturePath());
+                String name = capture.getFileName().toString();
+                int extension = name.lastIndexOf('.');
+                String stem = extension < 0 ? name : name.substring(0, extension);
+                captureFrame(window.width(), window.height(), capture.resolveSibling(stem + (frame == 1 ? "-on.png" : "-off.png")).toString());
             }
             if (options.capturePath() != null && options.frames() > 0
                     && frame + 1 == options.frames()) {
@@ -277,6 +286,28 @@ public final class Render3dGtaoDemo {
         Render3dDiagnostics diagnostics = pipeline.lastRender3dDiagnostics();
         printSummary(diagnostics, frame, driver.statistics().averageFps());
         GlDebug.assertNoError("Render3dGtaoDemo");
+    }
+
+    private static void exerciseRuntime(RenderPipeline pipeline, Camera camera,
+                                        Vector3f originalPosition, GtaoSettings initial, int frame) {
+        GtaoSettings next = switch (frame) {
+            case 2 -> initial.withEnabled(false);
+            case 4 -> initial.withEnabled(true).withQuality(GtaoQuality.HIGH);
+            case 6 -> new GtaoSettings(true, GtaoQuality.HIGH, initial.radius(),
+                    Math.min(4, initial.strength() + .5f), initial.thickness(), true,
+                    initial.historyWeight(), initial.depthRejectionThreshold());
+            case 8 -> new GtaoSettings(true, initial.quality(), initial.radius(), initial.strength(),
+                    initial.thickness(), false, initial.historyWeight(), initial.depthRejectionThreshold());
+            case 10 -> initial.withEnabled(true);
+            case 12 -> initial;
+            default -> null;
+        };
+        if (next != null) {
+            pipeline.applyGtao(next);
+            System.out.println("GTAO runtime frame=" + frame + " settings=" + pipeline.gtao());
+        }
+        if (frame == 4) camera.setPosition(new Vector3f(originalPosition).add(.2f, 0, 0));
+        if (frame == 12) camera.setPosition(originalPosition);
     }
 
     private static void updateTitle(GlfwWindow window, Render3dDiagnostics diagnostics) {
@@ -413,7 +444,7 @@ public final class Render3dGtaoDemo {
     private record Options(boolean hidden, int frames, int width, int height, boolean vsync,
                            boolean gtao, GtaoQuality quality, float radius, float strength,
                            float thickness, String environmentQuality, boolean preview,
-                           boolean freeCamera, String view, String capturePath) {
+                           boolean freeCamera, String view, String capturePath, boolean exerciseRuntime) {
         static Options parse(String[] arguments) {
             boolean hidden = false;
             int frames = -1;
@@ -431,11 +462,13 @@ public final class Render3dGtaoDemo {
             String environmentQuality = "test";
             boolean preview = false;
             boolean freeCamera = false;
+            boolean exerciseRuntime = false;
             String view = "paired";
             String capturePath = null;
             for (String argument : Objects.requireNonNull(arguments, "arguments")) {
                 if (argument.equals("--hidden")) hidden = true;
                 else if (argument.equals("--free-camera")) freeCamera = true;
+                else if (argument.equals("--exercise-runtime")) exerciseRuntime = true;
                 else if (argument.equals("--vsync")) vsync = true;
                 else if (argument.equals("--no-vsync")) vsync = false;
                 else if (argument.equals("--gtao")) gtao = true;
@@ -475,6 +508,10 @@ public final class Render3dGtaoDemo {
             }
             if (hidden && frames < 0) frames = 120;
             if (frames == 0) throw new IllegalArgumentException("frames must be positive");
+            if (exerciseRuntime && frames > 0 && frames < 14)
+                throw new IllegalArgumentException("--exercise-runtime requires at least 14 frames");
+            if (exerciseRuntime && freeCamera)
+                throw new IllegalArgumentException("--exercise-runtime uses a fixed camera sequence");
             if (capturePath != null && frames < 1) {
                 throw new IllegalArgumentException("--capture requires a positive --frames value");
             }
@@ -482,7 +519,7 @@ public final class Render3dGtaoDemo {
                 throw new IllegalArgumentException("gtao-thickness must be <= gtao-radius");
             }
             return new Options(hidden, frames, width, height, vsync, gtao, quality, radius,
-                    strength, thickness, environmentQuality, preview, freeCamera, view, capturePath);
+                    strength, thickness, environmentQuality, preview, freeCamera, view, capturePath, exerciseRuntime);
         }
 
         GtaoSettings gtaoSettings() {

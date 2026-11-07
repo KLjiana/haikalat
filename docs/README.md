@@ -33,6 +33,7 @@
 - [v0.25.0 多光源体积雾执行计划](planning/v0.25.0-multilight-volumetric-fog.md)
 - [v0.25.1 风格化场景控制执行规划](planning/v0.25.1-stylized-scene-control.md)
 - [27.0 Subsystems 模块边界与生命周期重构：第一阶段](planning/v0.27.0-subsystems-modularity.md)
+- [0.27.1 GTAO 模块边界与渲染装配收敛计划](planning/v0.27.1-gtao-module-boundaries.md)
 - [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
@@ -45,6 +46,9 @@
 - [渲染边界约定](architecture/render-boundaries.md)
 - [v0.25.0 体积雾坐标、绑定、合成与资源合同](architecture/v0.25.0-volumetric-contract.md)
 - [v0.27.0 体积雾模块、借用输入与候选所有权合同](architecture/v0.27.0-volumetric-module-contract.md)
+- [v0.27.1 GTAO 模块、参数与两模块共性合同](architecture/v0.27.1-gtao-module-contract.md)
+- [v0.27.1 GTAO 开工与修正基线](releases/v0.27.1-baseline.md)
+- [v0.27.1 GTAO 复核记录](releases/v0.27.1-review.md)
 - [v0.27.0 模块化开工基线](performance/v0.27.0-modularity-baseline.md)
 - [v0.27.0 RTX 3050 Laptop 本机预算政策与已有样本复核](performance/v0.27.0-rtx3050-budget-policy.md)
 - [v0.27.0 第一阶段验收记录（体积雾边界与生命周期试点）](releases/v0.27.0-phase1-review.md)

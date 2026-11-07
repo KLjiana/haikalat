@@ -33,6 +33,7 @@ class SceneReactiveGlTest {
                 var mesh=Mesh.from(BuiltinMeshData.texturedQuad("reactive-max"));
                 var target=Framebuffer.fromDescriptor(FramebufferDescriptor.builder(32,32).colorTexture(RenderFormat.R8).build());
                 var cameraUniforms=new CameraUniforms();var pass=new SceneReactivePass();
+                var defaults=new SceneDeformationDefaults();
                 var material=Material.builder(shader).temporalReactive(.6f).build()) {
                 var camera=new Camera(new Vector3f(0,0,5));var scene=new Scene(camera);
                 scene.add(MeshRenderer.of(mesh,material,Transform.at(0,0,0)));
@@ -41,6 +42,7 @@ class SceneReactiveGlTest {
                 var device=new GlRenderDevice();var cmd=device.createCommandBuffer();
                 cmd.bindFramebuffer(GL_FRAMEBUFFER,target.id()).viewport(0,0,32,32).clearColor(0,0,0,0).clear(true,false);
                 cameraUniforms.update(cmd,camera,32,32,AntiAliasingMode.NONE,0);
+                defaults.record(cmd);
                 assertEquals(2,pass.record(cmd,frame,cameraUniforms));device.execute(cmd);
                 var pixel=BufferUtils.createFloatBuffer(1);glReadPixels(16,16,1,1,GL_RED,GL_FLOAT,pixel);
                 assertEquals(.6,pixel.get(0),.004,"overlap does not sum distrust values");
@@ -65,6 +67,7 @@ class SceneReactiveGlTest {
                          .colorTexture(RenderFormat.R8).build());
                  var cameraUniforms = new CameraUniforms();
                  var pass = new SceneReactivePass();
+                 var defaults = new SceneDeformationDefaults();
                  var joints = GlBuffer.shaderStorageBuffer(GL_DYNAMIC_DRAW).allocate(64);
                  var deltas = GlBuffer.shaderStorageBuffer(GL_DYNAMIC_DRAW).allocate(6 * 12 * 4);
                  var weights = GlBuffer.shaderStorageBuffer(GL_DYNAMIC_DRAW).allocate(4)) {
@@ -100,6 +103,7 @@ class SceneReactiveGlTest {
                         cmd.bindFramebuffer(GL_FRAMEBUFFER, target.id()).viewport(0, 0, 96, 96)
                                 .clearColor(0, 0, 0, 0).clear(true, false);
                         cameraUniforms.update(cmd, camera, 96, 96, AntiAliasingMode.NONE, 0);
+                        defaults.record(cmd);
                         pass.record(cmd, frame, cameraUniforms);
                         device.execute(cmd);
                         target.bind();

@@ -996,6 +996,11 @@ registerDemoApplication('runRender3dGtaoVisualDemo',
         'Runs the paired GTAO contact scene: left bay uses GTAO, right bay is the material opt-out reference.',
         render3dGtaoMain, [])
 
+registerDemoJavaExec('runRender3dGtaoModuleIntegration', 'verification',
+        'Exercises runtime GTAO settings and camera motion in the paired contact scene and captures its final frame.',
+        render3dGtaoMain, ['--hidden', '--frames=16', '--size=640x400', '--environment-quality=test',
+                         '--exercise-runtime', '--capture=build/reports/gtao-v0271/main-runtime.png'])
+
 tasks.register('localMilestone4Verification') {
     group = 'verification'
     description = 'Runs advanced animation, GPU effects, combined showcase and stability acceptance.'
