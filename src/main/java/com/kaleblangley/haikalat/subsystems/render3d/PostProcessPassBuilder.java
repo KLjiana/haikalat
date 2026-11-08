@@ -232,7 +232,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
         var target = graph.addPass(output.producer()).dependsOn(colorProducer);
         if (surfaceInputs.layout().reactiveMode() == SceneSurfaceLayout.ReactiveMode.VOLUME_ALIAS) {
             target.shareColorAttachments(List.of(output.name()), List.of(output.format()),
-                    VolumetricPassBuilder.COMPOSITE_PASS, List.of(1), 1).noClear();
+                    VolumetricPassBuilder.COMPOSITE_PASS, List.of(VolumetricPassBuilder.OPAQUE_REACTIVE_SLOT), 1).noClear();
         } else {
             target.createColor(output.name(), output.format()).clearColor(0, 0, 0, 0);
         }

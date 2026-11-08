@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.kaleblangley.haikalat.subsystems.render3d.SceneBufferChannel.*;
 import static com.kaleblangley.haikalat.subsystems.render3d.SceneSurfaceLayout.ReactiveMode.*;
+import static com.kaleblangley.haikalat.backend.RenderFormat.R8;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -126,6 +127,52 @@ class SceneBufferRequirementsTest {
         assertFalse(late.hasSurface());
         assertEquals(33L * 17, late.storage(33, 17).bytes());
         assertEquals(0, aliased.storage(33, 17).bytes());
+    }
+
+    @Test
+    void reactiveStorageMustMatchTheDeclaredOwnerAndSlot() {
+        String composite = VolumetricPassBuilder.COMPOSITE_PASS;
+        int reactiveSlot = VolumetricPassBuilder.OPAQUE_REACTIVE_SLOT;
+        validateReactiveStorage(SCENE, null, 0);
+        validateReactiveStorage(VOLUME_ALIAS, composite, reactiveSlot);
+        assertThrows(IllegalArgumentException.class, () -> validateReactiveStorage(VOLUME_ALIAS, null, 0));
+        assertThrows(IllegalArgumentException.class, () -> validateReactiveStorage(SCENE, composite, reactiveSlot));
+        assertThrows(IllegalArgumentException.class, () -> validateReactiveStorage(VOLUME_ALIAS, composite, 0));
+        assertThrows(IllegalArgumentException.class, () -> validateReactiveStorage(VOLUME_ALIAS, "OtherMask", reactiveSlot));
+    }
+
+    @Test
+    void candidateRejectsWrongRasterExtentAndSampleCountBeforePublication() {
+        var layout = SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(), SceneBufferRequirements.fog(), NONE);
+        var depth = layout.raw(DEPTH);
+        try (var wrongExtent = GraphRecordingFixture.graph(33, 17);
+             var wrongSamples = GraphRecordingFixture.graph(33, 17)) {
+            wrongExtent.addPass(depth.producer()).createDepthTexture(depth.name()).fixedSize(32, 17)
+                    .execute((res, cmd) -> {});
+            wrongSamples.addPass(depth.producer()).createDepthTextureMS(depth.name(), 4)
+                    .execute((res, cmd) -> {});
+            for (var graph : List.of(wrongExtent, wrongSamples)) {
+                var failure = assertThrows(IllegalArgumentException.class,
+                        () -> new SceneSurfaceInputs(1, graph, layout).validate());
+                assertTrue(failure.getMessage().contains("invalid surface extent or samples"));
+            }
+        }
+    }
+
+    private static void validateReactiveStorage(SceneSurfaceLayout.ReactiveMode mode, String source, int slot) {
+        var layout = SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(), SceneBufferRequirements.of(REACTIVE), mode);
+        var reactive = layout.reactive();
+        try (var graph = GraphRecordingFixture.graph(33, 17)) {
+            if (source != null) {
+                graph.addPass(source).createColors(List.of("otherMask", VolumetricPassBuilder.OPAQUE_REACTIVE),
+                        List.of(R8, R8)).execute((res, cmd) -> {});
+            }
+            var pass = graph.addPass(reactive.producer());
+            if (source == null) pass.createColor(reactive.name(), reactive.format());
+            else pass.shareColorAttachments(List.of(reactive.name()), List.of(reactive.format()), source, List.of(slot), 1).noClear();
+            pass.execute((res, cmd) -> {});
+            new SceneSurfaceInputs(1, graph, layout).validate();
+        }
     }
 
     @Test

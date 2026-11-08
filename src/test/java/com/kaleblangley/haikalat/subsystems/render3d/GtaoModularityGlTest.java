@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
@@ -34,8 +35,10 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.lwjgl.opengl.GL11.glIsTexture;
 
 /** Production GTAO ownership, dependency and real-pixel acceptance. */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
@@ -769,14 +772,32 @@ class GtaoModularityGlTest {
                     assertSharedSurface(p, aa, false, true, false);
                     var fogOwner = p.activeGenerationForTest().volumetric;
                     p.applyGtao(nonTemporal);
-                    p.execute(device);
+                    var shared = observeSurfaceTargets(p, device);
                     assertSame(fogOwner, p.activeGenerationForTest().volumetric);
                     assertSharedSurface(p, aa, true, true, false);
                     var gtaoOwner = p.activeGenerationForTest().gtao;
                     long sharedBytes = p.activeGenerationForTest().surfaceBytes();
                     p.drainRetirementsForTest();
+                    if (aa == AntiAliasingMode.TAA) {
+                        var graph = p.graph();
+                        System.setProperty("haikalat.test.failVolumeGraph", "true");
+                        try {
+                            var failure = assertThrows(RuntimeException.class,
+                                    () -> p.applyVolumetricFog(VolumetricFogSettings.disabled()));
+                            assertTrue(failure.getMessage().contains("depends on missing pass MissingVolumeProducer"));
+                        } finally { System.clearProperty("haikalat.test.failVolumeGraph"); }
+                        assertSame(graph, p.graph());
+                        assertSame(fogOwner, p.activeGenerationForTest().volumetric);
+                        assertFalse(shared.raster().isClosed(), "failed candidate must leave the donor framebuffer open");
+                        assertTrue(glIsTexture(shared.raster().depthAttachment()));
+                    }
                     p.applyVolumetricFog(VolumetricFogSettings.disabled());
-                    p.execute(device);
+                    var retained = observeSurfaceTargets(p, device);
+                    assertSame(shared.raster(), retained.raster(), "raster target survives fog removal");
+                    assertSame(shared.resolve(), retained.resolve(), "resolve target survives fog removal");
+                    p.drainRetirementsForTest();
+                    assertFalse(retained.raster().isClosed());
+                    if (retained.resolve() != null) assertFalse(retained.resolve().isClosed());
                     assertSame(gtaoOwner, p.activeGenerationForTest().gtao);
                     assertEquals(sharedBytes, p.activeGenerationForTest().surfacePeakBytes,
                             "unchanged raster and resolve targets count once during replacement");
@@ -784,13 +805,47 @@ class GtaoModularityGlTest {
                     p.applyGtao(GtaoSettings.defaults().withEnabled(true));
                     p.resize(97, 65);
                     fixture.size.width = 97; fixture.size.height = 65;
-                    p.execute(device);
+                    var resized = observeSurfaceTargets(p, device);
                     assertSharedSurface(p, aa, true, false, true);
+                    if (aa != AntiAliasingMode.TAA) {
+                        int depth = resized.raster().depthAttachment();
+                        int normal = resized.raster().colorAttachment(0);
+                        int resolvedNormal = resized.resolve() == null ? 0 : resized.resolve().colorAttachment(0);
+                        p.applyGtao(GtaoSettings.disabled());
+                        p.drainRetirementsForTest();
+                        assertTrue(resized.raster().isClosed());
+                        assertFalse(glIsTexture(depth), "last consumer releases raster depth");
+                        assertFalse(glIsTexture(normal), "last consumer releases raster normals");
+                        if (resized.resolve() != null) {
+                            assertTrue(resized.resolve().isClosed());
+                            assertFalse(glIsTexture(resolvedNormal), "last consumer releases resolved normals");
+                        }
+                        p.execute(device);
+                        assertSharedSurface(p, aa, false, false, false);
+                    }
                     p.close();
                     fixture.size.width = 96; fixture.size.height = 64;
                 }
             }
         }
+    }
+
+    private record SurfaceTargets(Framebuffer raster, Framebuffer resolve) {}
+
+    private static SurfaceTargets observeSurfaceTargets(RenderPipeline pipeline, GlRenderDevice device) {
+        var observed = new AtomicReference<SurfaceTargets>();
+        pipeline.graph().addPass("SharedSurfaceTargetProbe").computeOnly().dependsOn(pipeline.finalPassName())
+                .execute((resources, commands) -> {
+                    var raster = resources.framebufferOfPass(PostProcessTargets.SCENE_SURFACE_PASS);
+                    assertNotNull(raster);
+                    var geometry = resources.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+                    assertEquals(raster.depthAttachment(), geometry.depthAttachment(), "Geometry borrows raster depth");
+                    observed.set(new SurfaceTargets(raster,
+                            resources.framebufferOfPass(PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS)));
+                });
+        pipeline.execute(device);
+        assertNotNull(observed.get());
+        return observed.get();
     }
 
     private static void assertSharedSurface(RenderPipeline p, AntiAliasingMode aa,

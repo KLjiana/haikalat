@@ -41,7 +41,15 @@ final class SceneSurfaceInputs {
             validatePass(description, SCENE_SURFACE_RESOLVE_PASS, layout.resolve());
             validateDependency(SCENE_SURFACE_RESOLVE_PASS, layout.raw(DEPTH));
         }
-        if (layout.reactive() != null) validatePass(description, SCENE_REACTIVE_PASS, List.of(layout.reactive()));
+        if (layout.reactive() != null) {
+            validatePass(description, SCENE_REACTIVE_PASS, List.of(layout.reactive()));
+            boolean volumeAlias = layout.reactiveMode() == SceneSurfaceLayout.ReactiveMode.VOLUME_ALIAS;
+            String sourcePass = volumeAlias ? VolumetricPassBuilder.COMPOSITE_PASS : null;
+            List<Integer> sourceSlots = volumeAlias ? List.of(VolumetricPassBuilder.OPAQUE_REACTIVE_SLOT) : List.of();
+            if (!graph.matchesColorStorage(SCENE_REACTIVE_PASS, sourcePass, sourceSlots)) {
+                throw new IllegalArgumentException("invalid reactive color storage for " + layout.reactiveMode());
+            }
+        }
     }
 
     private static void validatePass(RenderGraph.Description graph, String name,

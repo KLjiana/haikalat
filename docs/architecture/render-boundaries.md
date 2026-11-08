@@ -24,6 +24,10 @@
 
 `RenderGraph` 不负责场景遍历、材质绑定、光照模型、shader variant、asset loading 或 demo 输入逻辑。
 
+`matchesColorStorage(...)` 用于候选校验，查询 managed pass 声明的颜色来源与槽位。自有颜色用空来源和空槽列表表示。
+
+`prepareResize(...)` 和 `replacementOf(...)` 保留准备时的目标版本，发布时拒绝过期候选。独立目标 resize 和 Graph resize 都更新目标版本，公开的 `topologyRevision()` 仍按 pass 拓扑更新。
+
 对于 `ExecutionModel.IMMEDIATE`，graph 会在前一帧命令已执行完成后复用内部 `CommandBuffer`、`PassResources` 和 pass timing 数组；deferred backend 仍必须从 `RenderDevice` 获取独立 command buffer，不能复用尚未消费的数据。
 
 ## Pass Resource Access

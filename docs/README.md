@@ -52,7 +52,7 @@
 - [v0.27.1 GTAO 复核记录](releases/v0.27.1-review.md)
 - [v0.27.2 共享场景表面合同](architecture/v0.27.2-shared-scene-surface-contract.md)
 - [v0.27.2 开工基线](releases/v0.27.2-baseline.md)
-- [v0.27.2 验收进度](releases/v0.27.2-review.md)
+- [v0.27.2 共享场景表面验收](releases/v0.27.2-review.md)
 - [v0.27.0 模块化开工基线](performance/v0.27.0-modularity-baseline.md)
 - [v0.27.0 RTX 3050 Laptop 本机预算政策与已有样本复核](performance/v0.27.0-rtx3050-budget-policy.md)
 - [v0.27.0 第一阶段验收记录（体积雾边界与生命周期试点）](releases/v0.27.0-phase1-review.md)

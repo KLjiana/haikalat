@@ -31,6 +31,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
     static final String TRANSPARENT_PASS = "VolumetricTransparency";
     static final String COMPOSITE_COLOR = "volume.opaqueColor";
     static final String OPAQUE_REACTIVE = "volume.opaqueReactive";
+    static final int OPAQUE_REACTIVE_SLOT = 1;
     static final String SCENE_COLOR = "volume.sceneColor";
     static final int PARAMETERS_USED_BYTES = 1232;
     static final int VOLUME_STRIDE = 96;
@@ -263,7 +264,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
         var pass=graph.addPass(REACTIVE_PASS).dependsOn(TRANSPARENT_PASS)
                 .borrowsExternalStorage("volume.reject","volume.historyRead","volume.filteredSource","volume.prefix","volume.reactivePrefix","volume.lightOffReactive","volume.localVolumes","volume.dirtyDomains");
         if (topology.sampleCount()==1) pass.shareColorAttachments(java.util.List.of(REACTIVE_TEXTURE),
-                java.util.List.of(RenderFormat.R8),COMPOSITE_PASS,java.util.List.of(1),1).noClear();
+                java.util.List.of(RenderFormat.R8),COMPOSITE_PASS,java.util.List.of(OPAQUE_REACTIVE_SLOT),1).noClear();
         else pass.createColor(REACTIVE_TEXTURE,RenderFormat.R8).clearColor(0,0,0,0)
                 .dependsOn(surfaceInputs.singleDepth().producer());
         pass.execute(executor);

@@ -95,6 +95,7 @@ public final class RenderGraph implements AutoCloseable {
     private long lastDeviceSubmitNanos;
     private boolean retainGpuSamples;
     private long topologyRevision;
+    private long targetRevision;
     private Description cachedDescription;
     private final List<FrameObserver> frameObservers = new ArrayList<>();
     private final Map<String, TargetExtent> managedTargetExtents = new HashMap<>();
@@ -108,7 +109,7 @@ public final class RenderGraph implements AutoCloseable {
             throw new IllegalStateException("cannot replace an executing or uncommitted graph");
         RenderGraph candidate = new RenderGraph(source.width, source.height, source.allocateResources);
         candidate.replacementSource = source;
-        candidate.replacementSourceRevision = source.topologyRevision;
+        candidate.replacementSourceRevision = source.targetRevision;
         return candidate;
     }
 
@@ -117,7 +118,7 @@ public final class RenderGraph implements AutoCloseable {
         ensureOpen();
         if (replacementSource == null) return;
         replacementSource.ensureOpen();
-        if (replacementSource.executing || replacementSource.topologyRevision != replacementSourceRevision)
+        if (replacementSource.executing || replacementSource.targetRevision != replacementSourceRevision)
             throw new IllegalStateException("replacement source changed during preparation");
         compile();
         if (allocateResources) {
@@ -126,6 +127,7 @@ public final class RenderGraph implements AutoCloseable {
             renderTargets.commitBorrowed();
             fixedRenderTargets.commitBorrowed();
         }
+        replacementSource.targetRevision++;
         replacementSource = null;
     }
 
@@ -192,13 +194,21 @@ public final class RenderGraph implements AutoCloseable {
                 for (var entry : extents.entrySet()) {
                     var active = getPassFramebuffer(entry.getKey());
                     if (active != null && active.width() == entry.getValue().width()
-                            && active.height() == entry.getValue().height()) managedTargetExtents.put(entry.getKey(), entry.getValue());
+                            && active.height() == entry.getValue().height()) {
+                        recordManagedTargetExtent(entry.getKey(), entry.getValue());
+                    }
                 }
                 refreshAttachmentLookup();
             }
         }
-        managedTargetExtents.putAll(extents);
-        cachedDescription = null;
+        extents.forEach(this::recordManagedTargetExtent);
+    }
+
+    private void recordManagedTargetExtent(String name, TargetExtent extent) {
+        if (!extent.equals(managedTargetExtents.put(name, extent))) {
+            targetRevision++;
+            cachedDescription = null;
+        }
     }
 
     public PassBuilder addPass(String name) {
@@ -412,6 +422,7 @@ public final class RenderGraph implements AutoCloseable {
         sortedPasses = null;
         compiledGraph = null;
         topologyRevision++;
+        targetRevision++;
         cachedDescription = null;
         if (allocateResources && !pass.useBackbuffer && !pass.externalTarget
                 && !pass.computeOnly) {
@@ -731,6 +742,15 @@ public final class RenderGraph implements AutoCloseable {
         return cachedDescription;
     }
 
+    /** Checks a managed pass's color source and slot mapping. Pass-owned colors have no source or slots. */
+    public boolean matchesColorStorage(String passName, String sourcePass, List<Integer> sourceSlots) {
+        ensureOpen();
+        Pass pass = passByName.get(passName);
+        return pass != null && !pass.useBackbuffer && !pass.externalTarget && !pass.colorFormats.isEmpty()
+                && Objects.equals(pass.sharedColorPassName, sourcePass)
+                && (sourcePass == null ? sourceSlots.isEmpty() : sourceSlots.equals(pass.sharedColorAttachmentIndices));
+    }
+
     /**
      * Allocates a complete resize candidate without changing the active graph.
      * The caller must either commit or close the returned candidate.
@@ -801,6 +821,7 @@ public final class RenderGraph implements AutoCloseable {
     /** A graph extent candidate whose old resources are retired only after commit. */
     public static final class ResizeCandidate implements AutoCloseable {
         private final RenderGraph owner;
+        private final long sourceTargetRevision;
         private final int width;
         private final int height;
         private RenderTargetManager candidateTargets;
@@ -813,6 +834,7 @@ public final class RenderGraph implements AutoCloseable {
                                 RenderTargetManager candidateTargets,
                                 Map<String, Integer> candidateAttachmentIds) {
             this.owner = owner;
+            this.sourceTargetRevision = owner.targetRevision;
             this.width = width;
             this.height = height;
             this.candidateTargets = candidateTargets;
@@ -829,6 +851,9 @@ public final class RenderGraph implements AutoCloseable {
             }
             if (closed) throw new IllegalStateException("resize candidate is closed");
             if (committed) throw new IllegalStateException("resize candidate already committed");
+            if (sourceTargetRevision != owner.targetRevision) {
+                throw new IllegalStateException("graph targets changed during resize preparation");
+            }
         }
 
         private void commitInto(RenderGraph expectedOwner) {
@@ -848,6 +873,7 @@ public final class RenderGraph implements AutoCloseable {
             }
             owner.width = width;
             owner.height = height;
+            owner.targetRevision++;
             owner.cachedDescription = null;
             committed = true;
         }
