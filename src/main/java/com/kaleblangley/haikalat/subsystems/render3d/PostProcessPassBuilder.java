@@ -41,8 +41,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private final AutoExposurePass autoExposure;
     private final FogPass fog;
     private final RenderGraph.PassExecutor hdrVfx;
-    private final boolean surfaceResolved;
-    private final boolean reactiveRequested;
+    private final SceneSurfaceInputs surfaceInputs;
     private final RenderGraph.PassExecutor reactiveRecorder;
     private final TaaSettings taaSettings = TaaSettings.defaults();
     private float manualExposure;
@@ -71,10 +70,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
     private boolean ownsResources = true;
 
     /** Independent assembly state over borrowed GPU owners; preparation never mutates active callbacks. */
-    PostProcessPassBuilder replacementAssembly(RenderSettings replacement, PostProcessSettings replacementEffects, boolean surface, boolean reactive,
+    PostProcessPassBuilder replacementAssembly(RenderSettings replacement, PostProcessSettings replacementEffects, SceneSurfaceInputs surface,
                                                 RenderGraph.PassExecutor vfx, RenderGraph.PassExecutor recorder) {
         var candidate = new PostProcessPassBuilder(replacement, replacementEffects, window, fxaa, taa, taaHistory,
-                toneMapping, bloom, autoExposure, fog, vfx, surface, reactive, recorder);
+                toneMapping, bloom, autoExposure, fog, vfx, surface, recorder);
         candidate.ownsResources = false;
         return candidate;
     }
@@ -106,7 +105,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                                    BloomPass bloom,
                                    AutoExposurePass autoExposure,
                                    FogPass fog, RenderGraph.PassExecutor hdrVfx,
-                                   boolean surfaceResolved, boolean reactiveRequested,
+                                   SceneSurfaceInputs surfaceInputs,
                                    RenderGraph.PassExecutor reactiveRecorder) {
         this.settings = settings;
         this.effects = effects;
@@ -119,8 +118,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
         this.autoExposure = autoExposure;
         this.fog = fog;
         this.hdrVfx = hdrVfx;
-        this.surfaceResolved = surfaceResolved;
-        this.reactiveRequested = reactiveRequested;
+        this.surfaceInputs = surfaceInputs;
         this.reactiveRecorder = reactiveRecorder;
         manualExposure = settings.exposure();
         bloomSettings = settings.bloomSettings();
@@ -128,19 +126,13 @@ final class PostProcessPassBuilder implements AutoCloseable {
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
                                          RenderWindow window, int width, int height) {
-        return create(settings, effects, window, width, height, null);
-    }
-
-    static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
-                                         RenderWindow window, int width, int height,
-                                         RenderGraph.PassExecutor hdrVfx) {
-        return create(settings, effects, window, width, height, hdrVfx, false, false, null);
+        return create(settings, effects, window, width, height, null, null, null);
     }
 
     static PostProcessPassBuilder create(RenderSettings settings, PostProcessSettings effects,
                                          RenderWindow window, int width, int height,
                                          RenderGraph.PassExecutor hdrVfx,
-                                         boolean surfaceResolved, boolean reactiveRequested,
+                                         SceneSurfaceInputs surfaceInputs,
                                          RenderGraph.PassExecutor reactiveRecorder) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -165,8 +157,7 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     ? new AutoExposurePass() : null;
             fog = effects.fog().enabled() ? new FogPass() : null;
             return new PostProcessPassBuilder(settings, effects, window, fxaa, taa, history, toneMapping,
-                    bloom, autoExposure, fog, hdrVfx, surfaceResolved,
-                    reactiveRequested, reactiveRecorder);
+                    bloom, autoExposure, fog, hdrVfx, surfaceInputs, reactiveRecorder);
         } catch (RuntimeException failure) {
             closeAfterFailure(fog, failure);
             closeAfterFailure(autoExposure, failure);
@@ -232,15 +223,49 @@ final class PostProcessPassBuilder implements AutoCloseable {
         addLdrFinalPass(graph);
     }
 
-    private RenderGraph.PassBuilder reactiveTarget(RenderGraph graph,String producer) {
-        var target=graph.addPass(PostProcessTargets.SCENE_REACTIVE_PASS).dependsOn(producer);
-        if (graph.hasPass(VolumetricPassBuilder.COMPOSITE_PASS)
-                && settings.antiAliasingMode()!=AntiAliasingMode.MSAA) {
-            return target.shareColorAttachments(java.util.List.of(PostProcessTargets.SCENE_REACTIVE),
-                    java.util.List.of(RenderFormat.R8),VolumetricPassBuilder.COMPOSITE_PASS,
-                    java.util.List.of(1),1).noClear();
+    private boolean reactiveRequested() {
+        return surfaceInputs != null && surfaceInputs.layout().reactive() != null;
+    }
+
+    private void addReactivePass(RenderGraph graph, String colorProducer) {
+        var output = surfaceInputs.single(SceneBufferChannel.REACTIVE);
+        var target = graph.addPass(output.producer()).dependsOn(colorProducer);
+        if (surfaceInputs.layout().reactiveMode() == SceneSurfaceLayout.ReactiveMode.VOLUME_ALIAS) {
+            target.shareColorAttachments(List.of(output.name()), List.of(output.format()),
+                    VolumetricPassBuilder.COMPOSITE_PASS, List.of(1), 1).noClear();
+        } else {
+            target.createColor(output.name(), output.format()).clearColor(0, 0, 0, 0);
         }
-        return target.createColor(PostProcessTargets.SCENE_REACTIVE,RenderFormat.R8).clearColor(0,0,0,0);
+        var recorder = Objects.requireNonNull(reactiveRecorder, "missing reactive surface recorder");
+        target.execute((res, cmd) -> {
+            var frame = surfaceInputs.frame();
+            recorder.execute(res, cmd);
+            frame.reactiveProduced(res);
+        });
+    }
+
+    private void addTaaPass(RenderGraph graph, String inputTexture, String colorProducer) {
+        var input = Objects.requireNonNull(surfaceInputs, "missing TAA surface inputs");
+        var taaPass = graph.addPass(PostProcessTargets.TAA_PASS).writeToExternalTarget().noClear()
+                .dependsOn(colorProducer);
+        var producers = new java.util.LinkedHashSet<String>();
+        producers.add(colorProducer);
+        for (var channel : SceneBufferRequirements.taa(reactiveRequested()).channels()) {
+            String producer = input.single(channel).producer();
+            if (producers.add(producer)) taaPass.dependsOn(producer);
+        }
+        taaPass.execute((res, cmd) -> recordTaaResolve(res, cmd, inputTexture));
+    }
+
+    void validateSurfaceInputs() {
+        if (taa != null) {
+            for (var channel : SceneBufferRequirements.taa(reactiveRequested()).channels()) {
+                surfaceInputs.validateDependency(PostProcessTargets.TAA_PASS, surfaceInputs.single(channel));
+            }
+        }
+        if (fog != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.FOG_PASS, surfaceInputs.single(SceneBufferChannel.DEPTH));
+        }
     }
 
     private void addLdrFinalPass(RenderGraph graph) {
@@ -260,21 +285,8 @@ final class PostProcessPassBuilder implements AutoCloseable {
                 addLdrPresentPass(graph, PostProcessTargets.FXAA_PASS);
             }
             case TAA -> {
-                if (reactiveRequested) {
-                    reactiveTarget(graph,PostProcessTargets.GEOMETRY_PASS)
-                            .execute((res, cmd) -> {
-                                if (reactiveRecorder != null) reactiveRecorder.execute(res, cmd);
-                            });
-                }
-                RenderGraph.PassBuilder taaPass = graph.addPass(PostProcessTargets.TAA_PASS)
-                    .writeToExternalTarget()
-                    .noClear()
-                    .dependsOn(PostProcessTargets.GEOMETRY_PASS);
-                if (reactiveRequested) {
-                    taaPass.dependsOn(PostProcessTargets.SCENE_REACTIVE_PASS);
-                }
-                taaPass.execute((res, cmd) -> recordTaaResolve(res, cmd,
-                        PostProcessTargets.SCENE_COLOR));
+                if (reactiveRequested()) addReactivePass(graph, PostProcessTargets.GEOMETRY_PASS);
+                addTaaPass(graph, PostProcessTargets.SCENE_COLOR, PostProcessTargets.GEOMETRY_PASS);
                 addTaaPresentPass(graph);
             }
             case NONE, MSAA -> addLdrPresentPass(graph, PostProcessTargets.GEOMETRY_PASS);
@@ -326,15 +338,16 @@ final class PostProcessPassBuilder implements AutoCloseable {
         if (taa == null || taaHistory == null) return;
         Framebuffer candidate = taaHistory.writeFramebuffer();
         boolean historyValid = taaHistory.valid() && previousTaaFrameValid;
+        var surface = surfaceInputs.frame();
         TaaResolveInputs inputs = new TaaResolveInputs(
                 res.colorAttachment(inputTexture),
                 historyValid ? taaHistory.readColorTexture() : 0,
                 historyValid ? taaHistory.readDepthTexture() : 0,
-                res.depthAttachment(PostProcessTargets.SCENE_DEPTH),
-                res.colorAttachment(PostProcessTargets.SCENE_VELOCITY),
-                res.colorAttachment(PostProcessTargets.SCENE_PREVIOUS_DEPTH),
-                res.colorAttachment(PostProcessTargets.SCENE_VALIDITY),
-                res.colorAttachment(PostProcessTargets.SCENE_REACTIVE),
+                surface.require(res, surfaceInputs.single(SceneBufferChannel.DEPTH)),
+                surface.require(res, surfaceInputs.single(SceneBufferChannel.VELOCITY)),
+                surface.require(res, surfaceInputs.single(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH)),
+                surface.require(res, surfaceInputs.single(SceneBufferChannel.VALIDITY)),
+                reactiveRequested() ? surface.require(res, surfaceInputs.single(SceneBufferChannel.REACTIVE)) : 0,
                 historyValid,
                 candidate.width(), candidate.height(),
                 currentJitterUvX, currentJitterUvY, previousJitterUvX, previousJitterUvY,
@@ -375,43 +388,19 @@ final class PostProcessPassBuilder implements AutoCloseable {
                     });
             hdrTexture = PostProcessTargets.HDR_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.HDR_RESOLVE_PASS;
-            if (effects.fog().enabled() && !surfaceResolved) {
-                graph.addPass(PostProcessTargets.DEPTH_RESOLVE_PASS)
-                        .createDepthTexture(PostProcessTargets.RESOLVED_SCENE_DEPTH)
-                        .noClear()
-                        .dependsOn(PostProcessTargets.GEOMETRY_PASS)
-                        .execute((res, cmd) -> {
-                            Framebuffer geometry = res.framebufferOfPass(
-                                    PostProcessTargets.GEOMETRY_PASS);
-                            Framebuffer target = res.currentTarget();
-                            if (geometry != null && target != null) cmd.blitDepth(geometry, target);
-                        });
-            }
-        } else if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
-            // Native TAA resolves after fog/volume compositing below so the
-            // temporal history sees the final scene color, not a pre-fog frame.
         }
 
         if (effects.fog().enabled()) {
             final String fogInputTexture = hdrTexture;
             final String fogInputPass = hdrProducer;
-            final String fogDepthTexture = surfaceResolved
-                    ? PostProcessTargets.SCENE_DEPTH
-                    : settings.antiAliasingMode() == AntiAliasingMode.MSAA
-                    ? PostProcessTargets.RESOLVED_SCENE_DEPTH : PostProcessTargets.SCENE_DEPTH;
-            RenderGraph.PassBuilder fogBuilder = graph.addPass(PostProcessTargets.FOG_PASS)
+            var depth = surfaceInputs.single(SceneBufferChannel.DEPTH);
+            graph.addPass(PostProcessTargets.FOG_PASS)
                     .createColor(PostProcessTargets.FOG_COLOR, RenderFormat.RGBA16F)
-                    .noClear()
-                    .dependsOn(fogInputPass);
-            if (settings.antiAliasingMode() == AntiAliasingMode.MSAA && !surfaceResolved) {
-                fogBuilder.dependsOn(PostProcessTargets.DEPTH_RESOLVE_PASS);
-            }
-            fogBuilder
+                    .noClear().dependsOn(fogInputPass).dependsOn(depth.producer())
                     .execute((res, cmd) -> fog.recordIntoCurrentTarget(cmd,
                             res.colorAttachment(fogInputTexture),
-                            res.depthAttachment(fogDepthTexture),
-                            fogInverseViewProjection, fogCameraPosition,
-                            effects.fog()));
+                            surfaceInputs.frame().require(res, depth),
+                            fogInverseViewProjection, fogCameraPosition, effects.fog()));
             hdrTexture = PostProcessTargets.FOG_COLOR;
             hdrProducer = PostProcessTargets.FOG_PASS;
         }
@@ -443,25 +432,10 @@ final class PostProcessPassBuilder implements AutoCloseable {
             hdrProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
         }
 
-        if (reactiveRequested) {
-            final String reactiveProducer = hdrProducer;
-            reactiveTarget(graph,reactiveProducer)
-                    .execute((res, cmd) -> {
-                        if (reactiveRecorder != null) reactiveRecorder.execute(res, cmd);
-                    });
-        }
+        if (reactiveRequested()) addReactivePass(graph, hdrProducer);
 
         if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
-            final String taaInput = hdrTexture;
-            final String taaInputPass = hdrProducer;
-            RenderGraph.PassBuilder taaPass = graph.addPass(PostProcessTargets.TAA_PASS)
-                    .writeToExternalTarget()
-                    .noClear()
-                    .dependsOn(taaInputPass);
-            if (reactiveRequested) {
-                taaPass.dependsOn(PostProcessTargets.SCENE_REACTIVE_PASS);
-            }
-            taaPass.execute((res, cmd) -> recordTaaResolve(res, cmd, taaInput));
+            addTaaPass(graph, hdrTexture, hdrProducer);
             hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.TAA_PASS;
         }

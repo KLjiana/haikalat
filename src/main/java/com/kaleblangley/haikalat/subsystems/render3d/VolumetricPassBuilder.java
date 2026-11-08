@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.backend.texture.ImageAccess;
 import com.kaleblangley.haikalat.backend.texture.Texture3D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import org.joml.Vector3f;
 
@@ -88,7 +89,6 @@ final class VolumetricPassBuilder implements AutoCloseable {
     private boolean lightingAssemblyInitialized;
     private LightingInputs lightingInputs;
     private PassResources fragmentInputs;
-    private VolumetricSurfaceInputs surfaceInputs;
     private long integratedSequence = -1;
     private boolean closed;
 
@@ -187,11 +187,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
 
     void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
                         RenderGraph.PassExecutor transparentExecutor) {
-        surfaceInputs.validate(graph, topology);
-        if (this.surfaceInputs == null) this.surfaceInputs = surfaceInputs;
-        else if (!this.surfaceInputs.equals(surfaceInputs) || colorSamples != topology.sampleCount()
-                || colorVfx != topology.hdrVfx())
-            throw new IllegalArgumentException("reused fog owner requires compatible surface/color inputs");
+        if (surfaceInputs.surface().graph() != graph || colorSamples != topology.sampleCount()
+                || colorVfx != topology.hdrVfx()) {
+            throw new IllegalArgumentException("incompatible fog surface/color inputs");
+        }
         for (MeshRenderer renderer : scene.renderers()) {
             var material=renderer.material().material();
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
@@ -216,10 +215,10 @@ final class VolumetricPassBuilder implements AutoCloseable {
             surfaceGuide=compile("surface-guide.comp",5);
         }
         var guide=graph.addPass(SURFACE_GUIDE_PASS).computeOnly().dependsOn(INTEGRATE_PASS)
-                .dependsOn(surfaceInputs.geometryPass())
+                .dependsOn(PostProcessTargets.GEOMETRY_PASS)
                 .borrowsExternalStorage("volume.prefix","scene.depth","volume.lightHints","lighting.lightTable","lighting.clusterParameters");
-        if(ms)guide.dependsOn(surfaceInputs.resolvePass());
-        guide.execute((res,cmd)->recordSurfaceGuide(res,cmd,ms));
+        guide.dependsOn(surfaceInputs.singleDepth().producer());
+        guide.execute((res, cmd) -> recordSurfaceGuide(res, cmd, surfaceInputs));
         if (reactive == null) {
             reactive=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
                     "#version 460 core\n"
@@ -227,7 +226,7 @@ final class VolumetricPassBuilder implements AutoCloseable {
                             +resource("volume-reactive.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
                             +resource("volume-native-reactive.glsl")+"\n"+resource("reactive.frag"));
         }
-        if (softParticleDepthName == null) softParticleDepthName=ms ? surfaceInputs.depthTexture() : "volume.softParticleDepth";
+        if (softParticleDepthName == null) softParticleDepthName=ms ? surfaceInputs.singleDepth().name() : "volume.softParticleDepth";
         if (topology.hdrVfx() && !ms) {
             if (softDepthCopy == null) {
                 softDepthCopy=ShaderProgram.fromSources(readAbsolute("/shaders/postprocess/screen-quad.vert"),
@@ -235,38 +234,38 @@ final class VolumetricPassBuilder implements AutoCloseable {
                                 +"void main(){depth=texelFetch(uDepth,ivec2(gl_FragCoord.xy),0).r;}");
             }
             graph.addPass("VolumetricSoftDepthCopy").createColor(softParticleDepthName,RenderFormat.R32F).noClear()
-                    .dependsOn(surfaceInputs.surfacePass())
+                    .dependsOn(surfaceInputs.rawDepth().producer())
                     .execute((res,cmd)->cmd.bindShader(softDepthCopy).enableDepthTest(false).enableBlend(false)
-                            .bindTexture(0,res.depthAttachment(surfaceInputs.depthTexture()))
+                            .bindTexture(0, surfaceInputs.singleDepth(res))
                             .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6));
         }
         RenderGraph.PassBuilder pass=graph.addPass(COMPOSITE_PASS);
         if (ms) pass.createColorsMS(java.util.List.of(COMPOSITE_COLOR),java.util.List.of(RenderFormat.RGBA16F),topology.sampleCount());
         else pass.createColors(java.util.List.of(COMPOSITE_COLOR,OPAQUE_REACTIVE),java.util.List.of(RenderFormat.RGBA16F,RenderFormat.R8));
-        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(surfaceInputs.geometryPass())
+        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                .dependsOn(surfaceInputs.rawDepth().producer())
                 .borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes","volume.lightHints",
                         "volume.dirtyDomains","lighting.lightTable","lighting.clusterHeaders","lighting.clusterIndices","shadows.allocatedAtlases")
-                .execute((res,cmd)->recordComposite(res,cmd,ms));
+                .execute((res, cmd) -> recordComposite(res, cmd, ms, surfaceInputs));
         RenderGraph.PassBuilder transparent=graph.addPass(TRANSPARENT_PASS)
                 .shareColorTextures(java.util.List.of(SCENE_COLOR),java.util.List.of(RenderFormat.RGBA16F),COMPOSITE_PASS,topology.sampleCount())
-                .shareDepthTexture(ms ? surfaceInputs.multisampleDepthTexture()
-                                : surfaceInputs.depthTexture(),
-                        surfaceInputs.surfacePass())
-                .dependsOn(surfaceInputs.surfacePass())
+                .shareDepthTexture(surfaceInputs.rawDepth().name(), surfaceInputs.rawDepth().producer())
+                .dependsOn(surfaceInputs.rawDepth().producer())
                 .noClear().borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes",
                         "volume.lightHints","volume.diagnostics","volume.dirtyDomains","lighting.lightTable","shadows.allocatedAtlases");
         if (topology.hdrVfx()) transparent.dependsOn(ms
-                ? surfaceInputs.resolvePass() : "VolumetricSoftDepthCopy");
+                ? surfaceInputs.singleDepth().producer() : "VolumetricSoftDepthCopy");
         transparent.execute(transparentExecutor);
     }
-    void addReactivePass(RenderGraph graph,PipelineTopology topology,RenderGraph.PassExecutor executor) {
-        if (topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)) return;
+    void addReactivePass(RenderGraph graph, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
+                         RenderGraph.PassExecutor executor) {
+        if (surfaceInputs.surface().layout().reactive() != null) return;
         var pass=graph.addPass(REACTIVE_PASS).dependsOn(TRANSPARENT_PASS)
                 .borrowsExternalStorage("volume.reject","volume.historyRead","volume.filteredSource","volume.prefix","volume.reactivePrefix","volume.lightOffReactive","volume.localVolumes","volume.dirtyDomains");
         if (topology.sampleCount()==1) pass.shareColorAttachments(java.util.List.of(REACTIVE_TEXTURE),
                 java.util.List.of(RenderFormat.R8),COMPOSITE_PASS,java.util.List.of(1),1).noClear();
         else pass.createColor(REACTIVE_TEXTURE,RenderFormat.R8).clearColor(0,0,0,0)
-                .dependsOn(surfaceInputs.resolvePass());
+                .dependsOn(surfaceInputs.singleDepth().producer());
         pass.execute(executor);
     }
     void recordReactive(PassResources inputs,CommandBuffer cmd) {
@@ -312,10 +311,11 @@ final class VolumetricPassBuilder implements AutoCloseable {
         } catch (IOException failure) { throw new IllegalStateException(failure); }
     }
 
-    private void recordComposite(PassResources inputs,CommandBuffer cmd,boolean ms) {
-        var geometry=inputs.framebufferOfPass(surfaceInputs.geometryPass());
+    private void recordComposite(PassResources inputs, CommandBuffer cmd, boolean ms, VolumetricSurfaceInputs surfaceInputs) {
+        var geometry=inputs.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
         var frame=requireFrame();
-        opaqueDepthTexture=ms ? inputs.colorAttachment(surfaceInputs.depthTexture()) : geometry.depthAttachment();
+        opaqueDepthTexture = surfaceInputs.singleDepth(inputs);
+        int rasterDepth = surfaceInputs.rawDepth(inputs);
         cmd.bindShader(composite).enableBlend(false).enableDepthTest(false).depthMask(false)
                 .enableCullFace(false).enableFramebufferSrgb(false).sampleShading(ms,ms ? 1 : 0);
         bindQuery(cmd,composite);
@@ -323,8 +323,8 @@ final class VolumetricPassBuilder implements AutoCloseable {
         cmd.setUniformInt(composite,"uVolumeDiagnosticsEnabled",0).setUniformInt(composite,"uFineOmittedLight",diagnosticOmittedLight)
                 .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES)
                 .bindStorageBuffer(7,resources.diagnostics(),0,VolumetricResources.DIAGNOSTICS_BYTES);
-        if (ms) cmd.bindTextureMultisample(0,geometry.colorAttachment()).bindTextureMultisample(1,geometry.depthAttachment());
-        else cmd.bindTexture(0,geometry.colorAttachment()).bindTexture(1,geometry.depthAttachment());
+        if (ms) cmd.bindTextureMultisample(0,geometry.colorAttachment()).bindTextureMultisample(1, rasterDepth);
+        else cmd.bindTexture(0,geometry.colorAttachment()).bindTexture(1, rasterDepth);
         cmd.setUniformMat4(composite,"uFogRasterInverseProjection",rasterInverseProjection)
                 .setUniformMat4(composite,"uFogStableProjection",frame.camera().projection())
                 .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6)
@@ -332,10 +332,9 @@ final class VolumetricPassBuilder implements AutoCloseable {
         if(diagnosticCompositeRecorder!=null)diagnosticCompositeRecorder.execute(inputs,cmd);
     }
     private final org.joml.Matrix4f guideRasterProjection=new org.joml.Matrix4f();
-    private void recordSurfaceGuide(PassResources inputs,CommandBuffer cmd,boolean ms) {
-        var frame=requireFrame();
-        int depth=ms ? inputs.colorAttachment(surfaceInputs.depthTexture())
-                : inputs.framebufferOfPass(surfaceInputs.geometryPass()).depthAttachment();
+    private void recordSurfaceGuide(PassResources inputs, CommandBuffer cmd, VolumetricSurfaceInputs surfaceInputs) {
+        var frame = requireFrame();
+        int depth = surfaceInputs.singleDepth(inputs);
         bindLightingInputs(inputs,cmd,surfaceGuide);
         cmd.memoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT).bindShader(surfaceGuide).bindTexture(0,depth)
                 .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES)

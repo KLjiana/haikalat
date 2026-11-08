@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.core.FrontFace;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.material.Material;
@@ -38,22 +39,34 @@ final class SceneSurfacePass implements AutoCloseable {
     private final Matrix4f scratchPreviousModel = new Matrix4f();
     private boolean closed;
 
-    SceneSurfacePass() {
+    SceneSurfacePass(SceneSurfaceLayout layout) {
         ShaderProgram surface = null;
         ShaderProgram instanced = null;
         try {
-            surface = ShaderProgram.fromResource(SceneSurfacePass.class,
-                    "/shaders/render3d/surface/scene-surface.vert",
-                    "/shaders/render3d/surface/scene-surface.frag");
-            instanced = ShaderProgram.fromResource(SceneSurfacePass.class,
-                    "/shaders/render3d/surface/scene-surface-instanced.vert",
-                    "/shaders/render3d/surface/scene-surface.frag");
+            String path = "/shaders/render3d/surface/scene-surface.frag";
+            String fragment = fragmentSource(path, layout.rasterShaderDefines());
+            surface = ShaderProgram.builder().resource(SceneSurfacePass.class, ShaderStage.VERTEX,
+                    "/shaders/render3d/surface/scene-surface.vert").stage(ShaderStage.FRAGMENT, fragment, path).link();
+            instanced = ShaderProgram.builder().resource(SceneSurfacePass.class, ShaderStage.VERTEX,
+                    "/shaders/render3d/surface/scene-surface-instanced.vert").stage(ShaderStage.FRAGMENT, fragment, path).link();
             this.surfaceProgram = surface;
             this.instancedProgram = instanced;
         } catch (RuntimeException failure) {
             if (instanced != null) instanced.close();
             if (surface != null) surface.close();
             throw failure;
+        }
+    }
+
+    static String fragmentSource(String path, String defines) {
+        try (var input = SceneSurfacePass.class.getResourceAsStream(path)) {
+            if (input == null) throw new GlException("missing surface shader " + path);
+            String source = new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            int newline = source.indexOf('\n');
+            if (!source.startsWith("#version") || newline < 0) throw new GlException("missing GLSL version in " + path);
+            return source.substring(0, newline + 1) + defines + source.substring(newline + 1);
+        } catch (java.io.IOException failure) {
+            throw new GlException("cannot read surface shader " + path, failure);
         }
     }
 

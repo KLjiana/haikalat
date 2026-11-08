@@ -8,9 +8,26 @@ import java.util.Objects;
 
 public final class PassResources {
     private final RenderGraph graph;
+    private Thread recordingThread;
+    private String recordingPass;
 
     PassResources(RenderGraph graph) {
         this.graph = graph;
+    }
+
+    void beginRecording(String pass) {
+        recordingThread = Thread.currentThread();
+        recordingPass = pass;
+    }
+
+    void endRecording() {
+        recordingPass = null;
+        recordingThread = null;
+    }
+
+    /** Returns the active callback's pass name for this graph and recording thread, or null outside it. */
+    public String recordingPass(RenderGraph expectedGraph) {
+        return graph == expectedGraph && recordingThread == Thread.currentThread() ? recordingPass : null;
     }
 
     /**

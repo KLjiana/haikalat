@@ -517,12 +517,12 @@ public final class RenderGraph implements AutoCloseable {
                         && isGtaoPass(pass);
                 GpuTimer beginTimer = null;
                 GpuTimer endTimer = null;
-                if (!aggregateGtaoPass) {
+                if (allocateResources && !aggregateGtaoPass) {
                     if (pass.timer == null) pass.timer = new GpuTimer(retainGpuSamples);
                     beginTimer = pass.timer;
                     endTimer = pass.timer;
-                } else if (passIndex == firstGtaoPassIndex
-                        || passIndex == lastGtaoPassIndex) {
+                } else if (allocateResources && (passIndex == firstGtaoPassIndex
+                        || passIndex == lastGtaoPassIndex)) {
                     if (aggregateGtaoTimer == null) aggregateGtaoTimer = new GpuTimer();
                     if (passIndex == firstGtaoPassIndex) beginTimer = aggregateGtaoTimer;
                     if (passIndex == lastGtaoPassIndex) endTimer = aggregateGtaoTimer;
@@ -553,9 +553,11 @@ public final class RenderGraph implements AutoCloseable {
                     cmd.clear(pass.clearColor, pass.clearDepth);
                 }
 
+                passResources.beginRecording(pass.name);
                 try {
                     pass.executor.execute(passResources, cmd);
                 } finally {
+                    passResources.endRecording();
                     if (endTimer != null) cmd.endGpuTimer(endTimer);
                     if (debugGroupsEnabled) cmd.popDebugGroup();
                     cpuRecordNanos[passIndex] = System.nanoTime() - passCpuStart;
@@ -590,7 +592,7 @@ public final class RenderGraph implements AutoCloseable {
                             ? aggregateGtaoSample
                             : PENDING_GPU_SAMPLE;
                 } else {
-                    sample = pass.timer.sample(currentFrameSequence);
+                    sample = pass.timer == null ? PENDING_GPU_SAMPLE : pass.timer.sample(currentFrameSequence);
                 }
                 passProfiles.add(new PassProfile(pass.name, cpuRecordNanos[passIndex],
                         sample.elapsedNanos(), mapStatus(sample.status()), sample.resultSequence(),

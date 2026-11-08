@@ -755,6 +755,11 @@ public final class RenderPipeline {
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
             GtaoAllocationPlan.validateDeviceExtent(topology.width(), topology.height(), maximumTextureDimension);
+            long retainedSurfaceBytes = activeGeneration == null ? 0 : activeGeneration.surfaceBytes();
+            for (var retired : retiredGenerations) {
+                retainedSurfaceBytes = Math.addExact(retainedSurfaceBytes, retired.generation.surfaceBytes());
+            }
+            candidate.prepareSurfaceBudget(reusable, retainedSurfaceBytes);
             if (Boolean.getBoolean("haikalat.test.failGtaoPrepare"))
                 throw new IllegalStateException("injected GTAO CPU preparation failure");
             long retainedGtaoBytes = activeGeneration == null || activeGeneration.gtaoAllocation == null
@@ -780,6 +785,7 @@ public final class RenderPipeline {
             validatePbrVertexLayouts(generationScene);
             candidate.graph = reusable == null ? new RenderGraph(topology.width(), topology.height())
                     : RenderGraph.replacementOf(reusable.graph);
+            candidate.surfaceInputs = new SceneSurfaceInputs(candidate.id, candidate.graph, topology.sceneSurface());
             candidate.cameraUniforms = reusable == null ? new CameraUniforms() : candidate.borrow(reusable.cameraUniforms);
             candidate.deformationDefaults = reusable == null ? new SceneDeformationDefaults()
                     : candidate.borrow(reusable.deformationDefaults);
@@ -805,31 +811,15 @@ public final class RenderPipeline {
             if (outdoorEnvironment.enabled()) {
                 candidate.stylizedSky = reusable == null ? new StylizedSkyRenderer() : candidate.borrow(reusable.stylizedSky);
             }
-            candidate.postProcess = reusable != null ? reusable.postProcess.replacementAssembly(settings, postProcessSettings,
-                    topology.sceneBuffers().requiresSurfacePass(),
-                    topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
-                    topology.volumetricFog() ? null : hdrVfxRecorder, reactiveExecutor()) : PostProcessPassBuilder.create(
-                    settings, postProcessSettings, window, topology.width(), topology.height(),
-                    topology.volumetricFog() ? null : hdrVfxRecorder,
-                    topology.sceneBuffers().requiresSurfacePass(),
-                    topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE),
-                    reactiveExecutor());
+            PassExecutor postVfx = topology.volumetricFog() ? null : hdrVfxRecorder;
+            candidate.postProcess = reusable != null
+                    ? reusable.postProcess.replacementAssembly(settings, postProcessSettings,
+                            candidate.surfaceInputs, postVfx, reactiveExecutor())
+                    : PostProcessPassBuilder.create(settings, postProcessSettings, window,
+                            topology.width(), topology.height(), postVfx, candidate.surfaceInputs, reactiveExecutor());
             candidate.assembleGtao(postProcessSettings.gtao(), reusable, instanced != null,
                     !Boolean.getBoolean("haikalat.test.gtaoDedicatedDepth"));
-            if (topology.sceneBuffers().requiresSurfacePass()) {
-                candidate.sceneSurfacePass = reusable != null && reusable.sceneSurfacePass != null
-                        ? candidate.borrow(reusable.sceneSurfacePass) : new SceneSurfacePass();
-                if (topology.sampleCount() > 1) {
-                    candidate.sceneSurfaceResolvePass = reusable != null && reusable.sceneSurfaceResolvePass != null
-                            && ForwardPassBuilder.depthOnlyFogSurface(topology) == ForwardPassBuilder.depthOnlyFogSurface(reusable.topology)
-                            ? candidate.borrow(reusable.sceneSurfaceResolvePass)
-                            : new SceneSurfaceResolvePass(ForwardPassBuilder.depthOnlyFogSurface(topology));
-                }
-            }
-            if (topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)) {
-                candidate.sceneReactivePass = reusable != null && reusable.sceneReactivePass != null
-                        ? candidate.borrow(reusable.sceneReactivePass) : new SceneReactivePass();
-            }
+            candidate.assembleSurfacePasses(reusable);
             boolean hasDirectionalShadow = topology.directionalShadow();
             boolean hasPointShadow = topology.pointShadow();
             boolean hasSpotShadow = topology.spotShadow();
@@ -856,14 +846,14 @@ public final class RenderPipeline {
                     pointShadowAtlas, spotShadowAtlas, topology,
                     localShadowSettings.cacheStaticTiles(),
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
-                    surfaceExecutor(), surfaceResolveExecutor(), geometryExecutor());
+                    surfaceExecutor(candidate), surfaceResolveExecutor(candidate), geometryExecutor());
+            VolumetricSurfaceInputs volumeInputs = null;
             if (candidate.volumetric != null) {
-                candidate.volumetric.addColorPasses(candidate.graph,generationScene,topology,
-                        new VolumetricSurfaceInputs(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.SCENE_SURFACE_PASS,
-                                PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS, PostProcessTargets.SCENE_DEPTH, PostProcessTargets.SCENE_DEPTH_MS),
-                        volumetricTransparentExecutor());
-                candidate.volumetric.addReactivePass(candidate.graph,topology,volumetricReactiveExecutor());
-                candidate.postProcess.sceneColorInput(VolumetricPassBuilder.SCENE_COLOR,VolumetricPassBuilder.TRANSPARENT_PASS);
+                volumeInputs = new VolumetricSurfaceInputs(candidate.surfaceInputs);
+                candidate.volumetric.addColorPasses(candidate.graph, generationScene, topology,
+                        volumeInputs, volumetricTransparentExecutor());
+                candidate.volumetric.addReactivePass(candidate.graph, topology, volumeInputs, volumetricReactiveExecutor());
+                candidate.postProcess.sceneColorInput(VolumetricPassBuilder.SCENE_COLOR, VolumetricPassBuilder.TRANSPARENT_PASS);
             }
             candidate.postProcess.addFinalPass(candidate.graph);
             candidate.finalPassName = candidate.postProcess.finalPassName();
@@ -875,6 +865,9 @@ public final class RenderPipeline {
             if (Boolean.getBoolean("haikalat.test.failGtaoGraph"))
                 candidate.graph.addPass("InvalidGtaoCandidate").computeOnly().dependsOn("MissingGtaoProducer").execute((res, cmd) -> {});
             candidate.graph.compile();
+            candidate.surfaceInputs.validate();
+            candidate.postProcess.validateSurfaceInputs();
+            if (volumeInputs != null) volumeInputs.validate();
             if (candidate.gtaoInputs != null) candidate.gtaoInputs.validate();
             generationBuildCount++;
             lastFailureStage = "";
@@ -976,7 +969,7 @@ public final class RenderPipeline {
         if(generation==null||generation.volumetric==null||executing
                 ||!generation.volumetric.currentOutput().available())
             throw new IllegalStateException("volume reactive capture requires a completed valid fog frame");
-        String name=generation.topology.sceneBuffers().requires(SceneBufferChannel.REACTIVE)
+        String name=generation.topology.sceneSurface().reactive() != null
                 ?com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_REACTIVE
                 :VolumetricPassBuilder.REACTIVE_TEXTURE;
         return generation.graph.readColorAttachmentRgbaFloat(name);
@@ -1202,7 +1195,7 @@ public final class RenderPipeline {
                 shadowPlan.filterMode().name(), localShadowSettings.point().resolution(),
                 pointWidth, pointHeight, localShadowSettings.spot().resolution(),
                 spotWidth, spotHeight, depthBytes);
-        boolean surfaceResolved = generation.topology.sceneBuffers().requiresSurfacePass();
+        boolean surfaceResolved = generation.topology.sceneSurface().hasSurface();
         boolean depthResolved = (generation.topology.fog() || generation.topology.hdrVfx()
                 || surfaceResolved)
                 && generation.topology.antiAliasingMode() == AntiAliasingMode.MSAA;
@@ -1397,6 +1390,9 @@ public final class RenderPipeline {
             }
             if (generation.gtao != null) generation.gtao.synchronizeTemporalImport(generation.graph);
             generation.postProcess.synchronizeTemporalImports(generation.graph);
+            if (generation.topology.sceneSurface().hasSurface() || generation.topology.sceneSurface().reactive() != null) {
+                generation.surfaceInputs.beginFrame(activeFrameContext);
+            }
             long preparationTotalNanos = benchmarkCpuTimingEnabled
                     ? System.nanoTime() - preparationStart : 0L;
             frameStage = "pass-callback";
@@ -1503,6 +1499,7 @@ public final class RenderPipeline {
             }
             throw failure;
         } finally {
+            generation.surfaceInputs.endFrame();
             executing = false;
             activeFrameContext = null;
         }
@@ -1702,10 +1699,9 @@ public final class RenderPipeline {
         return failure;
     }
 
-    private PassExecutor surfaceExecutor() {
+    private PassExecutor surfaceExecutor(PipelineGeneration generation) {
         return (res, cmd) -> {
-            PipelineGeneration generation = requireGeneration();
-            if (generation.sceneSurfacePass == null) return;
+            var inputs = generation.surfaceInputs.frame();
             SceneFrame frame = sceneFrame();
             TemporalFrameState.FrameParameters current = temporalFrameState.current();
             if (current == null) {
@@ -1720,6 +1716,7 @@ public final class RenderPipeline {
             generation.sceneSurfacePass.record(cmd, frame, temporalSceneState, current,
                     temporalFrameState.previous(), instanced, activeFrameIndex,
                     generation.cameraUniforms);
+            inputs.rasterProduced(res);
         };
     }
 
@@ -1733,12 +1730,11 @@ public final class RenderPipeline {
         };
     }
 
-    private PassExecutor surfaceResolveExecutor() {
+    private PassExecutor surfaceResolveExecutor(PipelineGeneration generation) {
         return (res, cmd) -> {
-            PipelineGeneration generation = requireGeneration();
-            if (generation.sceneSurfaceResolvePass == null) return;
-            generation.sceneSurfaceResolvePass.record(cmd, res,
-                    Math.max(2, settings.msaaSamples()));
+            var inputs = generation.surfaceInputs.frame();
+            generation.sceneSurfaceResolvePass.record(cmd, res, generation.surfaceInputs);
+            inputs.resolveProduced(res);
         };
     }
 
@@ -2280,7 +2276,7 @@ public final class RenderPipeline {
         generation.deformationDefaults.record(cmd);
         SceneFrame frame = sceneFrame();
         boolean gtaoEnabled = generation.topology.gtaoEnabled();
-        boolean sharedDepth = generation.topology.sceneBuffers().requiresSurfacePass();
+        boolean sharedDepth = generation.topology.sceneSurface().hasSurface();
         Camera camera = frameCamera();
         if (sharedDepth) {
             // The surface pass produced the shared depth; only fragments that

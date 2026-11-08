@@ -35,7 +35,7 @@ record PipelineTopology(int width,
                         boolean gtaoTemporal,
                         int gtaoHalfWidth,
                         int gtaoHalfHeight,
-                        SceneBufferRequirements sceneBuffers,
+                        SceneSurfaceLayout sceneSurface,
                         boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
                         boolean volumetricEmission) {
     PipelineTopology {
@@ -43,7 +43,7 @@ record PipelineTopology(int width,
             throw new IllegalArgumentException("pipeline topology extent must be positive");
         }
         Objects.requireNonNull(antiAliasingMode, "antiAliasingMode");
-        Objects.requireNonNull(sceneBuffers, "sceneBuffers");
+        Objects.requireNonNull(sceneSurface, "sceneSurface");
         Objects.requireNonNull(volumetricQuality, "volumetricQuality");
         if (sampleCount < 1) {
             throw new IllegalArgumentException("pipeline topology sample count must be positive");
@@ -143,33 +143,34 @@ record PipelineTopology(int width,
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
                 effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
-                sceneBufferRequirements(scene, settings, effects, samples, hdrVfx)
-                        .merge(volume.enabled() ? SceneBufferRequirements.fog().withSamples(samples) : SceneBufferRequirements.none())
-                        .merge(volume.enabled() && settings.antiAliasingMode() == AntiAliasingMode.TAA
-                                ? SceneBufferRequirements.of(SceneBufferChannel.REACTIVE).withSamples(samples) : SceneBufferRequirements.none()),
+                sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled()),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission());
     }
 
-    private static SceneBufferRequirements sceneBufferRequirements(Scene scene,
-                                                                  RenderSettings settings,
-                                                                  PostProcessSettings effects,
-                                                                  int samples,
-                                                                  boolean hdrVfx) {
+    private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
+                                                   PostProcessSettings effects, int samples,
+                                                   boolean hdrVfx, boolean volume) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
-        if (effects.fog().enabled()) {
-            requirements = requirements.merge(SceneBufferRequirements.fog());
+        if (effects.fog().enabled() || volume) {
+            requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         if (effects.gtao().enabled()) {
-            requirements = requirements.merge(
+            requirements = requirements.mergeView(
                     SceneBufferRequirements.gtao(effects.gtao().temporal()));
         }
-        if (settings.antiAliasingMode() == AntiAliasingMode.TAA) {
-            requirements = requirements.merge(SceneBufferRequirements.taa(
-                    reactiveProducerPresent(scene, hdrVfx)));
+        boolean taa = settings.antiAliasingMode() == AntiAliasingMode.TAA;
+        var reactive = SceneSurfaceLayout.ReactiveMode.NONE;
+        if (taa) {
+            if (volume) reactive = SceneSurfaceLayout.ReactiveMode.VOLUME_ALIAS;
+            else if (reactiveProducerPresent(scene, hdrVfx)) reactive = SceneSurfaceLayout.ReactiveMode.SCENE;
+            requirements = requirements.mergeView(SceneBufferRequirements.taa(reactive != SceneSurfaceLayout.ReactiveMode.NONE));
         }
-        return requirements.validated().withSamples(samples);
+        var raw = volume ? SceneBufferRequirements.fog().withSamples(samples) : SceneBufferRequirements.none();
+        return SceneSurfaceLayout.plan(samples, raw, requirements, reactive);
     }
+
+    SceneBufferRequirements sceneBuffers() { return sceneSurface.requests(); }
 
     /**
      * Reactive is only requested when a real producer exists: a declared
@@ -196,7 +197,7 @@ record PipelineTopology(int width,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
-                gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneBuffers,
+                gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
                 volumetricFog, volumetricQuality, volumetricEmission);
     }
 }

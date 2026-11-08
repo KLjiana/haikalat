@@ -560,14 +560,14 @@ final class GtaoPasses implements AutoCloseable {
     private void recordEstimate(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
-        int depthTexture = resources.depthAttachment(preparedInputs.depthTexture());
+        int depthTexture = preparedInputs.depth(resources);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(estimateProgram)
                 .bindSampler(0, null).bindSampler(1, null)
                 .bindTexture(0, depthTexture);
         if (sharedSurface) {
-            command.bindTexture(1, resources.colorAttachment(preparedInputs.normalTexture()))
+            command.bindTexture(1, preparedInputs.texture(resources, SceneBufferChannel.NORMAL))
                     .setUniformInt(estimateProgram, "uSharedSurface", 1)
                     .setUniformMat4(estimateProgram, "uView", frameView);
         } else {
@@ -592,7 +592,7 @@ final class GtaoPasses implements AutoCloseable {
                 : history.writeFramebuffer();
         if (target == null) return;
         int historyTexture = history == null ? 0 : history.readFramebuffer().colorAttachment();
-        int depthTexture = resources.depthAttachment(preparedInputs.depthTexture());
+        int depthTexture = preparedInputs.depth(resources);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindFramebuffer(target).viewport(0, 0, target.width(), target.height())
@@ -602,10 +602,10 @@ final class GtaoPasses implements AutoCloseable {
                 .bindTexture(0, resources.colorAttachment(PostProcessTargets.GTAO_RAW))
                 .bindTexture(1, depthTexture)
                 .bindTexture(2, historyTexture);
-        if (sharedSurface) {
-            command.bindTexture(3, resources.colorAttachment(PostProcessTargets.SCENE_VELOCITY))
-                    .bindTexture(4, resources.colorAttachment(PostProcessTargets.SCENE_PREVIOUS_DEPTH))
-                    .bindTexture(5, resources.colorAttachment(PostProcessTargets.SCENE_VALIDITY))
+        if (sharedSurface && history != null) {
+            command.bindTexture(3, preparedInputs.texture(resources, SceneBufferChannel.VELOCITY))
+                    .bindTexture(4, preparedInputs.texture(resources, SceneBufferChannel.PREVIOUS_SURFACE_DEPTH))
+                    .bindTexture(5, preparedInputs.texture(resources, SceneBufferChannel.VALIDITY))
                     .setUniformInt(temporalProgram, "uSharedSurface", 1)
                     .setUniformVec2(temporalProgram, "uJitter", pendingJitterX, pendingJitterY)
                     .setUniformVec2(temporalProgram, "uPreviousJitter",
@@ -636,7 +636,7 @@ final class GtaoPasses implements AutoCloseable {
     private void recordDenoise(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
-        int depthTexture = resources.depthAttachment(preparedInputs.depthTexture());
+        int depthTexture = preparedInputs.depth(resources);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(denoiseProgram)
@@ -656,7 +656,7 @@ final class GtaoPasses implements AutoCloseable {
     private void recordUpsample(PassResources resources, CommandBuffer commands) {
         Framebuffer target = resources.currentTarget();
         if (target == null) return;
-        int depthTexture = resources.depthAttachment(preparedInputs.depthTexture());
+        int depthTexture = preparedInputs.depth(resources);
         CommandBuffer command = commands.enableBlend(false).enableDepthTest(false).enableCullFace(false)
                 .enableFramebufferSrgb(false)
                 .bindShader(upsampleProgram)

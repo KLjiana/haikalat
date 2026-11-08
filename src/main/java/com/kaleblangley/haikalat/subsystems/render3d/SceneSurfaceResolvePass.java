@@ -1,11 +1,10 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.GlException;
-import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.graph.PassResources;
-import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 
@@ -19,60 +18,42 @@ final class SceneSurfaceResolvePass implements AutoCloseable {
     private final ShaderProgram program;
     private final ScreenQuad quad;
     private boolean closed;
-    private final boolean depthOnly;
-
-    SceneSurfaceResolvePass() {
-        this(false);
-    }
-    SceneSurfaceResolvePass(boolean depthOnly) {
-        this.depthOnly=depthOnly;
-        this.program = depthOnly ? ShaderProgram.fromSources(vertexSource(), """
-                #version 460 core
-                uniform sampler2DMS uDepth; uniform int uSamples;
-                layout(location=0) out float depth;
-                void main(){depth=1;for(int s=0;s<uSamples;s++)depth=min(depth,texelFetch(uDepth,ivec2(gl_FragCoord.xy),s).r);}
-                """) : ShaderProgram.fromResource(SceneSurfaceResolvePass.class,
-                "/shaders/postprocess/screen-quad.vert",
-                "/shaders/postprocess/scene-surface-resolve.frag");
-        this.quad = new ScreenQuad();
-    }
-    private static String vertexSource() {
-        try (var input=SceneSurfaceResolvePass.class.getResourceAsStream("/shaders/postprocess/screen-quad.vert")) {
-            if (input==null) throw new GlException("missing screen quad shader");
-            return new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
-        } catch (java.io.IOException failure) { throw new GlException("cannot load screen quad shader",failure); }
+    SceneSurfaceResolvePass(SceneSurfaceLayout layout) {
+        String path = "/shaders/postprocess/scene-surface-resolve.frag";
+        program = ShaderProgram.builder().resource(SceneSurfaceResolvePass.class, ShaderStage.VERTEX,
+                "/shaders/postprocess/screen-quad.vert")
+                .stage(ShaderStage.FRAGMENT, SceneSurfacePass.fragmentSource(path, layout.resolveShaderDefines()), path)
+                .link();
+        try {
+            quad = new ScreenQuad();
+        } catch (RuntimeException | Error failure) {
+            try { program.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 
-    void record(CommandBuffer cmd, PassResources resources, int samples) {
+    void record(CommandBuffer cmd, PassResources resources, SceneSurfaceInputs inputs) {
         if (closed) throw new GlException("scene surface resolve pass is closed");
-        Framebuffer source = resources.framebufferOfPass(PostProcessTargets.SCENE_SURFACE_PASS);
-        if (source == null || !depthOnly && source.colorAttachmentCount() < 4
-                || !source.depthAttachmentIsTexture()) {
-            return;
-        }
-        if (depthOnly) {
-            cmd.enableBlend(false).enableDepthTest(false).enableCullFace(false).enableFramebufferSrgb(false)
-                    .bindShader(program).bindTextureMultisample(4,source.depthAttachment())
-                    .setUniformInt(program,"uDepth",4).setUniformInt(program,"uSamples",samples)
-                    .bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES,0,6);
-            return;
-        }
+        var layout = inputs.layout();
+        var frame = inputs.frame();
         cmd.enableBlend(false).enableDepthTest(false).enableCullFace(false)
-                .enableFramebufferSrgb(false)
-                .bindShader(program)
-                .bindTextureMultisample(0, source.colorAttachment(0))
-                .bindTextureMultisample(1, source.colorAttachment(1))
-                .bindTextureMultisample(2, source.colorAttachment(2))
-                .bindTextureMultisample(3, source.colorAttachment(3))
-                .bindTextureMultisample(4, source.depthAttachment())
-                .setUniformInt(program, "uNormal", 0)
-                .setUniformInt(program, "uVelocity", 1)
-                .setUniformInt(program, "uPreviousDepth", 2)
-                .setUniformInt(program, "uValidity", 3)
-                .setUniformInt(program, "uDepth", 4)
-                .setUniformInt(program, "uSamples", samples)
-                .bindVertexArray(quad.id())
-                .drawArrays(GL_TRIANGLES, 0, 6);
+                .enableFramebufferSrgb(false).bindShader(program);
+        for (var output : layout.resolve()) {
+            var input = layout.raw(output.channel());
+            int texture = frame.require(resources, input);
+            String uniform = switch (output.channel()) {
+                case DEPTH -> "uDepth";
+                case NORMAL -> "uNormal";
+                case VELOCITY -> "uVelocity";
+                case PREVIOUS_SURFACE_DEPTH -> "uPreviousDepth";
+                case VALIDITY -> "uValidity";
+                default -> throw new IllegalStateException("no resolve input for " + output.channel());
+            };
+            cmd.bindTextureMultisample(output.colorSlot(), texture)
+                    .setUniformInt(program, uniform, output.colorSlot());
+        }
+        cmd.setUniformInt(program, "uSamples", layout.samples())
+                .bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES, 0, 6);
     }
 
     @Override

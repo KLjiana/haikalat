@@ -57,57 +57,20 @@ final class ForwardPassBuilder {
             pass.execute(spotShadowExecutor);
         }
 
-        boolean surfacePass = topology.sceneBuffers().requiresSurfacePass();
-        boolean multisampledSurface = surfacePass
-                && settings.antiAliasingMode() == AntiAliasingMode.MSAA;
-        String surfaceDepthName = multisampledSurface
-                ? PostProcessTargets.SCENE_DEPTH_MS : PostProcessTargets.SCENE_DEPTH;
-        if (surfacePass) {
-            boolean depthOnly=depthOnlyFogSurface(topology);
-            java.util.List<String> surfaceColors = multisampledSurface
-                    ? java.util.List.of(PostProcessTargets.SCENE_NORMAL_MS,
-                    PostProcessTargets.SCENE_VELOCITY_MS,
-                    PostProcessTargets.SCENE_PREVIOUS_DEPTH_MS,
-                    PostProcessTargets.SCENE_VALIDITY_MS)
-                    : java.util.List.of(PostProcessTargets.SCENE_NORMAL,
-                    PostProcessTargets.SCENE_VELOCITY,
-                    PostProcessTargets.SCENE_PREVIOUS_DEPTH,
-                    PostProcessTargets.SCENE_VALIDITY);
-            java.util.List<RenderFormat> surfaceFormats = java.util.List.of(
-                    RenderFormat.RG16F, RenderFormat.RG16F, RenderFormat.R32F, RenderFormat.R8);
-            RenderGraph.PassBuilder surface = graph.addPass(PostProcessTargets.SCENE_SURFACE_PASS);
-            if (depthOnly) {
-                if (multisampledSurface) surface.createDepthTextureMS(surfaceDepthName,Math.max(2,settings.msaaSamples()));
-                else surface.createDepthTexture(surfaceDepthName);
-            } else if (multisampledSurface) {
-                surface.createColorsMS(surfaceColors, surfaceFormats,
-                        Math.max(2, settings.msaaSamples()));
-            } else {
-                surface.createColors(surfaceColors, surfaceFormats);
-            }
-            surface.createDepthTexture(surfaceDepthName)
-                    // Background contract: velocity 0, validity 0, reactive 0 and a
-                    // decodable default normal.  Depth is cleared here because this
-                    // pass is the single producer of the shared depth texture.
-                    .clearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        SceneSurfaceLayout layout = topology.sceneSurface();
+        var sharedDepth = layout.raw(SceneBufferChannel.DEPTH);
+        if (layout.hasSurface()) {
+            RenderGraph.PassBuilder surface = graph.addPass(sharedDepth.producer());
+            layout.configureRaster(surface);
             if (hasDirectionalShadow) surface.dependsOn(DirectionalShadowMap.PASS_NAME);
             if (hasPointShadow) surface.dependsOn(PointShadowAtlas.PASS_NAME);
             if (hasSpotShadow) surface.dependsOn(SpotShadowAtlas.PASS_NAME);
             surface.execute(surfaceExecutor);
-            if (multisampledSurface) {
-                RenderGraph.PassBuilder resolve=graph.addPass(PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS);
-                if (depthOnly) resolve.createColor(PostProcessTargets.SCENE_DEPTH,RenderFormat.R32F);
-                else resolve.createColors(java.util.List.of(PostProcessTargets.SCENE_NORMAL,
-                                        PostProcessTargets.SCENE_VELOCITY,
-                                        PostProcessTargets.SCENE_PREVIOUS_DEPTH,
-                                        PostProcessTargets.SCENE_VALIDITY,
-                                        PostProcessTargets.SCENE_DEPTH),
-                                java.util.List.of(RenderFormat.RG16F, RenderFormat.RG16F,
-                                        RenderFormat.R32F, RenderFormat.R8, RenderFormat.R32F));
-                resolve.noClear()
-                        .dependsOn(PostProcessTargets.SCENE_SURFACE_PASS)
-                        .execute(surfaceResolveExecutor);
-            }
+        }
+        if (layout.hasResolve()) {
+            var resolve = graph.addPass(layout.single(SceneBufferChannel.DEPTH).producer());
+            layout.configureResolve(resolve);
+            resolve.execute(surfaceResolveExecutor);
         }
 
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
@@ -119,12 +82,11 @@ final class ForwardPassBuilder {
         } else {
             geometry.createColor(PostProcessTargets.SCENE_COLOR, sceneFormat);
         }
-        if (surfacePass) {
+        if (sharedDepth != null) {
             // Reuse the surface pass depth; only color is cleared here.
-            geometry.shareDepthTexture(surfaceDepthName,
-                    PostProcessTargets.SCENE_SURFACE_PASS);
+            geometry.shareDepthTexture(sharedDepth.name(), sharedDepth.producer());
             geometry.clearColorOnly(0.08f, 0.10f, 0.14f, 1.0f);
-            geometry.dependsOn(PostProcessTargets.SCENE_SURFACE_PASS);
+            geometry.dependsOn(sharedDepth.producer());
         } else if ((postProcessSettings.fog().enabled() || topology.hdrVfx())
                 && settings.antiAliasingMode() != AntiAliasingMode.MSAA) {
             geometry.createDepthTexture(PostProcessTargets.SCENE_DEPTH);
@@ -151,9 +113,4 @@ final class ForwardPassBuilder {
         return settings.hdrEnabled() ? RenderFormat.RGBA16F : RenderFormat.SRGB8_ALPHA8;
     }
 
-    static boolean depthOnlyFogSurface(PipelineTopology topology) {
-        return topology.volumetricFog() && !topology.sceneBuffers().requires(SceneBufferChannel.NORMAL)
-                && !topology.sceneBuffers().requires(SceneBufferChannel.VELOCITY)
-                && !topology.sceneBuffers().requires(SceneBufferChannel.VALIDITY);
-    }
 }

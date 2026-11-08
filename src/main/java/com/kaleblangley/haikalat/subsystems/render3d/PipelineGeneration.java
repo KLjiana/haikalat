@@ -30,6 +30,7 @@ final class PipelineGeneration implements AutoCloseable {
     ShaderProgram instancedShadowShader;
     GtaoPasses gtao;
     GtaoSurfaceInputs gtaoInputs;
+    SceneSurfaceInputs surfaceInputs;
     SceneSurfacePass sceneSurfacePass;
     SceneSurfaceResolvePass sceneSurfaceResolvePass;
     SceneReactivePass sceneReactivePass;
@@ -43,11 +44,17 @@ final class PipelineGeneration implements AutoCloseable {
     private boolean retired;
     boolean submitted;
 
-    void retire() { retired = true; }
+    void retire() {
+        retired = true;
+        if (surfaceInputs != null) surfaceInputs.retire();
+    }
     private final java.util.Set<AutoCloseable> borrowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     PipelineGeneration reuseSource;
     VolumetricAllocationPlan volumeAllocation;
     GtaoAllocationPlan gtaoAllocation;
+    private SceneSurfaceLayout.Storage surfaceStorage = SceneSurfaceLayout.Storage.NONE;
+    private SceneSurfaceLayout.Storage borrowedSurfaceStorage = SceneSurfaceLayout.Storage.NONE;
+    long surfacePeakBytes;
     int maximumTextureDimension;
     VolumetricFogSettings volumeSettings;
 
@@ -61,8 +68,11 @@ final class PipelineGeneration implements AutoCloseable {
         if (reuseSource == null) return;
         if (source != reuseSource || source.closed) throw new IllegalStateException("stale pipeline donor");
         source.postProcess.validateTransferTo(postProcess);
+        var donorSurfaceStorage = source.surfaceStorage.minus(borrowedSurfaceStorage);
         graph.commitReplacement();
         source.postProcess.transferResourcesTo(postProcess);
+        source.surfaceStorage = donorSurfaceStorage;
+        borrowedSurfaceStorage = SceneSurfaceLayout.Storage.NONE;
         source.borrowed.addAll(borrowed);
         borrowed.clear();
         reuseSource = null;
@@ -95,15 +105,49 @@ final class PipelineGeneration implements AutoCloseable {
     void assembleGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings settings,
                       PipelineGeneration source, boolean instances, boolean shared) {
         if (!settings.enabled()) return;
-        gtaoInputs = shared ? GtaoSurfaceInputs.shared(id, graph, topology, settings.temporal())
+        gtaoInputs = shared ? GtaoSurfaceInputs.shared(surfaceInputs, topology.antiAliasingMode(), settings.temporal())
                 : GtaoSurfaceInputs.dedicated(id, graph, topology.antiAliasingMode(), settings.temporal());
         gtao = source != null && source.gtao != null && source.gtao.compatible(settings, shared) ? borrow(source.gtao)
                 : new GtaoPasses(settings, topology.width(), topology.height(), shared, instances);
         gtao.addPreGeometryPasses(graph, gtaoInputs);
     }
 
+    void assembleSurfacePasses(PipelineGeneration source) {
+        var layout = topology.sceneSurface();
+        var previous = source == null ? null : source.topology.sceneSurface();
+        if (layout.hasSurface()) {
+            sceneSurfacePass = source != null && source.sceneSurfacePass != null
+                    && layout.rasterShaderDefines().equals(previous.rasterShaderDefines())
+                    ? borrow(source.sceneSurfacePass) : new SceneSurfacePass(layout);
+        }
+        if (layout.hasResolve()) {
+            sceneSurfaceResolvePass = source != null && source.sceneSurfaceResolvePass != null
+                    && layout.resolveShaderDefines().equals(previous.resolveShaderDefines())
+                    ? borrow(source.sceneSurfaceResolvePass) : new SceneSurfaceResolvePass(layout);
+        }
+        if (layout.reactive() != null) {
+            sceneReactivePass = source != null && source.sceneReactivePass != null
+                    ? borrow(source.sceneReactivePass) : new SceneReactivePass();
+        }
+    }
+
     PipelineGeneration(PipelineTopology topology) {
         this.topology = topology;
+    }
+
+    private SceneSurfaceLayout.Storage surfaceStorageAt(int width, int height) {
+        return topology.sceneSurface().storage(width, height);
+    }
+
+    long surfaceBytes() { return surfaceStorage.bytes(); }
+
+    void prepareSurfaceBudget(PipelineGeneration source, long retainedBytes) {
+        surfaceStorage = surfaceStorageAt(topology.width(), topology.height());
+        if (source != null) {
+            borrowedSurfaceStorage = topology.sceneSurface().compatibleStorageFrom(source.topology.sceneSurface(),
+                    source.surfaceStorage, surfaceStorage);
+        }
+        surfacePeakBytes = Math.addExact(retainedBytes, surfaceStorage.minus(borrowedSurfaceStorage).bytes());
     }
 
     boolean isClosed() {
@@ -147,6 +191,8 @@ final class PipelineGeneration implements AutoCloseable {
         GtaoPasses.ResizeCandidate gtaoCandidate = null;
         try {
             GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
+            var newSurfaceStorage = surfaceStorageAt(width, height);
+            long newSurfacePeak = Math.addExact(surfaceBytes(), newSurfaceStorage.bytes());
             var allocation = VolumetricAllocationPlan.prepare(width, height, volumeSettings,
                     clusteredResources.maxTotalLights(), topology.sampleCount(), topology.hdrVfx(),
                     volumeAllocation == null ? 0 : volumeAllocation.activeBytes());
@@ -160,7 +206,8 @@ final class PipelineGeneration implements AutoCloseable {
             if (volumetric != null) volumeCandidate = volumetric.prepareResize(width, height);
             if (gtao != null) gtaoCandidate = gtao.prepareResize(width, height);
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
-                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate, gtaoCandidate, allocation, gtaoPlan);
+                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate, gtaoCandidate,
+                    allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
             closeCandidate(gtaoCandidate, failure);
             closeCandidate(volumeCandidate, failure);
@@ -200,6 +247,8 @@ final class PipelineGeneration implements AutoCloseable {
         private final GtaoPasses.ResizeCandidate gtaoCandidate;
         private final VolumetricAllocationPlan allocation;
         private final GtaoAllocationPlan gtaoPlan;
+        private final SceneSurfaceLayout.Storage surfaceStorage;
+        private final long surfacePeak;
         private boolean committed;
         private boolean closed;
 
@@ -208,7 +257,9 @@ final class PipelineGeneration implements AutoCloseable {
                                 RenderGraph.ResizeCandidate graphCandidate,
                                 PostProcessPassBuilder.ResizeCandidate postProcessCandidate,
                                 ClusteredLightingResources.ResizeCandidate clusteredCandidate,
-                                VolumetricResources.ResizeCandidate volumeCandidate, GtaoPasses.ResizeCandidate gtaoCandidate, VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan) {
+                                VolumetricResources.ResizeCandidate volumeCandidate, GtaoPasses.ResizeCandidate gtaoCandidate,
+                                VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
+                                SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
             this.owner = owner;
             this.width = width;
             this.height = height;
@@ -220,6 +271,8 @@ final class PipelineGeneration implements AutoCloseable {
             this.gtaoCandidate = gtaoCandidate;
             this.allocation = allocation;
             this.gtaoPlan = gtaoPlan;
+            this.surfaceStorage = surfaceStorage;
+            this.surfacePeak = surfacePeak;
         }
 
         private void validateFor(PipelineGeneration expectedOwner) {
@@ -244,6 +297,8 @@ final class PipelineGeneration implements AutoCloseable {
             owner.topology = candidateTopology;
             owner.volumeAllocation = allocation;
             owner.gtaoAllocation = gtaoPlan;
+            owner.surfaceStorage = surfaceStorage;
+            owner.surfacePeakBytes = surfacePeak;
             committed = true;
         }
 
@@ -279,6 +334,7 @@ final class PipelineGeneration implements AutoCloseable {
     public void close() {
         if (closed) return;
         closed = true;
+        if (surfaceInputs != null) surfaceInputs.retire();
         GraphPreviewRenderer localPreview = previewRenderer;
         ShaderProgram localInstancedShadow = instancedShadowShader;
         ShaderProgram localShadow = shadowShader;

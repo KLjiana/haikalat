@@ -7,7 +7,9 @@ import java.util.Objects;
 /**
  * Borrowed, immutable handles to one generation's shared scene surface
  * buffers.  A view never allocates or closes anything; consumers must not
- * retain it beyond the frame that produced it.
+ * retain it beyond the frame that produced it. The scalar sample count describes
+ * the caller's view as a whole. Production consumers use the internal graph
+ * lease to distinguish raw and resolved storage and enforce frame validity.
  */
 public final class SceneBufferView {
     private final long generationId;

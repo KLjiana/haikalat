@@ -221,6 +221,26 @@ class RenderGraphTest {
         assertEquals(0, graph.lastRecordedCommandCount());
     }
 
+    @Test
+    void failedCallbackClearsItsRecordingScopeBeforeObserversAndRetry() {
+        try (var graph = GraphRecordingFixture.graph(33, 17)) {
+            var resources = new java.util.concurrent.atomic.AtomicReference<PassResources>();
+            var failNext = new java.util.concurrent.atomic.AtomicBoolean(true);
+            graph.addPass("ProduceSurface").computeOnly().execute((res, cmd) -> {
+                resources.set(res);
+                assertEquals("ProduceSurface", res.recordingPass(graph));
+                if (failNext.getAndSet(false)) throw new IllegalStateException("recording failed");
+            });
+            graph.observeFrames((sequence, failure) -> assertNull(resources.get().recordingPass(graph)));
+
+            var failure = assertThrows(IllegalStateException.class, () -> GraphRecordingFixture.record(graph));
+            assertEquals("recording failed", failure.getMessage());
+            assertNull(resources.get().recordingPass(graph));
+            GraphRecordingFixture.record(graph);
+            assertNull(resources.get().recordingPass(graph));
+        }
+    }
+
     private static final class CountingDevice implements RenderDevice {
         int executions;
 

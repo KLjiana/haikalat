@@ -34,6 +34,7 @@
 - `depthAttachment(String textureName)`：按声明的逻辑纹理名取得 depth texture id。
 - `currentTarget()`：取得当前 pass 的 render target，仅在需要查询当前目标尺寸或调试状态时使用。
 - `framebufferOfPass(String passName)`：取得指定 pass 的 framebuffer，仅限 postprocess、present、shadow 等内部 OpenGL pass 使用。
+- `recordingPass(RenderGraph expectedGraph)` 在指定 Graph 的录制线程和回调范围内返回当前 pass 名，供帧级输入租约校验来源。
 
 旧入口 `getFramebuffer(...)`、`getFramebuffer()`、`getTextureAttachmentId(...)`、`getTexture(...)` 已收窄为 package-private backend-facing 兼容 API。新写普通 pass 不应先取得 `Framebuffer` 再读取 attachment id；如果只需要采样上游结果，应通过逻辑纹理名调用 `colorAttachment(...)` 或 `depthAttachment(...)`。
 

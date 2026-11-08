@@ -30,6 +30,7 @@ public final class SceneBufferRequirements {
 
     public static SceneBufferRequirements of(Set<SceneBufferChannel> channels, int samples) {
         Objects.requireNonNull(channels, "channels");
+        if (samples < 1) throw new IllegalArgumentException("scene buffer samples must be positive");
         if (channels.isEmpty()) {
             return NONE;
         }
@@ -80,6 +81,15 @@ public final class SceneBufferRequirements {
         return new SceneBufferRequirements(merged, Math.max(samples, other.samples));
     }
 
+    /** Requests for the same production view must agree before their channels are merged. */
+    SceneBufferRequirements mergeView(SceneBufferRequirements other) {
+        Objects.requireNonNull(other, "other");
+        if (isEmpty()) return other;
+        if (other.isEmpty()) return this;
+        if (samples != other.samples) throw new IllegalArgumentException("conflicting scene buffer view samples");
+        return merge(other);
+    }
+
     public SceneBufferRequirements withSamples(int sampleCount) {
         return new SceneBufferRequirements(channels, sampleCount);
     }
@@ -100,14 +110,16 @@ public final class SceneBufferRequirements {
         return channels.isEmpty();
     }
 
-    /** Whether a dedicated surface prepass (and therefore shared attachments) is required. */
+    /** Legacy predicate for a nonempty request. The production layout decides which pass allocates it. */
     public boolean requiresSurfacePass() {
         return !channels.isEmpty();
     }
 
     /** Velocity and its validation companions must always be requested together. */
     public SceneBufferRequirements validated() {
-        if (!channels.contains(SceneBufferChannel.VELOCITY)) {
+        if (!channels.contains(SceneBufferChannel.VELOCITY)
+                || channels.contains(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH)
+                && channels.contains(SceneBufferChannel.VALIDITY)) {
             return this;
         }
         EnumSet<SceneBufferChannel> set = channels.clone();

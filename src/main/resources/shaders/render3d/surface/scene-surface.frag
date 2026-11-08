@@ -9,10 +9,10 @@ in vec4 vPreviousClip;
 in float vPreviousViewDepth;
 in float vPreviousValid;
 
-layout(location = 0) out vec4 outNormal;
-layout(location = 1) out vec2 outVelocity;
-layout(location = 2) out float outPreviousDepth;
-layout(location = 3) out float outValidity;
+layout(location = SCENE_SLOT_NORMAL) out vec4 outNormal;
+layout(location = SCENE_SLOT_VELOCITY) out vec2 outVelocity;
+layout(location = SCENE_SLOT_PREVIOUS_SURFACE_DEPTH) out float outPreviousDepth;
+layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
 
 uniform int uMasked;
 uniform int uHasVertexColor;

@@ -443,21 +443,24 @@ class GtaoModularityGlTest {
                 var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                 p.build(); p.execute(new GlRenderDevice()); var owner = p.activeGenerationForTest(); var input = owner.gtaoInputs;
                 input.validate();
-                assertThrows(IllegalArgumentException.class, () -> new GtaoSurfaceInputs(input.generationId(), input.graph(), "absent",
-                        input.depthTexture(), input.normalTexture(), input.aa(), input.temporal(), true).validate());
-                assertThrows(IllegalArgumentException.class, () -> new GtaoSurfaceInputs(input.generationId(), input.graph(), input.producer(),
-                        input.depthTexture(), "missingNormal", input.aa(), input.temporal(), true).validate());
-                assertThrows(IllegalArgumentException.class, () -> new GtaoSurfaceInputs(input.generationId(), input.graph(), input.producer(),
-                        input.depthTexture(), input.normalTexture(), AntiAliasingMode.MSAA, input.temporal(), true).validate());
+                var layout = owner.topology.sceneSurface();
+                assertThrows(IllegalArgumentException.class, () -> input.surface().validateDependency("absent",
+                        layout.single(SceneBufferChannel.DEPTH)));
+                var missingNormal = SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(), SceneBufferRequirements.fog(),
+                        SceneSurfaceLayout.ReactiveMode.NONE);
+                assertThrows(IllegalArgumentException.class, () -> GtaoSurfaceInputs.shared(
+                        new SceneSurfaceInputs(owner.id, owner.graph, missingNormal), input.aa(), true).validate());
+                assertThrows(IllegalArgumentException.class, () -> GtaoSurfaceInputs.shared(
+                        input.surface(), AntiAliasingMode.MSAA, input.temporal()).validate());
                 assertThrows(IllegalStateException.class, () -> input.validateFrame(1, 1));
                 try (var foreign = new com.kaleblangley.haikalat.core.graph.RenderGraph(96, 64)) {
                     assertThrows(IllegalArgumentException.class, () -> owner.gtao.addPreGeometryPasses(foreign, input));
-                    foreign.addPass("BadSurface").createColors(java.util.List.of("badDepth", "badNormal"),
-                            java.util.List.of(com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F,
-                                    com.kaleblangley.haikalat.backend.RenderFormat.RG16F)).execute((res, cmd) -> {});
-                    foreign.addPass(PostProcessTargets.GTAO_ESTIMATE_PASS).computeOnly().dependsOn("BadSurface").execute((res, cmd) -> {});
-                    assertThrows(IllegalArgumentException.class, () -> new GtaoSurfaceInputs(1, foreign, "BadSurface", "badDepth", "badNormal",
-                            AntiAliasingMode.NONE, false, true).validate());
+                    foreign.addPass(PostProcessTargets.SCENE_SURFACE_PASS)
+                            .createColor(PostProcessTargets.SCENE_NORMAL, com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F)
+                            .createDepthTexture(PostProcessTargets.SCENE_DEPTH).execute((res, cmd) -> {});
+                    var expected = SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(), SceneBufferRequirements.gtao(false),
+                            SceneSurfaceLayout.ReactiveMode.NONE);
+                    assertThrows(IllegalArgumentException.class, () -> new SceneSurfaceInputs(1, foreign, expected).validate());
                 }
             }
         }
@@ -748,6 +751,80 @@ class GtaoModularityGlTest {
 
     static GtaoSettings tuning(float strength, com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality quality, boolean temporal) {
         return new GtaoSettings(true, quality, 1, strength, .25f, temporal, .9f, .02f);
+    }
+
+    @Test void sharedSurfaceLayoutsFollowLiveGtaoAndFogDemandInAllSamplingModes() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var fixture = new Fixture()) {
+                var nonTemporal = tuning(1, com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.MEDIUM, false);
+                for (var aa : new AntiAliasingMode[]{AntiAliasingMode.NONE, AntiAliasingMode.TAA, AntiAliasingMode.MSAA}) {
+                    var p = fixture.pipeline(aa, GtaoSettings.disabled());
+                    p.build();
+                    var device = new GlRenderDevice();
+                    p.execute(device);
+                    assertSharedSurface(p, aa, false, false, false);
+                    p.applyVolumetricFog(VolumetricGenerationGlTest.fog(.1f));
+                    p.execute(device);
+                    assertSharedSurface(p, aa, false, true, false);
+                    var fogOwner = p.activeGenerationForTest().volumetric;
+                    p.applyGtao(nonTemporal);
+                    p.execute(device);
+                    assertSame(fogOwner, p.activeGenerationForTest().volumetric);
+                    assertSharedSurface(p, aa, true, true, false);
+                    var gtaoOwner = p.activeGenerationForTest().gtao;
+                    long sharedBytes = p.activeGenerationForTest().surfaceBytes();
+                    p.drainRetirementsForTest();
+                    p.applyVolumetricFog(VolumetricFogSettings.disabled());
+                    p.execute(device);
+                    assertSame(gtaoOwner, p.activeGenerationForTest().gtao);
+                    assertEquals(sharedBytes, p.activeGenerationForTest().surfacePeakBytes,
+                            "unchanged raster and resolve targets count once during replacement");
+                    assertSharedSurface(p, aa, true, false, false);
+                    p.applyGtao(GtaoSettings.defaults().withEnabled(true));
+                    p.resize(97, 65);
+                    fixture.size.width = 97; fixture.size.height = 65;
+                    p.execute(device);
+                    assertSharedSurface(p, aa, true, false, true);
+                    p.close();
+                    fixture.size.width = 96; fixture.size.height = 64;
+                }
+            }
+        }
+    }
+
+    private static void assertSharedSurface(RenderPipeline p, AntiAliasingMode aa,
+                                            boolean gtao, boolean fog, boolean temporal) {
+        var description = p.graph().description();
+        boolean motion = aa == AntiAliasingMode.TAA || temporal;
+        long bytesPerPixel = 0;
+        if (!gtao && !fog && !motion) {
+            assertFalse(p.graph().hasPass(PostProcessTargets.SCENE_SURFACE_PASS));
+            assertFalse(p.graph().hasPass(PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS));
+        } else {
+            var surface = SceneSurfaceInputs.pass(description, PostProcessTargets.SCENE_SURFACE_PASS);
+            int colorCount = (gtao ? 1 : 0) + (motion ? 3 : 0);
+            assertEquals(colorCount, surface.colorAttachments().size());
+            assertEquals(aa == AntiAliasingMode.MSAA ? 4 : 1, surface.samples());
+            bytesPerPixel = 4 + (gtao ? 4 : 0) + (motion ? 9 : 0);
+            if (aa == AntiAliasingMode.MSAA) {
+                var resolve = SceneSurfaceInputs.pass(description, PostProcessTargets.SCENE_SURFACE_RESOLVE_PASS);
+                assertEquals(colorCount + 1, resolve.colorAttachments().size());
+                assertEquals("R32F", resolve.colorAttachments().getLast().format());
+                assertEquals(1, resolve.samples());
+                bytesPerPixel *= 5;
+            }
+            assertEquals(fog && aa == AntiAliasingMode.TAA, p.graph().hasPass(PostProcessTargets.SCENE_REACTIVE_PASS));
+        }
+        assertEquals(bytesPerPixel * description.width() * description.height(), p.activeGenerationForTest().surfaceBytes());
+        if (gtao) {
+            assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
+            for (float value : p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_NORMAL)) {
+                assertTrue(Float.isFinite(value));
+            }
+        }
+        for (float value : p.captureLinearHdrRgbaFloat()) assertTrue(Float.isFinite(value));
+        GlDebug.assertNoError("shared scene surface layout transition");
     }
 
     @Test void materialSamplerStateCannotChangeFreshGtaoPixels() {
