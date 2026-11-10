@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T07:12:26.3451619+08:00",
+    "updatedAt":  "2026-11-11T07:28:06.9234299+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -37,7 +37,7 @@
                                          1,
                                          2
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "INTEGRATED",
                       "scope":  "C04/C05 GL evidence: transformed rim pixels, adjacent atlas cells, flipbook/filter boundary",
                       "dependencies":  [
 
@@ -47,21 +47,22 @@
 
                                      ],
                       "baseCommit":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
-                      "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "workerCommit":  "65c718e",
+                      "integrationCommit":  "04af822",
                       "requiredCases":  [
                                             "VfxRendererGlTest",
                                             "VfxMaterialTest"
                                         ],
                       "evidence":  [
-
+                                       "worker GL: glSmoke --tests *VfxRendererGlTest PASS",
+                                       "integration GL: glSmoke --tests *VfxRendererGlTest PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_LOCAL_GL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Worker implementing C04/C05 tests in worktree b0m"
+                      "nextAction":  "Independent review then accept C04/C05 evidence"
                   },
                   {
                       "taskId":  "B0-T",
@@ -69,16 +70,16 @@
                                          3,
                                          7
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "C12/C13: light generation/shadow/history behavior; rapid dissolve under TAA with camera and occlusion changes",
                       "dependencies":  [
 
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent c67513eb-f17e-4e7e-95d9-3a34f12afe77",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -94,7 +95,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Create technical card and deterministic TAA/light fixtures"
+                      "nextAction":  "Worker extending C12/C13 tests in worktree b0t"
                   },
                   {
                       "taskId":  "B0-R",
