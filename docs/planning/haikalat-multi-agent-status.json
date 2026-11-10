@@ -1,0 +1,1514 @@
+{
+    "schemaVersion":  1,
+    "plan":  "docs/planning/haikalat-multi-agent-full-delivery.md",
+    "baseline":  {
+                     "branch":  "new-engine",
+                     "head":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
+                     "tag":  "v0.28.0",
+                     "buildVersion":  "0.28.0",
+                     "verifiedAt":  "2026-11-11"
+                 },
+    "integration":  {
+                        "branch":  "codex/render-roadmap-integration",
+                        "worktree":  "D:/project/Java/learnopengl-worktrees/integration",
+                        "head":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4"
+                    },
+    "gpuQueue":  {
+                     "state":  "IDLE",
+                     "owner":  null,
+                     "taskId":  null,
+                     "startedAt":  null
+                 },
+    "updatedAt":  "2026-11-11T07:01:32.6885043+08:00",
+    "tasks":  [
+                  {
+                      "taskId":  "B0-M",
+                      "featureIds":  [
+                                         1,
+                                         2
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "C04/C05 GL evidence: transformed rim pixels, adjacent atlas cells, flipbook/filter boundary",
+                      "dependencies":  [
+
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+                                            "VfxRendererGlTest",
+                                            "VfxMaterialTest"
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Create technical card, implement fixtures, run serial GPU verification"
+                  },
+                  {
+                      "taskId":  "B0-T",
+                      "featureIds":  [
+                                         3,
+                                         7
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "C12/C13: light generation/shadow/history behavior; rapid dissolve under TAA with camera and occlusion changes",
+                      "dependencies":  [
+
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+                                            "VfxLightingGlTest",
+                                            "VolumetricCompositeGlTest",
+                                            "RenderFeatureControlGlTest"
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Create technical card and deterministic TAA/light fixtures"
+                  },
+                  {
+                      "taskId":  "B0-R",
+                      "featureIds":  [
+                                         1,
+                                         2,
+                                         3,
+                                         7
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Re-verify pause/resume/replay, single mesh after Apply, A/B seed/time, light 0/nonzero, rim-zero at dissolve=0.5",
+                      "dependencies":  [
+
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+                                            "CombatVfxControllerTest",
+                                            "EffectInstanceTest",
+                                            "VfxRendererGlTest"
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Run regression and record real evidence"
+                  },
+                  {
+                      "taskId":  "R01",
+                      "featureIds":  [
+                                         1
+                                     ],
+                      "state":  "VERIFY_BASELINE",
+                      "scope":  "Fresnel / Rim Lighting",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R02",
+                      "featureIds":  [
+                                         2
+                                     ],
+                      "state":  "VERIFY_BASELINE",
+                      "scope":  "UV Flow / Distortion",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R03",
+                      "featureIds":  [
+                                         3
+                                     ],
+                      "state":  "VERIFY_BASELINE",
+                      "scope":  "Dissolve / Erosion",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R04",
+                      "featureIds":  [
+                                         4
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Screen-Space Distortion",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R05",
+                      "featureIds":  [
+                                         5
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Vertex Displacement",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R06",
+                      "featureIds":  [
+                                         6
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Projected Decals",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R07",
+                      "featureIds":  [
+                                         7
+                                     ],
+                      "state":  "VERIFY_BASELINE",
+                      "scope":  "VFX Dynamic Lighting",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R08",
+                      "featureIds":  [
+                                         8
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Thin Translucency",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R09",
+                      "featureIds":  [
+                                         9
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Contact Shadows",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R10",
+                      "featureIds":  [
+                                         10
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Cloud Shadows",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R11",
+                      "featureIds":  [
+                                         11
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Screen-Space Water Refraction",
+                      "dependencies":  [
+                                           14
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R12",
+                      "featureIds":  [
+                                         12
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "DOF",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R13",
+                      "featureIds":  [
+                                         13
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Refraction",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R14",
+                      "featureIds":  [
+                                         14
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Water Surface Rendering",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R15",
+                      "featureIds":  [
+                                         15
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Depth-Based Particle Collision",
+                      "dependencies":  [
+                                           27
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R16",
+                      "featureIds":  [
+                                         16
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Clearcoat Shading",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R17",
+                      "featureIds":  [
+                                         17
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Anisotropic Shading",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R18",
+                      "featureIds":  [
+                                         18
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Local Reflection Probes",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R19",
+                      "featureIds":  [
+                                         19
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "PCSS",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R20",
+                      "featureIds":  [
+                                         20
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "SSR",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R21",
+                      "featureIds":  [
+                                         21
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Motion Blur",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R22",
+                      "featureIds":  [
+                                         22
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "SMAA",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R23",
+                      "featureIds":  [
+                                         23
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Vignette",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R24",
+                      "featureIds":  [
+                                         24
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Film Grain",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R25",
+                      "featureIds":  [
+                                         25
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Chromatic Aberration",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R26",
+                      "featureIds":  [
+                                         26
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "GPU Particle Sorting",
+                      "dependencies":  [
+                                           27
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R27",
+                      "featureIds":  [
+                                         27
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "GPU Particle Indirect Rendering",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R28",
+                      "featureIds":  [
+                                         28
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Weighted Blended OIT",
+                      "dependencies":  [
+                                           27
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R29",
+                      "featureIds":  [
+                                         29
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Atmospheric Scattering",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R30",
+                      "featureIds":  [
+                                         30
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Planar Reflections",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R31",
+                      "featureIds":  [
+                                         31
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Parallax Occlusion Mapping",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R32",
+                      "featureIds":  [
+                                         32
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "SSS",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R33",
+                      "featureIds":  [
+                                         33
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Screen-Space SSS",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R34",
+                      "featureIds":  [
+                                         34
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Temporal Denoising",
+                      "dependencies":  [
+                                           20
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R35",
+                      "featureIds":  [
+                                         35
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Temporal Upscaling",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R36",
+                      "featureIds":  [
+                                         36
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Caustics",
+                      "dependencies":  [
+                                           14
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R37",
+                      "featureIds":  [
+                                         37
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Stochastic Transparency",
+                      "dependencies":  [
+                                           26,
+                                           28
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R38",
+                      "featureIds":  [
+                                         38
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Volumetric Particles",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R39",
+                      "featureIds":  [
+                                         39
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "SSGI",
+                      "dependencies":  [
+                                           20,
+                                           34
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R40",
+                      "featureIds":  [
+                                         40
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Volumetric Clouds",
+                      "dependencies":  [
+                                           10,
+                                           29
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R41",
+                      "featureIds":  [
+                                         41
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Adaptive Sampling",
+                      "dependencies":  [
+                                           20,
+                                           40
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R42",
+                      "featureIds":  [
+                                         42
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Variable Rate Shading",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R43",
+                      "featureIds":  [
+                                         43
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Volumetric Smoke Simulation",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R44",
+                      "featureIds":  [
+                                         44
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "DDGI",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R45",
+                      "featureIds":  [
+                                         45
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Voxel Cone Tracing",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  },
+                  {
+                      "taskId":  "R46",
+                      "featureIds":  [
+                                         46
+                                     ],
+                      "state":  "TODO",
+                      "scope":  "Hair Strand Rendering",
+                      "dependencies":  [
+                                           null
+                                       ],
+                      "owner":  null,
+                      "writePaths":  [
+
+                                     ],
+                      "baseCommit":  null,
+                      "workerCommit":  null,
+                      "integrationCommit":  null,
+                      "requiredCases":  [
+
+                                        ],
+                      "evidence":  [
+
+                                   ],
+                      "review":  "NOT_RUN",
+                      "functional":  "NOT_RUN",
+                      "performance":  "NOT_EVALUATED",
+                      "humanVisual":  "NOT_EVALUATED",
+                      "blockedReason":  null,
+                      "nextAction":  "Preflight, technical card and dependency freeze"
+                  }
+              ],
+    "notes":  [
+                  "Source branch new-engine is clean at b9911ae; plan document was untracked and is copied to the integration branch.",
+                  "B0 is the first checkpoint; new-tech technical cards may proceed in parallel where owner files do not conflict.",
+                  "No push, tag or release publication authorized in this run."
+              ]
+}
