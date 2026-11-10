@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.color.ColorGradingLut;
+
 import java.util.Objects;
 
 /** Immutable color-grading configuration applied after tone mapping and before display encoding. */

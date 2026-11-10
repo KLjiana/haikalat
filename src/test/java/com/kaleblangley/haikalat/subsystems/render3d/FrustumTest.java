@@ -1,5 +1,11 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.BoundsTransforms;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.Frustum;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.WorldBounds;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
@@ -71,10 +77,10 @@ class FrustumTest {
         Matrix4f clip = CameraProjection.stable(camera, 32, 32, new Matrix4f())
                 .mul(camera.getViewMatrix(new Matrix4f()), new Matrix4f());
         Frustum frustum = new Frustum().set(clip);
-        WorldBounds bounds = new WorldBounds();
+        var bounds = new WorldBounds.Scratch();
         BoundsTransforms.world(Bounds3f.of(-0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 0.0f),
                 new Matrix4f().translate(10, 0, 0), bounds);
 
-        assertEquals(Frustum.Classification.OUTSIDE, frustum.classify(bounds));
+        assertEquals(Frustum.Classification.OUTSIDE, frustum.classify(bounds.view()));
     }
 }

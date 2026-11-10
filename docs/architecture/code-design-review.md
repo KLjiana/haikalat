@@ -1,5 +1,7 @@
 # 代码职责与重设计评估
 
+> 历史设计审查：下文“本轮/当前”指原审查时的实现，不代表 0.27.x 再审结果。当前 Render3D 职责与包归属见[0.27.3 模块合同](v0.27.3-render3d-module-contracts.md)，抽象准入见[抽象密度控制](abstraction-density.md)。
+
 本轮审查结论：项目不需要整体重写。现有 `subsystems/runtime -> core -> backend` 依赖方向仍然合理，真正需要调整的是 shader 资源模型、压力测试资源生成和 RenderGraph 每帧临时对象；其余模块应以数据证明为前提再拆分。
 
 ## 已执行的调整

@@ -26,7 +26,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
-import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut;
+import com.kaleblangley.haikalat.subsystems.postprocess.color.ColorGradingLut;
 import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;

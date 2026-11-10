@@ -1,16 +1,18 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.surface.DepthResolveDescriptor;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 
 import java.util.Objects;
 
 /** Single pure policy boundary for cross-feature topology compatibility. */
-record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnvironmentAvailable) {
-    PipelineFeaturePolicy {
+public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnvironmentAvailable) {
+    public PipelineFeaturePolicy {
         Objects.requireNonNull(topology, "topology");
     }
 
-    void validate() {
+    public void validate() {
         if ((topology.colorGrading() || topology.fog() || topology.volumetricFog()) && !topology.hdr()) {
             throw new IllegalStateException("Color grading and fog require HDR tone mapping");
         }

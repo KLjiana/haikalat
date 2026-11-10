@@ -1,6 +1,8 @@
 # Render Boundary Contracts
 
-本文件记录当前稳定化阶段保留的最小边界，避免继续扩张薄抽象。
+本文件保留跨版本的渲染边界原则。2026-11-09 复核：Render3D 的模块归属以
+[0.27.3 模块合同](v0.27.3-render3d-module-contracts.md) 为准，功能提交与失败状态以
+[0.27.4 控制合同](v0.27.4-render3d-feature-control.md) 为准；旧基准数值只适用于原候选。
 
 ## RenderDevice
 
@@ -48,7 +50,7 @@ Pass 默认使用 graph/window 尺寸；固定分辨率资源通过 `PassBuilder
 
 ## Directional Shadow Boundary
 
-`RenderPipeline` 拥有普通与 instanced depth-only shadow shader，`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 先遍历 `MeshRenderer.castShadows=true` 的普通 scene renderer，再在 `InstancedRenderer.castShadows=true` 时提交同一帧实例快照。实例阴影默认关闭，避免旧调用方无意增加一次实例上传和绘制。
+普通、MASK 和按需实例阴影程序由 `shadow.ShadowPrograms` 管理；代次负责 owner 的准备、转交与退役，阴影命令由 `ShadowCasterRecorder` 录制。`RenderGraph`/`RenderTargetManager` 拥有 shadow framebuffer 和 depth texture。Shadow pass 处理投影的普通 renderer 和显式开启投影的实例快照；实例阴影默认关闭。`RenderPipeline` 负责装配与帧协调，不重新拥有一套阴影程序。
 
 10 万实例五轮基准证明双提交稳定增加超过 0.5 ms CPU median 后，生产路径改为正式的 `prepareInstancedBatchPersistent -> drawPreparedInstancedBatch -> finishPreparedInstancedBatch` 协议。命令记录时只复制一次稳定快照，执行时只占用并上传一个 ring slot；shadow、GTAO depth 和 geometry 分别 draw，最后一个 pass 后才插入 fence。`prepareInstancedBatch` 仍保留为单个 `CommandExecutor` 内的局部协议，跨 RenderGraph pass 必须使用带 persistent 语义的入口。普通单 pass 调用方继续使用 `drawInstancedBatch`，三条路径都不创建 shadow 专用 batch，也不通过 `custom()` 绕过命令系统。
 
@@ -255,13 +257,13 @@ callback 仍是 committed Unicode 的唯一来源，避免 `GCS_RESULTSTR` 重�
 
 ## GL Smoke Verification
 
-默认单元测试不要求真实 OpenGL context。需要验证本机图形环境时运行：
+默认单元测试不要求真实 OpenGL context。需要验证最小真实 GL 环境时可选择：
 
 ```powershell
-.\gradlew.bat test "-Dhaikalat.glSmoke=true" --rerun-tasks
+.\gradlew.bat glSmoke --tests "*GlContextSmokeTest"
 ```
 
-该 smoke test 会创建隐藏 GLFW 窗口，初始化 GL capabilities，执行 clear，并用 `glReadPixels` 验证回读像素。它还覆盖 framebuffer、shader、texture 和 texture cache 的最小生命周期边界，确保关闭后的资源拒绝继续使用。
+该命令只选择 `GlContextSmokeTest`。其他 framebuffer、shader、texture 和资源生命周期用例按改动选择；无过滤的 `glSmoke` 会运行完整测试集。当前范围与限时入口见[测试指南](../guides/testing.md)。
 
 ## Static Scene Submission
 

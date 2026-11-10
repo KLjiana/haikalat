@@ -4,11 +4,9 @@
 Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、单元测试和少量
 清晰文档，沉淀一套可学习、可验证、可逐步扩展的 OpenGL 渲染架构。
 
-当前阶段在维护 runtime、RenderGraph、资源生命周期和 UI 合同的基础上，推进
-[v0.24 风格化室外环境与体积阳光](v0.24-stylized-outdoor-environment-and-volumetric-lighting.md)。
-通过一个完整室外样板，验证天空、环境光、雾和受遮挡的光束如何共同形成画面；v0.24.0
-候选已完成自动专项验收，后续只保留发布门禁和人工复核证据收口；
-调试器与编辑工具继续作为公共能力的集成场景逐步发展。
+2026-11-09 当前构建版本为 0.27.4，工作树已包含 Render3D 模块边界与统一功能控制。
+当前筹备 [0.27.5 Agent 指引与测试治理](v0.27.5-agent-and-test-governance.md)，为后续实时渲染技术扩展整理协作规则和验证流程。
+已实现范围与限制见[能力矩阵](capability-matrix.md)；历史阶段通过不替代当前候选的正式发布证据。
 
 ## 已有能力
 
@@ -41,8 +39,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 ## 目标方向
 
 - 优先稳定 OpenGL 后端、RenderGraph、资源生命周期和 Scene Pipeline。
-- 每个长期保留的抽象必须能被 demo、测试或明确生命周期职责证明；核心抽象最好同时具备
-  demo、测试和文档。
+- 每个长期保留的抽象应有真实用途、明确职责和相应的合同验证；允许复用现有测试、Demo 和文档，不要求按类新增一套交付物。
 - 用少量高质量 demo 证明能力，避免每个新特性都变成长期维护入口。
 - 将 UI 稳定公共 API 与内部渲染/native 协议分开管理；编辑和调试工具优先复用公共 API，
   并用真实需求检验其便利性与完整性。
@@ -58,7 +55,7 @@ Java/LWJGL/OpenGL 4.6 实时渲染框架。当前目标是用可运行 demo、�
 - 暂不直接重写 Vulkan 或第二后端；第二后端只能在 OpenGL 边界稳定后用于验证 `RenderDevice`。
 - 暂不一次性建设与框架紧耦合的单体生产级编辑器；允许基于 UI subsystem 逐步增加调试面板、
   资源检查器和编辑工作流。
-- transmission、clearcoat、local probe、clustered lighting 与 shader graph 等扩展，
+- transmission、clearcoat、local probe 与 shader graph 等扩展，
   由后续真实内容需求和性能数据驱动；已有 animation/skin 能力以当前能力矩阵为准。
 
 ## 命名

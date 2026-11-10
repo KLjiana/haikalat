@@ -1,5 +1,12 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
+
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
@@ -39,6 +46,10 @@ class SceneReactiveGlTest {
                 scene.add(MeshRenderer.of(mesh,material,Transform.at(0,0,0)));
                 scene.add(MeshRenderer.of(mesh,material,Transform.at(0,0,0)));
                 var frame=new SceneFrameBuilder().build(scene,32,32,new Matrix4f(),false,false,0);
+                int entry = frame.forwardEntry(0);
+                var scratch = frame.copyModel(entry, new Matrix4f());
+                scratch.translation(100, 0, 0);
+                assertEquals(0f, frame.copyModel(entry, scratch).m30());
                 var device=new GlRenderDevice();var cmd=device.createCommandBuffer();
                 cmd.bindFramebuffer(GL_FRAMEBUFFER,target.id()).viewport(0,0,32,32).clearColor(0,0,0,0).clear(true,false);
                 cameraUniforms.update(cmd,camera,32,32,AntiAliasingMode.NONE,0);

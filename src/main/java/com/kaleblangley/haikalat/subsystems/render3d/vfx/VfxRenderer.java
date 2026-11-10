@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d.vfx;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView;
+
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
@@ -54,8 +56,8 @@ public final class VfxRenderer implements AutoCloseable {
             createdShader = ShaderProgram.fromResource(VfxRenderer.class,
                     "/shaders/render3d/vfx/vfx.vert", "/shaders/render3d/vfx/vfx.frag");
             if (volumetricFogCompatible) createdFogShader=createdShader.withFragmentPrelude(
-                    com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView.SHADER_CONTRACT,
-                    com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView.fragmentPrelude());
+                    com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView.SHADER_CONTRACT,
+                    com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView.fragmentPrelude());
             createdQuad = Mesh.from(BuiltinMeshData.texturedQuad("vfx-quad"));
             createdTextureCache = new VfxTextureCache();
         } catch (RuntimeException | Error failure) {
@@ -90,7 +92,7 @@ public final class VfxRenderer implements AutoCloseable {
     public Statistics record(CommandBuffer commands, EffectSnapshot snapshot,
                              Matrix4fc projection, Matrix4fc view,
                              int sceneDepthTexture, int viewportWidth, int viewportHeight,
-                             com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView fog) {
+                             com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView fog) {
         var result=recordInternal(commands,snapshot,projection,view,sceneDepthTexture,viewportWidth,viewportHeight,fog,false);
         if (fog!=null) {
             Matrix4f frozenProjection=new Matrix4f(projection), frozenView=new Matrix4f(view);
@@ -101,7 +103,7 @@ public final class VfxRenderer implements AutoCloseable {
     }
     private Statistics recordInternal(CommandBuffer commands, EffectSnapshot snapshot,
                              Matrix4fc projection, Matrix4fc view,int sceneDepthTexture,int viewportWidth,int viewportHeight,
-                             com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogView fog,boolean reactiveOnly) {
+                             com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView fog,boolean reactiveOnly) {
         ensureOpen();
         ShaderProgram shader=fog == null ? this.shader : fogShader;
         if (shader==null) throw new IllegalStateException("construct VfxRenderer(true) before using volume fog");

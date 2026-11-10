@@ -1,5 +1,12 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricHistoryPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -138,7 +145,7 @@ class VolumetricTemporalGlTest {
                 var p=pipeline(size,scene,false,AntiAliasingMode.NONE);
                 try {
                     p.build();var device=new GlRenderDevice();p.execute(device);float[] fused=mask(p);
-                    var b=p.activeGenerationForTest().volumetric;var camera=b.frameState().previous().camera();
+                    var b=p.activeGenerationForTest().volumetric();var camera=b.frameState().previous().camera();
                     String vertex;
                     try(var in=getClass().getResourceAsStream("/shaders/postprocess/screen-quad.vert")) {
                         vertex=new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
@@ -287,7 +294,7 @@ class VolumetricTemporalGlTest {
             var p=pipeline(size,scene,true,AntiAliasingMode.NONE);
             try {
                 p.build();var device=new GlRenderDevice();p.execute(device);p.execute(device);
-                var b=p.activeGenerationForTest().volumetric;
+                var b=p.activeGenerationForTest().volumetric();
                 assertTrue(counters(b)[1]>.9*counters(b)[0]);
                 scene.setLight(1,SceneLight.point(new Vector3f(-6,-3,-8),new Vector3f(1,0,0),4,1));p.execute(device);
                 assertEquals(VolumetricHistoryPlan.Reason.NONE,b.historyPlan().reason());assertEquals(2,b.historyPlan().count());
@@ -328,7 +335,7 @@ class VolumetricTemporalGlTest {
                         scene.setLight(0,SceneLight.point(new Vector3f(0,0,-6),new Vector3f(1,.3f,.1f),0,8));
                         p.execute(device);float reactive=mask(p)[8*33+16];
                         assertTrue(reactive>.5,"fast light signaled final TAA mode="+mode+" reactive="+reactive
-                                +" stats="+java.util.Arrays.toString(counters(p.activeGenerationForTest().volumetric)));
+                                +" stats="+java.util.Arrays.toString(counters(p.activeGenerationForTest().volumetric())));
                         p.execute(device);float[] second=p.captureLinearHdrRgbaFloat();
                         for(int i=0;i<8;i++)p.execute(device);float[] dark=p.captureLinearHdrRgbaFloat();
                         double before=0,residual=0;
@@ -408,7 +415,7 @@ class VolumetricTemporalGlTest {
                         assertEquals(depth>5?1:0,steadyMask[pixel],.005,"nonaccumulating native light responds on every visible frame");
                         assertEquals(0,steadyMask[32*129+20],.005,"fast-light response excludes unrelated rays");
                     }
-                    var resources=pipeline.activeGenerationForTest().volumetric.resources();
+                    var resources=pipeline.activeGenerationForTest().volumetric().resources();
                     for(float value:VolumetricMediumGlTest.texture(resources.medium()))
                         assertEquals(0,value,"coarse sampling must miss this fixture");
                     if(event==FineEvent.MEDIUM_MOVE) {
@@ -449,11 +456,11 @@ class VolumetricTemporalGlTest {
             try {
                 p.build();var device=new GlRenderDevice();p.execute(device);p.execute(device);var gen=p.activeGenerationForTest();
                 p.applyVolumetricFog(fog(true,List.of(next)));assertSame(gen,p.activeGenerationForTest());p.execute(device);
-                assertEquals(VolumetricHistoryPlan.Reason.NONE,gen.volumetric.historyPlan().reason());assertEquals(2,gen.volumetric.historyPlan().count());
-                float[] q=VolumetricMediumGlTest.texture(gen.volumetric.resources().source());
-                float[] filtered=VolumetricMediumGlTest.texture(gen.volumetric.resources().historyRead());
+                assertEquals(VolumetricHistoryPlan.Reason.NONE,gen.volumetric().historyPlan().reason());assertEquals(2,gen.volumetric().historyPlan().count());
+                float[] q=VolumetricMediumGlTest.texture(gen.volumetric().resources().source());
+                float[] filtered=VolumetricMediumGlTest.texture(gen.volumetric().resources().historyRead());
                 for(int i=3;i<q.length;i+=4)assertEquals(q[i],filtered[i]);
-                assertTrue(counters(gen.volumetric)[2]>0);assertTrue(counters(gen.volumetric)[1]>.65*counters(gen.volumetric)[0]);
+                assertTrue(counters(gen.volumetric())[2]>0);assertTrue(counters(gen.volumetric())[1]>.65*counters(gen.volumetric())[0]);
             } finally {p.close();}
         }
     }
@@ -465,7 +472,7 @@ class VolumetricTemporalGlTest {
                 var size=new VolumetricGenerationGlTest.Size();var scene=new Scene(VolumetricMediumGlTest.camera(true,33f/17));
                 var p=pipeline(size,scene,true,AntiAliasingMode.NONE);
                 try {
-                    p.build();var device=new GlRenderDevice();p.execute(device);var b=p.activeGenerationForTest().volumetric;
+                    p.build();var device=new GlRenderDevice();p.execute(device);var b=p.activeGenerationForTest().volumetric();
                     var previous=b.frameState().previous();var read=b.resources().historyRead();var write=b.resources().historyWrite();
                     var sentinel=new float[write.width()*write.height()*write.depth()*4];java.util.Arrays.fill(sentinel,7);upload(write,sentinel);
                     System.setProperty("haikalat.test.failVolumePartialHistoryOnce","true");
@@ -493,7 +500,7 @@ class VolumetricTemporalGlTest {
             try(var shader=ShaderProgram.fromSources(VERTEX,FRAGMENT);var mesh=Mesh.from(BuiltinMeshData.coloredCube("history-caster"));
                 var material=Material.builder(shader).setFloat("uAlpha",1).build()) {
                 try {
-                    p.build();var device=new GlRenderDevice();p.execute(device);p.execute(device);var b=p.activeGenerationForTest().volumetric;
+                    p.build();var device=new GlRenderDevice();p.execute(device);p.execute(device);var b=p.activeGenerationForTest().volumetric();
                     int refitFrames=0;
                     for(int frame=1;frame<=12;frame++) {
                         camera.setPosition(new Vector3f(frame*.04f,0,0));p.execute(device);
@@ -527,7 +534,7 @@ class VolumetricTemporalGlTest {
             try {
                 p.build();var device=new GlRenderDevice();double[] luminance=new double[32];
                 for(int frame=0;frame<56;frame++) {
-                    p.execute(device);var b=p.activeGenerationForTest().volumetric;
+                    p.execute(device);var b=p.activeGenerationForTest().volumetric();
                     if(frame>0)assertEquals(VolumetricHistoryPlan.Reason.NONE,b.historyPlan().reason());
                     if(frame>=24) {
                         float[] image=p.captureLinearHdrRgbaFloat();double value=0;
@@ -558,7 +565,7 @@ class VolumetricTemporalGlTest {
                 try {
                     p.build();var device=new GlRenderDevice();for(int i=0;i<5;i++)p.execute(device);
                     float[] hidden=mask(p);for(int y=3;y<14;y++)for(int x=3;x<30;x++)assertEquals(0,hidden[y*33+x],.005);
-                    int[] counts=counters(p.activeGenerationForTest().volumetric);assertTrue(counts[2]>0,"occluded air source was still updated");
+                    int[] counts=counters(p.activeGenerationForTest().volumetric());assertTrue(counts[2]>0,"occluded air source was still updated");
                     wall.position(0,0,-24);scene.setLight(0,SceneLight.point(new Vector3f(0,0,-16),new Vector3f(1),200,5));p.execute(device);
                     assertTrue(mask(p)[8*33+16]>.5,"revealed flash contributes only through its visible depth range");
                     GlDebug.assertNoError("visible-depth reactive reduction");

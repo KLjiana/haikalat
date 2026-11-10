@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.demo.pbr;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogDiagnostics;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;

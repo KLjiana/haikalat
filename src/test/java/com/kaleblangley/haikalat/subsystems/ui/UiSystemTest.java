@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.ui;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.graph.GraphRecordingFixture;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiLength;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiColor;
 import com.kaleblangley.haikalat.subsystems.ui.style.UiStyle;
@@ -199,6 +200,28 @@ class UiSystemTest {
             assertTrue(graph.isTopologySealed());
             assertThrows(IllegalStateException.class, () -> graph.addPass("Late"));
             assertThrows(IllegalStateException.class, () -> ui.attachTo(graph, "Present"));
+        }
+    }
+
+    @Test
+    void rebindWaitsForThePreviousGraphsFrameBoundary() {
+        try (var previous = GraphRecordingFixture.graph(32, 32);
+             var next = GraphRecordingFixture.graph(32, 32);
+             var attachment = new UiAttachmentController("Overlay")) {
+            next.addPass("Present").writeToBackbuffer().noClear().execute((res, cmd) -> {});
+            previous.addPass("Present").writeToBackbuffer().noClear().execute((res, cmd) -> {
+                var failure = assertThrows(IllegalStateException.class, () -> attachment.rebind(next, "Present"));
+                assertTrue(failure.getMessage().contains("frame boundary"));
+            });
+            var overlays = new java.util.concurrent.atomic.AtomicInteger();
+            attachment.attach(previous, "Present", null, (res, cmd) -> overlays.incrementAndGet());
+
+            GraphRecordingFixture.record(previous);
+            assertEquals(1, overlays.get());
+            assertFalse(next.hasPass("Overlay"));
+            attachment.rebind(next, "Present");
+            GraphRecordingFixture.record(next);
+            assertEquals(2, overlays.get());
         }
     }
 

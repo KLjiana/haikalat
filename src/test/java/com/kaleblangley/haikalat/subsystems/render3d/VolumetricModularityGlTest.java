@@ -1,5 +1,10 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricHistoryPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -11,6 +16,7 @@ import com.kaleblangley.haikalat.core.device.ResourceBarrier;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -35,8 +41,8 @@ class VolumetricModularityGlTest {
                             FogMediumSettings.homogeneous(.04f,new Vector3f(.7f),new Vector3f(.2f)),
                             List.of(),0,true,.9f,242,new Vector3f()));
                     p.build();var device=new GlRenderDevice();p.execute(device);p.execute(device);
-                    var volume=p.activeGenerationForTest().volumetric;
-                    var taa=p.activeGenerationForTest().postProcess.taaHistoryForTest();
+                    var volume=p.activeGenerationForTest().volumetric();
+                    var taa=p.activeGenerationForTest().postProcess().taaHistoryForTest();
                     var taaRead=taa.readFramebuffer();var read=volume.resources().historyRead();
                     var write=volume.resources().historyWrite();var previous=volume.frameState().previous();
                     var readPixels=VolumetricMediumGlTest.texture(read);var writePixels=VolumetricMediumGlTest.texture(write);
@@ -73,10 +79,10 @@ class VolumetricModularityGlTest {
                     p.build();var device=new GlRenderDevice();p.execute(device);
                     var expected=p.captureLinearHdrRgbaFloat();
                     p.applyVolumetricFog(fog(.04f,VolumetricFogSettings.Quality.BALANCED));
-                    var unused=p.activeGenerationForTest().volumetric.resources().prefix();
+                    var unused=p.activeGenerationForTest().volumetric().resources().prefix();
                     p.applyVolumetricFog(VolumetricFogSettings.disabled());
                     assertTrue(unused.isClosed(),"an unsubmitted candidate needs no GPU retirement delay");
-                    assertNull(p.activeGenerationForTest().volumetric);
+                    assertNull(p.activeGenerationForTest().volumetric());
                     p.execute(device);assertArrayEquals(expected,p.captureLinearHdrRgbaFloat(),0f);
                     assertFalse(p.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
                 } finally {p.close();}
@@ -128,6 +134,41 @@ class VolumetricModularityGlTest {
         return found.get();
     }
 
+    @Test void unifiedControlEnablesAndDisablesVolumetricOwnerAndKeepsTaa() {
+        try (var window = VolumetricGenerationGlTest.window()) {
+            window.bindContext(); GL.createCapabilities();
+            var p = pipeline(new VolumetricGenerationGlTest.Size(), AntiAliasingMode.TAA);
+            try {
+                p.build(); var device = new GlRenderDevice(); p.execute(device);
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS));
+                assertFalse(p.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
+                assertNull(p.activeGenerationForTest().volumetric());
+
+                p.features().submit(p.features().effective().toBuilder()
+                        .volumetricFog(fog(.04f, VolumetricFogSettings.Quality.BALANCED)).build());
+                p.execute(device);
+                assertEquals(RenderFeatureStatus.APPLIED, p.features().status());
+                assertTrue(p.features().effective().volumetricFog().enabled());
+                assertTrue(p.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
+                assertTrue(p.graph().hasPass(VolumetricPassBuilder.LIGHTING_PASS));
+                assertTrue(p.graph().hasPass(VolumetricPassBuilder.COMPOSITE_PASS));
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS),
+                        "volume and TAA share the same scene surface");
+                assertNotNull(p.activeGenerationForTest().volumetric());
+
+                p.features().submit(p.features().effective().toBuilder()
+                        .volumetricFog(VolumetricFogSettings.disabled()).build());
+                p.execute(device);
+                assertFalse(p.features().effective().volumetricFog().enabled());
+                assertFalse(p.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
+                assertFalse(p.graph().hasPass(VolumetricPassBuilder.LIGHTING_PASS));
+                assertNull(p.activeGenerationForTest().volumetric(),
+                        "disabling the volume must release its dedicated owner");
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS));
+            } finally { p.close(); }
+        }
+    }
+
     @Test void fogSwitchAndQualityReplaceOnlyAffectedOwnersAndInvalidatePixelsWithoutReplacingTaaStorage() {
         try (var window = VolumetricGenerationGlTest.window()) {
             window.bindContext(); GL.createCapabilities();
@@ -136,31 +177,31 @@ class VolumetricModularityGlTest {
                 var p = pipeline(size, AntiAliasingMode.TAA);
                 try {
                     p.build(); var device = new GlRenderDevice();
-                    var old = p.activeGenerationForTest(); var light = old.clusteredResources;
-                    var binder = old.clusteredLightingBinder; var shader = old.shadowShader;
-                    var camera = old.cameraUniforms; var taa = old.postProcess.taaHistoryForTest();
+                    var old = p.activeGenerationForTest(); var light = old.clusteredResources();
+                    var binder = old.clusteredLightingBinder(); var shadowPrograms = old.shadowPrograms();
+                    var camera = old.cameraUniforms(); var taa = old.postProcess().taaHistoryForTest();
                     var atlas = shadow(p, device); assertNotNull(atlas); assertTrue(taa.valid());
                     assertTrue(p.lastRender3dDiagnostics().invalidationReasons().contains("TAA_FIRST_FRAME"));
                     var historySlots = java.util.Set.of(taa.readFramebuffer(), taa.writeFramebuffer());
                     p.applyVolumetricFog(fog(.04f, VolumetricFogSettings.Quality.BALANCED));
                     var on = p.activeGenerationForTest(); assertTrue(old.isClosed());
-                    assertSame(light, on.clusteredResources); assertSame(binder, on.clusteredLightingBinder);
-                    assertSame(shader, on.shadowShader); assertSame(camera, on.cameraUniforms);
-                    assertSame(taa, on.postProcess.taaHistoryForTest()); assertFalse(taa.valid());
+                    assertSame(light, on.clusteredResources()); assertSame(binder, on.clusteredLightingBinder());
+                    assertSame(shadowPrograms, on.shadowPrograms()); assertSame(camera, on.cameraUniforms());
+                    assertSame(taa, on.postProcess().taaHistoryForTest()); assertFalse(taa.valid());
                     assertEquals(historySlots, java.util.Set.of(taa.readFramebuffer(), taa.writeFramebuffer()));
                     assertSame(atlas, shadow(p, device)); assertTrue(taa.valid());
                     assertTrue(p.lastRender3dDiagnostics().invalidationReasons().contains("TAA_VOLUMETRIC_TOPOLOGY"));
                     long oldFogBytes = p.volumetricAllocationDiagnostics().activePrivateBytes()
                             + p.volumetricAllocationDiagnostics().activeColorUpperBoundBytes();
-                    var prefix = on.volumetric.resources().prefix();
+                    var prefix = on.volumetric().resources().prefix();
                     p.applyVolumetricFog(fog(.04f, VolumetricFogSettings.Quality.HIGH));
                     var allocation = p.volumetricAllocationDiagnostics();
-                    assertTrue(allocation.lastCandidatePeakBytes() >= oldFogBytes + allocation.activePrivateBytes()
-                            + allocation.activeColorUpperBoundBytes());
+                    assertEquals(oldFogBytes + allocation.activePrivateBytes(), allocation.lastCandidatePeakBytes(),
+                            "quality replaces private fog storage and keeps compatible graph color attachments");
                     assertTrue(allocation.retiringGenerations() <= 4);
                     System.out.println("V0270_ALLOCATION " + allocation);
                     p.drainRetirementsForTest();
-                    assertTrue(prefix.isClosed()); assertSame(light, p.activeGenerationForTest().clusteredResources);
+                    assertTrue(prefix.isClosed()); assertSame(light, p.activeGenerationForTest().clusteredResources());
                     assertSame(atlas, shadow(p, device));
                     p.applyVolumetricFog(fog(.08f, VolumetricFogSettings.Quality.HIGH));
                     p.execute(device);
@@ -170,9 +211,9 @@ class VolumetricModularityGlTest {
                     size.width=65;size.height=33;p.resize(size.width,size.height);p.execute(device);
                     assertTrue(p.lastRender3dDiagnostics().invalidationReasons().contains("TAA_RESIZE"));
                     p.applyVolumetricFog(VolumetricFogSettings.disabled());
-                    var off = p.activeGenerationForTest(); assertSame(taa, off.postProcess.taaHistoryForTest());
-                    assertSame(atlas, shadow(p, device)); assertNull(off.volumetric);
-                    assertSame(light, off.clusteredResources); assertSame(shader, off.shadowShader);
+                    var off = p.activeGenerationForTest(); assertSame(taa, off.postProcess().taaHistoryForTest());
+                    assertSame(atlas, shadow(p, device)); assertNull(off.volumetric());
+                    assertSame(light, off.clusteredResources()); assertSame(shadowPrograms, off.shadowPrograms());
                     p.drainRetirementsForTest();
                     allocation=p.volumetricAllocationDiagnostics();
                     assertEquals(0,allocation.activePrivateBytes());assertEquals(0,allocation.activeColorUpperBoundBytes());
@@ -217,12 +258,12 @@ class VolumetricModularityGlTest {
                 try {
                     p.volumetricFog(fog(.01f, VolumetricFogSettings.Quality.BALANCED)); p.build();
                     var device = new GlRenderDevice(); for (int i=0;i<12;i++) p.execute(device);
-                    var owner = p.activeGenerationForTest(); var volume = owner.volumetric;
+                    var owner = p.activeGenerationForTest(); var volume = owner.volumetric();
                     long revision = p.graph().description().topologyRevision();
                     long created = GlDebug.resources().createdCount();
                     var before = p.captureLinearHdrRgbaFloat();
                     for (int i=0;i<16;i++) { p.applyVolumetricFog(fog(.02f+i*.01f, VolumetricFogSettings.Quality.BALANCED)); p.execute(device); }
-                    assertSame(owner, p.activeGenerationForTest()); assertSame(volume, owner.volumetric);
+                    assertSame(owner, p.activeGenerationForTest()); assertSame(volume, owner.volumetric());
                     assertEquals(revision, p.graph().description().topologyRevision());
                     assertEquals(created, GlDebug.resources().createdCount());
                     assertFalse(java.util.Arrays.equals(before, p.captureLinearHdrRgbaFloat()));

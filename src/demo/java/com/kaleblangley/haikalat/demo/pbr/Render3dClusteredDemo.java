@@ -13,7 +13,7 @@ import com.kaleblangley.haikalat.runtime.FrameDriver;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
-import com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingDiagnostics;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.ClusterDebugMode;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;

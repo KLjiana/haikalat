@@ -24,6 +24,10 @@ gradle.taskGraph.whenReady { graph ->
 tasks.withType(Test).configureEach {
     timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('soak') ? 5 : 2)
 }
+tasks.matching { it.name == 'glLeafVerification' }.configureEach {
+    // The explicit GL leaf covers all guarded classes; it is still capped.
+    timeout = Duration.ofMinutes(10)
+}
 tasks.withType(JavaExec).configureEach {
     if (group == 'verification') {
         timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('benchmark') ? 10 : 3)
@@ -40,7 +44,7 @@ def jvmCases = [
         'LightVolumeHintsTest', 'VolumetricBaselineContractTest', 'VolumetricTemporalMetricsTest',
         'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
-        'RenderGraphCompilerTest'
+        'RenderGraphCompilerTest', 'RenderFeatureControlTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -49,7 +53,9 @@ def glCases = [
         'VolumetricTextureGlTest',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
-        'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera'
+        'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera',
+        'RenderFeatureControlGlTest',
+        'GtaoModularityGlTest.failedFeatureRequestIsNotRetriedUntilANewSubmission'
 ]
 def guards = ['assetManifestGuard', 'dependencyLockGuard', 'publicApiGuard',
               'architectureGuard', 'releaseVerificationContracts', 'focusedVerificationContracts']

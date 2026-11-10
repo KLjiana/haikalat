@@ -12,7 +12,7 @@ import com.kaleblangley.haikalat.core.device.RenderDevice;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.diagnostics.PreviewSummary;
-import com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad;
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 
 import java.util.ArrayList;

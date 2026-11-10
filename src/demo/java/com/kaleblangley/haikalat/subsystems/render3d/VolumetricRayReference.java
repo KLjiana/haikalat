@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
+
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
@@ -71,19 +74,19 @@ public final class VolumetricRayReference implements AutoCloseable {
                         vec3 e=abs(a-b)/max(vec3(1),abs(b));float m=max(max(e.x,e.y),e.z);
                         atomicMax(maximumError,floatBitsToUint(m));if(m>.002)atomicAdd(mismatched,1u);atomicAdd(compared,1u);}
                     """);
-            var volume=pipeline.activeGenerationForTest().volumetric.resources().source();
+            var volume=pipeline.activeGenerationForTest().volumetric().resources().source();
             sourceTexture=com.kaleblangley.haikalat.backend.texture.Texture3D.create(volume.width(),volume.height(),volume.depth(),volume.format());
             difference=new GlBuffer(GL_SHADER_STORAGE_BUFFER,GL_DYNAMIC_READ);difference.allocateStorage(16,GL_DYNAMIC_STORAGE_BIT);
             fullSource=sourceProgram;compareSource=compareProgram;copyCandidate=copyProgram;
             referenceSource=sourceTexture;sourceDifference=difference;
-            pipeline.activeGenerationForTest().volumetric.diagnosticCompositeRecorder(this::recordNativeCandidate);
+            pipeline.activeGenerationForTest().volumetric().diagnosticCompositeRecorder(this::recordNativeCandidate);
             pipeline.graph().addPass("VolumetricReferenceOnly").computeOnly()
                     .dependsOn(VolumetricPassBuilder.COMPOSITE_PASS).dependsOn(PostProcessTargets.GEOMETRY_PASS)
                     .borrowsExternalStorage("volume.referenceOutput","volume.prefix","volume.filteredSource","volume.currentSource",
                             "volume.parameters","volume.localVolumes","lighting.lightTable","shadows.allocatedAtlases")
                     .execute(this::record);
         } catch(RuntimeException|Error failure) {
-            pipeline.activeGenerationForTest().volumetric.diagnosticCompositeRecorder(null);
+            pipeline.activeGenerationForTest().volumetric().diagnosticCompositeRecorder(null);
             for (AutoCloseable resource:new AutoCloseable[]{difference,sourceTexture,compareProgram,sourceProgram,storage,copyProgram,candidate}) {
                 if(resource!=null)try{resource.close();}catch(Exception|Error cleanup){failure.addSuppressed(cleanup);}
             }
@@ -124,7 +127,7 @@ public final class VolumetricRayReference implements AutoCloseable {
 
     private void record(PassResources resources,CommandBuffer cmd) {
         if(requestedSteps.length==0)return;
-        var volume=pipeline.activeGenerationForTest().volumetric;
+        var volume=pipeline.activeGenerationForTest().volumetric();
         var geometry=resources.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
         // Same physical production samples, full immutable table, after all current shadow maps.
         // This diagnoses candidate/slot/order errors separately from coarse-grid image reconstruction.
@@ -136,7 +139,7 @@ public final class VolumetricRayReference implements AutoCloseable {
         cmd.bindShader(shader);volume.bindLightingInputs(resources,cmd,shader);volume.bindQuery(cmd,shader);
         // A full ray shader may optimize away the cluster UBO; binding the shared table
         // explicitly avoids the forward binder's material-capability shortcut.
-        pipeline.activeGenerationForTest().clusteredResources.storage().bindLightTableRead(cmd);
+        pipeline.activeGenerationForTest().clusteredResources().storage().bindLightTableRead(cmd);
         cmd.setUniformInt(shader,"uVolumeDiagnosticsEnabled",0)
                 .bindStorageBuffer(6,volume.resources().volumes(),0,VolumetricResources.VOLUMES_BYTES)
                 .bindStorageBuffer(8,output,0,bytes)
@@ -181,7 +184,7 @@ public final class VolumetricRayReference implements AutoCloseable {
                 "rows",rows,"layout","worldEndpoint+depth; candidate ST; independent ray ST; fine-Z coarse-XY ST; four fine columns; four column pixels+opaque depths; four production columns; four production interval-start prefixes; four independent interval-start prefixes; four independent last-segment ST (-1 when prefix T<=1e-8); four interval-start/sample/endpoint/cosine rows");
     }
     @Override public void close(){
-        pipeline.activeGenerationForTest().volumetric.diagnosticCompositeRecorder(null);
+        pipeline.activeGenerationForTest().volumetric().diagnosticCompositeRecorder(null);
         RuntimeException failure=null;
         for(AutoCloseable resource:new AutoCloseable[]{sourceDifference,referenceSource,compareSource,fullSource,output,shader,copyCandidate}) {
             try{resource.close();}catch(Exception cleanup){

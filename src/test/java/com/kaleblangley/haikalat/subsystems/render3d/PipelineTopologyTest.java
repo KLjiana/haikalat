@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineFeaturePolicy;
+import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
@@ -95,10 +99,27 @@ class PipelineTopologyTest {
                 32, 32, false, false, DirectionalCascadeSettings.disabled());
         PipelineGeneration first = new PipelineGeneration(topology);
         PipelineGeneration second = new PipelineGeneration(topology);
-        assertNotEquals(first.id, second.id);
+        assertNotEquals(first.id(), second.id());
 
         first.close();
         first.close();
         assertEquals(true, first.isClosed());
+    }
+
+    // Merged from the former DirectionalCascadeSettingsTest: cascade layout is part of
+    // the shadow topology contract this class already captures.
+    @Test
+    void cascadeSettingsDriveAtlasLayoutAndRejectUnsupportedCounts() {
+        assertEquals(1024, new DirectionalCascadeSettings(
+                2, 2048, 0.5f, 0.05f, Float.MAX_VALUE).tileSize());
+
+        DirectionalCascadeSettings three = new DirectionalCascadeSettings(
+                3, 4096, 0.5f, 0.05f, Float.MAX_VALUE);
+        assertEquals(2, three.columns());
+        assertEquals(2, three.rows());
+        assertEquals(2048, three.tileSize());
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new DirectionalCascadeSettings(5, 4096, 0.5f, 0.05f, Float.MAX_VALUE));
     }
 }

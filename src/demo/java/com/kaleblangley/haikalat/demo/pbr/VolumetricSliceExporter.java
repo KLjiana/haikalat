@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.demo.pbr;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogDiagnostics;
+
 import com.kaleblangley.haikalat.subsystems.render3d.*;
 import java.awt.image.BufferedImage;
 import java.io.*;

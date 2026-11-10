@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;

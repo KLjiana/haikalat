@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.FrameInvalidation;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneRevisionSnapshot;
+
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 

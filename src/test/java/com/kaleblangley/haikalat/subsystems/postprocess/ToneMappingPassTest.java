@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingPass;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;

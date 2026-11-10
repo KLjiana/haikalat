@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -52,7 +54,7 @@ class VolumetricShadowGlTest {
                             .antiAliasingMode(AntiAliasingMode.NONE).vsync(false).build()).volumetricFog(fog());
                     try {
                         pipeline.build();var device=new GlRenderDevice();pipeline.execute(device);
-                        var builder=pipeline.activeGenerationForTest().volumetric;var grid=builder.currentOutput().grid();
+                        var builder=pipeline.activeGenerationForTest().volumetric();var grid=builder.currentOutput().grid();
                         float[] shadow=VolumetricMediumGlTest.texture(builder.resources().source());
                         scene.setLightVolumeHints(0,new LightVolumeHints(1,false,true));pipeline.execute(device);
                         float[] unshadowed=VolumetricMediumGlTest.texture(builder.resources().source());
@@ -87,7 +89,7 @@ class VolumetricShadowGlTest {
                             .directionalCascades(new DirectionalCascadeSettings(2,256,.6f,.1f,10));
                     try {
                         pipeline.build();var device=new GlRenderDevice();pipeline.execute(device);
-                        var builder=pipeline.activeGenerationForTest().volumetric;var grid=builder.currentOutput().grid();
+                        var builder=pipeline.activeGenerationForTest().volumetric();var grid=builder.currentOutput().grid();
                         float[] shadow=VolumetricMediumGlTest.texture(builder.resources().source());
                         scene.setLightVolumeHints(0,new LightVolumeHints(1,false,true));pipeline.execute(device);
                         float[] lit=VolumetricMediumGlTest.texture(builder.resources().source());
@@ -120,7 +122,7 @@ class VolumetricShadowGlTest {
                                 ShadowFilterMode.PCF_3X3,0,1.15f,true));
                 try {
                     pipeline.build();var device=new GlRenderDevice();pipeline.execute(device);
-                    var generation=pipeline.activeGenerationForTest();var builder=generation.volumetric;
+                    var generation=pipeline.activeGenerationForTest();var builder=generation.volumetric();
                     int behind=builder.currentOutput().grid().interval(8)*4;
                     float[] both=VolumetricMediumGlTest.texture(builder.resources().source());
                     assertTrue(both[behind+1]>.00001,"unallocated green still contributes");

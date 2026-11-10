@@ -1,5 +1,11 @@
 package com.kaleblangley.haikalat.integration;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCullingStatistics;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
@@ -288,7 +294,7 @@ class RenderPipelineGlTest {
                         window, scene, AntiAliasingMode.NONE, ToneMappingMode.ACES);
                 float encoded = 128.0f / 255.0f;
                 float linear = (float) Math.pow((encoded + 0.055f) / 1.055f, 2.4f);
-                float mapped = com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass
+                float mapped = com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingPass
                         .acesChannel(linear, 1.0f);
                 int expectedHdr = Math.round((float) Math.pow(mapped, 1.0 / 2.2) * 255.0f);
                 assertEquals(expectedHdr, hdr, 4,

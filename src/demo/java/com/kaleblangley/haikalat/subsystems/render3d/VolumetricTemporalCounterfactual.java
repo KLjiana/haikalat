@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
+
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
@@ -30,7 +34,7 @@ public final class VolumetricTemporalCounterfactual implements AutoCloseable {
         if (!Boolean.getBoolean("haikalat.glReadback"))
             throw new IllegalStateException("temporal counterfactual requires explicit diagnostic readback");
         this.pipeline = pipeline;
-        volume = pipeline.activeGenerationForTest().volumetric;
+        volume = pipeline.activeGenerationForTest().volumetric();
         selectedStableId = scene.lightEntries().get(selectedSceneLight).stableId();
         candidatePolicy = candidateDirectory.resolve("policy");
         width = pipeline.graph().width(); height = pipeline.graph().height();
@@ -87,7 +91,7 @@ public final class VolumetricTemporalCounterfactual implements AutoCloseable {
 
     private void recordSource(PassResources inputs, CommandBuffer cmd) {
         if (frame < 0) throw new IllegalStateException("counterfactual frame was not selected");
-        int index = pipeline.activeGenerationForTest().clusteredLightingBinder.stagedTable().frameLightIndex(selectedStableId);
+        int index = pipeline.activeGenerationForTest().clusteredLightingBinder().stagedTable().frameLightIndex(selectedStableId);
         if (index < 0) throw new IllegalStateException("selected counterfactual lamp is absent from the frame light table");
         volume.diagnosticOmittedLight(index);
         cmd.bindShader(source).setUniformInt(source, "uOmittedVolumeLight", index);
@@ -124,7 +128,7 @@ public final class VolumetricTemporalCounterfactual implements AutoCloseable {
     }
 
     private static byte[] policyBytes(RenderPipeline pipeline) throws IOException {
-        var volume = pipeline.activeGenerationForTest().volumetric;
+        var volume = pipeline.activeGenerationForTest().volumetric();
         var plan = volume.historyPlan(); var frame = volume.frameState().previous();
         var bytes = new ByteArrayOutputStream();
         try (var out = new DataOutputStream(bytes)) {

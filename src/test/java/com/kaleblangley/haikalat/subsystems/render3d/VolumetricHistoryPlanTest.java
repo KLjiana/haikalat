@@ -1,5 +1,12 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFrameState;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricHistoryPlan;
+
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;

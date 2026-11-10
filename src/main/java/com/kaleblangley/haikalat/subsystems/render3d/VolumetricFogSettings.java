@@ -44,8 +44,8 @@ public record VolumetricFogSettings(boolean enabled, float fogDistance, Quality 
     }
 
     @Override public Vector3f wind() { return new Vector3f(wind); }
-    Vector3f windInternal() { return wind; }
-    boolean hasEmission() {
+    public Vector3f windInternal() { return wind; }
+    public boolean hasEmission() {
         if (globalMedium.hasEmission()) return true;
         for (LocalFogVolume volume : localVolumes) if (volume.emissionInternal().lengthSquared() > 0) return true;
         return false;

@@ -39,10 +39,6 @@ tasks.register('runDiagnosticsIntegration', JavaExec) {
 tasks.register('diagnosticsJvmVerification', Test) {
     group = 'verification'
     description = 'Validates bounded history, freeze/clear and atomic exporter failure contracts.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter { includeTestsMatching 'com.kaleblangley.haikalat.runtime.diagnostics.FrameDiagnosticsTest' }
     outputs.upToDateWhen { false }
 }
@@ -50,10 +46,6 @@ tasks.register('diagnosticsJvmVerification', Test) {
 tasks.register('diagnosticsGlVerification', Test) {
     group = 'verification'
     description = 'Validates diagnostics resource leases, message eviction, id reuse and context isolation.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.integration.DiagnosticsContractsGlTest'
@@ -147,10 +139,6 @@ tasks.register('localDiagnosticsVerification') {
 tasks.register('previewGlVerification', Test) {
     group = 'verification'
     description = 'Validates GPU-only graph preview conversion, MRT resolve selection and depth resolve.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.GraphPreviewGlTest' }
     outputs.upToDateWhen { false }

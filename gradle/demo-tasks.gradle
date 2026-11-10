@@ -56,10 +56,6 @@ tasks.named('runRender3dVolumetricFogCpuAttribution') {
 tasks.register('runRender3dVolumetricFogIntegration', Test) {
     group = 'verification'
     description = 'Runs the current v0.25 real-GL matrix: storage, transport, lights, shadows, composition and independent volumetric history/reactive.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     systemProperty 'haikalat.internal.volume.diagnostics', 'true'
@@ -81,10 +77,6 @@ tasks.register('runRender3dVolumetricFogIntegration', Test) {
 tasks.register('runRender3dVolumetricFogLifecycleSoak', Test) {
     group = 'verification'
     description = 'Runs 3600 real volume frames, 100 resize/allocation rollbacks and 20 GPU-write failures with two isolated views.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     systemProperty 'haikalat.internal.volume.diagnostics', 'true'
@@ -94,10 +86,6 @@ tasks.register('runRender3dVolumetricFogLifecycleSoak', Test) {
 tasks.register('runRender3dVolumetricFogWindIntegration', Test) {
     group = 'verification'
     description = 'Checks physical noisy-medium wind against independent CPU coefficients and successful time in three history combinations.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     systemProperty 'haikalat.internal.volume.diagnostics', 'true'
@@ -110,10 +98,6 @@ tasks.register('runRender3dVolumetricFogWindIntegration', Test) {
 tasks.register('runRender3dVolumetricTownIntegration', Test) {
     group = 'verification'
     description = 'Checks actual town lamp caster geometry against the closed fixture and unshadowed control.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     systemProperty 'haikalat.internal.volume.diagnostics', 'true'
@@ -334,10 +318,6 @@ def registerAnimationVerificationTest = { taskName, descriptionText, patterns, g
     tasks.register(taskName, Test) {
         group = 'verification'
         description = descriptionText
-        dependsOn testClasses
-        testClassesDirs = sourceSets.test.output.classesDirs
-        classpath = sourceSets.test.runtimeClasspath
-        useJUnitPlatform()
         systemProperty 'haikalat.glSmoke', gl ? 'true' : 'false'
         filter {
             patterns.each { includeTestsMatching it }
@@ -413,18 +393,41 @@ tasks.register('runStressIntegration') {
 tasks.register('glSmoke', Test) {
     group = 'verification'
     description = 'Runs the complete test suite with the opt-in real OpenGL smoke tests enabled.'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
+}
+
+// Explicit GL-only leaf. The legacy `glSmoke` entry still runs the complete
+// suite for compatibility; this entry derives the guarded classes from source
+// so it cannot silently drift when a GL test is added.
+def glLeafClasses = fileTree('src/test/java') { include '**/*.java' }.files.findAll { file ->
+    String source = file.getText('UTF-8')
+    source.contains('@EnabledIfSystemProperty') && source.contains('haikalat.glSmoke')
+}.collect { it.name.substring(0, it.name.length() - '.java'.length()) }
+        .findAll { !(it ==~ /.*(Soak|Benchmark).*/) }
+        .sort()
+
+tasks.register('glLeafVerification', Test) {
+    group = 'verification'
+    description = 'Runs only GL-guarded test classes (no JVM suite); soak/benchmark classes stay separate.'
+    dependsOn 'testClasses'
+    systemProperty 'haikalat.glSmoke', 'true'
+    systemProperty 'haikalat.glReadback', 'true'
+    systemProperty 'haikalat.internal.volume.diagnostics', 'true'
+    maxParallelForks = 1
+    filter {
+        glLeafClasses.each { includeTestsMatching "*.$it" }
+    }
+    // Every selected class is guarded by `haikalat.glSmoke`, so a skipped or empty
+    // run means GL acceptance did not happen and must not look like a pass.
+    doLast {
+        project.ext.requireExecutedEvidence('glLeafVerification',
+                layout.buildDirectory.dir('test-results/glLeafVerification').get().asFile, true)
+    }
 }
 
 tasks.register('runRender3dClusteredIntegration', Test) {
     group = 'verification'
     description = 'Runs the clustered-forward CPU oracle and GPU readback proof matrix.'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     filter {
@@ -513,10 +516,6 @@ tasks.register('runRender3dClusteredCpuAttribution', JavaExec) {
 tasks.register('runRender3dMeasurementIntegration', Test) {
     group = 'verification'
     description = 'Runs frame-identity collection plus the real GL query submit/drain chain.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     filter {
@@ -529,10 +528,6 @@ tasks.register('runRender3dMeasurementIntegration', Test) {
 tasks.register('runRender3dVisualProfileIntegration', Test) {
     group = 'verification'
     description = 'Runs profile codec, hot-update, topology rollback and shared-environment isolation proofs.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     systemProperty 'haikalat.glReadback', 'true'
     filter {
@@ -602,10 +597,6 @@ tasks.register('localRender3dV0243Verification') {
 tasks.register('runRender3dVisualBaselineContract', Test) {
     group = 'verification'
     description = 'Validates all frozen profile, scene revision, camera path and capture-frame contracts.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     inputs.files(fileTree('config/visual-profiles'), fileTree('config/visual-baselines'))
     filter { includeTestsMatching '*.VisualBaselineContractTest' }
 }
@@ -624,9 +615,6 @@ tasks.register('runRender3dVisualBaselineVariantQuality', Test) {
             'runRender3dTownNightFogOffBaseline',
             'runRender3dTownNightBloomOffBaseline',
             'runRender3dTownNightGrayModelBaseline'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.visualVariantQuality.required', 'true'
     inputs.files(fileTree('build/reports/render3d-v0243/visual') {
         include '*-0420.png', 'variants/*-0420.png'
@@ -804,9 +792,6 @@ tasks.register('runRender3dVisualBaselineQuality') {
 tasks.register('runRender3dTemporalIntegration', Test) {
     group = 'verification'
     description = 'Runs the v0.24.1 scene buffer, velocity, TAA history and resolve GPU proofs.'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching '*.TaaResolveGlTest'

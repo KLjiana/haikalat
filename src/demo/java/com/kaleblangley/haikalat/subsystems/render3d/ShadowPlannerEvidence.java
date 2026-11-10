@@ -1,5 +1,16 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrame;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
+
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowSlotPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCasterPlanner;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowTileRect;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowSlotPlan;
+
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -86,9 +97,9 @@ public final class ShadowPlannerEvidence {
         RenderFrameContext outsideContext = context(scene, camera, 1, 2L, firstContext);
         SceneFrame outsideFrame = frameBuilder.build(scene, camera, 1280, 720,
                 legacyShadowMatrix, true, true, false, 0.0f, 1);
-        require(outsideFrame.changedCount == 1,
+        require(outsideFrame.changedCount() == 1,
                 "SceneFrameBuilder must publish exactly one changed caster");
-        require(outsideFrame.statistics.shadowQueueReused(),
+        require(outsideFrame.statistics().shadowQueueReused(),
                 "unculled shared shadow queue must survive a bounds-only change");
         ShadowCasterPlanner.ShadowCasterPlan outsidePlan = planner.plan(
                 shadowFramePlan, outsideContext, outsideFrame, true, null);
@@ -106,7 +117,7 @@ public final class ShadowPlannerEvidence {
         RenderFrameContext restoredContext = context(scene, camera, 2, 3L, outsideContext);
         SceneFrame restoredFrame = frameBuilder.build(scene, camera, 1280, 720,
                 legacyShadowMatrix, true, true, false, 0.0f, 2);
-        require(restoredFrame.changedCount == 1 && restoredFrame.statistics.shadowQueueReused(),
+        require(restoredFrame.changedCount() == 1 && restoredFrame.statistics().shadowQueueReused(),
                 "restored caster must retain the real sparse queue frontier");
         ShadowCasterPlanner.ShadowCasterPlan restoredPlan = planner.plan(
                 shadowFramePlan, restoredContext, restoredFrame, true, null);
@@ -116,7 +127,7 @@ public final class ShadowPlannerEvidence {
         require(java.util.Arrays.equals(firstOrder, casterOrder(restoredPlan, 0)),
                 "leave/re-enter must preserve deterministic candidate order");
 
-        restoredFrame.forceShadowPlanRebuild = true;
+        planner.reset();
         ShadowCasterPlanner.ShadowCasterPlan forcedPlan = planner.plan(
                 shadowFramePlan, restoredContext, restoredFrame, true, null);
         require(forcedPlan.fullRebuild(), "explicit rebuild barrier must remain effective");
@@ -129,8 +140,8 @@ public final class ShadowPlannerEvidence {
                         + "sceneChanged=%d shadowQueueReused=%s deterministicOrder=true%n",
                 ENTRY_COUNT, VIEW_COUNT, staticTests, dynamicTests, dynamicFull,
                 forcedPlan.statistics().casterViewTests(), forcedPlan.fullRebuild(),
-                staticReferences, dynamicReferences, outsideFrame.changedCount,
-                outsideFrame.statistics.shadowQueueReused());
+                staticReferences, dynamicReferences, outsideFrame.changedCount(),
+                outsideFrame.statistics().shadowQueueReused());
     }
 
     private static RenderFrameContext context(Scene scene, Camera camera, int frameIndex,

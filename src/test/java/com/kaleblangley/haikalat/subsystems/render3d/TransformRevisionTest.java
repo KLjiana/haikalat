@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.RevisionedModelSource;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -80,5 +82,34 @@ class TransformRevisionTest {
     void arbitraryUpdaterIsNotAssumedToBeStatic() {
         SceneObject.ModelUpdater updater = (out, frame) -> out.translation(frame, 0.0f, 0.0f);
         assertTrue(!(updater instanceof RevisionedModelSource));
+    }
+
+    // Merged from the former CameraVisibilityRevisionTest: both types promise that
+    // the revision advances only for changes that can affect the rendered result.
+    @Test
+    void cameraRevisionChangesOnlyWhenViewOrProjectionChanges() {
+        Camera camera = new Camera(new Vector3f(0.0f, 0.0f, 5.0f));
+        long initial = camera.visibilityRevision();
+
+        camera.setPosition(new Vector3f(0.0f, 0.0f, 5.0f));
+        camera.setYaw(camera.yaw());
+        camera.setPitch(camera.pitch());
+        camera.processKeyboard(Camera.Movement.FORWARD, 0.0f);
+        camera.processMouseMovement(0.0f, 0.0f);
+        camera.processMouseScroll(0.0f);
+        camera.setMovementSpeed(100.0f);
+        assertEquals(initial, camera.visibilityRevision());
+
+        camera.setPosition(new Vector3f(1.0f, 0.0f, 5.0f));
+        long moved = camera.visibilityRevision();
+        assertNotSame(Long.valueOf(initial), Long.valueOf(moved));
+        assertTrue(initial != moved);
+
+        camera.processMouseMovement(5.0f, 2.0f);
+        long rotated = camera.visibilityRevision();
+        assertTrue(moved != rotated);
+
+        camera.processMouseScroll(1.0f);
+        assertTrue(rotated != camera.visibilityRevision());
     }
 }

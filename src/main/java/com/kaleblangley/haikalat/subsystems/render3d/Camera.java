@@ -209,7 +209,7 @@ public class Camera {
     }
 
     /** 供 scene visibility cache 使用；只描述影响 view/projection 的状态。 */
-    long visibilityRevision() {
+    public long visibilityRevision() {
         return visibilityRevision;
     }
 

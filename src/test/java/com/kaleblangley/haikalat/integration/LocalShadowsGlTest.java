@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.integration;
 
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
@@ -13,17 +15,17 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
-import com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowSettings;
-import com.kaleblangley.haikalat.subsystems.render3d.PointShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.ShadowFilterMode;
 import com.kaleblangley.haikalat.subsystems.render3d.ShadowSelectionMode;
-import com.kaleblangley.haikalat.subsystems.render3d.SpotShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.Transform;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;

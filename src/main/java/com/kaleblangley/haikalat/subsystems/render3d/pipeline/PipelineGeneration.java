@@ -1,0 +1,620 @@
+package com.kaleblangley.haikalat.subsystems.render3d.pipeline;
+
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCasterRecorder;
+
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
+
+import com.kaleblangley.haikalat.subsystems.render3d.Scene;
+import com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings;
+import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowPrograms;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
+
+import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
+import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
+
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingResources;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCacheState;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFrameBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowLightScheduler;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
+
+import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
+
+import java.util.concurrent.atomic.AtomicLong;
+
+/** Exclusive owner of one complete RenderGraph/pass-resource generation. */
+public final class PipelineGeneration implements AutoCloseable {
+    private static final AtomicLong NEXT_ID = new AtomicLong(1L);
+
+    private final long id = NEXT_ID.getAndIncrement();
+    private PipelineTopology topology;
+    private RenderGraph graph;
+    private CameraUniforms cameraUniforms;
+    private SceneDeformationDefaults deformationDefaults;
+    private ShadowSamplingBlock shadowSamplingBlock;
+    private ShadowLightScheduler shadowLightScheduler = new ShadowLightScheduler();
+    private ShadowCacheState shadowCache = new ShadowCacheState();
+    private ShadowFrameBinder shadowFrameBinder = new ShadowFrameBinder();
+    private ClusteredLightingResources clusteredResources;
+    private ClusteredLightingBinder clusteredLightingBinder;
+    private PostProcessPipeline postProcess;
+    private ShadowCasterRecorder shadowCasterRecorder;
+    private com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder frameLightBinder;
+    private com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer sceneRenderer;
+    private VolumetricPassBuilder volumetric;
+    private ShadowPrograms shadowPrograms;
+    private GtaoPasses gtao;
+    private GtaoSurfaceInputs gtaoInputs;
+    private SceneSurfaceInputs surfaceInputs;
+    private SceneSurfacePass sceneSurfacePass;
+    private SceneSurfaceResolvePass sceneSurfaceResolvePass;
+    private SceneReactivePass sceneReactivePass;
+    private String finalPassName;
+    private PbrMaterialBinder pbrMaterialBinder;
+    private EnvironmentBackgroundRenderer environmentBackground;
+    private StylizedSkyRenderer stylizedSky;
+    private SceneFrameBuilder sceneFrameBuilder = new SceneFrameBuilder();
+    private GraphPreviewRenderer previewRenderer;
+    private boolean closed;
+    private boolean retired;
+    private boolean submitted;
+
+    public void retire() {
+        retired = true;
+        if (surfaceInputs != null) surfaceInputs.retire();
+    }
+    private final java.util.Set<AutoCloseable> borrowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private PipelineGeneration reuseSource;
+    private final boolean sameScene;
+    private VolumetricAllocationPlan volumeAllocation;
+    private GtaoAllocationPlan gtaoAllocation;
+    private SceneSurfaceLayout.Storage surfaceStorage = SceneSurfaceLayout.Storage.NONE;
+    private SceneSurfaceLayout.Storage borrowedSurfaceStorage = SceneSurfaceLayout.Storage.NONE;
+    private long surfacePeakBytes;
+    private long borrowedVolumeBytes;
+    private long transferredVolumeBytes;
+    private long borrowedGtaoBytes;
+    private long transferredGtaoBytes;
+    private final int maximumTextureDimension;
+    private final VolumetricFogSettings volumeSettings;
+    private PbrEnvironment environment;
+
+    private <T extends AutoCloseable> T borrow(T resource) {
+        if (resource != null) borrowed.add(resource);
+        return resource;
+    }
+
+    /** The graph and all private owners are validated before publication; no GL deletion occurs here. */
+    public void adoptBorrowedResources(PipelineGeneration source) {
+        if (reuseSource == null) return;
+        if (source != reuseSource || source.closed) throw new IllegalStateException("stale pipeline donor");
+        source.postProcess.validateTransferTo(postProcess);
+        var donorSurfaceStorage = source.surfaceStorage.minus(borrowedSurfaceStorage);
+        graph.commitReplacement();
+        source.postProcess.transferResourcesTo(postProcess);
+        source.surfaceStorage = donorSurfaceStorage;
+        source.transferredVolumeBytes = borrowedVolumeBytes;
+        source.transferredGtaoBytes = borrowedGtaoBytes;
+        borrowedSurfaceStorage = SceneSurfaceLayout.Storage.NONE;
+        source.borrowed.addAll(borrowed);
+        borrowed.clear();
+        reuseSource = null;
+    }
+
+    private void inheritUnrelatedState(PipelineGeneration source) {
+        if (source == null || !sameScene) return;
+        if (topology.sameShadowShape(source.topology)) {
+            shadowLightScheduler = source.shadowLightScheduler;
+            shadowCache = source.shadowCache;
+            shadowFrameBinder = source.shadowFrameBinder;
+        }
+        sceneFrameBuilder = source.sceneFrameBuilder;
+    }
+
+    public void assembleGraph(ClusteredLightingSettings lighting, boolean fullScan) {
+        var source = reuseSource;
+        graph = source == null ? new RenderGraph(topology.width(), topology.height()) : RenderGraph.replacementOf(source.graph);
+        surfaceInputs = new SceneSurfaceInputs(id, graph, topology.sceneSurface());
+        cameraUniforms = source == null ? new CameraUniforms() : borrow(source.cameraUniforms);
+        deformationDefaults = source == null ? new SceneDeformationDefaults() : borrow(source.deformationDefaults);
+        if ((topology.directionalShadow() || topology.pointShadow() || topology.spotShadow())
+                && (topology.pbrMaterials() || topology.volumetricFog())) {
+            shadowSamplingBlock = source != null && source.shadowSamplingBlock != null
+                    ? borrow(source.shadowSamplingBlock) : new ShadowSamplingBlock();
+        }
+        clusteredResources = source == null ? new ClusteredLightingResources(topology.width(), topology.height(), lighting)
+                : borrow(source.clusteredResources);
+        clusteredLightingBinder = source == null ? new ClusteredLightingBinder(clusteredResources, lighting)
+                : borrow(source.clusteredLightingBinder);
+        ClusteredLightingPassBuilder.addPasses(graph, topology, clusteredLightingBinder, fullScan);
+    }
+
+    public void assembleEnvironment(PbrEnvironment environment, boolean stylized) {
+        var source = reuseSource;
+        this.environment = environment;
+        boolean reuseEnvironment = source != null && source.environment == environment;
+        if (topology.pbrMaterials()) {
+            pbrMaterialBinder = !reuseEnvironment || source.pbrMaterialBinder == null
+                    ? new PbrMaterialBinder(environment) : borrow(source.pbrMaterialBinder);
+            environmentBackground = !reuseEnvironment || source.environmentBackground == null
+                    ? new EnvironmentBackgroundRenderer(environment) : borrow(source.environmentBackground);
+        }
+        if (stylized) stylizedSky = source == null || source.stylizedSky == null
+                ? new StylizedSkyRenderer() : borrow(source.stylizedSky);
+    }
+
+    public void assemblePostProcess(RenderSettings settings, PostProcessSettings effects,
+                                    RenderGraph.PassExecutor vfx, RenderGraph.PassExecutor reactive) {
+        var inputs = new SceneSurfacePostProcessAdapter(surfaceInputs, reactive);
+        postProcess = reuseSource == null
+                ? PostProcessPipeline.create(settings, effects, topology.width(), topology.height(), vfx, inputs, inputs)
+                : reuseSource.postProcess.replacementAssembly(settings, effects, topology.width(), topology.height(),
+                        inputs, vfx, inputs);
+    }
+
+    public void assembleDrawing(SceneRenderer.Host host, DirectionalShadowMap directionalShadowMap,
+                                PointShadowAtlas pointShadowAtlas, SpotShadowAtlas spotShadowAtlas,
+                                DirectionalCascadeSettings cascades, LocalShadowPipelineSettings localShadows,
+                                InstancedRenderer instanced, boolean directLighting,
+                                boolean imageBasedLighting) {
+        ShadowPrograms donor = reuseSource == null ? null : reuseSource.shadowPrograms;
+        shadowPrograms = ShadowPrograms.prepare(donor,
+                topology.directionalShadow() || topology.pointShadow() || topology.spotShadow(),
+                instanced != null && instanced.castShadows());
+        if (donor != null && shadowPrograms == donor) borrow(donor);
+        sceneRenderer = new SceneRenderer(host);
+        frameLightBinder = new FrameLightBinder(cameraUniforms, shadowFrameBinder, shadowSamplingBlock,
+                clusteredLightingBinder, directionalShadowMap, cascades, localShadows,
+                topology.gtaoEnabled(), directLighting, imageBasedLighting);
+        shadowCasterRecorder = new ShadowCasterRecorder(shadowPrograms,
+                deformationDefaults, shadowCache, directionalShadowMap,
+                pointShadowAtlas == null ? PointShadowAtlas.defaults() : pointShadowAtlas,
+                spotShadowAtlas == null ? SpotShadowAtlas.defaults() : spotShadowAtlas, cascades, localShadows, instanced);
+    }
+
+    public void finishAssembly(GraphPreviewController controller, PbrEnvironment environment,
+                               long previewId, boolean previewEnabled) {
+        postProcess.addFinalPass(graph);
+        finalPassName = postProcess.finalPassName();
+        if (previewEnabled) {
+            previewRenderer = new GraphPreviewRenderer(controller, graph, environment, previewId);
+        }
+    }
+
+    public void assembleVolumetric(VolumetricFogSettings settings, Scene scene, PipelineGeneration source,
+                            VolumetricPassBuilder.LightingInputs shadows) {
+        if (!settings.enabled()) return;
+        boolean reuse = canBorrowVolumetricOwner(scene);
+        volumetric = reuse ? borrow(source.volumetric) : new VolumetricPassBuilder(id,
+                topology.width(), topology.height(), settings, clusteredResources.maxTotalLights());
+        if (!reuse) volumetric.configureColorBudget(topology);
+        volumetric.addPasses(graph, clusteredLightingBinder.volumetricInputs(),
+                graph.hasPass(ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS)
+                        ? ClusteredLightingPassBuilder.CLUSTER_ASSIGN_PASS : ClusteredLightingPassBuilder.LIGHT_UPLOAD_PASS,
+                shadows);
+    }
+
+    private boolean canBorrowVolumetricOwner(Scene scene) {
+        var source = reuseSource;
+        return source != null && source.volumetric != null && topology.volumetricFog()
+                && source.topology.volumetricQuality() == topology.volumetricQuality()
+                && source.topology.volumetricEmission() == topology.volumetricEmission()
+                && source.volumetric.compatibleScene(scene, topology);
+    }
+
+    public void assembleGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings settings,
+                      PipelineGeneration source, boolean instances, boolean shared) {
+        if (!settings.enabled()) return;
+        gtaoInputs = shared ? GtaoSurfaceInputs.shared(surfaceInputs, topology.antiAliasingMode(), settings.temporal())
+                : GtaoSurfaceInputs.dedicated(id, graph, topology.antiAliasingMode(), settings.temporal());
+        gtao = source != null && source.gtao != null && source.gtao.compatible(settings, shared) ? borrow(source.gtao)
+                : new GtaoPasses(settings, topology.width(), topology.height(), shared, instances);
+        gtao.addPreGeometryPasses(graph, gtaoInputs);
+    }
+
+    public void assembleSurfacePasses(PipelineGeneration source) {
+        var layout = topology.sceneSurface();
+        var previous = source == null ? null : source.topology.sceneSurface();
+        if (layout.hasSurface()) {
+            sceneSurfacePass = source != null && source.sceneSurfacePass != null
+                    && layout.rasterShaderDefines().equals(previous.rasterShaderDefines())
+                    ? borrow(source.sceneSurfacePass) : new SceneSurfacePass(layout);
+        }
+        if (layout.hasResolve()) {
+            sceneSurfaceResolvePass = source != null && source.sceneSurfaceResolvePass != null
+                    && layout.resolveShaderDefines().equals(previous.resolveShaderDefines())
+                    ? borrow(source.sceneSurfaceResolvePass) : new SceneSurfaceResolvePass(layout);
+        }
+        if (layout.reactive() != null) {
+            sceneReactivePass = source != null && source.sceneReactivePass != null
+                    ? borrow(source.sceneReactivePass) : new SceneReactivePass();
+        }
+    }
+
+    public PipelineGeneration(PipelineTopology topology) {
+        this(topology, null, false, 0, VolumetricFogSettings.disabled());
+    }
+
+    public PipelineGeneration(PipelineTopology topology, PipelineGeneration source, boolean sameScene, int maximumTextureDimension,
+                              VolumetricFogSettings volumeSettings) {
+        this.topology = topology;
+        this.reuseSource = source;
+        this.sameScene = sameScene;
+        this.maximumTextureDimension = maximumTextureDimension;
+        this.volumeSettings = volumeSettings;
+        inheritUnrelatedState(source);
+    }
+
+    public void prepareModuleBudgets(Scene scene, GtaoSettings gtaoSettings, boolean shared, long retainedGtaoBytes,
+                                     long retainedVolumeBytes, ClusteredLightingSettings lighting) {
+        var source = reuseSource;
+        if (source != null && source.gtao != null) {
+            borrowedGtaoBytes = GtaoAllocationPlan.compatibleBytes(topology.width(), topology.height(),
+                    gtaoSettings, shared, source.gtao.settings(), source.gtaoInputs.shared());
+        }
+        gtaoAllocation = GtaoAllocationPlan.prepare(topology.width(), topology.height(), gtaoSettings, shared,
+                retainedGtaoBytes, borrowedGtaoBytes);
+        if (source != null && source.volumetric != null && topology.volumetricFog()) {
+            if (canBorrowVolumetricOwner(scene)) borrowedVolumeBytes = source.volumeAllocation.privateBytes();
+            if (source.topology.sampleCount() == topology.sampleCount()
+                    && source.topology.hdrVfx() == topology.hdrVfx()
+                    && (topology.sampleCount() == 1 || (source.topology.sceneSurface().reactive() != null)
+                            == (topology.sceneSurface().reactive() != null))) {
+                borrowedVolumeBytes += source.volumeAllocation.colorBytes();
+            }
+        }
+        volumeAllocation = VolumetricAllocationPlan.prepare(topology.width(), topology.height(), volumeSettings,
+                lighting.maxLocalLights() + lighting.maxDirectionalLights(), topology.sampleCount(), topology.hdrVfx(),
+                retainedVolumeBytes, borrowedVolumeBytes);
+    }
+
+    public long id() { return id; }
+    public PipelineTopology topology() { return topology; }
+    public RenderGraph graph() { return graph; }
+    public CameraUniforms cameraUniforms() { return cameraUniforms; }
+    public SceneDeformationDefaults deformationDefaults() { return deformationDefaults; }
+    public ShadowSamplingBlock shadowSamplingBlock() { return shadowSamplingBlock; }
+    public ShadowLightScheduler shadowLightScheduler() { return shadowLightScheduler; }
+    public ShadowCacheState shadowCache() { return shadowCache; }
+    public ShadowFrameBinder shadowFrameBinder() { return shadowFrameBinder; }
+    public ClusteredLightingResources clusteredResources() { return clusteredResources; }
+    public ClusteredLightingBinder clusteredLightingBinder() { return clusteredLightingBinder; }
+    public PostProcessPipeline postProcess() { return postProcess; }
+    public ShadowCasterRecorder shadowCasterRecorder() { return shadowCasterRecorder; }
+    public FrameLightBinder frameLightBinder() { return frameLightBinder; }
+    public SceneRenderer sceneRenderer() { return sceneRenderer; }
+    public VolumetricPassBuilder volumetric() { return volumetric; }
+    public ShadowPrograms shadowPrograms() { return shadowPrograms; }
+    public GtaoPasses gtao() { return gtao; }
+    public GtaoSurfaceInputs gtaoInputs() { return gtaoInputs; }
+    public SceneSurfaceInputs surfaceInputs() { return surfaceInputs; }
+    public SceneSurfacePass sceneSurfacePass() { return sceneSurfacePass; }
+    public SceneSurfaceResolvePass sceneSurfaceResolvePass() { return sceneSurfaceResolvePass; }
+    public SceneReactivePass sceneReactivePass() { return sceneReactivePass; }
+    public String finalPassName() { return finalPassName; }
+    public PbrMaterialBinder pbrMaterialBinder() { return pbrMaterialBinder; }
+    public EnvironmentBackgroundRenderer environmentBackground() { return environmentBackground; }
+    public StylizedSkyRenderer stylizedSky() { return stylizedSky; }
+    public SceneFrameBuilder sceneFrameBuilder() { return sceneFrameBuilder; }
+    public GraphPreviewRenderer previewRenderer() { return previewRenderer; }
+    public boolean submitted() { return submitted; }
+    public VolumetricAllocationPlan volumeAllocation() { return volumeAllocation; }
+    public long retainedGtaoBytes() { return gtaoAllocation == null ? 0 : gtaoAllocation.activeBytes() - transferredGtaoBytes; }
+    public long retainedVolumeBytes() { return volumeAllocation == null ? 0 : volumeAllocation.activeBytes() - transferredVolumeBytes; }
+    public long surfacePeakBytes() { return surfacePeakBytes; }
+    public VolumetricFogSettings volumeSettings() { return volumeSettings; }
+
+    public boolean reusesSceneState() { return reuseSource != null && sameScene; }
+
+    public void markSubmitted() { submitted = true; }
+
+    private SceneSurfaceLayout.Storage surfaceStorageAt(int width, int height) {
+        return topology.sceneSurface().storage(width, height);
+    }
+
+    public long surfaceBytes() { return surfaceStorage.bytes(); }
+
+    public void prepareSurfaceBudget(PipelineGeneration source, long retainedBytes) {
+        surfaceStorage = surfaceStorageAt(topology.width(), topology.height());
+        if (source != null) {
+            borrowedSurfaceStorage = topology.sceneSurface().compatibleStorageFrom(source.topology.sceneSurface(),
+                    source.surfaceStorage, surfaceStorage);
+        }
+        surfacePeakBytes = Math.addExact(retainedBytes, surfaceStorage.minus(borrowedSurfaceStorage).bytes());
+    }
+
+    public boolean isClosed() {
+        return closed || retired;
+    }
+
+    public void resize(int width, int height) {
+        if (isClosed()) throw new IllegalStateException("PipelineGeneration is closed");
+        if (width <= 0 || height <= 0
+                || graph.width() == width && graph.height() == height) return;
+        ResizeCandidate candidate = null;
+        Throwable primaryFailure = null;
+        try {
+            candidate = prepareResize(width, height);
+            commitResize(candidate);
+        } catch (RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
+        } finally {
+            RuntimeException cleanupFailure = null;
+            if (candidate != null) {
+                try {
+                    candidate.close();
+                } catch (RuntimeException failure) {
+                    cleanupFailure = failure;
+                }
+            }
+            if (cleanupFailure != null) {
+                if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
+                else throw cleanupFailure;
+            }
+        }
+    }
+
+    /** Allocates all resize resources without changing the active generation. */
+    private ResizeCandidate prepareResize(int width, int height) {
+        RenderGraph.ResizeCandidate graphCandidate = null;
+        PostProcessPipeline.ResizeCandidate postProcessCandidate = null;
+        ClusteredLightingResources.ResizeCandidate clusteredCandidate = null;
+        VolumetricResources.ResizeCandidate volumeCandidate = null;
+        GtaoPasses.ResizeCandidate gtaoCandidate = null;
+        try {
+            GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
+            var newSurfaceStorage = surfaceStorageAt(width, height);
+            long newSurfacePeak = Math.addExact(surfaceBytes(), newSurfaceStorage.bytes());
+            var allocation = VolumetricAllocationPlan.prepare(width, height, volumeSettings,
+                    clusteredResources.maxTotalLights(), topology.sampleCount(), topology.hdrVfx(),
+                    volumeAllocation == null ? 0 : volumeAllocation.activeBytes());
+            var gtaoPlan = GtaoAllocationPlan.prepare(width, height, gtao == null
+                    ? com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings.disabled() : gtao.settings(),
+                    gtaoInputs == null || gtaoInputs.shared(), gtaoAllocation == null ? 0 : gtaoAllocation.activeBytes(), false);
+            if (volumetric != null) volumetric.validateExtentBudget(width,height);
+            graphCandidate = graph.prepareResize(width, height);
+            postProcessCandidate = postProcess.prepareResize(width, height);
+            clusteredCandidate = clusteredResources.prepareResize(width, height);
+            if (volumetric != null) volumeCandidate = volumetric.prepareResize(width, height);
+            if (gtao != null) gtaoCandidate = gtao.prepareResize(width, height);
+            return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
+                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate, gtaoCandidate,
+                    allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
+        } catch (RuntimeException | Error failure) {
+            closeCandidate(gtaoCandidate, failure);
+            closeCandidate(volumeCandidate, failure);
+            closeCandidate(clusteredCandidate, failure);
+            closeCandidate(postProcessCandidate, failure);
+            closeCandidate(graphCandidate, failure);
+            throw failure;
+        }
+    }
+
+    private static void closeCandidate(AutoCloseable candidate, Throwable failure) {
+        if (candidate == null) {
+            return;
+        }
+        try {
+            candidate.close();
+        } catch (Exception cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    private void commitResize(ResizeCandidate candidate) {
+        if (candidate == null) throw new NullPointerException("candidate");
+        candidate.commitInto(this);
+    }
+
+    /** One generation-wide resize transaction for graph, TAA, GTAO, clustering and topology. */
+    private static final class ResizeCandidate implements AutoCloseable {
+        private final PipelineGeneration owner;
+        private final int width;
+        private final int height;
+        private final PipelineTopology candidateTopology;
+        private final RenderGraph.ResizeCandidate graphCandidate;
+        private final PostProcessPipeline.ResizeCandidate postProcessCandidate;
+        private final ClusteredLightingResources.ResizeCandidate clusteredCandidate;
+        private final VolumetricResources.ResizeCandidate volumeCandidate;
+        private final GtaoPasses.ResizeCandidate gtaoCandidate;
+        private final VolumetricAllocationPlan allocation;
+        private final GtaoAllocationPlan gtaoPlan;
+        private final SceneSurfaceLayout.Storage surfaceStorage;
+        private final long surfacePeak;
+        private boolean committed;
+        private boolean closed;
+
+        private ResizeCandidate(PipelineGeneration owner, int width, int height,
+                                PipelineTopology candidateTopology,
+                                RenderGraph.ResizeCandidate graphCandidate,
+                                PostProcessPipeline.ResizeCandidate postProcessCandidate,
+                                ClusteredLightingResources.ResizeCandidate clusteredCandidate,
+                                VolumetricResources.ResizeCandidate volumeCandidate, GtaoPasses.ResizeCandidate gtaoCandidate,
+                                VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
+                                SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
+            this.owner = owner;
+            this.width = width;
+            this.height = height;
+            this.candidateTopology = candidateTopology;
+            this.graphCandidate = graphCandidate;
+            this.postProcessCandidate = postProcessCandidate;
+            this.clusteredCandidate = clusteredCandidate;
+            this.volumeCandidate = volumeCandidate;
+            this.gtaoCandidate = gtaoCandidate;
+            this.allocation = allocation;
+            this.gtaoPlan = gtaoPlan;
+            this.surfaceStorage = surfaceStorage;
+            this.surfacePeak = surfacePeak;
+        }
+
+        private void validateFor(PipelineGeneration expectedOwner) {
+            if (owner != expectedOwner) {
+                throw new IllegalArgumentException("resize candidate belongs to another pipeline generation");
+            }
+            if (closed) throw new IllegalStateException("pipeline resize candidate is closed");
+            if (committed) throw new IllegalStateException("pipeline resize candidate already committed");
+            // The child candidates are private to this generation and were
+            // prepared from these exact owners.  Their public commit methods
+            // perform the final ownership/state checks; after preparation they
+            // only swap already-allocated handles and do not allocate.
+        }
+
+        private void commitInto(PipelineGeneration expectedOwner) {
+            validateFor(expectedOwner);
+            owner.graph.commitResize(graphCandidate);
+            owner.postProcess.commitResize(postProcessCandidate);
+            owner.clusteredResources.commitResize(clusteredCandidate);
+            if (volumeCandidate != null) owner.volumetric.commitResize(volumeCandidate);
+            if (gtaoCandidate != null) owner.gtao.commitResize(gtaoCandidate);
+            owner.topology = candidateTopology;
+            owner.volumeAllocation = allocation;
+            owner.gtaoAllocation = gtaoPlan;
+            owner.surfaceStorage = surfaceStorage;
+            owner.surfacePeakBytes = surfacePeak;
+            committed = true;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            RuntimeException failure = null;
+            failure = closeOne(gtaoCandidate, failure);
+            failure = closeOne(volumeCandidate, failure);
+            failure = closeOne(clusteredCandidate, failure);
+            failure = closeOne(postProcessCandidate, failure);
+            failure = closeOne(graphCandidate, failure);
+            if (failure != null) throw failure;
+        }
+
+        private static RuntimeException closeOne(AutoCloseable candidate, RuntimeException failure) {
+            if (candidate == null) return failure;
+            try {
+                candidate.close();
+            } catch (Exception closeFailure) {
+                RuntimeException runtime = closeFailure instanceof RuntimeException existing
+                        ? existing
+                        : new IllegalStateException("Failed to close resize candidate", closeFailure);
+                if (failure == null) return runtime;
+                failure.addSuppressed(runtime);
+            }
+            return failure;
+        }
+    }
+
+    @Override
+    public void close() {
+        if (closed) return;
+        closed = true;
+        if (surfaceInputs != null) surfaceInputs.retire();
+        GraphPreviewRenderer localPreview = previewRenderer;
+        ShadowPrograms localShadowPrograms = shadowPrograms;
+        GtaoPasses localGtao = gtao;
+        PostProcessPipeline localPostProcess = postProcess;
+        VolumetricPassBuilder localVolume = volumetric;
+        CameraUniforms localCameraUniforms = cameraUniforms;
+        SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
+        SceneSurfacePass localSceneSurface = sceneSurfacePass;
+        SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
+        SceneReactivePass localSceneReactive = sceneReactivePass;
+        ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
+        ClusteredLightingResources localClusteredResources = clusteredResources;
+        ClusteredLightingBinder localClusteredBinder = clusteredLightingBinder;
+        PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
+        EnvironmentBackgroundRenderer localBackground = environmentBackground;
+        StylizedSkyRenderer localStylizedSky = stylizedSky;
+        RenderGraph localGraph = graph;
+        previewRenderer = null;
+        shadowPrograms = null;
+        shadowCasterRecorder = null;
+        gtao = null;
+        gtaoInputs = null;
+        postProcess = null;
+        volumetric = null;
+        cameraUniforms = null;
+        deformationDefaults = null;
+        sceneSurfacePass = null;
+        sceneSurfaceResolvePass = null;
+        sceneReactivePass = null;
+        shadowSamplingBlock = null;
+        clusteredResources = null;
+        clusteredLightingBinder = null;
+        pbrMaterialBinder = null;
+        environmentBackground = null;
+        stylizedSky = null;
+        graph = null;
+        finalPassName = null;
+
+        RuntimeException failure = null;
+        failure = closeCollecting(localPreview, failure);
+        failure = closeCollecting(localShadowPrograms, failure);
+        failure = closeCollecting(localGtao, failure);
+        failure = closeCollecting(localPostProcess, failure);
+        failure = closeCollecting(localVolume, failure);
+        failure = closeCollecting(localCameraUniforms, failure);
+        failure = closeCollecting(localSceneSurface, failure);
+        failure = closeCollecting(localSceneSurfaceResolve, failure);
+        failure = closeCollecting(localSceneReactive, failure);
+        failure = closeCollecting(localDeformationDefaults, failure);
+        failure = closeCollecting(localShadowSamplingBlock, failure);
+        failure = closeCollecting(localClusteredBinder, failure);
+        failure = closeCollecting(localClusteredResources, failure);
+        failure = closeCollecting(localPbrBinder, failure);
+        failure = closeCollecting(localBackground, failure);
+        failure = closeCollecting(localStylizedSky, failure);
+        failure = closeCollecting(localGraph, failure);
+        if (failure != null) throw failure;
+    }
+
+    private RuntimeException closeCollecting(AutoCloseable resource,
+                                                     RuntimeException failure) {
+        if (resource == null || borrowed.contains(resource)) return failure;
+        try {
+            resource.close();
+        } catch (Exception cleanupFailure) {
+            RuntimeException runtime = cleanupFailure instanceof RuntimeException existing
+                    ? existing
+                    : new IllegalStateException("Failed to close pipeline generation resource",
+                    cleanupFailure);
+            if (failure == null) return runtime;
+            failure.addSuppressed(runtime);
+        }
+        return failure;
+    }
+}

@@ -39,7 +39,7 @@ class VolumetricLifecycleSoakGlTest {
                 try {
                     pipeline.build(); var device = new GlRenderDevice();
                     trace(trace, -1, "built");
-                    var lights = pipeline.activeGenerationForTest().clusteredResources;
+                    var lights = pipeline.activeGenerationForTest().clusteredResources();
                     for (int cycle=0;cycle<200;cycle++) {
                         trace(trace, cycle, "begin");
                         if (cycle%20==0) {
@@ -61,14 +61,14 @@ class VolumetricLifecycleSoakGlTest {
                         pipeline.execute(device);
                         trace(trace, cycle, "drawn");
                         maximumBytes = Math.max(maximumBytes,GlDebug.resources().estimatedBytes());
-                        assertSame(lights,pipeline.activeGenerationForTest().clusteredResources);
-                        var prefix = pipeline.activeGenerationForTest().volumetric.resources().prefix();
+                        assertSame(lights,pipeline.activeGenerationForTest().clusteredResources());
+                        var prefix = pipeline.activeGenerationForTest().volumetric().resources().prefix();
                         pipeline.applyVolumetricFog(VolumetricFogSettings.disabled());
                         trace(trace, cycle, "disabled");
                         for(int i=0;i<4;i++)pipeline.execute(device);
                         pipeline.drainRetirementsForTest();
                         assertTrue(prefix.isClosed());
-                        assertNull(pipeline.activeGenerationForTest().volumetric);
+                        assertNull(pipeline.activeGenerationForTest().volumetric());
                         long bytes=GlDebug.resources().estimatedBytes();
                         var baseline=disabledBytes.putIfAbsent(size.width,bytes);
                         if(baseline!=null)assertEquals(baseline.longValue(),bytes,"disabled resource bytes grew at cycle "+cycle);
@@ -117,8 +117,8 @@ class VolumetricLifecycleSoakGlTest {
                     secondary.execute(device, DT);
                     secondaryFrames++;
                     var generation = primary.activeGenerationForTest();
-                    var volume = generation.volumetric;
-                    var otherVolume = secondary.activeGenerationForTest().volumetric;
+                    var volume = generation.volumetric();
+                    var otherVolume = secondary.activeGenerationForTest().volumetric();
                     int otherSource = otherVolume.resources().source().id();
                     assertNotEquals(volume.resources().source().id(), otherSource);
                     assertHdr(primary, size.width, size.height, .2f);
@@ -149,8 +149,8 @@ class VolumetricLifecycleSoakGlTest {
                             assertSame(oldMedium, volume.resources().medium());
                             assertSame(oldRead, volume.resources().historyRead());
                             assertSame(oldWrite, volume.resources().historyWrite());
-                            assertEquals(size.width, generation.graph.width());
-                            assertEquals(size.height, generation.graph.height());
+                            assertEquals(size.width, generation.graph().width());
+                            assertEquals(size.height, generation.graph().height());
                             assertTrue(volume.currentOutput().available());
 
                             primary.resize(nextWidth, nextHeight);

@@ -1,10 +1,26 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.pipeline.ForwardPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineFeaturePolicy;
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
+
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.LightTablePacker;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
-import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut;
+import com.kaleblangley.haikalat.subsystems.postprocess.color.ColorGradingLut;
 import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
+import com.kaleblangley.haikalat.subsystems.postprocess.SurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureChain;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
+import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
@@ -24,6 +40,22 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderPipelineTest {
+    private static final SurfaceInputs NO_SURFACE_INPUTS = new SurfaceInputs() {
+        @Override
+        public Input single(Channel channel) {
+            return null;
+        }
+
+        @Override
+        public void validateDependency(String consumerPass, Input input) {
+        }
+
+        @Override
+        public int texture(PassResources resources, Input input) {
+            throw new UnsupportedOperationException();
+        }
+    };
+
     @Test
     void frameOwnedUniformClassificationCoversLightingShadowAndEnvironmentOnly() {
         assertTrue(RenderPipeline.isFrameOwnedUniform("uDirectionalShadowFrameLightIndex"));
@@ -37,12 +69,12 @@ class RenderPipelineTest {
 
     @Test
     void autoExposureAlwaysBuildsResizeStableReductionTopology() {
-        assertEquals(14, PostProcessPassBuilder.AUTO_EXPOSURE_REDUCTION_PASS_COUNT);
-        assertEquals(13, PostProcessPassBuilder.AUTO_EXPOSURE_RELATIVE_PASS_COUNT);
-        assertEquals(0.5f, PostProcessPassBuilder.autoExposureRelativeScale(0));
-        assertEquals(1.0f / 8192.0f, PostProcessPassBuilder.autoExposureRelativeScale(12));
+        assertEquals(14, AutoExposureChain.REDUCTION_PASS_COUNT);
+        assertEquals(13, AutoExposureChain.RELATIVE_PASS_COUNT);
+        assertEquals(0.5f, AutoExposureChain.relativeScale(0));
+        assertEquals(1.0f / 8192.0f, AutoExposureChain.relativeScale(12));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPassBuilder.autoExposureRelativeScale(13));
+                () -> AutoExposureChain.relativeScale(13));
     }
     @Test
     void instancedRendererRequiresExplicitShadowOptIn() {
@@ -92,11 +124,11 @@ class RenderPipelineTest {
     void finalBackbufferAnchorCoversEveryLdrAndHdrAaCombination() {
         for (AntiAliasingMode mode : AntiAliasingMode.values()) {
             assertEquals(PostProcessTargets.PRESENT_PASS,
-                    PostProcessPassBuilder.finalPassNameFor(mode, ToneMappingMode.NONE),
+                    PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.NONE),
                     "LDR final pass for " + mode);
             assertEquals(mode == AntiAliasingMode.FXAA
                             ? PostProcessTargets.FXAA_PASS : PostProcessTargets.PRESENT_PASS,
-                    PostProcessPassBuilder.finalPassNameFor(mode, ToneMappingMode.ACES),
+                    PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.ACES),
                     "HDR final pass for " + mode);
         }
     }
@@ -115,9 +147,9 @@ class RenderPipelineTest {
     @Test
     void postProcessBuilderPublishesOnlyTheRegisteredBackbufferPass() {
         RenderWindowStub window = new RenderWindowStub();
-        try (PostProcessPassBuilder builder = PostProcessPassBuilder.create(
+        try (PostProcessPipeline builder = PostProcessPipeline.create(
                 RenderSettings.builder().build(), PostProcessSettings.defaults(),
-                window, window.width(), window.height());
+                window.width(), window.height(), null, NO_SURFACE_INPUTS, null);
              RenderGraph graph = new RenderGraph(window.width(), window.height())) {
             assertThrows(IllegalStateException.class, builder::finalPassName);
 
@@ -192,9 +224,9 @@ class RenderPipelineTest {
         RenderSettings hdr = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES).build();
 
         assertEquals(RenderFormat.SRGB8_ALPHA8, ForwardPassBuilder.sceneColorFormat(ldr));
-        assertEquals(RenderFormat.SRGB8_ALPHA8, PostProcessPassBuilder.taaHistoryFormat(ldr));
+        assertEquals(RenderFormat.SRGB8_ALPHA8, TemporalChain.historyFormat(ldr.hdrEnabled()));
         assertEquals(RenderFormat.RGBA16F, ForwardPassBuilder.sceneColorFormat(hdr));
-        assertEquals(RenderFormat.RGBA16F, PostProcessPassBuilder.taaHistoryFormat(hdr));
+        assertEquals(RenderFormat.RGBA16F, TemporalChain.historyFormat(hdr.hdrEnabled()));
     }
 
     @Test
@@ -203,7 +235,7 @@ class RenderPipelineTest {
                         PostProcessTargets.GEOMETRY_PASS,
                         PostProcessTargets.TAA_PASS,
                         PostProcessTargets.PRESENT_PASS),
-                PostProcessPassBuilder.passNamesFor(AntiAliasingMode.TAA, true));
+                RenderPipeline.passNamesFor(AntiAliasingMode.TAA, true));
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.BoundsTransforms;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.WorldBounds;
+
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;
@@ -12,43 +15,43 @@ class BoundsTransformsTest {
     @Test
     void transformsIdentityTranslationAndNonUniformMirroredScale() {
         Bounds3f local = Bounds3f.of(-1, -2, -3, 1, 2, 3);
-        WorldBounds world = new WorldBounds();
+        var world = new WorldBounds.Scratch();
 
         BoundsTransforms.world(local, new Matrix4f().translation(4, -5, 6)
                 .scale(-2, 3, 0.5f), world);
 
-        assertBounds(world, 2, -11, 4.5f, 6, 1, 7.5f);
+        assertBounds(world.view(), 2, -11, 4.5f, 6, 1, 7.5f);
     }
 
     @Test
     void rotationAndShearUseAbsoluteLinearMatrix() {
         Bounds3f local = Bounds3f.of(-1, -2, -0.5f, 1, 2, 0.5f);
-        WorldBounds rotated = new WorldBounds();
+        var rotated = new WorldBounds.Scratch();
         BoundsTransforms.world(local, new Matrix4f().rotateZ((float) Math.PI / 2.0f),
                 rotated);
-        assertBounds(rotated, -2, -1, -0.5f, 2, 1, 0.5f);
+        assertBounds(rotated.view(), -2, -1, -0.5f, 2, 1, 0.5f);
 
-        WorldBounds sheared = new WorldBounds();
+        var sheared = new WorldBounds.Scratch();
         Matrix4f shear = new Matrix4f().m10(2.0f);
         BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1), shear,
                 sheared);
-        assertBounds(sheared, -3, -1, -1, 3, 1, 1);
+        assertBounds(sheared.view(), -3, -1, -1, 3, 1, 1);
     }
 
     @Test
     void zeroScaleAndUnboundedRemainConservative() {
-        WorldBounds world = new WorldBounds();
+        var world = new WorldBounds.Scratch();
         BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1),
                 new Matrix4f().scale(0, 1, 1), world);
-        assertBounds(world, 0, -1, -1, 0, 1, 1);
+        assertBounds(world.view(), 0, -1, -1, 0, 1, 1);
 
         BoundsTransforms.world(Bounds3f.unbounded(), new Matrix4f(), world);
-        assertTrue(world.unbounded);
+        assertTrue(world.view().unbounded());
     }
 
     @Test
     void rejectsPerspectiveNonFiniteAndOverflowWithIdentity() {
-        WorldBounds world = new WorldBounds();
+        var world = new WorldBounds.Scratch();
         IllegalArgumentException perspective = assertThrows(IllegalArgumentException.class,
                 () -> BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1),
                         new Matrix4f().perspective(1, 1, 0.1f, 100), world));
@@ -64,12 +67,12 @@ class BoundsTransformsTest {
 
     private static void assertBounds(WorldBounds actual, float minX, float minY, float minZ,
                                      float maxX, float maxY, float maxZ) {
-        assertFalse(actual.unbounded);
-        assertEquals(minX, actual.minX, EPSILON);
-        assertEquals(minY, actual.minY, EPSILON);
-        assertEquals(minZ, actual.minZ, EPSILON);
-        assertEquals(maxX, actual.maxX, EPSILON);
-        assertEquals(maxY, actual.maxY, EPSILON);
-        assertEquals(maxZ, actual.maxZ, EPSILON);
+        assertFalse(actual.unbounded());
+        assertEquals(minX, actual.minX(), EPSILON);
+        assertEquals(minY, actual.minY(), EPSILON);
+        assertEquals(minZ, actual.minZ(), EPSILON);
+        assertEquals(maxX, actual.maxX(), EPSILON);
+        assertEquals(maxY, actual.maxY(), EPSILON);
+        assertEquals(maxZ, actual.maxZ(), EPSILON);
     }
 }

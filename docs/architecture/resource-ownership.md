@@ -1,6 +1,8 @@
 # GPU 与 native 资源所有权合同
 
-状态：v0.19 当前有效合同。
+状态：源自 v0.19 的通用所有权原则继续适用；下表是当时的 owner 审计，非当前类型全集。
+Render3D 新增与迁移的 owner 见 [0.27.3 模块合同](v0.27.3-render3d-module-contracts.md)，
+UI Compositor 的候选与 retiring 生命周期见[当前指南](../guides/ui-compositor.md)。
 
 ## 基本规则
 

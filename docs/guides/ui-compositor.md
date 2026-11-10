@@ -97,7 +97,7 @@ ui.attachTo(graph, "Display", options);
 
 这些操作必须在 update owner、current GL context 和双方 graph 空闲时执行；异步宿主先协调帧边界。`RenderGraph.isExecuting()` 覆盖从执行入口到提交及完成回调，只是状态查询，不是线程锁。宿主或候选 graph 的回调中发布均被拒绝。固定拓扑可以继续异步传递不可变 snapshot，配置重建不承诺并发跨线程事务。
 
-数值 opacity、半径、downsample、scale、cache 和 dirtyRevision 更新使用新的不可变节点描述；ID、父子关系、effect 集合变化必须重配。内容模糊要保留 `Effect.BLUR` 才能把半径归零后再次开启；`.blur(0, ...)` 本身不会添加 BLUR。rebind 兼容入口仍要求旧 graph 已关闭；需要保留旧画面时使用候选协议。
+数值 opacity、半径、downsample、scale、cache 和 dirtyRevision 更新使用新的不可变节点描述；ID、父子关系、effect 集合变化必须重配。内容模糊要保留 `Effect.BLUR` 才能把半径归零后再次开启；`.blur(0, ...)` 本身不会添加 BLUR。rebind 兼容入口允许旧 graph 处于“已退役但尚未关闭”的 fence 等待状态：UI 立即切换绑定，旧 compositor 延迟到旧 graph 实际关闭时释放；需要旧图继续绘制或跨线程候选事务时仍使用 `prepareAttachment` 协议。
 
 ## 预算、失败与诊断
 

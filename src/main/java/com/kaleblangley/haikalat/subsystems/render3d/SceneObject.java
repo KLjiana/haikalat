@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.RevisionedModelSource;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;

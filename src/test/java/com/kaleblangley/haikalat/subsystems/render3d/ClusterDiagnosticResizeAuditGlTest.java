@@ -1,5 +1,11 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusterGrid;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingBinder;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingResources;
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
@@ -111,7 +117,7 @@ class ClusterDiagnosticResizeAuditGlTest {
                 // Test-only wait establishes a completed OLD allocation's fence.
                 glFinish();
                 pipeline.resize(128, 64);
-                assertNull(pipeline.activeGenerationForTest().clusteredLightingBinder.tryCounterSnapshot(),
+                assertNull(pipeline.activeGenerationForTest().clusteredLightingBinder().tryCounterSnapshot(),
                         "resize must invalidate fences before reading replacement counter storage");
             } finally {
                 pipeline.close();

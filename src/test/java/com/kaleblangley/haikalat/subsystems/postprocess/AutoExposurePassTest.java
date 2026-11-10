@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposurePass;
+
 import com.kaleblangley.haikalat.runtime.AutoExposureSettings;
 import org.junit.jupiter.api.Test;
 

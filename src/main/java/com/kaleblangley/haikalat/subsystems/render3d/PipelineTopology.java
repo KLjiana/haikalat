@@ -1,5 +1,17 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.Scene;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
+import com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings;
+
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
@@ -9,7 +21,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import java.util.Objects;
 
 /** Stable value key for every input that changes RenderGraph/pass/resource structure. */
-record PipelineTopology(int width,
+public record PipelineTopology(int width,
                         int height,
                         AntiAliasingMode antiAliasingMode,
                         int sampleCount,
@@ -38,7 +50,7 @@ record PipelineTopology(int width,
                         SceneSurfaceLayout sceneSurface,
                         boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
                         boolean volumetricEmission) {
-    PipelineTopology {
+    public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
         }
@@ -67,25 +79,20 @@ record PipelineTopology(int width,
         }
     }
 
-    /** Fog and GTAO may alter shared surfaces; unrelated resource shapes must match. */
-    boolean sameNonModuleStructure(PipelineTopology other) {
-        return width == other.width && height == other.height && antiAliasingMode == other.antiAliasingMode
-                && sampleCount == other.sampleCount && hdr == other.hdr && bloom == other.bloom
-                && bloomLevels == other.bloomLevels && automaticExposure == other.automaticExposure
-                && colorGrading == other.colorGrading && fog == other.fog
-                && directionalShadow == other.directionalShadow && pointShadow == other.pointShadow
+    /** Graph replacement retains compatible targets at the same managed extent. */
+    boolean sameManagedExtent(PipelineTopology other) {
+        return width == other.width && height == other.height && embedded == other.embedded;
+    }
+
+    public boolean sameShadowShape(PipelineTopology other) {
+        return directionalShadow == other.directionalShadow && pointShadow == other.pointShadow
                 && spotShadow == other.spotShadow && directionalCascadeCount == other.directionalCascadeCount
                 && directionalShadowAtlasSize == other.directionalShadowAtlasSize
                 && pointShadowCapacity == other.pointShadowCapacity && pointShadowResolution == other.pointShadowResolution
-                && spotShadowCapacity == other.spotShadowCapacity && spotShadowResolution == other.spotShadowResolution
-                && pbrMaterials == other.pbrMaterials && hdrVfx == other.hdrVfx && embedded == other.embedded;
+                && spotShadowCapacity == other.spotShadowCapacity && spotShadowResolution == other.spotShadowResolution;
     }
 
-    boolean sameNonVolumetricStructure(PipelineTopology other) {
-        return sameNonModuleStructure(other) && gtaoEnabled == other.gtaoEnabled && gtaoTemporal == other.gtaoTemporal;
-    }
-
-    static PipelineTopology capture(Scene scene, RenderSettings settings,
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
                                     boolean hdrVfx, boolean embedded,
                                     DirectionalCascadeSettings cascades) {
@@ -93,7 +100,7 @@ record PipelineTopology(int width,
                 LocalShadowPipelineSettings.legacyDefaults());
     }
 
-    static PipelineTopology capture(Scene scene, RenderSettings settings,
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
                                     boolean hdrVfx, boolean embedded,
                                     DirectionalCascadeSettings cascades,
@@ -102,10 +109,20 @@ record PipelineTopology(int width,
                 localShadows, VolumetricFogSettings.disabled());
     }
 
-    static PipelineTopology capture(Scene scene, RenderSettings settings,
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
                                     boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
                                     LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, true, true, true);
+    }
+
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -136,8 +153,10 @@ record PipelineTopology(int width,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
                 settings.exposureMode() == ExposureMode.AUTO,
                 effects.colorGrading().enabled(), effects.fog().enabled(),
-                directionalShadow, pointShadow && localShadows.maxPointLights() > 0,
-                spotShadow && localShadows.maxSpotLights() > 0, cascades.cascadeCount(),
+                directionalShadowRequested && directionalShadow,
+                pointShadowRequested && pointShadow && localShadows.maxPointLights() > 0,
+                spotShadowRequested && spotShadow && localShadows.maxSpotLights() > 0,
+                cascades.cascadeCount(),
                 cascades.atlasSize(), localShadows.maxPointLights(),
                 localShadows.point().resolution(), localShadows.maxSpotLights(),
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
@@ -170,7 +189,7 @@ record PipelineTopology(int width,
         return SceneSurfaceLayout.plan(samples, raw, requirements, reactive);
     }
 
-    SceneBufferRequirements sceneBuffers() { return sceneSurface.requests(); }
+    public SceneBufferRequirements sceneBuffers() { return sceneSurface.requests(); }
 
     /**
      * Reactive is only requested when a real producer exists: a declared
@@ -191,7 +210,7 @@ record PipelineTopology(int width,
         return false;
     }
 
-    PipelineTopology withExtent(int width, int height) {
+    public PipelineTopology withExtent(int width, int height) {
         return new PipelineTopology(width, height, antiAliasingMode, sampleCount, hdr,
                 bloom, bloomLevels, automaticExposure, colorGrading, fog,
                 directionalShadow, pointShadow, spotShadow, directionalCascadeCount,

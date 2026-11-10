@@ -1,9 +1,9 @@
 # Haikalat 有侧重验收规范 v2
 
-> 工作树说明（2026-10-08）：合并收尾已接入 `verify.ps1`/固定逻辑入口，并补入 0.25 体积雾合同。默认总时限 5 分钟、零自动重试、不强制性能矩阵。具体范围与命令见[测试指南](testing.md#当前工作树的快速逻辑验收2026-10-08)；仍未实现自动选测。
+> 工作树说明（2026-11-09 复核）：已接入 `verify.ps1`/固定逻辑入口，当前清单包含 0.27.4 控制面回归。默认总时限 5 分钟、零自动重试、不强制性能矩阵。具体范围与命令见[测试指南](testing.md)；仍未实现自动选测。
 
 
-制定日期：2026-10-04；执行器状态更新：2026-10-08。适用范围：当前 0.24.3 工作树之后的开发、修复、功能验收与发布准备。
+制定日期：2026-10-04；文档复核：2026-11-09。适用范围：当前 0.27.4 工作树及后续开发、修复、功能验收与发布准备；0.27.5 执行器改造仍以计划状态标示。
 
 **目标：用最少的新增执行，证明本次改动及其直接影响链路正确；复用仍然有效的证据，把完整矩阵留给确有必要的场合。** 减少无关场景、重复执行和无效复测，不以降低正确性要求或把 smoke 当正式性能结果节省时间。
 
@@ -296,13 +296,13 @@ Gradle UP-TO-DATE/FROM-CACHE 只是执行器信息，需要相符的证据文件
 
 之后根据是否触及 Generation/共享历史，再增加对应 transaction 用例和一个 GTAO+TAA 场景；不因任务完成就机械接上完整 `localGlVerification`。
 
-特别注意：当前 `glSmoke` 无 filter 会执行完整 test suite；`localOutdoorVerification`、`runRender3dVisualBaselineQuality`、`localRender3dV0243Verification` 也不是短 smoke。`glDebugPolicyGuard`/资源汇总可能通过依赖拉起其他任务，不能仅根据名字判断成本。必要时先用 Gradle `--dry-run` 查看选定命令的依赖范围。
+特别注意：当前 `glSmoke` 无 filter 会执行完整 test suite；`runRender3dVisualBaselineQuality`、`localRender3dV0243Verification` 也不是短 smoke；`localOutdoorVerification` 已退役，不能再作为现行命令。`glDebugPolicyGuard`/资源汇总可能通过依赖拉起其他任务，不能仅根据名字判断成本。必要时先用 Gradle `--dry-run` 查看选定命令的依赖范围。
 
 当前完整 Clustered benchmark 尚不能凭本文自动缩成代表配置；需要第 12 节加入配置选择器。GTAO 的旧采样/正式性问题修复前，其旧任务成功不自动成为 v2 PERF-F 证据。过渡期报告分别列出“旧规范已有证明”和“v2 尚缺证明”，不通过改配置跳过检查来制造通过。
 
 ## 12. 执行器改造要求
 
-本节描述分阶段工程要求。2026-10-08 合并收尾已接入固定 Render3D 范围的 `logicVerification` / `render3dLogicVerification`、工作树身份校验、实际用例计数及失败报告，并更新至 0.25 合同。当前合并版本的旧 `releaseReadiness` 尚未接入此前主检出的失败 finalizer/细分 skip 修复，不能以旧发布报告替代新逻辑报告。自动影响分析、逐用例证据复用、正式性能采样统一和发布计划驱动仍待实现。当前命令见 [测试指南](testing.md#当前工作树的快速逻辑验收2026-10-08)。
+本节描述分阶段工程要求。2026-10-08 合并收尾已接入固定 Render3D 范围的 `logicVerification` / `render3dLogicVerification`、工作树身份校验、实际用例计数及失败报告，并更新至 0.25 合同。当前合并版本的旧 `releaseReadiness` 尚未接入此前主检出的失败 finalizer/细分 skip 修复，不能以旧发布报告替代新逻辑报告。自动影响分析、逐用例证据复用、正式性能采样统一和发布计划驱动仍待实现。当前命令见 [测试指南](testing.md)。
 
 逻辑验收不以全部暂存、已提交、性能达标或发布文档已宣布稳定为启动前提；它验证实际工作树，并明确报告未测性能/画质/长测等边界。只有申请正式发布时，才额外要求冻结候选、发布元数据、适用性能证据与最终 clean tree。历史性能 FAIL/INVALID 保留，不能因为逻辑 PASS 就自动改成已解决。
 

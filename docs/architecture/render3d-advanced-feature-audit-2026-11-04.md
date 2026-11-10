@@ -1,5 +1,7 @@
 # Render3D 高级功能逐类审查（2026-11-04）
 
+> 历史审计，绑定下述 0.25.0 / ed8b4cd 候选。0.27.3 已迁移大量类型和拆分 PostProcessPassBuilder，文中的旧文件链接、行号及当时缺陷不代表当前状态；迁移见[包迁移清单](v0.27.3-render3d-package-migration.md)，后续结果见[0.27.4 验收](../releases/v0.27.4-review.md)。不将旧源码链接替换为新实现冒充原证据。
+
 审查基线：工作区版本 0.25.0，HEAD ed8b4cd。审查对象为 `src/main/java/com/kaleblangley/haikalat/subsystems/render3d` 递归目录的 128 个 Java 文件（约 20,666 行），包含其中的内部类型与方法。已逐文件阅读全文，并追踪关键 shader、RenderGraph 和 glTF 上传消费者。shader 是按关键链路补充检查，未声称逐行审查整个项目的所有 shader、资产加载器或测试。
 
 这是静态源码审查，不是本轮 GPU、视觉、性能或重启验收；本轮没有运行构建和 GL 测试。既有发布报告不作为当前组合已通过的替代证据。仅新增本报告，不修改实现或覆盖工作区并行改动。

@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.demo;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrame;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.state.StateCache;

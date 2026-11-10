@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineFeaturePolicy;
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;

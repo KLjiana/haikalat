@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -33,14 +35,14 @@ class VolumetricLightingGlTest {
                     p.build(); var device=new GlRenderDevice();
                     for(int round=0;round<2;round++) {
                         p.execute(device);
-                        var expected=VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric.resources().source());
-                        var storage=p.activeGenerationForTest().clusteredResources.storage();
+                        var expected=VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric().resources().source());
+                        var storage=p.activeGenerationForTest().clusteredResources().storage();
                         // Valid native allocations, deliberately stale contents: the producer skips assignment at count zero.
                         glClearNamedBufferData(storage.clusterHeaders.id(),GL_RGBA32UI,GL_RGBA_INTEGER,GL_UNSIGNED_INT,new int[]{0,1,0,0});
                         glClearNamedBufferData(storage.clusterIndices.id(),GL_R32UI,GL_RED_INTEGER,GL_UNSIGNED_INT,new int[]{0});
                         glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
                         p.execute(device);
-                        assertArrayEquals(expected,VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric.resources().source()),0f);
+                        assertArrayEquals(expected,VolumetricMediumGlTest.texture(p.activeGenerationForTest().volumetric().resources().source()),0f);
                         if(round==0) {p.resize(65,33);size.width=65;size.height=33;}
                     }
                 } finally {p.close();}
@@ -70,7 +72,7 @@ class VolumetricLightingGlTest {
             var fog=VolumetricMediumGlTest.settings(FogMediumSettings.homogeneous(.0001f,new Vector3f(1),new Vector3f()),List.of());
             var pipeline=pipeline(size,scene,fog,64);
             try {
-                pipeline.build();var volume=pipeline.activeGenerationForTest().volumetric;
+                pipeline.build();var volume=pipeline.activeGenerationForTest().volumetric();
                 var sentinel=BufferUtils.createByteBuffer(16);sentinel.asIntBuffer().put(new int[]{11,22,33,44});
                 volume.resources().diagnostics().update(0,sentinel);
                 System.setProperty("haikalat.internal.volume.diagnostics","false");pipeline.execute(new GlRenderDevice());
@@ -105,7 +107,7 @@ class VolumetricLightingGlTest {
                 var fog=fog(g); var pipeline=pipeline(size,scene,fog,64);
                 try {
                     pipeline.build(); pipeline.execute(new GlRenderDevice());
-                    var builder=pipeline.activeGenerationForTest().volumetric;
+                    var builder=pipeline.activeGenerationForTest().volumetric();
                     float[] medium=VolumetricMediumGlTest.texture(builder.resources().medium());
                     float[] source=VolumetricMediumGlTest.texture(builder.resources().source());
                     var grid=builder.currentOutput().grid();
@@ -141,7 +143,7 @@ class VolumetricLightingGlTest {
                 scene.addLight(SceneLight.directional(new Vector3f(0,0,-1),new Vector3f(.6f),.2f));
                 var pipeline=pipeline(size,scene,fog(.4f),capacity);
                 try {
-                    pipeline.build(); var builder=pipeline.activeGenerationForTest().volumetric;
+                    pipeline.build(); var builder=pipeline.activeGenerationForTest().volumetric();
                     try(var all=Texture3D.create(9,5,64,RenderFormat.RGBA32F);
                         var reference=ShaderProgram.fromComputeSource(VolumetricPassBuilder.shaderSource("source.comp",true))) {
                         pipeline.graph().addPass("AllLightVolumeReference").computeOnly().dependsOn(VolumetricPassBuilder.LIGHTING_PASS)

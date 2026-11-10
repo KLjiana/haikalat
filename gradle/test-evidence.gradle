@@ -1,0 +1,60 @@
+// JUnit evidence checks shared by the GL leaf and the bounded wrapper.
+//
+// A task that produced no XML, ran no case, or skipped required cases must not
+// be reported as passing. Skipped-case tolerance stays with the caller: the
+// explicit GL leaf requires zero skips because every selected class is guarded
+// by `haikalat.glSmoke`.
+import groovy.json.JsonOutput
+
+def summarizeJUnit = { List<File> files ->
+    int tests = 0
+    int skipped = 0
+    int failures = 0
+    int errors = 0
+    int suites = 0
+    files.each { File file ->
+        if (!file.isFile()) return
+        String text = file.getText('UTF-8')
+        def m = text =~ /<testsuite\b[^>]*\btests="(\d+)"[^>]*\bskipped="(\d+)"[^>]*\bfailures="(\d+)"[^>]*\berrors="(\d+)"/
+        if (m.find()) {
+            suites++
+            tests += m.group(1) as int
+            skipped += m.group(2) as int
+            failures += m.group(3) as int
+            errors += m.group(4) as int
+        }
+    }
+    [suites: suites, tests: tests, skipped: skipped, failures: failures, errors: errors,
+     executed: tests - skipped]
+}
+
+def requireExecutedEvidence = { String taskName, File resultsDir, boolean rejectSkips ->
+    List<File> files = resultsDir.isDirectory()
+            ? (resultsDir.listFiles() as List<File>).findAll { it.name.endsWith('.xml') }
+            : []
+    Map<String, Object> summary = summarizeJUnit(files)
+    if (!files.isEmpty() || (summary.tests as int) > 0) {
+        // fall through to the explicit checks below
+    }
+    if ((summary.tests as int) == 0) {
+        throw new GradleException("${taskName}: no JUnit cases were recorded under "
+                + "${resultsDir}; an empty or fully filtered run cannot pass")
+    }
+    if ((summary.executed as int) == 0) {
+        throw new GradleException("${taskName}: all ${summary.tests} cases were skipped; "
+                + "a fully skipped run cannot pass")
+    }
+    if (rejectSkips && (summary.skipped as int) > 0) {
+        throw new GradleException("${taskName}: ${summary.skipped} of ${summary.tests} cases "
+                + "were skipped although every selected class is guarded; expected none")
+    }
+    if ((summary.failures as int) > 0 || (summary.errors as int) > 0) {
+        throw new GradleException("${taskName}: ${summary.failures} failure(s) and "
+                + "${summary.errors} error(s) recorded; see ${resultsDir}")
+    }
+    summary
+}
+
+ext.junitSummary = summarizeJUnit
+ext.requireExecutedEvidence = requireExecutedEvidence
+ext.junitEvidenceJson = { Map<String, Object> summary -> JsonOutput.toJson(summary) }

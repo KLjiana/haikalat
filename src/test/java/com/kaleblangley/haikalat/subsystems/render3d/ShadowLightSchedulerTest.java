@@ -1,5 +1,17 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowSlotPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowDecision;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowLightScheduler;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowTileRect;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowSlotPlan;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;

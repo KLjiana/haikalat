@@ -99,7 +99,6 @@ final class UiAttachmentController implements AutoCloseable {
             requireFrameBoundary();
             if(candidate.graph.isExecuting())throw new IllegalStateException("UI attachment edits require a frame boundary");
             active=candidate;committed=true;pending=null;retiring.add(expected);
-            if(expected.compositor!=null)expected.compositor.close();
         }
         @Override public void close(){
             if(disposed)return;disposed=true;if(pending==this)pending=null;
@@ -107,12 +106,18 @@ final class UiAttachmentController implements AutoCloseable {
         }
     }
     void rebind(RenderGraph graph,String dependency) {
-        if(active!=null&&graph==active.graph)return;
-        if(active==null||!active.graph.isClosed())throw new IllegalStateException("UI rebind requires a retired previous RenderGraph; use prepareAttachment for a transaction");
+        if(active==null)throw new IllegalStateException("UI rebind requires an attached UI");
+        if(graph==active.graph)return;
+        requireFrameBoundary();
+        if(pending!=null)throw new IllegalStateException("UI attachment candidate is already pending");
+        if(graph.isExecuting())throw new IllegalStateException("UI attachment edits require a frame boundary");
+        pruneRetired();
         Binding previous=active;
         Binding candidate=build(graph,dependency,previous.prefix,previous.options,previous.recorder,previous.completion);
         active=candidate;
-        if(previous.compositor!=null)previous.compositor.close();
+        // The previous graph may still be waiting for its retirement fence.
+        // Keep the compositor alive until that graph is actually closed.
+        retiring.add(previous);
     }
     boolean isAttached(){return active!=null;}
     private void requireFrameBoundary() {
@@ -126,8 +131,15 @@ final class UiAttachmentController implements AutoCloseable {
         allocationPeakBytes=Math.max(allocationPeakBytes,Math.max(bytes,value.peakBytes()));
         return new UiCompositor.RuntimeStatistics(bytes,allocationPeakBytes,value.composites(),value.blurDraws(),value.draws(),value.cache());
     }
+    private void pruneRetired() {
+        retiring.removeIf(binding -> {
+            if (!binding.graph.isClosed()) return false;
+            if (binding.compositor != null) binding.compositor.close();
+            return true;
+        });
+    }
     private long retainedPixels(Binding excluded){
-        retiring.removeIf(binding->binding.graph.isClosed());
+        pruneRetired();
         long pixels=active==excluded?0:pixels(active);
         for(var binding:retiring)if(binding!=excluded&&binding!=active)pixels=Math.addExact(pixels,pixels(binding));
         if(pending!=null&&pending.candidate!=excluded&&pending.candidate!=active)

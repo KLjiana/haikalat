@@ -32,8 +32,8 @@ public record FogMediumSettings(float extinction, Vector3f albedo, Vector3f emis
 
     @Override public Vector3f albedo() { return new Vector3f(albedo); }
     @Override public Vector3f emission() { return new Vector3f(emission); }
-    Vector3f albedoInternal() { return albedo; }
-    Vector3f emissionInternal() { return emission; }
+    public Vector3f albedoInternal() { return albedo; }
+    public Vector3f emissionInternal() { return emission; }
     boolean hasEmission() { return emission.lengthSquared() > 0; }
 
     static Vector3f bounded(Vector3f value, float maximum, String name) {

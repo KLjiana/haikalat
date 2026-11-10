@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
@@ -49,16 +53,16 @@ class VolumetricGenerationGlTest {
                     assertEquals(original,pipeline.visualSettings()); assertSame(generation,pipeline.activeGenerationForTest());
                     assertEquals(revision,pipeline.visualSettingsRevision());
                     pipeline.applyVisualSettings(enabled); pipeline.execute(new GlRenderDevice(),1f/60);
-                    var owner=pipeline.activeGenerationForTest(); var resources=owner.volumetric.resources();
+                    var owner=pipeline.activeGenerationForTest(); var resources=owner.volumetric().resources();
                     assertTrue(resources.historyValid());
                     var scalar=new VisualSettings(1.2f,enabled.iblIntensity(),enabled.iblRotationRadians(),
                             enabled.directionalLightDirection(),enabled.directionalLightColor(),enabled.directionalLightIntensity(),
                             enabled.antiAliasingMode(),enabled.bloom(),enabled.outdoor(),enabled.volumetricFog());
                     pipeline.applyVisualSettings(scalar);
-                    assertSame(owner,pipeline.activeGenerationForTest()); assertSame(resources,owner.volumetric.resources());
+                    assertSame(owner,pipeline.activeGenerationForTest()); assertSame(resources,owner.volumetric().resources());
                     assertTrue(resources.historyValid()); assertEquals(scalar,pipeline.visualSettings());
                     pipeline.execute(new GlRenderDevice(),1f/60);
-                    VolumetricMediumGlTest.diagnosticsZero(owner.volumetric);
+                    VolumetricMediumGlTest.diagnosticsZero(owner.volumetric());
                 } finally { pipeline.close(); }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -73,22 +77,22 @@ class VolumetricGenerationGlTest {
                 var size=new Size(); var pipeline=pipeline(size,VolumetricFogSettings.disabled());
                 try {
                     pipeline.build(); var disabled=pipeline.activeGenerationForTest();
-                    assertNull(disabled.volumetric);
-                    assertFalse(disabled.graph.hasPass(VolumetricPassBuilder.MEDIUM_PASS));
+                    assertNull(disabled.volumetric());
+                    assertFalse(disabled.graph().hasPass(VolumetricPassBuilder.MEDIUM_PASS));
                     pipeline.applyVolumetricFog(fog(.2f));
                     var generation=pipeline.activeGenerationForTest(); assertTrue(disabled.isClosed());
-                    assertNotNull(generation.volumetric); assertFalse(pipeline.outdoorEnvironment().enabled());
-                    assertTrue(generation.graph.description().passes().stream()
+                    assertNotNull(generation.volumetric()); assertFalse(pipeline.outdoorEnvironment().enabled());
+                    assertTrue(generation.graph().description().passes().stream()
                             .filter(pass->pass.name().equals(VolumetricPassBuilder.MEDIUM_PASS))
                             .allMatch(pass->pass.borrowedExternalStorage().contains("volume.medium")));
                     pipeline.execute(new GlRenderDevice(),1f/60);
-                    var output=generation.volumetric.currentOutput(); assertTrue(output.available());
-                    assertEquals(generation.id,output.generationId()); assertEquals(3,output.grid().nx());
-                    VolumetricMediumGlTest.diagnosticsZero(generation.volumetric);
+                    var output=generation.volumetric().currentOutput(); assertTrue(output.available());
+                    assertEquals(generation.id(),output.generationId()); assertEquals(3,output.grid().nx());
+                    VolumetricMediumGlTest.diagnosticsZero(generation.volumetric());
                     pipeline.applyVolumetricFog(VolumetricFogSettings.disabled());
                     pipeline.drainRetirementsForTest();
                     assertTrue(generation.isClosed()); assertTrue(output.prefix().isClosed());
-                    assertNull(pipeline.activeGenerationForTest().volumetric);
+                    assertNull(pipeline.activeGenerationForTest().volumetric());
                 } finally { pipeline.close(); pipeline.close(); }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -113,26 +117,26 @@ class VolumetricGenerationGlTest {
                     }
                     pipeline.applyVolumetricFog(fog(.2f)); var generation=pipeline.activeGenerationForTest();
                     var observedColor=new java.util.concurrent.atomic.AtomicInteger();
-                    generation.graph.addPass("VolumeResizeObserver").computeOnly().dependsOn(pipeline.finalPassName())
+                    generation.graph().addPass("VolumeResizeObserver").computeOnly().dependsOn(pipeline.finalPassName())
                             .execute((res,cmd)->observedColor.set(res.colorAttachment(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_COLOR)));
                     pipeline.execute(new GlRenderDevice());
                     int sceneColor=observedColor.get(); assertTrue(sceneColor>0);
-                    int medium=generation.volumetric.resources().medium().id();
+                    int medium=generation.volumetric().resources().medium().id();
                     bytes=GlDebug.resources().estimatedBytes(); count=GlDebug.resources().liveResources().size();
                     for(int allocation=0;allocation<13;allocation++) {
                         System.setProperty("haikalat.test.failVolumeAllocation",Integer.toString(allocation));
                         try { assertThrows(IllegalStateException.class,()->pipeline.resize(65,33)); }
                         finally { System.clearProperty("haikalat.test.failVolumeAllocation"); }
-                        assertEquals(33,generation.graph.width()); assertEquals(33,generation.topology.width());
-                        assertEquals(medium,generation.volumetric.resources().medium().id());
+                        assertEquals(33,generation.graph().width()); assertEquals(33,generation.topology().width());
+                        assertEquals(medium,generation.volumetric().resources().medium().id());
                         assertEquals(bytes,GlDebug.resources().estimatedBytes()); assertEquals(count,GlDebug.resources().liveResources().size());
                         pipeline.execute(new GlRenderDevice()); assertEquals(sceneColor,observedColor.get());
                     }
                     pipeline.resize(65,33); size.width=65;size.height=33;
                     pipeline.execute(new GlRenderDevice()); assertSame(generation,pipeline.activeGenerationForTest());
-                    assertEquals(5,generation.volumetric.currentOutput().grid().nx());
-                    assertEquals(3,generation.volumetric.currentOutput().grid().ny());
-                    assertTrue(generation.volumetric.currentOutput().available());
+                    assertEquals(5,generation.volumetric().currentOutput().grid().nx());
+                    assertEquals(3,generation.volumetric().currentOutput().grid().ny());
+                    assertTrue(generation.volumetric().currentOutput().available());
                 } finally { pipeline.close(); }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -146,7 +150,7 @@ class VolumetricGenerationGlTest {
             try {
                 a.build(); b.build(); var device=new GlRenderDevice();
                 a.execute(device,1f/60); b.execute(device,1f/60);
-                var va=a.activeGenerationForTest().volumetric; var vb=b.activeGenerationForTest().volumetric;
+                var va=a.activeGenerationForTest().volumetric(); var vb=b.activeGenerationForTest().volumetric();
                 var previous=va.frameState().previous(); var other=vb.frameState().previous();
                 var failing=new RenderDevice() {
                     public RenderBackendKind backendKind(){return device.backendKind();}

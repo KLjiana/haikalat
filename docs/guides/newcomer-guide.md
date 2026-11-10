@@ -4,6 +4,8 @@
 
 建议按下面的顺序阅读：先运行 `EmptyWindowDemo`，再阅读 `MinimalDemo`，最后阅读主 Demo 和对应的 subsystem。大多数代码用例都直接取自仓库中的正式 Demo，示例中的省略部分只代表上下文代码，不代表另有一套 API。
 
+包归属已在 0.27.3 重组，定位类型请查[包迁移清单](../architecture/v0.27.3-render3d-package-migration.md)。日常选测以[测试指南](testing.md)为准，初次上手的编译示例不是每次文档或局部修改的强制清单。
+
 ## 1. 先建立整体认识
 
 Haikalat 是一个基于 Java 21、LWJGL 和 OpenGL 4.6 Core Profile 的实时渲染项目。代码按以下方向组织：
@@ -326,7 +328,7 @@ player.update(deltaSeconds, pose);
 1. **纯数据、算法或可复用协议**：放 `src/main/java/.../core` 或对应的无 GL subsystem，并先写 JVM 单元测试。
 2. **OpenGL 资源、状态或命令执行**：优先复用 `backend`、`CommandBuffer`、`RenderDevice` 和 `RenderGraph`，不要在业务 subsystem 中散落 raw GL 调用。
 3. **场景编排、相机、渲染队列和 pass**：放 `subsystems/render3d`；Demo 只负责组合场景和验证参数。
-4. **新功能演示或集成验收**：放 `src/demo/java`，资源放 `src/demo/resources`，并在 `gradle/*.gradle` 中注册清晰的运行/集成任务。
+4. **新功能演示或集成验收**：放 `src/demo/java`，资源放 `src/demo/resources`，优先扩展已有领域 Demo/case；确需独立入口时再在 `gradle/*.gradle` 中注册运行/集成任务。
 5. **行为约束或公共 API 改动**：同步更新 `docs/architecture`、相关 guide 和架构测试/公共 API catalog。
 
 尽量保持一个对象一个明确 owner。GL/native 资源实现 `AutoCloseable` 时，创建它的 context 线程通常也是关闭它的线程；跨线程场景请先阅读 [`docs/architecture/async-render-thread.md`](../architecture/async-render-thread.md) 和 [`docs/architecture/resource-ownership.md`](../architecture/resource-ownership.md)。
@@ -337,22 +339,19 @@ player.update(deltaSeconds, pose);
 | --- | --- | --- |
 | 编译主代码和普通单测 | `./gradlew compileJava test` | 否 |
 | 连 Demo 一起编译 | `./gradlew compileJava demoClasses test` | 否 |
-| 隐藏 GLFW context 的 smoke test | `./gradlew test -Dhaikalat.glSmoke=true --rerun-tasks` | 是 |
+| 隐藏 GLFW context 的 smoke test | `./gradlew glSmoke --tests "*GlContextSmokeTest"` | 是 |
 | 固定帧基线场景 | `./gradlew runDemoIntegration` | 是 |
 | 只验证最小 Demo | `./gradlew runMinimalIntegration` | 是 |
-| 运行全量检查 | `./gradlew check` | 视子任务而定，通常较慢 |
+| 全部无桌面检查 | `./gradlew check` | 否；不包含完整真实 GL/性能验收 |
 
-Windows PowerShell 中把 `./gradlew` 替换为 `.\gradlew.bat`。新提交至少先跑：
+Windows PowerShell 中把 `./gradlew` 替换为 `.\gradlew.bat`。按改动选择受影响的行为测试；纯文档改动只需核对事实与链接。Render3D 聚焦验收可使用 `.\verify.ps1`，范围与报告说明见[测试指南](testing.md)。
 
-```powershell
-.\gradlew.bat compileJava demoClasses test
-```
-
-改了窗口、RenderGraph、shader、纹理、renderer 或资源生命周期，再补对应的 `glSmoke` 或 `run...Integration`。主 Demo 运行时按 `F2` 可以打开诊断面板；自动化诊断入口是：
+改了窗口、RenderGraph、shader、纹理、renderer 或资源生命周期，再补带 `--tests` 过滤的 `glSmoke` 或相关 `run...Integration`。主 Demo 运行时按 `F2` 可以打开诊断面板；自动化诊断入口是：
 
 ```powershell
 .\gradlew.bat runDiagnosticsIntegration
-.\gradlew.bat runDiagnosticsBenchmarks
+# 仅在需要诊断开销测量时选择
+.\gradlew.bat runDiagnosticsBenchmarks -PextendedVerification=true
 ```
 
 常见问题：

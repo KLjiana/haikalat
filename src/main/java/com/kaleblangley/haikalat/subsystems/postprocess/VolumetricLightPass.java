@@ -5,7 +5,7 @@ import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad;
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;

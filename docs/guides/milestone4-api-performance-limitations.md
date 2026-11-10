@@ -1,5 +1,7 @@
 # Milestone 4 API、性能与限制
 
+> 历史阶段资料：API 说明与性能数据针对 Milestone 4 / v0.18 系列的原候选，不能据此推断 0.27.x 的最新能力或成本。当前范围见[能力矩阵](../planning/capability-matrix.md)，当前运行方式见[测试指南](testing.md)。
+
 本文记录 Haikalat 本体第四阶段的高级动画、GPU 特效实验、UI 动画诊断与综合场景事实。
 不包含 HaikalatHost、Minecraft、模组事件、网络同步或宿主适配。
 

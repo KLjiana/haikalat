@@ -1,6 +1,6 @@
 # 公共 API 分类合同
 
-状态：v0.23 M7 当前有效合同。
+状态：分类原则持续有效，2026-11-09 文档复核。当前类型清单以本目录 `.allowlist` 与门禁为准；0.27.3 包调整见[迁移清单](../v0.27.3-render3d-package-migration.md)，0.27.4 新增入口见[统一控制合同](../v0.27.4-render3d-feature-control.md)。
 
 v0.20 的域统计和包边界快照见
 [v0.20 API 与包边界清单](../v0.20-api-boundary-inventory.md)。
@@ -13,7 +13,7 @@ main source set 的每个 public 顶层类型必须恰好出现在一个域清�
 - `internal`：因跨包实现暂时 public，不构成兼容承诺，只允许本域或 Demo 证明调用。
 
 清单按 `animation`、`backend`、`core`、`runtime`、`render3d`、`postprocess`、`resources`、
-`ui`、`text`、`vfx`、`windowing` 十一个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免
+`scene`、`ui`、`text`、`vfx`、`windowing` 十三个真实代码域拆分。路线图初稿遗漏了 backend；v0.14 实施时补入，避免
 backend public 类型逃出穷尽校验。`animation` 在引擎演进阶段作为无 GL 调用的兄弟
 subsystem 独立管理；`resources` 保存宿主无关的资源身份、代次和 CPU 解码协议，两者均由
 架构测试禁止引用 backend 或直接调用 OpenGL；`vfx` 同样只保存效果资产、实例模拟和帧快照，

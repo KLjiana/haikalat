@@ -1,5 +1,12 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
 import org.junit.jupiter.api.Test;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.core.graph.GraphRecordingFixture;
@@ -9,11 +16,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.kaleblangley.haikalat.subsystems.render3d.SceneBufferChannel.*;
-import static com.kaleblangley.haikalat.subsystems.render3d.SceneSurfaceLayout.ReactiveMode.*;
+import static com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.*;
+import static com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout.ReactiveMode.*;
 import static com.kaleblangley.haikalat.backend.RenderFormat.R8;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -240,5 +248,23 @@ class SceneBufferRequirementsTest {
             assertTrue(outside.getMessage().contains("active callback"));
             inputs.endFrame();
         }
+    }
+
+    // Merged from the former DepthResolveDescriptorTest: the descriptor is the
+    // MSAA-plus-fog depth-resolve contract of this surface layout.
+    @Test
+    void depthResolveDescriptorValidatesFormatSamplesAndExactExtent() {
+        assertDoesNotThrow(() -> new com.kaleblangley.haikalat.subsystems.render3d.surface
+                .DepthResolveDescriptor("DEPTH24_STENCIL8", "DEPTH_COMPONENT", 4, 1,
+                1280, 720, 1280, 720));
+        assertThrows(IllegalArgumentException.class, () ->
+                new com.kaleblangley.haikalat.subsystems.render3d.surface.DepthResolveDescriptor(
+                        "DEPTH24_STENCIL8", "DEPTH_COMPONENT", 1, 1, 1, 1, 1, 1));
+        assertThrows(IllegalArgumentException.class, () ->
+                new com.kaleblangley.haikalat.subsystems.render3d.surface.DepthResolveDescriptor(
+                        "DEPTH24_STENCIL8", "DEPTH_COMPONENT", 4, 1, 2, 1, 1, 1));
+        assertThrows(IllegalArgumentException.class, () ->
+                new com.kaleblangley.haikalat.subsystems.render3d.surface.DepthResolveDescriptor(
+                        "DEPTH_COMPONENT", "DEPTH_COMPONENT", 4, 1, 1, 1, 1, 1));
     }
 }

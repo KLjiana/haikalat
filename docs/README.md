@@ -2,13 +2,32 @@
 
 本目录按用途组织项目文档。新文档应放入对应分类，避免继续堆放在 `docs` 根目录。
 
+## 当前入口
+
+2026-11-11 复核：当前构建为 0.27.5；协作指引、测试合同索引、`check` 去重、默认 GL 叶子、
+候选内容指纹与归档证据门禁已落地，正式性能、完整视觉、真实宿主与自动选测仍未完成。
+
+- 开发与验证：[测试指南](guides/testing.md)、[测试合同索引](guides/test-contracts.md)、[有侧重验收规范](guides/focused-acceptance-policy.md)。
+- 仓库协作：[根级 AGENTS.md](../AGENTS.md)，按任务路由到构建、测试和 Render3D 局部指引。
+- 当前实现：[能力矩阵](planning/capability-matrix.md)、[0.27.3 模块合同](architecture/v0.27.3-render3d-module-contracts.md)、[包迁移清单](architecture/v0.27.3-render3d-package-migration.md)、[0.27.4 统一控制合同](architecture/v0.27.4-render3d-feature-control.md)。
+- 当前结果：[0.27.5 验收（治理范围）](releases/v0.27.5-review.md)、[0.27.4 验收](releases/v0.27.4-review.md)、[复审修复](releases/v0.27.4-review-fixes-2026-11-09.md)；聚焦通过不等于正式发布就绪。
+- 治理进度：[0.27.5 Agent 指引与测试治理计划](planning/v0.27.5-agent-and-test-governance.md)、[测试治理实施记录](history/v0.27.5-test-governance-2026-11-09.md)。
+- 本轮整理：[文档清理记录](history/v0.27.5-documentation-cleanup-2026-11-09.md)。
+
+阅读规则：未标历史的指南用于当前操作；带版本的计划、性能和发布报告保留原候选身份，其中“当前”“必须”和测试矩阵均限定于原记录。旧源码路径可能因迁移失效，`build/` 证据可能未随检出保留；缺失证据不能作为本次可复用通过，也不能替换为新路径冒充原证明。代码/合同已演进时先看上述当前入口。
+
 ## 规划
 
-项目目标、当前能力和真正尚未完成的工作。
+项目目标、当前能力与后续工作：
 
 - [项目目标](planning/project-goals.md)
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
 - [后续计划](planning/future-plans.md)
+
+### 版本计划与设计快照
+
+以下保存各阶段的设计依据与未完成项，不是每次开发必须重做的任务清单；计划是否实现以能力矩阵和对应验收记录为准。
+
 - [v0.16 场景扩展、可见性裁剪与 Render Queue 实施计划](planning/v0.16-scene-scalability-and-visibility.md)
 - [v0.17 真实场景压力与 CPU 提交收敛实施计划](planning/v0.17-real-scene-cpu-submission-consolidation.md)
 - [v0.17.1 RenderGraph 资源预览与帧调试可视化实施计划](planning/v0.17.1-rendergraph-resource-preview.md)
@@ -38,14 +57,15 @@
 - [0.27.1 GTAO 模块边界与渲染装配收敛计划](planning/v0.27.1-gtao-module-boundaries.md)
 - [0.27.2 共享场景表面与输入合同收敛计划](planning/v0.27.2-shared-scene-surface-contracts.md)
 - [0.27.3 Render3D 模块边界收敛与包结构重组](planning/v0.27.3-render3d-module-boundaries-and-packages.md)
-- [GTAO 与共享阴影修复指南](planning/gtao-repair-guide.md)
+- [0.27.4 Render3D 统一功能控制与模块开关计划](planning/v0.27.4-render3d-feature-control.md)
+- [0.27.5 Agent 指引与测试治理计划](planning/v0.27.5-agent-and-test-governance.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构
 
-- [诊断系统合同](architecture/diagnostics-contract.md)
+渲染边界、抽象准入原则和已有抽象审计。版本合同的替代关系与当前入口见页首；旧审计保留当时结果。
 
-渲染边界、抽象准入原则和已有抽象审计。
+- [诊断系统合同](architecture/diagnostics-contract.md)
 
 - [渲染边界约定](architecture/render-boundaries.md)
 - [v0.25.0 体积雾坐标、绑定、合成与资源合同](architecture/v0.25.0-volumetric-contract.md)
@@ -54,9 +74,19 @@
 - [v0.27.1 GTAO 开工与修正基线](releases/v0.27.1-baseline.md)
 - [v0.27.1 GTAO 复核记录](releases/v0.27.1-review.md)
 - [v0.27.2 共享场景表面合同](architecture/v0.27.2-shared-scene-surface-contract.md)
+- [v0.27.3 Render3D 模块边界合同](architecture/v0.27.3-render3d-module-contracts.md)
+- [v0.27.3 Render3D 包迁移清单](architecture/v0.27.3-render3d-package-migration.md)
+- [v0.27.4 Render3D 统一功能控制合同](architecture/v0.27.4-render3d-feature-control.md)
 - [v0.27.2 开工基线](releases/v0.27.2-baseline.md)
 - [v0.27.2 共享场景表面验收](releases/v0.27.2-review.md)
 - [v0.27.2 独立验收（2026-11-09）](releases/v0.27.2-independent-review-2026-11-09.md)
+- [v0.27.3 基线](releases/v0.27.3-baseline.md)
+- [v0.27.3 验收记录](releases/v0.27.3-review.md)
+- [v0.27.3 独立验收（2026-11-09）](releases/v0.27.3-independent-review-2026-11-09.md)
+- [v0.27.4 基线](releases/v0.27.4-baseline.md)
+- [v0.27.4 验收记录](releases/v0.27.4-review.md)
+- [v0.27.4 复审修复](releases/v0.27.4-review-fixes-2026-11-09.md)
+- [v0.27.5 验收记录（治理范围）](releases/v0.27.5-review.md)
 - [v0.27.0 模块化开工基线](performance/v0.27.0-modularity-baseline.md)
 - [v0.27.0 RTX 3050 Laptop 本机预算政策与已有样本复核](performance/v0.27.0-rtx3050-budget-policy.md)
 - [v0.27.0 第一阶段验收记录（体积雾边界与生命周期试点）](releases/v0.27.0-phase1-review.md)
@@ -91,18 +121,23 @@
 开发、运行和验证项目时使用的操作指南。
 
 - [测试指南](guides/testing.md)
+- [测试合同索引](guides/test-contracts.md)
+- [有侧重验收规范](guides/focused-acceptance-policy.md)
+- [UI Compositor](guides/ui-compositor.md)
 - [现代 UI 动画、合成与 VFX](guides/ui-animation-compositor-vfx.md)
 - [序列化场景 v1](guides/serialized-scenes.md)
+- [glTF Animation Graph sidecar](guides/gltf-animation-state-machine.md)
 - [场景异步加载与热重载](guides/scene-asset-loading.md)
 - [Demo 职责与 API 覆盖](guides/demo-responsibilities.md)
 - [Render3D 材质、透明与阴影指南](guides/render3d-materials-and-shadows.md)
-- [Render3D 室外环境与体积阳光指南](guides/render3d-outdoor-environment.md)
+- [Render3D 天空与室外迁移](guides/render3d-outdoor-environment.md)
+- [多光源物理体积雾](guides/render3d-volumetric-fog.md)
 - [Milestone 4 API、性能与限制](guides/milestone4-api-performance-limitations.md)
 - [Windows IME 适配与人工验收矩阵](guides/windows-ime.md)
 
 ## 历史
 
-已完成工作和版本演进记录。
+版本演进与历史验收记录，包括失败、未测和未发布项；不以版本号推断已经完成。
 
 - [变更记录](history/changelog.md)
 - [v0.8–v0.15 已归档实施计划](history/archived-plans.md)
@@ -130,8 +165,6 @@
 - [v0.25.0 合并收尾与 v0.25.1 开工记录](releases/v0.25.0-merge-cleanup-2026-10-08.md)
 - [v0.25.0 体积雾开工基线](performance/v0.25.0-volumetric-baseline.md)
 - [v0.21 M0 基线报告](releases/v0.21-m0-baseline.md)
-- [序列化场景与角色 descriptor 指南](guides/serialized-scenes.md)
-- [glTF Animation Graph sidecar 指南](guides/gltf-animation-state-machine.md)
 - [2026-08-06 v0.20.2 外部动画与现代 UI 性能记录](performance/v0.20.2-modern-ui-2026-08-06.md)
 - [2026-08-08 v0.22.0 文本与字体特效专项记录](performance/v0.22.0-text-effects-2026-08-08.md)
 - [2026-08-19 v0.23.1 Render3D 阴影性能与缓存记录](performance/v0.23.1-render3d-shadows-2026-08-19.md)

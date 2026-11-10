@@ -30,10 +30,6 @@ tasks.register('runSceneScalabilityDemo', JavaExec) {
 tasks.register('sceneVisibilityJvmVerification', Test) {
     group = 'verification'
     description = 'Validates bounds, world transforms, frusta and primitive render-queue sorting.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.core.mesh.Bounds3fTest'
         includeTestsMatching 'com.kaleblangley.haikalat.core.mesh.MeshDataBoundsTest'
@@ -47,10 +43,6 @@ tasks.register('sceneVisibilityJvmVerification', Test) {
 tasks.register('sceneCharacterJvmVerification', Test) {
     group = 'verification'
     description = 'Validates serialized character descriptors, Graph sidecars and reload transactions.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneJsonParserTest'
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SceneAssetServiceTest'
@@ -67,10 +59,6 @@ tasks.register('sceneCharacterJvmVerification', Test) {
 tasks.register('serializedSceneStabilityIntegration', Test) {
     group = 'verification'
     description = 'Runs the bounded 3,600-frame/100-reload serialized-scene CPU soak.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter { includeTestsMatching 'com.kaleblangley.haikalat.subsystems.scene.SerializedSceneStabilityTest' }
     outputs.upToDateWhen { false }
     mustRunAfter 'sceneCharacterJvmVerification'
@@ -79,10 +67,6 @@ tasks.register('serializedSceneStabilityIntegration', Test) {
 tasks.register('sceneVisibilityGlVerification', Test) {
     group = 'verification'
     description = 'Validates real-GL camera/shadow queues, resize and SceneFrame recovery.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.SceneVisibilityGlTest' }
     outputs.upToDateWhen { false }
@@ -117,10 +101,6 @@ tasks.register('runSceneVisibilityResizeIntegration', JavaExec) {
 tasks.register('runSceneVisibilityShadowIntegration', Test) {
     group = 'verification'
     description = 'Validates independent camera and directional-shadow visibility queues.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.integration.SceneVisibilityGlTest.cameraAndShadowQueuesAreIndependentAndDisabledUsesSameSingleUpdatePath'
@@ -200,10 +180,6 @@ tasks.register('runGltfSceneScalabilityDemo', JavaExec) {
 tasks.register('sceneSubmissionJvmVerification', Test) {
     group = 'verification'
     description = 'Validates transform revisions, fixed matrices and primitive mat4 snapshots.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.render3d.TransformRevisionTest'
         includeTestsMatching 'com.kaleblangley.haikalat.core.command.CommandStreamMatrixArenaTest'
@@ -216,10 +192,6 @@ tasks.register('sceneSubmissionJvmVerification', Test) {
 tasks.register('sceneSubmissionGlVerification', Test) {
     group = 'verification'
     description = 'Validates real-GL static caches, independent queues and failure recovery.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.SceneVisibilityGlTest' }
     outputs.upToDateWhen { false }
@@ -228,10 +200,6 @@ tasks.register('sceneSubmissionGlVerification', Test) {
 tasks.register('glResourceLifecycleVerification', Test) {
     group = 'verification'
     description = 'Validates context deletion epochs, native id reuse and context isolation.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter { includeTestsMatching 'com.kaleblangley.haikalat.integration.GlResourceLifecycleTest' }
     outputs.upToDateWhen { false }
@@ -408,10 +376,6 @@ tasks.named('localGlVerification') {
 tasks.register('sceneAssetGlVerification', Test) {
     group = 'verification'
     description = 'Validates staged glTF uploads, exact-generation leases and transactional serialized-scene replacement.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.integration.SerializedSceneGlTest'

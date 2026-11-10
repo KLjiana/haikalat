@@ -26,7 +26,7 @@ import com.kaleblangley.haikalat.subsystems.animation.PoseBuffer;
 import com.kaleblangley.haikalat.subsystems.animation.RootMotionDelta;
 import com.kaleblangley.haikalat.subsystems.animation.Skeleton;
 import com.kaleblangley.haikalat.subsystems.animation.TwoBoneIkSolver;
-import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut;
+import com.kaleblangley.haikalat.subsystems.postprocess.color.ColorGradingLut;
 import com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;

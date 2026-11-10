@@ -1,0 +1,146 @@
+// No-desktop verification entry points: API/architecture guards, scene JVM
+// contracts, the dependency lock and embedded presentation checks.
+//
+// Kept out of the root build file so that build.gradle only carries plugins,
+// toolchain, dependencies, source sets, standard artifacts and script wiring.
+// All cross-script references use lazy task names (`dependsOn 'publicApiGuard'`,
+// `mustRunAfter 'architectureGuard'`), so apply order stays irrelevant.
+
+// Single owner of the JUnit plumbing shared by every Test task in this build.
+// Applied before the other responsibility scripts, so their tasks inherit these
+// defaults. A task keeps its own filters, system properties, timeouts and any
+// explicit classpath override; only the identical declarations live here.
+def testTempRoot = layout.buildDirectory.dir('tmp/junit')
+
+tasks.withType(Test).configureEach {
+    if (testClassesDirs.isEmpty()) testClassesDirs = sourceSets.test.output.classesDirs
+    if (classpath.isEmpty()) classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    dependsOn tasks.named('testClasses')
+    // `@TempDir` deletion on Windows intermittently fails when an external
+    // handle (indexer/AV) still holds a file in the shared system temp folder.
+    // Pointing the forked test JVM at a build-local temp root keeps that
+    // environment noise inside build/ without weakening any assertion.
+    doFirst { testTempRoot.get().asFile.mkdirs() }
+    systemProperty 'java.io.tmpdir', testTempRoot.get().asFile.absolutePath
+}
+
+def guardTestDefaults = { Test guard ->
+    guard.group = 'verification'
+    guard.dependsOn tasks.named('testClasses')
+    guard.testClassesDirs = sourceSets.test.output.classesDirs
+    guard.classpath = sourceSets.test.runtimeClasspath
+    guard.useJUnitPlatform()
+}
+
+tasks.register('publicApiGuard', Test) {
+    description = 'Validates the complete public API catalog, stable signatures and migration records.'
+    guardTestDefaults(delegate)
+    filter {
+        includeTestsMatching '*.ArchitectureBoundaryTest.wholeProjectPublicTypesMatchAllowlist'
+        includeTestsMatching '*.ArchitectureBoundaryTest.stableSignaturesDoNotExposeImplementationLibraries'
+        includeTestsMatching '*.ArchitectureBoundaryTest.removedStableTypesRequireMigrationRecord'
+        includeTestsMatching '*.PbrPublicApiSurfaceTest'
+        includeTestsMatching '*.UiPublicApiSurfaceTest'
+        includeTestsMatching '*.GltfArchitectureTest.publicTypesMatchAllowlist'
+    }
+}
+
+tasks.register('architectureGuard', Test) {
+    description = 'Validates package dependencies, OpenGL call sites and production escape hatches.'
+    guardTestDefaults(delegate)
+    filter {
+        [
+                '*.ArchitectureBoundaryTest.internalTypesStayInsideTheirSubsystemOrDemoProof',
+                '*.ArchitectureBoundaryTest.render3dModulesDoNotDependOnPipelineImplementation',
+                '*.ArchitectureBoundaryTest.render3dRootKeepsOnlyDocumentedEntriesAndValues',
+                '*.ArchitectureBoundaryTest.render3dKeepsSceneAndShadowStoragePrivate',
+                '*.ArchitectureBoundaryTest.postProcessDoesNotDependOnRender3d',
+                '*.ArchitectureBoundaryTest.backendDoesNotDependOnHigherLayers',
+                '*.ArchitectureBoundaryTest.coreAndRuntimeDoNotDependOnSubsystems',
+                '*.ArchitectureBoundaryTest.coreDoesNotDependOnRuntime',
+                '*.ArchitectureBoundaryTest.uiRemainsASiblingSubsystemWithoutReverseDependencies',
+                '*.ArchitectureBoundaryTest.textRemainsRendererNeutralAndUiIndependent',
+                '*.ArchitectureBoundaryTest.markdownDocumentDoesNotExposeCommonMarkImplementationTypes',
+                '*.ArchitectureBoundaryTest.uiCreatesTheSharedTextSystemOnlyThroughItsTextAdapter',
+                '*.ArchitectureBoundaryTest.nativeUiLibrariesStayInsideTheirAdapters',
+                '*.ArchitectureBoundaryTest.uiLogicPackagesDoNotIssueOpenGlCalls',
+                '*.ArchitectureBoundaryTest.productionCodeDoesNotUseCustomCommandEscapeHatch',
+                '*.ArchitectureBoundaryTest.unverifiedNativeModelEntryPointAndDependencyStayRemoved',
+                '*.GltfArchitectureTest.cpuLoaderDoesNotDependOnSubsystemOrInvokeOpenGl',
+                '*.GltfArchitectureTest.backendDoesNotDependOnGltfPackages'
+        ].each { includeTestsMatching it }
+    }
+}
+
+tasks.register('sceneJvmVerification', Test) {
+    description = 'Validates serialized scene schema, catalog identity and async CPU loading.'
+    guardTestDefaults(delegate)
+    filter {
+        ['*.SceneJsonParserTest', '*.SceneAssetServiceTest',
+         '*.GltfImageDecoderTest', '*.ResourceCatalogTest'].each { includeTestsMatching it }
+    }
+}
+
+tasks.register('dependencyLockGuard') {
+    group = 'verification'
+    description = 'Verifies the committed dependency lock and the removed Assimp dependency contract.'
+    inputs.files 'build.gradle', 'gradle.lockfile'
+    doLast {
+        File lock = file('gradle.lockfile')
+        if (!lock.isFile()) throw new GradleException('Missing gradle.lockfile; run dependencies --write-locks')
+        String buildText = file('build.gradle').getText('UTF-8')
+        String lockText = lock.getText('UTF-8')
+        String removedNativeModule = 'lwjgl-' + 'assimp'
+        if (buildText.toLowerCase(Locale.ROOT).contains(removedNativeModule)
+                || lockText.toLowerCase(Locale.ROOT).contains(removedNativeModule)) {
+            throw new GradleException('Assimp must not re-enter the v0.14 dependency graph')
+        }
+        // Coordinates derive from the single version source in build.gradle, so the
+        // lock and the declared dependency graph cannot drift into two truths.
+        ["org.lwjgl:lwjgl-opengl:${project.lwjglVersion}",
+         "org.joml:joml:${project.jomlVersion}",
+         "com.fasterxml.jackson.core:jackson-core:${project.jacksonVersion}",
+         "org.commonmark:commonmark:${project.commonmarkVersion}"].each { coordinate ->
+            if (!lockText.contains(coordinate)) {
+                throw new GradleException("Dependency lock is missing $coordinate")
+            }
+        }
+    }
+}
+
+tasks.register('embeddedJvmVerification', Test) {
+    description = 'Validates embedded runtime, presentation contracts, external camera and graph imports.'
+    guardTestDefaults(delegate)
+    filter {
+        [
+                '*.PresentationTargetTest',
+                '*.ExternalCameraTest',
+                '*.HaikalatRuntimeTest',
+                '*.RenderGraphTest.importedPresentationTargetCanBeReplacedWithoutRecompilingTopology',
+                '*.RenderGraphTest.zeroSizedPresentationTargetSkipsBeforeRecordingOrSubmission',
+                '*.ArchitectureBoundaryTest.embeddedRenderingContractsStayHostAgnostic',
+                '*.ArchitectureBoundaryTest.embeddedRuntimeAndPipelineNeverSwapHostBuffers'
+        ].each { includeTestsMatching it }
+    }
+}
+
+tasks.register('embeddedGlVerification', Test) {
+    group = 'verification'
+    description = 'Validates non-zero host FBO rendering, ownership, resize, camera and GL state restoration.'
+    guardTestDefaults(delegate)
+    systemProperty 'haikalat.glSmoke', 'true'
+    filter {
+        includeTestsMatching '*.EmbeddedPresentationGlTest'
+        includeTestsMatching '*.UiRendererGlTest.explicitPresentationTargetReceivesUiWithoutTouchingDefaultFramebuffer'
+    }
+}
+
+tasks.named('embeddedGlVerification') {
+    mustRunAfter 'glSmoke'
+}
+// `localGlVerification` is registered by demo-tasks.gradle (applied later), so the
+// aggregate keeps its historical embedded coverage through a lazy match.
+tasks.matching { it.name == 'localGlVerification' }.configureEach {
+    dependsOn 'embeddedGlVerification'
+}

@@ -1,5 +1,7 @@
 # Demo 职责与 API 覆盖
 
+> 2026-11-09 复核：本文是各 Demo 的用途索引，命令示例按需选择，不能整页顺序执行。长测/性能及含这些任务的聚合入口须显式启用扩展验证；日常入口以[测试指南](testing.md)为准。原版本数值保留原环境和运行身份。
+
 Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景证明一组能力；纯数据、失败路径、资源关闭和边界校验由 unit/GL smoke tests 覆盖。
 
 | Demo | 主要职责 | 重点 API / 指标 | 不负责 |
@@ -27,7 +29,7 @@ Demo 不要求每个公开 API 都重复出现，而是用互不重叠的场景�
 .\gradlew.bat runAnimationGraphIntegration
 .\gradlew.bat runAnimationAdditiveIntegration
 .\gradlew.bat runAnimationConstraintIntegration
-.\gradlew.bat localAnimationVerification
+.\gradlew.bat localAnimationVerification -PextendedVerification=true
 ```
 
 该 Demo 用手工构造的三段关节链证明纯 JVM 动画 subsystem。`--scenario` 接受
@@ -45,7 +47,7 @@ Showcase 像素入口串联。
 
 ```powershell
 .\gradlew.bat runVfxIntegration
-.\gradlew.bat runVfxCurveBenchmark
+.\gradlew.bat runVfxCurveBenchmark -PextendedVerification=true
 ```
 
 `VfxDemo` 默认展示 curved preset，可通过 `--linear` 切换到 0.18.0 线性属性路径。固定
@@ -251,8 +253,8 @@ main class 参数：
 采样 1000 帧的任务：
 
 ```powershell
-.\gradlew.bat runPostV08Benchmarks
-.\gradlew.bat runInstanceShadowBenchmarks
+.\gradlew.bat runPostV08Benchmarks -PextendedVerification=true
+.\gradlew.bat runInstanceShadowBenchmarks -PextendedVerification=true
 ```
 
 详细数据见 `docs/performance/post-v0.8-bloom-2026-07-15.md`。

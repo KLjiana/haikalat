@@ -1,5 +1,14 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
@@ -9,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.opengl.GL;
 
-import static com.kaleblangley.haikalat.subsystems.render3d.SceneBufferChannel.*;
+import static com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 

@@ -1,11 +1,10 @@
 # 多光源体积雾
 
-2026-10-08 更新：按新规范第 0 节，当前普通功能范围已签收为 REUSED_PASS；性能未重新评估、历史欠账保留。版本仍为 0.24.3，正式 0.25.0 尚未发布；不以性能未测阻断普通功能使用/提交。详见[签收报告](../releases/v0.25.0-functional-acceptance-2026-10-08.md)。
+2026-11-09 文档复核：当前工作树构建版本为 0.27.4。多光源物理体积雾已接入生产管线，资源 owner 位于 `render3d.volumetric`；统一启停和批量配置见 [0.27.4 控制合同](../architecture/v0.27.4-render3d-feature-control.md)。
 
+三维介质、多光源与阴影、透明合成、独立历史以及场景 Demo 的原始证明见 [0.25 功能签收](../releases/v0.25.0-functional-acceptance-2026-10-08.md)。Spot 面板剔除和父候选性能结果保留其[原始身份](../performance/v0.25.0-panel-cone-cull.md)，不作为当前候选性能值。0.27.4 功能复核见[验收记录](../releases/v0.27.4-review.md)，正式性能和完整视觉未因此自动签收。
 
-当前开发实现包含三维介质、多光源与分配阴影、透明合成、独立体积历史，以及四场景 Demo 和 schema 2 预设。旧正式二维 Outdoor 体积路径已迁移；保留独立参考与仍有用途的天空设置。
-
-已采用 Spot 面板保守剔除，受影响 GL/独立参考与新临时包短启动通过。构建版本仍为 0.24.3，0.25.0 尚未发布；新候选正式性能未执行，父候选预算失败和 CPU 可比性问题保留。最新身份、复用范围与未完成项见 [v2 验收汇总](../releases/v0.25.0-focused-acceptance-v2-report.md) 和 [采用报告](../performance/v0.25.0-panel-cone-cull.md)。
+旧二维 Outdoor 体积路径已经退役，独立参考仍按[归档说明](outdoor-reference.md)使用；天空设置继续保留。
 
 ## 配置
 
@@ -65,7 +64,7 @@ light index 是确定性场景工厂中的顺序，不是 transient GPU index。
 `captureVolumetricSlice(field,layer)` 是显式同步导出，只在有效完成帧可用。
 介质、q、S/T、reject 和 reactive-prefix 分别输出 2D PNG 与 `.rgba.f32`；后者为 big-endian width/height/layer 三个 int，
 随后是行序 RGBA float。PNG 为诊断显示变换，数值比较应使用原始 float。
-prefix 的物理边界字段为 Nz+1，实际 storage 为 Nz+9，额外层保存 opaque depth、near mask 与灯索引；实际卷和历史均由 PipelineGeneration 独立拥有，双视图不共享历史。
+prefix 的物理边界字段为 Nz+1，实际 storage 为 Nz+9，额外层保存 opaque depth、near mask 与灯索引；实际卷和历史由 `volumetric.VolumetricResources` 持有，`VolumetricPassBuilder` 管理其生命周期，`PipelineGeneration` 协调借用/转交；双视图不共享历史。
 
 4K balanced 含 emission 的保守 3D/参数资源为 108,151,568 bytes；正常单采样额外颜色/Reactive 后为 182,801,168 bytes。
 HDRVFX 单采样 soft depth 另计 4 bytes/pixel；超出 192 MiB 的组合在候选阶段拒绝。HIGH 不保证适用于 4K。
@@ -73,13 +72,15 @@ HDRVFX 单采样 soft depth 另计 4 bytes/pixel；超出 192 MiB 的组合在�
 
 ## 测量入口
 
+以下按需选择；质量矩阵、性能与含它们的聚合任务显式启用扩展模式，不是日常功能验收的前置清单。
+
 ```powershell
 .\gradlew.bat localRender3dV0250FoundationVerification
-.\gradlew.bat runRender3dVolumetricFogQuality
-.\gradlew.bat runRender3dVolumetricFogQualityTemporal
-.\gradlew.bat localRender3dV0250Verification
-.\gradlew.bat runRender3dVolumetricFogBenchmarks
-.\gradlew.bat runRender3dVolumetricFogCpuAttribution --args='--only=budget-128-1080p --cpu-isolation'
+.\gradlew.bat runRender3dVolumetricFogQuality -PextendedVerification=true
+.\gradlew.bat runRender3dVolumetricFogQualityTemporal -PextendedVerification=true
+.\gradlew.bat localRender3dV0250Verification -PextendedVerification=true
+.\gradlew.bat runRender3dVolumetricFogBenchmarks -PextendedVerification=true
+.\gradlew.bat runRender3dVolumetricFogCpuAttribution -PextendedVerification=true --args='--only=budget-128-1080p --cpu-isolation'
 ```
 
 质量任务在原生 1280×720 渲染上读取预先固定的 stride=4 像素，使用整个 320×180 ROI。

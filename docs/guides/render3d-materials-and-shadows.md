@@ -156,15 +156,15 @@ old/new membership 并集和离开范围后的旧 tile 清理；在已提交的�
 pass failure，恢复帧必须以 `FRAME_FAILURE` 重建 dirty view。窗口同宽高比 resize 不重建 fixed atlas，
 也不会丢弃可复用的 view plan。
 
-专项入口：
+专项入口按需选择；benchmark/聚合验证显式启用扩展模式，不需依次运行：
 
 ```powershell
-.\gradlew.bat runRender3dDynamicShadowIntegration --rerun-tasks
-.\gradlew.bat runRender3dShadowCullingBenchmarks --rerun-tasks
-.\gradlew.bat localShadowCullingVerification --rerun-tasks
+.\gradlew.bat runRender3dDynamicShadowIntegration
+.\gradlew.bat runRender3dShadowCullingBenchmarks -PextendedVerification=true
+.\gradlew.bat localShadowCullingVerification -PextendedVerification=true
 ```
 
-## GTAO 环境遮蔽（v0.23.2，0.27.1 边界迁移中）
+## GTAO 环境遮蔽（已迁入 render3d.ao）
 
 GTAO 默认关闭，只对包含 metallic-roughness PBR 材质且启用了 HDR 的场景提供正式保证。通过同一个
 `PostProcessSettings` 配置入口启用：
@@ -209,7 +209,7 @@ pipeline.applyGtao(pipeline.gtao().withEnabled(false));
 
 半径、强度、厚度、quality 和时域策略更新保留图及私有存储：估计值变化拒绝旧 AO 像素，historyWeight 可以保留历史内容，depthRejectionThreshold 触发可诊断的策略失效。enabled 和 temporal 变化采用完整候选事务。停用会关闭专属程序和 history，明确清除 PBR 的 AO uniform/纹理/sampler。独立 depth prepass 是保留的内部兼容路径，默认 shared 路径不重复绘制这条 prepass。
 
-本机 NONE／TAA／MSAA4 首帧、相机移动和奇数尺寸已通过原生像素与打包 JAR 复验。MSAA 冷启动由表面绘制绑定顺序修复，保留原 GTAO 算法。性能为 `NOT_EVALUATED`；本轮没有重新启动 Minecraft，也没有证明地形或光照的统一视觉整合。状态与预算范围见 [GTAO 模块合同](../architecture/v0.27.1-gtao-module-contract.md)和[复核记录](../releases/v0.27.1-review.md)。
+0.27.1 原复核中的本机 NONE／TAA／MSAA4 首帧、相机移动和奇数尺寸已通过原生像素与打包 JAR 复验。MSAA 冷启动由表面绘制绑定顺序修复，保留原 GTAO 算法。性能为 `NOT_EVALUATED`；该轮没有重新启动 Minecraft，也没有证明地形或光照的统一视觉整合。状态与预算范围见 [GTAO 模块合同](../architecture/v0.27.1-gtao-module-contract.md)和[复核记录](../releases/v0.27.1-review.md)。
 
 ## Fog、MSAA 与资源生命周期
 
@@ -219,16 +219,16 @@ format、sample 和 extent；关闭 MSAA 时直接复用 geometry depth，不分
 
 ## 验证
 
+以下为相关入口菜单；日常可直接使用 `.\verify.ps1`，或按改动选其中的领域测试/集成场景。完整选择规则见[测试指南](testing.md)。
+
 ```powershell
 .\gradlew.bat compileJava demoClasses test
-.\gradlew.bat runRender3dV023Integration --rerun-tasks
-.\gradlew.bat runRender3dShadowBudgetIntegration --rerun-tasks
-.\gradlew.bat localGlVerification --rerun-tasks
+.\gradlew.bat runRender3dV023Integration
+.\gradlew.bat runRender3dShadowBudgetIntegration
 ```
 
 隐藏集成入口固定 12 帧，中途从 640x360 resize 到 800x450，并断言四类 queue、MASK caster、
-4x depth resolve、4 级 cascade、固定 atlas、缓存和 diagnostics。无桌面环境只运行前三项中的
-JVM 编译/测试；GL 入口需要 OpenGL 4.6 Core 与 GLFW 窗口系统。窗口化多灯检查可执行：
+4x depth resolve、4 级 cascade、固定 atlas、缓存和 diagnostics。无桌面环境只运行 JVM 编译/测试；GL 入口需要 OpenGL 4.6 Core 与 GLFW 窗口系统。窗口化多灯检查可执行：
 
 ```powershell
 .\gradlew.bat runRender3dShadowBudgetDemo

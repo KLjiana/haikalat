@@ -1,5 +1,10 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.LightTablePacker;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.LightVolumePacker;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;

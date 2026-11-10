@@ -24,7 +24,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
-import com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;

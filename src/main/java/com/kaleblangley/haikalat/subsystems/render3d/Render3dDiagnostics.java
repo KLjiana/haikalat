@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingDiagnostics;
+
 import java.util.List;
 
 /** On-demand, bounded Render3D diagnostic snapshot; no per-object lists are retained. */

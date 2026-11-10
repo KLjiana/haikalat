@@ -80,11 +80,11 @@ public final class Transform {
                 .scale(scale);
     }
 
-    long revision() {
+    public long revision() {
         return revision;
     }
 
-    static long mutationEpoch() {
+    public static long mutationEpoch() {
         return MUTATION_EPOCH.get();
     }
 

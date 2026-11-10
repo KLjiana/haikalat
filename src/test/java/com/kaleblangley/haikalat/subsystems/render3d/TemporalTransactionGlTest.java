@@ -1,5 +1,15 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.TemporalDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalSceneState;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
+
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -87,7 +97,7 @@ class TemporalTransactionGlTest {
                 binding.palette(1.0f);
                 pipeline.execute(device);
                 TaaHistory history = pipeline.activeGenerationForTest()
-                        .postProcess.taaHistoryForTest();
+                        .postProcess().taaHistoryForTest();
                 int readColor = history.readColorTexture();
                 int readDepth = history.readDepthTexture();
                 long cameraToken = pipeline.temporalFrameStateForTest().previous().frameSequence();

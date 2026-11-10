@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricHistoryPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
@@ -78,7 +81,7 @@ class VolumetricWindGlTest {
                         pipeline.build();
                         var device = new GlRenderDevice();
                         var failing = failingAfterExecution(device);
-                        var volume = pipeline.activeGenerationForTest().volumetric;
+                        var volume = pipeline.activeGenerationForTest().volumetric();
                         for (int frame = 0; frame < 180; frame++) {
                             if (frame == 60 || frame == 120) {
                                 var previous = volume.frameState().previous();

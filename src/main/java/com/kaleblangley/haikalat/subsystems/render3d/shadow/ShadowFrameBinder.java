@@ -1,0 +1,62 @@
+package com.kaleblangley.haikalat.subsystems.render3d.shadow;
+
+import com.kaleblangley.haikalat.subsystems.render3d.Camera;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView;
+
+import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.core.command.CommandBuffer;
+import org.joml.Matrix4f;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Frame-bound CSM and shadow-mapping uniforms.
+ *
+ * <p>This replaces the old {@code LightingBinder} responsibility of uploading
+ * cascade matrices and a directional shadow selector.  Shadow light selection
+ * now travels through the unified light table as a frameLightIndex instead of
+ * a per-type array position.</p>
+ */
+public final class ShadowFrameBinder {
+    public void bind(CommandBuffer cmd, ShaderProgram shader, Camera camera,
+              Matrix4f directionalLightSpace, List<Matrix4f> cascadeMatrices,
+              float[] cascadeSplits, DirectionalCascadeSettings cascadeSettings,
+              ShadowFramePlan plan) {
+        bind(cmd,shader,camera,directionalLightSpace,cascadeMatrices,cascadeSplits,cascadeSettings,plan,false);
+    }
+    public void bind(CommandBuffer cmd, ShaderProgram shader, Camera camera,
+              Matrix4f directionalLightSpace, List<Matrix4f> cascadeMatrices,
+              float[] cascadeSplits, DirectionalCascadeSettings cascadeSettings,
+              ShadowFramePlan plan,boolean fineFog) {
+        Objects.requireNonNull(cmd, "cmd");
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(camera, "camera");
+        Objects.requireNonNull(directionalLightSpace, "directionalLightSpace");
+        Objects.requireNonNull(cascadeMatrices, "cascadeMatrices");
+        Objects.requireNonNull(cascadeSplits, "cascadeSplits");
+        Objects.requireNonNull(cascadeSettings, "cascadeSettings");
+        Objects.requireNonNull(plan, "plan");
+
+        java.util.function.UnaryOperator<String> uniform=fineFog?VolumetricFogView::fineUniform:java.util.function.UnaryOperator.identity();
+        cmd.trySetUniformVec3(shader, uniform.apply("uCameraPosition"), camera.position());
+        cmd.trySetUniformMat4(shader, uniform.apply("uDirectionalLightSpace"), directionalLightSpace);
+        int cascadeCount = Math.max(1, cascadeMatrices.size());
+        cmd.trySetUniformInt(shader, uniform.apply("uDirectionalCascadeCount"), cascadeCount)
+                .trySetUniformFloat(shader, uniform.apply("uDirectionalCascadeBlendRange"),
+                        cascadeSettings.blendRange());
+        for (int index = 0; index < 4; index++) {
+            Matrix4f matrix = cascadeMatrices.isEmpty() ? directionalLightSpace
+                    : cascadeMatrices.get(Math.min(index, cascadeMatrices.size() - 1));
+            float split = cascadeSplits.length == 0 ? CameraProjection.FAR_PLANE
+                    : cascadeSplits[Math.min(index, cascadeSplits.length - 1)];
+            cmd.trySetUniformMat4(shader, uniform.apply("uDirectionalCascadeMatrices[" + index + "]"), matrix)
+                    .trySetUniformFloat(shader, uniform.apply("uDirectionalCascadeSplits[" + index + "]"), split);
+        }
+        cmd.trySetUniformInt(shader, uniform.apply("uDirectionalShadowFrameLightIndex"),
+                plan.directional().map(ShadowFramePlan.DirectionalPlan::frameLightIndex)
+                        .orElse(-1));
+    }
+}

@@ -60,10 +60,11 @@ tone mapping 之后的 UI overlay，不进入 scene auto exposure 或 Bloom。
 
 ## 验证
 
+以下按改动选择领域测试或直接消费者，不需要惯例性追加包含 IME 长测的完整 `localUiVerification`；范围见[测试指南](testing.md)。
+
 ```powershell
 .\gradlew.bat test --tests "*UiModernAnimationTest" --tests "*UiCompositorFoundationTest" --tests "*UiEffectRuntimeTest"
 .\gradlew.bat runModernUiIntegration
-.\gradlew.bat localUiVerification
 ```
 
 `runModernUiIntegration` 使用独立的隐藏 OpenGL 4.6 窗口执行 90 帧、

@@ -1,5 +1,11 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.LightType;
+import com.kaleblangley.haikalat.subsystems.render3d.LightVolumeHints;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneLightEntry;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -17,12 +23,12 @@ import java.util.Objects;
  * Values are copied from the captured {@link SceneLightEntry}; later Scene
  * mutation can never change this table.</p>
  */
-final class FrameLightTable {
-    static final int TYPE_DIRECTIONAL = 0;
+public final class FrameLightTable {
+    public static final int TYPE_DIRECTIONAL = 0;
     static final int TYPE_POINT = 1;
     static final int TYPE_SPOT = 2;
 
-    record Record(long stableId,
+    public record Record(long stableId,
                   LightType type,
                   Vector3f position,
                   Vector3f direction,
@@ -33,7 +39,7 @@ final class FrameLightTable {
                   float outerConeRadians,
                   boolean castShadows,
                   Vector3f viewPosition, LightVolumeHints volumeHints) {
-        Record {
+        public Record {
             position = new Vector3f(Objects.requireNonNull(position, "position"));
             direction = new Vector3f(Objects.requireNonNull(direction, "direction"));
             color = new Vector3f(Objects.requireNonNull(color, "color"));
@@ -41,7 +47,7 @@ final class FrameLightTable {
             volumeHints = Objects.requireNonNull(volumeHints, "volumeHints");
         }
 
-        int gpuType() {
+        public int gpuType() {
             return switch (type) {
                 case DIRECTIONAL -> TYPE_DIRECTIONAL;
                 case POINT -> TYPE_POINT;
@@ -61,7 +67,7 @@ final class FrameLightTable {
         this.frameLightIndexByStableId = Map.copyOf(frameLightIndexByStableId);
     }
 
-    static FrameLightTable build(List<SceneLightEntry> entries, Matrix4f view,
+    public static FrameLightTable build(List<SceneLightEntry> entries, Matrix4f view,
                                  ClusteredLightingSettings settings) {
         Objects.requireNonNull(entries, "entries");
         Objects.requireNonNull(view, "view");
@@ -111,11 +117,11 @@ final class FrameLightTable {
         return directional;
     }
 
-    List<Record> local() {
+    public List<Record> local() {
         return local;
     }
 
-    Record record(int frameLightIndex) {
+    public Record record(int frameLightIndex) {
         if (frameLightIndex < 0 || frameLightIndex >= totalCount()) {
             throw new IndexOutOfBoundsException("frameLightIndex out of range: " + frameLightIndex);
         }
@@ -125,20 +131,20 @@ final class FrameLightTable {
     }
 
     /** @return the frame light index for a stable id, or -1 when the light is not in this frame */
-    int frameLightIndex(long stableId) {
+    public int frameLightIndex(long stableId) {
         Integer index = frameLightIndexByStableId.get(stableId);
         return index == null ? -1 : index;
     }
 
-    int directionalCount() {
+    public int directionalCount() {
         return directional.size();
     }
 
-    int localCount() {
+    public int localCount() {
         return local.size();
     }
 
-    int totalCount() {
+    public int totalCount() {
         return directional.size() + local.size();
     }
 }

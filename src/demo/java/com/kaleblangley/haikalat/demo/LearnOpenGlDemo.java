@@ -25,7 +25,7 @@ import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsJsonExporter;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsLevel;
 import com.kaleblangley.haikalat.runtime.diagnostics.DiagnosticsSnapshot;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
-import com.kaleblangley.haikalat.subsystems.render3d.InstancedRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;

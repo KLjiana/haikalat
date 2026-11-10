@@ -7,7 +7,7 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.*;
-import com.kaleblangley.haikalat.subsystems.render3d.ScreenQuad;
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
 import com.kaleblangley.haikalat.subsystems.ui.UiSystem;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiAttachmentOptions;
 import com.kaleblangley.haikalat.subsystems.ui.render.UiBackdropSource;

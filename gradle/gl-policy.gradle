@@ -1,0 +1,99 @@
+// GL debug-log policy: parsing and audit as pure functions, independent of task
+// assembly. release-verification.gradle applies this script and re-exports the
+// closures; releaseVerificationContracts asserts their behaviour.
+import java.time.LocalDate
+
+def glPolicyFile = file('config/gl-debug-policy.tsv')
+
+def parseGlPolicy = {
+    List<Map<String, Object>> policies = []
+    List<String> failures = []
+    glPolicyFile.readLines('UTF-8').eachWithIndex { line, index ->
+        if (!line || line.startsWith('#')) return
+        List<String> fields = line.split('\t', -1) as List<String>
+        if (fields.size() != 13 || fields.any { it.isBlank() }) {
+            failures.add("row ${index + 1}: expected exactly 13 non-empty fields")
+            return
+        }
+        LocalDate expiry
+        int maximum
+        int messageId
+        try {
+            expiry = LocalDate.parse(fields[11])
+            maximum = Integer.parseInt(fields[12])
+            messageId = Integer.parseInt(fields[5])
+            if (maximum <= 0) throw new IllegalArgumentException('non-positive count')
+            fields[0].matches(fields[0]); fields[1].matches(fields[1])
+            fields[6].matches(fields[6]); fields[7].matches(fields[7])
+        } catch (RuntimeException invalid) {
+            failures.add("row ${index + 1}: invalid regex/date/count: ${invalid.message}")
+            return
+        }
+        policies.add([vendor: fields[0], renderer: fields[1], severity: fields[2],
+                      source: fields[3], type: fields[4], id: messageId,
+                      entry: fields[6], message: fields[7], rationale: fields[8], owner: fields[9],
+                      added: fields[10], expiry: expiry, maximum: maximum, row: index + 1])
+    }
+    if (!failures.isEmpty()) throw new GradleException('Invalid GL debug policy:\n- ' + failures.join('\n- '))
+    policies
+}
+
+def auditGlText = { String entry, String textValue, List<Map<String, Object>> policies ->
+    String vendor = 'unavailable'
+    String renderer = 'unavailable'
+    def identity = textValue =~ /OpenGL debug output enabled vendor=(.*?) renderer=(.*?) version=/
+    if (identity.find()) {
+        vendor = identity.group(1).trim()
+        renderer = identity.group(2).trim()
+    }
+    List<Map<String, Object>> messages = []
+    List<String> violations = []
+    if (textValue =~ /GL_INVALID_[A-Z_]+/) {
+        (textValue =~ /GL_INVALID_[A-Z_]+/).each { violations.add("${entry}: ${it}") }
+    }
+    def matcher = textValue =~ /OpenGL ([A-Z_]+) \[(HIGH|MEDIUM|LOW|NOTIFICATION)] source=([A-Z_]+) id=(\d+): ([^\r\n<]*)/
+    Map<Integer, Integer> counts = [:].withDefault { 0 }
+    matcher.each { full, type, severity, source, idText, message ->
+        int id = Integer.parseInt(idText)
+        Map<String, Object> found = policies.find { policy ->
+            vendor ==~ policy.vendor && renderer ==~ policy.renderer
+                    && severity == policy.severity && source == policy.source
+                    && type == policy.type && id == policy.id
+                    && entry ==~ policy.entry && message.trim() ==~ policy.message
+                    && !LocalDate.now().isAfter(policy.expiry as LocalDate)
+        }
+        Map<String, Object> item = [entry: entry, vendor: vendor, renderer: renderer,
+                                    severity: severity, source: source, type: type,
+                                    id: id, message: message.trim(), authorized: found != null]
+        messages.add(item)
+        if (severity in ['HIGH', 'MEDIUM']) {
+            if (found == null) {
+                violations.add("${entry}: unauthorized ${severity} ${source}/${type} id=${id}: ${message.trim()}")
+            } else {
+                counts[found.row as Integer]++
+                if (counts[found.row as Integer] > (found.maximum as Integer)) {
+                    violations.add("${entry}: policy row ${found.row} exceeded max count ${found.maximum}")
+                }
+            }
+        }
+    }
+    [messages: messages, violations: violations, vendor: vendor, renderer: renderer]
+}
+
+def auditGlFiles = { Map<String, File> inputs ->
+    List<Map<String, Object>> policies = parseGlPolicy()
+    List<Map<String, Object>> messages = []
+    List<String> violations = []
+    inputs.sort { it.key }.each { entry, input ->
+        if (!input.isFile()) return
+        def result = auditGlText(entry, input.getText('UTF-8'), policies)
+        messages.addAll(result.messages)
+        violations.addAll(result.violations)
+    }
+    [messages: messages, violations: violations]
+}
+
+ext.glPolicyFile = glPolicyFile
+ext.parseGlPolicy = parseGlPolicy
+ext.auditGlText = auditGlText
+ext.auditGlFiles = auditGlFiles

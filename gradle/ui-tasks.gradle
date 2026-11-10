@@ -157,10 +157,6 @@ tasks.register('runUiIntegration', JavaExec) {
 tasks.register('runUiSdfIntegration', Test) {
     group = 'verification'
     description = 'Runs the real-GL SDF rounded-shape and analytic coverage proof.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     systemProperty 'haikalat.glSmoke', 'true'
     filter {
         includeTestsMatching(
@@ -276,10 +272,6 @@ tasks.register('runUiInteractiveSoak', JavaExec) {
 tasks.register('runUiSyntheticImeSoak', Test) {
     group = 'verification'
     description = 'Runs repeated synthetic IME, focus, resize, deletion and popup lifecycles.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.ui.UiImeSyntheticSoakTest'
     }
@@ -292,10 +284,6 @@ tasks.register('runUiSyntheticImeSoak', Test) {
 tasks.register('runUiNativeSoak', Test) {
     group = 'verification'
     description = 'Runs at least 50 real Windows GLFW/WndProc hook lifecycles with GC pressure.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
     filter {
         includeTestsMatching 'com.kaleblangley.haikalat.subsystems.windowing.input.win32.Win32TextInputAdapterNativeSoakTest'
     }

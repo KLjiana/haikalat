@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneDrawOrder;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -147,15 +151,15 @@ public final class Scene {
     }
 
     /** Stable process-local lifecycle ID; deliberately not part of the public scene API. */
-    long generation() {
+    public long generation() {
         return generation;
     }
 
-    int rendererCount() {
+    public int rendererCount() {
         return renderers.size();
     }
 
-    boolean requiresPerFrameModelRevision() {
+    public boolean requiresPerFrameModelRevision() {
         return requiresPerFrameModelRevision;
     }
 
@@ -163,7 +167,7 @@ public final class Scene {
         return requiresPerFrameShadowDeformation;
     }
 
-    long revisionScannedModelEpoch() {
+    public long revisionScannedModelEpoch() {
         long hash = 0xcbf29ce484222325L;
         for (MeshRenderer renderer : revisionScannedRenderers) {
             hash = (hash ^ renderer.modelRevision()) * 0x100000001b3L;
@@ -183,7 +187,7 @@ public final class Scene {
         return hash;
     }
 
-    MeshRenderer rendererAt(int index) {
+    public MeshRenderer rendererAt(int index) {
         return renderers.get(index);
     }
 
@@ -201,7 +205,7 @@ public final class Scene {
         return List.copyOf(lights);
     }
 
-    List<SceneLightEntry> lightEntries() {
+    public List<SceneLightEntry> lightEntries() {
         return List.copyOf(lightEntries);
     }
 

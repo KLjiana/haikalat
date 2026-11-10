@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.architecture;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrame;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.WorldBounds;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -313,9 +315,98 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void render3dModulesDoNotDependOnPipelineImplementation() throws IOException {
+        Path render3d = HAIKALAT.resolve(Path.of("subsystems", "render3d"));
+        var dependency = java.util.regex.Pattern.compile(
+                "\\b(?:RenderPipeline|PipelineGeneration|ForwardPassBuilder)\\b"
+                        + "|\\bcom\\.kaleblangley\\.haikalat\\.subsystems\\.render3d\\.pipeline\\.");
+        Set<String> violations = new java.util.HashSet<>();
+        for (String module : Set.of("scene", "geometry", "surface", "lighting", "shadow",
+                "ao", "volumetric", "environment", "pbr", "gltf", "vfx", "preview")) {
+            Path root = render3d.resolve(module);
+            if (!Files.isDirectory(root)) continue;
+            violations.addAll(dependenciesUnder(root, dependency));
+        }
+        assertTrue(violations.isEmpty(),
+                "render3d modules must not depend on pipeline assembly: " + violations);
+
+        assertTrue(namesDependency("RenderPipeline entry = null;", dependency));
+        assertTrue(namesDependency("import static com.kaleblangley.haikalat.subsystems.render3d.pipeline.Owner.create;",
+                dependency));
+        assertFalse(namesDependency("/** RenderPipeline supplies the snapshot. */\nString name = \"PipelineGeneration\";",
+                dependency));
+    }
+
+    @Test
+    void render3dRootKeepsOnlyDocumentedEntriesAndValues() throws IOException {
+        Set<String> expected = Set.of("Camera", "ClusterDebugMode", "ClusteredLightingSettings",
+                "DirectionalCascadeSettings", "ExternalCamera", "FogMediumSettings",
+                "FrameLightTable", "LightType",
+                "LightVolumeHints", "LocalFogVolume", "LocalShadowPipelineSettings",
+                "LocalShadowSettings", "OutdoorEnvironmentSettings", "PipelineFeaturePolicy",
+                "PipelineTopology", "Render3dDiagnostics", "RenderPipeline", "RenderPipelineKind",
+                "RenderFeature", "RenderFeatureActivity", "RenderFeaturePolicy",
+                "RenderFeatureReason", "RenderFeatureSettings", "RenderFeatureState",
+                "RenderFeatureStatus", "RenderFeaturesControl",
+                "Scene", "SceneLight", "SceneLightEntry", "SceneObject", "ShadowFilterMode",
+                "ShadowLightHints", "ShadowSelectionMode", "ShadowSettings", "StylizedSkySettings",
+                "Transform", "VisualSettings", "VolumetricFogSettings");
+        Set<String> actual = new java.util.HashSet<>();
+        try (var files = Files.list(HAIKALAT.resolve(Path.of("subsystems", "render3d")))) {
+            files.filter(path -> path.toString().endsWith(".java"))
+                    .forEach(path -> actual.add(path.getFileName().toString().replace(".java", "")));
+        }
+        assertEquals(expected, actual,
+                "new render3d implementation types belong in a module package, not the root");
+        assertFalse(java.util.Arrays.stream(com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration.class
+                        .getDeclaredFields()).anyMatch(field -> java.lang.reflect.Modifier.isPublic(field.getModifiers())),
+                "generation owners must be installed by assembly operations");
+    }
+
+    @Test
+    void render3dKeepsSceneAndShadowStoragePrivate() throws IOException {
+        assertEquals(0, SceneFrame.class.getFields().length);
+        assertEquals(0, WorldBounds.class.getFields().length);
+        for (var method : SceneFrame.class.getMethods()) {
+            assertFalse(method.getReturnType().isArray(), method.toString());
+        }
+        for (var method : WorldBounds.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers())) {
+                assertTrue(method.getParameterCount() == 0 && method.getReturnType() != void.class,
+                        method.toString());
+            }
+        }
+        for (Field field : com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration.class
+                .getDeclaredFields()) {
+            assertFalse(com.kaleblangley.haikalat.backend.shader.ShaderProgram.class
+                            .isAssignableFrom(field.getType()),
+                    "generation assembly may depend on the shadow program group only: " + field);
+        }
+        for (var method : com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration.class
+                .getDeclaredMethods()) {
+            assertFalse(com.kaleblangley.haikalat.backend.shader.ShaderProgram.class
+                            .isAssignableFrom(method.getReturnType()),
+                    "generation assembly may depend on the shadow program group only: " + method);
+        }
+    }
+
+    @Test
+    void postProcessDoesNotDependOnRender3d() throws IOException {
+        Path postprocess = HAIKALAT.resolve(Path.of("subsystems", "postprocess"));
+        var dependency = java.util.regex.Pattern.compile("\\bcom\\.kaleblangley\\.haikalat\\.subsystems\\.render3d\\.");
+        Set<String> references = dependenciesUnder(postprocess, dependency);
+        assertTrue(references.isEmpty(),
+                "postprocess must consume adapter contracts instead of render3d types: " + references);
+
+        assertTrue(namesDependency("import com.kaleblangley.haikalat.subsystems.render3d.Scene;", dependency));
+        assertTrue(namesDependency("com.kaleblangley.haikalat.subsystems.render3d.Scene scene;", dependency));
+        assertFalse(namesDependency("// com.kaleblangley.haikalat.subsystems.render3d.Scene", dependency));
+    }
+
+    @Test
     void automaticExposureProductionPathDoesNotReadBackGpuData() throws IOException {
         Path source = MAIN_JAVA.resolve(Path.of("com", "kaleblangley", "haikalat", "subsystems",
-                "postprocess", "AutoExposurePass.java"));
+                "postprocess", "exposure", "AutoExposurePass.java"));
         String code = Files.readString(source);
 
         for (String forbidden : Set.of("glReadPixels", "glGetTexImage", "glMapBuffer", ".custom(")) {
@@ -442,6 +533,25 @@ class ArchitectureBoundaryTest {
         System.arraycopy(constructors, 0, result, 0, constructors.length);
         System.arraycopy(methods, 0, result, constructors.length, methods.length);
         return result;
+    }
+
+    private static final java.util.regex.Pattern NON_CODE = java.util.regex.Pattern.compile(
+            "(?s)\"\"\".*?\"\"\"|\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|//[^\\r\\n]*|/\\*.*?\\*/");
+
+    private static boolean namesDependency(String source, java.util.regex.Pattern dependency) {
+        return dependency.matcher(NON_CODE.matcher(source).replaceAll(" ")).find();
+    }
+
+    private static Set<String> dependenciesUnder(Path root, java.util.regex.Pattern dependency) throws IOException {
+        Set<String> references = new HashSet<>();
+        try (var files = Files.walk(root)) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                if (namesDependency(Files.readString(file), dependency)) {
+                    references.add(MAIN_JAVA.relativize(file).toString().replace('\\', '/'));
+                }
+            }
+        }
+        return references;
     }
 
     private static Set<String> importsUnder(Path root, String prefix) throws IOException {

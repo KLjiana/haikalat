@@ -18,7 +18,7 @@ import com.kaleblangley.haikalat.subsystems.animation.Pose;
 import com.kaleblangley.haikalat.subsystems.animation.PoseBuffer;
 import com.kaleblangley.haikalat.subsystems.animation.Skeleton;
 import com.kaleblangley.haikalat.subsystems.animation.gltf.GltfAnimationRig;
-import com.kaleblangley.haikalat.subsystems.render3d.SceneDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneObject;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;

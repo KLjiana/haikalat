@@ -1,5 +1,12 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
+
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusterGrid;
+import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingResources;
+import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -83,10 +90,10 @@ class ClusterAssignmentGlTest {
                         pipeline.build();
                         pipeline.execute(device);
                         PipelineGeneration generation = pipeline.activeGenerationForTest();
-                        ClusterGrid grid = generation.clusteredLightingBinder.stagedGrid();
-                        FrameLightTable table = generation.clusteredLightingBinder.stagedTable();
+                        ClusterGrid grid = generation.clusteredLightingBinder().stagedGrid();
+                        FrameLightTable table = generation.clusteredLightingBinder().stagedTable();
                         ClusteredLightingResources.ClusterStorage storage =
-                                generation.clusteredResources.storage();
+                                generation.clusteredResources().storage();
                         int[] headers = readInts(storage.clusterHeaders,
                                 storage.clusterHeadersBytes);
                         int[] indices = readInts(storage.clusterIndices,
@@ -104,11 +111,11 @@ class ClusterAssignmentGlTest {
                         viewport.resize(256, 144);
                         pipeline.resize(256, 144);
                         pipeline.execute(device);
-                        ClusterGrid resizedGrid = generation.clusteredLightingBinder.stagedGrid();
+                        ClusterGrid resizedGrid = generation.clusteredLightingBinder().stagedGrid();
                         FrameLightTable resizedTable =
-                                generation.clusteredLightingBinder.stagedTable();
+                                generation.clusteredLightingBinder().stagedTable();
                         ClusteredLightingResources.ClusterStorage resizedStorage =
-                                generation.clusteredResources.storage();
+                                generation.clusteredResources().storage();
                         assertEquals(256, resizedGrid.width());
                         int[] resizedHeaders = readInts(resizedStorage.clusterHeaders,
                                 resizedStorage.clusterHeadersBytes);
@@ -163,7 +170,7 @@ class ClusterAssignmentGlTest {
                         pipeline.execute(device);
                         PipelineGeneration generation = pipeline.activeGenerationForTest();
                         ClusteredLightingResources.ClusterStorage storage =
-                                generation.clusteredResources.storage();
+                                generation.clusteredResources().storage();
                         int[] headers = readInts(storage.clusterHeaders,
                                 storage.clusterHeadersBytes);
                         int[] indices = readInts(storage.clusterIndices,
@@ -189,7 +196,7 @@ class ClusterAssignmentGlTest {
                                 }
                             }
                         }
-                        int[] counters = generation.clusteredLightingBinder.readCountersBlocking();
+                        int[] counters = generation.clusteredLightingBinder().readCountersBlocking();
                         assertEquals(overflowClusters, counters[0]);
                         assertTrue(overflowClusters > 0,
                                 "12 lights at one point must overflow K=4");

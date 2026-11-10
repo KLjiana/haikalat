@@ -1,18 +1,42 @@
-# v0.14 public API classification.
+# v0.27.3 public API classification.
 # Format: <stable|advanced|internal> <fully-qualified-class-name>
+#
+# v0.27.3 moved the post-process effects into responsibility subpackages and
+# introduced the render3d<->postprocess contracts.  See
+# docs/architecture/v0.27.3-render3d-package-migration.md.
 
-advanced com.kaleblangley.haikalat.subsystems.postprocess.AutoExposurePass
-advanced com.kaleblangley.haikalat.subsystems.postprocess.BloomPass
-advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingLut
+# Colour-chain contracts and assembly.
+advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline
+advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SurfaceInputs
+advanced com.kaleblangley.haikalat.subsystems.postprocess.LateSurfaceProducer
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad
+
+# Effect settings and public effect passes.
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
-advanced com.kaleblangley.haikalat.subsystems.postprocess.FogPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings
-advanced com.kaleblangley.haikalat.subsystems.postprocess.FxaaPostProcessor
-advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
-advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings
-advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass
-advanced com.kaleblangley.haikalat.subsystems.postprocess.ToneMappingPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.color.ColorGradingLut
+advanced com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposurePass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.fog.FogPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaPostProcessor
+advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaResolveInputs
+advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason
+advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalAccumulationPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose
+advanced com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingPass
+
+# Cross-package effect owners: public for the colour chain only.
+internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain
+internal com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureChain
+internal com.kaleblangley.haikalat.subsystems.postprocess.fog.FogChain
+internal com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain
+internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory
+internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain
+internal com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingChain

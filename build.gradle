@@ -10,7 +10,7 @@ java {
 }
 
 group = 'com.kaleblangley'
-version = '0.27.4'
+version = '0.27.5'
 
 def projectLicenseFile = layout.projectDirectory.file('LICENSE')
 def projectLicenseManifest = [
@@ -49,6 +49,9 @@ dependencyLocking {
 project.ext.lwjglVersion = "3.3.3"
 project.ext.jomlVersion = "1.10.9"
 project.ext.jnaVersion = "5.18.1"
+project.ext.jacksonVersion = "2.18.3"
+project.ext.commonmarkVersion = "0.24.0"
+project.ext.junitVersion = "5.10.0"
 project.ext.lwjglNatives = detectLwjglNatives()
 
 def generatedProceduralJava = layout.buildDirectory.dir('generated/sources/proceduralShaders/java')
@@ -132,13 +135,13 @@ dependencies {
     }
 
     implementation "org.joml:joml:${jomlVersion}"
-    implementation "com.fasterxml.jackson.core:jackson-core:2.18.3"
+    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
     implementation "net.java.dev.jna:jna:${jnaVersion}"
     implementation "net.java.dev.jna:jna-platform:${jnaVersion}"
 
-    implementation "org.commonmark:commonmark:0.24.0"
+    implementation "org.commonmark:commonmark:${commonmarkVersion}"
 
-    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation platform("org.junit:junit-bom:${junitVersion}")
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -157,85 +160,11 @@ tasks.register('quickVerification') {
     dependsOn 'compileJava', 'demoClasses', 'test'
 }
 
-def configureGuardTest = { Test guard, List<String> patterns ->
-    guard.group = 'verification'
-    guard.dependsOn testClasses
-    guard.testClassesDirs = sourceSets.test.output.classesDirs
-    guard.classpath = sourceSets.test.runtimeClasspath
-    guard.useJUnitPlatform()
-    guard.filter {
-        patterns.each { includeTestsMatching it }
-    }
-}
-
-tasks.register('publicApiGuard', Test) {
-    description = 'Validates the complete public API catalog, stable signatures and migration records.'
-    configureGuardTest(delegate, [
-            '*.ArchitectureBoundaryTest.wholeProjectPublicTypesMatchAllowlist',
-            '*.ArchitectureBoundaryTest.stableSignaturesDoNotExposeImplementationLibraries',
-            '*.ArchitectureBoundaryTest.removedStableTypesRequireMigrationRecord',
-            '*.PbrPublicApiSurfaceTest', '*.UiPublicApiSurfaceTest',
-            '*.GltfArchitectureTest.publicTypesMatchAllowlist'
-    ])
-}
-
-tasks.register('architectureGuard', Test) {
-    description = 'Validates package dependencies, OpenGL call sites and production escape hatches.'
-    configureGuardTest(delegate, [
-            '*.ArchitectureBoundaryTest.internalTypesStayInsideTheirSubsystemOrDemoProof',
-            '*.ArchitectureBoundaryTest.backendDoesNotDependOnHigherLayers',
-            '*.ArchitectureBoundaryTest.coreAndRuntimeDoNotDependOnSubsystems',
-            '*.ArchitectureBoundaryTest.coreDoesNotDependOnRuntime',
-            '*.ArchitectureBoundaryTest.uiRemainsASiblingSubsystemWithoutReverseDependencies',
-            '*.ArchitectureBoundaryTest.textRemainsRendererNeutralAndUiIndependent',
-            '*.ArchitectureBoundaryTest.markdownDocumentDoesNotExposeCommonMarkImplementationTypes',
-            '*.ArchitectureBoundaryTest.uiCreatesTheSharedTextSystemOnlyThroughItsTextAdapter',
-            '*.ArchitectureBoundaryTest.nativeUiLibrariesStayInsideTheirAdapters',
-            '*.ArchitectureBoundaryTest.uiLogicPackagesDoNotIssueOpenGlCalls',
-            '*.ArchitectureBoundaryTest.productionCodeDoesNotUseCustomCommandEscapeHatch',
-            '*.ArchitectureBoundaryTest.unverifiedNativeModelEntryPointAndDependencyStayRemoved',
-            '*.GltfArchitectureTest.cpuLoaderDoesNotDependOnSubsystemOrInvokeOpenGl',
-            '*.GltfArchitectureTest.backendDoesNotDependOnGltfPackages'
-    ])
-}
-
-tasks.register('sceneJvmVerification', Test) {
-    description = 'Validates serialized scene schema, catalog identity and async CPU loading.'
-    configureGuardTest(delegate, [
-            '*.SceneJsonParserTest', '*.SceneAssetServiceTest',
-            '*.GltfImageDecoderTest',
-            '*.ResourceCatalogTest'
-    ])
-}
-
-tasks.register('dependencyLockGuard') {
-    group = 'verification'
-    description = 'Verifies the committed dependency lock and the removed Assimp dependency contract.'
-    inputs.files 'build.gradle', 'gradle.lockfile'
-    doLast {
-        File lock = file('gradle.lockfile')
-        if (!lock.isFile()) throw new GradleException('Missing gradle.lockfile; run dependencies --write-locks')
-        String buildText = file('build.gradle').getText('UTF-8')
-        String lockText = lock.getText('UTF-8')
-        String removedNativeModule = 'lwjgl-' + 'assimp'
-        if (buildText.toLowerCase(Locale.ROOT).contains(removedNativeModule)
-                || lockText.toLowerCase(Locale.ROOT).contains(removedNativeModule)) {
-            throw new GradleException('Assimp must not re-enter the v0.14 dependency graph')
-        }
-        ['org.lwjgl:lwjgl-opengl:3.3.3', 'org.joml:joml:1.10.9',
-         'com.fasterxml.jackson.core:jackson-core:2.18.3',
-         'org.commonmark:commonmark:0.24.0'].each { coordinate ->
-            if (!lockText.contains(coordinate)) {
-                throw new GradleException("Dependency lock is missing $coordinate")
-            }
-        }
-    }
-}
-
 tasks.named('check') {
-    dependsOn 'quickVerification', 'publicApiGuard', 'architectureGuard',
-            'sceneJvmVerification', 'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard',
-            'animationJvmVerification'
+    // `test` already executes every JUnit case. The filtered guard tasks remain
+    // individually runnable, but must not re-execute their subsets here.
+    dependsOn 'quickVerification', 'dependencyLockGuard', 'assetManifestGuard', 'vfxAssetGuard',
+            'releaseVerificationContracts', 'animationJvmVerification'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -275,48 +204,13 @@ tasks.named('processDemoResources') {
     dependsOn 'generateProceduralShaders'
 }
 
+apply from: 'gradle/verification-tasks.gradle'
+apply from: 'gradle/test-evidence.gradle'
 apply from: 'gradle/demo-tasks.gradle'
 apply from: 'gradle/ui-tasks.gradle'
 apply from: 'gradle/diagnostics-tasks.gradle'
 apply from: 'gradle/scene-tasks.gradle'
 apply from: 'gradle/local-release-tasks.gradle'
 apply from: 'gradle/release-verification.gradle'
-
-tasks.register('embeddedJvmVerification', Test) {
-    description = 'Validates embedded runtime, presentation contracts, external camera and graph imports.'
-    configureGuardTest(delegate, [
-            '*.PresentationTargetTest',
-            '*.ExternalCameraTest',
-            '*.HaikalatRuntimeTest',
-            '*.RenderGraphTest.importedPresentationTargetCanBeReplacedWithoutRecompilingTopology',
-            '*.RenderGraphTest.zeroSizedPresentationTargetSkipsBeforeRecordingOrSubmission',
-            '*.ArchitectureBoundaryTest.embeddedRenderingContractsStayHostAgnostic',
-            '*.ArchitectureBoundaryTest.embeddedRuntimeAndPipelineNeverSwapHostBuffers'
-    ])
-}
-
-tasks.register('embeddedGlVerification', Test) {
-    group = 'verification'
-    description = 'Validates non-zero host FBO rendering, ownership, resize, camera and GL state restoration.'
-    dependsOn testClasses
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
-    systemProperty 'haikalat.glSmoke', 'true'
-    filter {
-        includeTestsMatching '*.EmbeddedPresentationGlTest'
-        includeTestsMatching '*.UiRendererGlTest.explicitPresentationTargetReceivesUiWithoutTouchingDefaultFramebuffer'
-    }
-}
-
-tasks.named('check') {
-    dependsOn 'embeddedJvmVerification'
-}
-tasks.named('localGlVerification') {
-    dependsOn 'embeddedGlVerification'
-}
-tasks.named('embeddedGlVerification') {
-    mustRunAfter 'glSmoke'
-}
 
 apply from: 'gradle/focused-verification.gradle'

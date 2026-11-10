@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -131,11 +133,11 @@ public final class ExternalCamera extends Camera {
     }
 
     @Override
-    long visibilityRevision() {
+    public long visibilityRevision() {
         return revision;
     }
 
-    Matrix4f projection(Matrix4f destination) {
+    public Matrix4f projection(Matrix4f destination) {
         return Objects.requireNonNull(destination, "destination").set(projection);
     }
 

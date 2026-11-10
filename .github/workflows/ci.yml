@@ -4,8 +4,13 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
@@ -22,3 +27,13 @@ jobs:
       - name: Compile and test (Linux)
         if: runner.os == 'Linux'
         run: ./gradlew check demoClasses
+      - name: Upload failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-reports-${{ matrix.os }}
+          path: |
+            build/test-results
+            build/reports/bounded-verification
+            build/reports/logic-verification
+          if-no-files-found: ignore

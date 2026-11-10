@@ -140,12 +140,12 @@ class OutdoorEnvironmentGlTest {
             VisualSettings changed = new VisualSettings(1.4f, 0.7f, 0.2f,
                     original.antiAliasingMode(), original.bloom(),
                     OutdoorEnvironmentSettings.goldenHour()).withVolumetricFog(original.volumetricFog());
-            System.setProperty("haikalat.test.failVolumeAllocation", "0");
+            System.setProperty("haikalat.test.failVolumeGraph", "true");
             try {
-                assertThrows(IllegalStateException.class,
+                assertThrows(RuntimeException.class,
                         () -> f.pipeline.applyVisualSettings(changed, candidate));
             } finally {
-                System.clearProperty("haikalat.test.failVolumeAllocation");
+                System.clearProperty("haikalat.test.failVolumeGraph");
             }
             assertSame(originalEnvironment, field(f.pipeline, "pbrEnvironment"));
             assertEquals(original, f.pipeline.visualSettings());

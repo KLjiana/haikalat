@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.integration;
 
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;

@@ -645,7 +645,16 @@ public final class SceneAssetService implements AutoCloseable {
         ManagedScene managed = managedScenes.remove(handle);
         if (managed == null) return;
         synchronized (managed) {
-            if (managed.cpuFuture != null) managed.cpuFuture.cancel(true);
+            if (managed.cpuFuture != null) {
+                try {
+                    managed.cpuFuture.cancel(true);
+                } catch (java.util.concurrent.CancellationException
+                         | java.util.concurrent.CompletionException ignored) {
+                    // An in-flight completion stage may surface cancellation while
+                    // the future is being cancelled. Close owns cleanup and must
+                    // stay idempotent; the removed handle cannot publish a plan.
+                }
+            }
             if (managed.uploads != null) {
                 managed.uploads.values().forEach(SceneAssetService::cancelUpload);
             }

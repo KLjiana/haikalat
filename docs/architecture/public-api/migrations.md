@@ -52,3 +52,36 @@ Compositor 诊断记录所属类型提升为 advanced，具体清单见 `ui.allo
 
 `GlDebug.contextStateEpoch()` 现在也反映绕过设备缓存的 framebuffer 构造/绑定恢复，
 `contextStateChanged()` 供底层资源代码通知 native 状态变化；两者都不是资源所有权或跨 context 同步工具。
+
+v0.27.3 没有删除 stable 类型。后处理按效果拆包：advanced `BloomPass`、`AutoExposurePass`、
+`ToneMappingPass`、`ColorGradingLut`、`FogPass`、`FxaaPostProcessor`、`TemporalAccumulationPass`
+分别移到 `postprocess.bloom/exposure/tonemapping/color/fog/fxaa/temporal`，类名、构造器、
+公开方法和行为保持不变，调用方只需更新 import。advanced `render3d.ScreenQuad` 改为
+`postprocess.ScreenQuad`；`render3d.TaaResolveInputs` 与 `render3d.TaaSettings` 改为
+`postprocess.temporal.*`，record component 与校验语义不变。包内 `PostProcessPassBuilder`
+由 `postprocess.PostProcessPipeline` 取代（advanced 低层装配入口），并新增 advanced
+`SurfaceInputs`、`LateSurfaceProducer`、`TemporalFramePose`、`TaaInvalidationReason`：
+Render3D 装配方通过适配器提供真实 producer、帧租约和失败校验，post-process 不再导入
+Render3D 类型。稳定类型及其签名未变。
+
+v0.27.3 继续将 advanced 阴影/光照实现类型迁入职责包：`DirectionalShadowMap`、
+`PointShadowAtlas`、`SpotShadowAtlas`、`SpotShadowMap`、`ShadowCullingStatistics`、
+`DirectionalCascadePlan` 移到 `render3d.shadow`；`ClusteredLightingDiagnostics` 移到
+`render3d.lighting`。类名、公开构造器和方法保持原语义，调用方只需更新 import。
+其余 shadow／lighting 实现类型由包内可见提升为 public + `internal`，只在 render3d
+子包之间装配使用，不构成兼容承诺；包内数据布局由所属模块继续拥有。
+`PipelineGeneration` 的 owner 字段为私有，装配方通过类型化入口访问所需对象。
+`ExternalCamera` 的可变内部位置限于包内，外部仍通过 `position()` 获取位置副本。
+`SceneFrame` 和 `WorldBounds` 的 internal 调用方改用只读查询及 `copyModel`。
+`WorldBounds.Scratch` 是构建器和实例批次使用的 internal 写入能力。
+`ShadowPrograms` 分类为 internal，代次只在帧边界转交程序组。
+
+v0.27.4 没有删除 stable 类型或修改稳定签名。新增 advanced `RenderFeaturesControl`、
+`RenderFeatureSettings`、`RenderFeatureState`、`RenderFeatureStatus`、`RenderFeature`、
+`RenderFeatureActivity`、`RenderFeatureReason`，由 `RenderPipeline.features()` 暴露；
+策略类型 `RenderFeaturePolicy` 保持 internal。旧 `applyVisualSettings`、`applyGtao`、
+`applyVolumetricFog`、`applyOutdoorEnvironment` 签名不变，继续同步提交并刷新统一
+观察状态；新代码应使用 `features().submit(...)` 的完整快照入口。`PresentationResult`
+新增 `SKIPPED_PAUSED`，仅在 master 暂停时由 `execute` 返回；已有的宿主分支无需修改，
+但若对枚举做穷举 switch 需补该分支。`PipelineTopology.capture` 新增带三类阴影请求
+参数的重载，旧重载等价于全部请求为 true。控制器不持有 GL 资源，暂停不释放资源。

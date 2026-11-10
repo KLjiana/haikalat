@@ -1,5 +1,11 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCacheState;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowTileRect;
+
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;

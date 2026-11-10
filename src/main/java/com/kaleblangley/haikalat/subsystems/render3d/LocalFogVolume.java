@@ -60,10 +60,10 @@ public record LocalFogVolume(Shape shape, Vector3f center, Vector3f extent,
     @Override public Vector3f albedo() { return new Vector3f(albedo); }
     @Override public Vector3f emission() { return new Vector3f(emission); }
 
-    Vector3f centerInternal() { return center; }
-    Vector3f extentInternal() { return extent; }
-    Vector3f albedoInternal() { return albedo; }
-    Vector3f emissionInternal() { return emission; }
+    public Vector3f centerInternal() { return center; }
+    public Vector3f extentInternal() { return extent; }
+    public Vector3f albedoInternal() { return albedo; }
+    public Vector3f emissionInternal() { return emission; }
 
     private static Vector3f copyFinite(Vector3f value, String name) {
         Objects.requireNonNull(value, name);

@@ -11,7 +11,7 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
-import com.kaleblangley.haikalat.subsystems.render3d.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.ShadowLightHints;

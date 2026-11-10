@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueSorter;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -47,5 +50,38 @@ class RenderQueueSorterTest {
                 assertTrue(indices[index - 1] < indices[index]);
             }
         }
+    }
+
+    // Merged from the former RenderQueueClassTest: classification and shadow-cast
+    // eligibility belong to the same render-queue contract as the sort order.
+    @Test
+    void classifyMapsMaterialStateToQueueAndCastingEligibility() throws Exception {
+        var constructor = com.kaleblangley.haikalat.backend.shader.ShaderProgram.class
+                .getDeclaredConstructor(int.class);
+        constructor.setAccessible(true);
+        var shader = constructor.newInstance(41);
+        var opaque = com.kaleblangley.haikalat.core.material.Material.builder(shader).build();
+        var masked = com.kaleblangley.haikalat.core.material.Material.builder(shader)
+                .setFloat("uAlphaCutoff", 0.5f).build();
+        var alpha = com.kaleblangley.haikalat.core.material.Material.builder(shader)
+                .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA).build();
+        var additive = com.kaleblangley.haikalat.core.material.Material.builder(shader)
+                .blendMode(com.kaleblangley.haikalat.core.BlendMode.ADDITIVE).build();
+
+        assertEquals(RenderQueueClass.OPAQUE, RenderQueueClass.classify(opaque.createInstance()));
+        assertEquals(RenderQueueClass.MASKED, RenderQueueClass.classify(masked.createInstance()));
+        assertEquals(RenderQueueClass.TRANSPARENT_ALPHA,
+                RenderQueueClass.classify(alpha.createInstance()));
+        assertEquals(RenderQueueClass.TRANSPARENT_ADDITIVE,
+                RenderQueueClass.classify(additive.createInstance()));
+        assertTrue(RenderQueueClass.OPAQUE.castsOpaqueShadow());
+        assertTrue(RenderQueueClass.MASKED.castsOpaqueShadow());
+        assertFalse(RenderQueueClass.TRANSPARENT_ALPHA.castsOpaqueShadow());
+        assertFalse(RenderQueueClass.TRANSPARENT_ADDITIVE.castsOpaqueShadow());
+
+        var override = opaque.createInstance().setFloat("uAlphaCutoff", 0.25f);
+        assertEquals(RenderQueueClass.MASKED, RenderQueueClass.classify(override));
+        override.setFloat("uAlphaCutoff", 0.0f);
+        assertEquals(RenderQueueClass.OPAQUE, RenderQueueClass.classify(override));
     }
 }

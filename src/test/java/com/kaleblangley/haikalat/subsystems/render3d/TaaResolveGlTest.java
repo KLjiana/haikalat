@@ -1,12 +1,16 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaResolveInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaSettings;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
-import com.kaleblangley.haikalat.subsystems.postprocess.TemporalAccumulationPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalAccumulationPass;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;

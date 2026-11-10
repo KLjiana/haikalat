@@ -4,8 +4,8 @@ import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.subsystems.animation.MorphWeightBuffer;
-import com.kaleblangley.haikalat.subsystems.render3d.SceneDrawBinding;
-import com.kaleblangley.haikalat.subsystems.render3d.TemporalDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.TemporalDrawBinding;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

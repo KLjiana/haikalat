@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
+
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -31,5 +33,16 @@ class GtaoAllocationPlanTest {
         assertEquals(0, GtaoAllocationPlan.prepare(97, 65, GtaoSettings.disabled(), true, 1000, false).activeBytes());
         assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.prepare(16384, 16384, enabled, true, 0, false));
         assertThrows(IllegalArgumentException.class, () -> GtaoAllocationPlan.prepare(97, 65, enabled, true, GtaoAllocationPlan.TRANSACTION_LIMIT, false));
+    }
+
+    @Test void changingTemporalModeCountsOnlyNewTargetsAtPeak() {
+        var temporal = GtaoSettings.defaults().withEnabled(true);
+        var stateless = new GtaoSettings(true, temporal.quality(), temporal.radius(), temporal.strength(),
+                temporal.thickness(), false, temporal.historyWeight(), temporal.depthRejectionThreshold());
+        var old = GtaoAllocationPlan.prepare(97, 65, temporal, true, 0, false);
+        long sharedTargets = GtaoAllocationPlan.compatibleBytes(97, 65, stateless, true, temporal, true);
+        var candidate = GtaoAllocationPlan.prepare(97, 65, stateless, true, old.activeBytes(), sharedTargets);
+        assertEquals(old.graphBytes(), sharedTargets);
+        assertEquals(old.activeBytes() + candidate.privateBytes() + 49L * 33 * 4, candidate.peakBytes());
     }
 }

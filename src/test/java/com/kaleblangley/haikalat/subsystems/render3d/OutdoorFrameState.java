@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;

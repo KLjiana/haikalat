@@ -272,7 +272,7 @@ public final class Render3dShadowBudgetDemo {
     }
 
     private static void printSummary(Render3dDiagnostics diagnostics,
-                                     com.kaleblangley.haikalat.subsystems.render3d.ShadowCullingStatistics culling,
+                                     com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCullingStatistics culling,
                                      Samples samples, int frames, Options options) {
         var shadow = diagnostics.shadows();
         System.out.printf(Locale.ROOT,

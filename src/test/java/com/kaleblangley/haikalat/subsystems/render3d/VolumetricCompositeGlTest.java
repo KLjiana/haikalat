@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
@@ -47,14 +51,14 @@ class VolumetricCompositeGlTest {
                         var cached=new RenderPipeline(size,scene,null,settings).volumetricFog(fog);
                         var original=new RenderPipeline(size,scene,null,settings).volumetricFog(fog);
                         try {
-                            cached.build();original.build();original.activeGenerationForTest().volumetric.diagnosticFineMediumCache(false);
+                            cached.build();original.build();original.activeGenerationForTest().volumetric().diagnosticFineMediumCache(false);
                             var device=new GlRenderDevice();
                             for(int frame=0;frame<3;frame++) {
                                 cached.execute(device);original.execute(device);
                                 assertArrayEquals(original.captureLinearHdrRgbaFloat(),cached.captureLinearHdrRgbaFloat(),.000001f,
                                         "FP32 cache native pixels ortho="+ortho+" aa="+aa+" frame="+frame);
                             }
-                            var resources=cached.activeGenerationForTest().volumetric.resources();
+                            var resources=cached.activeGenerationForTest().volumetric().resources();
                             var records=new float[(int)resources.fineMediumCacheBytes()/4];glGetNamedBufferSubData(resources.fineMediumCache().id(),0,records);
                             boolean populated=false;for(int i=3;i<records.length;i+=4)if(records[i]>=0)populated=true;
                             assertTrue(populated,"fixture must actually exercise a populated bounded cache");
@@ -132,7 +136,7 @@ class VolumetricCompositeGlTest {
                                     res.colorAttachment(view.softParticleDepthName()),129,65,view));
                         }
                         pipeline.build();var device=new GlRenderDevice();pipeline.execute(device);
-                        var volume=pipeline.activeGenerationForTest().volumetric;
+                        var volume=pipeline.activeGenerationForTest().volumetric();
                         int pixel=32*129+68;
                         assertTrue(pipeline.captureLinearHdrRgbaFloat()[4*pixel]>.0001,"fine-only fixture mode="+mode);
                         for(float value:VolumetricMediumGlTest.texture(volume.resources().medium()))assertEquals(0,value);
@@ -342,7 +346,7 @@ class VolumetricCompositeGlTest {
                 var pipeline=VolumetricLightingGlTest.pipeline(size,scene,fog,64);
                 try {
                     pipeline.build();var device=new GlRenderDevice();pipeline.execute(device);
-                    var volume=pipeline.activeGenerationForTest().volumetric;
+                    var volume=pipeline.activeGenerationForTest().volumetric();
                     float[] originalSource=VolumetricMediumGlTest.texture(volume.resources().historyRead());
                     float[] originalPrefix=VolumetricMediumGlTest.texture(volume.resources().prefix());
                     pipeline.graph().addPass("FilteredIntervalProbe").computeOnly().dependsOn(pipeline.finalPassName())
@@ -479,7 +483,7 @@ class VolumetricCompositeGlTest {
                         pipeline.build();
                         // Disabled counters must retain initialized storage while
                         // the zero-radiance path is checked against continuous rays.
-                        glNamedBufferSubData(pipeline.activeGenerationForTest().volumetric.resources().diagnostics().id(),0,new int[1024]);
+                        glNamedBufferSubData(pipeline.activeGenerationForTest().volumetric().resources().diagnostics().id(),0,new int[1024]);
                         pipeline.execute(new GlRenderDevice());
                         float[] actual=pipeline.captureLinearHdrRgbaFloat();
                         for(int y:new int[]{31,32,33})for(int x:new int[]{67,68,69}) {
@@ -489,7 +493,7 @@ class VolumetricCompositeGlTest {
                             for(int c=0;c<3;c++)assertEquals(expected*Math.scalb(1.0,-c),actual[(y*129+x)*4+c],
                                     .00002+.03*expected,"continuous near-light ray "+x+","+y+" lights="+count+" channel="+c);
                         }
-                        var volume=pipeline.activeGenerationForTest().volumetric;
+                        var volume=pipeline.activeGenerationForTest().volumetric();
                         if(count>=16) {
                             float[] prefix=VolumetricMediumGlTest.texture(volume.resources().prefix());
                             int plane=volume.currentOutput().grid().nz()+8;
@@ -563,7 +567,7 @@ class VolumetricCompositeGlTest {
                                 assertEquals(opaque[offset],actual[offset],.00002+.015*opaque[offset],
                                         "own-depth near-light fog mode="+mode+" AA="+aa+" pixel="+x+","+y+" channel="+c);
                             }
-                            VolumetricMediumGlTest.diagnosticsZero(pipeline.activeGenerationForTest().volumetric);
+                            VolumetricMediumGlTest.diagnosticsZero(pipeline.activeGenerationForTest().volumetric());
                         } finally {pipeline.close();}
                     }
                 }

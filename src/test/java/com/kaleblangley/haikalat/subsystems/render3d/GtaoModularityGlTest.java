@@ -1,5 +1,19 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
+
+import com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality;
+
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
@@ -13,6 +27,7 @@ import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
@@ -48,7 +63,7 @@ class GtaoModularityGlTest {
             window.bindContext(); GL.createCapabilities();
             try (var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
-                p.build(); var device = new GlRenderDevice(); var ao = p.activeGenerationForTest().gtao;
+                p.build(); var device = new GlRenderDevice(); var ao = p.activeGenerationForTest().gtao();
                 for (int frame = 0; frame < 5; frame++) { p.execute(device); assertEquals(0, ao.samplePhase()); }
                 fixture.camera.setPosition(new Vector3f(2.01f, 1.4f, 4)); p.execute(device);
                 assertTrue(ao.samplePhase() > 0);
@@ -70,7 +85,7 @@ class GtaoModularityGlTest {
             try (var tracking = GlDebug.acquireResourceTracking(); var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                 p.build(); var device = new GlRenderDevice(); p.execute(device); var owner = p.activeGenerationForTest();
-                long created = GlDebug.resources().createdCount(); var history = owner.gtao.historyForTest();
+                long created = GlDebug.resources().createdCount(); var history = owner.gtao().historyForTest();
                 float[] initial = p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL);
                 p.applyGtao(new GtaoSettings(true, p.gtao().quality(), 2, 1, .25f, true, .9f, .02f)); p.execute(device);
                 float[] radius = p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL);
@@ -210,7 +225,7 @@ class GtaoModularityGlTest {
 
     private static void assertActiveDeformationStorage(RenderPipeline pipeline) throws Exception {
         var field = SceneSurfacePass.class.getDeclaredField("surfaceProgram"); field.setAccessible(true);
-        var program = (ShaderProgram) field.get(pipeline.activeGenerationForTest().sceneSurfacePass);
+        var program = (ShaderProgram) field.get(pipeline.activeGenerationForTest().sceneSurfacePass());
         for (String block : java.util.List.of("JointPaletteBlock", "MorphDeltaBlock", "MorphWeightBlock",
                 "PreviousJointPaletteBlock", "PreviousMorphWeightBlock")) {
             var properties = org.lwjgl.BufferUtils.createIntBuffer(2).put(new int[]{org.lwjgl.opengl.GL43.GL_BUFFER_BINDING,
@@ -297,6 +312,116 @@ class GtaoModularityGlTest {
         for (int unit : new int[]{0, 1, 13}) assertEquals(sampler, org.lwjgl.opengl.GL30.glGetIntegeri(org.lwjgl.opengl.GL33.GL_SAMPLER_BINDING, unit));
     }
 
+    @Test void failedFeatureRequestIsNotRetriedUntilANewSubmission() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var fixture = new Fixture()) {
+                var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.disabled());
+                p.build(); var device = new GlRenderDevice(); p.execute(device);
+                var color = p.features().effective().postProcess().colorGrading();
+                var fog = p.features().effective().postProcess().fog();
+                var requested = p.features().effective().toBuilder()
+                        .postProcess(new PostProcessSettings(color, fog,
+                                GtaoSettings.defaults().withEnabled(true))).build();
+                System.setProperty("haikalat.test.failGtaoGraph", "true");
+                try {
+                    p.features().submit(requested);
+                    p.execute(device);
+                } finally {
+                    System.clearProperty("haikalat.test.failGtaoGraph");
+                }
+                assertEquals(RenderFeatureStatus.FAILED, p.features().status());
+                long failedRevision = p.features().requestedRevision();
+                assertFalse(p.features().effective().postProcess().gtao().enabled());
+
+                p.execute(device);
+                assertEquals(RenderFeatureStatus.FAILED, p.features().status(),
+                        "a failed request must stay settled instead of retrying next frame");
+                assertFalse(p.features().failureReason().isBlank());
+                assertEquals(failedRevision, p.features().requestedRevision());
+                assertFalse(p.features().effective().postProcess().gtao().enabled());
+
+                p.features().submit(requested);
+                p.execute(device);
+                assertEquals(RenderFeatureStatus.APPLIED, p.features().status(),
+                        "only a new submission may retry the configuration");
+                assertTrue(p.features().effective().postProcess().gtao().enabled());
+                assertTrue(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS));
+            }
+        }
+    }
+
+    @Test void unifiedControlGatesIblWithoutOwningTheBorrowedEnvironment() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var fixture = new Fixture()) {
+                var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.disabled());
+                p.build(); var device = new GlRenderDevice(); p.execute(device);
+                float[] withIbl = p.captureLinearHdrRgbaFloat();
+                assertTrue(p.features().effective().imageBasedLighting());
+
+                p.features().submit(p.features().effective().toBuilder()
+                        .imageBasedLighting(false).build());
+                p.execute(device);
+                assertEquals(RenderFeatureStatus.APPLIED, p.features().status());
+                assertFalse(p.features().effective().imageBasedLighting());
+                float[] withoutIbl = p.captureLinearHdrRgbaFloat();
+                assertTrue(difference(withIbl, withoutIbl) > 0.01f,
+                        "IBL must contribute real linear radiance");
+
+                p.features().submit(p.features().effective().toBuilder()
+                        .imageBasedLighting(true).build());
+                p.execute(device);
+                float[] restored = p.captureLinearHdrRgbaFloat();
+                assertArrayEquals(withIbl, restored, 0.0005f,
+                        "re-enabling IBL must restore the borrowed environment contribution");
+            }
+        }
+    }
+
+    private static float difference(float[] a, float[] b) {
+        assertEquals(a.length, b.length);
+        float sum = 0;
+        for (int i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+        return sum / a.length;
+    }
+
+    @Test void unifiedControlSwitchesGtaoAndKeepsTheTaaSurfaceConsumer() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var fixture = new Fixture()) {
+                var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.disabled());
+                p.build(); var device = new GlRenderDevice(); p.execute(device);
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS));
+                assertFalse(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS));
+                assertTrue(p.graph().hasPass(PostProcessTargets.SCENE_SURFACE_PASS));
+
+                var color = p.features().effective().postProcess().colorGrading();
+                var fog = p.features().effective().postProcess().fog();
+                p.features().submit(p.features().effective().toBuilder()
+                        .postProcess(new PostProcessSettings(color, fog,
+                                GtaoSettings.defaults().withEnabled(true))).build());
+                p.execute(device);
+                assertEquals(RenderFeatureStatus.APPLIED, p.features().status());
+                assertTrue(p.features().effective().postProcess().gtao().enabled());
+                assertTrue(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS));
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS),
+                        "TAA must keep its shared surface after AO turns on");
+
+                p.features().submit(p.features().effective().toBuilder()
+                        .postProcess(new PostProcessSettings(color, fog,
+                                GtaoSettings.disabled())).build());
+                p.execute(device);
+                assertFalse(p.features().effective().postProcess().gtao().enabled());
+                assertFalse(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS),
+                        "AO off must remove its dedicated passes");
+                assertTrue(p.graph().hasPass(PostProcessTargets.TAA_PASS));
+                assertTrue(p.graph().hasPass(PostProcessTargets.SCENE_SURFACE_PASS),
+                        "the TAA consumer still needs the shared scene surface");
+            }
+        }
+    }
+
     @Test void gtaoSwitchesPreserveStaticShadowCacheAndAtlas() {
         try (var window = window()) {
             window.bindContext(); GL.createCapabilities();
@@ -305,18 +430,28 @@ class GtaoModularityGlTest {
                 var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.disabled());
                 p.localShadows(LocalShadowPipelineSettings.balanced()); p.build();
                 var device = new GlRenderDevice(); p.execute(device); p.execute(device);
-                var cache = p.activeGenerationForTest().shadowCache;
-                var shadowShader = p.activeGenerationForTest().shadowShader;
+                var cache = p.activeGenerationForTest().shadowCache();
+                var programs = p.activeGenerationForTest().shadowPrograms();
+                assertNotNull(programs);
                 int atlas = boundTexture2d(7);
                 assertTrue(atlas > 0 && org.lwjgl.opengl.GL11.glIsTexture(atlas));
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
+                System.setProperty("haikalat.test.failGtaoGraph", "true");
+                try {
+                    assertThrows(RuntimeException.class, () -> p.applyGtao(GtaoSettings.defaults().withEnabled(true)));
+                } finally {
+                    System.clearProperty("haikalat.test.failGtaoGraph");
+                }
+                assertSame(programs, p.activeGenerationForTest().shadowPrograms());
+                p.execute(device);
                 p.applyGtao(GtaoSettings.defaults().withEnabled(true)); p.execute(device);
-                assertSame(cache, p.activeGenerationForTest().shadowCache);
-                assertSame(shadowShader, p.activeGenerationForTest().shadowShader);
+                assertSame(cache, p.activeGenerationForTest().shadowCache());
+                assertSame(programs, p.activeGenerationForTest().shadowPrograms());
                 assertEquals(atlas, boundTexture2d(7), "the PBR consumer must retain the native shadow atlas");
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
                 p.applyGtao(GtaoSettings.disabled()); p.execute(device);
-                assertSame(cache, p.activeGenerationForTest().shadowCache);
+                assertSame(cache, p.activeGenerationForTest().shadowCache());
+                assertSame(programs, p.activeGenerationForTest().shadowPrograms());
                 assertEquals(atlas, boundTexture2d(7));
                 assertTrue(cache.lastCacheHits() > 0); assertEquals(0, cache.lastTilesRendered());
             }
@@ -337,9 +472,14 @@ class GtaoModularityGlTest {
             try (var tracking = GlDebug.acquireResourceTracking()) {
                 try (var fixture = new Fixture()) {
                     var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.disabled());
+                    var shadowed = new Scene(fixture.camera);
+                    for (var renderer : fixture.scene.renderers()) shadowed.add(renderer);
+                    var lightDirection = new Vector3f(-1, -1, -1);
+                    shadowed.addLight(SceneLight.shadowedDirectional(lightDirection, new Vector3f(1), .5f));
                     p.build(); var device = new GlRenderDevice(); p.execute(device);
                     var baselines = new java.util.HashMap<Integer, Long>(); long peak = 0;
-                    Path trace = evidence().resolve("fifty-cycle.csv"); Files.writeString(trace, "cycle,width,disabledEstimatedBytes\n");
+                    Path trace = evidence().resolve("fifty-cycle.csv");
+                    Files.writeString(trace, "cycle,width,lightIntensity,bloomLevels,disabledEstimatedBytes\n");
                     for (int cycle = 0; cycle < 50; cycle++) {
                         if (cycle % 10 == 0) {
                             fixture.size.width = fixture.size.width == 96 ? 97 : 96;
@@ -347,28 +487,161 @@ class GtaoModularityGlTest {
                             p.resize(fixture.size.width, fixture.size.height);
                         }
                         if (cycle % 7 == 0) {
+                            var active = p.activeGenerationForTest();
+                            long programs = GlDebug.resources().liveResources().stream().filter(resource -> resource.kind().equals("PROGRAM")).count();
                             System.setProperty("haikalat.test.failGtaoGraph", "true");
-                            try { assertThrows(RuntimeException.class, () -> p.applyGtao(GtaoSettings.defaults().withEnabled(true))); }
+                            try { assertThrows(RuntimeException.class, () -> p.replaceScene(shadowed)); }
                             finally { System.clearProperty("haikalat.test.failGtaoGraph"); }
+                            assertSame(active, p.activeGenerationForTest());
+                            assertSame(fixture.scene, p.scene());
+                            assertEquals(programs, GlDebug.resources().liveResources().stream().filter(resource -> resource.kind().equals("PROGRAM")).count());
                         }
+                        float intensity = cycle % 2 == 0 ? .5f : .75f;
+                        shadowed.setLight(0, SceneLight.shadowedDirectional(lightDirection, new Vector3f(1), intensity));
+                        var clustered = p.activeGenerationForTest().clusteredResources();
+                        p.replaceScene(shadowed);
+                        var shadowPrograms = p.activeGenerationForTest().shadowPrograms();
+                        assertNotNull(shadowPrograms);
+                        assertSame(clustered, p.activeGenerationForTest().clusteredResources());
+                        assertTrue(p.graph().hasPass(DirectionalShadowMap.PASS_NAME));
+                        int levels = 2 + cycle % 2;
+                        p.applyVisualSettings(withBloom(p.visualSettings(), BloomSettings.builder().enabled(true).maxLevels(levels).build()));
+                        assertSame(shadowPrograms, p.activeGenerationForTest().shadowPrograms());
+                        assertTrue(p.graph().hasPass(PostProcessTargets.bloomDownPass(levels - 1)));
                         p.applyGtao(tuning(1, com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.MEDIUM, cycle % 2 == 0));
                         if (cycle % 3 == 0) p.applyVolumetricFog(VolumetricGenerationGlTest.fog(.1f));
                         p.execute(device); assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
+                        assertEquals(intensity, p.activeGenerationForTest().clusteredLightingBinder().stagedTable().record(0).intensity());
                         peak = Math.max(peak, GlDebug.resources().estimatedBytes());
                         if (cycle % 5 == 0) { p.applyGtao(tuning(2, com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.HIGH, cycle % 2 == 0)); p.execute(device); }
                         p.applyGtao(GtaoSettings.disabled()); p.execute(device);
-                        p.applyVolumetricFog(VolumetricFogSettings.disabled()); p.execute(device); p.drainRetirementsForTest();
-                        assertNull(p.activeGenerationForTest().gtao); assertNull(p.activeGenerationForTest().volumetric);
+                        p.applyVolumetricFog(VolumetricFogSettings.disabled());
+                        p.applyVisualSettings(withBloom(p.visualSettings(), BloomSettings.disabled()));
+                        p.replaceScene(fixture.scene);
+                        p.execute(device); p.drainRetirementsForTest();
+                        assertSame(clustered, p.activeGenerationForTest().clusteredResources());
+                        assertFalse(p.graph().hasPass(DirectionalShadowMap.PASS_NAME));
+                        assertNull(p.activeGenerationForTest().shadowPrograms());
+                        assertFalse(p.graph().hasPass(PostProcessTargets.bloomDownPass(0)));
+                        assertNull(p.activeGenerationForTest().gtao()); assertNull(p.activeGenerationForTest().volumetric());
                         long bytes = GlDebug.resources().estimatedBytes();
                         var previous = baselines.putIfAbsent(fixture.size.width, bytes);
                         if (previous != null) assertEquals(previous.longValue(), bytes, "disabled footprint grew at cycle " + cycle);
-                        Files.writeString(trace, cycle + "," + fixture.size.width + "," + bytes + "\n", java.nio.file.StandardOpenOption.APPEND);
+                        Files.writeString(trace, cycle + "," + fixture.size.width + "," + intensity + "," + levels + "," + bytes + "\n",
+                                java.nio.file.StandardOpenOption.APPEND);
                     }
                     System.out.println("GTAO_50_SWITCHES disabled=" + baselines + " peakEstimatedBytes=" + peak);
                 }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
                 assertEquals(GlDebug.resources().createdCount(), GlDebug.resources().closedCount());
                 GlDebug.assertNoError("GTAO 50 switch cycles");
+            }
+        }
+    }
+
+    @Test void bloomTopologyKeepsUnrelatedOwnersAndTaaHistory() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking(); var fixture = new Fixture()) {
+                var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
+                var device = new GlRenderDevice();
+                p.build(); p.execute(device);
+                var donor = p.activeGenerationForTest();
+                var cluster = donor.clusteredResources();
+                var gtao = donor.gtao();
+                var camera = donor.cameraUniforms();
+                var history = donor.postProcess().taaHistoryForTest();
+                var read = history.readFramebuffer();
+                var write = history.writeFramebuffer();
+                assertTrue(history.valid());
+                var bloom = BloomSettings.builder().enabled(true).maxLevels(2).build();
+                p.applyVisualSettings(withBloom(p.visualSettings(), bloom));
+                var active = p.activeGenerationForTest();
+                assertNotSame(donor, active);
+                assertSame(cluster, active.clusteredResources());
+                assertSame(gtao, active.gtao());
+                assertSame(camera, active.cameraUniforms());
+                assertSame(history, active.postProcess().taaHistoryForTest());
+                assertSame(read, history.readFramebuffer());
+                assertSame(write, history.writeFramebuffer());
+                assertTrue(history.valid(), "Bloom consumes the output of TAA");
+                p.drainRetirementsForTest();
+
+                long bytes = GlDebug.resources().estimatedBytes();
+                var moreLevels = BloomSettings.builder().enabled(true).maxLevels(3).build();
+                System.setProperty("haikalat.test.failGtaoGraph", "true");
+                try {
+                    assertThrows(RuntimeException.class, () -> p.applyVisualSettings(withBloom(p.visualSettings(), moreLevels)));
+                } finally { System.clearProperty("haikalat.test.failGtaoGraph"); }
+                assertSame(active, p.activeGenerationForTest());
+                assertEquals(bloom, p.visualSettings().bloom());
+                assertEquals(bytes, GlDebug.resources().estimatedBytes());
+                assertSame(read, history.readFramebuffer());
+                p.execute(device);
+
+                p.applyVisualSettings(withBloom(p.visualSettings(), moreLevels));
+                assertSame(history, p.activeGenerationForTest().postProcess().taaHistoryForTest());
+                assertTrue(p.graph().hasPass(PostProcessTargets.bloomDownPass(2)));
+                p.execute(device);
+                var scalar = BloomSettings.builder().enabled(true).maxLevels(3).intensity(.2f).build();
+                var graph = p.graph();
+                long created = GlDebug.resources().createdCount();
+                p.applyVisualSettings(withBloom(p.visualSettings(), scalar));
+                assertSame(graph, p.graph());
+                assertEquals(created, GlDebug.resources().createdCount());
+                p.execute(device);
+                p.applyVisualSettings(withBloom(p.visualSettings(), BloomSettings.disabled()));
+                p.execute(device);
+                assertSame(cluster, p.activeGenerationForTest().clusteredResources());
+                assertSame(history, p.activeGenerationForTest().postProcess().taaHistoryForTest());
+                assertFalse(p.graph().hasPass(PostProcessTargets.bloomDownPass(0)));
+                GlDebug.assertNoError("Bloom candidate reuse");
+            }
+        }
+    }
+
+    private static VisualSettings withBloom(VisualSettings current, BloomSettings bloom) {
+        return new VisualSettings(current.manualExposure(), current.iblIntensity(), current.iblRotationRadians(),
+                current.directionalLightDirection(), current.directionalLightColor(), current.directionalLightIntensity(),
+                current.antiAliasingMode(), bloom, current.outdoor(), current.volumetricFog());
+    }
+
+    @Test void outdoorCandidateKeepsCompatibleStorageAndInvalidatesLightingHistory() {
+        try (var window = window()) {
+            window.bindContext(); GL.createCapabilities();
+            try (var fixture = new Fixture()) {
+                var pipeline = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
+                pipeline.applyVolumetricFog(VolumetricGenerationGlTest.fog(.1f));
+                var device = new GlRenderDevice();
+                pipeline.build(); pipeline.execute(device);
+                var before = pipeline.activeGenerationForTest();
+                var allocated = pipeline.volumetricAllocationDiagnostics();
+                var history = before.postProcess().taaHistoryForTest();
+                var read = history.readFramebuffer();
+                var write = history.writeFramebuffer();
+                assertTrue(history.valid());
+
+                pipeline.applyOutdoorEnvironment(OutdoorEnvironmentSettings.goldenHour());
+
+                var after = pipeline.activeGenerationForTest();
+                assertNotSame(before, after);
+                assertNotNull(after.stylizedSky());
+                assertSame(before.cameraUniforms(), after.cameraUniforms());
+                assertSame(before.clusteredResources(), after.clusteredResources());
+                assertSame(before.gtao(), after.gtao());
+                assertSame(before.volumetric(), after.volumetric());
+                var reused = pipeline.volumetricAllocationDiagnostics();
+                assertEquals(allocated.activePrivateBytes() + allocated.activeColorUpperBoundBytes(),
+                        reused.lastCandidatePeakBytes());
+                assertEquals(0, reused.retiringUpperBoundBytes());
+                assertSame(history, after.postProcess().taaHistoryForTest());
+                assertSame(read, history.readFramebuffer());
+                assertSame(write, history.writeFramebuffer());
+                assertFalse(history.valid());
+                pipeline.execute(device);
+                assertTrue(history.valid());
+                assertEquals("TAA_LIGHTING_SETTINGS", after.postProcess().completedTaaInvalidationReason());
+                GlDebug.assertNoError("outdoor candidate reuse");
             }
         }
     }
@@ -422,13 +695,13 @@ class GtaoModularityGlTest {
                 var a = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                 var b = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                 a.build(); b.build(); var device = new GlRenderDevice(); a.execute(device); b.execute(device);
-                var historyA = a.activeGenerationForTest().gtao.historyForTest();
-                var historyB = b.activeGenerationForTest().gtao.historyForTest();
+                var historyA = a.activeGenerationForTest().gtao().historyForTest();
+                var historyB = b.activeGenerationForTest().gtao().historyForTest();
                 assertNotSame(historyA, historyB); var otherRead = historyB.readFramebuffer();
                 var world = new Scene(new Camera(new Vector3f(2.4f, 1.4f, 4), new Vector3f(0, 1, 0), -116, -15));
                 for (var renderer : fixture.scene.renderers()) world.add(renderer);
                 for (var light : fixture.scene.lights()) world.addLight(light);
-                a.replaceScene(world); assertSame(historyA, a.activeGenerationForTest().gtao.historyForTest());
+                a.replaceScene(world); assertSame(historyA, a.activeGenerationForTest().gtao().historyForTest());
                 assertFalse(historyA.valid()); assertSame(otherRead, historyB.readFramebuffer()); assertTrue(historyB.valid());
                 a.execute(device); assertTrue(a.lastRender3dDiagnostics().invalidationReasons().contains("GTAO_WORLD"));
                 var fresh = fixture.pipeline(world, AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
@@ -444,20 +717,20 @@ class GtaoModularityGlTest {
             window.bindContext(); GL.createCapabilities();
             try (var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
-                p.build(); p.execute(new GlRenderDevice()); var owner = p.activeGenerationForTest(); var input = owner.gtaoInputs;
+                p.build(); p.execute(new GlRenderDevice()); var owner = p.activeGenerationForTest(); var input = owner.gtaoInputs();
                 input.validate();
-                var layout = owner.topology.sceneSurface();
+                var layout = owner.topology().sceneSurface();
                 assertThrows(IllegalArgumentException.class, () -> input.surface().validateDependency("absent",
                         layout.single(SceneBufferChannel.DEPTH)));
                 var missingNormal = SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(), SceneBufferRequirements.fog(),
                         SceneSurfaceLayout.ReactiveMode.NONE);
                 assertThrows(IllegalArgumentException.class, () -> GtaoSurfaceInputs.shared(
-                        new SceneSurfaceInputs(owner.id, owner.graph, missingNormal), input.aa(), true).validate());
+                        new SceneSurfaceInputs(owner.id(), owner.graph(), missingNormal), input.aa(), true).validate());
                 assertThrows(IllegalArgumentException.class, () -> GtaoSurfaceInputs.shared(
                         input.surface(), AntiAliasingMode.MSAA, input.temporal()).validate());
                 assertThrows(IllegalStateException.class, () -> input.validateFrame(1, 1));
                 try (var foreign = new com.kaleblangley.haikalat.core.graph.RenderGraph(96, 64)) {
-                    assertThrows(IllegalArgumentException.class, () -> owner.gtao.addPreGeometryPasses(foreign, input));
+                    assertThrows(IllegalArgumentException.class, () -> owner.gtao().addPreGeometryPasses(foreign, input));
                     foreign.addPass(PostProcessTargets.SCENE_SURFACE_PASS)
                             .createColor(PostProcessTargets.SCENE_NORMAL, com.kaleblangley.haikalat.backend.RenderFormat.RGBA16F)
                             .createDepthTexture(PostProcessTargets.SCENE_DEPTH).execute((res, cmd) -> {});
@@ -477,7 +750,7 @@ class GtaoModularityGlTest {
                 try {
                     var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                     p.build(); p.execute(new GlRenderDevice());
-                    assertFalse(p.activeGenerationForTest().gtaoInputs.shared());
+                    assertFalse(p.activeGenerationForTest().gtaoInputs().shared());
                     assertTrue(p.graph().hasPass(PostProcessTargets.GTAO_DEPTH_PREPASS));
                     assertTrue(p.lastRender3dDiagnostics().ambientOcclusion().depthPrepassDraws() > 0);
                     assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
@@ -526,7 +799,7 @@ class GtaoModularityGlTest {
                     var p = fixture.pipeline(AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                     p.build(); var device = new GlRenderDevice(); p.execute(device);
                     var old = p.activeGenerationForTest();
-                    var oldAo = old.gtao;
+                    var oldAo = old.gtao();
                     var oldRead = oldAo.historyForTest().readFramebuffer();
                     System.setProperty("haikalat.test.failRetirementFence", "true");
                     try {
@@ -535,14 +808,14 @@ class GtaoModularityGlTest {
                         assertFalse(p.gtao().enabled()); assertNotSame(old, p.activeGenerationForTest());
                         assertEquals("retirement-after-publication", p.lastRender3dDiagnostics().failureStage());
                         assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
-                        assertSame(oldAo, old.gtao); assertFalse(oldRead.isClosed());
+                        assertSame(oldAo, old.gtao()); assertFalse(oldRead.isClosed());
                         assertThrows(IllegalStateException.class, p::drainRetirementsForTest);
                         assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
-                        assertSame(oldAo, old.gtao); assertFalse(oldRead.isClosed());
+                        assertSame(oldAo, old.gtao()); assertFalse(oldRead.isClosed());
                     } finally { System.clearProperty("haikalat.test.failRetirementFence"); }
                     p.drainRetirementsForTest();
                     assertEquals(0, p.volumetricAllocationDiagnostics().retiringGenerations());
-                    assertNull(old.gtao); assertTrue(oldRead.isClosed());
+                    assertNull(old.gtao()); assertTrue(oldRead.isClosed());
                     p.execute(device);
                     assertFalse(p.gtao().enabled());
                     assertTrue(p.graph().description().passes().stream().noneMatch(pass -> pass.name().startsWith("Gtao")));
@@ -550,12 +823,12 @@ class GtaoModularityGlTest {
                     System.setProperty("haikalat.test.failRetirementFence", "true");
                     try {
                         assertThrows(IllegalStateException.class, p::close);
-                        assertNotNull(closing.graph);
+                        assertNotNull(closing.graph());
                         assertEquals(1, p.volumetricAllocationDiagnostics().retiringGenerations());
                         assertThrows(IllegalStateException.class, () -> p.execute(device));
                     } finally { System.clearProperty("haikalat.test.failRetirementFence"); }
                     p.close();
-                    assertNull(closing.graph);
+                    assertNull(closing.graph());
                 }
                 assertEquals(0, GlDebug.resources().liveResources().size());
                 assertEquals(GlDebug.resources().createdCount(), GlDebug.resources().closedCount());
@@ -599,7 +872,7 @@ class GtaoModularityGlTest {
                 for (var light : fixture.scene.lights()) content.addLight(light);
                 var p = fixture.pipeline(content, AntiAliasingMode.NONE, GtaoSettings.defaults().withEnabled(true));
                 p.build(); var device = new GlRenderDevice(); p.execute(device);
-                var ao = p.activeGenerationForTest().gtao; var history = ao.historyForTest();
+                var ao = p.activeGenerationForTest().gtao(); var history = ao.historyForTest();
                 var read = history.readFramebuffer(); var write = history.writeFramebuffer();
                 float[] readPixels = texture(read), writePixels = texture(write);
                 var rejecting = new com.kaleblangley.haikalat.core.device.RenderDevice() {
@@ -637,25 +910,25 @@ class GtaoModularityGlTest {
             try (var tracking = GlDebug.acquireResourceTracking(); var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
                 p.build(); var device = new GlRenderDevice(); p.execute(device);
-                var owner = p.activeGenerationForTest(); var read = owner.gtao.historyForTest().readFramebuffer();
+                var owner = p.activeGenerationForTest(); var read = owner.gtao().historyForTest().readFramebuffer();
                 long bytes = GlDebug.resources().estimatedBytes(), live = GlDebug.resources().liveResources().size();
                 System.setProperty("haikalat.test.failGtaoResizeAllocation", "true");
                 try { assertThrows(IllegalStateException.class, () -> p.resize(97, 65)); }
                 finally { System.clearProperty("haikalat.test.failGtaoResizeAllocation"); }
-                assertEquals(96, p.graph().width()); assertSame(read, owner.gtao.historyForTest().readFramebuffer());
+                assertEquals(96, p.graph().width()); assertSame(read, owner.gtao().historyForTest().readFramebuffer());
                 assertEquals(bytes, GlDebug.resources().estimatedBytes()); assertEquals(live, GlDebug.resources().liveResources().size());
                 p.execute(device); assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
-                var stableRead = owner.gtao.historyForTest().readFramebuffer();
+                var stableRead = owner.gtao().historyForTest().readFramebuffer();
                 long created = GlDebug.resources().createdCount();
                 assertThrows(IllegalArgumentException.class, () -> p.resize(32768, 32768));
                 assertEquals(created, GlDebug.resources().createdCount(), "AO budget must reject before any candidate GL allocation");
                 int deviceLimit = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MAX_TEXTURE_SIZE);
                 assertThrows(IllegalArgumentException.class, () -> p.resize(deviceLimit + 1, 1));
                 assertEquals(created, GlDebug.resources().createdCount(), "a narrow over-limit extent must also reject before allocation");
-                assertEquals(96, p.graph().width()); assertSame(stableRead, owner.gtao.historyForTest().readFramebuffer());
+                assertEquals(96, p.graph().width()); assertSame(stableRead, owner.gtao().historyForTest().readFramebuffer());
                 p.resize(97, 65); fixture.size.width = 97; fixture.size.height = 65; p.execute(device);
-                assertEquals(49, owner.gtao.historyForTest().readFramebuffer().width());
-                assertEquals(33, owner.gtao.historyForTest().readFramebuffer().height());
+                assertEquals(49, owner.gtao().historyForTest().readFramebuffer().width());
+                assertEquals(33, owner.gtao().historyForTest().readFramebuffer().height());
                 assertTrue(p.lastRender3dDiagnostics().invalidationReasons().contains("GTAO_RESIZE"));
             }
         }
@@ -677,15 +950,15 @@ class GtaoModularityGlTest {
                     p.build(); var device = new GlRenderDevice(); p.execute(device);
                     float[] original = p.captureLinearHdrRgbaFloat();
                     var initial = p.activeGenerationForTest();
-                    assertNull(initial.gtao); assertFalse(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS));
+                    assertNull(initial.gtao()); assertFalse(p.graph().hasPass(PostProcessTargets.GTAO_ESTIMATE_PASS));
                     p.applyGtao(GtaoSettings.defaults().withEnabled(true));
-                    var ao = p.activeGenerationForTest().gtao;
-                    assertSame(initial.cameraUniforms, p.activeGenerationForTest().cameraUniforms);
-                    assertSame(initial.clusteredResources, p.activeGenerationForTest().clusteredResources);
-                    assertSame(initial.shadowCache, p.activeGenerationForTest().shadowCache);
+                    var ao = p.activeGenerationForTest().gtao();
+                    assertSame(initial.cameraUniforms(), p.activeGenerationForTest().cameraUniforms());
+                    assertSame(initial.clusteredResources(), p.activeGenerationForTest().clusteredResources());
+                    assertSame(initial.shadowCache(), p.activeGenerationForTest().shadowCache());
                     p.execute(device); assertAo(p.graph().readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL));
                     p.applyGtao(GtaoSettings.disabled()); p.execute(device); p.drainRetirementsForTest();
-                    assertNull(p.activeGenerationForTest().gtao);
+                    assertNull(p.activeGenerationForTest().gtao());
                     assertFalse(p.graph().hasPass(PostProcessTargets.GTAO_UPSAMPLE_PASS));
                     assertArrayEquals(original, p.captureLinearHdrRgbaFloat(), 0f);
                     assertThrows(RuntimeException.class, () -> ao.applySettings(GtaoSettings.defaults().withEnabled(true)), "stopped owner must retire");
@@ -704,8 +977,8 @@ class GtaoModularityGlTest {
             try (var tracking = GlDebug.acquireResourceTracking(); var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
                 p.build(); var device = new GlRenderDevice(); p.execute(device);
-                var owner = p.activeGenerationForTest(); var history = owner.gtao.historyForTest();
-                var taa = owner.postProcess.taaHistoryForTest(); var graph = p.graph();
+                var owner = p.activeGenerationForTest(); var history = owner.gtao().historyForTest();
+                var taa = owner.postProcess().taaHistoryForTest(); var graph = p.graph();
                 long revision = graph.description().topologyRevision(), creations = GlDebug.resources().createdCount();
                 float[] before = graph.readColorAttachmentRgbaFloat(PostProcessTargets.GTAO_FINAL);
                 for (int i = 0; i < 16; i++) {
@@ -713,8 +986,8 @@ class GtaoModularityGlTest {
                             ? com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.LOW
                             : com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.HIGH, true));
                     assertSame(owner, p.activeGenerationForTest()); assertSame(graph, p.graph());
-                    assertSame(history, owner.gtao.historyForTest()); assertSame(taa, owner.postProcess.taaHistoryForTest());
-                    assertFalse(owner.gtao.historyValid()); p.execute(device);
+                    assertSame(history, owner.gtao().historyForTest()); assertSame(taa, owner.postProcess().taaHistoryForTest());
+                    assertFalse(owner.gtao().historyValid()); p.execute(device);
                     assertTrue(p.lastRender3dDiagnostics().invalidationReasons().contains("GTAO_SETTINGS"));
                 }
                 assertEquals(revision, graph.description().topologyRevision());
@@ -730,24 +1003,24 @@ class GtaoModularityGlTest {
             try (var tracking = GlDebug.acquireResourceTracking(); var fixture = new Fixture()) {
                 var p = fixture.pipeline(AntiAliasingMode.TAA, GtaoSettings.defaults().withEnabled(true));
                 p.build(); var device = new GlRenderDevice(); p.execute(device);
-                var initial = p.activeGenerationForTest(); var gtao = initial.gtao;
-                var clustered = initial.clusteredResources;
-                var taa = initial.postProcess.taaHistoryForTest();
+                var initial = p.activeGenerationForTest(); var gtao = initial.gtao();
+                var clustered = initial.clusteredResources();
+                var taa = initial.postProcess().taaHistoryForTest();
                 p.applyVolumetricFog(VolumetricGenerationGlTest.fog(.1f));
-                assertSame(gtao, p.activeGenerationForTest().gtao); assertTrue(gtao.historyValid());
-                p.execute(device); var fog = p.activeGenerationForTest().volumetric;
+                assertSame(gtao, p.activeGenerationForTest().gtao()); assertTrue(gtao.historyValid());
+                p.execute(device); var fog = p.activeGenerationForTest().volumetric();
                 var fogStorage = fog.resources();
                 p.applyGtao(tuning(1, com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality.MEDIUM, false));
-                assertSame(fog, p.activeGenerationForTest().volumetric); assertSame(fogStorage, p.activeGenerationForTest().volumetric.resources());
-                assertNull(p.activeGenerationForTest().gtao.historyForTest());
-                assertSame(taa, p.activeGenerationForTest().postProcess.taaHistoryForTest()); p.execute(device);
-                p.applyGtao(GtaoSettings.disabled()); assertSame(fog, p.activeGenerationForTest().volumetric); p.execute(device);
+                assertSame(fog, p.activeGenerationForTest().volumetric()); assertSame(fogStorage, p.activeGenerationForTest().volumetric().resources());
+                assertNull(p.activeGenerationForTest().gtao().historyForTest());
+                assertSame(taa, p.activeGenerationForTest().postProcess().taaHistoryForTest()); p.execute(device);
+                p.applyGtao(GtaoSettings.disabled()); assertSame(fog, p.activeGenerationForTest().volumetric()); p.execute(device);
                 p.applyGtao(GtaoSettings.defaults().withEnabled(true)); p.execute(device);
-                var currentAo = p.activeGenerationForTest().gtao;
+                var currentAo = p.activeGenerationForTest().gtao();
                 p.applyVolumetricFog(VolumetricFogSettings.disabled());
-                assertSame(currentAo, p.activeGenerationForTest().gtao); assertTrue(currentAo.historyValid());
-                p.execute(device); assertSame(clustered, p.activeGenerationForTest().clusteredResources);
-                assertSame(initial.shadowCache, p.activeGenerationForTest().shadowCache);
+                assertSame(currentAo, p.activeGenerationForTest().gtao()); assertTrue(currentAo.historyValid());
+                p.execute(device); assertSame(clustered, p.activeGenerationForTest().clusteredResources());
+                assertSame(initial.shadowCache(), p.activeGenerationForTest().shadowCache());
             }
         }
     }
@@ -770,12 +1043,12 @@ class GtaoModularityGlTest {
                     p.applyVolumetricFog(VolumetricGenerationGlTest.fog(.1f));
                     p.execute(device);
                     assertSharedSurface(p, aa, false, true, false);
-                    var fogOwner = p.activeGenerationForTest().volumetric;
+                    var fogOwner = p.activeGenerationForTest().volumetric();
                     p.applyGtao(nonTemporal);
                     var shared = observeSurfaceTargets(p, device);
-                    assertSame(fogOwner, p.activeGenerationForTest().volumetric);
+                    assertSame(fogOwner, p.activeGenerationForTest().volumetric());
                     assertSharedSurface(p, aa, true, true, false);
-                    var gtaoOwner = p.activeGenerationForTest().gtao;
+                    var gtaoOwner = p.activeGenerationForTest().gtao();
                     long sharedBytes = p.activeGenerationForTest().surfaceBytes();
                     p.drainRetirementsForTest();
                     if (aa == AntiAliasingMode.TAA) {
@@ -787,7 +1060,7 @@ class GtaoModularityGlTest {
                             assertTrue(failure.getMessage().contains("depends on missing pass MissingVolumeProducer"));
                         } finally { System.clearProperty("haikalat.test.failVolumeGraph"); }
                         assertSame(graph, p.graph());
-                        assertSame(fogOwner, p.activeGenerationForTest().volumetric);
+                        assertSame(fogOwner, p.activeGenerationForTest().volumetric());
                         assertFalse(shared.raster().isClosed(), "failed candidate must leave the donor framebuffer open");
                         assertTrue(glIsTexture(shared.raster().depthAttachment()));
                     }
@@ -798,8 +1071,8 @@ class GtaoModularityGlTest {
                     p.drainRetirementsForTest();
                     assertFalse(retained.raster().isClosed());
                     if (retained.resolve() != null) assertFalse(retained.resolve().isClosed());
-                    assertSame(gtaoOwner, p.activeGenerationForTest().gtao);
-                    assertEquals(sharedBytes, p.activeGenerationForTest().surfacePeakBytes,
+                    assertSame(gtaoOwner, p.activeGenerationForTest().gtao());
+                    assertEquals(sharedBytes, p.activeGenerationForTest().surfacePeakBytes(),
                             "unchanged raster and resolve targets count once during replacement");
                     assertSharedSurface(p, aa, true, false, false);
                     p.applyGtao(GtaoSettings.defaults().withEnabled(true));
