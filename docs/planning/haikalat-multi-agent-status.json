@@ -6,7 +6,17 @@
                      "head":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
                      "tag":  "v0.28.0",
                      "buildVersion":  "0.28.0",
-                     "verifiedAt":  "2026-11-11"
+                     "verifiedAt":  "2026-11-11",
+                     "verification":  {
+                                          "runId":  "bf89ec62-b6bc-42a3-98e0-12eba5cccf39",
+                                          "status":  "PASS",
+                                          "tests":  229,
+                                          "skipped":  0,
+                                          "failures":  0,
+                                          "evidence":  "build/reports/bounded-verification/bf89ec62-b6bc-42a3-98e0-12eba5cccf39/result.json",
+                                          "logicReport":  "build/reports/logic-verification/100c2c0b-6158-42fa-a4a4-7493b166b29b/report.json",
+                                          "freshness":  "FRESH"
+                                      }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration",
@@ -19,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T07:01:32.6885043+08:00",
+    "updatedAt":  "2026-11-11T07:11:42.3546886+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1509,6 +1519,7 @@
     "notes":  [
                   "Source branch new-engine is clean at b9911ae; plan document was untracked and is copied to the integration branch.",
                   "B0 is the first checkpoint; new-tech technical cards may proceed in parallel where owner files do not conflict.",
-                  "No push, tag or release publication authorized in this run."
+                  "No push, tag or release publication authorized in this run.",
+                  "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed."
               ]
 }
