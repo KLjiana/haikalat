@@ -3,11 +3,16 @@ package com.kaleblangley.haikalat.subsystems.vfx;
 import com.kaleblangley.haikalat.core.curve.ColorGradient;
 import com.kaleblangley.haikalat.core.curve.FloatTrack;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** 可复用效果定义；关闭前必须先关闭全部 {@link EffectInstance}。 */
 public final class EffectAsset implements AutoCloseable {
+    private static final AtomicLong NEXT_INSTANCE_ID = new AtomicLong(1L);
+
     private final String name;
     private final ParticleEmitter particleEmitter;
     private final RibbonEmitter ribbonEmitter;
@@ -24,6 +29,7 @@ public final class EffectAsset implements AutoCloseable {
     private final ColorGradient meshColorOverLife;
     private final FloatTrack meshRotationOverLife;
     private final VfxVisualSet visuals;
+    private final List<EffectLight> lights;
     private int activeInstances;
     private boolean closed;
 
@@ -45,6 +51,7 @@ public final class EffectAsset implements AutoCloseable {
         meshRotationOverLife = builder.meshRotationOverLife;
         visuals = new VfxVisualSet(builder.particleMaterial, builder.ribbonMaterial,
                 builder.decalMaterial, builder.meshMaterial);
+        lights = List.copyOf(builder.lights);
         if (particleEmitter == null && ribbonEmitter == null && decal == null && meshVfx == null) {
             throw new IllegalArgumentException(
                     "EffectAsset requires at least one emitter, decal or mesh definition");
@@ -74,6 +81,10 @@ public final class EffectAsset implements AutoCloseable {
             throw new IllegalArgumentException(
                     "textured MeshVfx requires TEXCOORD_0 at vertex location 1");
         }
+        if (meshVfx != null && builder.meshMaterial.requiresNormals() && !meshVfx.hasNormals()) {
+            throw new IllegalArgumentException(
+                    "rim light requires MeshVfx NORMAL at vertex location 2 with three components");
+        }
     }
 
     public static Builder builder(String name) {
@@ -84,7 +95,7 @@ public final class EffectAsset implements AutoCloseable {
         ensureOpen();
         activeInstances = Math.incrementExact(activeInstances);
         try {
-            return new EffectInstance(this, seed);
+            return new EffectInstance(this, seed, NEXT_INSTANCE_ID.getAndIncrement());
         } catch (RuntimeException | Error failure) {
             activeInstances--;
             throw failure;
@@ -155,6 +166,10 @@ public final class EffectAsset implements AutoCloseable {
         return visuals;
     }
 
+    public List<EffectLight> lights() {
+        return lights;
+    }
+
     public synchronized int activeInstances() {
         return activeInstances;
     }
@@ -215,6 +230,7 @@ public final class EffectAsset implements AutoCloseable {
         private VfxMaterial ribbonMaterial = VfxMaterial.legacyAlpha();
         private VfxMaterial decalMaterial = VfxMaterial.legacyAlpha();
         private VfxMaterial meshMaterial = VfxMaterial.legacyAlpha();
+        private final List<EffectLight> lights = new ArrayList<>();
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "name").trim();
@@ -308,6 +324,18 @@ public final class EffectAsset implements AutoCloseable {
 
         public Builder meshMaterial(VfxMaterial value) {
             meshMaterial = Objects.requireNonNull(value, "meshMaterial");
+            return this;
+        }
+
+        /** Appends one finite-lifetime effect light; list order is the light index. */
+        public Builder light(EffectLight value) {
+            lights.add(Objects.requireNonNull(value, "light"));
+            return this;
+        }
+
+        public Builder lights(List<EffectLight> values) {
+            Objects.requireNonNull(values, "lights");
+            for (EffectLight value : values) light(value);
             return this;
         }
 

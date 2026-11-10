@@ -15,3 +15,9 @@ advanced com.kaleblangley.haikalat.subsystems.vfx.VfxMaskMode
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxMaterial
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxUvRegion
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxVisualSet
+
+advanced com.kaleblangley.haikalat.subsystems.vfx.EffectLight
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxDissolve
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxLight
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxRimLight
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxUvFlow

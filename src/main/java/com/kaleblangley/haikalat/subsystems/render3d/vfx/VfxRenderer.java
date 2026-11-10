@@ -11,8 +11,12 @@ import com.kaleblangley.haikalat.core.mesh.MeshData;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot;
 import com.kaleblangley.haikalat.subsystems.vfx.FlipbookConfig;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxBillboardMode;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxDissolve;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxMaterial;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxRimLight;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxUvFlow;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxUvRegion;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Quaternionf;
@@ -33,6 +37,7 @@ public final class VfxRenderer implements AutoCloseable {
     private final ShaderProgram fogShader;
     private final Mesh quad;
     private final VfxTextureCache textureCache;
+    private final VfxNoiseTexture noiseTexture;
     private final Map<MeshData, Mesh> meshCache = new IdentityHashMap<>();
     private Vector3f[] ribbonSides = new Vector3f[0];
     private Vector3f[] ribbonStartOffsets = new Vector3f[0];
@@ -52,6 +57,7 @@ public final class VfxRenderer implements AutoCloseable {
         ShaderProgram createdFogShader = null;
         Mesh createdQuad = null;
         VfxTextureCache createdTextureCache = null;
+        VfxNoiseTexture createdNoise = null;
         try {
             createdShader = ShaderProgram.fromResource(VfxRenderer.class,
                     "/shaders/render3d/vfx/vfx.vert", "/shaders/render3d/vfx/vfx.frag");
@@ -60,7 +66,9 @@ public final class VfxRenderer implements AutoCloseable {
                     com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView.fragmentPrelude());
             createdQuad = Mesh.from(BuiltinMeshData.texturedQuad("vfx-quad"));
             createdTextureCache = new VfxTextureCache();
+            createdNoise = new VfxNoiseTexture();
         } catch (RuntimeException | Error failure) {
+            closeSuppressing(createdNoise, failure);
             closeSuppressing(createdTextureCache, failure);
             closeSuppressing(createdQuad, failure);
             closeSuppressing(createdShader, failure);
@@ -71,6 +79,28 @@ public final class VfxRenderer implements AutoCloseable {
         fogShader=createdFogShader;
         quad = createdQuad;
         textureCache = createdTextureCache;
+        noiseTexture = createdNoise;
+    }
+
+    /**
+     * Prepares every GPU texture referenced by the snapshot before a frame
+     * publishes it.  The old renderer path stays source-compatible because
+     * {@link #record} still resolves lazily, but author tools should call this
+     * method on the owner thread and treat a thrown failure as a rejected
+     * candidate that leaves the previous configuration intact.
+     */
+    public Preparation prepare(EffectSnapshot snapshot) {
+        ensureOpen();
+        Objects.requireNonNull(snapshot, "snapshot");
+        VfxTextureCache.Preparation preparation = textureCache.prepare(List.of(
+                snapshot.visuals().particle(), snapshot.visuals().ribbon(),
+                snapshot.visuals().decal(), snapshot.visuals().mesh()));
+        return new Preparation(preparation.loaded(), preparation.evicted(),
+                preparation.size(), textureCache.maximumEntries());
+    }
+
+    public int textureCount() {
+        return textureCache.size();
     }
 
     /**
@@ -124,6 +154,9 @@ public final class VfxRenderer implements AutoCloseable {
         inverseViewRotation.m30(0.0f).m31(0.0f).m32(0.0f).m33(1.0f);
         Matrix4f model = new Matrix4f();
         Matrix4f mvp = new Matrix4f();
+        Matrix4f normalMatrix = new Matrix4f();
+        Matrix3f linear = new Matrix3f();
+        Matrix4f identity = new Matrix4f();
         List<EffectSnapshot.RibbonSegment> ribbonSegments = snapshot.ribbonSegments();
         prepareRibbonGeometry(ribbonSegments, cameraPosition);
         VfxMaterial boundMaterial = null;
@@ -135,17 +168,25 @@ public final class VfxRenderer implements AutoCloseable {
         int alphaDraws = 0;
         int additiveDraws = 0;
         int softParticleDraws = 0;
+        int rimDraws = 0;
+        int uvFlowDraws = 0;
+        int dissolveDraws = 0;
 
         commands.bindShader(shader)
                 .bindMesh(quad)
                 .setUniformMat4(shader, "uProjectionView", projectionView)
+                .setUniformVec3(shader, "uCameraPosition", cameraPosition)
+                .bindTexture(2, noiseTexture.texture())
+                .setUniformInt(shader, "uNoise", 2)
                 .enableCullFace(false);
         Mesh boundMesh = quad;
         for (EffectSnapshot.Primitive primitive : snapshot.transparentDrawOrder()) {
             VfxMaterial material = snapshot.visuals().material(primitive.kind());
             Mesh drawMesh = quad;
+            boolean meshPrimitive = primitive instanceof EffectSnapshot.MeshInstance;
             float ribbonStartUv = 0.0f;
             float ribbonEndUv = 1.0f;
+            float lifetimeProgress = 0.0f;
             Vector3f ribbonStart = null;
             Vector3f ribbonEnd = null;
             Vector3f ribbonStartOffset = null;
@@ -154,6 +195,7 @@ public final class VfxRenderer implements AutoCloseable {
                 case EffectSnapshot.ParticleSprite particle -> {
                     particleModel(particle, material, view, inverseViewRotation,
                             cameraPosition, model);
+                    lifetimeProgress = particle.frameProgress();
                     particles++;
                 }
                 case EffectSnapshot.RibbonSegment ribbon -> {
@@ -173,6 +215,7 @@ public final class VfxRenderer implements AutoCloseable {
                 }
                 case EffectSnapshot.MeshInstance mesh -> {
                     model.set(mesh.model());
+                    lifetimeProgress = mesh.lifetimeProgress();
                     drawMesh = meshFor(mesh.meshData());
                     meshes++;
                 }
@@ -199,6 +242,9 @@ public final class VfxRenderer implements AutoCloseable {
                         .setUniformVec4(shader, "uUvRegion", uvVector(uv))
                         .setUniformVec4(shader, "uNextUvRegion", uvVector(uv))
                         .setUniformFloat(shader, "uFlipbookBlend", 0.0f);
+                uploadUvFlow(commands, shader, material.uvFlow().orElse(null));
+                uploadDissolve(commands, shader, material.dissolve().orElse(null));
+                uploadRim(commands, shader, material.rimLight().orElse(null));
                 if (fog != null) commands.blendFunc(org.lwjgl.opengl.GL11.GL_ONE,
                         material.blendMode()==com.kaleblangley.haikalat.core.BlendMode.ADDITIVE
                                 ? org.lwjgl.opengl.GL11.GL_ONE : org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -233,8 +279,30 @@ public final class VfxRenderer implements AutoCloseable {
             if (sceneDepthTexture != 0 && material.softParticleDistance() > 0.0f) {
                 softParticleDraws++;
             }
+            boolean rimActive = false;
+            if (material.rimLight().isPresent()) {
+                rimDraws++;
+                rimActive = meshPrimitive && material.requiresNormals()
+                        && ((EffectSnapshot.MeshInstance) primitive).meshData().hasNormalAttribute(2, 3)
+                        && normalMatrix(model, normalMatrix, linear);
+            }
+            if (material.uvFlow().isPresent()) uvFlowDraws++;
+            float dissolveProgress = 0.0f;
+            if (material.dissolve().isPresent()) {
+                dissolveDraws++;
+                dissolveProgress = material.dissolve().orElseThrow().progressSource()
+                        == VfxDissolve.ProgressSource.LIFECYCLE
+                        ? lifetimeProgress : snapshot.dissolveProgress();
+            }
             projectionView.mul(model, mvp);
             commands.setUniformMat4(shader, "uMvp", mvp)
+                    .setUniformMat4(shader, "uModel", model)
+                    .setUniformMat4(shader, "uNormalMatrix",
+                            rimActive ? normalMatrix : identity)
+                    .setUniformInt(shader, "uMesh", meshPrimitive ? 1 : 0)
+                    .setUniformInt(shader, "uHasNormals", rimActive ? 1 : 0)
+                    .setUniformFloat(shader, "uTime", snapshot.effectTimeSeconds())
+                    .setUniformFloat(shader, "uDissolveProgress", dissolveProgress)
                     .setUniformVec4(shader, "uColor", primitive.color())
                     .setUniformVec4(shader, "uUvRegion", uvVector(currentUv))
                     .setUniformVec4(shader, "uNextUvRegion", uvVector(nextUv))
@@ -257,8 +325,80 @@ public final class VfxRenderer implements AutoCloseable {
         }
         lastStatistics = new Statistics(snapshot.primitiveCount(), particles, ribbons, decals, meshes,
                 (long) snapshot.primitiveCount() * (MAT4_BYTES + COLOR_BYTES),
-                materialSwitches, materialSwitches, alphaDraws, additiveDraws, softParticleDraws);
+                materialSwitches, materialSwitches, alphaDraws, additiveDraws, softParticleDraws,
+                rimDraws, uvFlowDraws, dissolveDraws);
         return lastStatistics;
+    }
+
+    private static void uploadUvFlow(CommandBuffer commands, ShaderProgram shader,
+                                     VfxUvFlow flow) {
+        commands.setUniformInt(shader, "uUvFlowEnabled", flow == null ? 0 : 1);
+        if (flow == null) {
+            commands.setUniformVec4(shader, "uUvFlow", new Vector4f());
+            commands.setUniformFloat(shader, "uUvNoiseSeed", 0.0f);
+            return;
+        }
+        commands.setUniformVec4(shader, "uUvFlow", new Vector4f(
+                        flow.velocity().x, flow.velocity().y,
+                        flow.noiseScale(), flow.noiseAmplitude()))
+                .setUniformFloat(shader, "uUvNoiseSeed", seedValue(flow.noiseSeed()));
+    }
+
+    private static void uploadDissolve(CommandBuffer commands, ShaderProgram shader,
+                                       VfxDissolve dissolve) {
+        commands.setUniformInt(shader, "uDissolveEnabled", dissolve == null ? 0 : 1);
+        if (dissolve == null) {
+            commands.setUniformVec4(shader, "uDissolveParams", new Vector4f());
+            commands.setUniformVec3(shader, "uDissolveEdgeColor", new Vector3f());
+            return;
+        }
+        commands.setUniformVec4(shader, "uDissolveParams", new Vector4f(
+                        dissolve.edgeWidth(), dissolve.edgeIntensity(),
+                        dissolve.noiseScale(), seedValue(dissolve.noiseSeed())))
+                .setUniformVec3(shader, "uDissolveEdgeColor", dissolve.edgeColor());
+    }
+
+    private static void uploadRim(CommandBuffer commands, ShaderProgram shader,
+                                  VfxRimLight rim) {
+        commands.setUniformInt(shader, "uRimEnabled", rim == null ? 0 : 1);
+        if (rim == null) {
+            commands.setUniformVec3(shader, "uRimColor", new Vector3f());
+            commands.setUniformFloat(shader, "uRimIntensity", 0.0f);
+            commands.setUniformFloat(shader, "uRimExponent", 1.0f);
+            return;
+        }
+        commands.setUniformVec3(shader, "uRimColor", rim.color())
+                .setUniformFloat(shader, "uRimIntensity", rim.intensity())
+                .setUniformFloat(shader, "uRimExponent", rim.exponent());
+    }
+
+    /** Shader-side seeds are offsets; keep them in a bounded, exactly representable range. */
+    static float seedValue(long seed) {
+        return (float) Math.floorMod(seed, 65_536L);
+    }
+
+    /**
+     * Builds the inverse-transpose normal matrix.
+     *
+     * @return false for a singular or non-finite linear part; the caller skips
+     *         the rim term instead of uploading NaN
+     */
+    static boolean normalMatrix(Matrix4fc model, Matrix4f out, Matrix3f scratch) {
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(out, "out");
+        Objects.requireNonNull(scratch, "scratch");
+        scratch.set(model);
+        float determinant = scratch.determinant();
+        if (!Float.isFinite(determinant) || Math.abs(determinant) < 1.0e-12f) {
+            out.identity();
+            return false;
+        }
+        scratch.invert().transpose();
+        out.identity()
+                .m00(scratch.m00()).m01(scratch.m01()).m02(scratch.m02())
+                .m10(scratch.m10()).m11(scratch.m11()).m12(scratch.m12())
+                .m20(scratch.m20()).m21(scratch.m21()).m22(scratch.m22());
+        return true;
     }
 
     public Statistics statistics() {
@@ -278,6 +418,7 @@ public final class VfxRenderer implements AutoCloseable {
         }
         meshCache.clear();
         failure = closeCollecting(textureCache, failure);
+        failure = closeCollecting(noiseTexture, failure);
         failure = closeCollecting(quad, failure);
         failure = closeCollecting(shader, failure);
         if (fogShader != null) failure=closeCollecting(fogShader,failure);
@@ -483,25 +624,44 @@ public final class VfxRenderer implements AutoCloseable {
     public record Statistics(int drawCalls, int particles, int ribbonSegments,
                              int decals, int meshes, long uniformPayloadBytes,
                              int textureBinds, int materialSwitches,
-                             int alphaDraws, int additiveDraws, int softParticleDraws) {
+                             int alphaDraws, int additiveDraws, int softParticleDraws,
+                             int rimDraws, int uvFlowDraws, int dissolveDraws) {
+        public Statistics(int drawCalls, int particles, int ribbonSegments,
+                          int decals, int meshes, long uniformPayloadBytes,
+                          int textureBinds, int materialSwitches,
+                          int alphaDraws, int additiveDraws, int softParticleDraws) {
+            this(drawCalls, particles, ribbonSegments, decals, meshes, uniformPayloadBytes,
+                    textureBinds, materialSwitches, alphaDraws, additiveDraws, softParticleDraws,
+                    0, 0, 0);
+        }
+
         public Statistics(int drawCalls, int particles, int ribbonSegments,
                           int decals, long uniformPayloadBytes,
                           int textureBinds, int materialSwitches,
                           int alphaDraws, int additiveDraws, int softParticleDraws) {
             this(drawCalls, particles, ribbonSegments, decals, 0, uniformPayloadBytes,
                     textureBinds, materialSwitches, alphaDraws, additiveDraws,
-                    softParticleDraws);
+                    softParticleDraws, 0, 0, 0);
         }
 
         public Statistics(int drawCalls, int particles, int ribbonSegments,
                           int decals, long uniformPayloadBytes) {
             this(drawCalls, particles, ribbonSegments, decals, 0, uniformPayloadBytes,
-                    0, 0, drawCalls, 0, 0);
+                    0, 0, drawCalls, 0, 0, 0, 0, 0);
         }
 
         private static Statistics empty() {
             return new Statistics(0, 0, 0, 0, 0, 0L,
-                    0, 0, 0, 0, 0);
+                    0, 0, 0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    /** Transactional texture preparation outcome; {@code loaded} is zero for a warm frame. */
+    public record Preparation(int loaded, int evicted, int textureCount, int maximumEntries) {
+        public Preparation {
+            if (loaded < 0 || evicted < 0 || textureCount < 0 || maximumEntries <= 0) {
+                throw new IllegalArgumentException("preparation counts must be non-negative");
+            }
         }
     }
 }

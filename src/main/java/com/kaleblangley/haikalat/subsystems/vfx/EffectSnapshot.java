@@ -16,7 +16,10 @@ public record EffectSnapshot(
         List<DecalInstance> decals,
         List<MeshInstance> meshes,
         List<Primitive> transparentDrawOrder,
-        VfxVisualSet visuals
+        VfxVisualSet visuals,
+        float effectTimeSeconds,
+        float dissolveProgress,
+        List<VfxLight> lights
 ) {
     public EffectSnapshot {
         particles = List.copyOf(Objects.requireNonNull(particles, "particles"));
@@ -26,6 +29,13 @@ public record EffectSnapshot(
         transparentDrawOrder = List.copyOf(
                 Objects.requireNonNull(transparentDrawOrder, "transparentDrawOrder"));
         visuals = Objects.requireNonNull(visuals, "visuals");
+        if (!Float.isFinite(effectTimeSeconds) || effectTimeSeconds < 0.0f) {
+            throw new IllegalArgumentException("effectTimeSeconds must be finite and non-negative");
+        }
+        if (!Float.isFinite(dissolveProgress) || dissolveProgress < 0.0f || dissolveProgress > 1.0f) {
+            throw new IllegalArgumentException("dissolveProgress must be finite and in [0, 1]");
+        }
+        lights = List.copyOf(Objects.requireNonNull(lights, "lights"));
         int expected = Math.addExact(Math.addExact(
                 Math.addExact(particles.size(), ribbonSegments.size()), decals.size()), meshes.size());
         if (transparentDrawOrder.size() != expected) {
@@ -33,12 +43,24 @@ public record EffectSnapshot(
         }
     }
 
+    /** Source-compatible constructor retained for callers written before v0.28. */
+    public EffectSnapshot(List<ParticleSprite> particles,
+                          List<RibbonSegment> ribbonSegments,
+                          List<DecalInstance> decals,
+                          List<MeshInstance> meshes,
+                          List<Primitive> transparentDrawOrder,
+                          VfxVisualSet visuals) {
+        this(particles, ribbonSegments, decals, meshes, transparentDrawOrder, visuals,
+                0.0f, 0.0f, List.of());
+    }
+
     public EffectSnapshot(List<ParticleSprite> particles,
                           List<RibbonSegment> ribbonSegments,
                           List<DecalInstance> decals,
                           List<Primitive> transparentDrawOrder,
                           VfxVisualSet visuals) {
-        this(particles, ribbonSegments, decals, List.of(), transparentDrawOrder, visuals);
+        this(particles, ribbonSegments, decals, List.of(), transparentDrawOrder, visuals,
+                0.0f, 0.0f, List.of());
     }
 
     public EffectSnapshot(List<ParticleSprite> particles,
@@ -46,7 +68,19 @@ public record EffectSnapshot(
                           List<DecalInstance> decals,
                           List<Primitive> transparentDrawOrder) {
         this(particles, ribbonSegments, decals, List.of(), transparentDrawOrder,
-                VfxVisualSet.legacy());
+                VfxVisualSet.legacy(), 0.0f, 0.0f, List.of());
+    }
+
+    public EffectSnapshot withFrameValues(float effectTimeSeconds, float dissolveProgress,
+                                          List<VfxLight> lights) {
+        return new EffectSnapshot(particles, ribbonSegments, decals, meshes,
+                transparentDrawOrder, visuals, effectTimeSeconds, dissolveProgress, lights);
+    }
+
+    /** Replaces only the material set, keeping primitives, time, dissolve and lights frozen. */
+    public EffectSnapshot withVisuals(VfxVisualSet replacement) {
+        return new EffectSnapshot(particles, ribbonSegments, decals, meshes,
+                transparentDrawOrder, replacement, effectTimeSeconds, dissolveProgress, lights);
     }
 
     public int primitiveCount() {
@@ -174,14 +208,25 @@ public record EffectSnapshot(
     }
 
     public record MeshInstance(long sequence, MeshData meshData, Matrix4f model,
-                               Vector4f color, float distanceSquared) implements Primitive {
+                               Vector4f color, float distanceSquared,
+                               float lifetimeProgress) implements Primitive {
         public MeshInstance {
             meshData = Objects.requireNonNull(meshData, "meshData");
             model = new Matrix4f(Objects.requireNonNull(model, "model"));
             color = new Vector4f(Objects.requireNonNull(color, "color"));
             requireFinite(model, "model");
             requireDistance(distanceSquared);
+            if (!Float.isFinite(lifetimeProgress)
+                    || lifetimeProgress < 0.0f || lifetimeProgress > 1.0f) {
+                throw new IllegalArgumentException("lifetimeProgress must be finite and in [0, 1]");
+            }
             ParticleEmitter.requireColor(color, "color");
+        }
+
+        /** Source-compatible constructor retained for callers written before v0.28. */
+        public MeshInstance(long sequence, MeshData meshData, Matrix4f model,
+                            Vector4f color, float distanceSquared) {
+            this(sequence, meshData, model, color, distanceSquared, 0.0f);
         }
 
         @Override public Matrix4f model() { return new Matrix4f(model); }

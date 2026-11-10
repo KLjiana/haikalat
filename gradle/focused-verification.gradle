@@ -44,13 +44,16 @@ def jvmCases = [
         'LightVolumeHintsTest', 'VolumetricBaselineContractTest', 'VolumetricTemporalMetricsTest',
         'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
-        'RenderGraphCompilerTest', 'RenderFeatureControlTest'
+        'RenderGraphCompilerTest', 'RenderFeatureControlTest',
+        'VfxMaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
+        'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
         'OutdoorEnvironmentGlTest', 'TemporalTransactionGlTest',
         'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest',
         'VolumetricTextureGlTest',
+        'VfxRendererGlTest', 'VfxTextureCacheGlTest', 'VfxLightingGlTest',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
         'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera',

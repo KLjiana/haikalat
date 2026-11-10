@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.subsystems.vfx;
 import com.kaleblangley.haikalat.core.curve.ColorGradient;
 import com.kaleblangley.haikalat.core.curve.FloatTrack;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
+import com.kaleblangley.haikalat.subsystems.vfx.EffectLight;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxLight;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
@@ -257,6 +259,137 @@ class EffectInstanceTest {
             assertEquals(0.125f, firstParticle.ageSeconds(), 1.0e-6f);
             assertTrue(firstParticle.flipbookStartFrame() < 4);
         }
+    }
+
+    @Test
+    void pauseFreezesClockAndSnapshotUntilResumed() {
+        ParticleEmitter particle = new ParticleEmitter(8, 10.0f, 2.0f,
+                new Vector3f(0.0f, 1.0f, 0.0f), 0.0f, 0.0f, 0.0f,
+                new Vector3f(), 0.0f, 1.0f, 1.0f,
+                new Vector4f(1.0f), new Vector4f(1.0f));
+        try (EffectAsset asset = EffectAsset.builder("pausable").particles(particle).build();
+             EffectInstance instance = asset.instantiate(13L)) {
+            instance.update(0.5f, new Vector3f(1.0f, 0.0f, 0.0f));
+            EffectSnapshot before = instance.snapshot(new Vector3f(0.0f, 0.0f, 4.0f));
+            instance.pause();
+            assertEquals(0.5f, instance.effectTimeSeconds(), 1.0e-6f);
+            instance.update(1.0f, new Vector3f(9.0f, 0.0f, 0.0f));
+            assertEquals(0.5f, instance.effectTimeSeconds(), 1.0e-6f);
+            assertEquals(before, instance.snapshot(new Vector3f(0.0f, 0.0f, 4.0f)));
+            assertTrue(instance.paused());
+
+            instance.resume().update(0.1f, new Vector3f(1.0f, 0.0f, 0.0f));
+            assertEquals(0.6f, instance.effectTimeSeconds(), 1.0e-6f);
+            assertFalse(instance.paused());
+        }
+    }
+
+    @Test
+    void cancelRemovesPrimitivesAndLightsWhileReplayRebuildsFromSeed() {
+        try (EffectAsset asset = lightAndMeshAsset();
+             EffectInstance instance = asset.instantiate(21L)) {
+            instance.spawnMesh(new Matrix4f());
+            instance.update(1.25f, new Vector3f());
+            EffectSnapshot active = instance.snapshot(new Vector3f());
+            assertFalse(active.meshes().isEmpty());
+            assertEquals(1, active.lights().size());
+
+            instance.cancel();
+            assertTrue(instance.cancelled());
+            assertFalse(instance.isAlive());
+            EffectSnapshot cancelled = instance.snapshot(new Vector3f());
+            assertTrue(cancelled.meshes().isEmpty());
+            assertTrue(cancelled.lights().isEmpty());
+
+            instance.replay();
+            assertFalse(instance.cancelled());
+            assertEquals(0.0f, instance.effectTimeSeconds(), 1.0e-6f);
+            assertTrue(instance.snapshot(new Vector3f()).lights().isEmpty());
+            instance.spawnMesh(new Matrix4f());
+            instance.update(1.25f, new Vector3f());
+            EffectSnapshot replayed = instance.snapshot(new Vector3f());
+            assertEquals(active.meshes(), replayed.meshes());
+            assertEquals(active.lights().size(), replayed.lights().size());
+            assertEquals(active.lights().get(0).color(), replayed.lights().get(0).color());
+            assertEquals(active.lights().get(0).intensity(),
+                    replayed.lights().get(0).intensity(), 1.0e-6f);
+        }
+    }
+
+    @Test
+    void effectLightsUseDeterministicWindowCurvesAndWorldPosition() {
+        FloatTrack intensity = new FloatTrack(
+                new FloatTrack.Key(0.0f, 0.0f, FloatTrack.Interpolation.LINEAR),
+                new FloatTrack.Key(1.0f, 1.0f, FloatTrack.Interpolation.LINEAR));
+        EffectLight light = new EffectLight(1.0f, 2.0f, new Vector3f(0.0f, 0.5f, 0.0f),
+                new Vector3f(0.2f, 0.4f, 1.0f), 8.0f, 6.0f, 3, intensity, null);
+        try (EffectAsset asset = EffectAsset.builder("light-window")
+                .meshes(new MeshVfx(1, 3.0f, BuiltinMeshData.texturedQuad("light-mesh"),
+                        1.0f, 1.0f, new Vector4f(1.0f), new Vector4f(1.0f)))
+                .light(light)
+                .build();
+             EffectInstance instance = asset.instantiate(31L)) {
+            instance.update(0.5f, new Vector3f(2.0f, 0.0f, -1.0f));
+            assertTrue(instance.lights().isEmpty(), "light must not exist before its window");
+            instance.update(1.0f, new Vector3f(2.0f, 0.0f, -1.0f));
+            List<VfxLight> lights = instance.lights();
+            assertEquals(1, lights.size());
+            VfxLight value = lights.get(0);
+            assertEquals(instance.effectId(), value.effectId());
+            assertEquals(0, value.lightIndex());
+            assertEquals(new Vector3f(2.0f, 0.5f, -1.0f), value.position());
+            assertEquals(4.0f, value.intensity(), 1.0e-5f);
+            assertEquals(6.0f, value.range(), 1.0e-5f);
+            assertEquals(3, value.priority());
+            instance.update(0.6f, new Vector3f(2.0f, 0.0f, -1.0f));
+            assertTrue(instance.lights().isEmpty(), "light must end at its exclusive window end");
+        }
+    }
+
+    @Test
+    void explicitDissolveAndMeshLifetimeProgressAreFrozenPerFrame() {
+        try (EffectAsset asset = lightAndMeshAsset();
+             EffectInstance instance = asset.instantiate(41L)) {
+            instance.dissolve(0.75f);
+            assertEquals(0.75f, instance.dissolveProgress(), 1.0e-6f);
+            assertThrows(IllegalArgumentException.class, () -> instance.dissolve(1.5f));
+            assertThrows(IllegalArgumentException.class, () -> instance.dissolve(Float.NaN));
+            instance.spawnMesh(new Matrix4f());
+            instance.update(1.0f, new Vector3f());
+            EffectSnapshot snapshot = instance.snapshot(new Vector3f());
+            assertEquals(0.75f, snapshot.dissolveProgress(), 1.0e-6f);
+            assertEquals(1.0f, snapshot.effectTimeSeconds(), 1.0e-6f);
+            assertEquals(0.5f, snapshot.meshes().get(0).lifetimeProgress(), 1.0e-5f);
+        }
+    }
+
+    @Test
+    void instancesOfTheSameAssetKeepIndependentAgeAndIdentity() {
+        ParticleEmitter particle = new ParticleEmitter(16, 20.0f, 2.0f,
+                new Vector3f(0.0f, 1.0f, 0.0f), 0.0f, 0.0f, 0.0f,
+                new Vector3f(), 0.0f, 1.0f, 1.0f,
+                new Vector4f(1.0f), new Vector4f(1.0f));
+        try (EffectAsset asset = EffectAsset.builder("shared-material")
+                .particles(particle).build();
+             EffectInstance older = asset.instantiate(5L);
+             EffectInstance younger = asset.instantiate(5L)) {
+            older.update(1.0f, new Vector3f()).update(0.5f, new Vector3f());
+            younger.update(0.25f, new Vector3f()).update(0.1f, new Vector3f());
+            assertTrue(older.effectId() != younger.effectId());
+            assertEquals(1.5f, older.effectTimeSeconds(), 1.0e-6f);
+            assertEquals(0.35f, younger.effectTimeSeconds(), 1.0e-6f);
+            assertTrue(older.snapshot(new Vector3f()).particles().get(0).ageSeconds()
+                    > younger.snapshot(new Vector3f()).particles().get(0).ageSeconds());
+        }
+    }
+
+    private static EffectAsset lightAndMeshAsset() {
+        return EffectAsset.builder("light-and-mesh")
+                .meshes(new MeshVfx(2, 2.0f, BuiltinMeshData.texturedQuad("light-and-mesh-quad"),
+                        1.0f, 1.0f, new Vector4f(1.0f), new Vector4f(1.0f)))
+                .light(EffectLight.steady(1.0f, 2.0f, new Vector3f(0.0f, 0.5f, 0.0f),
+                        new Vector3f(0.3f, 0.6f, 1.0f), 8.0f, 5.0f, 1))
+                .build();
     }
 
     private static FloatTrack linearTrack(float start, float end) {

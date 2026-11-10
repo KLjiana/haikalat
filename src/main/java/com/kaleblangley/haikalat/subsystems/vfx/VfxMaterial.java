@@ -23,6 +23,9 @@ public final class VfxMaterial {
     private final float fogInfluence;
     private final VfxUvRegion uvRegion;
     private final FlipbookConfig flipbook;
+    private final VfxRimLight rimLight;
+    private final VfxUvFlow uvFlow;
+    private final VfxDissolve dissolve;
 
     private VfxMaterial(Builder builder) {
         name = builder.name;
@@ -38,6 +41,9 @@ public final class VfxMaterial {
         fogInfluence = builder.fogInfluence;
         uvRegion = builder.uvRegion;
         flipbook = builder.flipbook;
+        rimLight = builder.rimLight;
+        uvFlow = builder.uvFlow;
+        dissolve = builder.dissolve;
         if (maskMode != VfxMaskMode.WHITE && texture == null) {
             throw new IllegalArgumentException("A non-WHITE mask requires a texture");
         }
@@ -64,6 +70,12 @@ public final class VfxMaterial {
     public float fogInfluence() { return fogInfluence; }
     public VfxUvRegion uvRegion() { return uvRegion; }
     public Optional<FlipbookConfig> flipbook() { return Optional.ofNullable(flipbook); }
+    public Optional<VfxRimLight> rimLight() { return Optional.ofNullable(rimLight); }
+    public Optional<VfxUvFlow> uvFlow() { return Optional.ofNullable(uvFlow); }
+    public Optional<VfxDissolve> dissolve() { return Optional.ofNullable(dissolve); }
+
+    /** True when this material needs a real NORMAL stream on mesh VFX. */
+    public boolean requiresNormals() { return rimLight != null; }
 
     @Override
     public boolean equals(Object value) {
@@ -78,14 +90,17 @@ public final class VfxMaterial {
                 && name.equals(other.name) && Objects.equals(texture, other.texture)
                 && maskMode == other.maskMode && blendMode == other.blendMode
                 && billboardMode == other.billboardMode && uvRegion.equals(other.uvRegion)
-                && Objects.equals(flipbook, other.flipbook);
+                && Objects.equals(flipbook, other.flipbook)
+                && Objects.equals(rimLight, other.rimLight)
+                && Objects.equals(uvFlow, other.uvFlow)
+                && Objects.equals(dissolve, other.dissolve);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(name, texture, maskMode, blendMode, emissiveIntensity,
                 billboardMode, softParticleDistance, alphaCutoff, velocityStretch,
-                maximumStretch, fogInfluence, uvRegion, flipbook);
+                maximumStretch, fogInfluence, uvRegion, flipbook, rimLight, uvFlow, dissolve);
     }
 
     @Override
@@ -107,6 +122,9 @@ public final class VfxMaterial {
         private float fogInfluence;
         private VfxUvRegion uvRegion = VfxUvRegion.FULL;
         private FlipbookConfig flipbook;
+        private VfxRimLight rimLight;
+        private VfxUvFlow uvFlow;
+        private VfxDissolve dissolve;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "name").trim();
@@ -139,6 +157,18 @@ public final class VfxMaterial {
         public Builder uvRegion(VfxUvRegion value) { uvRegion = Objects.requireNonNull(value, "uvRegion"); return this; }
         public Builder flipbook(FlipbookConfig value) {
             flipbook = Objects.requireNonNull(value, "flipbook");
+            return this;
+        }
+        public Builder rimLight(VfxRimLight value) {
+            rimLight = Objects.requireNonNull(value, "rimLight");
+            return this;
+        }
+        public Builder uvFlow(VfxUvFlow value) {
+            uvFlow = Objects.requireNonNull(value, "uvFlow");
+            return this;
+        }
+        public Builder dissolve(VfxDissolve value) {
+            dissolve = Objects.requireNonNull(value, "dissolve");
             return this;
         }
         public VfxMaterial build() { return new VfxMaterial(this); }

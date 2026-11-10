@@ -48,4 +48,9 @@ public record MeshVfx(
     boolean hasTextureCoordinates() {
         return meshData.hasTexCoord0Attribute(1, 2);
     }
+
+    /** NORMAL is required at shader location 2 with at least three components. */
+    public boolean hasNormals() {
+        return meshData.hasNormalAttribute(2, 3);
+    }
 }

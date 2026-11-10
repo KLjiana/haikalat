@@ -788,4 +788,53 @@ class VolumetricCompositeGlTest {
             }
         }
     }
+
+    @Test void vfxDissolveCoversFogColorAndReactiveReplayWithoutErrors() {
+        try(var window=VolumetricGenerationGlTest.window()) {
+            window.bindContext();GL.createCapabilities();
+            try(var shader=ShaderProgram.fromSources(VERTEX,FRAGMENT);
+                var background=Mesh.from(BuiltinMeshData.texturedQuad("fog-dissolve-background"));
+                var renderer=new VfxRenderer(true);
+                var asset=EffectAsset.builder("fog-dissolve")
+                        .meshes(new MeshVfx(1,10.0f,BuiltinMeshData.texturedQuad("fog-dissolve-vfx"),
+                                32.0f,32.0f,new Vector4f(1.0f,0.0f,0.0f,1.0f),
+                                new Vector4f(1.0f,0.0f,0.0f,1.0f)))
+                        .meshMaterial(VfxMaterial.builder("fog-dissolve-material")
+                                .blendMode(BlendMode.ADDITIVE)
+                                .dissolve(VfxDissolve.explicit(0.1f,
+                                        new Vector3f(1.0f,0.4f,0.1f),2.0f,6.0f,17L))
+                                .build())
+                        .build();
+                var instance=asset.instantiate(1L)) {
+                instance.spawnMesh(new org.joml.Matrix4f().translation(0,0,-3));
+                instance.update(0.1f,new Vector3f());
+                var scene=new Scene(VolumetricMediumGlTest.camera(true,33f/17));
+                add(scene,background,shader,10,new Vector4f(.1f,.2f,.3f,1),BlendMode.OPAQUE);
+                EffectSnapshot[] current={instance.snapshot(new Vector3f())
+                        .withFrameValues(0.0f,0.0f,List.of())};
+                for (var aa : new AntiAliasingMode[]{AntiAliasingMode.NONE,AntiAliasingMode.TAA}) {
+                    var pipeline=pipeline(scene,aa,1,true);
+                    try {
+                        pipeline.hdrVfxWithFog((res,cmd,camera,fog)->renderer.record(cmd,current[0],
+                                camera.projection(),camera.view(),
+                                res.colorAttachment(fog.softParticleDepthName()),33,17,fog));
+                        pipeline.build();
+                        var device=new GlRenderDevice();
+                        current[0]=current[0].withFrameValues(0.0f,0.0f,List.of());
+                        pipeline.execute(device);
+                        pipeline.execute(device);
+                        float[] visible=pipeline.captureLinearHdrRgbaFloat();
+                        current[0]=current[0].withFrameValues(0.0f,1.0f,List.of());
+                        pipeline.execute(device);
+                        pipeline.execute(device);
+                        float[] gone=pipeline.captureLinearHdrRgbaFloat();
+                        int offset=(8*33+16)*4;
+                        assertTrue(visible[offset]-gone[offset]>.02f,
+                                "dissolve progress 1 must remove the VFX fog contribution for "+aa);
+                        GlDebug.assertNoError("VFX dissolve fog color/reactive "+aa);
+                    } finally { pipeline.close(); }
+                }
+            }
+        }
+    }
 }

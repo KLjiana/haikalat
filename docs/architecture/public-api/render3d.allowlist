@@ -150,3 +150,5 @@ internal com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder
 
 # v0.27.3 cross-package assembly internals (not compatibility promises).
 internal com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer
+
+advanced com.kaleblangley.haikalat.subsystems.render3d.VfxLightDiagnostics

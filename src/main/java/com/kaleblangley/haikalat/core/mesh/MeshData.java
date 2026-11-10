@@ -56,6 +56,11 @@ public record MeshData(
         return hasAttribute(VertexSemantic.TEXCOORD_0, location, minimumComponents);
     }
 
+    /** 查询 NORMAL 是否满足指定 shader location 和最小分量数。 */
+    public boolean hasNormalAttribute(int location, int minimumComponents) {
+        return hasAttribute(VertexSemantic.NORMAL, location, minimumComponents);
+    }
+
     /**
      * 按 POSITION semantic 和交错布局计算局部包围盒。
      *

@@ -34,3 +34,8 @@ Milestone 4 的 `AnimationMixer/BoneMask/RootMotionDelta/TwoBoneIkSolver`、
 v0.23 新增的 optional cascade settings 与 bounded Render3D diagnostics 均分类为
 `advanced`，合同见 [M6 CSM](../v0.23-render3d-m6-cascaded-shadows.md) 与
 [M7 可见性诊断](../v0.23-render3d-m7-visibility-diagnostics.md)。
+
+v0.28 新增 `VfxRimLight`、`VfxUvFlow`、`VfxDissolve`、`EffectLight`、`VfxLight`、
+`VfxLightDiagnostics` 均为 `advanced`；`LightIdAllocator` 与 `VfxLightBridge` 为包内
+internal。`EffectSnapshot`/`MeshInstance`/`Render3dDiagnostics` 的 canonical record 组件
+扩展及旧构造器兼容见[迁移记录](migrations.md)与[战斗 VFX 指南](../../guides/render3d-combat-vfx.md)。

@@ -13,7 +13,6 @@ import com.kaleblangley.haikalat.core.material.MaterialInstance;
 
 public final class Scene {
     private static final AtomicLong NEXT_GENERATION = new AtomicLong(1L);
-    private static final AtomicLong NEXT_LIGHT_ID = new AtomicLong(1L);
 
     private final long generation = NEXT_GENERATION.getAndIncrement();
     private final Camera camera;
@@ -75,7 +74,7 @@ public final class Scene {
     public Scene addLight(SceneLight light, ShadowLightHints hints) {
         SceneLight requiredLight = Objects.requireNonNull(light, "light");
         ShadowLightHints requiredHints = Objects.requireNonNull(hints, "hints");
-        long stableId = NEXT_LIGHT_ID.getAndIncrement();
+        long stableId = LightIdAllocator.next();
         lights.add(requiredLight);
         lightEntries.add(new SceneLightEntry(stableId, requiredLight, requiredHints, LightVolumeHints.DEFAULT, 0L));
         lightingRevision = Math.incrementExact(lightingRevision);

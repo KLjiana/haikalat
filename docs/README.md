@@ -4,13 +4,13 @@
 
 ## 当前入口
 
-2026-11-11 复核：当前构建为 0.27.5；协作指引、测试合同索引、`check` 去重、默认 GL 叶子、
-候选内容指纹与归档证据门禁已落地，正式性能、完整视觉、真实宿主与自动选测仍未完成。
+2026-11-11 复核：当前构建为 0.28.0；0.28 战斗 VFX 材质与动态光照已接入 Showcase 生产调用链。
+正式性能、完整视觉、真实宿主与自动选测仍未完成。
 
 - 开发与验证：[测试指南](guides/testing.md)、[测试合同索引](guides/test-contracts.md)、[有侧重验收规范](guides/focused-acceptance-policy.md)。
 - 仓库协作：[根级 AGENTS.md](../AGENTS.md)，按任务路由到构建、测试和 Render3D 局部指引。
-- 当前实现：[能力矩阵](planning/capability-matrix.md)、[0.27.3 模块合同](architecture/v0.27.3-render3d-module-contracts.md)、[包迁移清单](architecture/v0.27.3-render3d-package-migration.md)、[0.27.4 统一控制合同](architecture/v0.27.4-render3d-feature-control.md)。
-- 当前结果：[0.27.5 验收（治理范围）](releases/v0.27.5-review.md)、[0.27.4 验收](releases/v0.27.4-review.md)、[复审修复](releases/v0.27.4-review-fixes-2026-11-09.md)；聚焦通过不等于正式发布就绪。
+- 当前实现：[能力矩阵](planning/capability-matrix.md)、[0.27.3 模块合同](architecture/v0.27.3-render3d-module-contracts.md)、[包迁移清单](architecture/v0.27.3-render3d-package-migration.md)、[0.27.4 统一控制合同](architecture/v0.27.4-render3d-feature-control.md)、[0.28 战斗 VFX 指南](guides/render3d-combat-vfx.md)。
+- 当前结果：[0.28.0 验收](releases/v0.28.0-review.md)、[0.27.5 验收（治理范围）](releases/v0.27.5-review.md)、[0.27.4 验收](releases/v0.27.4-review.md)；聚焦通过不等于正式发布就绪。
 - 治理进度：[0.27.5 Agent 指引与测试治理计划](planning/v0.27.5-agent-and-test-governance.md)、[测试治理实施记录](history/v0.27.5-test-governance-2026-11-09.md)。
 - 本轮整理：[文档清理记录](history/v0.27.5-documentation-cleanup-2026-11-09.md)。
 
@@ -23,6 +23,7 @@
 - [项目目标](planning/project-goals.md)
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
 - [后续计划](planning/future-plans.md)
+- [实时渲染技术未来计划大纲](planning/realtime-rendering-roadmap.md) — 46 项技术分组、依赖、模块归属、验收与近期版本建议
 
 ### 版本计划与设计快照
 
@@ -59,6 +60,8 @@
 - [0.27.3 Render3D 模块边界收敛与包结构重组](planning/v0.27.3-render3d-module-boundaries-and-packages.md)
 - [0.27.4 Render3D 统一功能控制与模块开关计划](planning/v0.27.4-render3d-feature-control.md)
 - [0.27.5 Agent 指引与测试治理计划](planning/v0.27.5-agent-and-test-governance.md)
+- [0.27.6 可选任务与范围建议](planning/v0.27.6-candidate-tasks.md)
+- [0.28 战斗特效材质与动态光照实施计划](planning/v0.28.0-combat-vfx-materials-and-lighting.md)
 - [Haikalat OpenGL 4.6 后续路线图](planning/haikalat-future-opengl46.md)
 
 ## 架构

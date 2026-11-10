@@ -48,11 +48,31 @@ public record RenderFrameContext(ExternalCamera camera,
                                       float deltaSeconds, int frameIndex, long frameSequence,
                                       long topologySettingsRevision,
                                       RenderFrameContext previousSuccessfulFrame) {
+        return capture(scene, camera, width, height, deltaSeconds, frameIndex, frameSequence,
+                topologySettingsRevision, previousSuccessfulFrame, List.of());
+    }
+
+    /**
+     * Captures the frame with additional frozen light entries (for example
+     * temporary effect lights) merged before any pass records commands.
+     *
+     * <p>Additional entries must carry stable IDs that do not collide with the
+     * Scene.  The Scene revision check stays untouched: effect-light changes
+     * are already frozen into {@code additionalLights} and do not make the
+     * Scene itself unstable.</p>
+     */
+    public static RenderFrameContext capture(Scene scene, Camera camera, int width, int height,
+                                      float deltaSeconds, int frameIndex, long frameSequence,
+                                      long topologySettingsRevision,
+                                      RenderFrameContext previousSuccessfulFrame,
+                                      List<SceneLightEntry> additionalLights) {
         Objects.requireNonNull(scene, "scene");
+        List<SceneLightEntry> extras = List.copyOf(
+                Objects.requireNonNull(additionalLights, "additionalLights"));
         ExternalCamera frozenCamera = freezeCamera(camera, width, height);
         SceneRevisionSnapshot revisions = SceneRevisionSnapshot.capture(
                 scene, frozenCamera, topologySettingsRevision, frameIndex);
-        List<SceneLightEntry> frozenEntries = freezeLightEntries(scene.lightEntries());
+        List<SceneLightEntry> frozenEntries = freezeLightEntries(scene.lightEntries(), extras);
         List<SceneLight> frozenLights = frozenEntries.stream().map(SceneLightEntry::light).toList();
         SceneRevisionSnapshot confirmed = SceneRevisionSnapshot.capture(
                 scene, frozenCamera, topologySettingsRevision, frameIndex);
@@ -93,9 +113,24 @@ public record RenderFrameContext(ExternalCamera camera,
                 CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE, after);
     }
 
-    private static List<SceneLightEntry> freezeLightEntries(List<SceneLightEntry> entries) {
-        List<SceneLightEntry> frozen = new ArrayList<>(entries.size());
+    private static List<SceneLightEntry> freezeLightEntries(List<SceneLightEntry> entries,
+                                                            List<SceneLightEntry> additional) {
+        List<SceneLightEntry> frozen = new ArrayList<>(entries.size() + additional.size());
+        java.util.Set<Long> stableIds = new java.util.HashSet<>();
         for (SceneLightEntry entry : entries) {
+            if (!stableIds.add(entry.stableId())) {
+                throw new IllegalStateException("duplicate scene light stable id " + entry.stableId());
+            }
+            frozen.add(entry.frozen());
+        }
+        for (SceneLightEntry entry : additional) {
+            if (!stableIds.add(entry.stableId())) {
+                throw new IllegalStateException(
+                        "effect light stable id collides with a scene light: " + entry.stableId()
+                                + " scene=" + entries.stream().map(SceneLightEntry::stableId).toList()
+                                + " additional=" + additional.stream()
+                                .map(SceneLightEntry::stableId).toList());
+            }
             frozen.add(entry.frozen());
         }
         return List.copyOf(frozen);

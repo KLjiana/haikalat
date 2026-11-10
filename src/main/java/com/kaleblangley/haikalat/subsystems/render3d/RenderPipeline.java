@@ -32,6 +32,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBu
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricSurfaceInputs;
 
+import com.kaleblangley.haikalat.subsystems.vfx.VfxLight;
+
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 
 import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusterGrid;
@@ -268,6 +270,11 @@ public final class RenderPipeline {
     private boolean hdrVfxEnabled = true;
     private boolean previewEnabled = true;
     private boolean featureMasterEnabled = true;
+    private List<VfxLight> pendingVfxLights = List.of();
+    private long vfxLightInputRevision;
+    private int maxVfxLights = 4;
+    private final VfxLightBridge vfxLightBridge = new VfxLightBridge();
+    private VfxLightDiagnostics vfxLightDiagnostics = VfxLightDiagnostics.UNAVAILABLE;
     private final RenderFeaturesControl features = new RenderFeaturesControl(this);
     private RenderFrameContext activeFrameContext;
     private RenderFrameContext lastFrameContext;
@@ -812,6 +819,52 @@ public final class RenderPipeline {
         hdrVfxFogOptOut=value; return this;
     }
 
+    /**
+     * Publishes one complete immutable effect-light input for the next frame.
+     *
+     * <p>Values are merged with the ordinary Scene lights before the frame
+     * freeze, so the visual recording and the surface lighting consume the same
+     * revision.  The call never mutates or removes a user Scene light.  Call on
+     * the pipeline owner thread; the list is copied.</p>
+     */
+    public RenderPipeline vfxLights(List<VfxLight> lights) {
+        Objects.requireNonNull(lights, "lights");
+        if (lights.size() > VfxLightBridge.MAXIMUM_REQUESTED_LIGHTS) {
+            throw new IllegalArgumentException("vfx light input exceeds "
+                    + VfxLightBridge.MAXIMUM_REQUESTED_LIGHTS + " entries");
+        }
+        java.util.Set<VfxLight.Key> keys = new java.util.HashSet<>();
+        for (VfxLight light : lights) {
+            Objects.requireNonNull(light, "light");
+            if (!keys.add(light.key())) {
+                throw new IllegalArgumentException("duplicate vfx light key " + light.key());
+            }
+        }
+        pendingVfxLights = List.copyOf(lights);
+        vfxLightInputRevision = Math.incrementExact(vfxLightInputRevision);
+        return this;
+    }
+
+    public List<VfxLight> vfxLights() {
+        return pendingVfxLights;
+    }
+
+    /** Per-frame maximum of temporary effect lights; 0 disables them without touching scene lights. */
+    public RenderPipeline maxVfxLights(int value) {
+        if (value < 0) throw new IllegalArgumentException("maxVfxLights must be non-negative");
+        maxVfxLights = value;
+        return this;
+    }
+
+    public int maxVfxLights() {
+        return maxVfxLights;
+    }
+
+    /** Bounded last-frame effect-light observation; never contains GPU handles. */
+    public VfxLightDiagnostics vfxLightDiagnostics() {
+        return vfxLightDiagnostics;
+    }
+
     public void build() {
         requireGpuOwner();
         if (embedded) {
@@ -1187,7 +1240,9 @@ public final class RenderPipeline {
                     Render3dDiagnostics.ShadowSummary.EMPTY,
                     Render3dDiagnostics.DepthResolveSummary.EMPTY,
                     Render3dDiagnostics.CacheSummary.EMPTY,
-                    Render3dDiagnostics.AmbientOcclusionSummary.EMPTY, lastFailureStage);
+                    Render3dDiagnostics.AmbientOcclusionSummary.EMPTY,
+                    ClusteredLightingDiagnostics.UNAVAILABLE, VfxLightDiagnostics.UNAVAILABLE,
+                    lastFailureStage);
         }
         SceneRevisionSnapshot revision = context.revisions();
         var revisions = new Render3dDiagnostics.RevisionSummary(revision.membershipRevision(),
@@ -1286,7 +1341,8 @@ public final class RenderPipeline {
                 context.invalidation().bits(), reasons,
                 generation.id(), lastCandidateGenerationId, lastRetiredGenerationId,
                 generation.topology().toString(), lastFrameTopologyRebuilt, queues, visible,
-                shadows, depth, caches, ambientOcclusion, clustered, lastFailureStage);
+                shadows, depth, caches, ambientOcclusion, clustered, vfxLightDiagnostics,
+                lastFailureStage);
     }
 
     private ClusteredLightingDiagnostics clusteredDiagnostics(PipelineGeneration generation) {
@@ -1423,10 +1479,14 @@ public final class RenderPipeline {
         long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
+        VfxLightBridge.Result mergedLights = vfxLightBridge.merge(scene.lightEntries(),
+                pendingVfxLights, clusteredLightingSettings.maxLocalLights(), maxVfxLights,
+                hdrVfxEnabled, features.effective().directLighting(), vfxLightInputRevision);
+        vfxLightDiagnostics = mergedLights.diagnostics();
         activeFrameContext = RenderFrameContext.capture(scene,
                 Objects.requireNonNull(camera, "camera"), target.width(), target.height(),
                 deltaSeconds, activeFrameIndex, previewFrameSequence,
-                topologySettingsRevision, lastFrameContext);
+                topologySettingsRevision, lastFrameContext, mergedLights.extraEntries());
         executing = true;
         boolean postProcessFrameStarted = false;
         String frameStage = "frame-setup";
@@ -1624,6 +1684,8 @@ public final class RenderPipeline {
         requireOwnerContext();
         if (executing) throw new IllegalStateException("cannot close an executing pipeline");
         shuttingDown = true;
+        vfxLightBridge.clear();
+        pendingVfxLights = List.of();
         if (embedded) {
             try (HostGlState ignored = HostGlState.capture()) {
                 closeGraphResources();

@@ -77,6 +77,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -138,6 +139,7 @@ public final class HaikalatShowcaseDemo {
         Matrix4f viewProjection = new Matrix4f();
         Matrix4f inverseViewProjection = new Matrix4f();
         float[] visualRootMotion = {0.0f};
+        Path profilePath = Path.of("build", "vfx-authoring", "showcase-combat-vfx.properties");
 
         try (FrameDriver driver = new FrameDriver(renderSettings);
              PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(),
@@ -153,13 +155,14 @@ public final class HaikalatShowcaseDemo {
                              new Vector3f(0.025f, 0.05f, 0.09f), Map.of()),
                      Map.of(), fallbacks);
              VfxRenderer cpuVfxRenderer = new VfxRenderer();
-             EffectAsset effectAsset = effectAsset();
-             EffectInstance effect = effectAsset.instantiate(0x4841494b414c4154L);
              GpuParticleExperiment gpuParticles = new GpuParticleExperiment(options.gpuParticles());
-             VolumetricLightPass volumetric = new VolumetricLightPass()) {
+             VolumetricLightPass volumetric = new VolumetricLightPass();
+             CombatVfxController combat = new CombatVfxController(CombatVfxCatalog.showcase(),
+                     cpuVfxRenderer, CombatVfxProfile.defaults(), profilePath)) {
             Scene scene = scene(camera, sphere, material, pose, visualRootMotion);
             RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                     renderSettings, environment).postProcessSettings(postProcessSettings(options.fog()))
+                    .maxVfxLights(4)
                     .hdrVfx((resources, commands) -> {
                         EffectSnapshot snapshot = effectSnapshot[0];
                         if (snapshot != null) {
@@ -171,7 +174,19 @@ public final class HaikalatShowcaseDemo {
             try {
                 pipeline.build();
                 try (UiSystem ui = UiSystem.create(window, UiConfig.defaults())) {
-                    ShowcaseUi showcaseUi = installUi(ui);
+                    Panel root = ui.document().root();
+                    root.style(UiStyle.builder().width(UiLength.percent(100))
+                            .height(UiLength.percent(100)).padding(UiInsets.points(16))
+                            .alignItems(UiStyle.AlignItems.FLEX_START).build());
+                    Panel authoring = combat.installUi(ui,
+                            () -> !pipeline.features().effective().enabled(),
+                            value -> pipeline.features().submit(pipeline.features().effective()
+                                    .toBuilder().enabled(!value).build()),
+                            value -> pipeline.features().submit(pipeline.features().effective()
+                                    .toBuilder().hdrVfx(value).build()),
+                            value -> pipeline.features().submit(pipeline.features().effective()
+                                    .toBuilder().directLighting(value).build()));
+                    root.add(authoring);
                     VolumetricLightSettings volumetricSettings = volumetricSettings();
                     ui.attachTo(pipeline.graph(), pipeline.finalPassName(), (resources, commands) -> {
                         commands.bindDefaultFramebuffer().viewport(0, 0, window.width(), window.height());
@@ -180,8 +195,8 @@ public final class HaikalatShowcaseDemo {
                         gpuParticles.record(commands, FIXED_DELTA_SECONDS, viewProjection,
                                 window.width() / (float) window.height());
                     });
-                    return renderFrames(window, options, driver, pipeline, ui, showcaseUi,
-                            mixer, pose, effect, effectSnapshot, cameraPosition,
+                    return renderFrames(window, options, driver, pipeline, ui, authoring,
+                            mixer, pose, combat, effectSnapshot, cameraPosition,
                             projection, view, viewProjection, inverseViewProjection,
                             visualRootMotion, cpuVfxRenderer, gpuParticles, volumetric);
                 }
@@ -192,8 +207,9 @@ public final class HaikalatShowcaseDemo {
     }
 
     private static Summary renderFrames(GlfwWindow window, Options options, FrameDriver driver,
-                                        RenderPipeline pipeline, UiSystem ui, ShowcaseUi showcaseUi,
-                                        AnimationMixer mixer, PoseBuffer pose, EffectInstance effect,
+                                        RenderPipeline pipeline, UiSystem ui, Panel authoring,
+                                        AnimationMixer mixer, PoseBuffer pose,
+                                        CombatVfxController combat,
                                         EffectSnapshot[] effectSnapshot, Vector3f cameraPosition,
                                         Matrix4f projection, Matrix4f view, Matrix4f viewProjection,
                                         Matrix4f inverseViewProjection, float[] visualRootMotion,
@@ -209,6 +225,14 @@ public final class HaikalatShowcaseDemo {
         int nonBlackPixels = -1;
         GlDebug.ResourceSnapshot stableResources = null;
         int frame = 0;
+        boolean sawParticles = false;
+        boolean sawRibbons = false;
+        boolean sawDecals = false;
+        boolean sawMeshes = false;
+        boolean sawLights = false;
+        boolean sawRim = false;
+        boolean sawUvFlow = false;
+        boolean sawDissolve = false;
 
         while (!window.shouldClose()) {
             if (window.isKeyDown(GLFW_KEY_ESCAPE)) window.requestClose();
@@ -224,30 +248,29 @@ public final class HaikalatShowcaseDemo {
                             0.75f + 0.22f * (float) Math.cos(phase * 1.3f), 0.0f),
                     new Vector3f(0.0f, 0.0f, 1.0f), 0.72f);
             Vector3f emitter = jointPosition(pose, 2).add(visualRootMotion[0], 0.0f, 0.0f);
-            effect.update(delta, emitter);
+            combat.update(delta, emitter);
             List<AnimationEvent> events = mixer.drainEvents();
             animationEvents += events.size();
-            for (AnimationEvent ignored : events) {
-                effect.spawnDecal(new Vector3f(emitter.x, -1.0f, -0.1f),
-                        new Vector3f(0.0f, 0.0f, 1.0f), new Vector2f(0.72f, 0.24f),
-                        phase * 0.3f);
-            }
-            effectSnapshot[0] = effect.snapshot(cameraPosition);
+            effectSnapshot[0] = combat.snapshot(cameraPosition);
+            pipeline.vfxLights(effectSnapshot[0].lights());
+            sawParticles |= !effectSnapshot[0].particles().isEmpty();
+            sawRibbons |= !effectSnapshot[0].ribbonSegments().isEmpty();
+            sawDecals |= !effectSnapshot[0].decals().isEmpty();
+            sawMeshes |= !effectSnapshot[0].meshes().isEmpty();
+            sawLights |= !effectSnapshot[0].lights().isEmpty();
             DemoSupport.perspective(projection, window.width(), window.height());
             projection.mul(view, viewProjection);
             inverseViewProjection.set(viewProjection).invert();
             if (frame == 1) {
-                ui.animations().tweenOpacity(showcaseUi.panel(), 0.62f,
+                ui.animations().tweenOpacity(authoring, 0.72f,
                         new UiTweenSpec(0.8f, UiEasing.EASE_OUT_CUBIC));
             } else if (frame > 1 && frame % 120 == 0) {
-                float target = ((frame / 120) & 1) == 0 ? 0.62f : 1.0f;
-                ui.animations().tweenOpacity(showcaseUi.panel(), target,
+                float target = ((frame / 120) & 1) == 0 ? 0.72f : 1.0f;
+                ui.animations().tweenOpacity(authoring, target,
                         new UiTweenSpec(0.55f, UiEasing.SPRING));
             }
             if (frame % 30 == 0) {
-                showcaseUi.status().text(String.format(Locale.ROOT,
-                        "frame %d  cpu %d  gpu %d", frame,
-                        effectSnapshot[0].particles().size(), gpuParticles.capacity()));
+                combat.updateStatus(pipeline.vfxLightDiagnostics(), cpuVfxRenderer.textureCount());
             }
             ui.update(window.inputSnapshot(), delta);
             updateNanos += System.nanoTime() - updateStart;
@@ -257,6 +280,9 @@ public final class HaikalatShowcaseDemo {
             driver.recordGraph(pipeline.graph());
             driver.endFrame();
             long frameGpuNanos = pipeline.graph().lastFrameProfile().totalGpuNanos();
+            sawRim |= cpuVfxRenderer.statistics().rimDraws() > 0;
+            sawUvFlow |= cpuVfxRenderer.statistics().uvFlowDraws() > 0;
+            sawDissolve |= cpuVfxRenderer.statistics().dissolveDraws() > 0;
             if (frame >= options.warmup() && frameGpuNanos > 0L) {
                 gpuNanos += frameGpuNanos;
                 gpuSamples++;
@@ -281,17 +307,26 @@ public final class HaikalatShowcaseDemo {
             throw new IllegalStateException("showcase framebuffer contains no rendered pixels");
         }
         if (animationEvents <= 0L || rootMotionDistance <= 0.0
-                || snapshot == null || snapshot.particles().isEmpty()
-                || snapshot.ribbonSegments().isEmpty() || snapshot.decals().isEmpty()
-                || cpuVfxRenderer.statistics().drawCalls() != snapshot.primitiveCount()
+                || snapshot == null
+                || !sawParticles || !sawRibbons || !sawDecals || !sawMeshes || !sawLights
+                || !sawRim || !sawUvFlow || !sawDissolve
+                || cpuVfxRenderer.textureCount() <= 0
                 || gpuParticles.statistics().framesRecorded() != options.frames()
                 || volumetric.statistics().framesRecorded() != options.frames()
                 || uiStats.quads() <= 0 || uiAnimations.started() <= 0L) {
-            throw new IllegalStateException("showcase did not exercise every required subsystem");
+            throw new IllegalStateException("showcase did not exercise every required subsystem: "
+                    + "particles=" + sawParticles + " ribbons=" + sawRibbons
+                    + " decals=" + sawDecals + " meshes=" + sawMeshes + " lights=" + sawLights
+                    + " rim=" + sawRim + " uvFlow=" + sawUvFlow
+                    + " dissolve=" + sawDissolve);
         }
         if (options.stability()) verifyStableResources(stableResources, GlDebug.resources());
         return new Summary(frame, animationEvents, rootMotionDistance,
                 snapshot.particles().size(), snapshot.ribbonSegments().size(), snapshot.decals().size(),
+                snapshot.meshes().size(), snapshot.lights().size(),
+                cpuVfxRenderer.textureCount(),
+                cpuVfxRenderer.statistics().drawCalls(),
+                cpuVfxRenderer.statistics().materialSwitches(),
                 gpuParticles.capacity(), volumetric.statistics().samplesPerPixel(), uiStats.quads(),
                 uiAnimations.started(), updateNanos / 1_000_000.0 / Math.max(1, frame),
                 gpuSamples == 0 ? 0.0 : gpuNanos / 1_000_000.0 / gpuSamples,
@@ -308,6 +343,10 @@ public final class HaikalatShowcaseDemo {
         }));
         scene.add(SceneObject.fixed(sphere, material,
                 new Matrix4f().translation(0.0f, -1.55f, -0.35f).scale(2.8f, 0.18f, 1.4f)));
+        // Lit receiver / occluder behind the effect: the dynamic point light and
+        // the mesh VFX must both be readable against a real PBR surface.
+        scene.add(SceneObject.fixed(sphere, material,
+                new Matrix4f().translation(0.0f, 0.55f, -2.35f).scale(2.2f, 2.2f, 0.18f)));
         scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.5f, -1.0f, -0.7f),
                 new Vector3f(1.0f, 0.92f, 0.82f), 2.4f));
         scene.addLight(SceneLight.point(new Vector3f(2.0f, 2.2f, 3.0f),
@@ -354,72 +393,6 @@ public final class HaikalatShowcaseDemo {
                 .synchronizeLayer(true);
     }
 
-    private static EffectAsset effectAsset() {
-        VfxMaterial fire = VfxMaterial.builder("showcase-fire")
-                .texture(AssetRef.of("/vfx/particles/kenney/particle_pack/fire_01.png"))
-                .maskMode(VfxMaskMode.LUMINANCE)
-                .blendMode(BlendMode.ADDITIVE)
-                .emissiveIntensity(4.5f)
-                .billboardMode(VfxBillboardMode.VELOCITY_ALIGNED)
-                .velocityStretch(0.35f).maximumStretch(2.5f)
-                .softParticleDistance(0.12f)
-                .build();
-        VfxMaterial trail = VfxMaterial.builder("showcase-trail")
-                .texture(AssetRef.of("/vfx/masks/kenney/light_masks/transparent/streaks_composed_a_noise.png"))
-                .maskMode(VfxMaskMode.ALPHA)
-                .blendMode(BlendMode.ADDITIVE)
-                .emissiveIntensity(3.5f)
-                .softParticleDistance(0.06f)
-                .build();
-        VfxMaterial impact = VfxMaterial.builder("showcase-impact")
-                .texture(AssetRef.of("/vfx/decals/kenney/particle_pack/scorch_01.png"))
-                .maskMode(VfxMaskMode.LUMINANCE)
-                .blendMode(BlendMode.ALPHA)
-                .emissiveIntensity(1.0f)
-                .softParticleDistance(0.04f)
-                .build();
-        return EffectAsset.builder("showcase-vfx")
-                .particles(new ParticleEmitter(256, 180.0f, 1.8f,
-                        new Vector3f(0.0f, 0.8f, 0.0f), 0.45f, 0.35f, 1.25f,
-                        new Vector3f(0.0f, -0.55f, 0.0f), 0.08f,
-                        0.13f, 0.025f,
-                        new Vector4f(1.0f, 0.55f, 0.08f, 0.82f),
-                        new Vector4f(0.1f, 0.45f, 1.0f, 0.0f)))
-                .ribbon(new RibbonEmitter(48, 1.5f, 0.015f, 0.13f, 0.02f,
-                        new Vector4f(0.08f, 0.75f, 1.0f, 0.72f),
-                        new Vector4f(0.12f, 0.2f, 0.9f, 0.0f)))
-                .decals(new Decal(8, 3.0f,
-                        new Vector4f(0.55f, 0.16f, 1.0f, 0.58f),
-                        new Vector4f(0.2f, 0.04f, 0.45f, 0.0f)))
-                .particleMaterial(fire)
-                .ribbonMaterial(trail)
-                .decalMaterial(impact)
-                .particleSizeOverLife(new FloatTrack(
-                        new FloatTrack.Key(0.0f, 0.13f, FloatTrack.Interpolation.LINEAR),
-                        new FloatTrack.Key(0.2f, 0.24f, FloatTrack.Interpolation.LINEAR),
-                        new FloatTrack.Key(1.0f, 0.025f, FloatTrack.Interpolation.LINEAR)))
-                .particleColorOverLife(new ColorGradient(
-                        new ColorGradient.Stop(0.0f, 1.4f, 0.72f, 0.08f, 0.82f),
-                        new ColorGradient.Stop(0.4f, 0.7f, 0.18f, 1.1f, 0.55f),
-                        new ColorGradient.Stop(1.0f, 0.1f, 0.45f, 1.0f, 0.0f)))
-                .ribbonWidthOverLife(new FloatTrack(
-                        new FloatTrack.Key(0.0f, 0.13f, 0.0f, -0.22f,
-                                FloatTrack.Interpolation.CUBIC_HERMITE),
-                        new FloatTrack.Key(1.0f, 0.02f, 0.0f, 0.0f,
-                                FloatTrack.Interpolation.LINEAR)))
-                .ribbonColorOverLife(new ColorGradient(
-                        new ColorGradient.Stop(0.0f, 0.08f, 0.75f, 1.0f, 0.72f),
-                        new ColorGradient.Stop(1.0f, 0.12f, 0.2f, 0.9f, 0.0f)))
-                .decalScaleOverLife(new FloatTrack(
-                        new FloatTrack.Key(0.0f, 0.85f, FloatTrack.Interpolation.LINEAR),
-                        new FloatTrack.Key(0.2f, 1.1f, FloatTrack.Interpolation.LINEAR),
-                        new FloatTrack.Key(1.0f, 0.72f, FloatTrack.Interpolation.LINEAR)))
-                .decalColorOverLife(new ColorGradient(
-                        new ColorGradient.Stop(0.0f, 0.55f, 0.16f, 1.0f, 0.58f),
-                        new ColorGradient.Stop(1.0f, 0.2f, 0.04f, 0.45f, 0.0f)))
-                .build();
-    }
-
     private static PostProcessSettings postProcessSettings(boolean fogEnabled) {
         ColorGradingLut lut = ColorGradingLut.generate(16,
                 (red, green, blue) -> new ColorGradingLut.Rgb(
@@ -441,26 +414,6 @@ public final class HaikalatShowcaseDemo {
                 new Vector3f(-1.8f, 2.8f, 3.5f),
                 new Vector3f(0.35f, -0.45f, -1.0f),
                 new Vector3f(0.2f, 0.48f, 1.0f));
-    }
-
-    private static ShowcaseUi installUi(UiSystem ui) {
-        Panel root = ui.document().root();
-        root.style(UiStyle.builder().width(UiLength.percent(100)).height(UiLength.percent(100))
-                .padding(UiInsets.points(16)).alignItems(UiStyle.AlignItems.FLEX_START).build());
-        Panel panel = new Panel();
-        panel.debugName("ShowcaseDiagnostics");
-        panel.style(UiStyle.builder().width(UiLength.points(290)).height(UiLength.points(92))
-                .padding(UiInsets.points(10)).gap(5)
-                .flexDirection(UiStyle.FlexDirection.COLUMN).build());
-        Label title = new Label("Haikalat");
-        title.style(UiStyle.builder().width(UiLength.percent(100))
-                .height(UiLength.points(30)).build());
-        Label status = new Label("frame 0  cpu 0  gpu 0");
-        status.style(UiStyle.builder().width(UiLength.percent(100))
-                .height(UiLength.points(28)).build());
-        panel.add(title).add(status);
-        root.add(panel);
-        return new ShowcaseUi(panel, status);
     }
 
     private static void verifyStableResources(GlDebug.ResourceSnapshot expected,
@@ -512,22 +465,24 @@ public final class HaikalatShowcaseDemo {
         return new JointTransform(new Vector3f(x, y, z), new Quaternionf(), new Vector3f(1.0f));
     }
 
-    private record ShowcaseUi(Panel panel, Label status) {
-    }
-
     public record Summary(int frames, long animationEvents, double rootMotionDistance,
-                          int cpuParticles, int ribbons, int decals, int gpuParticles,
+                          int cpuParticles, int ribbons, int decals, int meshes, int lights,
+                          int vfxTextures, int vfxDrawCalls, int vfxMaterialSwitches,
+                          int gpuParticles,
                           int volumeSteps, long uiQuads, long uiAnimations,
                           double averageUpdateMillis, double averageGpuMillis,
                           int nonBlackPixels, boolean stabilityVerified) {
         String format() {
             return String.format(Locale.ROOT,
                     "SHOWCASE frames=%d events=%d rootMotion=%.3f cpuParticles=%d ribbons=%d "
-                            + "decals=%d gpuParticles=%d volumeSteps=%d uiQuads=%d uiAnimations=%d "
+                            + "decals=%d meshes=%d lights=%d vfxTextures=%d vfxDraws=%d "
+                            + "vfxMaterialSwitches=%d gpuParticles=%d "
+                            + "volumeSteps=%d uiQuads=%d uiAnimations=%d "
                             + "cpuUpdateMs=%.4f gpuMs=%.4f pixels=%d stability=%s",
                     frames, animationEvents, rootMotionDistance, cpuParticles, ribbons, decals,
-                    gpuParticles, volumeSteps, uiQuads, uiAnimations, averageUpdateMillis,
-                    averageGpuMillis, nonBlackPixels, stabilityVerified);
+                    meshes, lights, vfxTextures, vfxDrawCalls, vfxMaterialSwitches, gpuParticles,
+                    volumeSteps, uiQuads, uiAnimations,
+                    averageUpdateMillis, averageGpuMillis, nonBlackPixels, stabilityVerified);
         }
     }
 

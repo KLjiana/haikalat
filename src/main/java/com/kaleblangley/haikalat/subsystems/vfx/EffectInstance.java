@@ -18,12 +18,14 @@ import java.util.Objects;
 /** 单个效果的有界、确定性 CPU 模拟状态。 */
 public final class EffectInstance implements AutoCloseable {
     private final EffectAsset asset;
-    private final DeterministicRandom random;
+    private final long effectId;
+    private final long seed;
     private final List<ParticleState> particles = new ArrayList<>();
     private final List<RibbonPoint> ribbonPoints = new ArrayList<>();
     private final List<DecalState> decals = new ArrayList<>();
     private final List<MeshState> meshes = new ArrayList<>();
     private final Vector3f lastOrigin = new Vector3f();
+    private DeterministicRandom random;
     private double spawnAccumulator;
     private long nextSequence;
     private long totalSpawnedParticles;
@@ -32,13 +34,114 @@ public final class EffectInstance implements AutoCloseable {
     private long evictedDecals;
     private long evictedMeshes;
     private long curveSamples;
+    private float elapsedSeconds;
+    private float dissolveProgress;
     private boolean hasOrigin;
     private boolean emitting = true;
+    private boolean paused;
+    private boolean cancelled;
     private boolean closed;
 
-    EffectInstance(EffectAsset asset, long seed) {
+    EffectInstance(EffectAsset asset, long seed, long effectId) {
         this.asset = Objects.requireNonNull(asset, "asset");
+        if (effectId <= 0L) throw new IllegalArgumentException("effectId must be positive");
+        this.effectId = effectId;
+        this.seed = seed;
         random = new DeterministicRandom(seed);
+    }
+
+    /** Stable identity used by effect-light keys; never reused by another instance. */
+    public long effectId() {
+        return effectId;
+    }
+
+    /** Deterministic effect clock; frozen while {@link #pause()} is active. */
+    public float effectTimeSeconds() {
+        ensureOpen();
+        return elapsedSeconds;
+    }
+
+    public boolean paused() {
+        ensureOpen();
+        return paused;
+    }
+
+    /** Stops advancing the effect clock; the last snapshot can be recorded repeatedly. */
+    public EffectInstance pause() {
+        ensureOpen();
+        paused = true;
+        return this;
+    }
+
+    public EffectInstance resume() {
+        ensureOpen();
+        paused = false;
+        return this;
+    }
+
+    /**
+     * Explicit effect-phase dissolve progress in [0, 1].
+     *
+     * <p>Only materials configured with {@link VfxDissolve.ProgressSource#EXPLICIT}
+     * consume this value; lifecycle materials keep using primitive age.</p>
+     */
+    public EffectInstance dissolve(float progress) {
+        ensureOpen();
+        if (!Float.isFinite(progress) || progress < 0.0f || progress > 1.0f) {
+            throw new IllegalArgumentException("dissolve progress must be finite and in [0, 1]");
+        }
+        dissolveProgress = progress;
+        return this;
+    }
+
+    public float dissolveProgress() {
+        ensureOpen();
+        return dissolveProgress;
+    }
+
+    /** Immediately removes every primitive and light without closing shared assets. */
+    public EffectInstance cancel() {
+        ensureOpen();
+        clearSimulationState();
+        emitting = false;
+        cancelled = true;
+        paused = false;
+        return this;
+    }
+
+    public boolean cancelled() {
+        ensureOpen();
+        return cancelled;
+    }
+
+    /** Restores the initial definition and seed; expired GPU handles are never restored. */
+    public EffectInstance replay() {
+        ensureOpen();
+        clearSimulationState();
+        random = new DeterministicRandom(seed);
+        elapsedSeconds = 0.0f;
+        dissolveProgress = 0.0f;
+        emitting = true;
+        paused = false;
+        cancelled = false;
+        return this;
+    }
+
+    private void clearSimulationState() {
+        particles.clear();
+        ribbonPoints.clear();
+        decals.clear();
+        meshes.clear();
+        spawnAccumulator = 0.0;
+        nextSequence = 0L;
+        totalSpawnedParticles = 0L;
+        expiredParticles = 0L;
+        droppedParticles = 0L;
+        evictedDecals = 0L;
+        evictedMeshes = 0L;
+        curveSamples = 0L;
+        lastOrigin.set(0.0f);
+        hasOrigin = false;
     }
 
     /** 推进全部 emitter，并以世界空间 origin 采样新粒子和 Ribbon 控制点。 */
@@ -46,6 +149,11 @@ public final class EffectInstance implements AutoCloseable {
         ensureOpen();
         requireFiniteNonNegative(deltaSeconds, "deltaSeconds");
         Vector3f nextOrigin = finiteVector(origin, "origin");
+        if (paused || cancelled) return this;
+        elapsedSeconds += deltaSeconds;
+        if (!Float.isFinite(elapsedSeconds)) {
+            throw new IllegalStateException("effect clock overflowed");
+        }
         updateParticles(deltaSeconds, nextOrigin);
         updateRibbon(deltaSeconds, nextOrigin);
         updateDecals(deltaSeconds);
@@ -174,7 +282,29 @@ public final class EffectInstance implements AutoCloseable {
                 .thenComparingLong(EffectSnapshot.Primitive::sequence)
                 .thenComparing(EffectSnapshot.Primitive::kind));
         return new EffectSnapshot(particleSprites, ribbonSegments, decalInstances, meshInstances, order,
-                asset.visuals());
+                asset.visuals(), elapsedSeconds, dissolveProgress, lightSnapshot());
+    }
+
+    /** Active effect lights for the current deterministic effect time. */
+    public List<VfxLight> lights() {
+        ensureOpen();
+        return lightSnapshot();
+    }
+
+    private List<VfxLight> lightSnapshot() {
+        List<EffectLight> definitions = asset.lights();
+        if (definitions.isEmpty() || cancelled) return List.of();
+        Vector3f origin = hasOrigin ? lastOrigin : new Vector3f();
+        List<VfxLight> result = new ArrayList<>(definitions.size());
+        for (int index = 0; index < definitions.size(); index++) {
+            EffectLight definition = definitions.get(index);
+            if (!definition.activeAt(elapsedSeconds)) continue;
+            Vector3f position = new Vector3f(origin).add(definition.offset());
+            result.add(new VfxLight(effectId, index, position, definition.color(),
+                    definition.intensityAt(elapsedSeconds), definition.rangeAt(elapsedSeconds),
+                    definition.priority()));
+        }
+        return List.copyOf(result);
     }
 
     public Statistics statistics() {
@@ -192,8 +322,8 @@ public final class EffectInstance implements AutoCloseable {
 
     public boolean isAlive() {
         ensureOpen();
-        return emitting || !particles.isEmpty() || ribbonPoints.size() > 1
-                || !decals.isEmpty() || !meshes.isEmpty();
+        return !cancelled && (emitting || !particles.isEmpty() || ribbonPoints.size() > 1
+                || !decals.isEmpty() || !meshes.isEmpty() || !lightSnapshot().isEmpty());
     }
 
     public boolean isClosed() {
@@ -438,7 +568,7 @@ public final class EffectInstance implements AutoCloseable {
             modelScratch.set(mesh.transform).rotateY(rotation).scale(scale);
             Vector3f center = modelScratch.getTranslation(new Vector3f());
             result.add(new EffectSnapshot.MeshInstance(mesh.sequence, definition.meshData(),
-                    modelScratch, colorScratch, center.distanceSquared(camera)));
+                    modelScratch, colorScratch, center.distanceSquared(camera), progress));
         }
         int samplesPerMesh = (scaleTrack == null ? 0 : 1)
                 + (colorGradient == null ? 0 : 1) + (rotationTrack == null ? 0 : 1);

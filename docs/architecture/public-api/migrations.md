@@ -85,3 +85,14 @@ v0.27.4 没有删除 stable 类型或修改稳定签名。新增 advanced `Rende
 新增 `SKIPPED_PAUSED`，仅在 master 暂停时由 `execute` 返回；已有的宿主分支无需修改，
 但若对枚举做穷举 switch 需补该分支。`PipelineTopology.capture` 新增带三类阴影请求
 参数的重载，旧重载等价于全部请求为 true。控制器不持有 GL 资源，暂停不释放资源。
+
+v0.28.0 没有删除 stable 类型或修改稳定签名。advanced `EffectSnapshot` canonical record 新增
+`effectTimeSeconds`、`dissolveProgress`、`lights` 组件，`MeshInstance` 新增
+`lifetimeProgress` 组件；旧 4/5/6 参数快照构造器和旧 5 参数 mesh 构造器保留并填入零值。
+advanced `Render3dDiagnostics` canonical record 新增 `vfxLights` 组件，旧构造器保留并填入
+`VfxLightDiagnostics.UNAVAILABLE`。新增 advanced `VfxRimLight`、`VfxUvFlow`、
+`VfxDissolve`、`EffectLight`、`VfxLight`、`VfxLightDiagnostics`；`LightIdAllocator`
+与 `VfxLightBridge` 为包内 internal。`RenderPipeline` 新增 `vfxLights`/`maxVfxLights`/
+`vfxLightDiagnostics`，`VfxRenderer` 新增 `prepare` 与 `Preparation`；旧 `record` 入口
+继续懒加载并保持源兼容。二进制兼容影响：直接实现或反射读取 record canonical 组件的调用方需要
+更新；仅使用旧构造器和访问器的调用方保持兼容。

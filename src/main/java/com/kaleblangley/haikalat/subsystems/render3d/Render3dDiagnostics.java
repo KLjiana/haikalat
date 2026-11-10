@@ -22,6 +22,7 @@ public record Render3dDiagnostics(
         CacheSummary caches,
         AmbientOcclusionSummary ambientOcclusion,
         ClusteredLightingDiagnostics clustered,
+        VfxLightDiagnostics vfxLights,
         String failureStage) {
 
     /** Source-compatible constructor retained for callers written before v0.23.2. */
@@ -36,7 +37,8 @@ public record Render3dDiagnostics(
         this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
                 candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
                 visibility, shadows, depthResolve, caches, AmbientOcclusionSummary.EMPTY,
-                ClusteredLightingDiagnostics.UNAVAILABLE, failureStage);
+                ClusteredLightingDiagnostics.UNAVAILABLE, VfxLightDiagnostics.UNAVAILABLE,
+                failureStage);
     }
 
     /** Source-compatible constructor retained for callers written before v0.24.2. */
@@ -51,14 +53,31 @@ public record Render3dDiagnostics(
         this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
                 candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
                 visibility, shadows, depthResolve, caches, ambientOcclusion,
-                ClusteredLightingDiagnostics.UNAVAILABLE, failureStage);
+                ClusteredLightingDiagnostics.UNAVAILABLE, VfxLightDiagnostics.UNAVAILABLE,
+                failureStage);
+    }
+
+    /** Source-compatible constructor retained for callers written before v0.28. */
+    public Render3dDiagnostics(boolean available, RevisionSummary revisions,
+                               int invalidationBits, List<String> invalidationReasons,
+                               long activeGenerationId, long candidateGenerationId,
+                               long retiredGenerationId, String topologyKey,
+                               boolean topologyRebuilt, QueueSummary queues,
+                               VisibilitySummary visibility, ShadowSummary shadows,
+                               DepthResolveSummary depthResolve, CacheSummary caches,
+                               AmbientOcclusionSummary ambientOcclusion,
+                               ClusteredLightingDiagnostics clustered, String failureStage) {
+        this(available, revisions, invalidationBits, invalidationReasons, activeGenerationId,
+                candidateGenerationId, retiredGenerationId, topologyKey, topologyRebuilt, queues,
+                visibility, shadows, depthResolve, caches, ambientOcclusion, clustered,
+                VfxLightDiagnostics.UNAVAILABLE, failureStage);
     }
 
     public static final Render3dDiagnostics UNAVAILABLE = new Render3dDiagnostics(false,
             RevisionSummary.EMPTY, 0, List.of(), 0L, 0L, 0L, "", false,
             QueueSummary.EMPTY, VisibilitySummary.EMPTY, ShadowSummary.EMPTY,
             DepthResolveSummary.EMPTY, CacheSummary.EMPTY, AmbientOcclusionSummary.EMPTY,
-            ClusteredLightingDiagnostics.UNAVAILABLE, "");
+            ClusteredLightingDiagnostics.UNAVAILABLE, VfxLightDiagnostics.UNAVAILABLE, "");
 
     public Render3dDiagnostics {
         invalidationReasons = List.copyOf(invalidationReasons);

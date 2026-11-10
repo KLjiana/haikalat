@@ -12,17 +12,23 @@ import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
 
 /** Renderer-owned synchronous cache for VFX masks and color textures. */
 final class VfxTextureCache implements AutoCloseable {
     private static final int MAXIMUM_DIMENSION = 4096;
+    private static final int MAXIMUM_ENTRIES = 32;
 
-    private final Map<Key, Texture2D> textures = new LinkedHashMap<>();
+    private final Map<Key, Texture2D> textures = new LinkedHashMap<>(16, 0.75f, true);
     private boolean closed;
 
     Texture2D get(VfxMaterial material) {
@@ -32,8 +38,63 @@ final class VfxTextureCache implements AutoCloseable {
         return textures.computeIfAbsent(key, this::load);
     }
 
+    /**
+     * Loads every missing texture referenced by the supplied materials before a
+     * frame publishes them.
+     *
+     * <p>Failures close only the candidate textures loaded by this call and leave
+     * the previous cache contents usable.  After a successful commit, least
+     * recently used entries that are not referenced by this candidate are
+     * evicted and closed, so repeated author resource switching stays bounded.</p>
+     */
+    Preparation prepare(Collection<VfxMaterial> materials) {
+        ensureOpen();
+        Objects.requireNonNull(materials, "materials");
+        Set<Key> retained = new HashSet<>();
+        List<VfxMaterial> unique = new ArrayList<>(materials.size());
+        for (VfxMaterial material : materials) {
+            Objects.requireNonNull(material, "material");
+            unique.add(material);
+            retained.add(new Key(material.texture().orElse(null), material.maskMode()));
+        }
+        Map<Key, Texture2D> staged = new LinkedHashMap<>();
+        try {
+            for (VfxMaterial material : unique) {
+                Key key = new Key(material.texture().orElse(null), material.maskMode());
+                if (!textures.containsKey(key) && !staged.containsKey(key)) {
+                    staged.put(key, load(key));
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            for (Texture2D texture : staged.values()) {
+                try {
+                    texture.close();
+                } catch (RuntimeException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
+        textures.putAll(staged);
+        int evicted = 0;
+        var iterator = textures.entrySet().iterator();
+        while (textures.size() > MAXIMUM_ENTRIES && iterator.hasNext()) {
+            Map.Entry<Key, Texture2D> entry = iterator.next();
+            if (retained.contains(entry.getKey())) continue;
+            Texture2D texture = entry.getValue();
+            iterator.remove();
+            texture.close();
+            evicted++;
+        }
+        return new Preparation(staged.size(), evicted, textures.size());
+    }
+
     int size() {
         return textures.size();
+    }
+
+    int maximumEntries() {
+        return MAXIMUM_ENTRIES;
     }
 
     private Texture2D load(Key key) {
@@ -122,6 +183,15 @@ final class VfxTextureCache implements AutoCloseable {
         private Key {
             mode = Objects.requireNonNull(mode, "mode");
             if (mode != VfxMaskMode.WHITE) ref = Objects.requireNonNull(ref, "ref");
+        }
+    }
+
+    /** Outcome of one transactional preparation pass. */
+    record Preparation(int loaded, int evicted, int size) {
+        Preparation {
+            if (loaded < 0 || evicted < 0 || size < 0) {
+                throw new IllegalArgumentException("preparation counts must be non-negative");
+            }
         }
     }
 }

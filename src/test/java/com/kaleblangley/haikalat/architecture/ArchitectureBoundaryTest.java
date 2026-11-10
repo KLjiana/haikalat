@@ -350,7 +350,8 @@ class ArchitectureBoundaryTest {
                 "RenderFeatureStatus", "RenderFeaturesControl",
                 "Scene", "SceneLight", "SceneLightEntry", "SceneObject", "ShadowFilterMode",
                 "ShadowLightHints", "ShadowSelectionMode", "ShadowSettings", "StylizedSkySettings",
-                "Transform", "VisualSettings", "VolumetricFogSettings");
+                "Transform", "VisualSettings", "VolumetricFogSettings",
+                "LightIdAllocator", "VfxLightBridge", "VfxLightDiagnostics");
         Set<String> actual = new java.util.HashSet<>();
         try (var files = Files.list(HAIKALAT.resolve(Path.of("subsystems", "render3d")))) {
             files.filter(path -> path.toString().endsWith(".java"))
