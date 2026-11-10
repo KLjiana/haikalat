@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T07:28:06.9234299+08:00",
+    "updatedAt":  "2026-11-11T07:29:34.5901317+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -797,16 +797,16 @@
                       "featureIds":  [
                                          23
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Vignette",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "0c64433",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -820,23 +820,23 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
                   },
                   {
                       "taskId":  "R24",
                       "featureIds":  [
                                          24
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Film Grain",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "0c64433",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -850,23 +850,23 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
                   },
                   {
                       "taskId":  "R25",
                       "featureIds":  [
                                          25
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Chromatic Aberration",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "0c64433",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -880,7 +880,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
                   },
                   {
                       "taskId":  "R26",
