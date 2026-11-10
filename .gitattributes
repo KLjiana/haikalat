@@ -1,3 +1,4 @@
+* text=auto eol=lf
 # These assets are fingerprinted as LF bytes. Keep Windows checkout identical to the accepted manifest.
 src/main/resources/shaders/ui/ui.vert text eol=lf
 src/main/resources/shaders/ui/composite.vert text eol=lf
