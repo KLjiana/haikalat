@@ -37,3 +37,17 @@ tools/acceptance/v0270-host/host-acceptance.patch whitespace=-blank-at-eol
 
 # HDR environment assets are binary; never apply text/eol conversion on checkout.
 *.hdr -text
+
+# Demo text assets are fingerprinted as LF bytes; keep Windows checkouts identical to the manifest.
+src/demo/resources/**/*.vert text eol=lf
+src/demo/resources/**/*.frag text eol=lf
+src/demo/resources/**/*.comp text eol=lf
+src/demo/resources/**/*.geom text eol=lf
+src/demo/resources/**/*.json text eol=lf
+src/demo/resources/**/*.gltf text eol=lf
+src/demo/resources/**/*.obj text eol=lf
+src/demo/resources/**/*.properties text eol=lf
+src/demo/resources/**/*.mtl text eol=lf
+src/demo/resources/**/*.patch text eol=lf
+*.png -text
+*.hdr -text
