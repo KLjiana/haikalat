@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T07:11:42.3546886+08:00",
+    "updatedAt":  "2026-11-11T07:12:26.3451619+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -37,16 +37,16 @@
                                          1,
                                          2
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "C04/C05 GL evidence: transformed rim pixels, adjacent atlas cells, flipbook/filter boundary",
                       "dependencies":  [
 
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 8e833f13-9344-4376-9d89-b4d44b03fd24",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -61,7 +61,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Create technical card, implement fixtures, run serial GPU verification"
+                      "nextAction":  "Worker implementing C04/C05 tests in worktree b0m"
                   },
                   {
                       "taskId":  "B0-T",
