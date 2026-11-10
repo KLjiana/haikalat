@@ -34,3 +34,6 @@ src/main/resources/shaders/render3d/volumetric/volume-surface.glsl text eol=lf
 src/demo/resources/shaders/reference/volumetric-raymarch.comp text eol=lf
 # A unified patch needs a single space on blank context lines.
 tools/acceptance/v0270-host/host-acceptance.patch whitespace=-blank-at-eol
+
+# HDR environment assets are binary; never apply text/eol conversion on checkout.
+*.hdr -text
