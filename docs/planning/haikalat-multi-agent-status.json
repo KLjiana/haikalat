@@ -27,9 +27,9 @@
                      "state":  "BUSY",
                      "owner":  "subagent 053c422f",
                      "taskId":  "R13",
-                     "startedAt":  "2026-11-11T18:18:04.7402675+08:00"
+                     "startedAt":  "2026-11-11T18:36:20.1890902+08:00"
                  },
-    "updatedAt":  "2026-11-11T18:18:04.7432894+08:00",
+    "updatedAt":  "2026-11-11T18:36:20.1911214+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -273,21 +273,22 @@
                                      ],
                       "baseCommit":  "688a36c",
                       "workerCommit":  "50e7af9",
-                      "integrationCommit":  "f319a2a",
+                      "integrationCommit":  "29e15d7",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "focused verify 02719607: 308 tests PASS",
-                                       "glSmoke VertexDisplacementGlTest PASS",
-                                       "reviewer blockers: exact normal denominator fixed; immutable bounds fast path checks deformation revision; focused cases included"
+                                       "focused verify 02719607: 308 tests PASS (pre-fix baseline)",
+                                       "glSmoke VertexDisplacementGlTest 2/2 PASS after immutable-bounds fix",
+                                       "JVM VertexDisplacementSettingsTest 8/8 PASS including non-orthogonal inverse-transpose oracle",
+                                       "reviewer BLOCK resolved: immutable fast path now rejects deforming/revision-changed bindings; regression test added"
                                    ],
                       "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review exact normal and bounds-cache changes"
+                      "nextAction":  "Re-review 29e15d7 immutable-bounds fix"
                   },
                   {
                       "taskId":  "R06",
