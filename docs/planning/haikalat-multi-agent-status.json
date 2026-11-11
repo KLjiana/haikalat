@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T11:00:08.5145612+08:00",
+    "updatedAt":  "2026-11-11T11:09:04.2044537+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -810,80 +810,82 @@
                                      ],
                       "baseCommit":  "0c64433",
                       "workerCommit":  null,
-                      "integrationCommit":  "825cf22",
+                      "integrationCommit":  "68ec90e",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "focused verify a6350944: 238 tests PASS",
-                                       "glSmoke VignettePassGlTest PASS"
+                                       "focused verify 279395b3: 245 tests PASS",
+                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
                                    ],
-                      "review":  "PENDING",
+                      "review":  "PENDING_INDEPENDENT",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent review; then close"
+                      "nextAction":  "Independent reviewer sign-off"
                   },
                   {
                       "taskId":  "R24",
                       "featureIds":  [
                                          24
                                      ],
-                      "state":  "READY",
+                      "state":  "DONE",
                       "scope":  "Film Grain",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "0c64433",
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "68ec90e",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused verify 279395b3: 245 tests PASS",
+                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
+                      "nextAction":  "Independent reviewer sign-off"
                   },
                   {
                       "taskId":  "R25",
                       "featureIds":  [
                                          25
                                      ],
-                      "state":  "READY",
+                      "state":  "DONE",
                       "scope":  "Chromatic Aberration",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "0c64433",
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "68ec90e",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused verify 279395b3: 245 tests PASS",
+                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
+                      "nextAction":  "Independent reviewer sign-off"
                   },
                   {
                       "taskId":  "R26",
