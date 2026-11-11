@@ -493,7 +493,7 @@ public final class RenderPipeline {
         if (replacement.equals(gtao())) return;
         var previous = postProcessSettings;
         var before = activeGeneration;
-        postProcessSettings = new PostProcessSettings(previous.colorGrading(), previous.fog(), replacement);
+        postProcessSettings = previous.withGtao(replacement);
         try {
             if (before != null) {
                 var topology = PipelineTopology.capture(scene, settings, postProcessSettings,

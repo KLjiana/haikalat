@@ -42,6 +42,12 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled());
     }
 
+    /** Returns a copy with GTAO replaced and every other effect preserved. */
+    public PostProcessSettings withGtao(GtaoSettings value) {
+        return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
+                vignette, filmGrain, chromaticAberration);
+    }
+
     public static Builder builder() {
         return new Builder();
     }
