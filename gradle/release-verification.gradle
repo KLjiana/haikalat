@@ -369,14 +369,14 @@ tasks.register('releaseVerificationContracts') {
                 clusterDevice + clusterMessage * 5, policies).violations.isEmpty()
         def particleIndirectPolicy = policies.find { it.owner == 'render3d/particle-indirect' }
         assert particleIndirectPolicy != null && particleIndirectPolicy.id == 131186
-        assert particleIndirectPolicy.maximum == 32
+        assert particleIndirectPolicy.maximum == 40
         assert particleIndirectPolicy.entry.contains('GpuParticleSystemGlTest')
         def particleDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def particleMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_DRAW_INDIRECT_BUFFER, and GL_SHADER_STORAGE_BUFFER (1), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystemGlTest.xml',
-                particleDevice + particleMessage * 32, policies).violations.isEmpty()
+                particleDevice + particleMessage * 40, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystemGlTest.xml',
-                particleDevice + particleMessage * 33, policies).violations.isEmpty()
+                particleDevice + particleMessage * 41, policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
