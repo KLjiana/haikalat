@@ -175,8 +175,9 @@ public final class PlanarReflectionMath {
      * replaced, so horizontal/vertical screen coordinates are preserved.</p>
      *
      * <p>The derivation assumes a standard OpenGL perspective projection:
-     * {@code m23 == -1}, {@code m33 == 0}, {@code m32 != 0}, and no x/y/w
-     * cross terms.  Orthographic and other projections are rejected instead of
+     * {@code m00 > 0}, {@code m11 > 0}, {@code m32 < 0}, {@code m23 == -1},
+     * {@code m33 == 0}, and no x/y/w cross terms.  Orthographic, reversed-Z,
+     * {@code zZeroToOne}, and axis-flipped projections are rejected instead of
      * silently producing wrong NDC values.</p>
      *
      * @return {@code destination}
@@ -220,7 +221,8 @@ public final class PlanarReflectionMath {
 
     /**
      * Validates the narrow projection shape required by Lengyel's derivation.
-     * Orthographic matrices (and reversed-Z/handedness variants) fail here.
+     * Orthographic matrices, reversed-Z/zZeroToOne matrices and x/y-flipped
+     * (negative {@code m00}/{@code m11}) matrices fail here.
      */
     private static void requireStandardPerspective(Matrix4f projection) {
         if (!projection.isFinite()) {
@@ -228,11 +230,14 @@ public final class PlanarReflectionMath {
         }
         final float tolerance = 1.0e-5f;
         final float zeroTolerance = 1.0e-6f;
-        if (Math.abs(projection.m00()) < zeroTolerance
+        if (projection.m00() <= 0.0f || projection.m11() <= 0.0f
+                || projection.m32() >= 0.0f
+                || Math.abs(projection.m00()) < zeroTolerance
                 || Math.abs(projection.m11()) < zeroTolerance
                 || Math.abs(projection.m32()) < zeroTolerance) {
             throw new IllegalArgumentException(
-                    "oblique projection requires a non-degenerate perspective projection");
+                    "oblique projection requires a standard OpenGL perspective projection "
+                            + "(positive m00/m11, negative m32)");
         }
         if (Math.abs(projection.m23() + 1.0f) > tolerance
                 || Math.abs(projection.m33()) > tolerance

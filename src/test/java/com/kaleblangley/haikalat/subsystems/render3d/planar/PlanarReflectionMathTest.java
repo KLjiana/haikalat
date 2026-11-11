@@ -156,6 +156,48 @@ class PlanarReflectionMathTest {
     }
 
     @Test
+    void rejectsReversedZAndAxisFlippedPerspectiveProjections() {
+        // Reversed-Z: m22 < 0, m32 > 0.  It has the right m23/m33 and zero
+        // cross terms, but its NDC z direction is inverted.
+        double[][] reversedZ = {
+                {1.732, 0.0, 0.0, 0.0},
+                {0.0, 1.732, 0.0, 0.0},
+                {0.0, 0.0, -0.001001, 0.1001},
+                {0.0, 0.0, -1.0, 0.0}
+        };
+        Vector4f viewPlane = new Vector4f(0.0f, 0.0f, -1.0f, -5.0f);
+        Matrix4f destination = new Matrix4f();
+        assertThrows(IllegalArgumentException.class,
+                () -> PlanarReflectionMath.obliqueProjection(
+                        matrixFromRows(reversedZ), viewPlane, destination));
+        assertEquals(new Matrix4f(), destination,
+                "a rejected reversed-Z projection must not modify the destination");
+
+        // Negative m00 flips x_ndc and is not a standard OpenGL perspective.
+        double[][] flippedX = {
+                {-1.732, 0.0, 0.0, 0.0},
+                {0.0, 1.732, 0.0, 0.0},
+                {0.0, 0.0, -1.002002, -0.2002002},
+                {0.0, 0.0, -1.0, 0.0}
+        };
+        Matrix4f flippedDestination = new Matrix4f();
+        assertThrows(IllegalArgumentException.class,
+                () -> PlanarReflectionMath.obliqueProjection(
+                        matrixFromRows(flippedX), viewPlane, flippedDestination));
+        assertEquals(new Matrix4f(), flippedDestination,
+                "a rejected x-flipped projection must not modify the destination");
+
+        // Positive control: independently hand-written standard perspective is
+        // still accepted and maps the plane to z_ndc == -1.
+        Matrix4f perspective = perspective(60.0, 1.0, 0.1, 100.0);
+        Matrix4f oblique = PlanarReflectionMath.obliqueProjection(
+                perspective, viewPlane, new Matrix4f());
+        assertEquals(-1.0, ndc(oblique, 0.2, 0.3, -5.0).z, EPSILON);
+        assertTrue(ndc(oblique, 0.5, -0.25, -6.0).z > -1.0);
+        assertTrue(ndc(oblique, 0.5, -0.25, -100.0).z <= 1.0);
+    }
+
+    @Test
     void rejectsOrthographicProjectionInsteadOfSilentlyProducingWrongNdc() {
         Matrix4f orthographic = new Matrix4f().ortho(-2.0f, 2.0f, -2.0f, 2.0f, 0.1f, 100.0f);
         Vector4f viewPlane = new Vector4f(0.0f, 0.0f, -1.0f, -5.0f);
@@ -211,6 +253,10 @@ class PlanarReflectionMathTest {
                 {0.0, 0.0, m22, m32},
                 {0.0, 0.0, -1.0, 0.0}
         };
+        return matrixFromRows(rows);
+    }
+
+    private static Matrix4f matrixFromRows(double[][] rows) {
         float[] columnMajor = new float[16];
         for (int row = 0; row < 4; row++) {
             for (int column = 0; column < 4; column++) {
