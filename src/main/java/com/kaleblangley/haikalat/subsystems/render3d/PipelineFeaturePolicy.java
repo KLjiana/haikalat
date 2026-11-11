@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.subsystems.render3d.surface.DepthResolveDescriptor;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 
@@ -31,6 +32,11 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         }
         if (topology.gtaoEnabled() && !topology.pbrMaterials()) {
             throw new IllegalStateException("GTAO requires at least one metallic-roughness PBR material");
+        }
+        if (topology.sceneBuffers().requires(SceneBufferChannel.ROUGHNESS)
+                && !topology.pbrMaterials()) {
+            throw new IllegalStateException(
+                    "screen-space reflections require at least one metallic-roughness PBR material");
         }
         if (topology.fog() && topology.antiAliasingMode() == AntiAliasingMode.MSAA) {
             DepthResolveDescriptor.forTopology(topology);

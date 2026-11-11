@@ -16,6 +16,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureCha
 import com.kaleblangley.haikalat.subsystems.postprocess.fog.FogChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
@@ -27,6 +28,8 @@ import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberr
 import com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass;
+
+import org.joml.Matrix4f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,8 +63,10 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final ScreenDistortionPass screenDistortion;
     private final DepthOfFieldPass depthOfField;
     private final MotionBlurPass motionBlur;
+    private final SsrPass ssr;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
+    private final SsrEnvironmentSource ssrEnvironment;
     private final LateSurfaceProducer lateSurface;
     private float manualExposure;
     private float deltaSeconds = 1.0f / 60.0f;
@@ -85,8 +90,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 ScreenDistortionPass screenDistortion,
                                 DepthOfFieldPass depthOfField,
                                 MotionBlurPass motionBlur,
+                                SsrPass ssr,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
+                                SsrEnvironmentSource ssrEnvironment,
                                 LateSurfaceProducer lateSurface,
                                 List<AutoCloseable> owned, List<AutoCloseable> borrowed,
                                 PostProcessPipeline donor) {
@@ -105,8 +112,10 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.screenDistortion = screenDistortion;
         this.depthOfField = depthOfField;
         this.motionBlur = motionBlur;
+        this.ssr = ssr;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
+        this.ssrEnvironment = ssrEnvironment;
         this.lateSurface = lateSurface;
         this.owned = owned;
         this.borrowed = borrowed;
@@ -126,12 +135,28 @@ public final class PostProcessPipeline implements AutoCloseable {
                                              RenderGraph.PassExecutor hdrVfx,
                                              SurfaceInputs surfaceInputs,
                                              LateSurfaceProducer lateSurface) {
-        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface, null);
+        return create(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface, null);
+    }
+
+    /**
+     * Creates the colour chain with the borrowed environment/IBL source used by
+     * screen-space reflections.  The source is required exactly when the
+     * request enables SSR and is ignored otherwise.
+     */
+    public static PostProcessPipeline create(RenderSettings settings, PostProcessSettings effects,
+                                             int width, int height,
+                                             RenderGraph.PassExecutor hdrVfx,
+                                             SurfaceInputs surfaceInputs,
+                                             LateSurfaceProducer lateSurface,
+                                             SsrEnvironmentSource ssrEnvironment) {
+        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
+                ssrEnvironment, null);
     }
 
     private static PostProcessPipeline assemble(RenderSettings settings, PostProcessSettings effects,
                                                 int width, int height, RenderGraph.PassExecutor hdrVfx,
                                                 SurfaceInputs surfaceInputs, LateSurfaceProducer lateSurface,
+                                                SsrEnvironmentSource ssrEnvironment,
                                                 PostProcessPipeline donor) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -171,6 +196,14 @@ public final class PostProcessPipeline implements AutoCloseable {
             if (effects.motionBlur().active() && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException(
                         "motion blur requires HDR tone mapping");
+            }
+            if (effects.ssr().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require HDR tone mapping");
+            }
+            if (effects.ssr().active() && ssrEnvironment == null) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require a bound PBR environment");
             }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
@@ -220,9 +253,16 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.motionBlur : null,
                             () -> new MotionBlurPass(effects.motionBlur()),
                             owned, borrowed) : null;
+            SsrPass ssr = effects.ssr().active()
+                    ? reuseOrCreate(donor != null && donor.ssr != null
+                                    && donor.ssr.settings().equals(effects.ssr())
+                                    ? donor.ssr : null,
+                            () -> new SsrPass(effects.ssr()),
+                            owned, borrowed) : null;
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
+                    depthOfField, motionBlur, ssr, hdrVfx, surfaceInputs, ssrEnvironment,
+                    lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -246,10 +286,11 @@ public final class PostProcessPipeline implements AutoCloseable {
                                                    int width, int height,
                                                    SurfaceInputs replacementSurface,
                                                    RenderGraph.PassExecutor vfx,
-                                                   LateSurfaceProducer replacementLateSurface) {
+                                                   LateSurfaceProducer replacementLateSurface,
+                                                   SsrEnvironmentSource replacementSsrEnvironment) {
         if (closed || donor != null) throw new IllegalStateException("invalid postprocess donor");
         return assemble(replacement, replacementEffects, width, height, vfx,
-                replacementSurface, replacementLateSurface, this);
+                replacementSurface, replacementLateSurface, replacementSsrEnvironment, this);
     }
 
     public void validateTransferTo(PostProcessPipeline candidate) {
@@ -358,6 +399,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     requireInput(SurfaceInputs.Channel.VELOCITY));
             surfaceInputs.validateDependency(PostProcessTargets.MOTION_BLUR_PASS,
                     requireInput(SurfaceInputs.Channel.VALIDITY));
+        }
+        if (ssr != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.SSR_PASS,
+                    requireInput(SurfaceInputs.Channel.DEPTH));
+            surfaceInputs.validateDependency(PostProcessTargets.SSR_PASS,
+                    requireInput(SurfaceInputs.Channel.NORMAL));
+            surfaceInputs.validateDependency(PostProcessTargets.SSR_PASS,
+                    requireInput(SurfaceInputs.Channel.ROUGHNESS));
         }
     }
 
@@ -503,6 +552,47 @@ public final class PostProcessPipeline implements AutoCloseable {
             addTaaPass(graph, hdrTexture, hdrProducer);
             hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.TAA_PASS;
+        }
+
+        if (ssr != null) {
+            final String reflectionInput = hdrTexture;
+            final String reflectionProducer = hdrProducer;
+            SurfaceInputs.Input ssrDepth = requireInput(SurfaceInputs.Channel.DEPTH);
+            SurfaceInputs.Input ssrNormal = requireInput(SurfaceInputs.Channel.NORMAL);
+            SurfaceInputs.Input ssrRoughness = requireInput(SurfaceInputs.Channel.ROUGHNESS);
+            var ssrPass = graph.addPass(PostProcessTargets.SSR_PASS)
+                    .createColor(PostProcessTargets.SSR_COLOR, RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(reflectionProducer);
+            for (SurfaceInputs.Input input : List.of(ssrDepth, ssrNormal, ssrRoughness)) {
+                if (!reflectionProducer.equals(input.producerPass())
+                        && !graph.hasPass(input.producerPass())) {
+                    throw new IllegalStateException(
+                            "screen-space reflections require surface producer "
+                                    + input.producerPass());
+                }
+                if (!reflectionProducer.equals(input.producerPass())) {
+                    ssrPass.dependsOn(input.producerPass());
+                }
+            }
+            ssrPass.execute((res, cmd) -> {
+                TemporalFramePose frame = framePose;
+                if (frame == null) {
+                    throw new IllegalStateException(
+                            "screen-space reflections require a started frame pose");
+                }
+                Matrix4f view = new Matrix4f(frame.inverseView()).invert();
+                ssr.recordIntoCurrentTarget(cmd,
+                        res.colorAttachment(reflectionInput),
+                        surfaceInputs.texture(res, ssrDepth),
+                        surfaceInputs.texture(res, ssrNormal),
+                        surfaceInputs.texture(res, ssrRoughness),
+                        frame.inverseJitteredProjection(), frame.inverseView(), view,
+                        frame.stableViewProjection(), ssrEnvironment,
+                        graph.width(), graph.height());
+            });
+            hdrTexture = PostProcessTargets.SSR_COLOR;
+            hdrProducer = PostProcessTargets.SSR_PASS;
         }
 
         if (depthOfField != null) {

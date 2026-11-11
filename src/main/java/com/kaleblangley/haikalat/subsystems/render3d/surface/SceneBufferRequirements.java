@@ -72,6 +72,12 @@ public final class SceneBufferRequirements {
                 : of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL);
     }
 
+    /** Screen-space reflections need the surface depth, world normal and roughness. */
+    public static SceneBufferRequirements ssr() {
+        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
+                SceneBufferChannel.ROUGHNESS);
+    }
+
     /** Native TAA surface data; reactive is requested only when a producer exists. */
     public static SceneBufferRequirements taa(boolean reactive) {
         EnumSet<SceneBufferChannel> set = EnumSet.of(SceneBufferChannel.DEPTH,

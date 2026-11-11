@@ -176,6 +176,16 @@ final class RenderFeaturePolicy {
             throw new IllegalArgumentException(
                     "GTAO requires at least one metallic-roughness PBR material");
         }
+        if (settings.postProcess().ssr().active()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require HDR tone mapping");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require at least one metallic-roughness PBR material");
+            }
+        }
         if (settings.directionalShadowMap().settings().contactShadows().active()) {
             if (!settings.directionalShadows() || !facts.directionalCaster()) {
                 throw new IllegalArgumentException(

@@ -97,6 +97,8 @@ public final class SceneSurfacePostProcessAdapter implements SurfaceInputs, Late
     private static SceneBufferChannel sceneChannel(Channel channel) {
         return switch (channel) {
             case DEPTH -> SceneBufferChannel.DEPTH;
+            case NORMAL -> SceneBufferChannel.NORMAL;
+            case ROUGHNESS -> SceneBufferChannel.ROUGHNESS;
             case VELOCITY -> SceneBufferChannel.VELOCITY;
             case PREVIOUS_SURFACE_DEPTH -> SceneBufferChannel.PREVIOUS_SURFACE_DEPTH;
             case VALIDITY -> SceneBufferChannel.VALIDITY;

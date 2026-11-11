@@ -23,6 +23,7 @@ public final class PostProcessTargets {
     public static final String SCREEN_DISTORTION_PASS = "ScreenDistortionPass";
     public static final String DEPTH_OF_FIELD_PASS = "DepthOfFieldPass";
     public static final String MOTION_BLUR_PASS = "MotionBlurPass";
+    public static final String SSR_PASS = "SsrPass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
     public static final String FILM_GRAIN_PASS = "FilmGrainPass";
@@ -44,6 +45,7 @@ public final class PostProcessTargets {
     public static final String HDR_RESOLVED_COLOR = "hdrResolvedColor";
     public static final String SCENE_DEPTH = "sceneDepth";
     public static final String SCENE_NORMAL = "sceneNormal";
+    public static final String SCENE_ROUGHNESS = "sceneRoughness";
     public static final String SCENE_VELOCITY = "sceneVelocity";
     public static final String SCENE_PREVIOUS_DEPTH = "scenePreviousDepth";
     public static final String SCENE_VALIDITY = "sceneValidity";
@@ -53,6 +55,7 @@ public final class PostProcessTargets {
     public static final String SCENE_REACTIVE_PASS = "SceneReactivePass";
     public static final String SCENE_DEPTH_MS = "sceneDepthMS";
     public static final String SCENE_NORMAL_MS = "sceneNormalMS";
+    public static final String SCENE_ROUGHNESS_MS = "sceneRoughnessMS";
     public static final String SCENE_VELOCITY_MS = "sceneVelocityMS";
     public static final String SCENE_PREVIOUS_DEPTH_MS = "scenePreviousDepthMS";
     public static final String SCENE_VALIDITY_MS = "sceneValidityMS";
@@ -73,6 +76,7 @@ public final class PostProcessTargets {
     public static final String SCREEN_DISTORTION_COLOR = "screenDistortionColor";
     public static final String DEPTH_OF_FIELD_COLOR = "depthOfFieldColor";
     public static final String MOTION_BLUR_COLOR = "motionBlurColor";
+    public static final String SSR_COLOR = "ssrColor";
     public static final String TONE_MAPPED_COLOR = "toneMappedColor";
     public static final String VIGNETTE_COLOR = "vignetteColor";
     public static final String FILM_GRAIN_COLOR = "filmGrainColor";

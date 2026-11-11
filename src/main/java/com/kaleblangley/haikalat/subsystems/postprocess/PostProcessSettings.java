@@ -9,7 +9,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                   ChromaticAberrationSettings chromaticAberration,
                                   ScreenDistortionSettings screenDistortion,
                                   DepthOfFieldSettings depthOfField,
-                                  MotionBlurSettings motionBlur) {
+                                  MotionBlurSettings motionBlur,
+                                  SsrSettings ssr) {
     /** Source-compatible constructor retained for existing callers. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog) {
         this(colorGrading, fog, GtaoSettings.disabled(), VignetteSettings.disabled(),
@@ -66,6 +67,18 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 screenDistortion, depthOfField, MotionBlurSettings.disabled());
     }
 
+    /** Source-compatible constructor retained for callers written before screen-space reflections. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration,
+                               ScreenDistortionSettings screenDistortion,
+                               DepthOfFieldSettings depthOfField,
+                               MotionBlurSettings motionBlur) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                screenDistortion, depthOfField, motionBlur, SsrSettings.disabled());
+    }
+
     public PostProcessSettings {
         Objects.requireNonNull(colorGrading, "colorGrading");
         Objects.requireNonNull(fog, "fog");
@@ -76,6 +89,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         Objects.requireNonNull(screenDistortion, "screenDistortion");
         Objects.requireNonNull(depthOfField, "depthOfField");
         Objects.requireNonNull(motionBlur, "motionBlur");
+        Objects.requireNonNull(ssr, "ssr");
     }
 
     public static PostProcessSettings defaults() {
@@ -83,28 +97,35 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 GtaoSettings.disabled(), VignetteSettings.disabled(),
                 FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
-                MotionBlurSettings.disabled());
+                MotionBlurSettings.disabled(), SsrSettings.disabled());
     }
 
     /** Returns a copy with GTAO replaced and every other effect preserved. */
     public PostProcessSettings withGtao(GtaoSettings value) {
         return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
                 vignette, filmGrain, chromaticAberration, screenDistortion, depthOfField,
-                motionBlur);
+                motionBlur, ssr);
     }
 
     /** Returns a copy with depth of field replaced and every other effect preserved. */
     public PostProcessSettings withDepthOfField(DepthOfFieldSettings value) {
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion,
-                Objects.requireNonNull(value, "depthOfField"), motionBlur);
+                Objects.requireNonNull(value, "depthOfField"), motionBlur, ssr);
     }
 
     /** Returns a copy with motion blur replaced and every other effect preserved. */
     public PostProcessSettings withMotionBlur(MotionBlurSettings value) {
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField,
-                Objects.requireNonNull(value, "motionBlur"));
+                Objects.requireNonNull(value, "motionBlur"), ssr);
+    }
+
+    /** Returns a copy with screen-space reflections replaced and every other effect preserved. */
+    public PostProcessSettings withSsr(SsrSettings value) {
+        return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
+                chromaticAberration, screenDistortion, depthOfField, motionBlur,
+                Objects.requireNonNull(value, "ssr"));
     }
 
     public static Builder builder() {
@@ -122,6 +143,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         private ScreenDistortionSettings screenDistortion = ScreenDistortionSettings.disabled();
         private DepthOfFieldSettings depthOfField = DepthOfFieldSettings.disabled();
         private MotionBlurSettings motionBlur = MotionBlurSettings.disabled();
+        private SsrSettings ssr = SsrSettings.disabled();
 
         private Builder() {
         }
@@ -171,9 +193,14 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
             return this;
         }
 
+        public Builder ssr(SsrSettings value) {
+            ssr = Objects.requireNonNull(value, "ssr");
+            return this;
+        }
+
         public PostProcessSettings build() {
             return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
-                    chromaticAberration, screenDistortion, depthOfField, motionBlur);
+                    chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr);
         }
     }
 }

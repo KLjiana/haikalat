@@ -49,6 +49,7 @@ public final class SceneSurfaceResolvePass implements AutoCloseable {
                 case VELOCITY -> "uVelocity";
                 case PREVIOUS_SURFACE_DEPTH -> "uPreviousDepth";
                 case VALIDITY -> "uValidity";
+                case ROUGHNESS -> "uRoughness";
                 default -> throw new IllegalStateException("no resolve input for " + output.channel());
             };
             cmd.bindTextureMultisample(output.colorSlot(), texture)

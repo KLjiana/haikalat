@@ -13,6 +13,10 @@ layout(location = SCENE_SLOT_NORMAL) out vec4 outNormal;
 layout(location = SCENE_SLOT_VELOCITY) out vec2 outVelocity;
 layout(location = SCENE_SLOT_PREVIOUS_SURFACE_DEPTH) out float outPreviousDepth;
 layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
+#ifdef SCENE_SLOT_ROUGHNESS
+layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
+uniform float uRoughness;
+#endif
 
 uniform int uMasked;
 uniform int uHasVertexColor;
@@ -58,4 +62,7 @@ void main() {
     outVelocity = valid ? velocity : vec2(0.0);
     outPreviousDepth = valid ? vPreviousViewDepth : 0.0;
     outValidity = valid ? 1.0 : 0.0;
+#ifdef SCENE_SLOT_ROUGHNESS
+    outRoughness = clamp(uRoughness, 0.0, 1.0);
+#endif
 }

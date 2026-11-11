@@ -17,6 +17,8 @@ import java.util.Objects;
 public interface SurfaceInputs {
     enum Channel {
         DEPTH,
+        NORMAL,
+        ROUGHNESS,
         VELOCITY,
         PREVIOUS_SURFACE_DEPTH,
         VALIDITY,

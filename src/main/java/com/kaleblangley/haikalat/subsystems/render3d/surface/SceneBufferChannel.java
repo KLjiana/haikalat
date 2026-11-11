@@ -17,6 +17,12 @@ public enum SceneBufferChannel {
     VALIDITY,
     /** 0 = normal history, 1 = strongly reduce or reject history. */
     REACTIVE,
+    /**
+     * Material roughness in {@code [0,1]} used by screen-space reflections.
+     * First version carries the PBR material's scalar roughness factor; legacy
+     * materials report 1 (fully rough) so they never qualify as reflectors.
+     */
+    ROUGHNESS,
     /** Positive view-space depth of the current surface in world units, materialized on demand. */
     LINEAR_DEPTH
 }

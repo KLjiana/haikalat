@@ -13,6 +13,7 @@ import com.kaleblangley.haikalat.backend.buffer.GlBuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.core.FrontFace;
+import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
@@ -40,6 +41,7 @@ public final class SceneSurfacePass implements AutoCloseable {
 
     private final ShaderProgram surfaceProgram;
     private final ShaderProgram instancedProgram;
+    private final boolean roughnessOutput;
     private GlBuffer previousInstanceBuffer;
     private long previousInstanceBytes;
     private float[] instanceScratch = new float[0];
@@ -60,6 +62,7 @@ public final class SceneSurfacePass implements AutoCloseable {
                     "/shaders/render3d/surface/scene-surface-instanced.vert").stage(ShaderStage.FRAGMENT, fragment, path).link();
             this.surfaceProgram = surface;
             this.instancedProgram = instanced;
+            this.roughnessOutput = layout.raw(SceneBufferChannel.ROUGHNESS) != null;
         } catch (RuntimeException failure) {
             if (instanced != null) instanced.close();
             if (surface != null) surface.close();
@@ -104,6 +107,7 @@ public final class SceneSurfacePass implements AutoCloseable {
         int boundMorphTargetCount = -1;
         int boundMasked = -1;
         int boundPreviousValid = -1;
+        float boundRoughness = Float.NaN;
         for (int queueIndex = 0; queueIndex < frame.forwardCount(); queueIndex++) {
             int entry = frame.forwardEntry(queueIndex);
             if (!frame.castsOpaqueShadow(entry)) continue;
@@ -120,6 +124,13 @@ public final class SceneSurfacePass implements AutoCloseable {
                 cmd.enableCullFace(cull);
                 cullBound = true;
                 boundCull = cull;
+            }
+            if (roughnessOutput) {
+                float roughness = materialRoughness(renderer.material());
+                if (roughness != boundRoughness) {
+                    cmd.setUniformFloat(surfaceProgram, "uRoughness", roughness);
+                    boundRoughness = roughness;
+                }
             }
             int masked = frame.masked(entry) ? 1 : 0;
             if (masked != boundMasked) {
@@ -182,6 +193,11 @@ public final class SceneSurfacePass implements AutoCloseable {
         cmd.enableCullFace(false).frontFace(FrontFace.CCW);
         cmd.bindShader(instancedProgram)
                 .setUniformInt(instancedProgram, "uDerivativeNormal", 1);
+        if (roughnessOutput) {
+            // Instanced draws carry no per-instance material in the first
+            // version; report fully rough so they never act as reflectors.
+            cmd.setUniformFloat(instancedProgram, "uRoughness", 1.0f);
+        }
         bindCameraUniforms(cmd, instancedProgram, cameraUniforms, current, previous);
         int count = instanced.instanceCount();
         boolean previousValid = instanced.previousFrameValid();
@@ -222,6 +238,26 @@ public final class SceneSurfacePass implements AutoCloseable {
         instanceBytes.asFloatBuffer().put(instanceScratch, 0, requiredFloats);
         instanceBytes.limit(requiredFloats * Float.BYTES);
         cmd.uploadBufferRegion(previousInstanceBuffer, 0L, instanceBytes);
+    }
+
+    /**
+     * Material roughness written to the shared surface channel.  The first
+     * version carries the scalar PBR roughness factor; a per-texel
+     * metallic-roughness map is not sampled here and non-PBR materials report
+     * fully rough.
+     */
+    private static float materialRoughness(MaterialInstance instance) {
+        if (instance.material().model() != MaterialModel.METALLIC_ROUGHNESS) {
+            return 1.0f;
+        }
+        UniformValue value = instance.uniformOverrides()
+                .get(UniformKey.float1("uRoughnessFactor"));
+        if (value == null) {
+            value = instance.material().defaultUniforms()
+                    .get(UniformKey.float1("uRoughnessFactor"));
+        }
+        return value instanceof UniformValue.FloatVal roughness
+                ? Math.min(Math.max(roughness.value(), 0.0f), 1.0f) : 1.0f;
     }
 
     private static void bindCameraUniforms(CommandBuffer cmd, ShaderProgram shader,

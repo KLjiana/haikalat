@@ -197,6 +197,11 @@ public record PipelineTopology(int width,
         if (effects.motionBlur().active()) {
             requirements = requirements.mergeView(SceneBufferRequirements.motionBlur());
         }
+        // Screen-space reflections consume the single-sample depth, normal and
+        // material roughness channels.
+        if (effects.ssr().active()) {
+            requirements = requirements.mergeView(SceneBufferRequirements.ssr());
+        }
         if (effects.gtao().enabled()) {
             requirements = requirements.mergeView(
                     SceneBufferRequirements.gtao(effects.gtao().temporal()));

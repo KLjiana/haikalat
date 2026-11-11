@@ -18,6 +18,10 @@ uniform sampler2DMS uPreviousDepth;
 layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
 uniform sampler2DMS uValidity;
 #endif
+#ifdef SCENE_SLOT_ROUGHNESS
+layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
+uniform sampler2DMS uRoughness;
+#endif
 layout(location = SCENE_SLOT_DEPTH) out float outDepth;
 uniform sampler2DMS uDepth;
 uniform int uSamples;
@@ -47,6 +51,9 @@ void main() {
 #ifdef SCENE_SLOT_VALIDITY
         outValidity = 0.0;
 #endif
+#ifdef SCENE_SLOT_ROUGHNESS
+        outRoughness = 1.0;
+#endif
         outDepth = 1.0;
         return;
     }
@@ -62,6 +69,9 @@ void main() {
 #endif
 #ifdef SCENE_SLOT_VALIDITY
     outValidity = texelFetch(uValidity, pixel, best).r;
+#endif
+#ifdef SCENE_SLOT_ROUGHNESS
+    outRoughness = texelFetch(uRoughness, pixel, best).r;
 #endif
     outDepth = bestDepth;
 }
