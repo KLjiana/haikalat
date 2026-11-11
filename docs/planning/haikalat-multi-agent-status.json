@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T00:09:27.2464474+08:00",
+    "updatedAt":  "2026-11-12T00:31:27.1428222+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1581,7 +1581,8 @@
                   "Source branch new-engine is clean at b9911ae; plan document was untracked and is copied to the integration branch.",
                   "B0 is the first checkpoint; new-tech technical cards may proceed in parallel where owner files do not conflict.",
                   "No push, tag or release publication authorized in this run.",
-                  "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed."
+                  "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed.",
+                  "v0.28.1 progress 2026-11-12: 18 features DONE with focused GL evidence (#4/#5/#10/#12/#13/#14/#16/#17/#19/#20/#21/#22/#23/#24/#25/#28/#29/#30); #6/#8 BLOCKED, #9 PARTIAL. Latest focused verify runId 317cbe60: 560 tests, 0 skipped/failures. In flight: #31 POM and #36 caustics GPU fixes; planar re-review sign-check fix. RenderPipeline consumption for #28/#30 remains an explicit gap. No push/tag; source branch untouched."
               ],
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
