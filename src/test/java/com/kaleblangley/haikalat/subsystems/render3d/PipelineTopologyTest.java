@@ -14,6 +14,9 @@ import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import org.joml.Vector3f;
@@ -22,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PipelineTopologyTest {
@@ -132,6 +136,32 @@ class PipelineTopologyTest {
         assertTrue(topology.sceneSurface().resolve().stream()
                 .anyMatch(attachment -> attachment.channel() == SceneBufferChannel.VELOCITY));
         assertFalse(topology.sceneSurface().requests().requires(SceneBufferChannel.NORMAL));
+    }
+
+    @Test
+    void ssrRequestsResolvedDepthNormalAndRoughnessAndRequiresPbr() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .ssr(SsrSettings.defaults()).build();
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.DEPTH));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.NORMAL));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.ROUGHNESS));
+        assertTrue(topology.sceneSurface().hasResolve(),
+                "MSAA renders the roughness channel multisampled and resolves it");
+        var roughness = topology.sceneSurface().single(SceneBufferChannel.ROUGHNESS);
+        assertEquals(PostProcessTargets.SCENE_ROUGHNESS, roughness.name());
+        assertEquals(RenderFormat.R8, roughness.format());
+        assertEquals(1, roughness.samples());
+
+        assertThrows(IllegalStateException.class,
+                () -> new PipelineFeaturePolicy(topology, true).validate(),
+                "screen-space reflections need a metallic-roughness PBR material");
     }
 
     @Test

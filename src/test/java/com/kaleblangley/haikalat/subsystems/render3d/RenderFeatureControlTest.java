@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
@@ -170,6 +171,22 @@ class RenderFeatureControlTest {
                 pcssRequest(false), ALL_TRUE);
         assertMessage("PCSS requires an enabled directional shadow caster",
                 pcssRequest(true), facts(true, false, true, true, true, true, true, false, false));
+    }
+
+    @Test
+    void screenSpaceReflectionsRequireHdrAndPbrMaterials() {
+        PostProcessSettings ssr = PostProcessSettings.builder()
+                .ssr(SsrSettings.defaults()).build();
+
+        assertMessage("screen-space reflections require HDR tone mapping",
+                RenderFeatureSettings.builder().hdrVfx(false).postProcess(ssr).build(),
+                NO_PBR);
+        assertMessage("screen-space reflections require at least one metallic-roughness PBR material",
+                hdrBuilder().postProcess(ssr).build(), NO_PBR);
+        var resolved = RenderFeaturePolicy.resolve(
+                hdrBuilder().postProcess(ssr).build(), ALL_TRUE);
+        assertTrue(resolved.masterEnabled(),
+                "a valid SSR request must resolve with HDR, PBR materials and an environment");
     }
 
     @Test
