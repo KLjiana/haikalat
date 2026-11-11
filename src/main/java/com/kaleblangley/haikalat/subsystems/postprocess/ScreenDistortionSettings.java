@@ -56,7 +56,7 @@ public record ScreenDistortionSettings(boolean enabled, float maximumOffsetUv,
         return enabled;
     }
 
-    /** Queries the producer for this frame; empty when the effect is disabled. */
+    /** Queries the producer for this frame; disabled settings may still expose authored data but add no pass. */
     public List<ScreenDistortion> contributions() {
         return source == null ? List.of() : source.screenDistortions();
     }

@@ -23,6 +23,27 @@ class VfxDistortionProjectorTest {
     private final Matrix4f view = new Matrix4f();
 
     @Test
+    void projectsWorldAxesForPitchedCamera() {
+        Matrix4f pitched = new Matrix4f().lookAt(0.0f, 2.5f, 5.0f,
+                0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+        VfxDistortion source = new VfxDistortion(1L, 0, new Vector3f(),
+                1.0f, new Vector2f(), 1.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+
+        List<ScreenDistortion> projected = VfxDistortionProjector.project(
+                List.of(source), projection, pitched);
+
+        assertEquals(1, projected.size());
+        ScreenDistortion contribution = projected.get(0);
+        assertEquals(0.5f, contribution.centerUv().x, 1.0e-5f);
+        assertEquals(0.5f, contribution.centerUv().y, 1.0e-5f);
+        float distance = (float) Math.sqrt(2.5 * 2.5 + 5.0 * 5.0);
+        float expected = 1.0f / (2.0f * distance);
+        assertEquals(expected, contribution.extentUv().x, 2.0e-3f);
+        assertEquals(expected, contribution.extentUv().y, 2.0e-3f);
+        assertTrue(contribution.depthThickness() > 0.0f);
+    }
+
+    @Test
     void projectsCentreRadiusAndDepthIntoBoundedUv() {
         VfxDistortion source = distortion(1L, new Vector3f(0.0f, 0.0f, -5.0f), 1.0f);
 

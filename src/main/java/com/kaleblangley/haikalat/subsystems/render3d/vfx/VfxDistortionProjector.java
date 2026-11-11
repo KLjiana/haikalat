@@ -120,9 +120,9 @@ public final class VfxDistortionProjector {
 
     private static Vector3f cameraAxis(Matrix4fc view, int row, Vector3f fallback) {
         Vector3f axis = switch (row) {
-            case 0 -> new Vector3f(view.m00(), view.m01(), view.m02());
-            case 1 -> new Vector3f(view.m10(), view.m11(), view.m12());
-            default -> new Vector3f(view.m20(), view.m21(), view.m22());
+            case 0 -> new Vector3f(view.m00(), view.m10(), view.m20());
+            case 1 -> new Vector3f(view.m01(), view.m11(), view.m21());
+            default -> new Vector3f(view.m02(), view.m12(), view.m22());
         };
         if (!finite(axis) || axis.lengthSquared() <= 1.0e-12f) return new Vector3f(fallback);
         return axis.normalize();

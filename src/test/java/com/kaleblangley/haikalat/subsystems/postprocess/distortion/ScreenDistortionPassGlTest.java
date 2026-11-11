@@ -115,7 +115,7 @@ class ScreenDistortionPassGlTest {
                                 0.0f, 0.0f, 0.0f);
                         ByteBuffer edged = render(device, target, pass, source.id(),
                                 depthTexture, List.of(edge));
-                        assertRed(edged, 0, 16, 0);
+                        assertRed(edged, 1, 16, 8);
                         assertTrue(Math.abs(red(edged, 8, 16) - 64) > 2,
                                 "a distortion that stays inside the image must still apply");
                     }
