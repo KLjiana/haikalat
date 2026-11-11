@@ -180,6 +180,13 @@ class AtmosphereSkyPassGlTest {
                 for (int index = 0; index < low.capacity(); index++) {
                     float lowValue = low.get(index);
                     float highValue = high.get(index);
+                    if (index % 4 == 3) {
+                        // Alpha is the coverage/validity channel, not radiance; it
+                        // must stay 1.0 and is deliberately outside exposure.
+                        assertEquals(1.0f, lowValue, 1.0e-6f, "alpha must stay 1.0");
+                        assertEquals(1.0f, highValue, 1.0e-6f, "alpha must stay 1.0");
+                        continue;
+                    }
                     if (lowValue > 1.0e-3f) {
                         assertEquals(2.0, highValue / lowValue, 0.02,
                                 "linear exposure at channel " + index);
@@ -188,8 +195,13 @@ class AtmosphereSkyPassGlTest {
                 }
                 assertTrue(compared > SIZE * SIZE, "exposure test must compare a substantial area");
                 for (int index = 0; index < black.capacity(); index++) {
-                    assertEquals(0.0f, black.get(index), 1.0e-6f,
-                            "zero exposure must produce zero radiance");
+                    if (index % 4 == 3) {
+                        assertEquals(1.0f, black.get(index), 1.0e-6f,
+                                "alpha must stay 1.0 at zero exposure");
+                    } else {
+                        assertEquals(0.0f, black.get(index), 1.0e-6f,
+                                "zero exposure must produce zero RGB radiance");
+                    }
                 }
                 assertEquals(GL_NO_ERROR, glGetError());
             }
