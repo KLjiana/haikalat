@@ -8,13 +8,13 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "49f488fd-a9dd-4da8-b09e-8e7488e9ad5a",
+                                          "runId":  "83ee7bee-b0e2-4443-b5d5-48f4b49d22b1",
                                           "status":  "PASS",
                                           "tests":  233,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/49f488fd-a9dd-4da8-b09e-8e7488e9ad5a/result.json",
-                                          "logicReport":  "build/reports/logic-verification/a1cb9207-325b-478e-9c48-ecc1121359d8/report.json",
+                                          "evidence":  "build/reports/bounded-verification/83ee7bee-b0e2-4443-b5d5-48f4b49d22b1/result.json",
+                                          "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T08:41:47.2008435+08:00",
+    "updatedAt":  "2026-11-11T08:45:10.4567085+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1528,7 +1528,7 @@
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
-               "verificationRun":  "49f488fd-a9dd-4da8-b09e-8e7488e9ad5a",
+               "verificationRun":  "83ee7bee-b0e2-4443-b5d5-48f4b49d22b1",
                "tests":  233,
                "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
