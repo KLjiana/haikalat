@@ -8,20 +8,20 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "02719607-1ab7-42f2-96f2-f60adb745820",
+                                          "runId":  "1751c02b-f18a-45c9-82aa-a6c844b5510c",
                                           "status":  "PASS",
-                                          "tests":  308,
+                                          "tests":  321,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/02719607-1ab7-42f2-96f2-f60adb745820/result.json",
-                                          "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
+                                          "evidence":  "build/reports/bounded-verification/1751c02b-f18a-45c9-82aa-a6c844b5510c/result.json",
+                                          "logicReport":  "build/reports/logic-verification/72c17255-978d-4542-936c-8a435e681af4/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
-                        "branch":  "codex/render-roadmap-integration",
-                        "worktree":  "D:/project/Java/learnopengl-worktrees/integration",
-                        "head":  "687639f"
+                        "branch":  "codex/render-roadmap-integration-lf",
+                        "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
+                        "head":  "da101d7"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T17:42:10.1674506+08:00",
+    "updatedAt":  "2026-11-11T18:16:20.3268642+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -488,7 +488,7 @@
                       "featureIds":  [
                                          12
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "DOF",
                       "dependencies":  [
                                            null
@@ -498,20 +498,25 @@
 
                                      ],
                       "baseCommit":  "ab9c987",
-                      "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "workerCommit":  "8b9a5ed + d6de5fe",
+                      "integrationCommit":  "da101d7",
                       "requiredCases":  [
-
+                                            "DepthOfFieldSettingsTest",
+                                            "DepthOfFieldMathTest",
+                                            "DepthOfFieldPassGlTest"
                                         ],
                       "evidence":  [
-
+                                       "focused verify 1751c02b: 321 tests PASS, 0 skipped/failures, FRESH",
+                                       "glSmoke DepthOfFieldPassGlTest PASS (worker fresh run)",
+                                       "GL test passes inverse projection; graph assertions inside live context",
+                                       "GL policy render3d/depth-of-field bounded to 2 messages with negative over-count contract"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Depth of field production implementation in s3-dof"
+                      "nextAction":  "Independent reviewer verdict pending; no known blockers"
                   },
                   {
                       "taskId":  "R13",
