@@ -8,28 +8,28 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "1751c02b-f18a-45c9-82aa-a6c844b5510c",
+                                          "runId":  "8b5c01e6-69c9-43b4-876e-e368990e0ecd",
                                           "status":  "PASS",
-                                          "tests":  321,
+                                          "tests":  340,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/1751c02b-f18a-45c9-82aa-a6c844b5510c/result.json",
-                                          "logicReport":  "build/reports/logic-verification/72c17255-978d-4542-936c-8a435e681af4/report.json",
+                                          "evidence":  "build/reports/bounded-verification/8b5c01e6-69c9-43b4-876e-e368990e0ecd/result.json",
+                                          "logicReport":  "build/reports/logic-verification/e16b78a5-92e4-41c4-90a2-3bc33d88ba1d/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "da101d7"
+                        "head":  "057b996"
                     },
     "gpuQueue":  {
-                     "state":  "BUSY",
-                     "owner":  "subagent 4b447426",
-                     "taskId":  "R21",
-                     "startedAt":  "2026-11-11T18:40:50.0285947+08:00"
+                     "state":  "IDLE",
+                     "owner":  null,
+                     "taskId":  null,
+                     "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T18:40:50.0305948+08:00",
+    "updatedAt":  "2026-11-11T19:00:24.0002693+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -273,22 +273,22 @@
                                      ],
                       "baseCommit":  "688a36c",
                       "workerCommit":  "50e7af9",
-                      "integrationCommit":  "29e15d7",
+                      "integrationCommit":  "29e15d7 + 75c6d2d",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "focused verify 02719607: 308 tests PASS (pre-fix baseline)",
-                                       "glSmoke VertexDisplacementGlTest 2/2 PASS after immutable-bounds fix",
-                                       "JVM VertexDisplacementSettingsTest 8/8 PASS including non-orthogonal inverse-transpose oracle",
-                                       "reviewer BLOCK resolved: immutable fast path now rejects deforming/revision-changed bindings; regression test added"
+                                       "glSmoke VertexDisplacementGlTest 2/2 PASS",
+                                       "JVM VertexDisplacementSettingsTest 8/8 PASS",
+                                       "independent re-review APPROVE at 29e15d7",
+                                       "focused verify 8b5c01e6: 340 tests PASS"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review 29e15d7 immutable-bounds fix"
+                      "nextAction":  "Closed"
                   },
                   {
                       "taskId":  "R06",
@@ -500,24 +500,24 @@
                                      ],
                       "baseCommit":  "ab9c987",
                       "workerCommit":  "8b9a5ed + d6de5fe",
-                      "integrationCommit":  "da101d7",
+                      "integrationCommit":  "33010b1",
                       "requiredCases":  [
                                             "DepthOfFieldSettingsTest",
                                             "DepthOfFieldMathTest",
                                             "DepthOfFieldPassGlTest"
                                         ],
                       "evidence":  [
-                                       "focused verify 1751c02b: 321 tests PASS, 0 skipped/failures, FRESH",
-                                       "glSmoke DepthOfFieldPassGlTest PASS (worker fresh run)",
-                                       "GL test passes inverse projection; graph assertions inside live context",
-                                       "GL policy render3d/depth-of-field bounded to 2 messages with negative over-count contract"
+                                       "glSmoke DepthOfFieldPassGlTest PASS with new leak/spread/max-CoC cases",
+                                       "JVM DepthOfFieldSettings/Math PASS with focal length",
+                                       "focused verify 8b5c01e6: 340 tests PASS",
+                                       "review findings 1-6 addressed"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; no known blockers"
+                      "nextAction":  "Re-review DOF fixes at 33010b1"
                   },
                   {
                       "taskId":  "R13",
@@ -764,7 +764,7 @@
                       "featureIds":  [
                                          21
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "Velocity-based motion blur",
                       "dependencies":  [
                                            null
@@ -774,20 +774,22 @@
 
                                      ],
                       "baseCommit":  "8c768cf",
-                      "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "workerCommit":  "42cb991 + 3822430 + 2f5a4f6",
+                      "integrationCommit":  "057b996",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke MotionBlurPassGlTest PASS (1 test, 0 failures)",
+                                       "JVM MotionBlurSettings/Math + settings/topology PASS",
+                                       "focused verify 8b5c01e6: 340 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Implement in s3-mblur; wait for GPU slot"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R22",
