@@ -4,6 +4,10 @@
 #define POINT_SHADOW_FACE_COUNT 6
 #define CONTACT_SHADOW_MAX_STEPS 32
 #define CLOUD_SHADOW_OCTAVES 3
+#define PCSS_MAX_BLOCKER_TAPS 32
+#define PCSS_MAX_FILTER_TAPS 32
+#define PCSS_MAX_BLOCKER_RADIUS_TEXELS 16
+#define PCSS_MAX_FILTER_RADIUS_TEXELS 16
 
 struct LightRecord {
     vec4 positionRange;    // world xyz, local range
@@ -88,6 +92,14 @@ uniform vec3 uCameraPosition;
 uniform int uHasDirectionalShadow;
 uniform int uDirectionalShadowFrameLightIndex;
 uniform float uShadowBias;
+uniform int uPcssEnabled;
+uniform float uPcssLightSize;
+uniform int uPcssBlockerRadiusTexels;
+uniform int uPcssBlockerTaps;
+uniform int uPcssFilterRadiusTexels;
+uniform int uPcssFilterTaps;
+uniform float uPcssDepthBias;
+uniform float uDirectionalCascadeTexelWorld[4];
 uniform int uContactShadowEnabled;
 uniform float uContactShadowDistance;
 uniform float uContactShadowThickness;
@@ -192,14 +204,15 @@ mat4 directionalCascadeMatrix(int cascade) {
             ? uDirectionalCascadeMatrices[cascade] : uDirectionalLightSpace;
 }
 
-void directionalCascadeTile(int cascade, out vec2 scale, out vec2 offset,
+void directionalCascadeTile(int cascade, float tapRadiusTexels,
+                            out vec2 scale, out vec2 offset,
                             out vec2 tileMinimum, out vec2 tileMaximum) {
     int columns = uDirectionalCascadeCount == 2 || uDirectionalCascadeCount > 2 ? 2 : 1;
     int rows = uDirectionalCascadeCount > 2 ? 2 : 1;
     scale = vec2(1.0 / float(columns), 1.0 / float(rows));
     offset = vec2(float(cascade % columns), float(cascade / columns)) * scale;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
-    vec2 guard = texel * (float(shadowKernelRadius()) + 0.5);
+    vec2 guard = texel * (tapRadiusTexels + 0.5);
     tileMinimum = offset + guard;
     tileMaximum = offset + scale - guard;
 }
@@ -214,12 +227,12 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     vec2 offset;
     vec2 tileMinimum;
     vec2 tileMaximum;
-    directionalCascadeTile(cascade, scale, offset, tileMinimum, tileMaximum);
+    int radius = shadowKernelRadius();
+    directionalCascadeTile(cascade, float(radius), scale, offset, tileMinimum, tileMaximum);
     projected.xy = projected.xy * scale + offset;
     if (any(lessThanEqual(projected.xy, tileMinimum))
             || any(greaterThanEqual(projected.xy, tileMaximum))) return 0.0;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
-    int radius = shadowKernelRadius();
     vec2 gradient = receiverPlaneGradient(projected);
     float bias = shadowDepthBias(uShadowBias, n, l);
     bias += min(dot(abs(gradient), texel) * 0.5, 0.01);
@@ -235,11 +248,120 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
     return shadow / (width * width);
 }
 
+/**
+ * Deterministic golden-angle disk tap shared by the PCSS blocker search and the
+ * variable-radius filter.  The count and radius are bounded by PcssSettings and
+ * the compile-time PCSS_MAX_* limits, so the loop cost is fixed per pixel.
+ */
+vec2 pcssDiskOffset(int index, int count, float radiusTexels) {
+    float ratio = (float(index) + 0.5) / float(count);
+    float radius = sqrt(ratio) * radiusTexels;
+    float angle = float(index) * 2.39996323;
+    return vec2(cos(angle), sin(angle)) * radius;
+}
+
+/**
+ * PCSS penumbra radius in shadow texels.
+ *
+ * <p>Directional cascades use an orthographic projection, so the normalized
+ * window depth is linear in the distance from the light plane:
+ * {@code world = near + depth * (far - near)}.  The cascade matrix's m22/m32
+ * recover both constants; {@code uDirectionalCascadeTexelWorld} is the same
+ * world-texel size the shadow planner uses for culling.  The result is clamped
+ * by the caller to the configured filter radius.</p>
+ */
+float pcssPenumbraTexels(int cascade, float receiverDepth, float blockerDepth) {
+    mat4 lightSpace = directionalCascadeMatrix(cascade);
+    float depthRange = -2.0 / lightSpace[2][2];
+    float nearDistance = (lightSpace[3][2] + 1.0) / lightSpace[2][2];
+    float texelWorld = uDirectionalCascadeTexelWorld[cascade];
+    if (!(depthRange > 0.0) || !(texelWorld > 0.0)) return 0.0;
+    float receiverWorld = nearDistance + receiverDepth * depthRange;
+    float blockerWorld = nearDistance + blockerDepth * depthRange;
+    float occluderDistance = max(blockerWorld, 1.0e-4);
+    float penumbraWorld = max(receiverWorld - blockerWorld, 0.0)
+            * uPcssLightSize / occluderDistance;
+    return penumbraWorld / max(texelWorld, 1.0e-6);
+}
+
+/**
+ * Bounded PCSS replacement for one directional cascade.
+ *
+ * <p>Depths are normalized light-space window depths in {@code [0, 1]}, exactly
+ * like the existing hard/PCF comparison; {@code uPcssDepthBias} shares those
+ * units and is added to the existing slope-corrected {@code uShadowBias}.
+ * {@code uPcssLightSize} is a world-space diameter.  Every blocker and filter
+ * tap is clamped to the selected cascade's guarded tile, so no sample can reach
+ * a neighbouring atlas tile.  Returns 0 (fully lit) when there is no blocker or
+ * when the receiver is outside the cascade tile.</p>
+ */
+float sampleDirectionalCascadePcss(int cascade, vec3 n, vec3 l) {
+    vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
+    vec4 lightPosition = directionalCascadeMatrix(cascade) * vec4(samplePosition, 1.0);
+    vec3 projected = lightPosition.xyz / lightPosition.w;
+    projected = projected * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0) return 0.0;
+    int blockerRadius = clamp(uPcssBlockerRadiusTexels, 1, PCSS_MAX_BLOCKER_RADIUS_TEXELS);
+    int filterRadius = clamp(uPcssFilterRadiusTexels, 1, PCSS_MAX_FILTER_RADIUS_TEXELS);
+    float searchRadius = float(max(blockerRadius, filterRadius));
+    vec2 scale;
+    vec2 offset;
+    vec2 tileMinimum;
+    vec2 tileMaximum;
+    directionalCascadeTile(cascade, searchRadius, scale, offset, tileMinimum, tileMaximum);
+    projected.xy = projected.xy * scale + offset;
+    if (any(lessThanEqual(projected.xy, tileMinimum))
+            || any(greaterThanEqual(projected.xy, tileMaximum))) return 0.0;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    vec2 gradient = receiverPlaneGradient(projected);
+    float bias = shadowDepthBias(uShadowBias, n, l)
+            + min(dot(abs(gradient), texel) * 0.5, 0.01) + uPcssDepthBias;
+    int blockerTaps = clamp(uPcssBlockerTaps, 1, PCSS_MAX_BLOCKER_TAPS);
+    float blockerSum = 0.0;
+    int blockerCount = 0;
+    for (int tap = 0; tap < PCSS_MAX_BLOCKER_TAPS; ++tap) {
+        if (tap >= blockerTaps) break;
+        vec2 sampleUv = clamp(projected.xy
+                + pcssDiskOffset(tap, blockerTaps, float(blockerRadius)) * texel,
+                tileMinimum, tileMaximum);
+        float receiverDepth = projected.z + dot(gradient, sampleUv - projected.xy);
+        float stored = texture(uShadowMap, sampleUv).r;
+        if (stored < receiverDepth - bias) {
+            blockerSum += stored;
+            blockerCount++;
+        }
+    }
+    if (blockerCount == 0) return 0.0;
+    float blockerDepth = blockerSum / float(blockerCount);
+    float radius = min(pcssPenumbraTexels(cascade, projected.z, blockerDepth),
+            float(filterRadius));
+    int filterTaps = clamp(uPcssFilterTaps, 1, PCSS_MAX_FILTER_TAPS);
+    float shadow = 0.0;
+    for (int tap = 0; tap < PCSS_MAX_FILTER_TAPS; ++tap) {
+        if (tap >= filterTaps) break;
+        vec2 sampleUv = clamp(projected.xy + pcssDiskOffset(tap, filterTaps, radius) * texel,
+                tileMinimum, tileMaximum);
+        float receiverDepth = projected.z + dot(gradient, sampleUv - projected.xy);
+        float stored = texture(uShadowMap, sampleUv).r;
+        shadow += stored < receiverDepth - bias ? 1.0 : 0.0;
+    }
+    return shadow / float(filterTaps);
+}
+
+/**
+ * Selects the existing hard/PCF path when PCSS is disabled, so the disabled
+ * default is an exact no-op and keeps its original sample sequence.
+ */
+float sampleDirectionalShadow(int cascade, vec3 n, vec3 l) {
+    if (uPcssEnabled == 0) return sampleDirectionalCascade(cascade, n, l);
+    return sampleDirectionalCascadePcss(cascade, n, l);
+}
+
 float directionalShadowFactor(vec3 n, vec3 l) {
     if (uHasDirectionalShadow == 0) return 0.0;
     int count = max(uDirectionalCascadeCount, 1);
     int cascade = directionalCascadeIndex();
-    float current = sampleDirectionalCascade(cascade, n, l);
+    float current = sampleDirectionalShadow(cascade, n, l);
     if (cascade >= count - 1 || uDirectionalCascadeBlendRange <= 0.0) return current;
     float nearSplit = cascade == 0 ? 0.0 : uDirectionalCascadeSplits[cascade - 1];
     float blendWidth = max((uDirectionalCascadeSplits[cascade] - nearSplit)
@@ -247,7 +369,7 @@ float directionalShadowFactor(vec3 n, vec3 l) {
     float blendStart = uDirectionalCascadeSplits[cascade] - blendWidth;
     float weight = smoothstep(blendStart, uDirectionalCascadeSplits[cascade], vViewDepth);
     if (weight <= 1.0e-4) return current;
-    float next = sampleDirectionalCascade(cascade + 1, n, l);
+    float next = sampleDirectionalShadow(cascade + 1, n, l);
     return weight >= 0.9999 ? next : mix(current, next, weight);
 }
 
@@ -272,7 +394,8 @@ float directionalContactShadow(vec3 n, vec3 l) {
     vec2 offset;
     vec2 tileMinimum;
     vec2 tileMaximum;
-    directionalCascadeTile(cascade, scale, offset, tileMinimum, tileMaximum);
+    directionalCascadeTile(cascade, float(shadowKernelRadius()), scale, offset,
+            tileMinimum, tileMaximum);
     vec2 receiverUv = receiver.xy * scale + offset;
     if (any(lessThanEqual(receiverUv, tileMinimum))
             || any(greaterThanEqual(receiverUv, tileMaximum))) return 0.0;

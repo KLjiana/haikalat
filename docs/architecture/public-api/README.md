@@ -45,6 +45,14 @@ v0.28.1 S1 新增 `ContactShadowSettings`、`CloudShadowSettings` 等 advanced �
 默认关闭。两者都随 `RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU
 资源或 Pass。迁移说明见[迁移记录](migrations.md)。
 
+v0.28.1 S2 #19 新增 advanced `PcssSettings`（主方向光 PCSS：世界光尺寸、blocker 搜索半径/采样、
+变半径 PCF 半径/采样、归一化深度 bias）。`ShadowSettings` 追加 `pcss` 组件，原四/五/六/七参数
+构造器保留并默认 `PcssSettings.disabled()`；设置随
+`RenderFeatureSettings.directionalShadowMap(...)` 一次发布，沿用现有方向光级联图集，不新增
+manager、factory、纹理或 Pass。禁用时 PBR 继续执行原 hard/PCF 采样序列。迁移说明见
+[迁移记录](migrations.md)，技术范围与深度单位见
+[PCSS 技术卡](../../planning/v0.28.1-s2-pcss.md)。
+
 v0.28.1 S1 #4 新增 advanced `ScreenDistortion`、`ScreenDistortionSettings`、
 `ScreenDistortionSource`、`ScreenDistortionPass`（屏幕空间扭曲数据、设置、逐帧生产合同与
 合成 Pass）、`VfxDistortion`（GL-free 世界空间贡献）与 `VfxDistortionProjector`

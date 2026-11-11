@@ -181,3 +181,15 @@ advanced `pbr.PbrMaterials.createGlass(...)` 与 internal `pbr.RefractionPass`�
 不新增 Pass、附件或 shader。玻璃材质是否存在于场景是 build 期拓扑输入；运行期切换需要重新
 `build()`。多层玻璃、深度拒绝和逐层历史不承诺（见
 [技术卡](../../planning/v0.28.1-s3-refraction.md)）。
+v0.28.1（候选）主方向光 PCSS 没有删除 stable 类型。`ShadowSettings` 的 advanced record 再次
+新增 `pcss` 组件；原四/五/六参数构造器和 v0.28.1 S1 使用的七参数（带
+`contactShadows`、`cloudShadows`）构造器保留，并默认使用 `PcssSettings.disabled()`。新增
+advanced `render3d.shadow.PcssSettings(enabled,lightWorldSize,blockerRadiusTexels,
+blockerTaps,filterRadiusTexels,filterTaps,depthBias)`：默认关闭；`enabled=false` 或
+`lightWorldSize=0` 时 PBR 继续执行原 hard/PCF 采样序列且图像精确不变。深度比较沿用方向光级联
+现有的归一化 window depth `[0,1]`，`depthBias` 使用同一单位；`lightWorldSize` 为世界单位，
+penumbra 经该级联的线性正交深度范围和 world-texel 尺寸换算。所有 blocker/PCF tap 都 clamp 到
+当前级联 tile，且 PCF 半径上限为 `filterRadiusTexels`。设置随
+`RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU 资源、Pass、管理器或
+第二套阴影图集；启用但无方向光阴影或非 PBR 消费者时由装配策略明确拒绝。技术范围、验证边界
+与已知限制见[PCSS 技术卡](../../planning/v0.28.1-s2-pcss.md)。
