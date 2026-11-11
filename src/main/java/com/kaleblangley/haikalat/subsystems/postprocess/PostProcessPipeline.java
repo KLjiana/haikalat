@@ -31,6 +31,8 @@ import com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseI
 import com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPass;
 
 import org.joml.Matrix4f;
 
@@ -69,6 +71,8 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final MotionBlurPass motionBlur;
     private final SsrPass ssr;
     private final TemporalDenoisePass temporalDenoise;
+    private final TemporalUpscalingPass temporalUpscaling;
+    private final TemporalUpscalingSource temporalUpscalingSource;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final SsrEnvironmentSource ssrEnvironment;
@@ -97,6 +101,8 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 MotionBlurPass motionBlur,
                                 SsrPass ssr,
                                 TemporalDenoisePass temporalDenoise,
+                                TemporalUpscalingPass temporalUpscaling,
+                                TemporalUpscalingSource temporalUpscalingSource,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 SsrEnvironmentSource ssrEnvironment,
@@ -120,6 +126,8 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.motionBlur = motionBlur;
         this.ssr = ssr;
         this.temporalDenoise = temporalDenoise;
+        this.temporalUpscaling = temporalUpscaling;
+        this.temporalUpscalingSource = temporalUpscalingSource;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.ssrEnvironment = ssrEnvironment;
@@ -142,7 +150,8 @@ public final class PostProcessPipeline implements AutoCloseable {
                                              RenderGraph.PassExecutor hdrVfx,
                                              SurfaceInputs surfaceInputs,
                                              LateSurfaceProducer lateSurface) {
-        return create(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface, null);
+        return create(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface, null,
+                null);
     }
 
     /**
@@ -156,18 +165,45 @@ public final class PostProcessPipeline implements AutoCloseable {
                                              SurfaceInputs surfaceInputs,
                                              LateSurfaceProducer lateSurface,
                                              SsrEnvironmentSource ssrEnvironment) {
-        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
+        return create(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
                 ssrEnvironment, null);
+    }
+
+    /**
+     * Creates the colour chain with a borrowed low-resolution colour source for
+     * temporal upscaling.
+     *
+     * <p>When {@link PostProcessSettings#temporalUpscaling()} is active the
+     * source is required and the chain starts with one
+     * {@link PostProcessTargets#TEMPORAL_UPSCALING_PASS} that magnifies it to
+     * the supplied output extent.  When it is inactive the source must be
+     * {@code null}; the baseline chain and every imported attachment stay
+     * byte-for-byte untouched.  The source textures are generation-stable: a
+     * different low-resolution target or extent requires a candidate
+     * generation.</p>
+     */
+    public static PostProcessPipeline create(RenderSettings settings, PostProcessSettings effects,
+                                             int width, int height,
+                                             RenderGraph.PassExecutor hdrVfx,
+                                             SurfaceInputs surfaceInputs,
+                                             LateSurfaceProducer lateSurface,
+                                             SsrEnvironmentSource ssrEnvironment,
+                                             TemporalUpscalingSource temporalUpscalingSource) {
+        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
+                ssrEnvironment, temporalUpscalingSource, null);
     }
 
     private static PostProcessPipeline assemble(RenderSettings settings, PostProcessSettings effects,
                                                 int width, int height, RenderGraph.PassExecutor hdrVfx,
                                                 SurfaceInputs surfaceInputs, LateSurfaceProducer lateSurface,
                                                 SsrEnvironmentSource ssrEnvironment,
+                                                TemporalUpscalingSource temporalUpscalingSource,
                                                 PostProcessPipeline donor) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(surfaceInputs, "surfaceInputs");
+        validateTemporalUpscalingComposition(settings, effects, width, height,
+                hdrVfx != null, temporalUpscalingSource);
         var owned = new ArrayList<AutoCloseable>();
         var borrowed = new ArrayList<AutoCloseable>();
         try {
@@ -280,14 +316,87 @@ public final class PostProcessPipeline implements AutoCloseable {
                         width, height);
                 owned.add(temporalDenoise);
             }
+            TemporalUpscalingPass temporalUpscaling = null;
+            if (effects.temporalUpscaling().active()) {
+                // The upscaler owns new history storage on every generation; it
+                // is never borrowed from a donor because its extent relationship
+                // to the low-resolution source may differ.
+                temporalUpscaling = new TemporalUpscalingPass(
+                        effects.temporalUpscaling(), width, height);
+                owned.add(temporalUpscaling);
+            }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, ssr, temporalDenoise, hdrVfx, surfaceInputs,
-                    ssrEnvironment, lateSurface, owned, borrowed, donor);
+                    depthOfField, motionBlur, ssr, temporalDenoise, temporalUpscaling,
+                    effects.temporalUpscaling().active() ? temporalUpscalingSource : null,
+                    hdrVfx, surfaceInputs, ssrEnvironment, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
         }
+    }
+
+    /**
+     * Pure composition contract shared by the assembly path and the JVM tests.
+     *
+     * <p>An active upscaler replaces the scene colour input, so every effect
+     * that would consume a full-resolution shared surface after it is rejected:
+     * the reduced-resolution scene render must own fog, VFX, distortion and
+     * depth-consuming effects itself.  Full-resolution TAA/MSAA are rejected
+     * because either would double-resolve the temporal signal or bypass the
+     * single-sample low-resolution source.  A supplied source without an active
+     * request is rejected instead of being silently ignored.</p>
+     */
+    static void validateTemporalUpscalingComposition(RenderSettings settings,
+                                                     PostProcessSettings effects,
+                                                     int width, int height,
+                                                     boolean hdrVfx,
+                                                     TemporalUpscalingSource source) {
+        TemporalUpscalingSettings upscaling = effects.temporalUpscaling();
+        if (!upscaling.active()) {
+            if (source != null) {
+                throw new IllegalArgumentException(
+                        "a temporal upscaling source was supplied while temporal upscaling is "
+                                + "disabled");
+            }
+            return;
+        }
+        if (source == null) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires a low-resolution colour/depth source");
+        }
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires HDR tone mapping");
+        }
+        if (settings.antiAliasingMode() == AntiAliasingMode.TAA
+                || settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling is mutually exclusive with " + settings.antiAliasingMode()
+                            + " on the full-resolution colour chain");
+        }
+        if (hdrVfx) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires the reduced-resolution scene to own the HDR VFX "
+                            + "composite");
+        }
+        if (effects.fog().enabled()) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires the reduced-resolution scene to own fog");
+        }
+        if (effects.screenDistortion().active()) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires the reduced-resolution scene to own screen "
+                            + "distortion");
+        }
+        if (effects.depthOfField().active() || effects.motionBlur().active()
+                || effects.ssr().active() || effects.temporalDenoise().active()) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling cannot consume a full-resolution surface input required by "
+                            + "depth of field, motion blur, screen-space reflections or temporal "
+                            + "denoising");
+        }
+        source.validateAgainst(upscaling, width, height);
     }
 
     private static <T extends AutoCloseable> T reuseOrCreate(T previous, Supplier<T> create,
@@ -309,9 +418,23 @@ public final class PostProcessPipeline implements AutoCloseable {
                                                    RenderGraph.PassExecutor vfx,
                                                    LateSurfaceProducer replacementLateSurface,
                                                    SsrEnvironmentSource replacementSsrEnvironment) {
+        return replacementAssembly(replacement, replacementEffects, width, height,
+                replacementSurface, vfx, replacementLateSurface, replacementSsrEnvironment, null);
+    }
+
+    /** Candidate assembly that also carries the borrowed low-resolution source. */
+    public PostProcessPipeline replacementAssembly(RenderSettings replacement,
+                                                   PostProcessSettings replacementEffects,
+                                                   int width, int height,
+                                                   SurfaceInputs replacementSurface,
+                                                   RenderGraph.PassExecutor vfx,
+                                                   LateSurfaceProducer replacementLateSurface,
+                                                   SsrEnvironmentSource replacementSsrEnvironment,
+                                                   TemporalUpscalingSource replacementUpscalingSource) {
         if (closed || donor != null) throw new IllegalStateException("invalid postprocess donor");
         return assemble(replacement, replacementEffects, width, height, vfx,
-                replacementSurface, replacementLateSurface, replacementSsrEnvironment, this);
+                replacementSurface, replacementLateSurface, replacementSsrEnvironment,
+                replacementUpscalingSource, this);
     }
 
     public void validateTransferTo(PostProcessPipeline candidate) {
@@ -465,6 +588,88 @@ public final class PostProcessPipeline implements AutoCloseable {
         temporal.addPass(graph, colorProducer, inputTexture, surfaceInputs, reactiveRequested());
     }
 
+    /**
+     * Imports the borrowed low-resolution source and adds the single upscale
+     * pass.  The pass executes before every HDR effect and has no in-graph
+     * colour dependency: its inputs are borrowed external attachments, so it
+     * must be declared before the first downstream pass reads
+     * {@link PostProcessTargets#TEMPORAL_UPSCALING_COLOR}.
+     */
+    private void addTemporalUpscalingPass(RenderGraph graph) {
+        TemporalUpscalingSource source = Objects.requireNonNull(temporalUpscalingSource,
+                "temporalUpscalingSource");
+        var storage = new LinkedHashSet<String>();
+        storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_COLOR);
+        graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_COLOR,
+                ExternalAttachment.borrowedColor(source.colorTexture(), RenderFormat.RGBA16F,
+                        source.width(), source.height()));
+        storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_DEPTH);
+        graph.importExternalDepth(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_DEPTH,
+                ExternalAttachment.borrowedDepth(source.depthTexture(),
+                        RenderFormat.DEPTH_COMPONENT24, source.width(), source.height()));
+        if (source.usesVelocity()) {
+            storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_VELOCITY);
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_VELOCITY,
+                    ExternalAttachment.borrowedColor(source.velocityTexture(),
+                            RenderFormat.RG16F, source.width(), source.height()));
+            storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_PREVIOUS_DEPTH);
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_PREVIOUS_DEPTH,
+                    ExternalAttachment.borrowedColor(source.previousDepthTexture(),
+                            RenderFormat.R32F, source.width(), source.height()));
+        }
+        if (source.hasReactiveMask()) {
+            storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_REACTIVE);
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_REACTIVE,
+                    ExternalAttachment.borrowedColor(source.reactiveTexture(),
+                            RenderFormat.R8, source.width(), source.height()));
+        }
+        if (source.hasUiMask()) {
+            storage.add(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_UI);
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_INPUT_UI,
+                    ExternalAttachment.borrowedColor(source.uiMaskTexture(),
+                            RenderFormat.R8, source.width(), source.height()));
+        }
+        graph.addPass(PostProcessTargets.TEMPORAL_UPSCALING_PASS)
+                .writeToExternalTarget()
+                .noClear()
+                .borrowsExternalStorage(storage.toArray(String[]::new))
+                .execute((res, cmd) -> {
+                    TemporalFramePose frame = framePose;
+                    if (frame == null) {
+                        throw new IllegalStateException(
+                                "temporal upscaling requires a started frame pose");
+                    }
+                    temporalUpscaling.record(cmd, new TemporalUpscalingInputs(
+                            source.colorTexture(),
+                            source.depthTexture(),
+                            source.velocityTexture(),
+                            source.previousDepthTexture(),
+                            source.reactiveTexture(),
+                            source.uiMaskTexture(),
+                            source.width(),
+                            source.height(),
+                            frame.jitterUvX(),
+                            frame.jitterUvY(),
+                            manualExposure,
+                            frame.inverseJitteredProjection(),
+                            frame.inverseView(),
+                            frame.stableViewProjection()));
+                });
+    }
+
+    /**
+     * Publishes the current upscale output slot as a borrowed logical texture.
+     * The history write slot alternates after a successful frame, so this runs
+     * both at assembly time and in {@link #synchronizeTemporalImports(RenderGraph)}
+     * on every frame.
+     */
+    private void publishTemporalUpscalingOutput(RenderGraph graph) {
+        Framebuffer output = temporalUpscaling.outputFramebuffer();
+        graph.importExternalColor(PostProcessTargets.TEMPORAL_UPSCALING_COLOR,
+                ExternalAttachment.borrowedColor(temporalUpscaling.outputColorTexture(),
+                        RenderFormat.RGBA16F, output.width(), output.height()));
+    }
+
     private void addLdrFinalPass(RenderGraph graph) {
         switch (settings.antiAliasingMode()) {
             case FXAA -> {
@@ -518,6 +723,13 @@ public final class PostProcessPipeline implements AutoCloseable {
     private void addHdrFinalPasses(RenderGraph graph) {
         String hdrTexture = sceneColorInput;
         String hdrProducer = sceneColorProducer;
+
+        if (temporalUpscaling != null) {
+            addTemporalUpscalingPass(graph);
+            hdrTexture = PostProcessTargets.TEMPORAL_UPSCALING_COLOR;
+            hdrProducer = PostProcessTargets.TEMPORAL_UPSCALING_PASS;
+            publishTemporalUpscalingOutput(graph);
+        }
 
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
             final String resolveProducer = hdrResolveSource;
@@ -895,6 +1107,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporalDenoise != null) {
             temporalDenoise.beginFrame();
         }
+        if (temporalUpscaling != null) {
+            temporalUpscaling.beginFrame();
+        }
     }
 
     /**
@@ -914,6 +1129,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporalDenoise != null) {
             temporalDenoise.frameSucceeded();
         }
+        if (temporalUpscaling != null) {
+            temporalUpscaling.frameSucceeded();
+        }
     }
 
     public void frameFailed() {
@@ -925,6 +1143,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporalDenoise != null) {
             temporalDenoise.frameFailed();
+        }
+        if (temporalUpscaling != null) {
+            temporalUpscaling.frameFailed();
         }
     }
 
@@ -938,6 +1159,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporalDenoise != null) {
             temporalDenoise.invalidate();
+        }
+        if (temporalUpscaling != null) {
+            temporalUpscaling.invalidate();
         }
     }
 
@@ -955,6 +1179,11 @@ public final class PostProcessPipeline implements AutoCloseable {
         return temporalDenoise != null && temporalDenoise.historyValid();
     }
 
+    /** @return true when the bound temporal-upscaling owner has a committed history */
+    public boolean temporalUpscalingHistoryValid() {
+        return temporalUpscaling != null && temporalUpscaling.historyValid();
+    }
+
     /**
      * Publishes this frame's history write colour as a borrowed logical texture
      * for passes that run after the TAA resolve.
@@ -968,6 +1197,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             graph.importExternalColor(PostProcessTargets.TEMPORAL_DENOISE_COLOR,
                     ExternalAttachment.borrowedColor(target.colorAttachment(0),
                             RenderFormat.RGBA16F, target.width(), target.height()));
+        }
+        if (temporalUpscaling != null) {
+            publishTemporalUpscalingOutput(graph);
         }
     }
 
@@ -987,6 +1219,15 @@ public final class PostProcessPipeline implements AutoCloseable {
     }
 
     public ResizeCandidate prepareResize(int width, int height) {
+        if (temporalUpscaling != null) {
+            // The low-resolution source is borrowed and generation-stable; an
+            // in-place colour-chain resize would pair it with a different
+            // output extent.  The owner must build a candidate generation with
+            // the matching low-resolution target instead.
+            throw new IllegalStateException(
+                    "temporal upscaling requires a candidate generation rebuild instead of an "
+                            + "in-place colour-chain resize");
+        }
         TaaHistory.ResizeCandidate taa = temporal == null
                 ? null : temporal.prepareResize(width, height);
         TemporalDenoisePass.ResizeCandidate denoiseCandidate = null;

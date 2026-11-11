@@ -25,6 +25,7 @@ public final class PostProcessTargets {
     public static final String MOTION_BLUR_PASS = "MotionBlurPass";
     public static final String SSR_PASS = "SsrPass";
     public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
+    public static final String TEMPORAL_UPSCALING_PASS = "TemporalUpscalingPass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
     public static final String FILM_GRAIN_PASS = "FilmGrainPass";
@@ -79,6 +80,14 @@ public final class PostProcessTargets {
     public static final String MOTION_BLUR_COLOR = "motionBlurColor";
     public static final String SSR_COLOR = "ssrColor";
     public static final String TEMPORAL_DENOISE_COLOR = "temporalDenoiseColor";
+    public static final String TEMPORAL_UPSCALING_COLOR = "temporalUpscalingColor";
+    public static final String TEMPORAL_UPSCALING_INPUT_COLOR = "temporalUpscalingInputColor";
+    public static final String TEMPORAL_UPSCALING_INPUT_DEPTH = "temporalUpscalingInputDepth";
+    public static final String TEMPORAL_UPSCALING_INPUT_VELOCITY = "temporalUpscalingInputVelocity";
+    public static final String TEMPORAL_UPSCALING_INPUT_PREVIOUS_DEPTH =
+            "temporalUpscalingInputPreviousDepth";
+    public static final String TEMPORAL_UPSCALING_INPUT_REACTIVE = "temporalUpscalingInputReactive";
+    public static final String TEMPORAL_UPSCALING_INPUT_UI = "temporalUpscalingInputUi";
     public static final String TONE_MAPPED_COLOR = "toneMappedColor";
     public static final String VIGNETTE_COLOR = "vignetteColor";
     public static final String FILM_GRAIN_COLOR = "filmGrainColor";

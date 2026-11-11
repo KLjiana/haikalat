@@ -17,6 +17,8 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad
 
 # Effect settings and public effect passes.
@@ -52,6 +54,8 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseInputs
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingInputs
+advanced com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain
