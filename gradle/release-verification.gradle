@@ -303,8 +303,8 @@ tasks.register('releaseVerificationContracts') {
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
-        // motion-blur and refraction shader-state policies.
-        assert policies.size() == 46
+        // motion-blur, refraction and PCSS shader-state policies.
+        assert policies.size() == 47
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -321,6 +321,22 @@ tasks.register('releaseVerificationContracts') {
         assert depthOfFieldPolicy != null && depthOfFieldPolicy.id == 131218
         assert depthOfFieldPolicy.maximum == 2
         assert depthOfFieldPolicy.entry == '.*DepthOfFieldPassGlTest.*'
+        def pcssPolicy = policies.find { it.owner == 'render3d/pcss' }
+        assert pcssPolicy != null && pcssPolicy.id == 131218
+        assert pcssPolicy.severity == 'MEDIUM'
+        assert pcssPolicy.source == 'API'
+        assert pcssPolicy.type == 'PERFORMANCE'
+        assert pcssPolicy.maximum == 4
+        assert pcssPolicy.entry == '.*PcssGlTest.*'
+        assert pcssPolicy.expiry == LocalDate.of(2027, 5, 11)
+        def pcssDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def pcssMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage.replace('Vertex', 'Geometry'), policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
