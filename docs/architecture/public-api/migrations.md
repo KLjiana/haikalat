@@ -188,7 +188,7 @@ advanced `render3d.shadow.PcssSettings(enabled,lightWorldSize,blockerRadiusTexel
 blockerTaps,filterRadiusTexels,filterTaps,depthBias)`：默认关闭；`enabled=false` 或
 `lightWorldSize=0` 时 PBR 继续执行原 hard/PCF 采样序列且图像精确不变。深度比较沿用方向光级联
 现有的归一化 window depth `[0,1]`，`depthBias` 使用同一单位；`lightWorldSize` 为世界单位，
-penumbra 经该级联的线性正交深度范围和 world-texel 尺寸换算。所有 blocker/PCF tap 都 clamp 到
+penumbra 经该级联的归一化正交深度比值和 world-texel 尺寸换算。所有 blocker/PCF tap 都 clamp 到
 当前级联 tile，且 PCF 半径上限为 `filterRadiusTexels`。设置随
 `RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU 资源、Pass、管理器或
 第二套阴影图集；启用但无方向光阴影或非 PBR 消费者时由装配策略明确拒绝。技术范围、验证边界
