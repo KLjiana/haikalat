@@ -46,7 +46,8 @@ def jvmCases = [
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
         'RenderGraphCompilerTest', 'RenderFeatureControlTest',
         'VfxMaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
-        'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest'
+        'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
+        'VignetteSettingsTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -54,6 +55,7 @@ def glCases = [
         'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest',
         'VolumetricTextureGlTest',
         'VfxRendererGlTest', 'VfxTextureCacheGlTest', 'VfxLightingGlTest',
+        'VignettePassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
