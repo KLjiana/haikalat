@@ -321,9 +321,9 @@ class PlanarReflectionPassGlTest {
                         firstPixel[0] * pass.width() / width,
                         firstPixel[1] * pass.height() / height, 1.0f, 0.0f, 0.0f);
 
-                pass.resize(160, 120);
-                assertEquals(80, pass.width());
-                assertEquals(60, pass.height());
+                pass.resize(200, 150);
+                assertEquals(100, pass.width());
+                assertEquals(75, pass.height());
                 assertNotEquals(oldColor, pass.colorTexture());
                 assertNotEquals(oldDepth, pass.depthTexture());
                 assertFalse(glIsTexture(oldColor), "the old colour texture must be retired");
@@ -482,6 +482,22 @@ class PlanarReflectionPassGlTest {
                 assertPixel(pixels, targetWidth, targetHeight,
                         pixel[0] * targetWidth / width,
                         pixel[1] * targetHeight / height, 1.0f, 0.0f, 0.0f);
+
+                // The explicit resize path publishes storage eagerly, but it
+                // must be invalid until a successful record has content for it.
+                pass.resize(200, 150);
+                assertEquals(100, pass.width());
+                assertEquals(75, pass.height());
+                assertFalse(pass.hasValidContent());
+                assertEquals(0L, pass.updateCount());
+                CommandBuffer afterExplicitResize = new CommandBuffer();
+                assertFalse(pass.record(afterExplicitResize, behind, 200, 150, null,
+                        (commands, frame) -> fail(
+                                "a camera behind the plane must not record after explicit resize")));
+                assertEquals(0, afterExplicitResize.commandCount());
+                assertFalse(pass.hasValidContent(),
+                        "explicit resize storage must not become sampleable before a successful record");
+                assertEquals(0L, pass.updateCount());
                 GlDebug.assertNoError("planar reflection resize skip");
             }
         }
