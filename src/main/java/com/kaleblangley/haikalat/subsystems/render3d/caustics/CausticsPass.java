@@ -246,12 +246,7 @@ public final class CausticsPass implements GlResource {
                 .blendFunc(GL_ONE, GL_ONE)
                 .bindMesh(screen)
                 .drawMesh(screen);
-        // Pending state is applied at the next observable GPU boundary.  Force
-        // one so the documented restored depth mask/test and blend state are
-        // visible to a caller that records a raw clear or another draw after
-        // this pass on the same command buffer.
-        cmd.enableBlend(false).depthMask(true).enableDepthTest(true)
-                .blendEquation(GL_FUNC_ADD);
+        cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
     }
 
     /**

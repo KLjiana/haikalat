@@ -5,7 +5,11 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
+import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalFrameState;
@@ -26,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
@@ -35,10 +40,8 @@ import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glClearDepth;
 import static org.lwjgl.opengl.GL11.glDepthMask;
 import static org.lwjgl.opengl.GL11.glDisable;
-import static org.lwjgl.opengl.GL11.glEnable;
 import static org.lwjgl.opengl.GL11.glGetError;
 import static org.lwjgl.opengl.GL11.glReadPixels;
-import static org.lwjgl.opengl.GL11.glScissor;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.glReadBuffer;
@@ -48,11 +51,12 @@ import static org.lwjgl.opengl.GL30.glReadBuffer;
  *
  * <p>The fixture uses a synthetic shared depth buffer cleared to a constant
  * view-space distance, so the receiver is a known plane parallel to the
- * camera. It then clears a scissored sub-rectangle to a closer foreground depth
- * (A-B) to prove that the contribution follows the actual shared depth instead
- * of an assumed receiver plane. Expected colours come from
- * {@link CausticsReference} and the documented formula, never from the shader
- * output.</p>
+ * camera. The A-B case then rasterises a real foreground quad between the
+ * camera and the floor at a closer view distance; its depth is read back and
+ * asserted before the caustics pass, so the rejection is proven against actual
+ * rasterised geometry rather than a raw depth-clear side effect. Expected
+ * colours come from {@link CausticsReference} and the documented formula, never
+ * from the shader output.</p>
  *
  * <p>Cases: (a) time-varying contribution matches the reference, (b) pixels
  * outside the water region / receiver band / maximum distance stay unchanged,
@@ -82,6 +86,26 @@ class CausticsPassGlTest {
      */
     private static final float BACKGROUND_TOLERANCE = 1.0e-3f;
     private static final Vector3f LIGHT = new Vector3f(0.24f, -1.0f, 0.18f).normalize();
+    /** Half-size of the foreground quad in pixels at its 3 m view distance. */
+    private static final float FOREGROUND_HALF_EXTENT_PIXELS = 5.0f;
+
+    private static final String FOREGROUND_VERTEX = """
+            #version 330 core
+            layout(location = 0) in vec3 aViewPosition;
+            uniform mat4 uProjection;
+            void main() {
+                gl_Position = uProjection * vec4(aViewPosition, 1.0);
+            }
+            """;
+
+    private static final String FOREGROUND_FRAGMENT = """
+            #version 330 core
+            uniform vec4 uColor;
+            out vec4 fragColor;
+            void main() {
+                fragColor = uColor;
+            }
+            """;
 
     @Test
     void timeVaryingContributionMatchesTheIndependentReference() {
@@ -211,6 +235,9 @@ class CausticsPassGlTest {
                 int[] covered = findLitPixel(scene, settings, floorDepth, TIME_A);
                 int[] visible = findOtherLitPixel(scene, settings, floorDepth, TIME_A, covered);
                 try (CausticsPass pass = new CausticsPass(settings, 1, SIZE, SIZE)) {
+                    clearScene(source, floorDepth);
+                    assertEquals(floorDepth, readDepth(source, covered[0], covered[1]), 1.0e-4f,
+                            "A side depth must be the synthetic floor");
                     FloatBuffer withoutOccluder = render(scene, pass, TIME_A);
                     assertPixel(expectedColor(settings, expectedAmount(scene, settings,
                                     floorDepth, TIME_A, covered[0], covered[1])),
@@ -218,7 +245,17 @@ class CausticsPassGlTest {
                             "A side must light the receiver");
 
                     clearScene(source, floorDepth);
-                    clearDepthRegion(covered[0] - 4, covered[1] - 4, 9, 9, foregroundDepth);
+                    drawnForegroundDepth(scene, covered, FOREGROUND_VIEW_DISTANCE);
+                    float writtenDepth = readDepth(source, covered[0], covered[1]);
+                    assertEquals(foregroundDepth, writtenDepth, 1.0e-4f,
+                            "foreground geometry must write its own depth, not the floor depth");
+                    assertTrue(Math.abs(writtenDepth - floorDepth) > 1.0e-2f,
+                            "foreground depth must be clearly closer than the floor");
+                    Vector3f foregroundWorld = unproject(scene.frame().inverseJitteredProjection(),
+                            scene.inverseView(), covered[0], covered[1], writtenDepth);
+                    assertTrue(foregroundWorld.y > 0.0f,
+                            "foreground geometry must be above the water plane, y="
+                                    + foregroundWorld.y);
                     FloatBuffer withOccluder = render(scene, pass, TIME_A);
                     assertPixel(background(), withOccluder, pixel(covered[0], covered[1]),
                             BACKGROUND_TOLERANCE,
@@ -466,7 +503,7 @@ class CausticsPassGlTest {
                                            float time, int[] excluded) {
         for (int y = 8; y < SIZE - 8; y++) {
             for (int x = 8; x < SIZE - 8; x++) {
-                if (Math.abs(x - excluded[0]) <= 4 && Math.abs(y - excluded[1]) <= 4) {
+                if (Math.abs(x - excluded[0]) <= 7 && Math.abs(y - excluded[1]) <= 7) {
                     continue;
                 }
                 if (expectedAmount(scene, settings, depth, time, x, y) > 0.35) {
@@ -480,9 +517,9 @@ class CausticsPassGlTest {
     private static void clearScene(Framebuffer source, float depth) {
         source.bind();
         glViewport(0, 0, source.width(), source.height());
-        // The pass restores depth writes at the next GPU boundary, but raw GL
-        // clears in this fixture must not depend on that state having been
-        // flushed; set the mask explicitly before clearing depth.
+        // Raw clears in this fixture set the state they need explicitly; the
+        // foreground depth in the A-B case comes from rasterised geometry below,
+        // not from a scissored depth clear.
         glDisable(GL_SCISSOR_TEST);
         glDepthMask(true);
         glClearColor(BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 1.0f);
@@ -491,13 +528,65 @@ class CausticsPassGlTest {
         assertEquals(GL_NO_ERROR, glGetError());
     }
 
-    private static void clearDepthRegion(int x, int y, int width, int height, float depth) {
-        glDepthMask(true);
-        glEnable(GL_SCISSOR_TEST);
-        glScissor(x, y, width, height);
-        glClearDepth(depth);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        glDisable(GL_SCISSOR_TEST);
+    /**
+     * Rasterises a small view-space-aligned quad at {@code viewDistance} in
+     * front of the camera, covering the given pixel. The fragment colour is the
+     * fixture background so the source colour attachment stays unchanged; only
+     * the depth attachment is exercised.
+     */
+    private static void drawnForegroundDepth(Scene scene, int[] center, float viewDistance) {
+        try (ShaderProgram shader = ShaderProgram.fromSources(
+                FOREGROUND_VERTEX, FOREGROUND_FRAGMENT);
+             Mesh mesh = foregroundQuad(scene, center, viewDistance)) {
+            var commands = scene.device().createCommandBuffer();
+            commands.bindFramebuffer(scene.source())
+                    .viewport(0, 0, SIZE, SIZE)
+                    .enableScissor(false)
+                    .enableBlend(false)
+                    .enableCullFace(false)
+                    .enableDepthTest(true)
+                    .depthMask(true)
+                    .bindShader(shader)
+                    .setUniformMat4(shader, "uProjection", scene.projection())
+                    .setUniformVec4(shader, "uColor", new Vector4f(
+                            BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 1.0f))
+                    .bindMesh(mesh)
+                    .drawMesh(mesh);
+            scene.device().execute(commands);
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    private static Mesh foregroundQuad(Scene scene, int[] center, float viewDistance) {
+        float tanHalf = (float) Math.tan(Math.toRadians(scene.camera().zoom() * 0.5f));
+        float ndcX = (center[0] + 0.5f) / SIZE * 2.0f - 1.0f;
+        float ndcY = (center[1] + 0.5f) / SIZE * 2.0f - 1.0f;
+        float centerX = ndcX * viewDistance * tanHalf;
+        float centerY = ndcY * viewDistance * tanHalf;
+        float halfExtent = FOREGROUND_HALF_EXTENT_PIXELS
+                * (2.0f * viewDistance * tanHalf / SIZE);
+        float z = -viewDistance;
+        float[] positions = {
+                centerX - halfExtent, centerY - halfExtent, z,
+                centerX + halfExtent, centerY - halfExtent, z,
+                centerX + halfExtent, centerY + halfExtent, z,
+                centerX - halfExtent, centerY + halfExtent, z
+        };
+        VertexAttribute position = VertexAttribute.builder()
+                .index(0).size(3).offsetBytes(0L)
+                .semantic(VertexSemantic.POSITION).build();
+        return Mesh.builder()
+                .vertices(positions, 3 * Float.BYTES, position)
+                .indices(new int[]{0, 1, 2, 0, 2, 3})
+                .build();
+    }
+
+    private static float readDepth(Framebuffer source, int x, int y) {
+        source.bind();
+        FloatBuffer depth = BufferUtils.createFloatBuffer(1);
+        glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+        assertEquals(GL_NO_ERROR, glGetError());
+        return depth.get(0);
     }
 
     private static float constantDepth(float viewDistance, Matrix4f projection) {
