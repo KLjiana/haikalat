@@ -37,6 +37,11 @@ class DepthOfFieldSettingsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new DepthOfFieldSettings(true, 4.0f, 2.8f, 8.0f, Float.NaN));
         assertThrows(IllegalArgumentException.class,
+                () -> new DepthOfFieldSettings(true, 0.1f, 2.8f, 8.0f, 200.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DepthOfFieldSettings(true, 0.2f, 2.8f, 8.0f, 200.0f));
+        assertTrue(DepthOfFieldSettings.of(0.1f, 10.0f, 2.8f, 8.0f).active());
+        assertThrows(IllegalArgumentException.class,
                 () -> new DepthOfFieldSettings(true, 4.0f, 0.9f, 8.0f));
         assertThrows(IllegalArgumentException.class,
                 () -> new DepthOfFieldSettings(true, 4.0f, 22.1f, 8.0f));

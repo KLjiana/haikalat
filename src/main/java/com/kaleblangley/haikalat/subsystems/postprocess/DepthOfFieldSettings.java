@@ -50,6 +50,10 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
             throw new IllegalArgumentException("focalLengthMm must be finite and in ["
                     + MINIMUM_FOCAL_LENGTH_MM + ", " + MAXIMUM_FOCAL_LENGTH_MM + "]");
         }
+        if (focusDistance <= focalLengthMm / 1000.0f) {
+            throw new IllegalArgumentException(
+                    "focusDistance must be greater than the focal length in metres");
+        }
         if (!Float.isFinite(aperture)
                 || aperture < MINIMUM_APERTURE || aperture > MAXIMUM_APERTURE) {
             throw new IllegalArgumentException("aperture must be finite and in ["
