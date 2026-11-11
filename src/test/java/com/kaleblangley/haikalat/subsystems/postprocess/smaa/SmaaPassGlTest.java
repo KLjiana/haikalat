@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.postprocess.smaa;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -129,17 +130,12 @@ class SmaaPassGlTest {
             clear(edges);
             CommandBuffer commands = device.createCommandBuffer();
             // A preceding PBR/glTF material may leave a nearest/repeat sampler
-            // on unit 0.  SMAA must clear it and keep its linear/clamp contract.
-            int hostileSampler = glGenSamplers();
-            glSamplerParameteri(hostileSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glSamplerParameteri(hostileSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glSamplerParameteri(hostileSampler, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glSamplerParameteri(hostileSampler, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glBindSampler(0, hostileSampler);
+            // on unit 0.  Bind it through the command buffer so StateCache sees
+            // it; SMAA must clear it and keep its linear/clamp contract.
+            Sampler hostileSampler = Sampler.nearestRepeat();
+            bindHostileSampler(device, hostileSampler);
             pass.recordEdgeDetection(commands, sourceTexture.id(), SIZE, SIZE);
             device.execute(commands);
-            glBindSampler(0, 0);
-            glDeleteSamplers(hostileSampler);
             byte[] edgeMask = read(edges);
 
             byte[] expectedEdges = SmaaEdgeReference.detect(source, SIZE, SIZE);
@@ -157,16 +153,19 @@ class SmaaPassGlTest {
 
             clear(blend);
             commands = device.createCommandBuffer();
+            bindHostileSampler(device, hostileSampler);
             pass.recordBlendingWeights(commands, edges.colorAttachment(), SIZE, SIZE);
             device.execute(commands);
             byte[] weights = read(blend);
 
             clear(output);
             commands = device.createCommandBuffer();
+            bindHostileSampler(device, hostileSampler);
             pass.recordNeighborhoodBlending(commands, sourceTexture.id(),
                     blend.colorAttachment(), SIZE, SIZE);
             device.execute(commands);
             byte[] blended = read(output);
+            hostileSampler.close();
 
             if (thinLine) {
                 assertThinDiagonalResult(source, blended, weights);
@@ -343,6 +342,12 @@ class SmaaPassGlTest {
             assertTrue(graph.passWritesToBackbuffer(PostProcessTargets.SMAA_PASS));
             assertEquals(PostProcessTargets.SMAA_PASS, pipeline.finalPassName());
         }
+    }
+
+    private static void bindHostileSampler(GlRenderDevice device, Sampler sampler) {
+        CommandBuffer commands = device.createCommandBuffer();
+        commands.bindSampler(0, sampler);
+        device.execute(commands);
     }
 
     private static void clear(Framebuffer target) {
