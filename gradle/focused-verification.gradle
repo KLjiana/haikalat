@@ -83,6 +83,8 @@ def jvmCases = [
         'ReflectionProbeHdrFixtureTest',
         'GpuParticleCollisionSettingsTest', 'GpuParticleCollisionReferenceTest',
         'GpuParticleCollisionShaderTest',
+        'TemporalDenoiseSettingsTest', 'TemporalDenoiseReferenceTest',
+        'TemporalDenoiseContractTest', 'TemporalDenoisePipelineDependencyTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
@@ -117,6 +119,7 @@ def glCases = [
         'GpuParticleSortingGlTest',
         'ReflectionProbeGlTest',
         'GpuParticleCollisionGlTest',
+        'TemporalDenoisePassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

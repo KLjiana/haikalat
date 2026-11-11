@@ -136,6 +136,13 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（启用、历史混合、邻域 clamp
+半径、深度/法线拒绝阈值、reactive/亮度突变阈值、最大重投影距离，构造期校验；默认 `disabled()`），
+`PostProcessSettings` 追加 `temporalDenoise` 组件并保持旧构造器兼容；`PostProcessPipeline` 在 SSR 之后插入
+`TemporalDenoisePass`（prev-VP/velocity 重投影、邻域 clamp、disocclusion/亮度突变 reset、双 slot 历史、
+resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享历史；无逐通道协方差/逐像素方差估计，
+历史约 48 B/px。合同、限制与 GL 参考见[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)，
+迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #15 新增 advanced GL-free `render3d.vfx.GpuParticleCollisionSettings`（启用、TEXEL_CENTRE/
 CONSERVATIVE_MIN_2X2 采样、世界厚度、restitution、friction、搜索步数/半径、opaque-only，构造期校验；
 默认 `disabled()`），`GpuParticleSystem` 扩展为可选碰撞 compute program 与 8 参数 `record(...)`，消费
