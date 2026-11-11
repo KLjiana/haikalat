@@ -136,6 +136,13 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #26 新增 advanced GL-free `render3d.vfx.GpuParticleSortingSettings`（启用、VIEW_DEPTH/
+DISTANCE 键、方向、最大排序数、相同键 STABLE/UNSTABLE，构造期校验；默认 `disabled()`）与 GL-free
+`GpuParticleSortPlan`（2 的幂 padding、bitonic 序列、dispatch 组）。`GpuParticleSystem` 扩展为
+reset→update→sort→draw：排序启用时用预乘 alpha-over 绘制排序后的 active set，disabled 时逐字节保留
+#27 的加色/原命令路径。排序只覆盖同一 owner 的活跃集合，不解决跨 owner/透明网格交错；超过
+`maximumSortedParticles` 为部分排序。合同与 GL 参考见
+[粒子排序技术卡](../../planning/v0.28.1-s3-particle-sorting.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S2 #27 新增 advanced GL-free `render3d.vfx.GpuParticleSettings`（capacity、粒子尺寸、寿命、
 重力/速度范围等，构造期校验）与 package-private `GpuParticleEmission`（显式发射窗口/描述，不属于
 公共 API），以及 advanced
