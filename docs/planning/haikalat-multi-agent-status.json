@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "db27afb"
+                        "head":  "a46eb86"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T00:43:47.8416251+08:00",
+    "updatedAt":  "2026-11-12T00:53:53.7324200+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1014,17 +1014,17 @@
 
                                         ],
                       "evidence":  [
-                                       "glSmoke WeightedOitPassGlTest 5/5 PASS",
-                                       "JVM WeightedOit*/OitSurface/PendingPipelineState PASS",
-                                       "focused verify 317cbe60: 560 tests PASS, 0 skipped",
-                                       "first GPU failure was a test oracle background error; fixed at 03ca340"
+                                       "glSmoke WeightedOitPassGlTest 7/7 PASS",
+                                       "JVM WeightedOit*/OitSurface/PendingPipelineState 25 tests PASS",
+                                       "focused verify 76286663: 603 tests PASS, 0 skipped",
+                                       "review float16 overflow finding fixed at 300f5df; extreme GL cases added"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; RenderPipeline particle consumer not wired"
+                      "nextAction":  "Bounded pass-level OIT; RenderPipeline/particle consumer and arbitrary HDR overlap remain out of scope"
                   },
                   {
                       "taskId":  "R29",
