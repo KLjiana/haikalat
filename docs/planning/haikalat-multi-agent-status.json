@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "afb781a"
+                        "head":  "4693e26"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T03:05:19.7495789+08:00",
+    "updatedAt":  "2026-11-12T04:44:28.8272275+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -689,7 +689,7 @@
                       "featureIds":  [
                                          18
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Local Reflection Probes",
                       "dependencies":  [
                                            null
@@ -700,19 +700,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "4693e26",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused GL ReflectionProbeGlTest 2/2 PASS",
+                                       "JVM ReflectionProbe*/Pbr* 42 tests PASS",
+                                       "focused verify 3082c455: 709 tests PASS, 0 skipped",
+                                       "real sampler-unit aliasing bug fixed at 9b79818; six GL control rounds"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; per-receiver pipeline wiring unwired"
                   },
                   {
                       "taskId":  "R19",
