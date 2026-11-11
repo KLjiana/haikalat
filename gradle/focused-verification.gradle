@@ -70,7 +70,8 @@ def jvmCases = [
         'PlanarReflectionSettingsTest', 'PlanarReflectionMathTest',
         'WeightedOitSettingsTest', 'WeightedOitShaderTest', 'OitSurfaceTest',
         'PendingPipelineStateTest',
-        'ParallaxOcclusionSettingsTest', 'ParallaxReferenceMathTest', 'ParallaxShaderTest'
+        'ParallaxOcclusionSettingsTest', 'ParallaxReferenceMathTest', 'ParallaxShaderTest',
+        'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -98,6 +99,7 @@ def glCases = [
         'ClusterLightingGlTest', 'ClusterRotatedViewAuditGlTest',
         'WeightedOitPassGlTest',
         'ParallaxGlTest',
+        'CausticsPassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

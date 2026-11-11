@@ -127,6 +127,12 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #36 新增 advanced GL-free `render3d.caustics.CausticsSettings`（强度/颜色、世界尺度、
+动画速度、水面矩形/水位、接收面高度带、最大投射距离、深度偏置/衰减、可选图样纹理，构造期校验）与
+internal `render3d.caustics.CausticsPass`（自有 RGBA16F 目标、程序化图样 + 共享深度拒绝、resize/close
+事务式生命周期，不作为兼容入口）。首版是**艺术近似**，不是光子映射/物理焦散；不写共享深度、不产生
+反馈，`RenderPipeline` 生产接线仍待 Integrator。合同、限制与 GL 参考见
+[焦散技术卡](../../planning/v0.28.1-s3-caustics.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #31 新增 advanced GL-free `core.material.ParallaxOcclusionSettings`（heightScale、min/max steps、
 角度/距离 fade、最大距离、height channel/flip，构造期校验；默认 `disabled()` 为精确 no-op），`Material`/
 `Material.Builder` 新增 `parallaxOcclusion(...)`/`parallaxOcclusion()`；新增 advanced
