@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "3d2d0ff"
+                        "head":  "1fcf623"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T05:47:15.5992816+08:00",
+    "updatedAt":  "2026-11-12T06:23:42.3911072+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1205,7 +1205,7 @@
                       "featureIds":  [
                                          34
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Temporal Denoising",
                       "dependencies":  [
                                            20
@@ -1216,19 +1216,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "1fcf623",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused GL TemporalDenoisePassGlTest 8/8 PASS",
+                                       "JVM TemporalDenoise* 18 tests PASS",
+                                       "focused verify e1936a38: 758 tests PASS, 0 skipped",
+                                       "first GPU failure: duplicate GeometryPass dependency + half-float tolerance; fixed at 989952c"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; RenderFeatureSettings/policy wiring unwired"
                   },
                   {
                       "taskId":  "R35",
