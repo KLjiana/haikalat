@@ -83,7 +83,7 @@ class ReflectionProbeGlTest {
     private static final int WIDTH = 160;
     private static final int HEIGHT = 120;
     private static final Vector3f CAMERA_POSITION = new Vector3f(0.0f, 0.0f, 4.0f);
-    private static final float QUAD_SCALE = 0.24f;
+    private static final float QUAD_SCALE = 1.6f;
     private static final float PROBE_HALF_EXTENT = 0.5f;
     private static final float PROBE_BLEND = 0.5f;
     private static final float PROBE_A_X = -0.5f;
