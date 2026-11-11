@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T01:56:21.6498121+08:00",
+    "updatedAt":  "2026-11-12T02:26:27.4357764+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -470,22 +470,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "f4f422c",
+                      "integrationCommit":  "2aa3fca",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "glSmoke WaterRefractionGlTest 5/5 + WaterSurface regression 6/6 PASS",
-                                       "JVM WaterRefraction* 20 tests PASS",
+                                       "focused GL WaterRefractionGlTest 5/5 + WaterSurface 6/6 PASS",
+                                       "JVM WaterRefraction* 16 tests PASS",
                                        "focused verify 6bf14b8c: 650 tests PASS, 0 skipped",
                                        "first GPU fixture depth bug fixed at d03cdf0"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; RenderPipeline companion pass unwired"
+                      "nextAction":  "Bounded pass-level refraction; RenderPipeline companion pass unwired; shore alpha does not gate offset"
                   },
                   {
                       "taskId":  "R12",

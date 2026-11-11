@@ -274,3 +274,13 @@ clamp 到 `65504`，因此任意合法输入产生有限 target。本包没有�
 `PipelineStateSink`/`StateCache` 四因子缓存与 `PendingPipelineState` 4 整数编码/解码；既有
 `blendFunc` 的调用语义和源码兼容性不变（alpha 因子等于 RGB 因子时仍编码为 `glBlendFunc`）。
 技术范围、有限输出保护与误差界见 [技术卡](../../planning/v0.28.1-s3-oit.md)。
+
+v0.28.1（候选）S3 #11 屏幕空间水面折射没有删除 stable 类型，也没有修改既有构造器或枚举取值。新增 advanced
+`render3d.water.WaterRefractionSettings`（IOR、折射强度、最大屏幕偏移、厚度缩放、前景拒绝 bias、离屏回退，
+全部构造期校验；`disabled()` 是精确 no-op），`WaterSurfacePass` 新增带折射设置的重载/构造函数与
+`recordBackgroundCopy(...)`，以及 `WaterSurfacePass.REFRACTION_BACKGROUND_PASS` 提供的受控背景颜色拷贝。
+`WaterSurfaceSettings` 与旧 `record`/构造函数保持不变；`enabled=false` 时水面 shader 源与 #14 基线逐字节一致，
+GL baseline 用例逐分量对照。首版是屏幕空间近似：无真实水下体积/色散/多层水体/焦散，前景拒绝仅用共享不透明深度，
+折射位移不受 shore alpha 门控；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。RenderPipeline 的
+`WaterRefractionSettings` 字段与 companion pass 接线由 Integrator 完成。算法、限制与验证状态见
+[技术卡](../../planning/v0.28.1-s3-water-refraction.md)。
