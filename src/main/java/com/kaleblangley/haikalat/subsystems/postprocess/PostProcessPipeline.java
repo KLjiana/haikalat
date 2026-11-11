@@ -23,6 +23,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingC
 import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +53,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final VignettePass vignette;
     private final FilmGrainPass filmGrain;
     private final ChromaticAberrationPass chromaticAberration;
+    private final ScreenDistortionPass screenDistortion;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final LateSurfaceProducer lateSurface;
@@ -73,6 +75,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 VignettePass vignette,
                                 FilmGrainPass filmGrain,
                                 ChromaticAberrationPass chromaticAberration,
+                                ScreenDistortionPass screenDistortion,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 LateSurfaceProducer lateSurface,
@@ -89,6 +92,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.vignette = vignette;
         this.filmGrain = filmGrain;
         this.chromaticAberration = chromaticAberration;
+        this.screenDistortion = screenDistortion;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.lateSurface = lateSurface;
@@ -147,6 +151,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
             }
+            if (effects.screenDistortion().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "screen distortion requires HDR tone mapping");
+            }
+            if (effects.screenDistortion().active() && hdrVfx == null) {
+                throw new IllegalArgumentException(
+                        "screen distortion requires an HDR VFX composite");
+            }
             VignettePass vignette = effects.vignette().active()
                     ? reuseOrCreate(donor != null && donor.vignette != null
                                     && donor.vignette.settings().equals(effects.vignette())
@@ -164,8 +176,15 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.chromaticAberration : null,
                             () -> new ChromaticAberrationPass(effects.chromaticAberration()),
                             owned, borrowed) : null;
+            ScreenDistortionPass screenDistortion = effects.screenDistortion().active()
+                    ? reuseOrCreate(donor != null && donor.screenDistortion != null
+                                    && donor.screenDistortion.settings()
+                                    .equals(effects.screenDistortion())
+                                    ? donor.screenDistortion : null,
+                            () -> new ScreenDistortionPass(effects.screenDistortion()),
+                            owned, borrowed) : null;
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
-                    autoExposure, fog, vignette, filmGrain, chromaticAberration,
+                    autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
                     hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
@@ -395,6 +414,23 @@ public final class PostProcessPipeline implements AutoCloseable {
             });
             hdrTexture = PostProcessTargets.VFX_COMPOSITE_COLOR;
             hdrProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
+        }
+
+        if (screenDistortion != null) {
+            final String distortionInput = hdrTexture;
+            final String distortionProducer = hdrProducer;
+            graph.addPass(PostProcessTargets.SCREEN_DISTORTION_PASS)
+                    .createColor(PostProcessTargets.SCREEN_DISTORTION_COLOR,
+                            RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(distortionProducer)
+                    .execute((res, cmd) -> screenDistortion.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(distortionInput),
+                            res.depthAttachment(PostProcessTargets.VFX_SCENE_DEPTH),
+                            screenDistortion.settings().contributions(),
+                            graph.width(), graph.height()));
+            hdrTexture = PostProcessTargets.SCREEN_DISTORTION_COLOR;
+            hdrProducer = PostProcessTargets.SCREEN_DISTORTION_PASS;
         }
 
         if (reactiveRequested()) addReactivePass(graph, hdrProducer);

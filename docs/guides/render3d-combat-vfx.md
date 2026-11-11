@@ -15,6 +15,8 @@
 
 四项都可关闭；关闭时材质默认值与旧行为一致。`VfxMaterial.requiresNormals()` 只表示启用了轮廓光。
 
+屏幕空间冲击波／热浪是独立的场景颜色消费者（路线图 #4，0.28.1 S1），不属于本表的材质 UV Flow；数据、Pass 顺序与限制见[屏幕空间扭曲技术卡](../planning/v0.28.1-s1-screen-distortion.md)。
+
 ## 2. 材质参数
 
 ```java

@@ -17,6 +17,7 @@ public final class PostProcessTargets {
     public static final String GTAO_UPSAMPLE_PASS = "GtaoUpsamplePass";
     public static final String FOG_PASS = "FogPass";
     public static final String VFX_COMPOSITE_PASS = "VfxCompositePass";
+    public static final String SCREEN_DISTORTION_PASS = "ScreenDistortionPass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
     public static final String FILM_GRAIN_PASS = "FilmGrainPass";
@@ -62,6 +63,7 @@ public final class PostProcessTargets {
     public static final String FOG_COLOR = "fogColor";
     public static final String VFX_COMPOSITE_COLOR = "vfxCompositeColor";
     public static final String VFX_SCENE_DEPTH = "vfxSceneDepth";
+    public static final String SCREEN_DISTORTION_COLOR = "screenDistortionColor";
     public static final String TONE_MAPPED_COLOR = "toneMappedColor";
     public static final String VIGNETTE_COLOR = "vignetteColor";
     public static final String FILM_GRAIN_COLOR = "filmGrainColor";

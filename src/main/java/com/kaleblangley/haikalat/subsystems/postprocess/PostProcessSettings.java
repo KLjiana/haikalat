@@ -6,25 +6,37 @@ import java.util.Objects;
 public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
                                   GtaoSettings gtao, VignetteSettings vignette,
                                   FilmGrainSettings filmGrain,
-                                  ChromaticAberrationSettings chromaticAberration) {
+                                  ChromaticAberrationSettings chromaticAberration,
+                                  ScreenDistortionSettings screenDistortion) {
     /** Source-compatible constructor retained for existing callers. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog) {
         this(colorGrading, fog, GtaoSettings.disabled(), VignetteSettings.disabled(),
-                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled());
+                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
+                ScreenDistortionSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before v0.28.1. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
                                GtaoSettings gtao) {
         this(colorGrading, fog, gtao, VignetteSettings.disabled(),
-                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled());
+                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
+                ScreenDistortionSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before grain/aberration. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
                                GtaoSettings gtao, VignetteSettings vignette) {
         this(colorGrading, fog, gtao, vignette, FilmGrainSettings.disabled(),
-                ChromaticAberrationSettings.disabled());
+                ChromaticAberrationSettings.disabled(), ScreenDistortionSettings.disabled());
+    }
+
+    /** Source-compatible constructor retained for callers written before screen distortion. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                ScreenDistortionSettings.disabled());
     }
 
     public PostProcessSettings {
@@ -34,18 +46,20 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         Objects.requireNonNull(vignette, "vignette");
         Objects.requireNonNull(filmGrain, "filmGrain");
         Objects.requireNonNull(chromaticAberration, "chromaticAberration");
+        Objects.requireNonNull(screenDistortion, "screenDistortion");
     }
 
     public static PostProcessSettings defaults() {
         return new PostProcessSettings(ColorGradingSettings.disabled(), FogSettings.disabled(),
                 GtaoSettings.disabled(), VignetteSettings.disabled(),
-                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled());
+                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
+                ScreenDistortionSettings.disabled());
     }
 
     /** Returns a copy with GTAO replaced and every other effect preserved. */
     public PostProcessSettings withGtao(GtaoSettings value) {
         return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
-                vignette, filmGrain, chromaticAberration);
+                vignette, filmGrain, chromaticAberration, screenDistortion);
     }
 
     public static Builder builder() {
@@ -60,6 +74,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         private FilmGrainSettings filmGrain = FilmGrainSettings.disabled();
         private ChromaticAberrationSettings chromaticAberration =
                 ChromaticAberrationSettings.disabled();
+        private ScreenDistortionSettings screenDistortion = ScreenDistortionSettings.disabled();
 
         private Builder() {
         }
@@ -94,9 +109,14 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
             return this;
         }
 
+        public Builder screenDistortion(ScreenDistortionSettings value) {
+            screenDistortion = Objects.requireNonNull(value, "screenDistortion");
+            return this;
+        }
+
         public PostProcessSettings build() {
             return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
-                    chromaticAberration);
+                    chromaticAberration, screenDistortion);
         }
     }
 }

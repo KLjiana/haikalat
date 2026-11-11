@@ -114,3 +114,17 @@ v0.28.1（候选）云影没有删除 stable 类型。`ShadowSettings` 的 advan
 `ShadowFramePlan`（internal）新增一个带 `FrameTiming` 的 canonical 构造器和一个保留原签名的
 重载，帧时间来自 `RenderFrameContext.frameSequence()/deltaSeconds()`，供 `FrameLightBinder`
 在不修改 `RenderPipeline` 的前提下累计云层滚动时间。
+
+v0.28.1（候选）屏幕空间扭曲没有删除 stable 类型。`PostProcessSettings` 的 advanced canonical
+record 从 6 个组件扩展为 7 个（新增 `screenDistortion`）；原 2/3/4 参数构造器和 v0.28.1
+屏幕效果使用的 6 参数构造器保留，默认填入 `ScreenDistortionSettings.disabled()`，因此旧构造器、
+builder 与访问器调用保持源码兼容；直接调用 canonical 构造器或反射读取组件的调用方需要更新。
+新增 advanced `postprocess.ScreenDistortion`（稳定 `(effectId,distortionIndex)` 身份、
+`centerUv/extentUv/uvOffset`、`mask`、`effectDepth/depthThickness`、`ring/haze/phase`，以及
+`orderForComposite` 的 bounded far-to-near 合同）、`ScreenDistortionSettings(enabled,
+maximumOffsetUv,maximumContributions,edgeFeatherUv,source)`、`ScreenDistortionSource`、
+`postprocess.distortion.ScreenDistortionPass`，GL-free `vfx.VfxDistortion` 与
+`render3d.vfx.VfxDistortionProjector`。效果默认关闭；开启要求 HDR tone mapping 与 HDR VFX
+composite，否则装配期明确拒绝。逐帧贡献通过 `ScreenDistortionSource` 注入设置；本包没有修改
+`RenderPipeline` 的公共入口，逐帧 `vfxDistortions` 通道仍待渲染管线所有者接入（见
+[技术卡](../planning/v0.28.1-s1-screen-distortion.md)）。

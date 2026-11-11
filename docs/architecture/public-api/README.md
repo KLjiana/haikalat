@@ -44,3 +44,10 @@ v0.28.1 S1 新增 `ContactShadowSettings`、`CloudShadowSettings` 等 advanced �
 `ShadowSettings` 依次追加 `contactShadows`、`cloudShadows` 组件，原四/五/六参数构造器保留并
 默认关闭。两者都随 `RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU
 资源或 Pass。迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S1 #4 新增 advanced `ScreenDistortion`、`ScreenDistortionSettings`、
+`ScreenDistortionSource`、`ScreenDistortionPass`（屏幕空间扭曲数据、设置、逐帧生产合同与
+合成 Pass）、`VfxDistortion`（GL-free 世界空间贡献）与 `VfxDistortionProjector`
+（render3d 相机投影适配器）。`PostProcessSettings` 追加 `screenDistortion` 组件，默认关闭；
+关闭时不创建 Pass、shader 或附件。迁移说明见[迁移记录](migrations.md)，技术范围见
+[屏幕空间扭曲技术卡](../../planning/v0.28.1-s1-screen-distortion.md)。

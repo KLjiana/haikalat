@@ -41,6 +41,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSetting
 advanced com.kaleblangley.haikalat.subsystems.render3d.StylizedSkySettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.VisualSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxDistortionProjector
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder
