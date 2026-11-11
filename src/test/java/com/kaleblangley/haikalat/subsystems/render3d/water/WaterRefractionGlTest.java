@@ -419,6 +419,8 @@ class WaterRefractionGlTest {
                 void main() {
                     vec2 uv = gl_FragCoord.xy / uExtent;
                     vec3 colour = vec3(0.1 + 0.8 * uv.x, 0.1 + 0.8 * uv.y, 0.2);
+                    // All depth uniforms are OpenGL window depths in [0,1], not
+                    // view distances or world-space water thicknesses.
                     float depth = uUniformDepth;
                     if (uDepthMode == 1) {
                         depth = gl_FragCoord.y < uSplitRow ? uNearDepth : uFarDepth;
@@ -484,6 +486,12 @@ class WaterRefractionGlTest {
             pass = new WaterSurfacePass(1, true);
         }
 
+        /**
+         * Writes the opaque fixture.  The depth arguments are OpenGL window
+         * depths in {@code [0,1]} (the exact {@code gl_FragDepth} domain), never
+         * view distances or world thicknesses; callers use
+         * {@link #depthForCentreSceneY(float)} to encode a scene plane.
+         */
         void renderSource(int depthMode, float uniformDepth, float nearDepth, float farDepth,
                           float splitRow) {
             source.bind();
@@ -602,6 +610,12 @@ class WaterRefractionGlTest {
             return pixels;
         }
 
+        /**
+         * Builds the OpenGL window depth in {@code [0,1]} for the scene point on
+         * the centre-pixel ray at {@code sceneY}.  The fixture writes this value
+         * with {@code gl_FragDepth}; it is the projected NDC z mapped through the
+         * default depth range, never the view distance or the water thickness.
+         */
         float depthForCentreSceneY(float sceneY) {
             Vector3d surface = WaterRefractionReferenceMath.waterWorld(PROJECTION, VIEW, SIZE,
                     SIZE, SIZE / 2, SIZE / 2, 0.0);

@@ -344,12 +344,18 @@ final class WaterRefractionReferenceMath {
         return new Vector3f((float) result[0], (float) result[1], (float) result[2]);
     }
 
-    /** Device depth of a view-space point; used to derive deterministic fixtures. */
+    /**
+     * OpenGL window depth in {@code [0,1]} for a view-space point, i.e. exactly
+     * what {@code gl_FragDepth} and the depth attachment store.  This is not a
+     * view distance or a world thickness: convert the view-space position through
+     * the projection (with the {@code m32}/{@code m23} terms of the column-major
+     * perspective matrix) before writing it.
+     */
     static double deviceDepth(Matrix4f projection, double viewX, double viewY, double viewZ) {
-        double x = projection.m02() * viewZ + projection.m03();
-        double y = projection.m12() * viewZ + projection.m13();
-        double z = projection.m22() * viewZ + projection.m23();
-        double w = projection.m32() * viewZ + projection.m33();
+        double z = projection.m02() * viewX + projection.m12() * viewY
+                + projection.m22() * viewZ + projection.m32();
+        double w = projection.m03() * viewX + projection.m13() * viewY
+                + projection.m23() * viewZ + projection.m33();
         if (!(w > 1.0e-9)) return Double.NaN;
         double ndcZ = z / w;
         return ndcZ * 0.5 + 0.5;

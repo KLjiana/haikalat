@@ -4,6 +4,7 @@ import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,6 +50,39 @@ class WaterRefractionReferenceMathTest {
         assertEquals(centre.x, offset.shiftedX(), 1.0e-6);
         assertEquals(centre.y, offset.shiftedY(), 1.0e-6);
         assertEquals(WaterRefractionReferenceMath.FallbackReason.NONE, offset.fallback());
+    }
+
+    @Test
+    void windowDepthEncodingMatchesTheProjectionAndRoundTrips() {
+        Matrix4f view = new Matrix4f().translate(0.0f, -4.0f, 0.0f);
+        assertEquals(0.0, WaterRefractionReferenceMath.deviceDepth(PROJECTION,
+                0.0, 0.0, -0.1), 1.0e-6,
+                "a point on the near plane encodes window depth zero");
+        assertEquals(1.0, WaterRefractionReferenceMath.deviceDepth(PROJECTION,
+                0.0, 0.0, -100.0), 1.0e-6,
+                "a point on the far plane encodes window depth one");
+
+        Vector4f clip = new Vector4f(0.2f, -0.3f, -10.0f, 1.0f).mul(PROJECTION);
+        double expected = clip.z / clip.w * 0.5 + 0.5;
+        assertEquals(expected, WaterRefractionReferenceMath.deviceDepth(PROJECTION,
+                0.2, -0.3, -10.0), 1.0e-7,
+                "window depth must be the projected NDC z mapped to [0,1]");
+
+        Vector3d world = new Vector3d(0.3, 0.0, -20.0);
+        Vector2f uv = WaterRefractionReferenceMath.projectToUv(PROJECTION, view, world);
+        assertNotNull(uv);
+        Vector3f viewSpace = new Vector3f((float) world.x, (float) world.y, (float) world.z)
+                .mulPosition(view);
+        double depth = WaterRefractionReferenceMath.deviceDepth(PROJECTION,
+                viewSpace.x, viewSpace.y, viewSpace.z);
+        assertTrue(depth > 0.0 && depth < 1.0,
+                "a visible fixture point must encode a window depth in (0,1), got " + depth);
+        Vector3d roundTrip = WaterRefractionReferenceMath.unproject(PROJECTION, view,
+                uv.x, uv.y, depth);
+        assertNotNull(roundTrip);
+        assertEquals(world.x, roundTrip.x, 1.0e-3, "round-trip x");
+        assertEquals(world.y, roundTrip.y, 1.0e-3, "round-trip y");
+        assertEquals(world.z, roundTrip.z, 1.0e-3, "round-trip z");
     }
 
     @Test
