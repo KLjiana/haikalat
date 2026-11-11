@@ -139,7 +139,8 @@ public final class PlanarReflectionPass implements GlResource {
      * @return true when {@link #colorTexture()} contains a successfully
      *         recorded reflection and is safe to sample.  A newly allocated or
      *         explicitly resized target starts invalid; only a completed
-     *         {@link #record} publishes valid content.
+     *         {@link #record} publishes valid content.  The caller must still
+     *         submit the command buffer containing that successful record.
      */
     public boolean hasValidContent() {
         return !closed && contentValid;
