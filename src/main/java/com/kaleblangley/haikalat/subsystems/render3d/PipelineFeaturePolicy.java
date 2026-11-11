@@ -16,6 +16,9 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         if ((topology.colorGrading() || topology.fog() || topology.volumetricFog()) && !topology.hdr()) {
             throw new IllegalStateException("Color grading and fog require HDR tone mapping");
         }
+        if (topology.antiAliasingMode() == AntiAliasingMode.SMAA && !topology.hdr()) {
+            throw new IllegalStateException("SMAA requires HDR tone mapping");
+        }
         if (topology.hdrVfx() && !topology.hdr()) {
             throw new IllegalStateException("HDR VFX requires HDR tone mapping");
         }

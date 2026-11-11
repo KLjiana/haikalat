@@ -15,6 +15,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.fog.FogChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain;
+import com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
@@ -47,6 +48,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final RenderSettings settings;
     private final PostProcessSettings effects;
     private final FxaaChain fxaa;
+    private final SmaaPass smaa;
     private final TemporalChain temporal;
     private final ToneMappingChain toneMapping;
     private final BloomChain bloom;
@@ -74,7 +76,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private boolean closed;
 
     private PostProcessPipeline(RenderSettings settings, PostProcessSettings effects,
-                                FxaaChain fxaa, TemporalChain temporal,
+                                FxaaChain fxaa, SmaaPass smaa, TemporalChain temporal,
                                 ToneMappingChain toneMapping, BloomChain bloom,
                                 AutoExposureChain autoExposure, FogChain fog,
                                 VignettePass vignette,
@@ -91,6 +93,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.settings = settings;
         this.effects = effects;
         this.fxaa = fxaa;
+        this.smaa = smaa;
         this.temporal = temporal;
         this.toneMapping = toneMapping;
         this.bloom = bloom;
@@ -138,6 +141,11 @@ public final class PostProcessPipeline implements AutoCloseable {
         try {
             var fxaa = settings.antiAliasingMode() == AntiAliasingMode.FXAA
                     ? reuseOrCreate(donor == null ? null : donor.fxaa, FxaaChain::new, owned, borrowed) : null;
+            if (settings.antiAliasingMode() == AntiAliasingMode.SMAA && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException("SMAA requires HDR tone mapping");
+            }
+            var smaa = settings.antiAliasingMode() == AntiAliasingMode.SMAA
+                    ? reuseOrCreate(donor == null ? null : donor.smaa, SmaaPass::new, owned, borrowed) : null;
             var format = TemporalChain.historyFormat(settings.hdrEnabled());
             var temporal = settings.antiAliasingMode() == AntiAliasingMode.TAA
                     ? reuseOrCreate(donor != null && donor.temporal != null
@@ -212,7 +220,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.motionBlur : null,
                             () -> new MotionBlurPass(effects.motionBlur()),
                             owned, borrowed) : null;
-            return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
+            return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
                     depthOfField, motionBlur, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
@@ -302,6 +310,12 @@ public final class PostProcessPipeline implements AutoCloseable {
     public static String finalPassNameFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode) {
         Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(toneMappingMode, "toneMappingMode");
+        if (mode == AntiAliasingMode.SMAA) {
+            if (toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalArgumentException("SMAA requires HDR tone mapping");
+            }
+            return PostProcessTargets.SMAA_PASS;
+        }
         return toneMappingMode != ToneMappingMode.NONE && mode == AntiAliasingMode.FXAA
                 ? PostProcessTargets.FXAA_PASS : PostProcessTargets.PRESENT_PASS;
     }
@@ -371,6 +385,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                 addTaaPresentPass(graph);
             }
             case NONE, MSAA -> addLdrPresentPass(graph, sceneColorProducer);
+            case SMAA -> throw new IllegalStateException("SMAA requires HDR tone mapping");
         }
     }
 
@@ -605,7 +620,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             screenProducer = PostProcessTargets.CHROMATIC_ABERRATION_PASS;
         }
 
-        if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
+        if (settings.antiAliasingMode() == AntiAliasingMode.SMAA) {
+            addSmaaPasses(graph, screenTexture, screenProducer);
+        } else if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
             fxaa.addHdrPass(graph, screenProducer, screenTexture);
             recordFinalPass(PostProcessTargets.FXAA_PASS);
         } else {
@@ -625,6 +642,46 @@ public final class PostProcessPipeline implements AutoCloseable {
                     });
             recordFinalPass(PostProcessTargets.PRESENT_PASS);
         }
+    }
+
+    /**
+     * Adds the SMAA 1x chain: edge detection, blending weights and
+     * neighbourhood blending.  Edge and weight targets are cleared like the
+     * reference temporal targets because the edge shader discards flat pixels.
+     */
+    private void addSmaaPasses(RenderGraph graph, String colorTexture, String colorProducer) {
+        graph.addPass(PostProcessTargets.SMAA_EDGE_DETECTION_PASS)
+                .createColor(PostProcessTargets.SMAA_EDGE_COLOR, RenderFormat.RGBA8)
+                .clearColor(0.0f, 0.0f, 0.0f, 0.0f)
+                .dependsOn(colorProducer)
+                .execute((res, cmd) -> {
+                    Framebuffer source = res.framebufferOfPass(colorProducer);
+                    if (source != null) {
+                        smaa.recordEdgeDetection(cmd, res.colorAttachment(colorTexture),
+                                source.width(), source.height());
+                    }
+                });
+        graph.addPass(PostProcessTargets.SMAA_BLENDING_WEIGHT_PASS)
+                .createColor(PostProcessTargets.SMAA_BLEND_COLOR, RenderFormat.RGBA8)
+                .clearColor(0.0f, 0.0f, 0.0f, 0.0f)
+                .dependsOn(PostProcessTargets.SMAA_EDGE_DETECTION_PASS)
+                .execute((res, cmd) -> smaa.recordBlendingWeights(cmd,
+                        res.colorAttachment(PostProcessTargets.SMAA_EDGE_COLOR),
+                        graph.width(), graph.height()));
+        graph.addPass(PostProcessTargets.SMAA_PASS)
+                .writeToBackbuffer()
+                .noClear()
+                .dependsOn(PostProcessTargets.SMAA_BLENDING_WEIGHT_PASS)
+                .execute((res, cmd) -> {
+                    Framebuffer source = res.framebufferOfPass(colorProducer);
+                    if (source != null) {
+                        smaa.recordNeighborhoodBlending(cmd,
+                                res.colorAttachment(colorTexture),
+                                res.colorAttachment(PostProcessTargets.SMAA_BLEND_COLOR),
+                                source.width(), source.height());
+                    }
+                });
+        recordFinalPass(PostProcessTargets.SMAA_PASS);
     }
 
     private TemporalFramePose framePose;
@@ -815,6 +872,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                     PostProcessTargets.PRESENT_PASS);
             case TAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                     PostProcessTargets.PRESENT_PASS);
+            case SMAA -> throw new IllegalArgumentException("SMAA requires HDR tone mapping");
         };
     }
 
@@ -829,6 +887,11 @@ public final class PostProcessPipeline implements AutoCloseable {
                     PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.FXAA_PASS);
             case TAA -> List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                     PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS);
+            case SMAA -> List.of(PostProcessTargets.GEOMETRY_PASS,
+                    PostProcessTargets.TONE_MAPPING_PASS,
+                    PostProcessTargets.SMAA_EDGE_DETECTION_PASS,
+                    PostProcessTargets.SMAA_BLENDING_WEIGHT_PASS,
+                    PostProcessTargets.SMAA_PASS);
         };
     }
 

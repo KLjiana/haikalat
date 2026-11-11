@@ -45,6 +45,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAbe
 advanced com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain

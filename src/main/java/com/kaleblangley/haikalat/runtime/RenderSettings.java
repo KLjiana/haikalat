@@ -149,6 +149,10 @@ public final class RenderSettings {
             if (toneMappingMode == null) {
                 throw new NullPointerException("toneMappingMode");
             }
+            if (antiAliasingMode == AntiAliasingMode.SMAA
+                    && toneMappingMode == ToneMappingMode.NONE) {
+                throw new IllegalStateException("SMAA requires HDR tone mapping");
+            }
             if (!Float.isFinite(exposure) || exposure <= 0.0f) {
                 throw new IllegalArgumentException("exposure must be finite and positive");
             }

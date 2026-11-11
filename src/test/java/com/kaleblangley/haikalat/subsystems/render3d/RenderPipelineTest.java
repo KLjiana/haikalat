@@ -118,11 +118,25 @@ class RenderPipelineTest {
         assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                         PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES));
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS,
+                        PostProcessTargets.SMAA_EDGE_DETECTION_PASS,
+                        PostProcessTargets.SMAA_BLENDING_WEIGHT_PASS,
+                        PostProcessTargets.SMAA_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.SMAA, ToneMappingMode.ACES));
     }
 
     @Test
     void finalBackbufferAnchorCoversEveryLdrAndHdrAaCombination() {
         for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+            if (mode == AntiAliasingMode.SMAA) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.NONE),
+                        "SMAA rejects the LDR chain");
+                assertEquals(PostProcessTargets.SMAA_PASS,
+                        PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.ACES));
+                continue;
+            }
             assertEquals(PostProcessTargets.PRESENT_PASS,
                     PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.NONE),
                     "LDR final pass for " + mode);

@@ -374,6 +374,7 @@ public final class PbrDemo {
                 // 当前管线以 MSAA resolve 作为组合路径；保留路线图 CLI 别名。
                 case "msaa-fxaa" -> AntiAliasingMode.MSAA;
                 case "taa" -> AntiAliasingMode.TAA;
+                case "smaa" -> AntiAliasingMode.SMAA;
                 default -> throw new IllegalArgumentException("unsupported PBR AA mode: " + value);
             };
         }

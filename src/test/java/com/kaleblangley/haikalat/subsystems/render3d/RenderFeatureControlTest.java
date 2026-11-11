@@ -173,6 +173,25 @@ class RenderFeatureControlTest {
     }
 
     @Test
+    void smaaIsAnHdrOnlyAntiAliasingRequestInTheUnifiedControl() {
+        RenderFeatureSettings settings = hdrBuilder().render(RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.SMAA)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false)
+                .build()).build();
+
+        var resolved = RenderFeaturePolicy.resolve(settings, NO_PBR);
+        assertTrue(resolved.antiAliasing());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(resolved, RenderFeature.ANTI_ALIASING).reason());
+
+        assertThrows(IllegalStateException.class, () -> RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.SMAA)
+                .toneMappingMode(ToneMappingMode.NONE)
+                .build());
+    }
+
+    @Test
     void builderRoundTripKeepsEveryComponent() {
         RenderFeatureSettings original = hdrBuilder()
                 .enabled(false)

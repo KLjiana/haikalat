@@ -241,6 +241,13 @@ class RenderPipelineGlTest {
             try {
                 for (ToneMappingMode toneMapping : ToneMappingMode.values()) {
                     for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                        if (mode == AntiAliasingMode.SMAA && toneMapping == ToneMappingMode.NONE) {
+                            assertThrows(IllegalStateException.class, () -> RenderSettings.builder()
+                                    .antiAliasingMode(mode).toneMappingMode(toneMapping)
+                                    .vsync(false).build(),
+                                    "SMAA has no display-referred LDR input");
+                            continue;
+                        }
                         RenderSettings settings = RenderSettings.builder()
                                 .antiAliasingMode(mode)
                                 .toneMappingMode(toneMapping)
@@ -285,6 +292,12 @@ class RenderPipelineGlTest {
                     (model, frame) -> model.identity().scale(4.0f)));
             try {
                 for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+                    if (mode == AntiAliasingMode.SMAA) {
+                        assertThrows(IllegalStateException.class, () -> RenderSettings.builder()
+                                .antiAliasingMode(mode).toneMappingMode(ToneMappingMode.NONE)
+                                .build(), "SMAA requires HDR tone mapping");
+                        continue;
+                    }
                     int ldr = renderSrgbCenterPixel(window, scene, mode, ToneMappingMode.NONE);
                     assertEquals(128, ldr, 3,
                             "LDR " + mode + " must decode and re-encode sRGB exactly once");

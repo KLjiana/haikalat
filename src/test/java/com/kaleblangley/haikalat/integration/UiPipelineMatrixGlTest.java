@@ -97,7 +97,10 @@ class UiPipelineMatrixGlTest {
     private static List<RenderSettings> legalSettings() {
         List<RenderSettings> settings = new ArrayList<>();
         for (AntiAliasingMode aa : AntiAliasingMode.values()) {
-            settings.add(settings(aa, ToneMappingMode.NONE, false, ExposureMode.MANUAL));
+            // SMAA consumes the display-referred tone-mapped image and rejects LDR.
+            if (aa != AntiAliasingMode.SMAA) {
+                settings.add(settings(aa, ToneMappingMode.NONE, false, ExposureMode.MANUAL));
+            }
             for (boolean bloom : List.of(false, true)) {
                 for (ExposureMode exposure : ExposureMode.values()) {
                     settings.add(settings(aa, ToneMappingMode.ACES, bloom, exposure));
