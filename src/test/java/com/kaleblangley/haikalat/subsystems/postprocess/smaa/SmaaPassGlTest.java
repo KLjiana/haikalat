@@ -345,13 +345,17 @@ class SmaaPassGlTest {
 
     private static byte[] thinDiagonal() {
         byte[] pixels = new byte[SIZE * SIZE * 4];
+        for (int y = 0; y < SIZE; y++) {
+            for (int x = 0; x < SIZE; x++) {
+                pixels[(y * SIZE + x) * 4 + 3] = (byte) 255;
+            }
+        }
         for (int y = 8; y < SIZE - 8; y++) {
             int x = y;
             int offset = (y * SIZE + x) * 4;
             pixels[offset] = (byte) 255;
             pixels[offset + 1] = (byte) 255;
             pixels[offset + 2] = (byte) 255;
-            pixels[offset + 3] = (byte) 255;
         }
         return pixels;
     }
