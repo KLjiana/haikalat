@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "c4761fd"
+                        "head":  "1ed1a14"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T22:05:11.0774508+08:00",
+    "updatedAt":  "2026-11-11T22:32:55.0166593+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -536,20 +536,22 @@
                                      ],
                       "baseCommit":  "8c768cf",
                       "workerCommit":  null,
-                      "integrationCommit":  "60d1ec2 / 515dee3",
+                      "integrationCommit":  "60d1ec2 + 1ed1a14",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "fresh real-GL contract PASS",
-                                       "focused verify 04cf147e: 407 tests PASS"
+                                       "glSmoke RefractionGlTest 3/3 PASS",
+                                       "JVM Refraction*/PipelineFeaturePolicyTest PASS",
+                                       "focused verify 2d94cb41: 456 tests PASS, 0 skipped",
+                                       "independent re-review APPROVE_WITH_SCOPE; pipeline-level rejection and depthFunc restore added"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review fixes after review findings"
+                      "nextAction":  "Bounded single-layer glass; rough transmission/reflection/MSAA pixel truth documented NOT_EVALUATED"
                   },
                   {
                       "taskId":  "R14",
@@ -567,20 +569,22 @@
                                      ],
                       "baseCommit":  "8c768cf",
                       "workerCommit":  null,
-                      "integrationCommit":  "60d1ec2 / 515dee3",
+                      "integrationCommit":  "515dee3 + 1ed1a14",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "fresh real-GL contract PASS",
-                                       "focused verify 04cf147e: 407 tests PASS"
+                                       "glSmoke WaterSurfacePassGlTest 3/3 + WaterSurfacePipelineGlTest 3/3 PASS",
+                                       "JVM WaterSurface*/PipelineFeaturePolicyTest PASS",
+                                       "focused verify 2d94cb41: 456 tests PASS, 0 skipped",
+                                       "independent re-review APPROVE_WITH_SCOPE; MSAA resolve dependency and enabled/disabled pixel delta added"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review fixes after review findings"
+                      "nextAction":  "Bounded fallback-reflection water; IBL/intersection/MSAA pixel truth documented NOT_EVALUATED"
                   },
                   {
                       "taskId":  "R15",
