@@ -964,8 +964,21 @@ void main() {
     vec3 anisotropicBitangent = vec3(0.0);
     if (uAnisotropicEnabled != 0 && uAnisotropicStrength > 0.0) {
         anisotropicStrength = clamp(uAnisotropicStrength, 0.0, 1.0);
-        if (!anisotropicTangentFrame(n, anisotropicTangent, anisotropicBitangent)) {
+        // Reject a non-finite rotation explicitly. Some drivers do not preserve
+        // NaN through cos/sin followed only by comparison-based length checks,
+        // which can leave a NaN tangent in the BRDF and clamp the whole pixel
+        // to zero instead of restoring the isotropic path. Never evaluate the
+        // trig/frame math for a non-finite rotation; the frame's own length
+        // checks remain as the second line of defense.
+        if (isnan(uAnisotropicRotation) || isinf(uAnisotropicRotation)) {
             anisotropicStrength = 0.0;
+        } else if (!anisotropicTangentFrame(n, anisotropicTangent, anisotropicBitangent)) {
+            // Also clear the outs: a compiler may speculatively evaluate both
+            // arms of the later ternary, and arithmetic on NaN tangent inputs
+            // could otherwise contaminate the selected isotropic result.
+            anisotropicStrength = 0.0;
+            anisotropicTangent = vec3(0.0);
+            anisotropicBitangent = vec3(0.0);
         }
     }
     vec3 direct = vec3(0.0);

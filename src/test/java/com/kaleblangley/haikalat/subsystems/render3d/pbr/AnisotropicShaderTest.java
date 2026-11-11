@@ -71,6 +71,27 @@ class AnisotropicShaderTest {
     }
 
     @Test
+    void nonFiniteRotationIsRejectedBeforeTheFrameMath() throws IOException {
+        String source = resource(PBR);
+        String setup = section(source,
+                "    // Lazy anisotropic setup: disabled or zero strength keeps the original",
+                "    vec3 direct = vec3(0.0);");
+        String guard = "if (isnan(uAnisotropicRotation) || isinf(uAnisotropicRotation)) {";
+        assertTrue(setup.contains(guard),
+                "the setup must explicitly reject NaN/Inf rotation before cos/sin");
+        assertTrue(setup.contains("} else if (!anisotropicTangentFrame("),
+                "the finite-rotation frame failure must stay the second line of defense");
+        assertTrue(setup.indexOf(guard) < setup.indexOf("anisotropicTangentFrame("),
+                "the explicit finite guard must run before the frame/tangent math");
+        assertTrue(setup.contains("anisotropicStrength = 0.0;"),
+                "a non-finite rotation must restore the isotropic path");
+        assertTrue(setup.contains("anisotropicTangent = vec3(0.0);")
+                        && setup.contains("anisotropicBitangent = vec3(0.0);"),
+                "frame failure must clear the NaN outs so a speculative ternary arm "
+                        + "cannot contaminate the isotropic result");
+    }
+
+    @Test
     void tangentFrameHandlesMirroredAndDegenerateInputs() throws IOException {
         String helpers = helperBlock(resource(PBR));
         assertTrue(helpers.contains("vec3 fallbackAnisotropicTangent(vec3 n)"));
