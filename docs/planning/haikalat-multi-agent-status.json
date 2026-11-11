@@ -8,12 +8,12 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "ee6d9e75-a580-4153-8e4a-748ba122e6e6",
+                                          "runId":  "48610dbd-40ce-4614-8d33-c5f4066dcdae",
                                           "status":  "PASS",
-                                          "tests":  247,
+                                          "tests":  248,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/ee6d9e75-a580-4153-8e4a-748ba122e6e6/result.json",
+                                          "evidence":  "build/reports/bounded-verification/48610dbd-40ce-4614-8d33-c5f4066dcdae/result.json",
                                           "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
                                           "freshness":  "FRESH"
                                       }
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T11:16:50.9567286+08:00",
+    "updatedAt":  "2026-11-11T11:27:36.7539722+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -815,10 +815,10 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "focused verify 48610dbd: 248 tests PASS",
                                        "glSmoke VignettePassGlTest PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "APPROVED_WITH_SECONDARY",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
@@ -846,10 +846,10 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "focused verify 48610dbd: 248 tests PASS",
                                        "glSmoke VignettePassGlTest PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "APPROVED_WITH_SECONDARY",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
@@ -877,10 +877,10 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "focused verify 48610dbd: 248 tests PASS",
                                        "glSmoke VignettePassGlTest PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "APPROVED_WITH_SECONDARY",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
@@ -1531,7 +1531,7 @@
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
-               "verificationRun":  "ee6d9e75-a580-4153-8e4a-748ba122e6e6",
+               "verificationRun":  "48610dbd-40ce-4614-8d33-c5f4066dcdae",
                "tests":  233,
                "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
@@ -1543,6 +1543,18 @@
                "knownGaps":  [
                                  "C05 actual filtered/minified flipbook sampling remains unproven; production uses documented LOD0 for unpadded atlases",
                                  "Static shadow-cache reaction to effect-light changes was not claimed because legacy defaults disable cacheStaticTiles"
+                             ]
+           },
+    "s1":  {
+               "state":  "IN_PROGRESS",
+               "postprocessCommit":  "dd74e2d",
+               "verificationRun":  "48610dbd-40ce-4614-8d33-c5f4066dcdae",
+               "tests":  248,
+               "reviewer":  "APPROVE_WITH_SECONDARY",
+               "knownGaps":  [
+                                 "screen effects are not yet represented in RenderFeature/PipelineFeaturePolicy/PipelineTopology (S2 deferred)",
+                                 "Vignette aspect/CPU expected value and Chromatic Aberration black-edge pixel test remain open (S3)",
+                                 "thin translucency worker has no output yet"
                              ]
            }
 }
