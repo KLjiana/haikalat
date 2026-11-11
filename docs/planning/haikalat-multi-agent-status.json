@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T20:44:55.1979490+08:00",
+    "updatedAt":  "2026-11-11T20:49:05.1374246+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -726,12 +726,12 @@
                                        "fresh real-GL contract PASS in worker worktree",
                                        "focused verify 7bb1da70: 391 tests PASS"
                                    ],
-                      "review":  "APPROVE_WITH_SCOPE",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Scope: single directional light, no MSAA/TAA/transparent casters/perf"
+                      "nextAction":  "Closed"
                   },
                   {
                       "taskId":  "R20",
@@ -821,12 +821,12 @@
                                        "JVM Smaa* PASS",
                                        "focused verify 04cf147e: 407 tests PASS"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review fixes after review findings"
+                      "nextAction":  "Closed"
                   },
                   {
                       "taskId":  "R23",
