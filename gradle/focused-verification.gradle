@@ -60,6 +60,7 @@ def jvmCases = [
         'MotionBlurSettingsTest', 'MotionBlurMathTest', 'MotionBlurShaderTest',
         'WaterSurfaceSettingsTest',
         'RefractionSettingsTest', 'RefractionReferenceMathTest', 'RefractionShaderTest',
+        'ClearcoatSettingsTest', 'ClearcoatShaderTest',
         'SmaaLookupTablesTest', 'SmaaContractTest', 'SmaaEdgeReferenceTest',
         'PipelineFeaturePolicyTest'
 ]
@@ -79,6 +80,7 @@ def glCases = [
         'MotionBlurPassGlTest',
         'WaterSurfacePassGlTest', 'WaterSurfacePipelineGlTest',
         'RefractionGlTest',
+        'ClearcoatGlTest',
         'SmaaPassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',

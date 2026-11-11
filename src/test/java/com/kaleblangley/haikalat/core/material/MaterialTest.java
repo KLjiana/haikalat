@@ -179,6 +179,21 @@ class MaterialTest {
                 () -> Material.builder(shader(9)).refraction(null));
     }
 
+    @Test
+    void clearcoatDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.clearcoat().active(),
+                "existing materials must keep the exact no-op clearcoat path");
+        assertEquals(ClearcoatSettings.disabled(), plain.clearcoat());
+
+        ClearcoatSettings coat = ClearcoatSettings.of(0.2f, 0.5f);
+        Material coated = Material.builder(shader(8)).clearcoat(coat).build();
+        assertEquals(coat, coated.clearcoat());
+        assertTrue(coated.clearcoat().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).clearcoat(null));
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);
