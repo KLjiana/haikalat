@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "95f4de2"
+                        "head":  "d57557e"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T23:23:43.8282591+08:00",
+    "updatedAt":  "2026-11-11T23:29:05.5630023+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1039,22 +1039,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "b129168",
+                      "integrationCommit":  "d57557e",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "glSmoke AtmosphereSkyPassGlTest 4/4 PASS",
-                                       "glSmoke AtmospherePipelineGlTest 1/1 PASS",
+                                       "glSmoke AtmosphereSkyPassGlTest 4/4 + AtmospherePipelineGlTest 1/1 PASS",
                                        "JVM Atmosphere* 16 tests PASS",
-                                       "focused verify f36cf5e5: 477 tests PASS, 0 skipped"
+                                       "focused verify f36cf5e5: 477 tests PASS, 0 skipped",
+                                       "independent review APPROVE_WITH_SCOPE; cull/sRGB state, sun sync and doc contracts fixed at d57557e"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Bounded single-scattering sky; exposure ownership, LUT rebuild cost and failure-injection gaps documented"
                   },
                   {
                       "taskId":  "R30",
