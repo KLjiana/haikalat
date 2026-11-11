@@ -53,7 +53,8 @@ def jvmCases = [
         'ShadowCacheStateTest', 'ScreenDistortionTest', 'ScreenDistortionSettingsTest',
         'VfxDistortionTest', 'VfxDistortionProjectorTest',
         'VertexDisplacementSettingsTest', 'VertexDisplacementDrawBindingTest',
-        'VertexDisplacementShaderTest'
+        'VertexDisplacementShaderTest',
+        'DepthOfFieldSettingsTest', 'DepthOfFieldMathTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -66,6 +67,7 @@ def glCases = [
         'CloudShadowsGlTest',
         'ScreenDistortionPassGlTest',
         'VertexDisplacementGlTest',
+        'DepthOfFieldPassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

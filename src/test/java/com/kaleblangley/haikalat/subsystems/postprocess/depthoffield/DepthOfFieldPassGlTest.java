@@ -91,8 +91,9 @@ class DepthOfFieldPassGlTest {
                 ByteBuffer defocused = render(source, target, focusPass, projection);
                 assertTrue(red(defocused, SIZE / 2 + 18, SIZE / 2) > 0,
                         "a defocused background must spread beyond the in-focus square");
-                assertTrue(countLit(defocused, 2) > countLit(focused, 2),
-                        "defocus must change more pixels than the in-focus baseline");
+                assertTrue(red(defocused, SIZE / 2 + 18, SIZE / 2)
+                                > red(focused, SIZE / 2 + 18, SIZE / 2) + 2,
+                        "defocus must spread more energy beyond the in-focus square");
             }
 
             try (Framebuffer source = Framebuffer.withDepthTexture(SIZE, SIZE);
@@ -135,10 +136,10 @@ class DepthOfFieldPassGlTest {
                         "the same edge must blur when the receiver is also defocused");
             }
             assertEquals(GL_NO_ERROR, glGetError());
-        }
 
-        assertDisabledPipelineHasNoDepthOfFieldPass();
-        assertActivePipelineWritesADistinctDofAttachment();
+            assertDisabledPipelineHasNoDepthOfFieldPass();
+            assertActivePipelineWritesADistinctDofAttachment();
+        }
     }
 
     private static void assertDisabledPipelineHasNoDepthOfFieldPass() {
@@ -235,7 +236,7 @@ class DepthOfFieldPassGlTest {
         GlRenderDevice device = new GlRenderDevice();
         var commands = device.createCommandBuffer();
         pass.recordIntoCurrentTarget(commands, source.colorAttachment(),
-                source.depthAttachment(), projection, SIZE, SIZE);
+                source.depthAttachment(), new Matrix4f(projection).invert(), SIZE, SIZE);
         device.execute(commands);
         ByteBuffer pixels = BufferUtils.createByteBuffer(SIZE * SIZE * 4);
         glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
