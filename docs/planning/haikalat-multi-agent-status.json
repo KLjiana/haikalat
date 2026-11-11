@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "74ffd5a"
+                        "head":  "5ab23f6"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T07:20:08.3566038+08:00",
+    "updatedAt":  "2026-11-12T07:45:56.4499430+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1255,16 +1255,16 @@
                                         ],
                       "evidence":  [
                                        "focused GL TemporalUpscalingPassGlTest 6/6 PASS",
-                                       "JVM TemporalUpscaling* 28 tests PASS",
-                                       "focused verify 9e46cd77: 792 tests PASS, 0 skipped",
-                                       "two GPU rounds: output-raster reprojection and jittered oracle; fixed at a963798/bd1658b"
+                                       "JVM TemporalUpscaling* + composition 32 tests PASS",
+                                       "focused verify 01624360: 793 tests PASS, 0 skipped",
+                                       "review B1 bloom/AUTO external-target gap fixed at 7b14644"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; low-resolution pipeline/RenderFeature wiring unwired"
+                      "nextAction":  "Bounded upscaling; low-resolution pipeline wiring unwired; bloom/auto exposure/late reactive rejected"
                   },
                   {
                       "taskId":  "R36",
