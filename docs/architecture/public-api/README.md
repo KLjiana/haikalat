@@ -114,7 +114,8 @@ normalStrength)`（固定 `F0 = 0.04`、独立清漆粗糙度与切空间法线�
 `createWithClearcoat(...)`，清漆法线贴图固定 unit 5
 （`PbrMaterials.CLEARCOAT_NORMAL_UNIT`，必须为线性贴图），未提供时借用共享扁平法线
 fallback。清漆是材质值而不是 `RenderFeatureSettings` 开关：`directionalShadows`/IBL 等既有
-帧级开关继续生效，关闭清漆不创建 Pass、纹理或附件；不承诺也不加载
+帧级开关继续生效（仅对首个 PBR 材质模板；多材质帧级 gate 的已知限制见
+[清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md) 第 8 项），关闭清漆不创建 Pass、纹理或附件；不承诺也不加载
 `KHR_materials_clearcoat`（默认严格策略拒绝该 payload，lenient 策略仅警告并忽略）。
 PBR/IBL 能量分割、法线空间、零值还原与 GL 参考见
 [清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md)，迁移说明见[迁移记录](migrations.md)。

@@ -210,9 +210,11 @@ public final class Material implements GlResource {
         }
 
         /**
-         * Declares the bounded clearcoat overlay stored on this material. The
-         * pipeline and PBR shader read the matching {@code uClearcoat*}
-         * uniforms; {@link ClearcoatSettings#disabled()} keeps the original
+         * Declares the bounded clearcoat overlay stored on this material as
+         * template metadata. {@code PbrMaterials} applies the matching
+         * {@code uClearcoat*} uniforms and normal-map binding; a raw
+         * {@code Material.builder(...)} caller must upload those uniforms
+         * itself. {@link ClearcoatSettings#disabled()} keeps the original
          * single-layer output.
          */
         public Builder clearcoat(ClearcoatSettings value) {

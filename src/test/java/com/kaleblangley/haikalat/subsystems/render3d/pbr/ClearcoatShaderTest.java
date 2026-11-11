@@ -76,8 +76,10 @@ class ClearcoatShaderTest {
                 "clearcoat normal input must not reuse the base normal scale");
         assertFalse(helpers.contains("0.04"),
                 "the interface F0 must come from CLEARCOAT_F0, not a duplicated literal");
+        assertTrue(source.contains("clearcoatNormalValue = clearcoatNormal(geometricNormal);"),
+                "the coat normal must be driven by the geometric normal, not the base normal map");
         assertTrue(source.contains(
-                "clearcoatRoughness = clamp(uClearcoatRoughness, CLEARCOAT_MIN_ROUGHNESS, 1.0);"),
+                        "clearcoatRoughness = clamp(uClearcoatRoughness, CLEARCOAT_MIN_ROUGHNESS, 1.0);"),
                 "coat roughness must use the shared safe GGX floor");
     }
 
