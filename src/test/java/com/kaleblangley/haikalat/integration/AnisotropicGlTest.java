@@ -72,9 +72,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * covered by {@code PbrEnvironmentGlTest}.) The shader must take its
  * deterministic normal-derived fallback frame (also verified against the CPU
  * oracle), stay finite, and remain bounded; a NaN rotation override must fail
- * closed to the isotropic path. The environment term is only checked for
- * boundedness, visible change and rotation sensitivity: the documented IBL
- * lookup is an approximation, not an exact anisotropic prefilter.</p>
+ * closed to the isotropic path. The IBL phase uses a test-only self-authored
+ * striped HDR ({@code anisotropic-stripes.hdr}) because the shared
+ * {@code studio-small.hdr} is a 4x2 near-constant source whose prefiltered
+ * cube hid the bounded lookup change; the IBL term is only checked for
+ * boundedness, visible change and rotation sensitivity: the documented lookup
+ * is an approximation, not an exact anisotropic prefilter.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class AnisotropicGlTest {
@@ -102,6 +105,20 @@ class AnisotropicGlTest {
     /** Keeps the shaded normal geometric; the fixture only varies anisotropy. */
     private static final float BASE_NORMAL_SCALE = 0.0f;
     private static final float STRENGTH = 0.8f;
+    /**
+     * Test-only self-authored RGBE fixture with 8 azimuthal stripes and a
+     * horizon band. The shared {@code studio-small.hdr} is a 4x2 near-constant
+     * source: its prefiltered cube is effectively uniform, so the bounded IBL
+     * stretch produced no measurable pixel difference. This fixture is
+     * deterministic, finite, and exists only under {@code src/test/resources};
+     * it is not a production asset and is outside the release manifest scope.
+     */
+    private static final String ENVIRONMENT_RESOURCE =
+            "/environments/pbr/anisotropic-stripes.hdr";
+    /** Sharpens the prefiltered lookup so the azimuthal stripes stay visible. */
+    private static final float IBL_ROUGHNESS = 0.2f;
+    /** Amplifies the bounded IBL difference without touching the 1e-3 threshold. */
+    private static final float IBL_ENVIRONMENT_INTENSITY = 2.0f;
     private static final float TOLERANCE_ABSOLUTE = 0.0025f;
     private static final float TOLERANCE_RELATIVE = 0.0025f;
     private static final float MAXIMUM_BOUNDED_LUMINANCE = 1000.0f;
@@ -126,8 +143,8 @@ class AnisotropicGlTest {
                  Mesh quad = Mesh.from(TangentGenerator.generate(
                          BuiltinMeshData.texturedQuad("anisotropic-quad")).mesh());
                  PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
-                         "/environments/pbr/studio-small.hdr",
-                         PbrEnvironmentSettings.testQuality())) {
+                         ENVIRONMENT_RESOURCE, PbrEnvironmentSettings.testQuality())) {
+                environment.intensity(IBL_ENVIRONMENT_INTENSITY);
                 PbrMaterialProperties properties = new PbrMaterialProperties(BASE_COLOR,
                         BASE_METALLIC, BASE_ROUGHNESS, BASE_NORMAL_SCALE, 1.0f,
                         new Vector3f(), Map.of());
@@ -226,7 +243,8 @@ class AnisotropicGlTest {
                                                                Matrix4f inverse) {
         pipeline.features().submit(iblSettings(pipeline.features().effective()));
         instance.clearOverrides();
-        instance.setVec4("uBaseColorFactor", BLACK_BASE_COLOR);
+        instance.setVec4("uBaseColorFactor", BLACK_BASE_COLOR)
+                .setFloat("uRoughnessFactor", IBL_ROUGHNESS);
         float[] isotropic = render(pipeline, device);
         assertFiniteBounded("isotropic IBL", isotropic);
         assertTrue(maxQuadLuminance(isotropic, inverse) > 1.0e-3f,
@@ -240,6 +258,7 @@ class AnisotropicGlTest {
 
         instance.clearOverrides();
         instance.setVec4("uBaseColorFactor", BLACK_BASE_COLOR)
+                .setFloat("uRoughnessFactor", IBL_ROUGHNESS)
                 .setInt("uAnisotropicEnabled", 1)
                 .setFloat("uAnisotropicStrength", STRENGTH)
                 .setFloat("uAnisotropicRotation", 0.0f);
