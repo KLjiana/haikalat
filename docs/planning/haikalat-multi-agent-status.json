@@ -8,20 +8,20 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "1055f5bf-bb32-4593-a381-c9d33577fdfc",
+                                          "runId":  "72b189fd-2928-4d17-95f7-9e266697e8e8",
                                           "status":  "PASS",
-                                          "tests":  430,
+                                          "tests":  454,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/1055f5bf-bb32-4593-a381-c9d33577fdfc/result.json",
-                                          "logicReport":  "build/reports/logic-verification/d998934c-2647-4a02-87d5-bf5b4b0e2a7c/report.json",
+                                          "evidence":  "build/reports/bounded-verification/72b189fd-2928-4d17-95f7-9e266697e8e8/result.json",
+                                          "logicReport":  "build/reports/logic-verification/956ec5e1-3713-42f2-980e-e0d5ddb37b89/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "918b8ae"
+                        "head":  "308a5d2"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T21:00:11.6804245+08:00",
+    "updatedAt":  "2026-11-11T21:07:41.5858942+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -740,8 +740,8 @@
                       "featureIds":  [
                                          20
                                      ],
-                      "state":  "TODO",
-                      "scope":  "SSR",
+                      "state":  "DONE",
+                      "scope":  "Bounded SSR",
                       "dependencies":  [
                                            null
                                        ],
@@ -751,19 +751,21 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "308a5d2",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke SsrPassGlTest 2/2 PASS",
+                                       "JVM Ssr* PASS",
+                                       "focused verify 72b189fd: 454 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R21",
