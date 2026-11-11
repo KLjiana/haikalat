@@ -170,7 +170,7 @@ class ReflectionProbeGlTest {
                 try {
                     RenderFeatureSettings pbrOnlyFeatures = pbrOnlyPipeline.features()
                             .effective().toBuilder()
-                            .imageBasedLighting(false)
+                            .imageBasedLighting(true)
                             .directLighting(false)
                             .directionalShadows(false)
                             .pointShadows(false)
