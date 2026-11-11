@@ -43,6 +43,7 @@ public final class Material implements GlResource {
     private final MaterialModel model;
     private final CullMode cullMode;
     private final boolean volumetricFogOptOut;
+    private final RefractionSettings refraction;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -55,6 +56,7 @@ public final class Material implements GlResource {
         this.model = builder.model;
         this.cullMode = builder.cullMode;
         this.volumetricFogOptOut = builder.volumetricFogOptOut;
+        this.refraction = builder.refraction;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -113,6 +115,8 @@ public final class Material implements GlResource {
 
     public CullMode cullMode() { return cullMode; }
     public boolean volumetricFogOptOut() { return volumetricFogOptOut; }
+    /** Single-layer transmissive material contract; disabled by default. */
+    public RefractionSettings refraction() { return refraction; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -183,9 +187,21 @@ public final class Material implements GlResource {
         private MaterialModel model = MaterialModel.LEGACY;
         private CullMode cullMode = CullMode.NONE;
         private boolean volumetricFogOptOut;
+        private RefractionSettings refraction = RefractionSettings.disabled();
 
         /** Explicitly exempts a custom transparent shader from the depth-aware volume contract. */
         public Builder volumetricFogOptOut(boolean value) { volumetricFogOptOut = value; return this; }
+
+        /**
+         * Marks this material as a bounded single-layer transmissive surface.
+         * The pipeline snapshots the resolved scene colour and draws the
+         * material after the normal forward queue; disabled settings keep the
+         * ordinary opaque/transparent path.
+         */
+        public Builder refraction(RefractionSettings value) {
+            refraction = Objects.requireNonNull(value, "refraction");
+            return this;
+        }
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;

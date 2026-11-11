@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.material.RefractionSettings;
 import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.BlendMode;
 
@@ -101,6 +102,60 @@ public final class PbrMaterials {
         bindWithSampler(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
         bindWithSampler(builder, 3, "uOcclusionMap", PbrTextureRole.OCCLUSION, supplied, fallbacks);
         bindWithSampler(builder, 4, "uEmissiveMap", PbrTextureRole.EMISSIVE, supplied, fallbacks);
+        return builder.build();
+    }
+
+    /**
+     * Creates a bounded single-layer transmissive material for the refraction
+     * fragment stage.  The shader is supplied by the caller (the same lifecycle
+     * contract as the ordinary PBR factory); it must be the paired
+     * {@code pbr-forward.vert} and {@code refraction-forward.frag} program.
+     * The material is always alpha blended so the forward queue sorts it
+     * back-to-front, while the pipeline records it in the refraction pass
+     * instead of the ordinary transparent stream.
+     */
+    public static Material createGlass(ShaderProgram shader, PbrMaterialProperties properties,
+                                       Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                       PbrFallbackTextures fallbacks,
+                                       RefractionSettings refraction) {
+        return createGlass(shader, properties, supplied, fallbacks, refraction,
+                CullMode.NONE, false, false);
+    }
+
+    public static Material createGlass(ShaderProgram shader, PbrMaterialProperties properties,
+                                       Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                       PbrFallbackTextures fallbacks,
+                                       RefractionSettings refraction, CullMode cullMode,
+                                       boolean doubleSided, boolean hasVertexColor) {
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(properties, "properties");
+        Objects.requireNonNull(fallbacks, "fallbacks");
+        Objects.requireNonNull(cullMode, "cullMode");
+        Objects.requireNonNull(refraction, "refraction");
+        if (!refraction.active()) {
+            throw new IllegalArgumentException(
+                    "glass material requires enabled refraction settings");
+        }
+        supplied = Map.copyOf(Objects.requireNonNull(supplied, "supplied"));
+        Material.Builder builder = Material.builder(shader)
+                .model(MaterialModel.METALLIC_ROUGHNESS)
+                .blendMode(BlendMode.ALPHA)
+                .cullMode(cullMode)
+                .refraction(refraction)
+                .setVec4("uBaseColorFactor", properties.baseColorFactor())
+                .setFloat("uNormalScale", properties.normalScale())
+                .setInt("uEnableNormalMap", 1)
+                .setInt("uHasVertexColor", hasVertexColor ? 1 : 0)
+                .setInt("uDoubleSided", doubleSided ? 1 : 0)
+                .setFloat("uRefractionIor", refraction.ior())
+                .setFloat("uRefractionThickness", refraction.thickness())
+                .setFloat("uRefractionRoughness", refraction.roughness())
+                .setFloat("uRefractionTransmission", refraction.transmission())
+                .setFloat("uRefractionReflection", refraction.reflection());
+        bindWithSampler(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR,
+                supplied, fallbacks);
+        bindWithSampler(builder, 1, "uNormalMap", PbrTextureRole.NORMAL,
+                supplied, fallbacks);
         return builder.build();
     }
 

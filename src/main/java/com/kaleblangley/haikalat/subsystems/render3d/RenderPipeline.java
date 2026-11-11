@@ -87,6 +87,7 @@ import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
@@ -998,6 +999,7 @@ public final class RenderPipeline {
         PipelineGeneration candidate = new PipelineGeneration(topology, reusable, generationScene == scene, maximumTextureDimension,
                 volumetricFogSettings);
         lastCandidateGenerationId = candidate.id();
+        boolean refraction = RefractionPass.presentIn(generationScene);
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
             GtaoAllocationPlan.validateDeviceExtent(topology.width(), topology.height(), maximumTextureDimension);
@@ -1043,7 +1045,8 @@ public final class RenderPipeline {
                     pointShadowAtlas, spotShadowAtlas, topology,
                     localShadowSettings.cacheStaticTiles(),
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
-                    surfaceExecutor(candidate), surfaceResolveExecutor(candidate), geometryExecutor());
+                    surfaceExecutor(candidate), surfaceResolveExecutor(candidate), geometryExecutor(),
+                    refraction);
             VolumetricSurfaceInputs volumeInputs = null;
             if (candidate.volumetric() != null) {
                 volumeInputs = new VolumetricSurfaceInputs(candidate.surfaceInputs());
@@ -1059,6 +1062,23 @@ public final class RenderPipeline {
                 if (candidate.topology().sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(WaterSurfacePass.PASS_NAME);
                 }
+            }
+            if (refraction) {
+                String colourProducer = topology.volumetricFog()
+                        ? VolumetricPassBuilder.TRANSPARENT_PASS
+                        : PostProcessTargets.GEOMETRY_PASS;
+                var sharedDepth = topology.sceneSurface().raw(
+                        com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
+                String depthTexture = sharedDepth == null
+                        ? PostProcessTargets.SCENE_DEPTH : sharedDepth.name();
+                String depthProducer = sharedDepth == null
+                        ? PostProcessTargets.GEOMETRY_PASS : sharedDepth.producer();
+                ForwardPassBuilder.addRefractionPasses(candidate.graph(), topology.sampleCount(),
+                        ForwardPassBuilder.sceneColorFormat(settings), colourProducer,
+                        depthTexture, depthProducer, refractionSourceExecutor(colourProducer),
+                        refractionExecutor());
+                candidate.postProcess().sceneColorInput(PostProcessTargets.SCENE_COLOR,
+                        RefractionPass.PASS_NAME);
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);
@@ -2289,6 +2309,26 @@ public final class RenderPipeline {
                         ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0,
                 gtaoTexture,requireGeneration().volumetric() == null ? 0 : 1);
         };
+    }
+
+    private PassExecutor refractionSourceExecutor(String sourcePass) {
+        return (res, cmd) -> {
+            Framebuffer source = res.framebufferOfPass(sourcePass);
+            Framebuffer target = res.currentTarget();
+            if (source != null && target != null) RefractionPass.recordSourceCopy(cmd, source, target);
+        };
+    }
+
+    /**
+     * Records only refraction materials against the pre-pass snapshot. The
+     * pass shares the scene-colour attachment and depth with the producer but
+     * samples {@link RefractionPass#SOURCE_TEXTURE}, so it cannot feed back into
+     * its own output.
+     */
+    private PassExecutor refractionExecutor() {
+        return (res, cmd) -> RefractionPass.record(cmd, sceneFrame(), frameCamera(),
+                res.colorAttachment(RefractionPass.SOURCE_TEXTURE),
+                frameWidth(), frameHeight());
     }
 
     private void recordVolumeShadowInputs(PipelineGeneration generation,

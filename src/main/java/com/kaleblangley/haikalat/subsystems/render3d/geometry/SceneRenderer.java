@@ -105,6 +105,9 @@ public final class SceneRenderer {
             Matrix4f model = frame.copyModel(entry, modelScratch);
             MaterialInstance material = renderer.material();
             Material materialTemplate = material.material();
+            // Refraction materials own a separate shader and are recorded by
+            // RefractionPass after the resolved scene-colour snapshot exists.
+            if (materialTemplate.refraction().active()) continue;
             if (segment == 3 && materialTemplate.volumetricFogOptOut()) continue;
             ShaderProgram shader = segment >= 2
                     ? host.transparentShader(materialTemplate, materialTemplate.shader())

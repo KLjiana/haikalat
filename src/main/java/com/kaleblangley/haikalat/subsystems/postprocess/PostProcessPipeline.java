@@ -362,15 +362,15 @@ public final class PostProcessPipeline implements AutoCloseable {
     private void addLdrFinalPass(RenderGraph graph) {
         switch (settings.antiAliasingMode()) {
             case FXAA -> {
-                fxaa.addLdrPass(graph, PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.SCENE_COLOR);
+                fxaa.addLdrPass(graph, sceneColorProducer, PostProcessTargets.SCENE_COLOR);
                 addLdrPresentPass(graph, PostProcessTargets.FXAA_PASS);
             }
             case TAA -> {
-                if (reactiveRequested()) addReactivePass(graph, PostProcessTargets.GEOMETRY_PASS);
-                addTaaPass(graph, PostProcessTargets.SCENE_COLOR, PostProcessTargets.GEOMETRY_PASS);
+                if (reactiveRequested()) addReactivePass(graph, sceneColorProducer);
+                addTaaPass(graph, PostProcessTargets.SCENE_COLOR, sceneColorProducer);
                 addTaaPresentPass(graph);
             }
-            case NONE, MSAA -> addLdrPresentPass(graph, PostProcessTargets.GEOMETRY_PASS);
+            case NONE, MSAA -> addLdrPresentPass(graph, sceneColorProducer);
         }
     }
 

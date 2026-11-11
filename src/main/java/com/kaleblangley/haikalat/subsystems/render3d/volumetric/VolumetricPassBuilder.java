@@ -172,6 +172,7 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         if (closed || colorSamples != topology.sampleCount() || colorVfx != topology.hdrVfx()) return false;
         for (var renderer : scene.renderers()) {
             var material = renderer.material().material();
+            if (material.refraction().active()) continue;
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
                     && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) return false;
         }
@@ -213,6 +214,7 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         }
         for (MeshRenderer renderer : scene.renderers()) {
             var material=renderer.material().material();
+            if (material.refraction().active()) continue;
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
                     && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) {
                 if (composite != null) throw new IllegalArgumentException("reused fog owner cannot compile new material variants during candidate assembly");
@@ -382,7 +384,7 @@ public final class VolumetricPassBuilder implements AutoCloseable {
             for(int i=0;i<frame.forwardCount();i++) {
                 int entry=frame.forwardEntry(i); if(frame.castsOpaqueShadow(entry))continue;
                 var material=frame.renderer(entry).material().material();
-                if(material.volumetricFogOptOut() || transparentVariants.containsKey(material.shader())
+                if(material.refraction().active() || material.volumetricFogOptOut() || transparentVariants.containsKey(material.shader())
                         || added!=null && added.containsKey(material.shader()))continue;
                 if(added==null)added=new java.util.IdentityHashMap<>();
                 added.put(material.shader(),material.shader().withFragmentPrelude(VolumetricFogView.SHADER_CONTRACT,VolumetricFogView.fragmentPrelude()));
