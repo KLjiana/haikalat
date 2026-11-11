@@ -8,20 +8,20 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "bf89ec62-b6bc-42a3-98e0-12eba5cccf39",
+                                          "runId":  "49f488fd-a9dd-4da8-b09e-8e7488e9ad5a",
                                           "status":  "PASS",
-                                          "tests":  229,
+                                          "tests":  233,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/bf89ec62-b6bc-42a3-98e0-12eba5cccf39/result.json",
-                                          "logicReport":  "build/reports/logic-verification/100c2c0b-6158-42fa-a4a4-7493b166b29b/report.json",
+                                          "evidence":  "build/reports/bounded-verification/49f488fd-a9dd-4da8-b09e-8e7488e9ad5a/result.json",
+                                          "logicReport":  "build/reports/logic-verification/a1cb9207-325b-478e-9c48-ecc1121359d8/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration",
-                        "head":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4"
+                        "head":  "687639f"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T07:29:34.5901317+08:00",
+    "updatedAt":  "2026-11-11T08:27:21.6174229+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -37,7 +37,7 @@
                                          1,
                                          2
                                      ],
-                      "state":  "INTEGRATED",
+                      "state":  "DONE",
                       "scope":  "C04/C05 GL evidence: transformed rim pixels, adjacent atlas cells, flipbook/filter boundary",
                       "dependencies":  [
 
@@ -48,21 +48,21 @@
                                      ],
                       "baseCommit":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
                       "workerCommit":  "65c718e",
-                      "integrationCommit":  "04af822",
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
                                             "VfxRendererGlTest",
                                             "VfxMaterialTest"
                                         ],
                       "evidence":  [
-                                       "worker GL: glSmoke --tests *VfxRendererGlTest PASS",
-                                       "integration GL: glSmoke --tests *VfxRendererGlTest PASS"
+                                       "focused verify 49f488fd: 233 tests, 0 skipped/failures",
+                                       "GPU glSmoke B0-M/B0-T targeted PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
-                      "functional":  "PASS_LOCAL_GL",
+                      "review":  "APPROVED_AFTER_FOLLOWUP",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent review then accept C04/C05 evidence"
+                      "nextAction":  "Closed in B0 checkpoint"
                   },
                   {
                       "taskId":  "B0-T",
@@ -70,7 +70,7 @@
                                          3,
                                          7
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "C12/C13: light generation/shadow/history behavior; rapid dissolve under TAA with camera and occlusion changes",
                       "dependencies":  [
 
@@ -81,21 +81,22 @@
                                      ],
                       "baseCommit":  "b9911aeb7d7afee478bd6d0f87dcf17949e66cd4",
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
                                             "VfxLightingGlTest",
                                             "VolumetricCompositeGlTest",
                                             "RenderFeatureControlGlTest"
                                         ],
                       "evidence":  [
-
+                                       "focused verify 49f488fd: 233 tests, 0 skipped/failures",
+                                       "GPU glSmoke B0-M/B0-T targeted PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "APPROVED_AFTER_FOLLOWUP",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Worker extending C12/C13 tests in worktree b0t"
+                      "nextAction":  "Closed in B0 checkpoint"
                   },
                   {
                       "taskId":  "B0-R",
@@ -105,7 +106,7 @@
                                          3,
                                          7
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Re-verify pause/resume/replay, single mesh after Apply, A/B seed/time, light 0/nonzero, rim-zero at dissolve=0.5",
                       "dependencies":  [
 
@@ -116,28 +117,29 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
                                             "CombatVfxControllerTest",
                                             "EffectInstanceTest",
                                             "VfxRendererGlTest"
                                         ],
                       "evidence":  [
-
+                                       "focused verify 49f488fd: 233 tests, 0 skipped/failures",
+                                       "GPU glSmoke B0-M/B0-T targeted PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "APPROVED_AFTER_FOLLOWUP",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Run regression and record real evidence"
+                      "nextAction":  "Closed in B0 checkpoint"
                   },
                   {
                       "taskId":  "R01",
                       "featureIds":  [
                                          1
                                      ],
-                      "state":  "VERIFY_BASELINE",
+                      "state":  "B0_VERIFIED",
                       "scope":  "Fresnel / Rim Lighting",
                       "dependencies":  [
                                            null
@@ -148,26 +150,26 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "B0 checkpoint 49f488fd"
                                    ],
                       "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Track as baseline implementation for later technology tasks"
                   },
                   {
                       "taskId":  "R02",
                       "featureIds":  [
                                          2
                                      ],
-                      "state":  "VERIFY_BASELINE",
+                      "state":  "B0_VERIFIED",
                       "scope":  "UV Flow / Distortion",
                       "dependencies":  [
                                            null
@@ -178,26 +180,26 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "B0 checkpoint 49f488fd"
                                    ],
                       "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Track as baseline implementation for later technology tasks"
                   },
                   {
                       "taskId":  "R03",
                       "featureIds":  [
                                          3
                                      ],
-                      "state":  "VERIFY_BASELINE",
+                      "state":  "B0_VERIFIED",
                       "scope":  "Dissolve / Erosion",
                       "dependencies":  [
                                            null
@@ -208,19 +210,19 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "B0 checkpoint 49f488fd"
                                    ],
                       "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Track as baseline implementation for later technology tasks"
                   },
                   {
                       "taskId":  "R04",
@@ -317,7 +319,7 @@
                       "featureIds":  [
                                          7
                                      ],
-                      "state":  "VERIFY_BASELINE",
+                      "state":  "B0_VERIFIED",
                       "scope":  "VFX Dynamic Lighting",
                       "dependencies":  [
                                            null
@@ -328,19 +330,19 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "687639f",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "B0 checkpoint 49f488fd"
                                    ],
                       "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Track as baseline implementation for later technology tasks"
                   },
                   {
                       "taskId":  "R08",
@@ -1522,5 +1524,19 @@
                   "B0 is the first checkpoint; new-tech technical cards may proceed in parallel where owner files do not conflict.",
                   "No push, tag or release publication authorized in this run.",
                   "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed."
-              ]
+              ],
+    "b0":  {
+               "state":  "INTEGRATED",
+               "integrationCommit":  "687639f",
+               "verificationRun":  "49f488fd-a9dd-4da8-b09e-8e7488e9ad5a",
+               "tests":  233,
+               "review":  "REVIEWED_WITH_FOLLOWUP",
+               "functional":  "PASS_FOCUSED",
+               "notes":  [
+                             "B0-M: transformed rim + analytic slanted-normal GL, 2x1 atlas cell isolation and minified base-level sampling",
+                             "B0-T: no LIGHTING invalidation/graph rebuild on effect-light value change; TAA camera+occluder reveal compared to no-VFX reference",
+                             "B0-R: pause/apply/A-B/light/dissolve regressions covered by controller and GL suites",
+                             "Static shadow cache claim was dropped: cacheStaticTiles is disabled in legacy defaults; not claimed as PASS"
+                         ]
+           }
 }
