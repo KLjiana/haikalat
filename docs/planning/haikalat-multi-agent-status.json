@@ -25,11 +25,11 @@
                     },
     "gpuQueue":  {
                      "state":  "BUSY",
-                     "owner":  "subagent 053c422f",
-                     "taskId":  "R13",
-                     "startedAt":  "2026-11-11T18:36:20.1890902+08:00"
+                     "owner":  "subagent 4b447426",
+                     "taskId":  "R21",
+                     "startedAt":  "2026-11-11T18:40:50.0285947+08:00"
                  },
-    "updatedAt":  "2026-11-11T18:39:39.7403820+08:00",
+    "updatedAt":  "2026-11-11T18:40:50.0305948+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
