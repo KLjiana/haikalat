@@ -237,7 +237,8 @@ class GpuParticleSortingGlTest {
                 assertEquals(5, readActiveCount(particles));
                 int[] active = readActiveIndices(particles, 5);
                 int[] sorted = readSortedIndices(particles, 8);
-                int[] oracle = oracleOrder(active, five);
+                int[] oracle = oracleOrder(active, five,
+                        SortKey.VIEW_DEPTH, SortDirection.FRONT_TO_BACK);
                 assertArrayPrefix(oracle, sorted, 5);
                 assertSentinels(Arrays.copyOfRange(sorted, 5, 8));
                 assertEquals(5, uniqueCount(sorted, 5));
@@ -282,7 +283,8 @@ class GpuParticleSortingGlTest {
                 renderScene(device, target, stable);
                 int[] mixedActive = readActiveIndices(stable, 3);
                 int[] mixedSorted = sortedPrefix(stable, 3);
-                int[] mixedOracle = oracleOrder(mixedActive, mixed);
+                int[] mixedOracle = oracleOrder(mixedActive, mixed,
+                        SortKey.VIEW_DEPTH, SortDirection.FRONT_TO_BACK);
                 assertArrayEquals(mixedOracle, mixedSorted,
                         "stable ties must survive a mixed key set");
 
@@ -327,10 +329,28 @@ class GpuParticleSortingGlTest {
                 upload(device, distance, positions, 10.0f);
                 upload(device, backToFront, positions, 10.0f);
 
+                // Independent hand calculation for the fixture (eye at z = 3):
+                //   slot 0 (4,0,0): view depth 3, eye distance 5
+                //   slot 1 (0,0,0): view depth 3, eye distance 3
+                //   slot 2 (0,0,2): view depth 1, eye distance 1
+                // FRONT_TO_BACK view depth: slot 2, then the equal-depth pair in
+                // active order (slot 0 before slot 1 for active [0,1,2]).
+                // FRONT_TO_BACK eye distance: slot 2, slot 1, slot 0 - the pair is
+                // ordered by distance, not by the shared view depth.
+                // BACK_TO_FRONT view depth: the equal-depth pair in active order,
+                // then slot 2.
+                assertEquals(SortKey.VIEW_DEPTH, depth.sortingSettings().key());
+                assertEquals(SortDirection.FRONT_TO_BACK, depth.sortingSettings().direction());
+                assertEquals(SortKey.DISTANCE, distance.sortingSettings().key());
+                assertEquals(SortDirection.FRONT_TO_BACK, distance.sortingSettings().direction());
+                assertEquals(SortKey.VIEW_DEPTH, backToFront.sortingSettings().key());
+                assertEquals(SortDirection.BACK_TO_FRONT, backToFront.sortingSettings().direction());
+
                 renderScene(device, target, depth);
                 int[] depthActive = readActiveIndices(depth, 3);
                 int[] depthSorted = sortedPrefix(depth, 3);
-                assertArrayEquals(oracleOrder(depthActive, positions), depthSorted);
+                assertArrayEquals(oracleOrder(depthActive, positions,
+                        SortKey.VIEW_DEPTH, SortDirection.FRONT_TO_BACK), depthSorted);
                 // Particles 0 and 1 share the same view depth; the stable policy
                 // keeps their relative active order instead of using distance.
                 assertEquals(Integer.compare(indexOfActive(depthActive, 0),
@@ -342,7 +362,8 @@ class GpuParticleSortingGlTest {
                 renderScene(device, target, distance);
                 int[] distanceActive = readActiveIndices(distance, 3);
                 int[] distanceSorted = sortedPrefix(distance, 3);
-                assertArrayEquals(oracleOrder(distanceActive, positions), distanceSorted);
+                assertArrayEquals(oracleOrder(distanceActive, positions,
+                        SortKey.DISTANCE, SortDirection.FRONT_TO_BACK), distanceSorted);
                 assertEquals(1, indexOfActive(distanceSorted, 1),
                         "eye distance puts the centred particle before the far right one");
 
@@ -350,7 +371,7 @@ class GpuParticleSortingGlTest {
                 int[] reversedActive = readActiveIndices(backToFront, 3);
                 int[] reversedSorted = sortedPrefix(backToFront, 3);
                 assertArrayEquals(oracleOrder(reversedActive, positions,
-                        SortDirection.BACK_TO_FRONT), reversedSorted);
+                        SortKey.VIEW_DEPTH, SortDirection.BACK_TO_FRONT), reversedSorted);
                 assertEquals(3, uniqueCount(reversedSorted, 3));
                 assertEquals(GL_NO_ERROR, glGetError());
             }
@@ -622,16 +643,21 @@ class GpuParticleSortingGlTest {
         }
     }
 
-    private static int[] oracleOrder(int[] active, List<Vector3f> slotPositions) {
-        return oracleOrder(active, slotPositions, SortDirection.FRONT_TO_BACK);
-    }
-
+    /**
+     * Independent expected order for one owner configuration.
+     *
+     * <p>The metric and direction are explicit on purpose: the first GL round
+     * compared the distance owner against a view-depth oracle because this
+     * helper used to hardcode {@link SortKey#VIEW_DEPTH}. Every call site must
+     * state the key and direction it configured on the owner, and the call
+     * sites assert the owner really carries those settings.</p>
+     */
     private static int[] oracleOrder(int[] active, List<Vector3f> slotPositions,
-                                     SortDirection direction) {
+                                     SortKey key, SortDirection direction) {
         float[] metrics = new float[active.length];
         for (int index = 0; index < active.length; index++) {
             metrics[index] = GpuParticleSortingReference.metric(view(),
-                    slotPositions.get(active[index]), SortKey.VIEW_DEPTH);
+                    slotPositions.get(active[index]), key);
         }
         return GpuParticleSortingReference.stableSort(active, metrics, direction);
     }

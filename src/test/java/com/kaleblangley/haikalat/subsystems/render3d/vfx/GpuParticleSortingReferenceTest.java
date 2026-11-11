@@ -89,6 +89,45 @@ class GpuParticleSortingReferenceTest {
     }
 
     @Test
+    void viewDepthAndEyeDistanceOrderTheGlFixtureDifferently() {
+        Matrix4f view = view();
+        Vector3f[] worlds = {new Vector3f(4.0f, 0.0f, 0.0f),
+                new Vector3f(0.0f, 0.0f, 0.0f), new Vector3f(0.0f, 0.0f, 2.0f)};
+
+        assertEquals(3.0f, GpuParticleSortingReference.metric(view, worlds[0],
+                SortKey.VIEW_DEPTH), 1.0e-6f);
+        assertEquals(3.0f, GpuParticleSortingReference.metric(view, worlds[1],
+                SortKey.VIEW_DEPTH), 1.0e-6f);
+        assertEquals(1.0f, GpuParticleSortingReference.metric(view, worlds[2],
+                SortKey.VIEW_DEPTH), 1.0e-6f);
+        assertEquals(5.0f, GpuParticleSortingReference.metric(view, worlds[0],
+                SortKey.DISTANCE), 1.0e-6f);
+        assertEquals(3.0f, GpuParticleSortingReference.metric(view, worlds[1],
+                SortKey.DISTANCE), 1.0e-6f);
+        assertEquals(1.0f, GpuParticleSortingReference.metric(view, worlds[2],
+                SortKey.DISTANCE), 1.0e-6f);
+
+        // Active order [0,1,2]: slots 0 and 1 share view depth 3, so the stable
+        // policy keeps slot 0 first; eye distance orders slot 1 before slot 0.
+        int[] active = {0, 1, 2};
+        assertArrayEquals(new int[]{2, 0, 1},
+                GpuParticleSortingReference.stableSort(active, new float[]{3.0f, 3.0f, 1.0f},
+                        SortDirection.FRONT_TO_BACK));
+        assertArrayEquals(new int[]{2, 1, 0},
+                GpuParticleSortingReference.stableSort(active, new float[]{5.0f, 3.0f, 1.0f},
+                        SortDirection.FRONT_TO_BACK));
+        assertArrayEquals(new int[]{0, 1, 2},
+                GpuParticleSortingReference.stableSort(active, new float[]{3.0f, 3.0f, 1.0f},
+                        SortDirection.BACK_TO_FRONT));
+
+        // When the equal-depth pair itself is published in the other order, the
+        // stable oracle follows that published order instead of the slot number.
+        assertArrayEquals(new int[]{2, 1, 0},
+                GpuParticleSortingReference.stableSort(new int[]{1, 0, 2},
+                        new float[]{3.0f, 3.0f, 1.0f}, SortDirection.FRONT_TO_BACK));
+    }
+
+    @Test
     void centredBillboardCompositesTheHandComputedByteValue() {
         byte[] pixels = GpuParticleSortingReference.composite(WIDTH, HEIGHT, viewProjection(),
                 List.of(new Billboard(new Vector3f(), 10.0f,
