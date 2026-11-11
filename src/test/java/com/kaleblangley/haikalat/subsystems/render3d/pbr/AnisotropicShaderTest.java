@@ -63,9 +63,10 @@ class AnisotropicShaderTest {
                 "            : directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);"),
                 "both direct evaluators must keep the original isotropic call as the fallback");
         assertTrue(source.contains(
-                "vec3 reflection = rotateEnvironment(reflect(-v, n));\n"
+                "vec3 worldReflection = reflect(-v, n);\n"
+                        + "    vec3 reflection = rotateEnvironment(worldReflection);\n"
                         + "    float prefilterRoughness = roughness;"),
-                "the original reflection must be computed before the bounded IBL branch");
+                "the world reflection must be kept before the bounded IBL branch");
         assertTrue(source.contains(
                 "textureLod(uPrefilteredMap, reflection,\n"
                         + "            prefilterRoughness * uPrefilterMaxLod).rgb;"),
@@ -147,11 +148,12 @@ class AnisotropicShaderTest {
     @Test
     void iblBranchIsBoundedAndExplicitlyApproximate() throws IOException {
         String source = resource(PBR);
-        String ibl = section(source, "    vec3 reflection = rotateEnvironment(reflect(-v, n));",
+        String ibl = section(source, "    vec3 worldReflection = reflect(-v, n);",
                 "    vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;");
         assertTrue(ibl.contains(
                 "// Bounded approximation, not an exact anisotropic IBL: the existing"));
-        assertTrue(ibl.contains("reflection = rotateEnvironment(anisotropicReflectionDirection("));
+        assertTrue(ibl.contains("worldReflection = anisotropicReflectionDirection("));
+        assertTrue(ibl.contains("reflection = rotateEnvironment(worldReflection);"));
         assertTrue(ibl.contains("prefilterRoughness = clamp(roughness * (1.0 + 0.5 * anisotropicStrength),"));
         assertTrue(ibl.contains("textureLod(uPrefilteredMap, reflection,"));
         assertTrue(ibl.contains("prefilterRoughness * uPrefilterMaxLod).rgb;"));
@@ -245,10 +247,10 @@ class AnisotropicShaderTest {
         assertEquals(helperBlock(production), helperBlock(reference),
                 "the benchmark-only reference must not drift from the anisotropic BRDF");
         assertEquals(section(production,
-                        "    vec3 reflection = rotateEnvironment(reflect(-v, n));",
+                        "    vec3 worldReflection = reflect(-v, n);",
                         "    vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;"),
                 section(reference,
-                        "    vec3 reflection = rotateEnvironment(reflect(-v, n));",
+                        "    vec3 worldReflection = reflect(-v, n);",
                         "    vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;"),
                 "the bounded IBL branch must match in both shaders");
     }
