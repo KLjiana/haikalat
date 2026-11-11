@@ -44,4 +44,16 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                     "water surface does not compose with volumetric fog in this version");
         }
     }
+
+    /**
+     * Rejects the first-version refraction + finite-water combination instead
+     * of silently overwriting one producer with the other.
+     */
+    public void validateRefractionWater(boolean refractionPresent) {
+        if (refractionPresent && topology.waterSurface()) {
+            throw new IllegalStateException(
+                    "single-layer refraction and finite water surface are mutually exclusive "
+                            + "in this version; disable one of them");
+        }
+    }
 }

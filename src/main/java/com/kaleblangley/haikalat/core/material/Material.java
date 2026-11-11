@@ -332,6 +332,11 @@ public final class Material implements GlResource {
         }
 
         public Material build() {
+            if (refraction.active()
+                    && (blendMode != BlendMode.ALPHA || model != MaterialModel.METALLIC_ROUGHNESS)) {
+                throw new IllegalArgumentException(
+                        "refraction materials require BlendMode.ALPHA and METALLIC_ROUGHNESS");
+            }
             return new Material(this);
         }
 

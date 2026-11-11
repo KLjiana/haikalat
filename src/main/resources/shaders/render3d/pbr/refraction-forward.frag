@@ -107,13 +107,14 @@ void main() {
     }
 
     vec3 refractedColor = vec3(0.0);
-    if (uRefractionRoughness <= 1.0e-4) {
+    float roughness = clamp(uRefractionRoughness, 0.0, 1.0);
+    if (roughness <= 1.0e-4) {
         refractedColor = sampleRefracted(centreUv + offset, centreUv);
     } else {
         // Fixed four-tap spread.  The per-pixel rotation is deterministic so a
         // static scene reproduces the same rough transmission frame to frame.
         float rotation = refractionHash(gl_FragCoord.xy) * REFRACTION_TAU;
-        float radius = uRefractionRoughness * REFRACTION_MAX_ROUGHNESS_SPREAD_UV;
+        float radius = roughness * REFRACTION_MAX_ROUGHNESS_SPREAD_UV;
         for (int tap = 0; tap < REFRACTION_MAX_ROUGH_TAPS; tap++) {
             float angle = rotation + float(tap) * REFRACTION_TAU
                     / float(REFRACTION_MAX_ROUGH_TAPS);

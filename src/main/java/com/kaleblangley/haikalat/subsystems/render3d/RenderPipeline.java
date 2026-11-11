@@ -1002,6 +1002,8 @@ public final class RenderPipeline {
         boolean refraction = RefractionPass.presentIn(generationScene);
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
+            new PipelineFeaturePolicy(topology, pbrEnvironment != null)
+                    .validateRefractionWater(refraction);
             GtaoAllocationPlan.validateDeviceExtent(topology.width(), topology.height(), maximumTextureDimension);
             long retainedSurfaceBytes = activeGeneration == null ? 0 : activeGeneration.surfaceBytes();
             for (var retired : retiredGenerations) {
@@ -1079,6 +1081,9 @@ public final class RenderPipeline {
                         refractionExecutor());
                 candidate.postProcess().sceneColorInput(PostProcessTargets.SCENE_COLOR,
                         RefractionPass.PASS_NAME);
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
+                }
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);

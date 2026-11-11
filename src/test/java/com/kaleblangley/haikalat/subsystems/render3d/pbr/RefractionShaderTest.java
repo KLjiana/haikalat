@@ -33,7 +33,9 @@ class RefractionShaderTest {
         assertTrue(source.contains("#define REFRACTION_MAX_ROUGHNESS_SPREAD_UV 0.02"));
         assertTrue(source.contains("for (int tap = 0; tap < REFRACTION_MAX_ROUGH_TAPS; tap++)"),
                 "rough transmission must have a fixed bounded tap loop");
-        assertTrue(source.contains("uRefractionRoughness <= 1.0e-4"),
+        assertTrue(source.contains("float roughness = clamp(uRefractionRoughness, 0.0, 1.0)"),
+                "runtime roughness overrides must be clamped to the published range");
+        assertTrue(source.contains("roughness <= 1.0e-4"),
                 "zero roughness must take the single-tap path");
         assertTrue(source.contains("clamp(uRefractionIor, 1.0, 2.5)"),
                 "the shader must clamp runtime IOR overrides to the published range");

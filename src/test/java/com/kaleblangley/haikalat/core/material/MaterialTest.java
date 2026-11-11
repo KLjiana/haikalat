@@ -169,7 +169,10 @@ class MaterialTest {
                 "existing materials must keep the exact no-op refraction path");
 
         RefractionSettings glass = RefractionSettings.of(1.52f, 0.4f, 0.2f, 0.9f, 0.1f);
-        Material refractive = Material.builder(shader(8)).refraction(glass).build();
+        Material refractive = Material.builder(shader(8))
+                .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA)
+                .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                .refraction(glass).build();
         assertEquals(glass, refractive.refraction());
         assertTrue(refractive.refraction().active());
         assertThrows(NullPointerException.class,

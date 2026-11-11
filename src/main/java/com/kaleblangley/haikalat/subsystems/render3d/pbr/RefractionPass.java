@@ -146,6 +146,8 @@ public final class RefractionPass {
             cmd.drawMesh(renderer.mesh());
         }
         // Restore the state later passes expect from the shared depth target.
-        cmd.enableBlend(false).depthMask(true).enableDepthTest(true).frontFace(FrontFace.CCW);
+        cmd.enableBlend(false).depthMask(true).enableDepthTest(true)
+                .depthFunc(org.lwjgl.opengl.GL11.GL_LESS)
+                .frontFace(FrontFace.CCW);
     }
 }

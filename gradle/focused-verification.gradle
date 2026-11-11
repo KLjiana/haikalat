@@ -45,7 +45,7 @@ def jvmCases = [
         'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
         'RenderGraphCompilerTest', 'RenderFeatureControlTest',
-        'VfxMaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
+        'VfxMaterialTest', 'MaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
         'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
         'VignetteSettingsTest', 'FilmGrainSettingsTest', 'ChromaticAberrationSettingsTest',
         'PostProcessSettingsTest', 'ContactShadowSettingsTest', 'ContactShadowShaderTest',
@@ -60,7 +60,8 @@ def jvmCases = [
         'MotionBlurSettingsTest', 'MotionBlurMathTest', 'MotionBlurShaderTest',
         'WaterSurfaceSettingsTest',
         'RefractionSettingsTest', 'RefractionReferenceMathTest', 'RefractionShaderTest',
-        'SmaaLookupTablesTest', 'SmaaContractTest', 'SmaaEdgeReferenceTest'
+        'SmaaLookupTablesTest', 'SmaaContractTest', 'SmaaEdgeReferenceTest',
+        'PipelineFeaturePolicyTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',

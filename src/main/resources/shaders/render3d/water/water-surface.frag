@@ -114,7 +114,7 @@ void main() {
     vec3 reflection = uReflectionFallback;
     if (uHasEnvironment == 1) {
         reflection = rotateEnvironment(reflect(viewDirection, normal));
-        reflection = texture(uEnvironment, reflection).rgb * uEnvironmentIntensity;
+        reflection = textureLod(uEnvironment, reflection, 0.0).rgb * uEnvironmentIntensity;
     }
 
     float absorb = 1.0 - exp(-uAbsorptionDensity * thickness);
