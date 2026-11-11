@@ -8,28 +8,28 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "8b5c01e6-69c9-43b4-876e-e368990e0ecd",
+                                          "runId":  "7bb1da70-720d-459a-85ff-5064f96fbaa1",
                                           "status":  "PASS",
-                                          "tests":  340,
+                                          "tests":  391,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/8b5c01e6-69c9-43b4-876e-e368990e0ecd/result.json",
-                                          "logicReport":  "build/reports/logic-verification/e16b78a5-92e4-41c4-90a2-3bc33d88ba1d/report.json",
+                                          "evidence":  "build/reports/bounded-verification/7bb1da70-720d-459a-85ff-5064f96fbaa1/result.json",
+                                          "logicReport":  "build/reports/logic-verification/446345b6-b49c-4f4f-92be-3fe80edeade8/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "bdbd2b5"
+                        "head":  "cda53e8"
                     },
     "gpuQueue":  {
-                     "state":  "BUSY",
-                     "owner":  "subagent 4316d60a",
-                     "taskId":  "R14",
-                     "startedAt":  "2026-11-11T19:30:10.9021694+08:00"
+                     "state":  "IDLE",
+                     "owner":  null,
+                     "taskId":  null,
+                     "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T19:30:10.9046604+08:00",
+    "updatedAt":  "2026-11-11T19:54:25.3177714+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -525,7 +525,7 @@
                       "featureIds":  [
                                          13
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "Single-layer glass/shield refraction with IOR and thickness",
                       "dependencies":  [
                                            null
@@ -541,21 +541,22 @@
 
                                         ],
                       "evidence":  [
-
+                                       "fresh real-GL contract PASS in worker worktree",
+                                       "focused verify 7bb1da70: 391 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Implement in s3-refract; GPU slot granted"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R14",
                       "featureIds":  [
                                          14
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "Finite water surface with waves, absorption and shore fade",
                       "dependencies":  [
                                            null
@@ -571,14 +572,15 @@
 
                                         ],
                       "evidence":  [
-
+                                       "fresh real-GL contract PASS in worker worktree",
+                                       "focused verify 7bb1da70: 391 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Implement in s3-water; wait for GPU slot"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R15",
@@ -705,7 +707,7 @@
                       "featureIds":  [
                                          19
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "Directional PCSS on the existing cascade atlas",
                       "dependencies":  [
                                            null
@@ -721,14 +723,15 @@
 
                                         ],
                       "evidence":  [
-
+                                       "fresh real-GL contract PASS in worker worktree",
+                                       "focused verify 7bb1da70: 391 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Implement in s2-pcss; JVM first, GPU queued"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R20",
@@ -776,7 +779,7 @@
                                      ],
                       "baseCommit":  "8c768cf",
                       "workerCommit":  "42cb991 + 3822430 + 2f5a4f6",
-                      "integrationCommit":  "bdbd2b5",
+                      "integrationCommit":  "e672081",
                       "requiredCases":  [
 
                                         ],
@@ -790,7 +793,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review raster-space jitter fix at bdbd2b5"
+                      "nextAction":  "Re-review evidence-count fix"
                   },
                   {
                       "taskId":  "R22",
