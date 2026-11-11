@@ -144,7 +144,7 @@ class VertexDisplacementGlTest {
                             0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f));
             Matrix4f viewProjection = new Matrix4f(projection).mul(view);
             VertexDisplacementSettings displacement = new VertexDisplacementSettings(true,
-                    0.25f, 2.0f, 0.0f, 0.0f,
+                    0.25f, 2.0f, 1.0f, 0.0f,
                     new Vector3f(0.0f, 1.0f, 0.0f), new Vector3f(1.0f, 0.0f, 0.0f));
             try {
                 float[] baselineColor = renderForward(forward, mesh, forwardTarget, model,
