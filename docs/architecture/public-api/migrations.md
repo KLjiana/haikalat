@@ -258,3 +258,19 @@ FBO、历史或 GPU owner，逐对象切换使用 `MaterialInstance` 覆盖 `uPa
 即可。首版只改后续材质采样 UV，不改几何深度、shadow map、velocity 或轮廓，也没有
 silhouette/自遮挡/tessellation；clearcoat 法线贴图不参与 POM。算法、独立 double
 oracle、限制与验证状态见[技术卡](../../planning/v0.28.1-s3-pom.md)。
+
+v0.28.1（候选）S3 #28 加权混合 OIT 没有删除 stable 类型，也没有修改既有构造器或枚举取值。新增 advanced
+`render3d.transparency.WeightedOitSettings`（`enabled, depthWeighting, depthScale, referenceDepth,
+minimumWeight, maximumWeight, alphaThreshold, maximumSurfaces`，全部构造期校验，`disabled()` 是精确
+no-op）与 advanced `render3d.transparency.OitSurface`（世界空间平行四边形 `center/halfRight/halfUp`
++ 线性 HDR 颜色 + straight alpha），以及 internal `render3d.transparency.WeightedOitPass`。
+`enabled=false` 或 `settings.active()==false` 时不创建 Pass/附件/绘制；`alphaThreshold` 是逐层
+discard 阈值，不是 alpha 下限 clamp。附件 0 `RGBA16F` 的 RGB 存 `Σ(c·α·w)`、A 存 `Π(1-α)`
+（revealage）；附件 1 `R16F` 存 `Σ(α·w)`（权重和，revealage 不在 R16F）。surface 端把单层权重与
+贡献 clamp 到 `3.0e4`，resolve 对非有限/超过 `6.5e4` 的附件回退为 coverage=0（目标不变）并把平均颜色
+clamp 到 `65504`，因此任意合法输入产生有限 target。本包没有修改 `RenderPipeline` 公共入口；
+`RenderFeatureSettings`/`RenderPipeline` 的字段与 `weightedOit(...)`/`applyWeightedOit(...)` 接线
+由 Integrator 完成。共享 typed 命令层新增 `CommandBuffer.blendFuncSeparate(...)`、对应
+`PipelineStateSink`/`StateCache` 四因子缓存与 `PendingPipelineState` 4 整数编码/解码；既有
+`blendFunc` 的调用语义和源码兼容性不变（alpha 因子等于 RGB 因子时仍编码为 `glBlendFunc`）。
+技术范围、有限输出保护与误差界见 [技术卡](../../planning/v0.28.1-s3-oit.md)。

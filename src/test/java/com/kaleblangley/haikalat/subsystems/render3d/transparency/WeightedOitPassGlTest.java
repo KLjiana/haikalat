@@ -342,6 +342,91 @@ class WeightedOitPassGlTest {
         }
     }
 
+    @Test
+    void extremeBrightLayerIsClampedAndStaysFinite() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            Matrix4f view = new Matrix4f();
+            Matrix4f projection = projection();
+            WeightedOitSettings settings = WeightedOitSettings.builder()
+                    .enabled(true).depthWeighting(true).depthScale(10.0f)
+                    .referenceDepth(20.0f).minimumWeight(1.0e-2f)
+                    .maximumWeight(300.0f).alphaThreshold(0.0f)
+                    .maximumSurfaces(8).build();
+            // Reviewer counterexample: 7000 * 9.975 = 69825 > half-float max.
+            OitSurface surface = screenQuad(1.0f, 7000.0f, 7000.0f, 7000.0f, 1.0f);
+
+            try (WeightedOitPass pass = new WeightedOitPass(SIZE, SIZE, settings);
+                 Framebuffer target = hdrTarget()) {
+                FloatBuffer resolved = render(device, pass, target, List.of(surface), view,
+                        projection, settings, true);
+                assertAllFiniteAndBounded(resolved, 65504.0f);
+
+                float weight = (float) referenceWeight(settings, 1.0);
+                float expectedAverage = 30_000.0f / weight;
+                int center = pixel(SIZE / 2, SIZE / 2);
+                assertEquals(expectedAverage, resolved.get(center * 4), 2.5f,
+                        "the per-layer contribution cap must feed the resolve, not a fallback");
+                assertEquals(0.0f, resolved.get(center * 4 + 1), 1.0e-6f);
+                assertEquals(0.0f, resolved.get(center * 4 + 2), 1.0e-6f);
+
+                FloatBuffer accumulation = readAttachment(device, pass.framebufferId(),
+                        GL_COLOR_ATTACHMENT0, 4);
+                FloatBuffer weightSum = readAttachment(device, pass.framebufferId(),
+                        GL_COLOR_ATTACHMENT1, 1);
+                assertAllFiniteAndBounded(accumulation, 30_000.0f);
+                assertAllFiniteAndBounded(weightSum, 30_000.0f);
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
+    void overflowingOpaqueStackFallsBackToTheUnchangedTarget() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            Matrix4f view = new Matrix4f();
+            Matrix4f projection = projection();
+            WeightedOitSettings settings = WeightedOitSettings.builder()
+                    .enabled(true).depthWeighting(true).depthScale(1000.0f)
+                    .referenceDepth(1_000_000.0f).minimumWeight(1.0e-4f)
+                    .maximumWeight(1000.0f).alphaThreshold(0.0f)
+                    .maximumSurfaces(128).build();
+            List<OitSurface> stack = new ArrayList<>();
+            // 100 layers x alpha 1 x weight ~= 1000 -> 100000 per attachment,
+            // far beyond the half-float maximum; the resolve must reject it.
+            for (int index = 0; index < 100; index++) {
+                stack.add(screenQuad(1.0f, 1.0f, 1.0f, 1.0f, 1.0f));
+            }
+
+            try (WeightedOitPass pass = new WeightedOitPass(SIZE, SIZE, settings);
+                 Framebuffer target = hdrTarget()) {
+                FloatBuffer resolved = render(device, pass, target, stack, view, projection,
+                        settings, true);
+                assertAllFiniteAndBounded(resolved, 65504.0f);
+                assertPixel(BACKGROUND, resolved, pixel(SIZE / 2, SIZE / 2), 1.0e-4f,
+                        "overflowed accumulation must fall back to the unchanged target");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    private static void assertAllFiniteAndBounded(FloatBuffer pixels, float maximum) {
+        for (int index = 0; index < pixels.capacity(); index++) {
+            float value = pixels.get(index);
+            assertTrue(Float.isFinite(value),
+                    "readback[" + index + "] must be finite but was " + value);
+            assertTrue(value >= 0.0f && value <= maximum,
+                    "readback[" + index + "] out of [" + 0 + ", " + maximum + "]: " + value);
+        }
+    }
+
     private static Matrix4f projection() {
         return new Matrix4f().perspective(FOV_Y_RADIANS, 1.0f, 0.1f, 100.0f);
     }

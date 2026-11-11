@@ -78,10 +78,22 @@ class WeightedOitShaderTest {
                 "weight must be bounded");
         assertTrue(source.contains("if (!(alpha > uAlphaThreshold))"), "alpha threshold branch");
         assertTrue(source.contains("discard"), "alpha threshold must drop the fragment");
-        assertTrue(source.contains("vec4(vColor.rgb * alpha * weight, alpha)"),
-                "attachment 0 must sum weighted colour and store alpha in its a channel");
-        assertTrue(source.contains("oWeightSum = alpha * weight"),
-                "attachment 1 must sum alpha * weight");
+        assertTrue(source.contains("OIT_MAX_LAYER_CONTRIBUTION"),
+                "surface stage must cap one layer's contribution");
+        assertTrue(source.contains("OIT_MAX_LAYER_WEIGHT"),
+                "surface stage must cap one layer's weight");
+        assertTrue(source.contains("const float OIT_MAX_LAYER_CONTRIBUTION = 3.0e4;"),
+                "the documented per-layer contribution cap must stay 3.0e4");
+        assertTrue(source.contains("const float OIT_MAX_LAYER_WEIGHT = 3.0e4;"),
+                "the documented per-layer weight cap must stay 3.0e4");
+        assertTrue(source.contains("isnan(weight)") && source.contains("isinf(weight)"),
+                "non-finite view depth/weight must fall back to a finite weight");
+        assertTrue(source.contains("min(contribution, vec3(OIT_MAX_LAYER_CONTRIBUTION))"),
+                "contribution cap must be a hard per-channel clamp");
+        assertTrue(source.contains("vec4(contribution, clamp(alpha, 0.0, 1.0))"),
+                "attachment 0 must sum the capped weighted colour and store alpha in its a channel");
+        assertTrue(source.contains("oWeightSum = min(layerWeight, OIT_MAX_LAYER_WEIGHT)"),
+                "attachment 1 must sum the capped alpha * weight");
         assertFalse(source.contains("uSceneDepth"),
                 "the pass must not sample the shared scene depth");
     }
@@ -98,8 +110,27 @@ class WeightedOitShaderTest {
                 "coverage is one minus the accumulated transmittance");
         assertTrue(source.contains("accumulation.rgb / weightSum"),
                 "resolved colour is the weight-normalised average");
-        assertTrue(source.contains("vec4(average, coverage)"),
-                "the target is composited with coverage as alpha");
+        assertTrue(source.contains(
+                        "vec4(min(average, vec3(OIT_MAX_RESOLVED_COLOR)), coverage)"),
+                "the target is composited with bounded colour and coverage as alpha");
+        assertTrue(source.contains("OIT_MAX_ACCUMULATION")
+                        && source.contains("OIT_MAX_WEIGHT_SUM"),
+                "resolve must bound the accumulated attachments");
+        assertTrue(source.contains("const float OIT_MAX_ACCUMULATION = 6.5e4;")
+                        && source.contains("const float OIT_MAX_WEIGHT_SUM = 6.5e4;"),
+                "the documented accumulation caps must stay 6.5e4");
+        assertTrue(source.contains("const float OIT_MAX_RESOLVED_COLOR = 6.5504e4;"),
+                "the resolved colour must stay below the half-float maximum");
+        assertTrue(source.contains("OIT_MAX_RESOLVED_COLOR"),
+                "resolved colour must be clamped below the half-float maximum");
+        assertTrue(source.contains("isnan(accumulation)") && source.contains("isinf(accumulation)"),
+                "non-finite accumulation must be detected before division");
+        assertTrue(source.contains("isnan(weightSum)") && source.contains("isinf(weightSum)"),
+                "non-finite weight sum must be detected before division");
+        assertTrue(source.contains("min(average, vec3(OIT_MAX_RESOLVED_COLOR))"),
+                "the finite fallback must stay bounded");
+        assertTrue(source.contains("fragColor = vec4(0.0, 0.0, 0.0, 0.0);"),
+                "invalid accumulation must fall back to an unchanged target");
     }
 
     @Test

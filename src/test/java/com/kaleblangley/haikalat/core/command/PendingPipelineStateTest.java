@@ -73,6 +73,47 @@ class PendingPipelineStateTest {
     }
 
     @Test
+    void encodedBlendPacketCarriesAllFourFactorsAndDecodesThem() {
+        CommandStream stream = new CommandStream();
+        PendingPipelineState pending = new PendingPipelineState();
+        pending.blendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+        pending.writeTo(stream, CommandBuffer.APPLY_PIPELINE_STATE);
+
+        assertEquals(CommandBuffer.APPLY_PIPELINE_STATE, stream.opcodeAt(0));
+        assertEquals(1, stream.commandCount());
+        assertEquals(4, stream.integerAt(0), "only the BLEND_FUNCTION dirty bit is set");
+        assertEquals(GL_ONE, stream.integerAt(1));
+        assertEquals(GL_ONE, stream.integerAt(2));
+        assertEquals(GL_ZERO, stream.integerAt(3));
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(4));
+
+        RecordingSink sink = new RecordingSink();
+        int cursor = PendingPipelineState.applyEncoded(stream, 0, sink);
+        assertEquals(5, cursor, "one flags integer plus four blend factors");
+        assertEquals(List.of("blendFuncSeparate:" + GL_ONE + ":" + GL_ONE + ":"
+                + GL_ZERO + ":" + GL_ONE_MINUS_SRC_ALPHA), sink.events);
+    }
+
+    @Test
+    void encodedBlendFuncPacketKeepsTheTwoFactorForm() {
+        CommandStream stream = new CommandStream();
+        PendingPipelineState pending = new PendingPipelineState();
+        pending.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        pending.writeTo(stream, CommandBuffer.APPLY_PIPELINE_STATE);
+
+        assertEquals(GL_SRC_ALPHA, stream.integerAt(1));
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(2));
+        assertEquals(GL_SRC_ALPHA, stream.integerAt(3),
+                "a plain blendFunc must also carry equal alpha factors");
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(4));
+
+        RecordingSink sink = new RecordingSink();
+        assertEquals(5, PendingPipelineState.applyEncoded(stream, 0, sink));
+        assertEquals(List.of("blendFunc:" + GL_SRC_ALPHA + ":" + GL_ONE_MINUS_SRC_ALPHA),
+                sink.events, "equal RGB/alpha factors must stay on the glBlendFunc path");
+    }
+
+    @Test
     void drawLikeBoundariesKeepOpaqueAndTransparentPacketsOrdered() {
         PendingPipelineState pending = new PendingPipelineState();
         RecordingSink sink = new RecordingSink();
