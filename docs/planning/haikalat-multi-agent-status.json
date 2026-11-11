@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T12:45:19.2787829+08:00",
+    "updatedAt":  "2026-11-11T12:45:32.8611409+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -407,7 +407,8 @@
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
                       "nextAction":  "Independent review of shadow-map-space contact refinement and scope deviation",
-                      "scopeNote":  "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance"
+                      "scopeNote":  "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
+                      "policyCommit":  "0c14652"
                   },
                   {
                       "taskId":  "R10",
