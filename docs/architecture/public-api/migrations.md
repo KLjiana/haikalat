@@ -204,3 +204,17 @@ pass-plan 查询同样拒绝；SMAA 只消费 HDR tone mapping 之后的 display
 重建条件，SMAA 使用单采样（`sampleCount=1`）且不创建 TAA history/velocity/jitter。迁移方
 只需把 `--aa=`/profile 的 `smaa` 映射到新枚举值，并在 LDR profile 中继续使用 NONE/MSAA/FXAA；
 技术范围与 shader/查找表指纹见[技术卡](../../planning/v0.28.1-s2-smaa.md)。
+v0.28.1（候选）清漆层没有删除 stable 类型，也没有修改既有构造器。新增 advanced GL-free
+`core.material.ClearcoatSettings(enabled,roughness,normalStrength)`，默认 `disabled()`；
+`Material`/`Material.Builder` 新增 `clearcoat(ClearcoatSettings)` 与 `clearcoat()`，默认
+disabled，因此既有 `Material` 构建与绘制路径保持源码/行为兼容。新增 advanced
+`pbr.PbrMaterials.createWithClearcoat(...)` 与带 `ClearcoatSettings`/`PbrTextureBinding` 的
+`createWithBindings(...)` 重载；既有工厂重载保留并默认 `ClearcoatSettings.disabled()`，
+glTF 材质路径行为不变。清漆法线贴图固定 unit 5
+（`PbrMaterials.CLEARCOAT_NORMAL_UNIT`，线性色彩空间），未提供时借用 `PbrFallbackTextures`
+的扁平法线；材质关闭时不新增 Pass、纹理、附件或 GPU owner。清漆是材质值，不是
+`RenderFeatureSettings` 拓扑项；运行期逐对象切换使用 `MaterialInstance` 覆盖
+`uClearcoatEnabled`/`uClearcoatRoughness`/`uClearcoatNormalStrength` 或 unit 5，无需重建
+候选。`KHR_materials_clearcoat` 不承诺、不加载：默认严格策略拒绝材质级扩展 payload，
+lenient 策略仅警告并忽略。能量分割、法线空间与零值还原见
+[技术卡](../../planning/v0.28.1-s2-clearcoat.md)。

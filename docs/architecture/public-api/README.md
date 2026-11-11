@@ -105,3 +105,16 @@ display-referred RGBA8，LDR 组合在 `RenderSettings`、`PostProcessPipeline`�
 `PipelineFeaturePolicy` 与 pass-plan 查询处明确拒绝；关闭/`NONE` 不创建任何 SMAA 资源或
 Pass，保持精确基线颜色链。技术范围与指纹见
 [SMAA 技术卡](../../planning/v0.28.1-s2-smaa.md)，迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S2 #16 新增 advanced GL-free `core.material.ClearcoatSettings(enabled, roughness,
+normalStrength)`（固定 `F0 = 0.04`、独立清漆粗糙度与切空间法线强度，构造期校验），
+`Material`/`Material.Builder` 新增 `clearcoat(ClearcoatSettings)` 与 `clearcoat()`，默认
+`disabled()` 且为精确 no-op。新增 advanced
+`pbr.PbrMaterials.createWithBindings(..., ClearcoatSettings, PbrTextureBinding)` 与便捷入口
+`createWithClearcoat(...)`，清漆法线贴图固定 unit 5
+（`PbrMaterials.CLEARCOAT_NORMAL_UNIT`，必须为线性贴图），未提供时借用共享扁平法线
+fallback。清漆是材质值而不是 `RenderFeatureSettings` 开关：`directionalShadows`/IBL 等既有
+帧级开关继续生效，关闭清漆不创建 Pass、纹理或附件；不承诺也不加载
+`KHR_materials_clearcoat`（默认严格策略拒绝该 payload，lenient 策略仅警告并忽略）。
+PBR/IBL 能量分割、法线空间、零值还原与 GL 参考见
+[清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md)，迁移说明见[迁移记录](migrations.md)。
