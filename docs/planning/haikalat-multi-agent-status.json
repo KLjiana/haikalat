@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T19:00:24.0002693+08:00",
+    "updatedAt":  "2026-11-11T19:11:11.8701978+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -510,14 +510,15 @@
                                        "glSmoke DepthOfFieldPassGlTest PASS with new leak/spread/max-CoC cases",
                                        "JVM DepthOfFieldSettings/Math PASS with focal length",
                                        "focused verify 8b5c01e6: 340 tests PASS",
-                                       "review findings 1-6 addressed"
+                                       "review findings 1-6 addressed",
+                                       "independent re-review APPROVE at 77f20dc"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review DOF fixes at 33010b1"
+                      "nextAction":  "Closed"
                   },
                   {
                       "taskId":  "R13",
