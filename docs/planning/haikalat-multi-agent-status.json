@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T20:00:13.8275632+08:00",
+    "updatedAt":  "2026-11-11T20:02:51.2527496+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -786,14 +786,15 @@
                       "evidence":  [
                                        "glSmoke MotionBlurPassGlTest PASS after raster-space fix",
                                        "JVM MotionBlurSettings/Math PASS",
-                                       "focused verify 8b5c01e6: 340 tests PASS"
+                                       "focused verify 8b5c01e6: 340 tests PASS",
+                                       "independent re-review APPROVE at e672081"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review evidence-count fix"
+                      "nextAction":  "Closed"
                   },
                   {
                       "taskId":  "R22",
