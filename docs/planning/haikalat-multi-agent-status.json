@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T12:49:22.2825510+08:00",
+    "updatedAt":  "2026-11-11T13:22:53.9622389+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -381,7 +381,7 @@
                       "featureIds":  [
                                          9
                                      ],
-                      "state":  "DONE",
+                      "state":  "PARTIAL",
                       "scope":  "Contact Shadows",
                       "dependencies":  [
                                            null
@@ -401,14 +401,15 @@
                                        "glSmoke ContactShadowsGlTest PASS",
                                        "reviewer scope acceptance pending"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Await reviewer verdict on shadow-map-space scope deviation",
+                      "nextAction":  "Deferred: true screen-space depth-mask contact shadows; current bounded shadow-map-space refinement accepted as scope-reduced",
                       "scopeNote":  "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
-                      "policyCommit":  "0c14652"
+                      "policyCommit":  "0c14652",
+                      "deferred":  "screen-space depth-mask variant"
                   },
                   {
                       "taskId":  "R10",
