@@ -20,7 +20,7 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * history: the previous shot is never sampled, so a camera cut cannot smear.
  * Every tap is bounded by {@link MotionBlurSettings#maxRadiusPixels()}; the
  * accumulated motion is scaled by {@link MotionBlurSettings#shutterFraction()}
- * and the current-frame raster jitter is removed before reconstruction.</p>
+ * and colour, velocity and validity are sampled at the same raster coordinate.</p>
  */
 public final class MotionBlurPass implements GlResource {
     private final ShaderProgram program;

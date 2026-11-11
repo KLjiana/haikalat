@@ -155,6 +155,9 @@ Pass 不采样任何历史：相机切镜由 validity=0 精确还原输入，无
 不透明表面的 velocity；身后没有不透明表面（天空等）时同样由 validity=0 保持清晰。本包没有修改
 `RenderPipeline` 公共入口；曝光比例和最大半径是装配期值，
 改变后需要重新 build/重建候选（见[技术卡](../../planning/v0.28.1-s3-motion-blur.md)）。
+`MotionBlurPass.recordIntoCurrentTarget` 在本候选内移除了 jitter 参数；调用方改用
+`(cmd, colorTexture, velocityTexture, validityTexture, width, height)`，因为三个输入都按当前
+raster 坐标采样，velocity 值本身已去 jitter。
 v0.28.1（候选）有限水面没有删除 stable 类型。advanced `RenderFeatureSettings` canonical
 record 从 16 个组件扩展为 17 个（末尾新增 `waterSurface`）；既有 builder、`defaults()`、
 `toBuilder()` 和访问器调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。新增

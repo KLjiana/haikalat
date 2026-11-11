@@ -71,10 +71,10 @@ import static org.lwjgl.opengl.GL30.GL_RG16F;
  * Real-GL contract for the bounded screen-space motion-blur pass.
  *
  * <p>One case covers static zero blur, camera-cut validity identity, a moving
- * object's bounded directional smear, the maximum-radius clamp, jitter removal,
- * and the disabled/active graph contract.  References are the independently
- * read back source colour buffer, not the pass's own output.  The case is
- * guarded and is not executed by the JVM worker run.</p>
+ * object's bounded directional smear, the maximum-radius clamp, raster-space
+ * TAA graph ordering, and the disabled/active graph contract.  References are
+ * the independently read back source colour buffer, not the pass's own output.
+ * The case is guarded and is not executed by the JVM worker run.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class MotionBlurPassGlTest {
