@@ -8,6 +8,17 @@ public interface PipelineStateSink {
 
     void blendFunc(int sourceRgb, int destinationRgb);
 
+    /**
+     * Applies independent RGB and alpha blend factors.
+     *
+     * <p>Weighted order-independent transparency needs RGB accumulation
+     * ({@code ONE, ONE}) together with an alpha-channel transmittance product
+     * ({@code ZERO, ONE_MINUS_SRC_ALPHA}) in one MRT draw, which
+     * {@link #blendFunc(int, int)} cannot express.</p>
+     */
+    void blendFuncSeparate(int sourceRgb, int destinationRgb,
+                           int sourceAlpha, int destinationAlpha);
+
     void depthMask(boolean write);
 
     void depthFunc(int function);

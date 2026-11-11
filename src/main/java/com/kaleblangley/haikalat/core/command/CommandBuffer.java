@@ -739,6 +739,27 @@ public final class CommandBuffer {
     }
 
     /**
+     * Sets independent RGB and alpha blend factors.
+     *
+     * <p>The command stream keeps one blend-function packet; if the alpha
+     * factors equal the RGB factors the backend still receives the cheaper
+     * {@code glBlendFunc} form. Passing {@code GL_ONE, GL_ONE, GL_ZERO,
+     * GL_ONE_MINUS_SRC_ALPHA} is the weighted-OIT accumulation contract:
+     * RGB sums while alpha accumulates surface transmittance.</p>
+     *
+     * @param sourceRgb      RGB source factor
+     * @param destinationRgb RGB destination factor
+     * @param sourceAlpha    alpha source factor
+     * @param destinationAlpha alpha destination factor
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer blendFuncSeparate(int sourceRgb, int destinationRgb,
+                                           int sourceAlpha, int destinationAlpha) {
+        pendingState.blendFuncSeparate(sourceRgb, destinationRgb, sourceAlpha, destinationAlpha);
+        return this;
+    }
+
+    /**
      * 合并一组 pending state，但不会重排或跨越可观察命令边界。
      *
      * @param blendMode 材质混合模式

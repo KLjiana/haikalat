@@ -6,6 +6,7 @@ import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE_CUBE_MAP;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
+import static org.lwjgl.opengl.GL14.glBlendFuncSeparate;
 import static org.lwjgl.opengl.GL20.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
@@ -50,6 +51,8 @@ public final class StateCache implements PipelineStateSink {
     private boolean blendCached;
     private int blendSrcRGB;
     private int blendDstRGB;
+    private int blendSrcAlpha;
+    private int blendDstAlpha;
     private boolean blendFuncCached;
     private boolean depthWriteEnabled;
     private boolean depthWriteCached;
@@ -311,10 +314,30 @@ public final class StateCache implements PipelineStateSink {
      * @param dstRGB 目标因子
      */
     public void blendFunc(int srcRGB, int dstRGB) {
-        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB)) {
+        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB
+                || srcRGB != blendSrcAlpha || dstRGB != blendDstAlpha)) {
             glBlendFunc(srcRGB, dstRGB);
             blendSrcRGB = srcRGB;
             blendDstRGB = dstRGB;
+            blendSrcAlpha = srcRGB;
+            blendDstAlpha = dstRGB;
+            blendFuncCached = true;
+        }
+    }
+
+    /**
+     * Applies independent RGB and alpha blend factors and caches all four
+     * values; a later {@link #blendFunc(int, int)} resets the alpha factors as
+     * {@code glBlendFunc} does.
+     */
+    public void blendFuncSeparate(int srcRGB, int dstRGB, int srcAlpha, int dstAlpha) {
+        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB
+                || srcAlpha != blendSrcAlpha || dstAlpha != blendDstAlpha)) {
+            glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            blendSrcRGB = srcRGB;
+            blendDstRGB = dstRGB;
+            blendSrcAlpha = srcAlpha;
+            blendDstAlpha = dstAlpha;
             blendFuncCached = true;
         }
     }
