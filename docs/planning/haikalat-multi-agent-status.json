@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "f846f03"
+                        "head":  "3d2d0ff"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T05:18:30.9330476+08:00",
+    "updatedAt":  "2026-11-12T05:47:15.5992816+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -703,22 +703,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "4693e26",
+                      "integrationCommit":  "3d2d0ff",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "focused GL ReflectionProbeGlTest 2/2 PASS",
-                                       "JVM ReflectionProbe*/Pbr* 42 tests PASS",
-                                       "focused verify 3082c455: 709 tests PASS, 0 skipped",
-                                       "real sampler-unit aliasing bug fixed at 9b79818; six GL control rounds"
+                                       "focused GL ReflectionProbeGlTest 3/3 PASS",
+                                       "JVM ReflectionProbe*/Pbr* 48 tests PASS",
+                                       "focused verify 48e4d6a4: 732 tests PASS, 0 skipped",
+                                       "review mixed-slot NPE and environment-rotation blockers fixed at eef9d6c"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; per-receiver pipeline wiring unwired"
+                      "nextAction":  "Bounded static probes; per-receiver pipeline wiring unwired; specular-only and max-2 limits"
                   },
                   {
                       "taskId":  "R19",
