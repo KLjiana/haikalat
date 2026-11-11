@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T08:55:49.7899851+08:00",
+    "updatedAt":  "2026-11-11T11:00:08.5145612+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -799,30 +799,31 @@
                       "featureIds":  [
                                          23
                                      ],
-                      "state":  "READY",
+                      "state":  "DONE",
                       "scope":  "Vignette",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "0c64433",
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "825cf22",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused verify a6350944: 238 tests PASS",
+                                       "glSmoke VignettePassGlTest PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
+                      "nextAction":  "Independent review; then close"
                   },
                   {
                       "taskId":  "R24",
