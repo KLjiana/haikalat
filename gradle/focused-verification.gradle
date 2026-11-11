@@ -49,7 +49,8 @@ def jvmCases = [
         'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
         'VignetteSettingsTest', 'FilmGrainSettingsTest', 'ChromaticAberrationSettingsTest',
         'PostProcessSettingsTest', 'ContactShadowSettingsTest', 'ContactShadowShaderTest',
-        'CloudShadowSettingsTest', 'CloudShadowShaderTest', 'CloudShadowFrameTimeTest'
+        'CloudShadowSettingsTest', 'CloudShadowShaderTest', 'CloudShadowFrameTimeTest',
+        'ShadowCacheStateTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',

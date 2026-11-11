@@ -312,6 +312,11 @@ tasks.register('releaseVerificationContracts') {
         assert cloudShadowPolicy != null && cloudShadowPolicy.id == 131218
         assert cloudShadowPolicy.maximum == 4
         assert cloudShadowPolicy.entry.contains('CloudShadowsGlTest')
+        def cloudDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def cloudMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 18 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-CloudShadowsGlTest.xml', cloudDevice + cloudMessage, policies).violations.isEmpty()
+        assert !auditGlText('TEST-CloudShadowsGlTest.xml',
+                cloudDevice + cloudMessage.replace('Vertex', 'Geometry'), policies).violations.isEmpty()
         def featureControlPolicy = policies.find { it.owner == 'render3d/feature-control' }
         assert featureControlPolicy != null && featureControlPolicy.id == 131218
         assert featureControlPolicy.maximum == 4
