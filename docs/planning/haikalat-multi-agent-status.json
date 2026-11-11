@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "4e3dae0"
+                        "head":  "db27afb"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T00:36:23.5361741+08:00",
+    "updatedAt":  "2026-11-12T00:43:47.8416251+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1250,7 +1250,7 @@
                       "featureIds":  [
                                          36
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Caustics",
                       "dependencies":  [
                                            14
@@ -1261,19 +1261,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "db27afb",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke CausticsPassGlTest 6/6 PASS",
+                                       "JVM Caustics* 9 tests PASS",
+                                       "focused verify 44ef2962: 599 tests PASS, 0 skipped",
+                                       "two real GPU rounds: missing uniform declaration, then foreground-depth fixture"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; RenderPipeline/water consumer unwired"
                   },
                   {
                       "taskId":  "R37",
