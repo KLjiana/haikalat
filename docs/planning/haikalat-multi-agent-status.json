@@ -24,12 +24,12 @@
                         "head":  "da101d7"
                     },
     "gpuQueue":  {
-                     "state":  "IDLE",
-                     "owner":  null,
-                     "taskId":  null,
-                     "startedAt":  null
+                     "state":  "BUSY",
+                     "owner":  "subagent 053c422f",
+                     "taskId":  "R13",
+                     "startedAt":  "2026-11-11T18:18:04.7402675+08:00"
                  },
-    "updatedAt":  "2026-11-11T18:16:20.3268642+08:00",
+    "updatedAt":  "2026-11-11T18:18:04.7432894+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -523,16 +523,16 @@
                       "featureIds":  [
                                          13
                                      ],
-                      "state":  "TODO",
-                      "scope":  "Refraction",
+                      "state":  "IMPLEMENTING",
+                      "scope":  "Single-layer glass/shield refraction with IOR and thickness",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 053c422f-d531-4dff-bf5d-89ed4a21d798",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "8c768cf",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -546,23 +546,23 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Implement in s3-refract; GPU slot granted"
                   },
                   {
                       "taskId":  "R14",
                       "featureIds":  [
                                          14
                                      ],
-                      "state":  "TODO",
-                      "scope":  "Water Surface Rendering",
+                      "state":  "IMPLEMENTING",
+                      "scope":  "Finite water surface with waves, absorption and shore fade",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 4316d60a-2945-4b9e-acff-12ec9407f23d",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "8c768cf",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -576,7 +576,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Implement in s3-water; wait for GPU slot"
                   },
                   {
                       "taskId":  "R15",
@@ -763,16 +763,16 @@
                       "featureIds":  [
                                          21
                                      ],
-                      "state":  "TODO",
-                      "scope":  "Motion Blur",
+                      "state":  "IMPLEMENTING",
+                      "scope":  "Velocity-based motion blur",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 4b447426-2ec7-4579-bd92-911d732bd1b3",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "8c768cf",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -786,7 +786,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Implement in s3-mblur; wait for GPU slot"
                   },
                   {
                       "taskId":  "R22",
