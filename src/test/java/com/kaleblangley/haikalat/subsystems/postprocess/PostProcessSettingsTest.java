@@ -65,6 +65,38 @@ class PostProcessSettingsTest {
     }
 
     @Test
+    void defaultsKeepMotionBlurDisabledAndLegacyDepthOfFieldConstructorIsCompatible() {
+        assertFalse(PostProcessSettings.defaults().motionBlur().active());
+        DepthOfFieldSettings depthOfField = DepthOfFieldSettings.of(5.0f, 4.0f, 10.0f);
+        PostProcessSettings legacy = new PostProcessSettings(
+                ColorGradingSettings.disabled(), FogSettings.disabled(),
+                GtaoSettings.disabled(), VignetteSettings.disabled(),
+                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
+                ScreenDistortionSettings.disabled(), depthOfField);
+        assertEquals(depthOfField, legacy.depthOfField());
+        assertFalse(legacy.motionBlur().active());
+    }
+
+    @Test
+    void replacingMotionBlurPreservesEveryOtherEffectAndRejectsNull() {
+        MotionBlurSettings motionBlur = MotionBlurSettings.of(0.75f, 24.0f);
+        DepthOfFieldSettings depthOfField = DepthOfFieldSettings.of(5.0f, 4.0f, 10.0f);
+        PostProcessSettings original = PostProcessSettings.builder()
+                .vignette(VignetteSettings.of(0.4f, 0.6f, 0.3f))
+                .depthOfField(depthOfField).build();
+        PostProcessSettings updated = original.withMotionBlur(motionBlur);
+        assertEquals(motionBlur, updated.motionBlur());
+        assertEquals(depthOfField, updated.depthOfField());
+        assertEquals(original.vignette(), updated.vignette());
+        assertEquals(motionBlur, PostProcessSettings.builder()
+                .motionBlur(motionBlur).build().motionBlur());
+        assertThrows(NullPointerException.class,
+                () -> PostProcessSettings.defaults().withMotionBlur(null));
+        assertThrows(NullPointerException.class,
+                () -> PostProcessSettings.builder().motionBlur(null));
+    }
+
+    @Test
     void withGtaoRejectsNull() {
         assertThrows(NullPointerException.class,
                 () -> PostProcessSettings.defaults().withGtao(null));

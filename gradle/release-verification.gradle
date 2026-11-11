@@ -302,8 +302,9 @@ tasks.register('releaseVerificationContracts') {
         }
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
-        // v0.28.1 adds bounded contact-shadow, cloud-shadow and depth-of-field shader-state policies.
-        assert policies.size() == 44
+        // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field and motion-blur
+        // shader-state policies.
+        assert policies.size() == 45
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -326,6 +327,16 @@ tasks.register('releaseVerificationContracts') {
                 dofDevice + dofMessage * 2, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
                 dofDevice + dofMessage * 3, policies).violations.isEmpty()
+        def motionBlurPolicy = policies.find { it.owner == 'render3d/motion-blur' }
+        assert motionBlurPolicy != null && motionBlurPolicy.id == 131218
+        assert motionBlurPolicy.maximum == 2
+        assert motionBlurPolicy.entry == '.*MotionBlurPassGlTest.*'
+        def motionBlurDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def motionBlurMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPassGlTest.xml',
+                motionBlurDevice + motionBlurMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPassGlTest.xml',
+                motionBlurDevice + motionBlurMessage * 3, policies).violations.isEmpty()
         def cloudDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def cloudMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 18 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-CloudShadowsGlTest.xml', cloudDevice + cloudMessage, policies).violations.isEmpty()

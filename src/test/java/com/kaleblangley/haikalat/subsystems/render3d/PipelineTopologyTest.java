@@ -12,6 +12,7 @@ import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import org.joml.Vector3f;
@@ -95,6 +96,41 @@ class PipelineTopologyTest {
         assertFalse(topology.sceneSurface().requests()
                 .requires(SceneBufferChannel.NORMAL));
         assertFalse(topology.sceneSurface().hasResolve());
+    }
+
+    @Test
+    void motionBlurRequestsValidatedVelocityWithoutUnrelatedSurfaceChannels() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .motionBlur(MotionBlurSettings.of(0.5f, 16.0f)).build();
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.VELOCITY));
+        assertTrue(topology.sceneSurface().requests()
+                .requires(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.VALIDITY));
+        assertFalse(topology.sceneSurface().requests().requires(SceneBufferChannel.NORMAL));
+        assertFalse(topology.sceneSurface().hasResolve());
+    }
+
+    @Test
+    void msaaMotionBlurResolvesTheSingleSampleVelocityItConsumes() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .motionBlur(MotionBlurSettings.of(0.5f, 16.0f)).build();
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+
+        assertTrue(topology.sceneSurface().hasResolve());
+        assertTrue(topology.sceneSurface().resolve().stream()
+                .anyMatch(attachment -> attachment.channel() == SceneBufferChannel.VELOCITY));
+        assertFalse(topology.sceneSurface().requests().requires(SceneBufferChannel.NORMAL));
     }
 
     @Test
