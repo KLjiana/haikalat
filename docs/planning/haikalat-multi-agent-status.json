@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "1922e37"
+                        "head":  "c4761fd"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T21:35:20.4106480+08:00",
+    "updatedAt":  "2026-11-11T22:05:11.0774508+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -751,21 +751,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "308a5d2",
+                      "integrationCommit":  "c4761fd",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
                                        "glSmoke SsrPassGlTest 2/2 PASS",
-                                       "JVM Ssr* PASS",
-                                       "focused verify 72b189fd: 454 tests PASS"
+                                       "JVM Ssr* and PipelineFeaturePolicyTest PASS",
+                                       "focused verify 043b83ad: 454 tests PASS, 0 skipped",
+                                       "independent review APPROVE_WITH_SCOPE; ibl/water/refraction gating added at c4761fd"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Bounded opaque-only SSR with IBL fallback; roughness/thickness/MSAA/production-path limits documented"
                   },
                   {
                       "taskId":  "R21",
