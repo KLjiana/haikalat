@@ -41,9 +41,11 @@ import static org.lwjgl.opengl.GL11.GL_VIEWPORT;
 import static org.lwjgl.opengl.GL11.glGetInteger;
 import static org.lwjgl.opengl.GL11.glIsTexture;
 import static org.lwjgl.opengl.GL11.glReadPixels;
+import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER_BINDING;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
+import static org.lwjgl.opengl.GL30.glReadBuffer;
 
 /**
  * Real-GL acceptance for the bounded planar reflection pass.
@@ -111,7 +113,9 @@ class PlanarReflectionPassGlTest {
                         "the mirrored point must land on a different scanline");
                 assertPixel(pixels, pass.width(), pass.height(), reflected[0], reflected[1],
                         1.0f, 0.0f, 0.0f);
-                assertBackground(pixels, pass.width(), pass.height(), 2, 2);
+                int backgroundX = pass.width() - 1 - reflected[0];
+                int backgroundY = pass.height() - 1 - reflected[1];
+                assertBackground(pixels, pass.width(), pass.height(), backgroundX, backgroundY);
                 GlDebug.assertNoError("planar reflection mirror position");
             }
         }
@@ -463,6 +467,7 @@ class PlanarReflectionPassGlTest {
         int width = pass.width();
         int height = pass.height();
         glBindFramebuffer(GL_FRAMEBUFFER, pass.framebuffer().id());
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
         FloatBuffer buffer = BufferUtils.createFloatBuffer(width * height * 4);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, buffer);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
