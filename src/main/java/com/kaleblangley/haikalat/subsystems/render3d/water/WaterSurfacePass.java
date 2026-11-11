@@ -168,13 +168,6 @@ public final class WaterSurfacePass implements AutoCloseable {
                 frame.cameraPositionZ());
         settings.waterColorTo(waterColor);
         settings.reflectionFallbackTo(reflectionFallback);
-        if (Boolean.getBoolean("haikalat.test.waterDebug")) {
-            System.out.println("WATERDBG settings=" + settings
-                    + " model=" + model
-                    + " camera=" + cameraPosition
-                    + " view=" + frame.view()
-                    + " projection=" + frame.jitteredProjection());
-        }
 
         cmd.setUniformMat4(shader, "uProjection", frame.jitteredProjection())
                 .setUniformMat4(shader, "uView", frame.view())
