@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T15:22:25.8253424+08:00",
+    "updatedAt":  "2026-11-11T15:26:58.6153229+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -307,14 +307,15 @@
                       "evidence":  [
                                        "worker JVM ProjectedDecalTest 5/5 PASS + 69 regression PASS",
                                        "glSmoke ProjectedDecalGlTest FAIL: drawn=1/drawCalls=1 but no pixel change",
-                                       "debug-safe red output proves decal geometry covers pixels; depth-stage debug discards all because sampled sceneDepth \u003e= 1.0",
-                                       "therefore the test depth attachment is not reaching the decal shader (or is not written at the sampled center), not fragment facing/volume logic"
+                                       "debug-safe red output proves decal geometry covers pixels",
+                                       "depth-stage debug discards all (sceneDepth\u003e=1); direct glReadPixels depth probe at receiver center also reads 1.0",
+                                       "root cause is the scene depth pass not writing the receiver center in ProjectedDecalGlTest, not decal contract"
                                    ],
                       "functional":  "JVM_PASS_GL_FAIL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Verify depth attachment readback/writes in ProjectedDecalGlTest; use a known-good depth texture or blit/resolve depth before decal pass; do not integrate until GL PASS",
+                      "nextAction":  "Fix test scene depth coverage/FBO depth write first, then retest decal contract",
                       "review":  "PENDING"
                   },
                   {
