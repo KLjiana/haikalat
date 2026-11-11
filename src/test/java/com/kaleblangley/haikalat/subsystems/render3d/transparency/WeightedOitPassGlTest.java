@@ -56,6 +56,8 @@ class WeightedOitPassGlTest {
     private static final float BACKGROUND_BLUE = 0.15f;
     private static final Vector3f BACKGROUND =
             new Vector3f(BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE);
+    /** Distinct target clear used by the "caller target is untouched" cases. */
+    private static final Vector3f SENTINEL = new Vector3f(0.25f, 0.50f, 0.75f);
 
     @Test
     void twoLayerResolveMatchesTheWeightedModelAndTheSortedAlphaReference() {
@@ -223,37 +225,48 @@ class WeightedOitPassGlTest {
                  Framebuffer target = hdrTarget()) {
                 device.execute(device.createCommandBuffer()
                         .bindFramebuffer(target).viewport(0, 0, SIZE, SIZE)
-                        .clearColor(0.25f, 0.50f, 0.75f, 1.0f).clear(true, false));
+                        .clearColor(SENTINEL.x, SENTINEL.y, SENTINEL.z, 1.0f)
+                        .clear(true, false));
                 FloatBuffer sentinel = readColor(target);
-                assertPixel(new Vector3f(0.25f, 0.50f, 0.75f), sentinel, center, 1.0e-6f,
-                        "test sentinel");
+                assertPixel(SENTINEL, sentinel, center, 1.0e-6f, "test sentinel");
 
                 CommandBuffer recordOnly = device.createCommandBuffer();
                 OitSurface surface = screenQuad(3.0f, 1.0f, 0.0f, 0.0f, 0.5f);
                 pass.record(recordOnly, List.of(surface), view, projection, settings);
                 device.execute(recordOnly);
-                assertPixel(new Vector3f(0.25f, 0.50f, 0.75f), readColor(target), center,
+                assertPixel(SENTINEL, readColor(target), center,
                         1.0e-6f, "record without resolve must not modify the caller target");
 
                 // Resolving in a later graph pass (a different CommandBuffer) is
                 // the supported wiring contract as long as accumulation ran first.
+                // One layer has a closed-form result: the weight cancels in the
+                // normalisation, so the average is the layer colour and the
+                // coverage is alpha; the composite is over the *sentinel* target,
+                // not over BACKGROUND (this case never re-clears to BACKGROUND).
                 CommandBuffer resolveLater = device.createCommandBuffer();
                 resolveLater.bindFramebuffer(target).viewport(0, 0, SIZE, SIZE);
                 pass.resolve(resolveLater, settings);
                 device.execute(resolveLater);
-                assertPixel(weightedModel(settings, List.of(surface), BACKGROUND),
-                        readColor(target), center, 2.0e-3f,
-                        "cross-pass resolve after an executed accumulation");
+                float alpha = surface.alpha();
+                Vector3f singleLayer = new Vector3f(
+                        alpha * surface.red() + (1.0f - alpha) * SENTINEL.x,
+                        alpha * surface.green() + (1.0f - alpha) * SENTINEL.y,
+                        alpha * surface.blue() + (1.0f - alpha) * SENTINEL.z);
+                assertEquals(singleLayer, weightedModel(settings, List.of(surface), SENTINEL),
+                        "the analytic single-layer result must agree with the weighted model");
+                assertPixel(singleLayer, readColor(target), center, 2.0e-3f,
+                        "cross-pass single-layer resolve over the sentinel target");
 
                 device.execute(device.createCommandBuffer()
                         .bindFramebuffer(target).viewport(0, 0, SIZE, SIZE)
-                        .clearColor(0.25f, 0.50f, 0.75f, 1.0f).clear(true, false));
+                        .clearColor(SENTINEL.x, SENTINEL.y, SENTINEL.z, 1.0f)
+                        .clear(true, false));
                 CommandBuffer disabledFrame = device.createCommandBuffer();
                 pass.record(disabledFrame, List.of(surface), view, projection,
                         WeightedOitSettings.disabled());
                 pass.resolve(disabledFrame, WeightedOitSettings.disabled());
                 device.execute(disabledFrame);
-                assertPixel(new Vector3f(0.25f, 0.50f, 0.75f), readColor(target), center,
+                assertPixel(SENTINEL, readColor(target), center,
                         1.0e-6f, "disabled settings must record zero work");
 
                 assertThrows(GlException.class,
@@ -264,7 +277,7 @@ class WeightedOitPassGlTest {
                         "disabled settings must not create a pass or attachments");
 
                 pass.close();
-                assertPixel(new Vector3f(0.25f, 0.50f, 0.75f), readColor(target), center,
+                assertPixel(SENTINEL, readColor(target), center,
                         1.0e-6f, "closing the pass must not modify the caller target");
                 pass.close();
                 assertEquals(GL_NO_ERROR, glGetError());
