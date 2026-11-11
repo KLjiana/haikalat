@@ -84,6 +84,10 @@ import static org.lwjgl.opengl.GL45.glGetNamedBufferSubData;
  *   <li>lifetime crossing kills particles, and a runtime lifetime change
  *       re-arms them; the GPU counts are compared with an independent Java
  *       lifetime reference;</li>
+ *   <li>a wrapped, non-prefix active set {4,5,6,7} is proven by the indirect
+ *       command readback (count 4, one instance, first/baseInstance 0), the
+ *       exact active-index list, a same-order reference draw, and a dead-prefix
+ *       draw that must stay black;</li>
  *   <li>reset replays the same emit sequence to identical pixels and the same
  *       compacted index set;</li>
  *   <li>capacity replacement, render-target resize, idempotent close and error
@@ -225,6 +229,70 @@ class GpuParticleSystemGlTest {
     }
 
     @Test
+    void wrappedActiveSetDrawsOnlyTheLiveIndicesAndTheirExactOrder() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            float delta = 0.125f;
+
+            try (Framebuffer target = target(SIZE, SIZE);
+                 GpuParticleSystem particles =
+                         new GpuParticleSystem(spreadSettings(8, 0.55f))) {
+                // Spawn a prefix, let it die, then move the ring cursor to 4 and
+                // spawn one wrapped slot per frame. The resulting active set is
+                // {4,5,6,7}, not a prefix, and each slot has a different lifetime
+                // remaining (therefore a different visible alpha) plus a distinct
+                // hash position inside the spawn volume.
+                particles.emit(4);
+                renderFrame(device, target, particles, delta);
+                assertEquals(4, readActiveCount(particles));
+                for (int frame = 0; frame < 4; frame++) {
+                    renderFrame(device, target, particles, delta);
+                }
+                assertEquals(0, readActiveCount(particles),
+                        "the prefix slots must be dead before the wrapped emission");
+
+                for (int frame = 0; frame < 4; frame++) {
+                    particles.emit(1);
+                    renderFrame(device, target, particles, delta);
+                }
+                assertEquals(4, readActiveCount(particles));
+                assertEquals(List.of(4, 5, 6, 7), sorted(readActiveIndices(particles, 4)));
+
+                // Oracle: the counter's first four uints are the exact
+                // DrawArraysIndirectCommand consumed by the production draw.
+                int[] command = readIndirectCommand(particles);
+                assertEquals(4, command[0], "indirect count must be the active count");
+                assertEquals(1, command[1], "exactly one instance");
+                assertEquals(0, command[2], "first vertex must stay zero");
+                assertEquals(0, command[3], "base instance must stay zero");
+                assertTrue(command[0] < particles.capacity(),
+                        "the draw must not consume the full capacity");
+
+                // Pixel oracle: re-drawing the GPU's active indices in the same
+                // order with the same program reproduces the production image.
+                // A prefix or full-range draw can not reproduce it from slots 4..7.
+                ByteBuffer activePixels = readPixels(target);
+                assertTrue(nonBlackPixels(activePixels) > 0,
+                        "the wrapped live slots must be visible");
+                int[] activeOrder = readActiveIndices(particles, 4);
+                ByteBuffer reference = drawIndexedReference(device, target, particles, activeOrder);
+                assertPixelsClose(activePixels, reference, 1);
+
+                // The dead prefix must not become visible even when explicitly
+                // submitted: alpha is driven by the remaining life in the shader.
+                ByteBuffer deadPrefix = drawIndexedReference(device, target, particles,
+                        new int[]{0, 1, 2, 3});
+                assertEquals(0, nonBlackPixels(deadPrefix),
+                        "dead prefix slots must stay invisible");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
     void resetReplaysTheSameEmissionToIdenticalPixelsAndTheSameActiveSet() {
         try (GlfwWindow window = hiddenWindow()) {
             window.bindContext();
@@ -354,12 +422,28 @@ class GpuParticleSystemGlTest {
 
     private static ByteBuffer drawFullRangeReference(GlRenderDevice device, Framebuffer target,
                                                      GpuParticleSystem particles) {
+        int capacity = particles.verificationHandles().capacity();
+        int[] identities = new int[capacity];
+        for (int index = 0; index < capacity; index++) {
+            identities[index] = index;
+        }
+        return drawIndexedReference(device, target, particles, identities);
+    }
+
+    private static ByteBuffer drawIndexedReference(GlRenderDevice device, Framebuffer target,
+                                                   GpuParticleSystem particles, int[] indices) {
         GpuParticleSystem.VerificationHandles handles = particles.verificationHandles();
         GpuParticleSettings settings = particles.settings();
+        if (indices.length == 0 || indices.length > handles.capacity()) {
+            throw new IllegalArgumentException("reference index count is out of range");
+        }
         int identityBuffer = glGenBuffers();
         try {
-            IntBuffer identities = BufferUtils.createIntBuffer(handles.capacity());
-            for (int index = 0; index < handles.capacity(); index++) {
+            IntBuffer identities = BufferUtils.createIntBuffer(indices.length);
+            for (int index : indices) {
+                if (index < 0 || index >= handles.capacity()) {
+                    throw new IllegalArgumentException("reference index out of range: " + index);
+                }
                 identities.put(index);
             }
             identities.flip();
@@ -393,7 +477,7 @@ class GpuParticleSystemGlTest {
             glUniform4f(glGetUniformLocation(program, "uColor"),
                     color.x, color.y, color.z, settings.intensity());
             glBindVertexArray(handles.vertexArray());
-            glDrawArrays(GL_POINTS, 0, handles.capacity());
+            glDrawArrays(GL_POINTS, 0, indices.length);
             glFinish();
             ByteBuffer result = readPixels(target);
             glBindVertexArray(0);
@@ -403,6 +487,14 @@ class GpuParticleSystemGlTest {
             glDeleteBuffers(identityBuffer);
             device.invalidateState();
         }
+    }
+
+    private static int[] readIndirectCommand(GpuParticleSystem particles) {
+        GpuParticleSystem.VerificationHandles handles = particles.verificationHandles();
+        IntBuffer values = BufferUtils.createIntBuffer(4);
+        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+        glGetNamedBufferSubData(handles.counterBuffer(), 0L, values);
+        return new int[]{values.get(0), values.get(1), values.get(2), values.get(3)};
     }
 
     private static int readActiveCount(GpuParticleSystem particles) {
@@ -534,6 +626,13 @@ class GpuParticleSystemGlTest {
         return new GpuParticleSettings(capacity,
                 new Vector3f(x, y, z), new Vector3f(x, y, z),
                 lifetimeSeconds, 0.0f, 0.0f, 0.0f, 0.35f,
+                new Vector3f(1.0f, 1.0f, 1.0f), 1.0f);
+    }
+
+    private static GpuParticleSettings spreadSettings(int capacity, float lifetimeSeconds) {
+        return new GpuParticleSettings(capacity,
+                new Vector3f(-1.0f, -0.8f, 0.0f), new Vector3f(1.0f, 0.8f, 0.0f),
+                lifetimeSeconds, 0.0f, 0.0f, 0.0f, 0.12f,
                 new Vector3f(1.0f, 1.0f, 1.0f), 1.0f);
     }
 

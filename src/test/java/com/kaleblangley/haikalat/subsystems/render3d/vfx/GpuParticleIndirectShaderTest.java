@@ -83,6 +83,10 @@ class GpuParticleIndirectShaderTest {
         assertTrue(fragment.contains("if (radiusSquared > 1.0)"));
         assertTrue(fragment.contains("discard;"));
         assertTrue(fragment.contains("vec4(gColor.rgb * falloff * gColor.a, gColor.a * falloff)"));
+        assertTrue(fragment.contains("1.0 - smoothstep(0.65, 1.0, radiusSquared)"),
+                "GLSL smoothstep requires ascending edges");
+        assertFalse(fragment.contains("smoothstep(1.0, 0.65"),
+                "descending smoothstep edges are undefined in GLSL 4.60");
     }
 
     private static String resource(String path) throws IOException {

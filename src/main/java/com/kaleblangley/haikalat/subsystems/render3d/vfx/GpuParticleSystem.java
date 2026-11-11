@@ -16,6 +16,7 @@ import org.joml.Vector4f;
 import java.util.Objects;
 
 import static org.lwjgl.opengl.GL11.GL_POINTS;
+import static org.lwjgl.opengl.GL14.GL_FUNC_ADD;
 import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
 import static org.lwjgl.opengl.GL42.GL_COMMAND_BARRIER_BIT;
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
@@ -36,7 +37,10 @@ import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
  *       {@code activeCount} increment;</li>
  *   <li>after a shader-storage + command barrier the draw program fetches
  *       {@code activeIndices[gl_VertexID]} and records
- *       {@code glDrawArraysIndirect(GL_POINTS)} from that counter.</li>
+ *       {@code glDrawArraysIndirect(GL_POINTS)} from that counter. The
+ *       recorder sets {@code GL_FUNC_ADD} explicitly and restores the opaque
+ *       blend/depth/cull defaults afterwards, so it does not depend on the
+ *       caller's previous blend equation or cull state.</li>
  * </ol>
  *
  * <p>Empty sets are not special-cased on the CPU: the GPU count is zero and
@@ -303,6 +307,7 @@ public final class GpuParticleSystem implements GlResource {
                 .dispatchCompute(workGroups, 1, 1)
                 .memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT)
                 .materialState(BlendMode.ADDITIVE, true)
+                .blendEquation(GL_FUNC_ADD)
                 .enableCullFace(false)
                 .bindShader(drawProgram)
                 .bindStorageBuffer(0, particles, 0L, particleStorageBytes)
@@ -314,7 +319,8 @@ public final class GpuParticleSystem implements GlResource {
                 .setUniformVec4(drawProgram, "uColor", colorScratch)
                 .bindVertexArray(vertexArray.id())
                 .drawArraysIndirect(GL_POINTS, counters, 0L)
-                .materialState(BlendMode.OPAQUE, true);
+                .materialState(BlendMode.OPAQUE, true)
+                .enableCullFace(true);
     }
 
     private void copySettings() {

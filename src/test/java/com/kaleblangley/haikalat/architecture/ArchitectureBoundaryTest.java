@@ -444,6 +444,10 @@ class ArchitectureBoundaryTest {
                 "the owner must consume the GPU indirect command");
         assertTrue(code.contains("GL_COMMAND_BARRIER_BIT"),
                 "the draw count must be published with an explicit command barrier");
+        assertTrue(code.contains("blendEquation(GL_FUNC_ADD)"),
+                "the additive pass must not inherit the caller's blend equation");
+        assertTrue(code.contains(".enableCullFace(true)"),
+                "the recorder must restore the opaque cull default after the draw");
     }
 
     @Test

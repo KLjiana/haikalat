@@ -67,6 +67,15 @@ v0.28.1 S2 #5 新增 advanced `VertexDisplacementSettings`（有界局部正弦�
 顺序、bounds/previous-frame 和 shader 指纹见
 [顶点位移技术卡](../../planning/v0.28.1-s2-vertex-displacement.md)。
 
+v0.28.1 S2 #27 新增 advanced `render3d.vfx.GpuParticleSettings`（有界容量、世界空间 spawn
+体积、寿命/重力/初速度/billboard 半宽/加色颜色的配置值）与 advanced
+`render3d.vfx.GpuParticleSystem`（拥有 particle/counter/active-index SSBO、reset/update/draw
+program 与 VAO 的 GPU 粒子 indirect owner；compute 原子累加 GPU 计数并压缩活跃索引，draw
+消费同一 counter 的 `DrawArraysIndirectCommand`，CPU 不读回）。`render3d.vfx.GpuParticleEmission`
+是包内 package-private 的发射游标，不进入 public API 清单，也不是 `internal` 分类（`internal`
+专指因跨包实现而暂时 public 的类型）。技术范围、限制、shader 指纹与 GL 证据见
+[GPU 粒子 indirect 技术卡](../../planning/v0.28.1-s2-particle-indirect.md)。
+
 v0.28.1 S3 #12 新增 advanced `DepthOfFieldSettings`（焦点距离、全画幅等效焦距 mm、光圈 f-number、最大 CoC
 半径）与 `postprocess.depthoffield.DepthOfFieldPass`（HDR 16-tap 深度驱动 gather）。
 `PostProcessSettings` 追加 `depthOfField` 组件，默认关闭；关闭或 `maxCocPixels=0` 时不创建
