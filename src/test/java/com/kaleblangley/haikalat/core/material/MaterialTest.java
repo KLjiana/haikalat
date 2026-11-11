@@ -219,6 +219,30 @@ class MaterialTest {
                 "the settings record must reject a non-finite rotation before the builder stores it");
     }
 
+    @Test
+    void parallaxOcclusionDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.parallaxOcclusion().active(),
+                "existing materials must keep the exact original-UV path");
+        assertEquals(ParallaxOcclusionSettings.disabled(), plain.parallaxOcclusion());
+
+        ParallaxOcclusionSettings settings = ParallaxOcclusionSettings.builder()
+                .heightScale(0.1f).steps(6, 24).build();
+        Material marked = Material.builder(shader(8)).parallaxOcclusion(settings).build();
+        assertEquals(settings, marked.parallaxOcclusion());
+        assertTrue(marked.parallaxOcclusion().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).parallaxOcclusion(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).parallaxOcclusion(
+                        ParallaxOcclusionSettings.of(1.5f)),
+                "the settings record must reject an out-of-range height scale before the builder stores it");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11)).parallaxOcclusion(
+                        ParallaxOcclusionSettings.builder().steps(16, 8).build()),
+                "the settings record must reject an inverted step range before the builder stores it");
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);

@@ -31,6 +31,9 @@ public final class PbrFallbackTextures implements AutoCloseable {
             // white fallback keeps emissiveFactor as the only authoring input,
             // so materials without an emissive map can still glow.
             textures.put(PbrTextureRole.EMISSIVE, pixel(GL_SRGB8_ALPHA8, 255, 255, 255, 255));
+            // Height zero is flat: the parallax march hits the surface layer
+            // immediately and the sampled UV stays the interpolated UV.
+            textures.put(PbrTextureRole.HEIGHT, pixel(GL_RGBA8, 0, 0, 0, 255));
         } catch (RuntimeException failure) {
             close();
             throw failure;

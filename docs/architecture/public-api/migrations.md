@@ -241,3 +241,20 @@ advanced GL-free `core.material.AnisotropicSettings(strength, rotation)`（stren
 `MaterialInstance` 覆盖 `uAnisotropicEnabled`/`uAnisotropicStrength`/
 `uAnisotropicRotation` 即可，无需重建候选。Burley D/V、切线帧回退、镜像/负行列式与
 有界 IBL 近似见[技术卡](../../planning/v0.28.1-s2-anisotropic.md)。
+
+v0.28.1（候选）S3 #31 视差遮蔽贴图没有删除 stable 类型，也没有修改既有构造器或
+枚举常量。新增 advanced GL-free
+`core.material.ParallaxOcclusionSettings(enabled,heightScale,minSteps,maxSteps,fadeStart,fadeEnd,fadeStartDistance,maxDistance,heightChannel,flipHeight)`
+（嵌套 `HeightChannel`；高度/步骤/角度窗/距离窗构造期校验；`disabled()` 与零
+`heightScale` 精确走原 UV），并在 `core.allowlist` 登记。`Material`/`Material.Builder`
+新增 `parallaxOcclusion(ParallaxOcclusionSettings)` 与 `parallaxOcclusion()`，默认
+`disabled()`；既有 `Material` 构建与绘制路径保持源码/行为兼容。`PbrTextureRole`
+追加 `HEIGHT`（`LINEAR`，既有常量与顺序不变）；`PbrFallbackTextures` 的 1×1 fallback 追加
+黑色高度图。`pbr.PbrMaterials` 新增 `createWithParallax(...)`、末位带
+`ParallaxOcclusionSettings` 的完整 `createWithBindings(...)` 重载、固定
+`HEIGHT_UNIT = 6`；既有工厂保留并默认 `ParallaxOcclusionSettings.disabled()`，glTF
+材质路径行为不变。POM 是材质值，不是 `RenderFeatureSettings` 拓扑项；不新增 Pass、
+FBO、历史或 GPU owner，逐对象切换使用 `MaterialInstance` 覆盖 `uParallax*` 或 unit 6
+即可。首版只改后续材质采样 UV，不改几何深度、shadow map、velocity 或轮廓，也没有
+silhouette/自遮挡/tessellation；clearcoat 法线贴图不参与 POM。算法、独立 double
+oracle、限制与验证状态见[技术卡](../../planning/v0.28.1-s3-pom.md)。

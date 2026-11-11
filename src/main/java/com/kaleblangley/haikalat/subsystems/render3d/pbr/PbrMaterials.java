@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.material.AnisotropicSettings;
 import com.kaleblangley.haikalat.core.material.ClearcoatSettings;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.material.ParallaxOcclusionSettings;
 import com.kaleblangley.haikalat.core.material.RefractionSettings;
 import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.BlendMode;
@@ -24,6 +25,12 @@ public final class PbrMaterials {
      * per-frame IBL binder.
      */
     public static final int CLEARCOAT_NORMAL_UNIT = 5;
+    /**
+     * Frozen fragment texture unit of the optional linear height map used by
+     * parallax occlusion mapping. Unit 6 is free of the PBR roles (0-4), the
+     * clearcoat normal (5) and the borrowed IBL units (8-10).
+     */
+    public static final int HEIGHT_UNIT = 6;
 
     private PbrMaterials() {
     }
@@ -53,11 +60,13 @@ public final class PbrMaterials {
         builder.setInt("uAlphaMode", 0);
         applyClearcoat(builder, ClearcoatSettings.disabled());
         applyAnisotropic(builder, AnisotropicSettings.disabled());
+        applyParallax(builder, ParallaxOcclusionSettings.disabled());
         bind(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR, supplied, fallbacks);
         bind(builder, 1, "uNormalMap", PbrTextureRole.NORMAL, supplied, fallbacks);
         bind(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
         bind(builder, 3, "uOcclusionMap", PbrTextureRole.OCCLUSION, supplied, fallbacks);
         bind(builder, 4, "uEmissiveMap", PbrTextureRole.EMISSIVE, supplied, fallbacks);
+        bind(builder, HEIGHT_UNIT, "uHeightMap", PbrTextureRole.HEIGHT, supplied, fallbacks);
         bindClearcoatNormal(builder, null, fallbacks);
         return builder.build();
     }
@@ -141,6 +150,34 @@ public final class PbrMaterials {
                                                ClearcoatSettings clearcoat,
                                                PbrTextureBinding clearcoatNormal,
                                                AnisotropicSettings anisotropic) {
+        return createWithBindings(shader, properties, supplied, fallbacks, cullMode, doubleSided,
+                hasVertexColor, alphaCutoff, blendMode, clearcoat, clearcoatNormal, anisotropic,
+                ParallaxOcclusionSettings.disabled());
+    }
+
+    /**
+     * Creates a glTF-style PBR material with every bounded material input,
+     * including tangent-space parallax occlusion mapping.
+     *
+     * <p>{@code parallax} is stored on the material and uploaded as the
+     * {@code uParallax*} uniforms. Its height map is the {@link PbrTextureRole#HEIGHT}
+     * entry of {@code supplied} (linear colour space) bound to the frozen
+     * {@link #HEIGHT_UNIT}; a missing entry uses the shared black fallback,
+     * whose zero height is a flat surface and therefore no UV offset. The
+     * settings carry the channel selector and optional inversion because they
+     * are material values, not texture properties. Disabled settings or a zero
+     * height scale keep the exact original {@code vTexCoord} sampling
+     * sequence.</p>
+     */
+    public static Material createWithBindings(ShaderProgram shader, PbrMaterialProperties properties,
+                                               Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                               PbrFallbackTextures fallbacks, CullMode cullMode,
+                                               boolean doubleSided, boolean hasVertexColor,
+                                               float alphaCutoff, BlendMode blendMode,
+                                               ClearcoatSettings clearcoat,
+                                               PbrTextureBinding clearcoatNormal,
+                                               AnisotropicSettings anisotropic,
+                                               ParallaxOcclusionSettings parallax) {
         if (!Float.isFinite(alphaCutoff) || alphaCutoff < 0.0f || alphaCutoff > 1.0f) {
             throw new IllegalArgumentException("alphaCutoff must be finite and in [0, 1]");
         }
@@ -150,7 +187,8 @@ public final class PbrMaterials {
         Objects.requireNonNull(fallbacks, "fallbacks");
         Objects.requireNonNull(clearcoat, "clearcoat");
         Objects.requireNonNull(anisotropic, "anisotropic");
-        Material.Builder builder = baseBuilder(shader, properties, clearcoat, anisotropic)
+        Objects.requireNonNull(parallax, "parallax");
+        Material.Builder builder = baseBuilder(shader, properties, clearcoat, anisotropic, parallax)
                 .cullMode(cullMode)
                 .blendMode(Objects.requireNonNull(blendMode, "blendMode"))
                 .setInt("uDoubleSided", doubleSided ? 1 : 0)
@@ -163,6 +201,8 @@ public final class PbrMaterials {
         bindWithSampler(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
         bindWithSampler(builder, 3, "uOcclusionMap", PbrTextureRole.OCCLUSION, supplied, fallbacks);
         bindWithSampler(builder, 4, "uEmissiveMap", PbrTextureRole.EMISSIVE, supplied, fallbacks);
+        bindWithSampler(builder, HEIGHT_UNIT, "uHeightMap", PbrTextureRole.HEIGHT,
+                supplied, fallbacks);
         bindClearcoatNormal(builder, clearcoatNormal, fallbacks);
         return builder.build();
     }
@@ -194,6 +234,24 @@ public final class PbrMaterials {
         return createWithBindings(shader, properties, supplied, fallbacks, CullMode.NONE,
                 false, false, 0.0f, BlendMode.OPAQUE, ClearcoatSettings.disabled(), null,
                 anisotropic);
+    }
+
+    /**
+     * Hand-built PBR material with bounded tangent-space parallax occlusion and
+     * the default raster state (no culling, single-sided, no vertex colour,
+     * OPAQUE). The height map is the {@link PbrTextureRole#HEIGHT} entry of
+     * {@code supplied}; omitting it uses the shared black fallback (flat, no
+     * offset). A caller that also needs clearcoat or anisotropy uses the full
+     * {@code createWithBindings(...)} overload with the trailing settings.
+     */
+    public static Material createWithParallax(ShaderProgram shader,
+                                              PbrMaterialProperties properties,
+                                              Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                              PbrFallbackTextures fallbacks,
+                                              ParallaxOcclusionSettings parallax) {
+        return createWithBindings(shader, properties, supplied, fallbacks, CullMode.NONE,
+                false, false, 0.0f, BlendMode.OPAQUE, ClearcoatSettings.disabled(), null,
+                AnisotropicSettings.disabled(), parallax);
     }
 
     /**
@@ -263,7 +321,8 @@ public final class PbrMaterials {
 
     private static Material.Builder baseBuilder(ShaderProgram shader, PbrMaterialProperties properties,
                                                 ClearcoatSettings clearcoat,
-                                                AnisotropicSettings anisotropic) {
+                                                AnisotropicSettings anisotropic,
+                                                ParallaxOcclusionSettings parallax) {
         Material.Builder builder = Material.builder(shader)
                 .model(MaterialModel.METALLIC_ROUGHNESS)
                 .setVec4("uBaseColorFactor", properties.baseColorFactor())
@@ -279,7 +338,8 @@ public final class PbrMaterials {
                 .setInt("uHasVertexColor", 0)
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
-        return applyAnisotropic(applyClearcoat(builder, clearcoat), anisotropic);
+        return applyParallax(applyAnisotropic(applyClearcoat(builder, clearcoat), anisotropic),
+                parallax);
     }
 
     /** Uploads the bounded clearcoat settings as the frozen material uniforms. */
@@ -302,6 +362,28 @@ public final class PbrMaterials {
                 .setInt("uAnisotropicEnabled", anisotropic.active() ? 1 : 0)
                 .setFloat("uAnisotropicStrength", anisotropic.strength())
                 .setFloat("uAnisotropicRotation", anisotropic.rotation());
+    }
+
+    /**
+     * Uploads the bounded parallax occlusion settings as the frozen material
+     * uniforms. The height texture itself is bound through the
+     * {@link PbrTextureRole#HEIGHT} role at {@link #HEIGHT_UNIT}.
+     */
+    private static Material.Builder applyParallax(Material.Builder builder,
+                                                  ParallaxOcclusionSettings parallax) {
+        Objects.requireNonNull(parallax, "parallax");
+        return builder
+                .parallaxOcclusion(parallax)
+                .setInt("uParallaxEnabled", parallax.active() ? 1 : 0)
+                .setFloat("uParallaxHeightScale", parallax.heightScale())
+                .setInt("uParallaxMinSteps", parallax.minSteps())
+                .setInt("uParallaxMaxSteps", parallax.maxSteps())
+                .setFloat("uParallaxFadeStart", parallax.fadeStart())
+                .setFloat("uParallaxFadeEnd", parallax.fadeEnd())
+                .setFloat("uParallaxFadeStartDistance", parallax.fadeStartDistance())
+                .setFloat("uParallaxMaxDistance", parallax.maxDistance())
+                .setInt("uParallaxHeightChannel", parallax.heightChannel().shaderIndex())
+                .setInt("uParallaxFlipHeight", parallax.flipHeight() ? 1 : 0);
     }
 
     /**

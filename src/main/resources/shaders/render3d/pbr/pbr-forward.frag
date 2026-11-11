@@ -69,6 +69,8 @@ uniform sampler2D uMetallicRoughnessMap;
 uniform sampler2D uOcclusionMap;
 uniform sampler2D uEmissiveMap;
 uniform sampler2D uClearcoatNormalMap;
+// Linear scalar height data for tangent-space parallax occlusion mapping.
+uniform sampler2D uHeightMap;
 #ifndef HAIKALAT_VOLUME_FOG
 uniform sampler2D uShadowMap;
 uniform sampler2D uPointShadowMap;
@@ -138,6 +140,17 @@ uniform float uClearcoatNormalStrength;
 uniform int uAnisotropicEnabled;
 uniform float uAnisotropicStrength;
 uniform float uAnisotropicRotation;
+// Bounded tangent-space parallax occlusion; zero height scale is the exact original-UV path.
+uniform int uParallaxEnabled;
+uniform float uParallaxHeightScale;
+uniform int uParallaxMinSteps;
+uniform int uParallaxMaxSteps;
+uniform float uParallaxFadeStart;
+uniform float uParallaxFadeEnd;
+uniform float uParallaxFadeStartDistance;
+uniform float uParallaxMaxDistance;
+uniform int uParallaxHeightChannel;
+uniform int uParallaxFlipHeight;
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;
@@ -151,6 +164,12 @@ const float CLEARCOAT_F0 = 0.04;
 const float CLEARCOAT_MIN_ROUGHNESS = 0.045;
 // Per-axis GGX alpha floor: the square of the base 0.045 roughness floor.
 const float ANISOTROPIC_MIN_ALPHA = 0.002025;
+// Compile-time cap of the parallax march; the uniform step count is clamped to it.
+const int PARALLAX_MAX_STEPS = 128;
+// Longest tangent-space lateral slope the march may traverse (bounded UV travel).
+const float PARALLAX_MAX_SLOPE = 8.0;
+// Smallest tangent-space view depth that still participates in the march.
+const float PARALLAX_MIN_VIEW_Z = 1.0e-4;
 
 int shadowKernelRadius() {
     return clamp(uShadowQualityMeta.x, 0, 2);
@@ -365,7 +384,9 @@ vec3 anisotropicReflectionDirection(vec3 n, vec3 v, vec3 tangent, vec3 bitangent
  * (tangent, handedness-corrected bitangent, geometric normal). The coat is
  * oriented from the geometric normal, not the base normal map, so the thin
  * layer keeps its own smooth orientation. Strength zero reduces to the
- * geometric normal exactly.</p>
+ * geometric normal exactly. The optional coat normal map keeps sampling
+ * {@code vTexCoord}: the coat is an independent overlay and is not
+ * parallax-offset by the base-layer height field.</p>
  */
 vec3 clearcoatNormal(vec3 geometricNormal) {
     vec3 sampled = texture(uClearcoatNormalMap, vTexCoord).xyz * 2.0 - 1.0;
@@ -401,6 +422,130 @@ vec3 clearcoatDirectBrdf(vec3 cn, vec3 v, vec3 l, float roughness) {
     float d = distributionGgx(cn, h, roughness);
     float g = geometrySmith(cn, v, l, roughness);
     return vec3(d * g * f / max(4.0 * max(dot(cn, v), 0.0) * nDotL, 1.0e-5) * nDotL);
+}
+
+/**
+ * Bounded smoothstep fade shared by the angular and distance parallax windows.
+ *
+ * <p>Returns one at or below {@code start}, zero at or above {@code end} and the
+ * smooth cubic ramp between. The caller validates that the inputs are finite
+ * and ordered; the span floor only keeps a degenerate window from dividing by
+ * zero.</p>
+ */
+float parallaxFade(float value, float start, float end) {
+    float span = max(end - start, 1.0e-4);
+    float ramp = clamp((value - start) / span, 0.0, 1.0);
+    return 1.0 - ramp * ramp * (3.0 - 2.0 * ramp);
+}
+
+/**
+ * Linear height for one UV, from the selected channel of {@code uHeightMap}.
+ *
+ * <p>The role is linear (non-colour) data and the shader never gamma-decodes
+ * it. The channel selector is clamped to the four GLSL channels and the result
+ * is bounded to {@code [0, 1]} so an inverted or malformed texel cannot make
+ * the march unbounded. {@code uParallaxFlipHeight} returns {@code 1 - h} for
+ * height maps whose convention is inverted relative to this shader.</p>
+ */
+float parallaxHeight(vec2 uv) {
+    vec4 texel = texture(uHeightMap, uv);
+    int channel = clamp(uParallaxHeightChannel, 0, 3);
+    float height = channel == 0 ? texel.r
+            : channel == 1 ? texel.g
+            : channel == 2 ? texel.b : texel.a;
+    return clamp(uParallaxFlipHeight != 0 ? 1.0 - height : height, 0.0, 1.0);
+}
+
+/**
+ * Bounded tangent-space parallax occlusion UV.
+ *
+ * <p>The interpolated view direction is expressed in the mesh tangent frame
+ * and marched through the height field from the surface layer toward the
+ * camera. Each layer samples {@link parallaxHeight} and the first layer below
+ * the traced height is refined with one linear interpolation between the two
+ * bracketing samples, which recovers a continuous intersection instead of a
+ * quantised layer index. The returned UV is used only by the following
+ * material texture lookups: fragment depth, the shadow-map depth written by
+ * the shadow caster, velocity and the geometric silhouette are untouched, so
+ * this is an approximation of relief, not geometric displacement. There is no
+ * self-shadowing and no silhouette expansion.</p>
+ *
+ * <p>The offset is scaled by the product of the angular and distance fades, so
+ * both windows degrade continuously to the exact original UV. A tangent-space
+ * slope cap ({@link #PARALLAX_MAX_SLOPE}), a view-depth floor, a compile-time
+ * loop cap and the clamped uniform step count keep every coordinate and loop
+ * bounded. Height lookups and the final material lookups use their samplers'
+ * wrap modes, so out-of-range UVs wrap or clamp instead of producing NaN. A
+ * non-finite or inconsistent uniform (possible only through a raw material
+ * override) fails closed to {@code vTexCoord}.</p>
+ */
+vec2 parallaxOcclusionUv(vec3 geometricNormal, vec3 viewDirection) {
+    float scale = uParallaxHeightScale;
+    if (!(scale > 0.0) || !(scale <= 1.0)) return vTexCoord;
+    if (!(uParallaxFadeStart >= 0.0) || !(uParallaxFadeEnd > uParallaxFadeStart)
+            || !(uParallaxFadeEnd <= 90.0)) return vTexCoord;
+    if (!(uParallaxFadeStartDistance >= 0.0)
+            || !(uParallaxMaxDistance > uParallaxFadeStartDistance)) return vTexCoord;
+    float nDotV = dot(geometricNormal, viewDirection);
+    if (!(nDotV > 0.0)) return vTexCoord;
+    float viewAngle = degrees(acos(clamp(nDotV, 0.0, 1.0)));
+    float angleWeight = parallaxFade(viewAngle, uParallaxFadeStart, uParallaxFadeEnd);
+    float viewDistance = length(uCameraPosition - vWorldPosition);
+    float distanceWeight = parallaxFade(viewDistance, uParallaxFadeStartDistance,
+            uParallaxMaxDistance);
+    float weight = clamp(angleWeight * distanceWeight, 0.0, 1.0);
+    if (!(weight > 0.0)) return vTexCoord;
+    // Rebuild the tangent frame from the interpolated geometric inputs. A
+    // missing, zero or normal-parallel tangent falls back to the deterministic
+    // normal-derived axis; the frame is never unbounded-normalized.
+    vec3 tangent = vTangent;
+    if (!(dot(tangent, tangent) > 1.0e-8)) tangent = fallbackAnisotropicTangent(geometricNormal);
+    vec3 projected = tangent - geometricNormal * dot(geometricNormal, tangent);
+    if (!(dot(projected, projected) > 1.0e-8)) {
+        projected = fallbackAnisotropicTangent(geometricNormal);
+    }
+    vec3 axisT = normalize(projected);
+    vec3 axisB = tangentFrameBitangent(geometricNormal, axisT, vTangentHandedness);
+    if (!(dot(axisB, axisB) > 1.0e-8)) {
+        axisT = fallbackAnisotropicTangent(geometricNormal);
+        axisB = tangentFrameBitangent(geometricNormal, axisT, 1.0);
+    }
+    vec3 viewT = vec3(dot(viewDirection, axisT), dot(viewDirection, axisB), nDotV);
+    if (!(viewT.z > PARALLAX_MIN_VIEW_Z)) return vTexCoord;
+    int minimumSteps = clamp(uParallaxMinSteps, 1, PARALLAX_MAX_STEPS);
+    int maximumSteps = clamp(uParallaxMaxSteps, minimumSteps, PARALLAX_MAX_STEPS);
+    float layers = mix(float(maximumSteps), float(minimumSteps), clamp(viewT.z, 0.0, 1.0));
+    int layerCount = clamp(int(ceil(layers)), minimumSteps, maximumSteps);
+    vec2 slope = viewT.xy / max(viewT.z, PARALLAX_MIN_VIEW_Z);
+    float slopeLength = length(slope);
+    if (slopeLength > PARALLAX_MAX_SLOPE) slope *= PARALLAX_MAX_SLOPE / slopeLength;
+    vec2 stepUv = slope * scale * weight / float(layerCount);
+    float layerDepth = 1.0 / float(layerCount);
+    vec2 currentUv = vTexCoord;
+    float currentDepth = 0.0;
+    float currentHeight = parallaxHeight(currentUv);
+    vec2 previousUv = currentUv;
+    float previousDepth = 0.0;
+    float previousHeight = currentHeight;
+    int steps = 0;
+    for (int i = 0; i < PARALLAX_MAX_STEPS; ++i) {
+        if (i >= layerCount || !(currentDepth < currentHeight)) break;
+        previousUv = currentUv;
+        previousDepth = currentDepth;
+        previousHeight = currentHeight;
+        currentUv -= stepUv;
+        currentDepth += layerDepth;
+        currentHeight = parallaxHeight(currentUv);
+        steps = i + 1;
+    }
+    if (steps == 0 || !(previousDepth < previousHeight)
+            || !(currentHeight < currentDepth)) return currentUv;
+    float previousError = previousDepth - previousHeight;
+    float currentError = currentDepth - currentHeight;
+    float denominator = previousError - currentError;
+    float blend = denominator < -1.0e-6
+            ? clamp(previousError / denominator, 0.0, 1.0) : 0.0;
+    return mix(previousUv, currentUv, blend);
 }
 
 vec2 receiverPlaneGradient(vec3 projected) {
@@ -926,23 +1071,30 @@ vec3 clusterDebugColor(int cluster) {
 }
 
 void main() {
+    vec3 geometricNormal = normalize(vNormal);
+    if (uDoubleSided != 0 && !gl_FrontFacing) geometricNormal = -geometricNormal;
+    vec3 v = normalize(uCameraPosition - vWorldPosition);
+    // Parallax occlusion only offsets the following material lookups. It never
+    // writes depth, shadow, velocity or the silhouette, and disabled/zero scale
+    // keeps this variable equal to vTexCoord exactly.
+    vec2 materialUv = vTexCoord;
+    if (uParallaxEnabled != 0 && uParallaxHeightScale > 0.0) {
+        materialUv = parallaxOcclusionUv(geometricNormal, v);
+    }
     vec4 vertexColor = uHasVertexColor != 0 ? vVertexColor : vec4(1.0);
-    vec4 baseSample = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor * vertexColor;
+    vec4 baseSample = texture(uBaseColorMap, materialUv) * uBaseColorFactor * vertexColor;
     if (uAlphaMode == 1 && baseSample.a < uAlphaCutoff) discard;
-    vec2 mr = texture(uMetallicRoughnessMap, vTexCoord).gb;
+    vec2 mr = texture(uMetallicRoughnessMap, materialUv).gb;
     float roughness = clamp(mr.x * uRoughnessFactor, 0.045, 1.0);
     float metallic = clamp(mr.y * uMetallicFactor, 0.0, 1.0);
-    vec3 n = normalize(vNormal);
-    if (uDoubleSided != 0 && !gl_FrontFacing) n = -n;
-    vec3 geometricNormal = n;
+    vec3 n = geometricNormal;
     if (uEnableNormalMap != 0) {
-        vec3 sampled = texture(uNormalMap, vTexCoord).xyz * 2.0 - 1.0;
+        vec3 sampled = texture(uNormalMap, materialUv).xyz * 2.0 - 1.0;
         sampled.xy *= uNormalScale;
         vec3 t = normalize(vTangent);
         vec3 b = normalize(cross(n, t)) * vTangentHandedness;
         n = normalize(mat3(t, b, n) * sampled);
     }
-    vec3 v = normalize(uCameraPosition - vWorldPosition);
     vec3 f0 = mix(vec3(0.04), baseSample.rgb, metallic);
     // Lazy clearcoat setup: disabled keeps the original single-layer values.
     vec3 clearcoatNormalValue = n;
@@ -1036,7 +1188,7 @@ void main() {
             prefilterRoughness * uPrefilterMaxLod).rgb;
     vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
     vec3 specularIbl = prefiltered * (f * brdf.x + brdf.y);
-    float aoSample = texture(uOcclusionMap, vTexCoord).r;
+    float aoSample = texture(uOcclusionMap, materialUv).r;
     float ao = mix(1.0, aoSample, uOcclusionStrength);
     vec3 indirect = vec3(0.0);
     if (uEnableDiffuseIbl != 0) indirect += kd * diffuseIbl;
@@ -1067,7 +1219,7 @@ void main() {
         return;
     }
     indirect *= ao * gtao * uEnvironmentIntensity;
-    vec3 emissive = texture(uEmissiveMap, vTexCoord).rgb * uEmissiveFactor;
+    vec3 emissive = texture(uEmissiveMap, materialUv).rgb * uEmissiveFactor;
     FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)),
             uAlphaMode == 2 ? baseSample.a : 1.0);
 #ifdef HAIKALAT_VOLUME_FOG
