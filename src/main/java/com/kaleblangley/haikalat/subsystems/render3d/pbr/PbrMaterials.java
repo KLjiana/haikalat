@@ -20,9 +20,6 @@ import org.joml.Vector3fc;
 import java.util.Map;
 import java.util.Objects;
 
-import static org.lwjgl.opengl.GL11.glGetInteger;
-import static org.lwjgl.opengl.GL20.GL_MAX_TEXTURE_IMAGE_UNITS;
-
 /** 将不可变 PBR 定义装配为通用 runtime Material 的便利入口。 */
 public final class PbrMaterials {
     /**
