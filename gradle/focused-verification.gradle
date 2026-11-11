@@ -48,7 +48,7 @@ def jvmCases = [
         'VfxMaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
         'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
         'VignetteSettingsTest', 'FilmGrainSettingsTest', 'ChromaticAberrationSettingsTest',
-        'PostProcessSettingsTest'
+        'PostProcessSettingsTest', 'ContactShadowSettingsTest', 'ContactShadowShaderTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -57,6 +57,7 @@ def glCases = [
         'VolumetricTextureGlTest',
         'VfxRendererGlTest', 'VfxTextureCacheGlTest', 'VfxLightingGlTest',
         'VignettePassGlTest',
+        'ContactShadowsGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
