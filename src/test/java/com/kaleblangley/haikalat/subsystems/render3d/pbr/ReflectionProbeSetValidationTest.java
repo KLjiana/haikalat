@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,6 +42,16 @@ class ReflectionProbeSetValidationTest {
         assertThrows(NullPointerException.class, () -> ReflectionProbeSet.validate(null));
         assertThrows(NullPointerException.class,
                 () -> ReflectionProbeSet.validate(java.util.Arrays.asList(probe("a"), null)));
+    }
+
+    @Test
+    void mixedActiveAndDisabledSlotsRemainIndexAlignedAndPassValidation() {
+        List<ReflectionProbeSettings> mixed = List.of(probe("active"),
+                probe("disabled").disabledCopy());
+        assertEquals(2, ReflectionProbeSet.validate(mixed).size());
+        assertEquals(1, ReflectionProbeSet.activeProbeCount(mixed));
+        assertTrue(ReflectionProbeSet.validate(mixed).get(1) != null);
+        assertFalse(ReflectionProbeSet.validate(mixed).get(1).active());
     }
 
     private static ReflectionProbeSettings probe(String name) {

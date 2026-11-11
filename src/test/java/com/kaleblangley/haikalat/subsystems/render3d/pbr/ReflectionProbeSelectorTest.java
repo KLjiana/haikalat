@@ -117,12 +117,61 @@ class ReflectionProbeSelectorTest {
     }
 
     @Test
+    void disabledSlotAtItsOwnCentreFallsBackToGlobalWhileTheActiveProbeStillSelects() {
+        ReflectionProbeSettings active = probe("active", -0.5f);
+        ReflectionProbeSettings disabled = ReflectionProbeSettings.box("disabled",
+                new Vector3f(2.0f, 0.0f, 0.0f), new Vector3f(1.0f), 1.0f,
+                ReflectionProbeSettings.Quality.TEST, 1.0f, 0.0f, "hdr").disabledCopy();
+        List<ReflectionProbeSettings> mixed = List.of(active, disabled);
+        ReflectionProbeSelector.Selection atActive = ReflectionProbeSelector.select(mixed,
+                new Vector3f(-0.5f, 0.0f, 0.0f));
+        assertEquals(1, atActive.count());
+        assertEquals(0, atActive.probes().getFirst().probeIndex());
+        assertEquals(1.0f, atActive.probes().getFirst().weight(), EPSILON);
+        ReflectionProbeSelector.Selection atDisabled = ReflectionProbeSelector.select(mixed,
+                new Vector3f(2.0f, 0.0f, 0.0f));
+        assertTrue(atDisabled.isEmpty(),
+                "a disabled slot must never become a selected candidate");
+        assertEquals(1.0f, atDisabled.globalWeight(), EPSILON);
+    }
+
+    @Test
+    void sphereInfluenceMatchesTheDocumentedBoundaryAndBlendField() {
+        ReflectionProbeSettings sphere = ReflectionProbeSettings.sphere("sphere",
+                new Vector3f(), 1.0f, 1.0f, ReflectionProbeSettings.Quality.TEST,
+                1.0f, 0.0f, "hdr");
+        assertEquals(1.0f, ReflectionProbeSelector.influenceWeight(sphere,
+                new Vector3f()), 1.0e-4f);
+        assertEquals(0.5f, ReflectionProbeSelector.influenceWeight(sphere,
+                new Vector3f(1.0f, 0.0f, 0.0f)), 1.0e-4f);
+        assertEquals(0.25f, ReflectionProbeSelector.influenceWeight(sphere,
+                new Vector3f(1.5f, 0.0f, 0.0f)), 1.0e-4f);
+        assertEquals(0.0f, ReflectionProbeSelector.influenceWeight(sphere,
+                new Vector3f(2.0f, 0.0f, 0.0f)), 1.0e-4f);
+    }
+
+    @Test
+    void intensityAndOwnRotationDoNotChangeTheSelectionField() {
+        ReflectionProbeSettings base = probe("a", 0.0f);
+        ReflectionProbeSettings bright = new ReflectionProbeSettings("bright", true,
+                new Vector3f(), ReflectionProbeSettings.Shape.BOX, new Vector3f(1.0f), 1.0f,
+                1.0f, ReflectionProbeSettings.Quality.TEST, 4.0f, 1.25f, "hdr");
+        assertEquals(ReflectionProbeSelector.influenceWeight(base, new Vector3f()),
+                ReflectionProbeSelector.influenceWeight(bright, new Vector3f()), 1.0e-6f,
+                "intensity and probe rotation affect shading, not the influence field");
+        assertEquals(1, ReflectionProbeSelector.select(List.of(bright),
+                new Vector3f()).count());
+    }
+
+    @Test
     void boxProjectionReturnsTheCentreToHitDirectionAndFallsBackOnAMiss() {
         ReflectionProbeSettings box = ReflectionProbeSettings.box("box", new Vector3f(),
                 new Vector3f(1.0f), 0.0f, ReflectionProbeSettings.Quality.TEST, 1.0f, 0.0f,
                 "hdr");
         assertDirection(new Vector3f(-1.0f, 0.0f, 0.0f), box, new Vector3f(-2.0f, 0.0f, 0.0f),
                 new Vector3f(1.0f, 0.0f, 0.0f));
+        assertDirection(new Vector3f(1.0f, 0.0f, 0.0f), box, new Vector3f(2.0f, 0.0f, 0.0f),
+                new Vector3f(-1.0f, 0.0f, 0.0f));
         assertDirection(new Vector3f(0.4082483f, 0.4082483f, 0.8164966f), box,
                 new Vector3f(0.5f, 0.5f, 0.0f), new Vector3f(0.0f, 0.0f, 1.0f));
         assertDirection(new Vector3f(0.0f, 1.0f, 0.0f), box,

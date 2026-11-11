@@ -12,6 +12,7 @@ import java.nio.IntBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.system.MemoryUtil.memAlloc;
 import static org.lwjgl.system.MemoryUtil.memFree;
 
@@ -27,6 +28,44 @@ class ReflectionProbeHdrFixtureTest {
         assertFixture("probe-warm.hdr", 1.0f, 10.0f / 128.0f, 5.0f / 128.0f);
         assertFixture("probe-cool.hdr", 5.0f / 128.0f, 10.0f / 128.0f, 1.0f);
         assertFixture("probe-neutral.hdr", 0.25f, 0.25f, 0.25f);
+    }
+
+    @Test
+    void directionalFixtureIsRedTowardPlusZAndDarkTowardMinusX() throws IOException {
+        byte[] bytes;
+        try (InputStream input = ReflectionProbeHdrFixtureTest.class.getResourceAsStream(
+                "/environments/pbr/probe-directional.hdr")) {
+            assertNotNull(input, "missing directional HDR fixture");
+            bytes = input.readAllBytes();
+        }
+        ByteBuffer source = memAlloc(bytes.length);
+        try {
+            source.put(bytes).flip();
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                IntBuffer width = stack.mallocInt(1);
+                IntBuffer height = stack.mallocInt(1);
+                IntBuffer channels = stack.mallocInt(1);
+                FloatBuffer image = STBImage.stbi_loadf_from_memory(source, width, height,
+                        channels, 4);
+                assertNotNull(image, "STB failed to decode probe-directional.hdr: "
+                        + STBImage.stbi_failure_reason());
+                try {
+                    assertEquals(64, width.get(0));
+                    assertEquals(32, height.get(0));
+                    // Equirect u=0.75, v=0.5 is +Z; u=0 is -X.
+                    int plusZ = (16 * 64 + 48) * 4;
+                    int minusX = (16 * 64) * 4;
+                    assertEquals(4.0f, image.get(plusZ), 0.05f,
+                            "+Z must be the red lobe");
+                    assertTrue(image.get(minusX) < 0.05f,
+                            "-X must be dark for the rotation regression");
+                } finally {
+                    STBImage.stbi_image_free(image);
+                }
+            }
+        } finally {
+            memFree(source);
+        }
     }
 
     private static void assertFixture(String name, float red, float green, float blue)

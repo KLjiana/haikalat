@@ -119,6 +119,25 @@ class ReflectionProbeShaderTest {
     }
 
     @Test
+    void worldReflectionFeedsProbeCorrectionWhileOnlyGlobalUsesEnvironmentRotation()
+            throws IOException {
+        String source = resource(PBR);
+        String ibl = section(source, "    // Keep the world-space reflection separate",
+                "    vec2 brdf = texture(uBrdfLut");
+        assertTrue(ibl.contains("vec3 worldReflection = reflect(-v, n);"));
+        assertTrue(ibl.contains("vec3 reflection = rotateEnvironment(worldReflection);"));
+        assertTrue(ibl.contains("worldReflection = anisotropicReflectionDirection("));
+        assertTrue(ibl.contains("reflection = rotateEnvironment(worldReflection);"));
+        assertTrue(ibl.contains("uReflectionProbe0, vWorldPosition, worldReflection,"));
+        assertTrue(ibl.contains("uReflectionProbe1, vWorldPosition, worldReflection,"));
+        assertTrue(ibl.contains("textureLod(uPrefilteredMap, reflection,"),
+                "the global prefiltered sample must still use the rotated direction");
+        assertFalse(ibl.contains("uReflectionProbe0, vWorldPosition, reflection,"),
+                "probe local correction must not consume the globally rotated direction");
+        assertFalse(ibl.contains("uReflectionProbe1, vWorldPosition, reflection,"));
+    }
+
+    @Test
     void fullScanReferenceCarriesTheSameProbeHelpers() throws IOException {
         String production = resource(PBR);
         String reference = resource(REFERENCE);

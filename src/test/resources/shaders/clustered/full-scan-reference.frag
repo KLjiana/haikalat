@@ -1253,15 +1253,22 @@ void main() {
     // irradiance.comp stores PI * average(cosine-weighted radiance), so the
     // Lambert BRDF must divide by PI exactly once here.
     vec3 diffuseIbl = texture(uIrradianceMap, rotatedN).rgb * baseSample.rgb / PI;
-    vec3 reflection = rotateEnvironment(reflect(-v, n));
+    // Keep the world-space reflection separate from the globally rotated
+    // lookup direction. Local reflection probes are positioned in world space:
+    // their box/sphere intersection must use the unrotated (but optionally
+    // anisotropic-warped) reflection. Only the global prefiltered environment
+    // consumes uEnvironmentRotation.
+    vec3 worldReflection = reflect(-v, n);
+    vec3 reflection = rotateEnvironment(worldReflection);
     float prefilterRoughness = roughness;
     if (anisotropicStrength > 0.0) {
         // Bounded approximation, not an exact anisotropic IBL: the existing
         // prefiltered cubemap is sampled through a tangent-plane-stretched
         // direction at a slightly widened mip. The isotropic BRDF LUT and
         // Fresnel term are reused, so energy is only approximately preserved.
-        reflection = rotateEnvironment(anisotropicReflectionDirection(
-                n, v, anisotropicTangent, anisotropicBitangent, anisotropicStrength));
+        worldReflection = anisotropicReflectionDirection(
+                n, v, anisotropicTangent, anisotropicBitangent, anisotropicStrength);
+        reflection = rotateEnvironment(worldReflection);
         prefilterRoughness = clamp(roughness * (1.0 + 0.5 * anisotropicStrength),
                 0.0, 1.0);
     }
@@ -1276,7 +1283,7 @@ void main() {
         float weight0 = clamp(uReflectionProbe0Weight, 0.0, 1.0);
         if (weight0 > 0.0) {
             probeRadiance += weight0 * reflectionProbeRadiance(
-                    uReflectionProbe0, vWorldPosition, reflection,
+                    uReflectionProbe0, vWorldPosition, worldReflection,
                     uReflectionProbe0Position, uReflectionProbe0Extents,
                     uReflectionProbe0Shape, uReflectionProbe0Rotation,
                     uReflectionProbe0MaxLod, uReflectionProbe0Intensity,
@@ -1287,7 +1294,7 @@ void main() {
             float weight1 = clamp(uReflectionProbe1Weight, 0.0, 1.0);
             if (weight1 > 0.0) {
                 probeRadiance += weight1 * reflectionProbeRadiance(
-                        uReflectionProbe1, vWorldPosition, reflection,
+                        uReflectionProbe1, vWorldPosition, worldReflection,
                         uReflectionProbe1Position, uReflectionProbe1Extents,
                         uReflectionProbe1Shape, uReflectionProbe1Rotation,
                         uReflectionProbe1MaxLod, uReflectionProbe1Intensity,

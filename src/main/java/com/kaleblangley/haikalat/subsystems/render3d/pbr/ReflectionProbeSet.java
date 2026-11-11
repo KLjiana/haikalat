@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.core.device.RenderDevice;
 import org.joml.Vector3fc;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -42,8 +43,11 @@ public final class ReflectionProbeSet implements AutoCloseable {
 
     private ReflectionProbeSet(List<ReflectionProbeSettings> settings,
                                List<ReflectionProbe> probes, Sampler cubeSampler) {
-        this.settings = settings;
-        this.probes = probes;
+        this.settings = Objects.requireNonNull(settings, "settings");
+        this.probes = Objects.requireNonNull(probes, "probes");
+        if (settings.size() != probes.size()) {
+            throw new IllegalArgumentException("probe slots must be index-aligned with settings");
+        }
         this.cubeSampler = cubeSampler;
     }
 
@@ -64,7 +68,12 @@ public final class ReflectionProbeSet implements AutoCloseable {
         List<ReflectionProbeSettings> validated = validate(settings);
         int active = activeProbeCount(validated);
         if (active == 0) {
-            return new ReflectionProbeSet(validated, List.of(), null);
+            // Keep disabled entries index-aligned with settings; preserve null
+            // slots explicitly because List.copyOf would reject them.
+            List<ReflectionProbe> inactive = new ArrayList<>(validated.size());
+            for (int index = 0; index < validated.size(); index++) inactive.add(null);
+            return new ReflectionProbeSet(validated,
+                    Collections.unmodifiableList(inactive), null);
         }
         int units = glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
         if (units <= PbrMaterials.REFLECTION_PROBE_UNIT_1) {
@@ -85,7 +94,8 @@ public final class ReflectionProbeSet implements AutoCloseable {
                         probe.hdrResource(), probe.environmentSettings());
                 created.add(new ReflectionProbe(probe, environment));
             }
-            return new ReflectionProbeSet(validated, List.copyOf(created), sampler);
+            return new ReflectionProbeSet(validated,
+                    Collections.unmodifiableList(new ArrayList<>(created)), sampler);
         } catch (RuntimeException | Error failure) {
             primaryFailure = failure;
             throw failure;

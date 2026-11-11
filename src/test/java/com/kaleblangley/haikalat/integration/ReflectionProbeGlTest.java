@@ -26,6 +26,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.Transform;
+import com.kaleblangley.haikalat.subsystems.render3d.VisualSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
@@ -103,6 +104,18 @@ class ReflectionProbeGlTest {
             GlDebug.enableDebugCallback();
             try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
                 runAcceptance();
+            }
+        }
+    }
+
+    @Test
+    void localCorrectionIgnoresGlobalEnvironmentRotation() {
+        try (GlfwWindow window = hiddenWindow(WIDTH, HEIGHT)) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
+                runRotationRegression(window);
             }
         }
     }
@@ -404,6 +417,108 @@ class ReflectionProbeGlTest {
     }
 
     /** Runs the probe loading-failure/lifecycle case with resource tracking active. */
+    /**
+     * Non-uniform probe regression for the environment-rotation contract.
+     *
+     * <p>The receiver sits at the centre of a single box probe, so the probe
+     * weight is one and the residual global weight is zero. The directional
+     * probe HDR is red toward +Z and dark toward -X; the camera-facing quad's
+     * world reflection is +Z. Rotating only the global environment must not
+     * change the probe result. The old bug rotated the reflection to -X before
+     * the box projection, which would sample the dark side and fail this
+     * comparison.</p>
+     */
+    private static void runRotationRegression(GlfwWindow window) {
+        GlRenderDevice device = new GlRenderDevice();
+        try (ShaderProgram shader = ShaderProgram.fromResource(ReflectionProbeGlTest.class,
+                "/shaders/render3d/pbr/pbr-forward.vert",
+                "/shaders/render3d/pbr/pbr-forward.frag");
+             PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+             Mesh quad = Mesh.from(TangentGenerator.generate(
+                     BuiltinMeshData.texturedQuad("reflection-probe-rotation-quad")).mesh());
+             PbrEnvironment environment = PbrEnvironmentLoader.load(device,
+                     ReflectionProbeGlTest.class,
+                     "/environments/pbr/probe-neutral.hdr",
+                     PbrEnvironmentSettings.testQuality());
+             ReflectionProbeSet directionalProbes = ReflectionProbeSet.load(device,
+                     ReflectionProbeGlTest.class, List.of(directionalProbe()));
+             Texture2D metalRough = metallicRoughnessTexture()) {
+            Material material = PbrMaterials.create(shader,
+                    new PbrMaterialProperties(new Vector4f(0.5f, 0.5f, 0.5f, 1.0f),
+                            1.0f, 0.1f, 0.0f, 1.0f, new Vector3f(), Map.of()),
+                    Map.of(PbrTextureRole.METALLIC_ROUGHNESS, metalRough), fallbacks);
+            try {
+                MaterialInstance instance = material.createInstance();
+                Camera camera = new Camera(CAMERA_POSITION,
+                        new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
+                Scene scene = new Scene(camera);
+                scene.add(MeshRenderer.of(quad, instance,
+                        Transform.at(0.0f, 0.0f, 0.0f)
+                                .scale(QUAD_SCALE, QUAD_SCALE, 1.0f)));
+                scene.addLight(SceneLight.directional(new Vector3f(-0.3f, -0.5f, -1.0f),
+                        new Vector3f(1.0f), 1.0f));
+                RenderSettings renderSettings = RenderSettings.builder()
+                        .antiAliasingMode(AntiAliasingMode.NONE)
+                        .toneMappingMode(ToneMappingMode.ACES)
+                        .vsync(false)
+                        .build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        renderSettings, environment);
+                try {
+                    RenderFeatureSettings ibl = pipeline.features().effective().toBuilder()
+                            .imageBasedLighting(true)
+                            .directLighting(false)
+                            .directionalShadows(false)
+                            .pointShadows(false)
+                            .spotShadows(false)
+                            .directionalCascades(DirectionalCascadeSettings.disabled())
+                            .localShadows(LocalShadowPipelineSettings.legacyDefaults())
+                            .build();
+                    pipeline.features().submit(ibl);
+                    pipeline.build();
+
+                    PbrMaterials.bindReflectionProbes(instance, directionalProbes,
+                            new Vector3f());
+                    float[] unrotated = render(pipeline, device, WIDTH, HEIGHT);
+                    float[] unrotatedCentre = centrePixel(unrotated, WIDTH, HEIGHT);
+                    assertTrue(unrotatedCentre[0] > unrotatedCentre[2] * 2.0f,
+                            "the +Z red probe lobe must dominate at the receiver, got "
+                                    + describe(unrotatedCentre));
+                    GlDebug.checkError("probe local correction unrotated");
+
+                    VisualSettings visual = pipeline.visualSettings();
+                    pipeline.applyVisualSettings(new VisualSettings(
+                            visual.manualExposure(), visual.iblIntensity(),
+                            (float) (Math.PI * 0.5),
+                            visual.directionalLightDirection(), visual.directionalLightColor(),
+                            visual.directionalLightIntensity(), visual.antiAliasingMode(),
+                            visual.bloom(), visual.outdoor(), visual.volumetricFog()));
+                    assertEquals((float) (Math.PI * 0.5),
+                            pipeline.visualSettings().iblRotationRadians(), 1.0e-5f);
+
+                    float[] rotated = render(pipeline, device, WIDTH, HEIGHT);
+                    float[] rotatedCentre = centrePixel(rotated, WIDTH, HEIGHT);
+                    assertTrue(rotatedCentre[0] > rotatedCentre[2] * 2.0f,
+                            "the probe result must remain red-dominant after the global "
+                                    + "environment rotation, got " + describe(rotatedCentre));
+                    for (int channel = 0; channel < 3; channel++) {
+                        assertEquals(unrotatedCentre[channel], rotatedCentre[channel], 0.01f,
+                                "global environment rotation must not change the probe "
+                                        + "local-correction direction/radiance");
+                    }
+                    GlDebug.checkError("probe local correction rotated");
+                } finally {
+                    pipeline.close();
+                }
+            } finally {
+                material.close();
+            }
+        }
+        assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                "rotation regression leaked resources: "
+                        + GlDebug.resources().liveResources());
+    }
+
     private static void runLifecycle() {
         GlRenderDevice device = new GlRenderDevice();
         List<ReflectionProbeSettings> failing = List.of(probeA(),
@@ -416,6 +531,18 @@ class ReflectionProbeGlTest {
         assertTrue(GlDebug.resources().liveResources().isEmpty(),
                 "failed probe loading leaked resources: "
                         + GlDebug.resources().liveResources());
+
+        ReflectionProbeSet mixed = ReflectionProbeSet.load(device, ReflectionProbeGlTest.class,
+                List.of(probeA(), probeB().disabledCopy()));
+        assertEquals(1, mixed.activeProbeCount(),
+                "the disabled slot must not load a second GPU environment");
+        assertEquals(2, mixed.size(),
+                "the disabled slot must remain index-aligned with settings");
+        assertFalse(mixed.select(new Vector3f(PROBE_A_X, 0.0f, 0.0f)).isEmpty(),
+                "the active slot must still select");
+        assertTrue(mixed.select(new Vector3f(PROBE_B_X, 0.0f, 0.0f)).isEmpty(),
+                "the disabled slot must never be sampled");
+        mixed.close();
 
         ReflectionProbeSet set = ReflectionProbeSet.load(device, ReflectionProbeGlTest.class,
                 List.of(probeA()));
@@ -430,6 +557,12 @@ class ReflectionProbeGlTest {
                 "closing a probe set must release every owned resource: "
                         + GlDebug.resources().liveResources());
         GlDebug.checkError("reflection probe lifecycle");
+    }
+
+    private static ReflectionProbeSettings directionalProbe() {
+        return ReflectionProbeSettings.box("directional", new Vector3f(),
+                new Vector3f(1.0f), 1.0f, ReflectionProbeSettings.Quality.TEST,
+                1.0f, 0.0f, "/environments/pbr/probe-directional.hdr");
     }
 
     private static ReflectionProbeSettings probeA() {

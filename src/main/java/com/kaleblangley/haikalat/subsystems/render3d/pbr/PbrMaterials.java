@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d.pbr;
 
+import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
@@ -19,6 +20,9 @@ import org.joml.Vector3fc;
 
 import java.util.Map;
 import java.util.Objects;
+
+import static org.lwjgl.opengl.GL11.glGetInteger;
+import static org.lwjgl.opengl.GL20.GL_MAX_TEXTURE_IMAGE_UNITS;
 
 /** 将不可变 PBR 定义装配为通用 runtime Material 的便利入口。 */
 public final class PbrMaterials {
@@ -58,6 +62,7 @@ public final class PbrMaterials {
         Objects.requireNonNull(properties, "properties");
         supplied = Map.copyOf(Objects.requireNonNull(supplied, "supplied"));
         Objects.requireNonNull(fallbacks, "fallbacks");
+        requireReflectionProbeTextureUnits();
         Material.Builder builder = Material.builder(shader)
                 .model(MaterialModel.METALLIC_ROUGHNESS)
                 .setVec4("uBaseColorFactor", properties.baseColorFactor())
@@ -139,7 +144,13 @@ public final class PbrMaterials {
             slot++;
         }
         instance.setInt("uReflectionProbeCount", slot)
-                .setFloat("uReflectionProbeGlobalWeight", selection.globalWeight());
+                .setFloat("uReflectionProbeGlobalWeight", selection.globalWeight())
+                // Raw Material.builder(pbr-forward.frag) callers do not pass
+                // through applyReflectionProbeDefaults; write the dedicated
+                // sampler units unconditionally so even a count-zero bind
+                // cannot alias the sampler2D base-colour unit 0.
+                .setInt("uReflectionProbe0", REFLECTION_PROBE_UNIT_0)
+                .setInt("uReflectionProbe1", REFLECTION_PROBE_UNIT_1);
     }
 
     private static Vector3f probeExtents(ReflectionProbeSettings settings) {
@@ -400,6 +411,7 @@ public final class PbrMaterials {
                                                 ClearcoatSettings clearcoat,
                                                 AnisotropicSettings anisotropic,
                                                 ParallaxOcclusionSettings parallax) {
+        requireReflectionProbeTextureUnits();
         Material.Builder builder = Material.builder(shader)
                 .model(MaterialModel.METALLIC_ROUGHNESS)
                 .setVec4("uBaseColorFactor", properties.baseColorFactor())
@@ -428,6 +440,23 @@ public final class PbrMaterials {
      * count-zero branch never samples a probe. The count-zero gate keeps the
      * original global path bit-identical.
      */
+    /**
+     * Hard capability requirement of the probe-aware PBR forward shader. Its
+     * two samplerCubes occupy 22/23 in both the ordinary and volume-fog
+     * variants; a smaller context cannot create an ordinary PBR forward
+     * material with this shader/revision. Fail at creation instead of letting
+     * the draw alias or reject texture units silently.
+     */
+    private static void requireReflectionProbeTextureUnits() {
+        int units = glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
+        if (units <= REFLECTION_PROBE_UNIT_1) {
+            throw new GlException("PBR forward requires at least "
+                    + (REFLECTION_PROBE_UNIT_1 + 1)
+                    + " fragment texture units for the local reflection-probe contract, but "
+                    + "the context exposes " + units);
+        }
+    }
+
     private static Material.Builder applyReflectionProbeDefaults(Material.Builder builder) {
         // The shader statically declares both probe samplerCubes. Their sampler
         // uniforms must never be left at GL's default unit 0, where the
