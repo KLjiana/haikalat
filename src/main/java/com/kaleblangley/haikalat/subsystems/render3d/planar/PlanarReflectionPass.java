@@ -168,6 +168,14 @@ public final class PlanarReflectionPass implements GlResource {
     /**
      * Records one reflection view and restores {@code restoreTarget} afterwards.
      *
+     * <p>The caller's viewport is restored to the full extent of
+     * {@code restoreTarget}, or to {@code (0,0,sceneWidth,sceneHeight)} when
+     * the default framebuffer is restored.  Front face is restored to
+     * {@code CCW}; depth test/write are enabled, cull/blend/sRGB/scissor are
+     * disabled and the clear colour is reset to the GL default (0,0,0,1).
+     * These are the documented draw defaults of this pass, not a full host
+     * state snapshot.</p>
+     *
      * @param restoreTarget caller framebuffer restored at the end, or {@code null}
      *                      for the default framebuffer
      * @return true when the reflection texture was updated this call
@@ -340,6 +348,12 @@ public final class PlanarReflectionPass implements GlResource {
         /**
          * Records the scene from the mirrored camera into the already bound
          * reflection target.
+         *
+         * <p>The pass owns the front-face winding, so the recorder must not
+         * change it; it may enable/disable culling as its materials require.
+         * The recorder must not sample {@link #colorTexture()} or
+         * {@link #depthTexture()} of the pass it is writing (feedback), and
+         * must not start another planar reflection.</p>
          *
          * @param cmd   command buffer currently targeting the reflection FBO
          * @param frame mirrored camera matrices, basis and clip planes
