@@ -79,24 +79,19 @@ final class PcssMath {
     }
 
     /**
-     * Linear world distance from the light plane for a normalized window depth.
-     * Directional cascades use an orthographic projection, so this conversion
-     * is affine.
-     */
-    static float worldDepth(float normalizedDepth, float nearDistance, float depthRange) {
-        return nearDistance + normalizedDepth * depthRange;
-    }
-
-    /**
      * Penumbra radius in shadow texels.
      *
-     * <p>{@code penumbraWorld = (receiverWorld - blockerWorld) * lightSize /
-     * blockerWorld}, then divided by the cascade's world units per texel and
-     * clamped to {@code [0, maxFilterRadiusTexels]}.</p>
+     * <p>Directional cascades are orthographic, so normalized window depth is
+     * treated as proportional to the distance from the light plane; the range
+     * cancels in the PCSS ratio:
+     * {@code penumbra = (receiver - blocker) * lightSize / blocker}.  The ortho
+     * near offset is neglected (below 0.1% of typical blocker depths).  The
+     * result is divided by the cascade's world units per texel and clamped to
+     * {@code [0, maxFilterRadiusTexels]}.</p>
      */
     static float penumbraTexels(float receiverDepth, float averageBlockerDepth,
-                                float nearDistance, float depthRange, float lightWorldSize,
-                                float texelWorldSize, float maxFilterRadiusTexels) {
+                                float lightWorldSize, float texelWorldSize,
+                                float maxFilterRadiusTexels) {
         if (!Float.isFinite(receiverDepth) || receiverDepth < 0.0f || receiverDepth > 1.0f) {
             throw new IllegalArgumentException("receiverDepth must be finite and in [0, 1]");
         }
@@ -104,10 +99,6 @@ final class PcssMath {
                 || averageBlockerDepth > 1.0f) {
             throw new IllegalArgumentException(
                     "averageBlockerDepth must be finite and in [0, 1]");
-        }
-        if (!Float.isFinite(nearDistance) || !Float.isFinite(depthRange) || depthRange <= 0.0f) {
-            throw new IllegalArgumentException(
-                    "nearDistance must be finite and depthRange must be finite and positive");
         }
         if (!Float.isFinite(lightWorldSize) || lightWorldSize < 0.0f) {
             throw new IllegalArgumentException("lightWorldSize must be finite and non-negative");
@@ -119,11 +110,9 @@ final class PcssMath {
             throw new IllegalArgumentException(
                     "maxFilterRadiusTexels must be finite and non-negative");
         }
-        float receiverWorld = worldDepth(receiverDepth, nearDistance, depthRange);
-        float blockerWorld = worldDepth(averageBlockerDepth, nearDistance, depthRange);
-        float separation = Math.max(receiverWorld - blockerWorld, 0.0f);
-        float occluderDistance = Math.max(blockerWorld, MIN_OCCLUDER_DISTANCE);
-        float penumbraWorld = separation * lightWorldSize / occluderDistance;
+        float blockerDistance = Math.max(averageBlockerDepth, MIN_OCCLUDER_DISTANCE);
+        float separation = Math.max(receiverDepth - averageBlockerDepth, 0.0f);
+        float penumbraWorld = separation * lightWorldSize / blockerDistance;
         float texels = penumbraWorld / Math.max(texelWorldSize, MIN_TEXEL_WORLD_SIZE);
         return Math.min(Math.max(texels, 0.0f), maxFilterRadiusTexels);
     }

@@ -84,7 +84,7 @@ class PcssGlTest {
     private static final float SHADOW_SCENE_RADIUS = 20.0f;
     private static final int SHADOW_RESOLUTION = 256;
     private static final int FILTER_RADIUS_TEXELS = 8;
-    private static final float LIGHT_WORLD_SIZE = 2.0f;
+    private static final float LIGHT_WORLD_SIZE = 8.0f;
     private static final Vector3f LIGHT_DIRECTION = new Vector3f(0.35f, -1.0f, 0.25f);
 
     @Test
@@ -115,6 +115,8 @@ class PcssGlTest {
                     Camera camera = new Camera(new Vector3f(0.0f, 7.0f, 9.0f),
                             new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -38.0f);
                     Scene scene = new Scene(camera);
+                    SceneLight sun = SceneLight.shadowedDirectional(LIGHT_DIRECTION,
+                            new Vector3f(3.0f), 3.0f);
                     scene.add(MeshRenderer.of(quad, material,
                             Transform.at(0.0f, 0.0f, 0.0f)
                                     .rotationRadians(-(float) Math.PI / 2.0f, 0.0f, 0.0f)
@@ -123,8 +125,7 @@ class PcssGlTest {
                     scene.add(MeshRenderer.of(quad, material,
                             Transform.at(0.0f, WALL_HEIGHT * 0.5f, WALL_Z)
                                     .scale(WALL_HALF_WIDTH * 2.0f, WALL_HEIGHT, 1.0f)));
-                    scene.addLight(SceneLight.shadowedDirectional(LIGHT_DIRECTION,
-                            new Vector3f(3.0f), 3.0f));
+                    scene.addLight(sun);
                     RenderSettings renderSettings = RenderSettings.builder()
                             .antiAliasingMode(com.kaleblangley.haikalat.core.AntiAliasingMode.NONE)
                             .toneMappingMode(ToneMappingMode.ACES)

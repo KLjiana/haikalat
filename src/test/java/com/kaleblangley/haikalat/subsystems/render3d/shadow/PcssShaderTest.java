@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -77,18 +78,20 @@ class PcssShaderTest {
     }
 
     @Test
-    void penumbraUsesTheLinearlyConvertedDepthRangeAndTheFilterRadiusCap() throws IOException {
+    void penumbraUsesTheNormalizedDepthRatioAndTheFilterRadiusCap() throws IOException {
         String source = resource(PBR);
         String pcss = section(source, "float sampleDirectionalCascadePcss(int cascade",
                 "float sampleDirectionalShadow(int cascade");
         String penumbra = section(source, "float pcssPenumbraTexels(int cascade",
                 "float sampleDirectionalCascadePcss(int cascade");
-        assertTrue(penumbra.contains("float depthRange = -2.0 / lightSpace[2][2];"),
-                "orthographic window depth must be converted with the cascade depth range");
+        assertTrue(penumbra.contains("float blockerDistance = max(blockerDepth, 1.0e-4);"));
         assertTrue(penumbra.contains(
-                "float nearDistance = (lightSpace[3][2] + 1.0) / lightSpace[2][2];"));
+                "float separation = max(receiverDepth - blockerDepth, 0.0);"));
+        assertTrue(penumbra.contains(
+                "float penumbraWorld = separation * uPcssLightSize / blockerDistance;"));
         assertTrue(penumbra.contains("uDirectionalCascadeTexelWorld[cascade]"));
-        assertTrue(penumbra.contains("* uPcssLightSize / occluderDistance"));
+        assertFalse(penumbra.contains("lightSpace[2][2]"),
+                "the combined projection*view matrix cannot recover ortho near/range");
         assertTrue(pcss.contains(
                 "min(pcssPenumbraTexels(cascade, projected.z, blockerDepth),"));
         assertTrue(pcss.contains("float(filterRadius));"));

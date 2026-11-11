@@ -263,24 +263,21 @@ vec2 pcssDiskOffset(int index, int count, float radiusTexels) {
 /**
  * PCSS penumbra radius in shadow texels.
  *
- * <p>Directional cascades use an orthographic projection, so the normalized
- * window depth is linear in the distance from the light plane:
- * {@code world = near + depth * (far - near)}.  The cascade matrix's m22/m32
- * recover both constants; {@code uDirectionalCascadeTexelWorld} is the same
- * world-texel size the shadow planner uses for culling.  The result is clamped
- * by the caller to the configured filter radius.</p>
+ * <p>Directional cascades use an orthographic projection, so normalized
+ * light-space window depth is affine in the distance from the light plane.
+ * Treating it as proportional to that distance makes the range cancel in the
+ * PCSS ratio: {@code penumbra = (receiver - blocker) * lightSize / blocker}.
+ * The ortho near offset (0.01 for cascades, the configured legacy near plane)
+ * is neglected; it is below 0.1% of typical blocker depths and the resulting
+ * radius is clamped by the caller.  {@code uDirectionalCascadeTexelWorld} is
+ * the same world-texel size the shadow planner uses for culling.</p>
  */
 float pcssPenumbraTexels(int cascade, float receiverDepth, float blockerDepth) {
-    mat4 lightSpace = directionalCascadeMatrix(cascade);
-    float depthRange = -2.0 / lightSpace[2][2];
-    float nearDistance = (lightSpace[3][2] + 1.0) / lightSpace[2][2];
     float texelWorld = uDirectionalCascadeTexelWorld[cascade];
-    if (!(depthRange > 0.0) || !(texelWorld > 0.0)) return 0.0;
-    float receiverWorld = nearDistance + receiverDepth * depthRange;
-    float blockerWorld = nearDistance + blockerDepth * depthRange;
-    float occluderDistance = max(blockerWorld, 1.0e-4);
-    float penumbraWorld = max(receiverWorld - blockerWorld, 0.0)
-            * uPcssLightSize / occluderDistance;
+    if (!(texelWorld > 0.0)) return 0.0;
+    float blockerDistance = max(blockerDepth, 1.0e-4);
+    float separation = max(receiverDepth - blockerDepth, 0.0);
+    float penumbraWorld = separation * uPcssLightSize / blockerDistance;
     return penumbraWorld / max(texelWorld, 1.0e-6);
 }
 

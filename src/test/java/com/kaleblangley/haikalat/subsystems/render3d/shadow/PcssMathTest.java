@@ -56,30 +56,28 @@ class PcssMathTest {
     }
 
     @Test
-    void penumbraMatchesHandComputedGeometryAndTheFilterClamp() {
-        // near=0.1, range=10: receiver 0.30 -> 3.1 world, blocker 0.28 -> 2.9 world.
-        // (3.1 - 2.9) * 0.5 / 2.9 / 0.02 = 1.7241379 texels.
-        assertEquals(1.7241379f,
-                PcssMath.penumbraTexels(0.30f, 0.28f, 0.1f, 10.0f, 0.5f, 0.02f, 8.0f),
-                1.0e-5f);
+    void penumbraMatchesHandComputedDepthRatioAndTheFilterClamp() {
+        // (0.30 - 0.28) * 0.5 / 0.28 = 0.035714 world; / 0.02 world/texel = 1.7857.
+        assertEquals(1.7857143f,
+                PcssMath.penumbraTexels(0.30f, 0.28f, 0.5f, 0.02f, 8.0f), 1.0e-5f);
         assertEquals(0.0f,
-                PcssMath.penumbraTexels(0.30f, 0.30f, 0.1f, 10.0f, 2.0f, 0.02f, 8.0f),
+                PcssMath.penumbraTexels(0.30f, 0.30f, 2.0f, 0.02f, 8.0f),
                 0.0f, "a receiver-plane blocker cannot create a penumbra");
         assertEquals(12.0f,
-                PcssMath.penumbraTexels(0.30f, 0.28f, 0.1f, 10.0f, 8.0f, 0.02f, 12.0f),
+                PcssMath.penumbraTexels(0.30f, 0.28f, 8.0f, 0.02f, 12.0f),
                 0.0f, "the filter radius is a hard cap");
         assertEquals(0.0f,
-                PcssMath.penumbraTexels(0.30f, 0.28f, 0.1f, 10.0f, 0.0f, 0.02f, 8.0f),
+                PcssMath.penumbraTexels(0.30f, 0.28f, 0.0f, 0.02f, 8.0f),
                 0.0f, "a zero light size is an exact no-op");
     }
 
     @Test
     void largerLightAndFartherBlockersWidenThePenumbra() {
-        float smallLight = PcssMath.penumbraTexels(0.3f, 0.2f, 0.1f, 10.0f, 0.5f, 0.02f, 64.0f);
-        float largeLight = PcssMath.penumbraTexels(0.3f, 0.2f, 0.1f, 10.0f, 2.0f, 0.02f, 64.0f);
+        float smallLight = PcssMath.penumbraTexels(0.6f, 0.4f, 0.5f, 0.02f, 256.0f);
+        float largeLight = PcssMath.penumbraTexels(0.6f, 0.4f, 2.0f, 0.02f, 256.0f);
         assertTrue(largeLight > smallLight);
-        float nearBlocker = PcssMath.penumbraTexels(0.6f, 0.55f, 0.1f, 10.0f, 2.0f, 0.02f, 256.0f);
-        float farBlocker = PcssMath.penumbraTexels(0.6f, 0.20f, 0.1f, 10.0f, 2.0f, 0.02f, 256.0f);
+        float nearBlocker = PcssMath.penumbraTexels(0.6f, 0.55f, 2.0f, 0.02f, 256.0f);
+        float farBlocker = PcssMath.penumbraTexels(0.6f, 0.20f, 2.0f, 0.02f, 256.0f);
         assertTrue(farBlocker > nearBlocker,
                 "the standard PCSS ratio grows as the blocker gets closer to the light");
     }
@@ -88,8 +86,6 @@ class PcssMathTest {
     void productionPenumbraMatchesAnIndependentReferenceOverAFixedMatrix() {
         Random random = new Random(0x5EEDC0DEL);
         for (int sample = 0; sample < 64; sample++) {
-            float near = 0.01f + random.nextFloat() * 4.0f;
-            float range = 0.5f + random.nextFloat() * 40.0f;
             float receiver = 0.05f + random.nextFloat() * 0.9f;
             float blocker = receiver * (0.1f + random.nextFloat() * 0.8f);
             float light = random.nextFloat() * PcssSettings.MAX_LIGHT_WORLD_SIZE;
@@ -97,22 +93,19 @@ class PcssMathTest {
             float maxRadius = 1.0f + random.nextFloat()
                     * PcssSettings.MAX_FILTER_RADIUS_TEXELS;
 
-            double receiverWorld = (double) near + (double) receiver * range;
-            double blockerWorld = (double) near + (double) blocker * range;
-            double occluder = Math.max(blockerWorld, 1.0e-4);
-            double expected = Math.max(receiverWorld - blockerWorld, 0.0)
+            double occluder = Math.max(blocker, 1.0e-4);
+            double expected = Math.max((double) receiver - blocker, 0.0)
                     * light / occluder / Math.max(texelWorld, 1.0e-6);
             expected = Math.min(Math.max(expected, 0.0), maxRadius);
 
-            float actual = PcssMath.penumbraTexels(receiver, blocker, near, range, light,
+            float actual = PcssMath.penumbraTexels(receiver, blocker, light,
                     texelWorld, maxRadius);
             assertEquals(expected, actual, 2.0e-4f, "penumbra sample " + sample);
         }
     }
 
     @Test
-    void worldDepthAndTileClampUseTheDocumentedRanges() {
-        assertEquals(3.1f, PcssMath.worldDepth(0.30f, 0.1f, 10.0f), 1.0e-6f);
+    void tileClampUsesTheDocumentedRange() {
         assertEquals(0.25f, PcssMath.clampToTile(0.10f, 0.25f, 0.75f), 0.0f);
         assertEquals(0.75f, PcssMath.clampToTile(0.90f, 0.25f, 0.75f), 0.0f);
         assertEquals(0.50f, PcssMath.clampToTile(0.50f, 0.25f, 0.75f), 0.0f);
@@ -137,14 +130,14 @@ class PcssMathTest {
         assertThrows(IllegalArgumentException.class,
                 () -> PcssMath.averageBlockerDepth(0.5f, 0.0f, new float[]{Float.NaN}));
         assertThrows(IllegalArgumentException.class,
-                () -> PcssMath.penumbraTexels(0.5f, 0.4f, 0.1f, 0.0f, 1.0f, 0.01f, 8.0f));
+                () -> PcssMath.penumbraTexels(0.5f, 0.4f, -1.0f, 0.01f, 8.0f));
         assertThrows(IllegalArgumentException.class,
-                () -> PcssMath.penumbraTexels(0.5f, 0.4f, 0.1f, 10.0f, -1.0f, 0.01f, 8.0f));
+                () -> PcssMath.penumbraTexels(0.5f, 0.4f, Float.NaN, 0.01f, 8.0f));
         assertThrows(IllegalArgumentException.class,
-                () -> PcssMath.penumbraTexels(0.5f, 0.4f, 0.1f, 10.0f, 1.0f, 0.0f, 8.0f));
+                () -> PcssMath.penumbraTexels(0.5f, 0.4f, 1.0f, 0.0f, 8.0f));
         assertThrows(IllegalArgumentException.class,
-                () -> PcssMath.penumbraTexels(0.5f, Float.NaN, 0.1f, 10.0f, 1.0f, 0.01f, 8.0f));
+                () -> PcssMath.penumbraTexels(0.5f, Float.NaN, 1.0f, 0.01f, 8.0f));
         assertThrows(IllegalArgumentException.class,
-                () -> PcssMath.penumbraTexels(1.5f, 0.4f, 0.1f, 10.0f, 1.0f, 0.01f, 8.0f));
+                () -> PcssMath.penumbraTexels(1.5f, 0.4f, 1.0f, 0.01f, 8.0f));
     }
 }

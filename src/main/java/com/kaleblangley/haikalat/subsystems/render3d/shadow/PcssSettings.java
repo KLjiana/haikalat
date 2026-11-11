@@ -14,9 +14,9 @@ package com.kaleblangley.haikalat.subsystems.render3d.shadow;
  * {@code [0, 1]} as the existing directional path ({@code texture(uShadowMap,
  * uv).r}); {@code depthBias} is expressed in those units and is added to the
  * existing {@code uShadowBias} slope correction.  {@code lightWorldSize} is a
- * world-space light diameter.  The penumbra is converted from world units to
- * shadow texels with the selected cascade's linear orthographic depth range and
- * world texels per unit.</p>
+ * world-space light diameter.  The penumbra uses the normalized orthographic
+ * depth ratio (the linear range cancels in the PCSS fraction) and the selected
+ * cascade's world texels per unit.</p>
  *
  * <p>Every search and filter tap is clamped to the selected cascade tile and
  * the filter radius is capped by {@link #filterRadiusTexels()}, so a request
