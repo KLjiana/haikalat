@@ -349,15 +349,17 @@ public final class SceneSurfacePass implements AutoCloseable {
                 .setUniformFloat(shader, "uSubsurfaceThickness",
                         effectiveFloat(instance, "uSubsurfaceThickness",
                                 settings.thicknessMetres()))
+                // These three values are consumed only by the surface mask and
+                // the screen-space pass. The forward shader does not declare
+                // them, so they intentionally come from the material template
+                // and are never resolved from instance overrides (an override
+                // would be uploaded to the forward program and fail).
                 .setUniformFloat(shader, "uSubsurfaceDiffusionRadius",
-                        effectiveFloat(instance, "uSubsurfaceDiffusionRadius",
-                                settings.diffusionRadiusMetres()))
+                        settings.diffusionRadiusMetres())
                 .setUniformInt(shader, "uSubsurfaceScreenSpace",
-                        effectiveInt(instance, "uSubsurfaceScreenSpace",
-                                settings.screenSpaceEnabled() ? 1 : 0))
+                        settings.screenSpaceEnabled() ? 1 : 0)
                 .setUniformFloat(shader, "uSubsurfaceMaxDistance",
-                        effectiveFloat(instance, "uSubsurfaceMaxDistance",
-                                settings.maxDistanceMetres()));
+                        settings.maxDistanceMetres());
 
         if (thicknessSource == SubsurfaceScatteringSettings.ThicknessSource.OCCLUSION.shaderIndex()) {
             Material.TextureBinding occlusion = textureBinding(instance, 3);
