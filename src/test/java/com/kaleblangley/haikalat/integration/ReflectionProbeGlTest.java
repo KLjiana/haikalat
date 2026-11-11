@@ -138,6 +138,7 @@ class ReflectionProbeGlTest {
                      "/shaders/reflection-probe-unlit.frag");
              Material unlitMaterial = Material.builder(unlitShader)
                      .setInt("uUnlitVisible", 0)
+                     .setInt("uClipSpace", 0)
                      .build()) {
             Material material = PbrMaterials.create(shader,
                     new PbrMaterialProperties(new Vector4f(0.5f, 0.5f, 0.5f, 1.0f),
@@ -191,14 +192,23 @@ class ReflectionProbeGlTest {
                     instance.setInt("uAlphaMode", 1)
                             .setFloat("uAlphaCutoff", 2.0f);
                     unlitInstance.clearOverrides();
-                    unlitInstance.setInt("uUnlitVisible", 1);
-                    float[] unlitControl = render(pipeline, device, WIDTH, HEIGHT);
-                    assertQuadCoverage("unlit geometry control", unlitControl,
+                    unlitInstance.setInt("uUnlitVisible", 1)
+                            .setInt("uClipSpace", 1);
+                    float[] clipControl = render(pipeline, device, WIDTH, HEIGHT);
+                    assertQuadCoverage("clip-space unlit control", clipControl,
                             WIDTH, HEIGHT);
-                    assertTrue(centrePixel(unlitControl, WIDTH, HEIGHT)[0] > 0.5f,
-                            "the unlit control quad must produce red at the centre; if this "
-                                    + "fails, the geometry pass/camera/visibility is not drawing "
-                                    + "the receiver");
+                    assertTrue(centrePixel(clipControl, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the camera-independent unlit control must produce red at the "
+                                    + "centre; if this fails, the geometry pass/final capture is "
+                                    + "not drawing the receiver");
+                    unlitInstance.setInt("uClipSpace", 0);
+                    float[] cameraControl = render(pipeline, device, WIDTH, HEIGHT);
+                    assertQuadCoverage("camera-space unlit control", cameraControl,
+                            WIDTH, HEIGHT);
+                    assertTrue(centrePixel(cameraControl, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the camera/model unlit control must produce red at the centre; "
+                                    + "if clip-space passed, the camera/projection/model path "
+                                    + "is wrong");
                     unlitInstance.clearOverrides();
                     instance.clearOverrides();
 
