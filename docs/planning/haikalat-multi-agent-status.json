@@ -8,12 +8,12 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "decac992-c065-4029-a782-4fb2bda18e07",
+                                          "runId":  "65f11451-95b5-4dad-83cc-259bb34a05f3",
                                           "status":  "PASS",
-                                          "tests":  255,
+                                          "tests":  267,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/decac992-c065-4029-a782-4fb2bda18e07/result.json",
+                                          "evidence":  "build/reports/bounded-verification/65f11451-95b5-4dad-83cc-259bb34a05f3/result.json",
                                           "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
                                           "freshness":  "FRESH"
                                       }
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T13:59:27.8875753+08:00",
+    "updatedAt":  "2026-11-11T14:31:28.0249868+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -432,15 +432,16 @@
 
                                         ],
                       "evidence":  [
-                                       "integration focused verify ea787b04: 265 tests PASS",
-                                       "glSmoke CloudShadowsGlTest PASS"
+                                       "focused verify 65f11451: 267 tests PASS",
+                                       "glSmoke CloudShadowsGlTest PASS after policy commit",
+                                       "releaseVerificationContracts --rerun-tasks PASS with cloud synthetic positive/negative audit"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "APPROVED_AFTER_FIXES",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer sign-off",
+                      "nextAction":  "Closed",
                       "policyCommit":  "6e2b2b8"
                   },
                   {
@@ -1540,7 +1541,7 @@
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
-               "verificationRun":  "decac992-c065-4029-a782-4fb2bda18e07",
+               "verificationRun":  "65f11451-95b5-4dad-83cc-259bb34a05f3",
                "tests":  233,
                "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
