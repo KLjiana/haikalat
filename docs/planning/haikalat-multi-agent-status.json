@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "901b9b2"
+                        "head":  "4e3dae0"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T00:31:27.1428222+08:00",
+    "updatedAt":  "2026-11-12T00:36:23.5361741+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1075,29 +1075,29 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "1e4c717",
+                      "integrationCommit":  "4e3dae0",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
                                        "glSmoke PlanarReflectionPassGlTest 10/10 PASS",
-                                       "JVM PlanarReflection* 14 tests PASS",
-                                       "focused verify 317cbe60: 560 tests PASS, 0 skipped",
-                                       "review blockers fixed at ca73bd7; re-review in progress"
+                                       "JVM PlanarReflection* 15 tests PASS",
+                                       "focused verify 7c08146d: 584 tests PASS, 0 skipped",
+                                       "re-review blockers fixed; sign checks added at 1646b96"
                                    ],
-                      "review":  "FIXED_PENDING_REREVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review of ortho rejection and resize publishing; pipeline/water consumption still unwired"
+                      "nextAction":  "Bounded single-plane pass; RenderPipeline/water consumption and production SceneRecorder adapter remain unwired"
                   },
                   {
                       "taskId":  "R31",
                       "featureIds":  [
                                          31
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Parallax Occlusion Mapping",
                       "dependencies":  [
                                            null
@@ -1108,19 +1108,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "4e3dae0",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke ParallaxGlTest 1/1 PASS",
+                                       "JVM Parallax* 21 tests PASS",
+                                       "focused verify 7c08146d: 584 tests PASS, 0 skipped",
+                                       "first GPU failure was a test oracle local/world alias bug; fixed at 82d2f59"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; no pipeline wiring needed"
                   },
                   {
                       "taskId":  "R32",
