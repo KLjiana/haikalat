@@ -91,6 +91,7 @@ internal com.kaleblangley.haikalat.subsystems.render3d.lighting.VolumetricLighti
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalCascadePlan
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas
 internal com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowSlotPlan
 internal com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowAtlasAllocator

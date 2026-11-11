@@ -49,6 +49,9 @@ public final class ShadowCacheState {
                             LocalShadowPipelineSettings settings,
                             DirectionalCascadeSettings cascades,
                             ShadowCasterPlanner.ShadowCasterPlan planner) {
+        // Carry the validated frame clock with the one-frame plan so frame-derived
+        // effects in the light binder do not need a RenderPipeline call-site change.
+        source = source.withFrameTiming(context.frameSequence(), context.deltaSeconds());
         if (!settings.cacheStaticTiles()) {
             return prepareUncached(source);
         }

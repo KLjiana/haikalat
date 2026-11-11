@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.ClusterDebugMode;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFrameBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
@@ -39,6 +40,7 @@ public final class FrameLightBinder {
     private final boolean gtaoEnabled;
     private final boolean directLightingEnabled;
     private final boolean imageBasedLightingEnabled;
+    private final CloudShadowFrameTime cloudShadowFrameTime = new CloudShadowFrameTime();
 
     public FrameLightBinder(CameraUniforms cameraUniforms, ShadowFrameBinder shadowFrameBinder,
                             ShadowSamplingBlock shadowSamplingBlock,
@@ -80,6 +82,15 @@ public final class FrameLightBinder {
                 .trySetUniformFloat(shader, "uContactShadowThickness", contactShadows.thickness())
                 .trySetUniformInt(shader, "uContactShadowSteps", contactShadows.steps())
                 .trySetUniformFloat(shader, "uContactShadowStrength", contactShadows.strength());
+        CloudShadowSettings cloudShadows = directionalShadowMap.settings().cloudShadows();
+        float cloudShadowTime = cloudShadowFrameTime.advance(shadowPlan.frameTiming());
+        cmd.trySetUniformInt(shader, "uCloudShadowEnabled", cloudShadows.active() ? 1 : 0)
+                .trySetUniformFloat(shader, "uCloudShadowCoverage", cloudShadows.coverage())
+                .trySetUniformFloat(shader, "uCloudShadowSoftness", cloudShadows.softness())
+                .trySetUniformFloat(shader, "uCloudShadowScale", cloudShadows.scale())
+                .trySetUniformFloat(shader, "uCloudShadowSpeed", cloudShadows.speed())
+                .trySetUniformFloat(shader, "uCloudShadowStrength", cloudShadows.strength())
+                .trySetUniformFloat(shader, "uCloudShadowTime", cloudShadowTime);
         if (hasShadow) {
             cmd.bindTexture(SHADOW_TEXTURE_UNIT, shadowTexture);
         }

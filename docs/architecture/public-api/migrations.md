@@ -104,3 +104,13 @@ v0.28.1（候选）接触阴影没有删除 stable 类型。`ShadowSettings` 是
 `render3d.shadow.ContactShadowSettings(enabled,distance,thickness,steps,strength)`，
 默认关闭，参数作为一次 `RenderFeatureSettings.directionalShadowMap(...)` 请求发布；
 它不新增 GPU 资源或 Pass，关闭时 PBR 不执行任何接触阴影采样。
+
+v0.28.1（候选）云影没有删除 stable 类型。`ShadowSettings` 的 advanced record 再次新增
+`cloudShadows` 组件；原四参数、五参数和六参数（带 `contactShadows`）构造器保留，并默认使用
+`CloudShadowSettings.disabled()`。新增 advanced
+`render3d.shadow.CloudShadowSettings(enabled,coverage,softness,scale,speed,strength)`：
+默认关闭，`enabled=false` 或 `strength=0` 时 PBR 不执行噪声采样且图像精确不变。设置随
+`RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU 资源、Pass 或逐帧 setter。
+`ShadowFramePlan`（internal）新增一个带 `FrameTiming` 的 canonical 构造器和一个保留原签名的
+重载，帧时间来自 `RenderFrameContext.frameSequence()/deltaSeconds()`，供 `FrameLightBinder`
+在不修改 `RenderPipeline` 的前提下累计云层滚动时间。

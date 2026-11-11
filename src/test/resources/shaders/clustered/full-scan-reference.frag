@@ -3,6 +3,7 @@
 
 #define POINT_SHADOW_FACE_COUNT 6
 #define CONTACT_SHADOW_MAX_STEPS 32
+#define CLOUD_SHADOW_OCTAVES 3
 
 struct LightRecord {
     vec4 positionRange;    // world xyz, local range
@@ -92,6 +93,13 @@ uniform float uContactShadowDistance;
 uniform float uContactShadowThickness;
 uniform int uContactShadowSteps;
 uniform float uContactShadowStrength;
+uniform int uCloudShadowEnabled;
+uniform float uCloudShadowCoverage;
+uniform float uCloudShadowSoftness;
+uniform float uCloudShadowScale;
+uniform float uCloudShadowSpeed;
+uniform float uCloudShadowStrength;
+uniform float uCloudShadowTime;
 uniform int uDirectionalCascadeCount;
 uniform float uDirectionalCascadeSplits[4];
 uniform float uDirectionalCascadeBlendRange;
@@ -306,6 +314,61 @@ float directionalContactShadow(vec3 n, vec3 l) {
     return occlusion * edgeFade * clamp(uContactShadowStrength, 0.0, 1.0);
 }
 
+float cloudShadowHash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+float cloudShadowNoise(vec2 p) {
+    vec2 cell = floor(p);
+    vec2 local = fract(p);
+    vec2 weight = local * local * (3.0 - 2.0 * local);
+    float a = cloudShadowHash(cell);
+    float b = cloudShadowHash(cell + vec2(1.0, 0.0));
+    float c = cloudShadowHash(cell + vec2(0.0, 1.0));
+    float d = cloudShadowHash(cell + vec2(1.0, 1.0));
+    return mix(mix(a, b, weight.x), mix(c, d, weight.x), weight.y);
+}
+
+float cloudShadowDensity(vec2 p) {
+    float density = 0.0;
+    float amplitude = 0.5;
+    for (int octave = 0; octave < CLOUD_SHADOW_OCTAVES; octave++) {
+        density += amplitude * cloudShadowNoise(p);
+        p = p * 2.03 + vec2(17.1, 9.2);
+        amplitude *= 0.5;
+    }
+    return density / 0.875;
+}
+
+/**
+ * World-space cloud visibility for the selected directional light.
+ *
+ * <p>The receiver is projected along the light direction onto the plane through
+ * the world origin perpendicular to that direction; the returned coordinates
+ * depend on vWorldPosition only, never on the camera or screen position.  A
+ * fixed world-space wind offset scrolls the procedural layer by time.  The
+ * early gate keeps the disabled/zero-strength path an exact no-op.</p>
+ */
+float cloudShadowVisibility(vec3 n, vec3 l) {
+    if (uCloudShadowEnabled == 0 || uCloudShadowStrength <= 0.0 || dot(n, l) <= 0.0) {
+        return 1.0;
+    }
+    vec3 reference = abs(l.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(reference, l));
+    vec3 bitangent = cross(l, tangent);
+    vec2 projected = vec2(dot(vWorldPosition, tangent), dot(vWorldPosition, bitangent));
+    projected += vec2(0.8, 0.6) * (uCloudShadowTime * max(uCloudShadowSpeed, 0.0));
+    float scale = max(uCloudShadowScale, 1.0e-4);
+    float noise = cloudShadowDensity(projected * scale);
+    float coverage = clamp(uCloudShadowCoverage, 0.0, 1.0);
+    float threshold = mix(0.78, 0.22, coverage);
+    float edge = mix(0.004, 0.28, clamp(uCloudShadowSoftness, 0.0, 1.0));
+    float shadow = smoothstep(threshold - edge, threshold + edge, noise);
+    return 1.0 - clamp(uCloudShadowStrength, 0.0, 1.0) * shadow;
+}
+
 int pointShadowFace(vec3 direction) {
     vec3 absoluteDirection = abs(direction);
     if (absoluteDirection.x >= absoluteDirection.y
@@ -406,6 +469,10 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
             float contact = directionalContactShadow(n, l) * visibility;
             visibility = max(visibility - contact, 0.0);
         }
+        // Only the selected directional light consumes the cloud mask.  The
+        // factor is exact 1.0 when disabled or at zero strength, so emissive,
+        // IBL and other lights are untouched.
+        visibility *= cloudShadowVisibility(n, l);
     }
     return visibility * directBrdf(n, v, l, light.colorIntensity.rgb * light.colorIntensity.a,
             baseColor, metallic, roughness, f0);

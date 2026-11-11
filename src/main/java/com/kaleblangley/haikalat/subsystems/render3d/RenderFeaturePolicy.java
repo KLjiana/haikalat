@@ -181,6 +181,16 @@ final class RenderFeaturePolicy {
                         "contact shadows require at least one metallic-roughness PBR material");
             }
         }
+        if (settings.directionalShadowMap().settings().cloudShadows().active()) {
+            if (!settings.directionalShadows() || !facts.directionalCaster()) {
+                throw new IllegalArgumentException(
+                        "cloud shadows require an enabled directional shadow caster");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "cloud shadows require at least one metallic-roughness PBR material");
+            }
+        }
         if (settings.volumetricFog().enabled() && settings.postProcess().fog().enabled()) {
             throw new IllegalArgumentException(
                     "volumetric fog replaces analytic fog; disable the other fog path");

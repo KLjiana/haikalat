@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import org.joml.Vector3f;
@@ -128,6 +129,12 @@ class RenderFeatureControlTest {
                 contactRequest(false), ALL_TRUE);
         assertMessage("contact shadows require an enabled directional shadow caster",
                 contactRequest(true), facts(true, false, true, true, true, true, true, false, false));
+        assertMessage("cloud shadows require at least one metallic-roughness PBR material",
+                cloudRequest(true), NO_PBR);
+        assertMessage("cloud shadows require an enabled directional shadow caster",
+                cloudRequest(false), ALL_TRUE);
+        assertMessage("cloud shadows require an enabled directional shadow caster",
+                cloudRequest(true), facts(true, false, true, true, true, true, true, false, false));
     }
 
     @Test
@@ -184,6 +191,16 @@ class RenderFeatureControlTest {
                 .directionalShadows(directionalShadows)
                 .directionalShadowMap(new DirectionalShadowMap(
                         new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f, contact)))
+                .build();
+    }
+
+    private static RenderFeatureSettings cloudRequest(boolean directionalShadows) {
+        CloudShadowSettings clouds = new CloudShadowSettings(true, 0.6f, 0.3f, 0.08f, 1.5f, 0.7f);
+        return hdrBuilder()
+                .directionalShadows(directionalShadows)
+                .directionalShadowMap(new DirectionalShadowMap(
+                        new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f,
+                                ContactShadowSettings.disabled(), clouds)))
                 .build();
     }
 

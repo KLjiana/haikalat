@@ -39,3 +39,8 @@ v0.28 新增 `VfxRimLight`、`VfxUvFlow`、`VfxDissolve`、`EffectLight`、`VfxL
 `VfxLightDiagnostics` 均为 `advanced`；`LightIdAllocator` 与 `VfxLightBridge` 为包内
 internal。`EffectSnapshot`/`MeshInstance`/`Render3dDiagnostics` 的 canonical record 组件
 扩展及旧构造器兼容见[迁移记录](migrations.md)与[战斗 VFX 指南](../../guides/render3d-combat-vfx.md)。
+
+v0.28.1 S1 新增 `ContactShadowSettings`、`CloudShadowSettings` 等 advanced 首版效果配置；
+`ShadowSettings` 依次追加 `contactShadows`、`cloudShadows` 组件，原四/五/六参数构造器保留并
+默认关闭。两者都随 `RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU
+资源或 Pass。迁移说明见[迁移记录](migrations.md)。

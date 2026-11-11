@@ -50,6 +50,24 @@ class ShadowCacheStateTest {
         assertEquals(ShadowFramePlan.MissReason.NONE, directional.missReasons().get(1));
     }
 
+    @Test
+    void prepareCarriesTheFrameClockIntoTheOneFramePlan() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.shadowedDirectional(
+                new Vector3f(-1.0f, -1.0f, -1.0f), new Vector3f(1.0f), 1.0f));
+        RenderFrameContext context = RenderFrameContext.capture(scene, scene.camera(),
+                320, 180, 0.016f, 3, 42L, 0L, null);
+        ShadowCacheState cache = new ShadowCacheState();
+        LocalShadowPipelineSettings settings = LocalShadowPipelineSettings.balanced();
+        DirectionalCascadeSettings cascades = new DirectionalCascadeSettings(
+                2, 256, 0.5f, 0.0f, Float.MAX_VALUE);
+
+        ShadowFramePlan prepared = cache.prepare(plan(scene, new Matrix4f().identity(),
+                new Matrix4f().identity()), context, scene, settings, cascades);
+
+        assertEquals(42L, prepared.frameTiming().frameSequence());
+        assertEquals(0.016f, prepared.frameTiming().deltaSeconds(), 0.0f);
+    }
+
     private static ShadowFramePlan plan(Scene scene, Matrix4f first, Matrix4f second) {
         SceneLightEntry entry = scene.lightEntries().getFirst();
         List<Matrix4f> matrices = List.of(new Matrix4f(first), new Matrix4f(second));
