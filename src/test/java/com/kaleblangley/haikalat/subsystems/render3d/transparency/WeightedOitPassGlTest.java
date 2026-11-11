@@ -356,7 +356,9 @@ class WeightedOitPassGlTest {
                     .referenceDepth(20.0f).minimumWeight(1.0e-2f)
                     .maximumWeight(300.0f).alphaThreshold(0.0f)
                     .maximumSurfaces(8).build();
-            // Reviewer counterexample: 7000 * 9.975 = 69825 > half-float max.
+            // Reviewer counterexample: all three channels carry 7000, so each
+            // channel individually exceeds the half-float range
+            // (7000 * 9.975 = 69825 > 65504).
             OitSurface surface = screenQuad(1.0f, 7000.0f, 7000.0f, 7000.0f, 1.0f);
 
             try (WeightedOitPass pass = new WeightedOitPass(SIZE, SIZE, settings);
@@ -368,10 +370,12 @@ class WeightedOitPassGlTest {
                 float weight = (float) referenceWeight(settings, 1.0);
                 float expectedAverage = 30_000.0f / weight;
                 int center = pixel(SIZE / 2, SIZE / 2);
-                assertEquals(expectedAverage, resolved.get(center * 4), 2.5f,
-                        "the per-layer contribution cap must feed the resolve, not a fallback");
-                assertEquals(0.0f, resolved.get(center * 4 + 1), 1.0e-6f);
-                assertEquals(0.0f, resolved.get(center * 4 + 2), 1.0e-6f);
+                // The surface is bright on all three channels, so the clamped
+                // result must be the same finite average on red, green and
+                // blue; a fallback would leave the dark background instead.
+                assertPixel(new Vector3f(expectedAverage, expectedAverage, expectedAverage),
+                        resolved, center, 2.5f,
+                        "every clamped channel must feed the resolve, not a fallback");
 
                 FloatBuffer accumulation = readAttachment(device, pass.framebufferId(),
                         GL_COLOR_ATTACHMENT0, 4);
