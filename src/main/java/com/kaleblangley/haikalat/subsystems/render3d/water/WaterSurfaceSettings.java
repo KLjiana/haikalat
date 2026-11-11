@@ -53,7 +53,7 @@ public record WaterSurfaceSettings(
     public static final float MAXIMUM_WAVE_SPEED = 8.0f;
     /** Largest accepted dimensionless wave slope amplitude. */
     public static final float MAXIMUM_WAVE_AMPLITUDE = 0.35f;
-    /** Largest accepted per-channel water absorption density in 1/metre. */
+    /** Largest accepted scalar water absorption density in 1/metre. */
     public static final float MAXIMUM_ABSORPTION_DENSITY = 8.0f;
     /** Largest accepted shoreline fade distance in world metres. */
     public static final float MAXIMUM_SHORE_FADE_DISTANCE = 10.0f;
@@ -175,6 +175,9 @@ public record WaterSurfaceSettings(
         Objects.requireNonNull(destination, "destination");
         if (!finite(x) || !finite(z) || !finite(timeSeconds)) {
             throw new IllegalArgumentException("wave normal inputs must be finite");
+        }
+        if (!enabled) {
+            return destination.set(0.0f, 1.0f, 0.0f);
         }
         float k1 = TWO_PI / waveWavelength;
         float directionX = (float) Math.cos(waveDirectionRadians);

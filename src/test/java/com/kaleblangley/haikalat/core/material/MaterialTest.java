@@ -177,6 +177,8 @@ class MaterialTest {
         assertTrue(refractive.refraction().active());
         assertThrows(NullPointerException.class,
                 () -> Material.builder(shader(9)).refraction(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).refraction(glass).build());
     }
 
     @Test
