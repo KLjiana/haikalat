@@ -15,6 +15,24 @@ import static org.lwjgl.opengl.GL11.GL_RGBA8;
 
 /** 一组共享的 1×1 PBR 缺省纹理及 sampler，生命周期由应用显式拥有。 */
 public final class PbrFallbackTextures implements AutoCloseable {
+    /**
+     * Red channel of the shared height fallback. Kept at zero so a missing
+     * height map is a flat surface.
+     */
+    static final int HEIGHT_FALLBACK_RED = 0;
+    /** Green channel of the shared height fallback; zero like {@link #HEIGHT_FALLBACK_RED}. */
+    static final int HEIGHT_FALLBACK_GREEN = 0;
+    /** Blue channel of the shared height fallback; zero like {@link #HEIGHT_FALLBACK_RED}. */
+    static final int HEIGHT_FALLBACK_BLUE = 0;
+    /**
+     * Alpha channel of the shared height fallback. It must be zero as well:
+     * {@code HeightChannel.ALPHA} samples {@code .a}, so a 255 alpha fallback
+     * would report the maximum height and move UVs when no map is supplied.
+     * A non-zero height scale with this zero fallback and no
+     * {@code flipHeight} therefore keeps the original UV exactly.
+     */
+    static final int HEIGHT_FALLBACK_ALPHA = 0;
+
     private final Map<PbrTextureRole, Texture2D> textures = new EnumMap<>(PbrTextureRole.class);
     private final Sampler sampler;
     private boolean closed;
@@ -31,9 +49,12 @@ public final class PbrFallbackTextures implements AutoCloseable {
             // white fallback keeps emissiveFactor as the only authoring input,
             // so materials without an emissive map can still glow.
             textures.put(PbrTextureRole.EMISSIVE, pixel(GL_SRGB8_ALPHA8, 255, 255, 255, 255));
-            // Height zero is flat: the parallax march hits the surface layer
-            // immediately and the sampled UV stays the interpolated UV.
-            textures.put(PbrTextureRole.HEIGHT, pixel(GL_RGBA8, 0, 0, 0, 255));
+            // Height zero in every channel (including alpha) is flat: the
+            // parallax march returns the interpolated UV for a missing map.
+            // A flipped zero fallback is intentionally not flat; see
+            // ParallaxOcclusionSettings.flipHeight.
+            textures.put(PbrTextureRole.HEIGHT, pixel(GL_RGBA8, HEIGHT_FALLBACK_RED,
+                    HEIGHT_FALLBACK_GREEN, HEIGHT_FALLBACK_BLUE, HEIGHT_FALLBACK_ALPHA));
         } catch (RuntimeException failure) {
             close();
             throw failure;

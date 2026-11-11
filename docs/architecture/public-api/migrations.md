@@ -250,7 +250,7 @@ v0.28.1（候选）S3 #31 视差遮蔽贴图没有删除 stable 类型，也没�
 新增 `parallaxOcclusion(ParallaxOcclusionSettings)` 与 `parallaxOcclusion()`，默认
 `disabled()`；既有 `Material` 构建与绘制路径保持源码/行为兼容。`PbrTextureRole`
 追加 `HEIGHT`（`LINEAR`，既有常量与顺序不变）；`PbrFallbackTextures` 的 1×1 fallback 追加
-黑色高度图。`pbr.PbrMaterials` 新增 `createWithParallax(...)`、末位带
+RGBA `(0,0,0,0)` 高度图（四个通道含 ALPHA 均为 0；`flipHeight=false` 时缺图为平面）。`pbr.PbrMaterials` 新增 `createWithParallax(...)`、末位带
 `ParallaxOcclusionSettings` 的完整 `createWithBindings(...)` 重载、固定
 `HEIGHT_UNIT = 6`；既有工厂保留并默认 `ParallaxOcclusionSettings.disabled()`，glTF
 材质路径行为不变。POM 是材质值，不是 `RenderFeatureSettings` 拓扑项；不新增 Pass、

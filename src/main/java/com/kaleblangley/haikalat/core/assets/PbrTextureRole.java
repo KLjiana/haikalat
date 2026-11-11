@@ -12,7 +12,9 @@ public enum PbrTextureRole {
     /**
      * Height data for parallax occlusion mapping. It is scalar linear data, not
      * a colour; the sampled channel and the optional inversion are material
-     * settings, not texture-role properties.
+     * settings, not texture-role properties. The shared missing-map fallback is
+     * RGBA {@code (0,0,0,0)}, so every channel is a flat surface unless the
+     * material flips the height.
      */
     HEIGHT(TextureColorSpace.LINEAR);
 

@@ -188,6 +188,28 @@ class ParallaxGlTest {
                                 ParallaxReferenceMath.constantZeroHeight());
                         assertFrontCoverage("disabled baseline", disabled, palette);
 
+                        // A missing HEIGHT map uses the shared RGBA (0,0,0,0)
+                        // fallback. Every channel, including ALPHA, must be a
+                        // flat surface, so the positive POM path must reproduce
+                        // the disabled image exactly. ALPHA is the regression
+                        // case: a 255 alpha fallback used to sample height 1.
+                        instance.clearOverrides();
+                        instance.texture(PbrMaterials.HEIGHT_UNIT, "uHeightMap",
+                                fallbacks.texture(PbrTextureRole.HEIGHT), fallbacks.sampler());
+                        instance.setInt("uParallaxHeightChannel", 3);
+                        assertArrayEquals(disabled, render(pipeline, device), 0.0f,
+                                "a missing height map with HeightChannel.ALPHA must be flat; "
+                                        + "the shared fallback alpha must be zero");
+                        instance.setInt("uParallaxHeightChannel", 1);
+                        assertArrayEquals(disabled, render(pipeline, device), 0.0f,
+                                "a missing height map with HeightChannel.GREEN must be flat");
+                        instance.setInt("uParallaxHeightChannel", 2);
+                        assertArrayEquals(disabled, render(pipeline, device), 0.0f,
+                                "a missing height map with HeightChannel.BLUE must be flat");
+                        instance.setInt("uParallaxHeightChannel", 0);
+                        assertArrayEquals(disabled, render(pipeline, device), 0.0f,
+                                "a missing height map with HeightChannel.RED must be flat");
+
                         // Active frame: every sampled UV must follow the oracle,
                         // and the fixture must actually move the palette blocks.
                         instance.clearOverrides();

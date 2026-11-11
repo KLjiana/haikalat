@@ -20,9 +20,14 @@ import java.util.Objects;
  * reaches that full height at an offset of {@code heightScale} UV units. The
  * height input is linear data sampled from a single channel
  * ({@link #heightChannel}, {@code R} by default) and can be inverted with
- * {@link #flipHeight}. Height zero everywhere (the shared black fallback) is a
- * material with a flat surface: the march finds the surface layer immediately
- * and the sampled UV equals the interpolated UV.</p>
+ * {@link #flipHeight}. The shared missing-map fallback is RGBA
+ * {@code (0,0,0,0)}: height zero in every channel, including {@code ALPHA}, so
+ * a missing map with {@code flipHeight = false} is a material with a flat
+ * surface for any channel — the march finds the surface layer immediately and
+ * the sampled UV equals the interpolated UV. {@code flipHeight = true} inverts
+ * the sampled height, so the inverted zero fallback becomes one (the maximum
+ * height) and is intentionally <em>not</em> a no-op; supply the height map when
+ * the inverted convention is required.</p>
  *
  * <p>The effect fades out with both the view angle and the camera distance.
  * {@link #fadeStart}/{@link #fadeEnd} are view angles in degrees measured from
