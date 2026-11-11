@@ -77,7 +77,7 @@
 | 1 | Fresnel / Rim Lighting（1／5） | 有可靠法线的网格 VFX／角色材质提供颜色、强度、指数和遮罩；所属绘制模块消费材质值 | 明确法线空间、双面语义与观察方向；独立角度算例和旋转镜头对照；不把广告牌平面边缘冒充曲面轮廓光 |
 | 2 | UV Flow / Distortion（1／5） | VFX 材质支持 UV 流动及有界噪声扭曲，复用资产与纹理 owner | 明确局部／全局时间、wrap、图集边界和 Flipbook 运算顺序；零幅度恢复基线，无帧率相关漂移 |
 | 3 | Dissolve / Erosion（1／4） | VFX 噪声阈值、边缘宽度／颜色／发光与生命周期曲线 | 0/1 端点、单调覆盖率、稳定种子；若推广到场景材质，同步 MASK、shadow、surface 和时域覆盖变化 |
-| 5 | Vertex Displacement（2／5） | 先选一个有界网格位移模型；geometry／材质与相关绘制共同消费 | 明确与 skin/morph 的顺序、位移后法线、上一帧形变及 bounds；覆盖可见性、阴影、深度和 velocity，不能只改最终颜色 Pass |
+| 5 | Vertex Displacement（2／5） | 先选一个有界网格位移模型；geometry／材质与相关绘制共同消费 | 明确与 skin/morph 的顺序、位移后法线、上一帧形变及 bounds；覆盖可见性、阴影、深度和 velocity，不能只改最终颜色 Pass。首版技术卡见 [v0.28.1 S2 #5](v0.28.1-s2-vertex-displacement.md) |
 | 7 | VFX Dynamic Lighting（2／5） | 少量无阴影点光／聚光的生命周期桥接；VFX 产出纯数据，装配层接现有 lighting | stable ID、位置、颜色、强度、范围、容量和回收规则；灯满时确定性裁减；停止／取消／重放不残留灯 |
 
 建议先交付 #1/#2/#3/#7，#5 在真实变形消费者明确后接入。#7 不把“每粒子一盏灯”作为默认模型；发光材质本身也不等于已经照亮周围场景。

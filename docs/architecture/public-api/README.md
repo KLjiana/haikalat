@@ -51,3 +51,10 @@ v0.28.1 S1 #4 新增 advanced `ScreenDistortion`、`ScreenDistortionSettings`、
 （render3d 相机投影适配器）。`PostProcessSettings` 追加 `screenDistortion` 组件，默认关闭；
 关闭时不创建 Pass、shader 或附件。迁移说明见[迁移记录](migrations.md)，技术范围见
 [屏幕空间扭曲技术卡](../../planning/v0.28.1-s1-screen-distortion.md)。
+
+v0.28.1 S2 #5 新增 advanced `VertexDisplacementSettings`（有界局部正弦位移模型值）与
+`VertexDisplacementDrawBinding`（每对象 `SceneDrawBinding`/`TemporalDrawBinding` 适配器，
+可包装既有 skin/morph binding）。两者默认关闭；关闭时不创建 GPU 资源，`SceneDrawBinding`
+新增的 `recordVertexDisplacement`/`boundsPadding` 默认方法保持旧实现源码兼容。技术范围、
+顺序、bounds/previous-frame 和 shader 指纹见
+[顶点位移技术卡](../../planning/v0.28.1-s2-vertex-displacement.md)。

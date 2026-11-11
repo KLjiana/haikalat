@@ -267,6 +267,7 @@ public final class ShadowCasterRecorder {
             bindMaskedShadowMaterial(cmd, shader, renderer.material());
             cmd.setUniformMat4(shader, "uModel", frame.copyModel(entry, modelScratch));
             SceneDrawBinding binding = renderer.drawBinding();
+            binding.recordVertexDisplacement(cmd, shader, SceneDrawBinding.Pass.SHADOW);
             int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = binding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {
@@ -326,6 +327,7 @@ public final class ShadowCasterRecorder {
             bindMaskedShadowMaterial(cmd, entryShader, renderer.material());
             cmd.setUniformMat4(entryShader, "uModel", frame.copyModel(entry, modelScratch));
             SceneDrawBinding drawBinding = renderer.drawBinding();
+            drawBinding.recordVertexDisplacement(cmd, entryShader, SceneDrawBinding.Pass.SHADOW);
             int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = drawBinding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {

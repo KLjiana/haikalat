@@ -50,6 +50,22 @@ class BoundsTransformsTest {
     }
 
     @Test
+    void paddingExpandsTheLocalAabbBeforeTransforming() {
+        var world = new WorldBounds.Scratch();
+        BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1),
+                new Matrix4f().translation(4, -5, 6).scale(-2, 3, 0.5f),
+                0.5f, world);
+        assertBounds(world.view(), 1, -9.5f, 5.25f, 7, -0.5f, 6.75f);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1),
+                        new Matrix4f(), -0.01f, world));
+        assertThrows(IllegalArgumentException.class,
+                () -> BoundsTransforms.world(Bounds3f.of(-1, -1, -1, 1, 1, 1),
+                        new Matrix4f(), Float.NaN, world));
+    }
+
+    @Test
     void rejectsPerspectiveNonFiniteAndOverflowWithIdentity() {
         var world = new WorldBounds.Scratch();
         IllegalArgumentException perspective = assertThrows(IllegalArgumentException.class,

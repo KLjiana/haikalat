@@ -142,6 +142,7 @@ public final class SceneSurfacePass implements AutoCloseable {
                             previousModel == null
                                     ? scratchPreviousModel.set(model) : previousModel);
             SceneDrawBinding binding = renderer.drawBinding();
+            binding.recordVertexDisplacement(cmd, surfaceProgram, SceneDrawBinding.Pass.SURFACE);
             int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = binding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {

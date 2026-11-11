@@ -160,6 +160,7 @@ public final class SceneRenderer {
             }
             cmd.setUniformMat4(shader, "uModel", model);
             SceneDrawBinding drawBinding = renderer.drawBinding();
+            drawBinding.recordVertexDisplacement(cmd, shader, SceneDrawBinding.Pass.FORWARD);
             int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = drawBinding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {

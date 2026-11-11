@@ -125,7 +125,7 @@ B0 是首个集成检查点，可对应 0.28.1。新技术的独立调查和技�
 | ID | 技术 / 阶段 | 最小完整生产交付 | 前置与关键验收 |
 |---|---|---|---|
 | 4 | Screen-Space Distortion / S1 | VFX 冲击波/热浪贡献与 HDR 合成，有限重叠层次 | 明确颜色快照阶段；深度遮挡、前景泄漏、UV 越界、透明顺序；禁止读写同一附件反馈 |
-| 5 | Vertex Displacement / S2 | 一个有界网格位移模型、参数与时间控制，接入受影响绘制链 | 位移后法线/bounds/上一帧形变；颜色、深度、shadow、velocity 一致；skin/morph 的支持顺序或拒绝明确 |
+| 5 | Vertex Displacement / S2 | 一个有界网格位移模型、参数与时间控制，接入受影响绘制链 | 位移后法线/bounds/上一帧形变；颜色、深度、shadow、velocity 一致；skin/morph 的支持顺序或拒绝明确。首版技术卡见 [v0.28.1 S2 #5](v0.28.1-s2-vertex-displacement.md) |
 | 6 | Projected Decals / S1 | 投影体积内的颜色/发光覆盖、接收面筛选、重叠顺序 | 真实深度重建；斜坡、墙角、薄墙、移动物体和 resize；不将平面 quad 冒充投射贴花，不假设完整 G-buffer |
 | 8 | Thin Translucency / S1 | 薄叶/薄布的可控背光透射，正式 PBR 材质输入 | 双面法线、MASK/阴影一致；正背侧光参考；公开艺术模型或能量近似 |
 | 9 | Contact Shadows / S1 | 主方向光的短距离屏幕空间接触遮挡 | 深度/厚度/步长/距离合同；屏幕边缘和离屏回退；与现有阴影组合不重复过暗 |

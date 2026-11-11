@@ -29,6 +29,8 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.RenderFeaturesControl
 advanced com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.render3d.Scene
 advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding
+advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementDrawBinding
 advanced com.kaleblangley.haikalat.subsystems.render3d.SceneLight
 advanced com.kaleblangley.haikalat.subsystems.render3d.SceneObject
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings

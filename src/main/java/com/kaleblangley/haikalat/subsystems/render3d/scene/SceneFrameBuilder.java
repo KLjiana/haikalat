@@ -192,7 +192,8 @@ public final class SceneFrameBuilder {
                 Bounds3f local = renderers[index].mesh().localBounds();
                 Matrix4fc model = modelMiss[index] ? pendingModels[index] : models[index];
                 try {
-                    BoundsTransforms.world(local, model, pendingBounds[index]);
+                    BoundsTransforms.world(local, model,
+                            renderers[index].drawBinding().boundsPadding(), pendingBounds[index]);
                 } catch (RuntimeException | Error failure) {
                     throw stageFailure(index, "world bounds", failure);
                 }
