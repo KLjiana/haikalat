@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "f4f422c"
+                        "head":  "3829cfc"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T02:26:27.4357764+08:00",
+    "updatedAt":  "2026-11-12T02:36:47.9422114+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -987,17 +987,17 @@
 
                                         ],
                       "evidence":  [
-                                       "glSmoke GpuParticleSystemGlTest 6/6 PASS",
+                                       "focused GL GpuParticleSystemGlTest 7/7 PASS",
                                        "JVM GpuParticle*/IndirectDrawCommand 19 tests PASS",
-                                       "focused verify 6bf14b8c: 650 tests PASS, 0 skipped",
-                                       "first GPU fixture billboard-w bug fixed at f667621"
+                                       "focused verify 1de94a96: 651 tests PASS, 0 skipped",
+                                       "review wrapped-active-set gap fixed at 9b18c4d; fragment smoothstep/state fixed"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; pipeline/transparent integration unwired"
+                      "nextAction":  "Bounded GPU particle owner; pipeline/transparent integration unwired; #15/#26/#28 extend this owner"
                   },
                   {
                       "taskId":  "R28",
