@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T12:02:35.1683749+08:00",
+    "updatedAt":  "2026-11-11T12:45:19.2787829+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -381,7 +381,7 @@
                       "featureIds":  [
                                          9
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "REVIEWING",
                       "scope":  "Contact Shadows",
                       "dependencies":  [
                                            null
@@ -391,20 +391,23 @@
 
                                      ],
                       "baseCommit":  "3cb2990",
-                      "workerCommit":  null,
+                      "workerCommit":  "a859e0b",
                       "integrationCommit":  null,
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "worker JVM full 1222 tests PASS",
+                                       "glSmoke ContactShadowsGlTest PASS after narrow debug-policy allowance",
+                                       "focused verify c01231d1: 248 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT",
+                      "functional":  "GL_PASS_LOCAL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Contact shadows production implementation in s1-contact"
+                      "nextAction":  "Independent review of shadow-map-space contact refinement and scope deviation",
+                      "scopeNote":  "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance"
                   },
                   {
                       "taskId":  "R10",
