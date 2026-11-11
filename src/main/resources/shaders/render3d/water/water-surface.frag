@@ -32,12 +32,26 @@ uniform float uWaveDirection;
 uniform float uTimeSeconds;
 uniform int uDebugMode;
 
+#ifdef WATER_REFRACTION
+uniform sampler2D uSceneColor;
+uniform mat4 uProjection;
+uniform float uRefractionIor;
+uniform float uRefractionStrength;
+uniform float uRefractionMaxOffset;
+uniform float uRefractionThicknessScale;
+uniform float uRefractionForegroundBias;
+uniform vec3 uRefractionFallbackColor;
+uniform int uRefractionFallbackMode;
+#endif
 const float TWO_PI = 6.283185307179586;
 const float SECONDARY_FREQUENCY_SCALE = 1.7;
 const float SECONDARY_WEIGHT = 0.5;
 const float SECONDARY_PHASE = 1.3;
 const float REFLECTION_F0 = 0.02;
 const float GRAZING_EPSILON = 1.0e-3;
+#ifdef WATER_REFRACTION
+const float REFRACTION_MIN_DOWNWARD = 0.05;
+#endif
 
 vec3 rotateEnvironment(vec3 direction) {
     float c = cos(uEnvironmentRotation);
@@ -61,6 +75,13 @@ vec3 waveNormal(vec2 position, float timeSeconds) {
             * (k1 * d1 * cos(phase1) + SECONDARY_WEIGHT * k2 * d2 * cos(phase2));
     return normalize(vec3(-gradient.x, 1.0, -gradient.y));
 }
+#ifdef WATER_REFRACTION
+vec2 projectWorldToUv(vec3 worldPosition) {
+    vec4 clip = uProjection * uView * vec4(worldPosition, 1.0);
+    if (!(clip.w > 1.0e-6)) return vec2(-1.0);
+    return clip.xy / clip.w * 0.5 + 0.5;
+}
+#endif
 
 void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
@@ -127,5 +148,86 @@ void main() {
     // surface the absorption fraction approaches one, so the deep colour wins.
     vec3 color = mix(uWaterColor, reflection, fresnel);
     float alpha = clamp(shore * mix(absorb, 1.0, fresnel), 0.0, 1.0);
+#ifdef WATER_REFRACTION
+    // Screen-space refraction: bend the camera-to-surface ray with the wave
+    // normal, advance it by the scaled water thickness and sample the separate
+    // single-sample background copy at the resulting screen position.  The
+    // output replaces the copied background (alpha = 1) instead of blending the
+    // unrefracted colour, so the shifted lookup is observable.  The shared
+    // opaque depth at the shifted pixel rejects foreground occlusion: a lookup
+    // whose scene point is closer than the water plane is not underwater.
+    vec2 centreUv = (vec2(pixel) + 0.5) / vec2(extent);
+    vec3 background = texture(uSceneColor, centreUv).rgb;
+    bool fallback = false;
+
+    vec3 refractionNormal = normal;
+    if (dot(refractionNormal, viewDirection) > 0.0) refractionNormal = -refractionNormal;
+    vec3 refracted = refract(viewDirection, refractionNormal, 1.0 / uRefractionIor);
+    if (!(dot(refracted, refracted) > 1.0e-8)) {
+        fallback = true;
+    } else {
+        float downward = max(-refracted.y, REFRACTION_MIN_DOWNWARD);
+        float travel = max(thickness, 0.0) * uRefractionThicknessScale / downward;
+        vec3 refractedWorld = vWorldPosition + refracted * travel;
+        vec2 shiftedUv = projectWorldToUv(refractedWorld);
+        vec2 offset = (shiftedUv - centreUv) * uRefractionStrength;
+        float offsetLength = length(offset);
+        if (!(offsetLength <= uRefractionMaxOffset)) {
+            if (offsetLength > uRefractionMaxOffset) {
+                offset *= uRefractionMaxOffset / offsetLength;
+            } else {
+                fallback = true;
+            }
+        }
+        shiftedUv = centreUv + offset;
+        if (shiftedUv.x < 0.0 || shiftedUv.x > 1.0
+                || shiftedUv.y < 0.0 || shiftedUv.y > 1.0) {
+            fallback = true;
+        }
+        if (!fallback) {
+            ivec2 shiftedPixel = clamp(ivec2(floor(shiftedUv * vec2(extent))),
+                    ivec2(0), extent - 1);
+            float shiftedDepth = texelFetch(uSceneDepth, shiftedPixel, 0).r;
+            if (shiftedDepth >= 1.0) {
+                // No opaque surface at the lookup: there is no thickness or
+                // foreground relationship to validate, so keep the fallback.
+                fallback = true;
+            } else {
+                vec4 shiftedClip = vec4(shiftedUv * 2.0 - 1.0,
+                        shiftedDepth * 2.0 - 1.0, 1.0);
+                vec4 shiftedViewH = uInverseProjection * shiftedClip;
+                if (!(abs(shiftedViewH.w) > 1.0e-6)) {
+                    fallback = true;
+                } else {
+                    vec4 shiftedView = shiftedViewH / shiftedViewH.w;
+                    vec3 shiftedWorld = (uInverseView * vec4(shiftedView.xyz, 1.0)).xyz;
+                    vec3 shiftedRay = shiftedWorld - uCameraPosition;
+                    float shiftedRayLength = length(shiftedRay);
+                    float waterDistance = -1.0;
+                    if (shiftedRayLength > 1.0e-6) {
+                        vec3 shiftedDirection = shiftedRay / shiftedRayLength;
+                        if (abs(shiftedDirection.y) > 1.0e-6) {
+                            waterDistance = (uWaterLevel - uCameraPosition.y)
+                                    / shiftedDirection.y;
+                        }
+                    }
+                    if (!(waterDistance > 0.0)
+                            || waterDistance - length(shiftedView.xyz)
+                                    > uRefractionForegroundBias) {
+                        fallback = true;
+                    }
+                }
+            }
+        }
+        if (!fallback) {
+            background = texture(uSceneColor, shiftedUv).rgb;
+        }
+    }
+    if (fallback && uRefractionFallbackMode == 1) {
+        background = uRefractionFallbackColor;
+    }
+    fragColor = vec4(mix(background, color, alpha), 1.0);
+#else
     fragColor = vec4(color, alpha);
+#endif
 }
