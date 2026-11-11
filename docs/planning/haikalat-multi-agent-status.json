@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T14:32:22.4875979+08:00",
+    "updatedAt":  "2026-11-11T15:12:09.5823225+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -289,30 +289,31 @@
                       "featureIds":  [
                                          6
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "BLOCKED",
                       "scope":  "Projected Decals",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent 4423d493-3c94-4a2b-a5f2-c73fa6479a45",
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "db36fa8",
-                      "workerCommit":  null,
+                      "workerCommit":  "e26eb8d",
                       "integrationCommit":  null,
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "worker JVM ProjectedDecalTest 5/5 PASS + 69 regression PASS",
+                                       "glSmoke ProjectedDecalGlTest FAIL: drawn=1 but sloped receiver center unchanged; tried flat receiver and solid test atlas, still unchanged"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "functional":  "JVM_PASS_GL_FAIL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Projected decals production implementation in s1-decals"
+                      "nextAction":  "Debug decal fragment acceptance/depth reconstruction; do not integrate until GL PASS",
+                      "review":  "PENDING"
                   },
                   {
                       "taskId":  "R07",
