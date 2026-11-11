@@ -9,10 +9,13 @@ import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.material.AnisotropicSettings;
 import com.kaleblangley.haikalat.core.material.ClearcoatSettings;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.material.ParallaxOcclusionSettings;
 import com.kaleblangley.haikalat.core.material.RefractionSettings;
 import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.BlendMode;
+import org.joml.Vector3f;
+import org.joml.Vector3fc;
 
 import java.util.Map;
 import java.util.Objects;
@@ -31,6 +34,18 @@ public final class PbrMaterials {
      * clearcoat normal (5) and the borrowed IBL units (8-10).
      */
     public static final int HEIGHT_UNIT = 6;
+    /**
+     * Frozen fragment texture units of the optional local reflection probes.
+     * Units 0-6 are the material roles, 7/11/12/13 the frame shadow/GTAO
+     * samplers, 8-10 the global IBL and 14-21 the volumetric-fog prelude
+     * samplers; 22/23 are the first units free in both the ordinary and the
+     * volume-fog PBR variants. Using them therefore requires a context with at
+     * least 24 fragment texture units (the target desktop GL 4.6 context
+     * exposes 32). Ordinary materials stay usable without probes because the
+     * sampler uniforms are only assigned when a probe is actually bound.
+     */
+    public static final int REFLECTION_PROBE_UNIT_0 = 22;
+    public static final int REFLECTION_PROBE_UNIT_1 = 23;
 
     private PbrMaterials() {
     }
@@ -58,6 +73,7 @@ public final class PbrMaterials {
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
         builder.setInt("uAlphaMode", 0);
+        applyReflectionProbeDefaults(builder);
         applyClearcoat(builder, ClearcoatSettings.disabled());
         applyAnisotropic(builder, AnisotropicSettings.disabled());
         applyParallax(builder, ParallaxOcclusionSettings.disabled());
@@ -69,6 +85,66 @@ public final class PbrMaterials {
         bind(builder, HEIGHT_UNIT, "uHeightMap", PbrTextureRole.HEIGHT, supplied, fallbacks);
         bindClearcoatNormal(builder, null, fallbacks);
         return builder.build();
+    }
+
+    /**
+     * Binds the local reflection probes selected for one world position to a
+     * material instance.
+     *
+     * <p>The GL-free {@link ReflectionProbeSelector} chooses at most
+     * {@link ReflectionProbeSettings#MAX_PROBE_COUNT} probes and computes their
+     * normalised weights plus the residual global environment weight. This
+     * method uploads the selected prefiltered cubemaps, per-probe position /
+     * box-or-sphere extents / weight / intensity / rotation / maximum mip and
+     * the global weight to the frozen {@code uReflectionProbe*} contract. The
+     * fragment shader performs the per-pixel local-correction direction and
+     * mixes the probe radiance with the existing global IBL sample.</p>
+     *
+     * <p>Callers pass the receiver's representative world position (for
+     * example its bounds centre) on the render thread before the draw. The
+     * method allocates no GPU resources and never reads pixels back. When the
+     * selection is empty the count is set to zero, so the shader executes the
+     * unchanged global IBL path and no probe texture is sampled.</p>
+     *
+     * <p>This is a specular-only, per-draw selection: an object that spans a
+     * probe boundary uses the selection of its representative point. The
+     * shader still applies the local-correction direction per pixel.</p>
+     */
+    public static void bindReflectionProbes(MaterialInstance instance,
+                                             ReflectionProbeSet probes,
+                                             Vector3fc worldPosition) {
+        Objects.requireNonNull(instance, "instance");
+        Objects.requireNonNull(probes, "probes");
+        Objects.requireNonNull(worldPosition, "worldPosition");
+        ReflectionProbeSelector.Selection selection = probes.select(worldPosition);
+        int slot = 0;
+        for (ReflectionProbeSelector.SelectedProbe selected : selection.probes()) {
+            if (slot >= ReflectionProbeSettings.MAX_PROBE_COUNT) break;
+            ReflectionProbe probe = probes.probe(selected.probeIndex());
+            if (probe == null) continue;
+            ReflectionProbeSettings settings = probe.settings();
+            int unit = slot == 0 ? REFLECTION_PROBE_UNIT_0 : REFLECTION_PROBE_UNIT_1;
+            String prefix = "uReflectionProbe" + slot;
+            instance.textureCube(unit, prefix, probe.prefilteredSpecular(),
+                            probes.cubeSampler())
+                    .setVec3(prefix + "Position", settings.position())
+                    .setVec3(prefix + "Extents", probeExtents(settings))
+                    .setInt(prefix + "Shape",
+                            settings.shape() == ReflectionProbeSettings.Shape.BOX ? 0 : 1)
+                    .setFloat(prefix + "Weight", selected.weight())
+                    .setFloat(prefix + "Intensity", settings.intensity())
+                    .setFloat(prefix + "Rotation", settings.rotationRadians())
+                    .setFloat(prefix + "MaxLod", probe.maximumPrefilteredLod());
+            slot++;
+        }
+        instance.setInt("uReflectionProbeCount", slot)
+                .setFloat("uReflectionProbeGlobalWeight", selection.globalWeight());
+    }
+
+    private static Vector3f probeExtents(ReflectionProbeSettings settings) {
+        return settings.shape() == ReflectionProbeSettings.Shape.SPHERE
+                ? new Vector3f(settings.radius(), settings.radius(), settings.radius())
+                : settings.halfExtents();
     }
 
     /** 使用每个纹理角色自己的 glTF sampler 创建 PBR material。 */
@@ -338,8 +414,21 @@ public final class PbrMaterials {
                 .setInt("uHasVertexColor", 0)
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
-        return applyParallax(applyAnisotropic(applyClearcoat(builder, clearcoat), anisotropic),
-                parallax);
+        return applyReflectionProbeDefaults(applyParallax(
+                applyAnisotropic(applyClearcoat(builder, clearcoat), anisotropic), parallax));
+    }
+
+    /**
+     * Uploads the default disabled probe contract. The count/global weight are
+     * explicit; the probe sampler uniforms are deliberately left unset (texture
+     * unit 0, never sampled while the count is zero) so an ordinary context
+     * without the optional probe texture units can still link and draw. The
+     * count-zero gate keeps the original global path bit-identical.
+     */
+    private static Material.Builder applyReflectionProbeDefaults(Material.Builder builder) {
+        return builder
+                .setInt("uReflectionProbeCount", 0)
+                .setFloat("uReflectionProbeGlobalWeight", 1.0f);
     }
 
     /** Uploads the bounded clearcoat settings as the frozen material uniforms. */

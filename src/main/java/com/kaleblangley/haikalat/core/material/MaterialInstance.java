@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.core.material;
 
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.backend.texture.TextureCube;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -18,6 +19,7 @@ public final class MaterialInstance {
     private final Material material;
     private final Map<UniformKey<?>, UniformValue> uniformOverrides = new LinkedHashMap<>();
     private final Map<Integer, Material.TextureBinding> textureOverrides = new LinkedHashMap<>();
+    private final Map<Integer, CubeTextureBinding> cubeTextureOverrides = new LinkedHashMap<>();
     private Map<UniformKey<?>, UniformValue> uniformOverridesSnapshot = Map.of();
     private Map<Integer, Material.TextureBinding> textureOverridesSnapshot = Map.of();
     private boolean uniformOverridesDirty;
@@ -122,10 +124,33 @@ public final class MaterialInstance {
         return this;
     }
 
+    /**
+     * Overrides one cube-map texture unit for this instance.
+     *
+     * <p>Used by optional environment consumers such as local reflection
+     * probes, whose prefiltered cubemaps are borrowed from their
+     * {@code ReflectionProbeSet} owner. The sampler uniform named
+     * {@code samplerName} is pointed at {@code unit} with the same override
+     * revision semantics as the 2D overload. The texture is never owned or
+     * closed by this instance.</p>
+     */
+    public MaterialInstance textureCube(int unit, String samplerName, TextureCube texture,
+                                        Sampler sampler) {
+        CubeTextureBinding binding = new CubeTextureBinding(unit, samplerName, texture, sampler);
+        CubeTextureBinding previous = cubeTextureOverrides.put(unit, binding);
+        boolean changed = !binding.equals(previous);
+        changed |= putOverride(binding.samplerKey(), new UniformValue.IntVal(unit));
+        if (changed) advanceRevision();
+        return this;
+    }
+
     public CommandBuffer bind(CommandBuffer cmd) {
         material.bind(cmd);
         for (Material.TextureBinding binding : textureOverrides.values()) {
             cmd.bindTexture(binding.unit(), binding.texture(), binding.sampler());
+        }
+        for (CubeTextureBinding binding : cubeTextureOverrides.values()) {
+            cmd.bindTextureCube(binding.unit(), binding.texture(), binding.sampler());
         }
         for (Map.Entry<UniformKey<?>, UniformValue> entry : uniformOverrides.entrySet()) {
             material.applyUniform(cmd, entry.getKey(), entry.getValue());
@@ -140,6 +165,7 @@ public final class MaterialInstance {
                 .enableCullFace(material.cullMode() == com.kaleblangley.haikalat.core.CullMode.BACK);
         material.bindDefaultTextures(cmd);
         for (var binding : textureOverrides.values()) cmd.bindTexture(binding.unit(), binding.texture(), binding.sampler());
+        for (var binding : cubeTextureOverrides.values()) cmd.bindTextureCube(binding.unit(), binding.texture(), binding.sampler());
         for (var entry : material.defaultUniforms().entrySet()) entry.getValue().apply(cmd, variant, entry.getKey().name());
         for (var entry : uniformOverrides.entrySet()) entry.getValue().apply(cmd, variant, entry.getKey().name());
         return cmd;
@@ -190,12 +216,26 @@ public final class MaterialInstance {
         if (!hasOverrides) return;
         uniformOverrides.clear();
         textureOverrides.clear();
+        cubeTextureOverrides.clear();
         uniformOverridesSnapshot = Map.of();
         textureOverridesSnapshot = Map.of();
         uniformOverridesDirty = false;
         textureOverridesDirty = false;
         hasOverrides = false;
         advanceRevision();
+    }
+
+    /** Borrowed cube-map binding for this instance; the instance never owns it. */
+    private record CubeTextureBinding(int unit, String samplerName, TextureCube texture,
+                                      Sampler sampler) {
+        private CubeTextureBinding {
+            Objects.requireNonNull(samplerName, "samplerName");
+            Objects.requireNonNull(texture, "texture");
+        }
+
+        private UniformKey<UniformValue.IntVal> samplerKey() {
+            return UniformKey.int1(samplerName);
+        }
     }
 
     private void put(UniformKey<?> key, UniformValue value) {

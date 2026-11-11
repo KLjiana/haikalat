@@ -60,6 +60,9 @@ stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSet
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSelector
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferView

@@ -80,6 +80,27 @@ uniform samplerCube uIrradianceMap;
 uniform samplerCube uPrefilteredMap;
 uniform sampler2D uBrdfLut;
 uniform sampler2D uGtaoMap;
+// Bounded local reflection probes. uReflectionProbeCount is zero by default;
+// only then are the probe cubemaps and their per-probe parameters consumed.
+// Slot 0 and 1 share the fixed fragment texture-unit contract in PbrMaterials.
+uniform int uReflectionProbeCount;
+uniform float uReflectionProbeGlobalWeight;
+uniform samplerCube uReflectionProbe0;
+uniform vec3 uReflectionProbe0Position;
+uniform vec3 uReflectionProbe0Extents;
+uniform int uReflectionProbe0Shape; // 0 box, 1 sphere
+uniform float uReflectionProbe0Weight;
+uniform float uReflectionProbe0Intensity;
+uniform float uReflectionProbe0Rotation;
+uniform float uReflectionProbe0MaxLod;
+uniform samplerCube uReflectionProbe1;
+uniform vec3 uReflectionProbe1Position;
+uniform vec3 uReflectionProbe1Extents;
+uniform int uReflectionProbe1Shape;
+uniform float uReflectionProbe1Weight;
+uniform float uReflectionProbe1Intensity;
+uniform float uReflectionProbe1Rotation;
+uniform float uReflectionProbe1MaxLod;
 
 uniform vec4 uBaseColorFactor;
 uniform float uMetallicFactor;
@@ -183,11 +204,85 @@ float shadowDepthBias(float baseBias, vec3 n, vec3 l) {
     return max(baseBias * (1.0 - dot(n, l)), baseBias * 0.25);
 }
 
-vec3 rotateEnvironment(vec3 direction) {
-    float c = cos(uEnvironmentRotation);
-    float s = sin(uEnvironmentRotation);
+vec3 rotateEnvironmentBy(vec3 direction, float rotation) {
+    float c = cos(rotation);
+    float s = sin(rotation);
     return vec3(c * direction.x - s * direction.z, direction.y,
                 s * direction.x + c * direction.z);
+}
+
+vec3 rotateEnvironment(vec3 direction) {
+    return rotateEnvironmentBy(direction, uEnvironmentRotation);
+}
+
+/**
+ * Local-corrected cubemap direction for one static reflection probe.
+ *
+ * <p>The probe cubemap was prefiltered around its own capture position, so an
+ * uncorrected lookup at an arbitrary world point shows the environment at
+ * infinity. This helper intersects the reflected ray with the probe's box (or
+ * sphere) influence volume and returns the direction from the probe centre to
+ * that hit. The result is still only a bounded local approximation: the
+ * influence volume is not a captured depth hull, it has no occlusion, and a
+ * ray that misses the volume falls back to the unmodified reflection.</p>
+ */
+vec3 reflectionProbeSampleDirection(vec3 worldPosition, vec3 reflection,
+                                    vec3 probePosition, vec3 probeExtents, int shape) {
+    if (shape == 1) {
+        vec3 offset = worldPosition - probePosition;
+        float radius = max(probeExtents.x, 1.0e-5);
+        float b = dot(offset, reflection);
+        float c = dot(offset, offset) - radius * radius;
+        float discriminant = b * b - c;
+        if (discriminant >= 0.0) {
+            float root = sqrt(discriminant);
+            float nearDistance = -b - root;
+            float farDistance = -b + root;
+            float distance = nearDistance > 1.0e-5 ? nearDistance : farDistance;
+            if (distance > 1.0e-5) {
+                return normalize(worldPosition + reflection * distance - probePosition);
+            }
+        }
+        return reflection;
+    }
+    vec3 minimum = probePosition - probeExtents;
+    vec3 maximum = probePosition + probeExtents;
+    vec3 safeDirection = vec3(
+            abs(reflection.x) < 1.0e-6 ? (reflection.x < 0.0 ? -1.0e-6 : 1.0e-6) : reflection.x,
+            abs(reflection.y) < 1.0e-6 ? (reflection.y < 0.0 ? -1.0e-6 : 1.0e-6) : reflection.y,
+            abs(reflection.z) < 1.0e-6 ? (reflection.z < 0.0 ? -1.0e-6 : 1.0e-6) : reflection.z);
+    vec3 inverse = 1.0 / safeDirection;
+    vec3 first = (minimum - worldPosition) * inverse;
+    vec3 second = (maximum - worldPosition) * inverse;
+    vec3 nearVector = min(first, second);
+    vec3 farVector = max(first, second);
+    float nearDistance = max(max(nearVector.x, nearVector.y), nearVector.z);
+    float farDistance = min(min(farVector.x, farVector.y), farVector.z);
+    if (farDistance >= 0.0 && nearDistance <= farDistance) {
+        float distance = nearDistance > 1.0e-5 ? nearDistance : farDistance;
+        if (distance > 1.0e-5) {
+            return normalize(worldPosition + reflection * distance - probePosition);
+        }
+    }
+    return reflection;
+}
+
+/**
+ * One probe's prefiltered specular radiance. The probe's own rotation is
+ * applied after local correction, and the prefiltered mip is
+ * {@code roughness * maximumLod}: PbrEnvironment stores roughness
+ * {@code mip / (mipLevels - 1)}, exactly like the global environment.
+ */
+vec3 reflectionProbeRadiance(samplerCube probe, vec3 worldPosition, vec3 reflection,
+                             vec3 probePosition, vec3 probeExtents, int shape,
+                             float rotation, float maximumLod, float intensity,
+                             float roughness) {
+    vec3 direction = reflectionProbeSampleDirection(worldPosition, reflection,
+            probePosition, probeExtents, shape);
+    direction = rotateEnvironmentBy(direction, rotation);
+    float maxLod = max(maximumLod, 0.0);
+    float lod = clamp(roughness * maxLod, 0.0, maxLod);
+    return textureLod(probe, direction, lod).rgb * max(intensity, 0.0);
 }
 
 float distributionGgx(vec3 n, vec3 h, float roughness) {
@@ -1186,6 +1281,40 @@ void main() {
     }
     vec3 prefiltered = textureLod(uPrefilteredMap, reflection,
             prefilterRoughness * uPrefilterMaxLod).rgb;
+    if (uReflectionProbeCount > 0) {
+        // Specular-only local probes: the CPU selector already produced the
+        // normalised per-slot weights and the residual global weight. The
+        // count-zero path above is the exact original global sample.
+        vec3 probeRadiance = vec3(0.0);
+        float probeWeight = 0.0;
+        float weight0 = clamp(uReflectionProbe0Weight, 0.0, 1.0);
+        if (weight0 > 0.0) {
+            probeRadiance += weight0 * reflectionProbeRadiance(
+                    uReflectionProbe0, vWorldPosition, reflection,
+                    uReflectionProbe0Position, uReflectionProbe0Extents,
+                    uReflectionProbe0Shape, uReflectionProbe0Rotation,
+                    uReflectionProbe0MaxLod, uReflectionProbe0Intensity,
+                    prefilterRoughness);
+            probeWeight += weight0;
+        }
+        if (uReflectionProbeCount > 1) {
+            float weight1 = clamp(uReflectionProbe1Weight, 0.0, 1.0);
+            if (weight1 > 0.0) {
+                probeRadiance += weight1 * reflectionProbeRadiance(
+                        uReflectionProbe1, vWorldPosition, reflection,
+                        uReflectionProbe1Position, uReflectionProbe1Extents,
+                        uReflectionProbe1Shape, uReflectionProbe1Rotation,
+                        uReflectionProbe1MaxLod, uReflectionProbe1Intensity,
+                        prefilterRoughness);
+                probeWeight += weight1;
+            }
+        }
+        float globalWeight = clamp(uReflectionProbeGlobalWeight, 0.0, 1.0);
+        float weightSum = probeWeight + globalWeight;
+        if (weightSum > 0.0) {
+            prefiltered = (prefiltered * globalWeight + probeRadiance) / weightSum;
+        }
+    }
     vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
     vec3 specularIbl = prefiltered * (f * brdf.x + brdf.y);
     float aoSample = texture(uOcclusionMap, materialUv).r;
