@@ -189,3 +189,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings
 # v0.28.1 S3 #15 bounded depth-based GPU particle collision settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionSettings
+# v0.28.1 S4 #37 stochastic transparency settings/inputs and pass-owned history.
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs
+internal com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass
