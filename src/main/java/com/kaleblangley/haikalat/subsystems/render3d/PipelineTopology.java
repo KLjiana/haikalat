@@ -175,6 +175,10 @@ public record PipelineTopology(int width,
         if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
+        // Motion blur consumes the shared single-sample velocity and validity.
+        if (effects.motionBlur().active()) {
+            requirements = requirements.mergeView(SceneBufferRequirements.motionBlur());
+        }
         if (effects.gtao().enabled()) {
             requirements = requirements.mergeView(
                     SceneBufferRequirements.gtao(effects.gtao().temporal()));

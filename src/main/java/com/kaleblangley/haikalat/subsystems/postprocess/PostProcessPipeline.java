@@ -25,6 +25,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +57,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final ChromaticAberrationPass chromaticAberration;
     private final ScreenDistortionPass screenDistortion;
     private final DepthOfFieldPass depthOfField;
+    private final MotionBlurPass motionBlur;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final LateSurfaceProducer lateSurface;
@@ -79,6 +81,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 ChromaticAberrationPass chromaticAberration,
                                 ScreenDistortionPass screenDistortion,
                                 DepthOfFieldPass depthOfField,
+                                MotionBlurPass motionBlur,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 LateSurfaceProducer lateSurface,
@@ -97,6 +100,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.chromaticAberration = chromaticAberration;
         this.screenDistortion = screenDistortion;
         this.depthOfField = depthOfField;
+        this.motionBlur = motionBlur;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.lateSurface = lateSurface;
@@ -155,6 +159,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "depth of field requires HDR tone mapping");
             }
+            if (effects.motionBlur().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "motion blur requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -197,9 +205,15 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.depthOfField : null,
                             () -> new DepthOfFieldPass(effects.depthOfField()),
                             owned, borrowed) : null;
+            MotionBlurPass motionBlur = effects.motionBlur().active()
+                    ? reuseOrCreate(donor != null && donor.motionBlur != null
+                                    && donor.motionBlur.settings().equals(effects.motionBlur())
+                                    ? donor.motionBlur : null,
+                            () -> new MotionBlurPass(effects.motionBlur()),
+                            owned, borrowed) : null;
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
+                    depthOfField, motionBlur, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -313,6 +327,12 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (depthOfField != null) {
             surfaceInputs.validateDependency(PostProcessTargets.DEPTH_OF_FIELD_PASS,
                     requireInput(SurfaceInputs.Channel.DEPTH));
+        }
+        if (motionBlur != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.MOTION_BLUR_PASS,
+                    requireInput(SurfaceInputs.Channel.VELOCITY));
+            surfaceInputs.validateDependency(PostProcessTargets.MOTION_BLUR_PASS,
+                    requireInput(SurfaceInputs.Channel.VALIDITY));
         }
     }
 
@@ -485,6 +505,38 @@ public final class PostProcessPipeline implements AutoCloseable {
                     });
             hdrTexture = PostProcessTargets.DEPTH_OF_FIELD_COLOR;
             hdrProducer = PostProcessTargets.DEPTH_OF_FIELD_PASS;
+        }
+
+        if (motionBlur != null) {
+            final String blurInput = hdrTexture;
+            final String blurProducer = hdrProducer;
+            SurfaceInputs.Input velocity = requireInput(SurfaceInputs.Channel.VELOCITY);
+            SurfaceInputs.Input validity = requireInput(SurfaceInputs.Channel.VALIDITY);
+            var blurPass = graph.addPass(PostProcessTargets.MOTION_BLUR_PASS)
+                    .createColor(PostProcessTargets.MOTION_BLUR_COLOR, RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(blurProducer);
+            if (!blurProducer.equals(velocity.producerPass())) {
+                blurPass.dependsOn(velocity.producerPass());
+            }
+            if (!blurProducer.equals(validity.producerPass())
+                    && !velocity.producerPass().equals(validity.producerPass())) {
+                blurPass.dependsOn(validity.producerPass());
+            }
+            blurPass.execute((res, cmd) -> {
+                TemporalFramePose frame = framePose;
+                if (frame == null) {
+                    throw new IllegalStateException("motion blur requires a started frame pose");
+                }
+                motionBlur.recordIntoCurrentTarget(cmd,
+                        res.colorAttachment(blurInput),
+                        surfaceInputs.texture(res, velocity),
+                        surfaceInputs.texture(res, validity),
+                        frame.jitterUvX(), frame.jitterUvY(),
+                        graph.width(), graph.height());
+            });
+            hdrTexture = PostProcessTargets.MOTION_BLUR_COLOR;
+            hdrProducer = PostProcessTargets.MOTION_BLUR_PASS;
         }
 
         final String exposureInput = hdrTexture;

@@ -21,6 +21,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FilmGrainSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ChromaticAberrationSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings
@@ -43,6 +44,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain

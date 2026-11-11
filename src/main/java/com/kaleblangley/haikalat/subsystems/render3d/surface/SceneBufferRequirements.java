@@ -54,6 +54,15 @@ public final class SceneBufferRequirements {
         return of(SceneBufferChannel.DEPTH);
     }
 
+    /**
+     * Motion blur consumes the single-sample velocity plus its validity
+     * companions; {@link #validated()} adds the previous-surface depth and
+     * validity channels that make the velocity trustworthy.
+     */
+    public static SceneBufferRequirements motionBlur() {
+        return of(SceneBufferChannel.VELOCITY);
+    }
+
     /** GTAO always needs depth and world normals; temporal AO also needs motion data. */
     public static SceneBufferRequirements gtao(boolean temporal) {
         return temporal

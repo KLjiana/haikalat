@@ -141,3 +141,16 @@ v0.28.1（候选）景深没有删除 stable 类型。`PostProcessSettings` 的 
 仅在景深 active 时把既有 depth 通道并入表面请求；本包没有修改 `RenderPipeline` 公共入口，
 景深设置是装配期值，改变焦点等标量需要重新 build/重建候选（见
 [技术卡](../../planning/v0.28.1-s3-depth-of-field.md)）。
+
+v0.28.1（候选）运动模糊没有删除 stable 类型。`PostProcessSettings` 的 advanced canonical record
+从 8 个组件扩展为 9 个（新增 `motionBlur`）；景深使用的 8 参数构造器和更早的 2/3/4/6/7 参数
+构造器保留，默认填入 `MotionBlurSettings.disabled()`，因此旧构造器、builder 与访问器调用保持
+源码兼容；直接调用 canonical 构造器或反射读取组件的调用方需要更新。新增 advanced
+`postprocess.MotionBlurSettings(enabled,shutterFraction,maxRadiusPixels)` 与
+`postprocess.motionblur.MotionBlurPass`。效果默认关闭，`shutterFraction=0` 或
+`maxRadiusPixels=0` 也是精确 no-op；开启要求 HDR tone mapping 与共享单采样 velocity/validity，
+否则装配/依赖校验明确拒绝。`PipelineTopology` 仅在运动模糊 active 时请求 velocity 及其
+previous-surface-depth/validity 校验通道，MSAA 下经共享 surface resolve 提供单采样结果。
+Pass 不采样任何历史：相机切镜由 validity=0 精确还原输入，无 velocity 的透明/VFX 采用其身后
+不透明表面的 velocity。本包没有修改 `RenderPipeline` 公共入口；曝光比例和最大半径是装配期值，
+改变后需要重新 build/重建候选（见[技术卡](../../planning/v0.28.1-s3-motion-blur.md)）。
