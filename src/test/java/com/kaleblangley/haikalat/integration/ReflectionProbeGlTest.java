@@ -168,7 +168,28 @@ class ReflectionProbeGlTest {
                                 .vsync(false)
                                 .build(), environment);
                 try {
-                    RenderFeatureSettings pbrOnlyFeatures = pbrOnlyPipeline.features()
+                    RenderFeatureSettings pbrOnlyBaseFeatures = pbrOnlyPipeline.features()
+                            .effective().toBuilder()
+                            .imageBasedLighting(false)
+                            .directLighting(false)
+                            .directionalShadows(false)
+                            .pointShadows(false)
+                            .spotShadows(false)
+                            .directionalCascades(DirectionalCascadeSettings.disabled())
+                            .localShadows(LocalShadowPipelineSettings.legacyDefaults())
+                            .build();
+                    pbrOnlyPipeline.features().submit(pbrOnlyBaseFeatures);
+                    pbrOnlyPipeline.build();
+                    float[] pbrOnlyImage = render(pbrOnlyPipeline, device, WIDTH, HEIGHT);
+                    GlDebug.checkError("PBR-only emissive render");
+                    assertQuadCoverage("PBR-only emissive control (no IBL/direct)",
+                            pbrOnlyImage, WIDTH, HEIGHT);
+                    assertTrue(centrePixel(pbrOnlyImage, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the PBR-only emissive control must produce red at the centre; "
+                                    + "if this fails, PbrMaterials/pbr-forward.frag cannot render "
+                                    + "the fixture at all");
+
+                    RenderFeatureSettings pbrOnlyIblFeatures = pbrOnlyPipeline.features()
                             .effective().toBuilder()
                             .imageBasedLighting(true)
                             .directLighting(false)
@@ -178,15 +199,15 @@ class ReflectionProbeGlTest {
                             .directionalCascades(DirectionalCascadeSettings.disabled())
                             .localShadows(LocalShadowPipelineSettings.legacyDefaults())
                             .build();
-                    pbrOnlyPipeline.features().submit(pbrOnlyFeatures);
-                    pbrOnlyPipeline.build();
-                    float[] pbrOnlyImage = render(pbrOnlyPipeline, device, WIDTH, HEIGHT);
-                    assertQuadCoverage("PBR-only emissive control", pbrOnlyImage,
-                            WIDTH, HEIGHT);
-                    assertTrue(centrePixel(pbrOnlyImage, WIDTH, HEIGHT)[0] > 0.5f,
-                            "the PBR-only emissive control must produce red at the centre; "
-                                    + "if this fails, PbrMaterials/pbr-forward.frag cannot render "
-                                    + "the fixture at all");
+                    pbrOnlyPipeline.features().submit(pbrOnlyIblFeatures);
+                    float[] pbrOnlyIblImage = render(pbrOnlyPipeline, device, WIDTH, HEIGHT);
+                    GlDebug.checkError("PBR-only IBL emissive render");
+                    assertQuadCoverage("PBR-only emissive control (IBL topology)",
+                            pbrOnlyIblImage, WIDTH, HEIGHT);
+                    assertTrue(centrePixel(pbrOnlyIblImage, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the PBR-only emissive control must still render red when the IBL "
+                                    + "topology is enabled; if only this fails, IBL feature "
+                                    + "topology/binding is the root cause");
                 } finally {
                     pbrOnlyPipeline.close();
                 }

@@ -20,6 +20,9 @@ import org.joml.Vector3fc;
 import java.util.Map;
 import java.util.Objects;
 
+import static org.lwjgl.opengl.GL11.glGetInteger;
+import static org.lwjgl.opengl.GL20.GL_MAX_TEXTURE_IMAGE_UNITS;
+
 /** 将不可变 PBR 定义装配为通用 runtime Material 的便利入口。 */
 public final class PbrMaterials {
     /**
@@ -41,8 +44,9 @@ public final class PbrMaterials {
      * samplers; 22/23 are the first units free in both the ordinary and the
      * volume-fog PBR variants. Using them therefore requires a context with at
      * least 24 fragment texture units (the target desktop GL 4.6 context
-     * exposes 32). Ordinary materials stay usable without probes because the
-     * sampler uniforms are only assigned when a probe is actually bound.
+     * exposes 32). The probe sampler uniforms are always pointed at these units
+     * because the shader statically declares both samplerCubes; otherwise they
+     * would default to unit 0 and alias the sampler2D base-colour binding.
      */
     public static final int REFLECTION_PROBE_UNIT_0 = 22;
     public static final int REFLECTION_PROBE_UNIT_1 = 23;
@@ -419,16 +423,30 @@ public final class PbrMaterials {
     }
 
     /**
-     * Uploads the default disabled probe contract. The count/global weight are
-     * explicit; the probe sampler uniforms are deliberately left unset (texture
-     * unit 0, never sampled while the count is zero) so an ordinary context
-     * without the optional probe texture units can still link and draw. The
-     * count-zero gate keeps the original global path bit-identical.
+     * Uploads the default disabled probe contract. The sampler uniforms are
+     * pointed at the dedicated probe units even while the feature is off; this
+     * is required because the fragment shader statically declares both probe
+     * samplerCubes. Leaving them at their GL default of unit 0 would alias the
+     * sampler2D base-colour unit and make the PBR draw invalid even when the
+     * count-zero branch never samples a probe. The count-zero gate keeps the
+     * original global path bit-identical.
      */
     private static Material.Builder applyReflectionProbeDefaults(Material.Builder builder) {
+        // The shader statically declares both probe samplerCubes. Their sampler
+        // uniforms must never be left at GL's default unit 0, where the
+        // sampler2D base-colour binding would make the PBR draw invalid even
+        // though the count-zero branch never samples a probe. On the target
+        // 32-unit context use the frozen 22/23 slots; on a smaller ordinary
+        // context fall back to 14/15 (free in the non-volume variant). Probe
+        // sets themselves still require the full 24 units.
+        int units = glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
+        int probeUnit0 = units > REFLECTION_PROBE_UNIT_1
+                ? REFLECTION_PROBE_UNIT_0 : 14;
         return builder
                 .setInt("uReflectionProbeCount", 0)
-                .setFloat("uReflectionProbeGlobalWeight", 1.0f);
+                .setFloat("uReflectionProbeGlobalWeight", 1.0f)
+                .setInt("uReflectionProbe0", probeUnit0)
+                .setInt("uReflectionProbe1", probeUnit0 + 1);
     }
 
     /** Uploads the bounded clearcoat settings as the frozen material uniforms. */
