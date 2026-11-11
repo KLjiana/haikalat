@@ -174,16 +174,21 @@ public final class PlanarReflectionMath {
      * {@code w} row of the projection are unchanged; only the third row is
      * replaced, so horizontal/vertical screen coordinates are preserved.</p>
      *
+     * <p>The derivation assumes a standard OpenGL perspective projection:
+     * {@code m23 == -1}, {@code m33 == 0}, {@code m32 != 0}, and no x/y/w
+     * cross terms.  Orthographic and other projections are rejected instead of
+     * silently producing wrong NDC values.</p>
+     *
      * @return {@code destination}
+     * @throws IllegalArgumentException when the projection is not a standard
+     *                                  OpenGL perspective or the clip plane is degenerate
      */
     public static Matrix4f obliqueProjection(Matrix4f projection, Vector4f viewPlane,
                                              Matrix4f destination) {
         Objects.requireNonNull(projection, "projection");
+        requireStandardPerspective(projection);
         validatePlane(viewPlane);
         Objects.requireNonNull(destination, "destination");
-        if (!projection.isFinite()) {
-            throw new IllegalArgumentException("projection must be finite");
-        }
         destination.set(projection);
         double m00 = destination.m00();
         double m11 = destination.m11();
@@ -191,12 +196,6 @@ public final class PlanarReflectionMath {
         double m21 = destination.m21();
         double m22 = destination.m22();
         double m32 = destination.m32();
-        if (Math.abs(m00) < MINIMUM_OBLIQUE_DETERMINANT
-                || Math.abs(m11) < MINIMUM_OBLIQUE_DETERMINANT
-                || Math.abs(m32) < MINIMUM_OBLIQUE_DETERMINANT) {
-            throw new IllegalArgumentException(
-                    "projection is degenerate for oblique near-plane clipping");
-        }
         double nx = viewPlane.x;
         double ny = viewPlane.y;
         double nz = viewPlane.z;
@@ -217,6 +216,39 @@ public final class PlanarReflectionMath {
                 .m12((float) (ny * scale))
                 .m22((float) (nz * scale + 1.0))
                 .m32((float) (d * scale));
+    }
+
+    /**
+     * Validates the narrow projection shape required by Lengyel's derivation.
+     * Orthographic matrices (and reversed-Z/handedness variants) fail here.
+     */
+    private static void requireStandardPerspective(Matrix4f projection) {
+        if (!projection.isFinite()) {
+            throw new IllegalArgumentException("projection must be finite");
+        }
+        final float tolerance = 1.0e-5f;
+        final float zeroTolerance = 1.0e-6f;
+        if (Math.abs(projection.m00()) < zeroTolerance
+                || Math.abs(projection.m11()) < zeroTolerance
+                || Math.abs(projection.m32()) < zeroTolerance) {
+            throw new IllegalArgumentException(
+                    "oblique projection requires a non-degenerate perspective projection");
+        }
+        if (Math.abs(projection.m23() + 1.0f) > tolerance
+                || Math.abs(projection.m33()) > tolerance
+                || Math.abs(projection.m10()) > zeroTolerance
+                || Math.abs(projection.m20()) > zeroTolerance
+                || Math.abs(projection.m30()) > zeroTolerance
+                || Math.abs(projection.m01()) > zeroTolerance
+                || Math.abs(projection.m21()) > zeroTolerance
+                || Math.abs(projection.m31()) > zeroTolerance
+                || Math.abs(projection.m02()) > zeroTolerance
+                || Math.abs(projection.m12()) > zeroTolerance
+                || Math.abs(projection.m03()) > zeroTolerance
+                || Math.abs(projection.m13()) > zeroTolerance) {
+            throw new IllegalArgumentException(
+                    "oblique projection requires a standard OpenGL perspective projection");
+        }
     }
 
     private static void validatePlane(Vector4f plane) {

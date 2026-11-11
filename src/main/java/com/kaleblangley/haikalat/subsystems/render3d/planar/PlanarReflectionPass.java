@@ -32,12 +32,31 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
  * no temporal accumulation of its own: the last successfully rendered
  * reflection persists between throttled updates, which is the independent
  * history consumed by downstream water/SSR composition.  A camera on or behind
- * the retained side is skipped without modifying the target.</p>
+ * the retained side is skipped before any allocation or clear, so the previous
+ * framebuffer, pixels and {@link #hasValidContent() valid} flag stay untouched.
+ * Only standard OpenGL perspective camera projections are accepted; an
+ * orthographic {@code ExternalCamera} is rejected before the target is touched.</p>
+ *
+ * <p>A scene-extent change is recorded transactionally: the new framebuffer is
+ * allocated and drawn into as a candidate, and is published only after the
+ * recorder returns successfully.  Camera-side/projection validation happens
+ * before candidate allocation.  {@link #resize(int, int)} publishes storage
+ * eagerly but marks it invalid until the next successful record; consumers must
+ * gate sampling on {@link #hasValidContent()} (or {@code updateCount() > 0}).</p>
  *
  * <p>Throttling: {@link #record} updates at most once every
  * {@link PlanarReflectionSettings#updateIntervalFrames()} successful calls.
  * Skipped calls record no commands.  {@link #requestUpdate()} forces the next
- * call to update; a target resize always forces the next call to update.</p>
+ * call to update; a target extent change forces the next attempt.</p>
+ *
+ * <p>State restoration is a documented default, not a full host snapshot.  The
+ * pass restores the caller framebuffer and viewport, front face {@code CCW},
+ * depth test/write enabled, cull/blend/sRGB/scissor disabled, and clear colour
+ * {@code (0,0,0,1)}.  It does not modify {@code depthFunc}, colour write masks
+ * or cull-face mode; callers must provide the Render3D defaults
+ * ({@code GL_LESS}, all colour writes enabled, {@code GL_BACK}) when those
+ * values matter.  A non-default depth function that rejects the cleared depth
+ * will legitimately suppress the reflection.</p>
  */
 public final class PlanarReflectionPass implements GlResource {
     /** RenderGraph/pipeline pass name used by a future integration. */
@@ -65,6 +84,7 @@ public final class PlanarReflectionPass implements GlResource {
     private int height;
     private int framesUntilUpdate;
     private long updateCount;
+    private boolean contentValid;
     private boolean recording;
     private boolean closed;
 
@@ -110,9 +130,19 @@ public final class PlanarReflectionPass implements GlResource {
         return closed || framebuffer == null ? 0 : framebuffer.depthAttachment();
     }
 
-    /** @return number of successfully recorded reflection updates */
+    /** @return successful updates for the currently published target; 0 when never recorded */
     public long updateCount() {
         return updateCount;
+    }
+
+    /**
+     * @return true when {@link #colorTexture()} contains a successfully
+     *         recorded reflection and is safe to sample.  A newly allocated or
+     *         explicitly resized target starts invalid; only a completed
+     *         {@link #record} publishes valid content.
+     */
+    public boolean hasValidContent() {
+        return !closed && contentValid;
     }
 
     /** @return true while a {@link SceneRecorder} is being recorded */
@@ -133,8 +163,8 @@ public final class PlanarReflectionPass implements GlResource {
     /**
      * Explicitly resizes the reflection attachments from a scene extent.  The
      * candidate framebuffer is allocated before the old pair is closed, so an
-     * allocation failure keeps the previous target active.  The next
-     * {@link #record} is forced to update.
+     * allocation failure keeps the previous target active.  The published
+     * target is marked invalid until the next successful {@link #record}.
      */
     public void resize(int sceneWidth, int sceneHeight) {
         ensureOpen();
@@ -179,6 +209,14 @@ public final class PlanarReflectionPass implements GlResource {
      * @param restoreTarget caller framebuffer restored at the end, or {@code null}
      *                      for the default framebuffer
      * @return true when the reflection texture was updated this call
+     * @throws IllegalArgumentException when the camera projection is not a
+     *                                  standard OpenGL perspective or the clip
+     *                                  plane is degenerate; the previous target
+     *                                  remains untouched
+     * @throws RuntimeException         when the recorder fails; a resize
+     *                                  candidate is closed and the previous
+     *                                  target remains active, so the caller must
+     *                                  discard the partially recorded command buffer
      */
     public boolean record(CommandBuffer cmd, Camera camera, int sceneWidth, int sceneHeight,
                           Framebuffer restoreTarget, SceneRecorder scene) {
@@ -199,27 +237,73 @@ public final class PlanarReflectionPass implements GlResource {
                         "restore target must not be the reflection target");
             }
         }
-        if (targetWidth != width || targetHeight != height) {
-            rebuild(targetWidth, targetHeight);
-            framesUntilUpdate = 0;
-        }
-        if (framesUntilUpdate > 0) {
+        boolean targetChanged = targetWidth != width || targetHeight != height;
+        // A pending resize forces the attempt even when the frame interval has
+        // not elapsed, but throttle-skipped calls still record zero commands.
+        if (!targetChanged && framesUntilUpdate > 0) {
             framesUntilUpdate--;
             return false;
         }
-        Frame frame = prepareFrame(camera, sceneWidth, sceneHeight);
+        // Validate the camera side and the projection before allocating or
+        // clearing anything.  A camera behind the plane (or an unsupported
+        // projection) therefore keeps the previous FBO, pixels and validity.
+        Frame frame = prepareFrame(camera, sceneWidth, sceneHeight, targetWidth, targetHeight);
         if (frame == null) {
             return false;
         }
-        recording = true;
+        Framebuffer target = framebuffer;
+        Framebuffer candidate = null;
         try {
-            recordInto(cmd, frame, scene, restoreTarget, sceneWidth, sceneHeight);
-        } finally {
-            recording = false;
+            if (targetChanged) {
+                candidate = createTarget(targetWidth, targetHeight);
+                target = candidate;
+            }
+            recording = true;
+            try {
+                recordInto(cmd, target, frame, scene, restoreTarget, sceneWidth, sceneHeight);
+            } finally {
+                recording = false;
+            }
+            if (candidate != null) {
+                // Publish only after the recording completed.  The old target
+                // stays active if allocation or the recorder failed.
+                Framebuffer previous = framebuffer;
+                framebuffer = candidate;
+                width = targetWidth;
+                height = targetHeight;
+                candidate = null;
+                contentValid = true;
+                // A resize that completed inside record publishes the first
+                // successfully recorded update of the new target.
+                updateCount = 1;
+                framesUntilUpdate = settings.updateIntervalFrames() - 1;
+                if (previous != null) {
+                    try {
+                        previous.close();
+                    } catch (RuntimeException closeFailure) {
+                        // The new target was published but the failed frame must
+                        // not expose unvalidated content.
+                        contentValid = false;
+                        updateCount = 0;
+                        throw closeFailure;
+                    }
+                }
+            } else {
+                contentValid = true;
+                updateCount++;
+                framesUntilUpdate = settings.updateIntervalFrames() - 1;
+            }
+            return true;
+        } catch (RuntimeException | Error failure) {
+            if (candidate != null) {
+                try {
+                    candidate.close();
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
         }
-        updateCount++;
-        framesUntilUpdate = settings.updateIntervalFrames() - 1;
-        return true;
     }
 
     /** Package-private target access for same-package real-GL tests. */
@@ -246,6 +330,8 @@ public final class PlanarReflectionPass implements GlResource {
             throw new IllegalStateException("cannot close a recording planar reflection pass");
         }
         closed = true;
+        contentValid = false;
+        updateCount = 0;
         Framebuffer target = framebuffer;
         framebuffer = null;
         if (target != null) {
@@ -253,7 +339,8 @@ public final class PlanarReflectionPass implements GlResource {
         }
     }
 
-    private Frame prepareFrame(Camera camera, int sceneWidth, int sceneHeight) {
+    private Frame prepareFrame(Camera camera, int sceneWidth, int sceneHeight,
+                               int targetWidth, int targetHeight) {
         settings.planeEquation(plane);
         cameraPosition.set(camera.position());
         float signedDistance = plane.x * cameraPosition.x + plane.y * cameraPosition.y
@@ -273,16 +360,18 @@ public final class PlanarReflectionPass implements GlResource {
         CameraProjection.stable(camera, sceneWidth, sceneHeight, projection);
         settings.clipPlane(clipPlaneWorld);
         PlanarReflectionMath.planeToView(clipPlaneWorld, mirroredView, clipPlaneView);
+        // Rejects orthographic and otherwise unsupported projections before
+        // any target is allocated, cleared or bound.
         PlanarReflectionMath.obliqueProjection(projection, clipPlaneView, projection);
         viewProjection.set(projection).mul(mirroredView);
         return new Frame(projection, mirroredView, viewProjection, mirroredPosition,
                 forward, up, right, clipPlaneWorld, clipPlaneView,
-                sceneWidth, sceneHeight, width, height);
+                sceneWidth, sceneHeight, targetWidth, targetHeight);
     }
 
-    private void recordInto(CommandBuffer cmd, Frame frame, SceneRecorder scene,
-                            Framebuffer restoreTarget, int sceneWidth, int sceneHeight) {
-        Framebuffer target = framebuffer;
+    private void recordInto(CommandBuffer cmd, Framebuffer target, Frame frame,
+                            SceneRecorder scene, Framebuffer restoreTarget,
+                            int sceneWidth, int sceneHeight) {
         cmd.bindFramebuffer(target)
                 .viewport(0, 0, target.width(), target.height())
                 .enableScissor(false)
@@ -323,6 +412,10 @@ public final class PlanarReflectionPass implements GlResource {
         framebuffer = candidate;
         width = targetWidth;
         height = targetHeight;
+        // An explicit resize publishes storage, not a reflection: consumers
+        // must wait for the next successful record before sampling it.
+        contentValid = false;
+        updateCount = 0;
         if (previous != null) {
             // Publication happens before retirement: a close failure leaves the
             // new target active and is reported instead of pretending rollback.

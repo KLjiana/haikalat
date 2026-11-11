@@ -156,6 +156,26 @@ class PlanarReflectionMathTest {
     }
 
     @Test
+    void rejectsOrthographicProjectionInsteadOfSilentlyProducingWrongNdc() {
+        Matrix4f orthographic = new Matrix4f().ortho(-2.0f, 2.0f, -2.0f, 2.0f, 0.1f, 100.0f);
+        Vector4f viewPlane = new Vector4f(0.0f, 0.0f, -1.0f, -5.0f);
+        Matrix4f destination = new Matrix4f();
+        assertThrows(IllegalArgumentException.class,
+                () -> PlanarReflectionMath.obliqueProjection(
+                        orthographic, viewPlane, destination));
+        assertEquals(new Matrix4f(), destination,
+                "a rejected projection must not partially modify the destination");
+
+        // The same plane with a standard perspective projection is accepted and
+        // maps the plane to the near plane; orthographic would have produced
+        // NDC z != -1 for the plane.
+        Matrix4f perspective = perspective(60.0, 1.0, 0.1, 100.0);
+        Matrix4f oblique = PlanarReflectionMath.obliqueProjection(
+                perspective, viewPlane, new Matrix4f());
+        assertEquals(-1.0, ndc(oblique, 0.2, 0.3, -5.0).z, EPSILON);
+    }
+
+    @Test
     void rejectsDegenerateInputs() {
         Vector4f zeroNormal = new Vector4f(0.0f, 0.0f, 0.0f, 1.0f);
         assertThrows(IllegalArgumentException.class,

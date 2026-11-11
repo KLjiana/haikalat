@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.render3d.planar;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlException;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
@@ -9,6 +10,7 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
+import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
@@ -30,6 +32,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.lwjgl.opengl.GL11.GL_CCW;
+import static org.lwjgl.opengl.GL11.GL_CULL_FACE;
+import static org.lwjgl.opengl.GL11.GL_CULL_FACE_MODE;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_FUNC;
+import static org.lwjgl.opengl.GL11.GL_FRONT;
+import static org.lwjgl.opengl.GL11.GL_LEQUAL;
 
 
 
@@ -38,7 +45,10 @@ import static org.lwjgl.opengl.GL11.GL_FRONT_FACE;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_VIEWPORT;
 
+import static org.lwjgl.opengl.GL11.glCullFace;
+import static org.lwjgl.opengl.GL11.glDepthFunc;
 import static org.lwjgl.opengl.GL11.glGetInteger;
+import static org.lwjgl.opengl.GL11.glIsEnabled;
 import static org.lwjgl.opengl.GL11.glIsTexture;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
@@ -370,6 +380,179 @@ class PlanarReflectionPassGlTest {
                 assertThrows(GlException.class, () -> pass.record(new CommandBuffer(), camera(),
                         width, height, null, (commands, frame) -> fail("closed pass must not record")));
                 GlDebug.assertNoError("planar reflection lifecycle");
+            }
+        }
+    }
+
+    @Test
+    void orthographicExternalCameraIsRejectedWithoutTouchingTheTarget() {
+        try (GlfwWindow window = window("Planar reflection orthographic rejection")) {
+            Fixture fixture = fixture(window);
+            try (PlanarReflectionPass pass = pass(1.0f, 1, 512, window);
+                 ShaderProgram shader = fixture.shader;
+                 Mesh quad = quad(false)) {
+                int width = window.width();
+                int height = window.height();
+                Camera camera = camera();
+                Vector3f object = new Vector3f(0.3f, 0.5f, 0.0f);
+                Matrix4f model = model(object, 0.5f);
+                int[] pixel = project(camera, width, height, object.x, -object.y, object.z);
+
+                CommandBuffer first = new CommandBuffer();
+                assertTrue(pass.record(first, camera, width, height, null,
+                        drawQuad(shader, quad, model, 1.0f, 0.0f, 0.0f, false)));
+                fixture.device.execute(first);
+                int targetWidth = pass.width();
+                int targetHeight = pass.height();
+                int color = pass.colorTexture();
+                long updates = pass.updateCount();
+                assertTrue(pass.hasValidContent());
+                float[] red = readColor(pass);
+                assertPixel(red, targetWidth, targetHeight, pixel[0], pixel[1],
+                        1.0f, 0.0f, 0.0f);
+
+                Matrix4f orthographic = new Matrix4f().ortho(-2.0f, 2.0f, -2.0f, 2.0f,
+                        0.1f, 100.0f);
+                ExternalCamera external = ExternalCamera.of(
+                        new Matrix4f().lookAt(0.0f, 1.0f, 3.0f,
+                                0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f),
+                        orthographic, new Vector3f(0.0f, 1.0f, 3.0f), 0.0f);
+                CommandBuffer rejected = new CommandBuffer();
+                assertThrows(IllegalArgumentException.class,
+                        () -> pass.record(rejected, external, width, height, null,
+                                (commands, frame) -> fail(
+                                        "an orthographic projection must be rejected before recording")));
+                assertEquals(0, rejected.commandCount(),
+                        "rejection must happen before any GPU command is recorded");
+                assertEquals(targetWidth, pass.width());
+                assertEquals(targetHeight, pass.height());
+                assertEquals(color, pass.colorTexture());
+                assertEquals(updates, pass.updateCount());
+                assertTrue(pass.hasValidContent());
+                float[] stillRed = readColor(pass);
+                assertPixel(stillRed, targetWidth, targetHeight, pixel[0], pixel[1],
+                        1.0f, 0.0f, 0.0f);
+                GlDebug.assertNoError("planar reflection orthographic rejection");
+            }
+        }
+    }
+
+    @Test
+    void automaticResizeDoesNotPublishUndefinedContentWhenCameraIsBehind() {
+        try (GlfwWindow window = window("Planar reflection resize skip")) {
+            Fixture fixture = fixture(window);
+            try (PlanarReflectionPass pass = pass(0.5f, 1, 512, window);
+                 ShaderProgram shader = fixture.shader;
+                 Mesh quad = quad(false)) {
+                Camera camera = camera();
+                Vector3f object = new Vector3f(0.3f, 0.5f, 0.0f);
+                Matrix4f model = model(object, 0.5f);
+                int width = window.width();
+                int height = window.height();
+                int[] pixel = project(camera, width, height, object.x, -object.y, object.z);
+
+                CommandBuffer first = new CommandBuffer();
+                assertTrue(pass.record(first, camera, width, height, null,
+                        drawQuad(shader, quad, model, 1.0f, 0.0f, 0.0f, false)));
+                fixture.device.execute(first);
+                int targetWidth = pass.width();
+                int targetHeight = pass.height();
+                int color = pass.colorTexture();
+                int depth = pass.depthTexture();
+                long updates = pass.updateCount();
+                assertTrue(pass.hasValidContent());
+                assertEquals(1L, updates);
+
+                Camera behind = new Camera(new Vector3f(0.0f, -1.0f, 3.0f),
+                        new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -10.0f);
+                CommandBuffer skipped = new CommandBuffer();
+                assertFalse(pass.record(skipped, behind, 160, 120, null,
+                        (commands, frame) -> fail(
+                                "a camera behind the reflection plane must not record the scene")));
+                assertEquals(0, skipped.commandCount());
+                assertEquals(targetWidth, pass.width(),
+                        "a skipped automatic resize must keep the old target");
+                assertEquals(targetHeight, pass.height());
+                assertEquals(color, pass.colorTexture());
+                assertEquals(depth, pass.depthTexture());
+                assertEquals(updates, pass.updateCount());
+                assertTrue(pass.hasValidContent(),
+                        "the previous successfully recorded reflection stays valid");
+                float[] pixels = readColor(pass);
+                assertPixel(pixels, targetWidth, targetHeight,
+                        pixel[0] * targetWidth / width,
+                        pixel[1] * targetHeight / height, 1.0f, 0.0f, 0.0f);
+                GlDebug.assertNoError("planar reflection resize skip");
+            }
+        }
+    }
+
+    @Test
+    void nonNullRestoreTargetIsRestoredWithItsViewport() {
+        try (GlfwWindow window = window("Planar reflection restore target")) {
+            Fixture fixture = fixture(window);
+            try (PlanarReflectionPass pass = pass(1.0f, 1, 512, window);
+                 ShaderProgram shader = fixture.shader;
+                 Mesh quad = quad(false);
+                 Framebuffer restore = Framebuffer.colorOnly(48, 32)) {
+                Camera camera = camera();
+                Vector3f object = new Vector3f(0.3f, 0.5f, 0.0f);
+                int width = window.width();
+                int height = window.height();
+                CommandBuffer cmd = new CommandBuffer();
+                assertTrue(pass.record(cmd, camera, width, height, restore,
+                        drawQuad(shader, quad, model(object, 0.5f),
+                                1.0f, 0.0f, 0.0f, false)));
+                fixture.device.execute(cmd);
+
+                assertEquals(restore.id(), glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING),
+                        "the caller framebuffer must be restored");
+                IntBuffer viewport = BufferUtils.createIntBuffer(4);
+                org.lwjgl.opengl.GL11.glGetIntegerv(GL_VIEWPORT, viewport);
+                assertEquals(0, viewport.get(0));
+                assertEquals(0, viewport.get(1));
+                assertEquals(48, viewport.get(2));
+                assertEquals(32, viewport.get(3));
+
+                int[] pixel = project(camera, width, height, object.x, -object.y, object.z);
+                float[] pixels = readColor(pass);
+                assertPixel(pixels, pass.width(), pass.height(), pixel[0], pixel[1],
+                        1.0f, 0.0f, 0.0f);
+                GlDebug.assertNoError("planar reflection restore target");
+            }
+        }
+    }
+
+    @Test
+    void preservesDepthFunctionAndCullModeWhileRestoringDrawDefaults() {
+        try (GlfwWindow window = window("Planar reflection state contract")) {
+            Fixture fixture = fixture(window);
+            try (PlanarReflectionPass pass = pass(1.0f, 1, 512, window);
+                 ShaderProgram shader = fixture.shader;
+                 Mesh quad = quad(false)) {
+                glDepthFunc(GL_LEQUAL);
+                glCullFace(GL_FRONT);
+                org.lwjgl.opengl.GL11.glDisable(GL_CULL_FACE);
+                int width = window.width();
+                int height = window.height();
+                Camera camera = camera();
+                Vector3f object = new Vector3f(0.3f, 0.5f, 0.0f);
+                int[] pixel = project(camera, width, height, object.x, -object.y, object.z);
+                CommandBuffer cmd = new CommandBuffer();
+                assertTrue(pass.record(cmd, camera, width, height, null,
+                        drawQuad(shader, quad, model(object, 0.5f),
+                                1.0f, 0.0f, 0.0f, false)));
+                fixture.device.execute(cmd);
+
+                assertEquals(GL_LEQUAL, glGetInteger(GL_DEPTH_FUNC),
+                        "the pass must not modify the caller's depth function");
+                assertEquals(GL_FRONT, glGetInteger(GL_CULL_FACE_MODE),
+                        "the pass must not modify the caller's cull mode");
+                assertFalse(org.lwjgl.opengl.GL11.glIsEnabled(GL_CULL_FACE));
+                float[] pixels = readColor(pass);
+                assertPixel(pixels, pass.width(), pass.height(), pixel[0], pixel[1],
+                        1.0f, 0.0f, 0.0f);
+                GlDebug.assertNoError("planar reflection state contract");
             }
         }
     }
