@@ -284,3 +284,17 @@ GL baseline 用例逐分量对照。首版是屏幕空间近似：无真实水�
 折射位移不受 shore alpha 门控；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。RenderPipeline 的
 `WaterRefractionSettings` 字段与 companion pass 接线由 Integrator 完成。算法、限制与验证状态见
 [技术卡](../../planning/v0.28.1-s3-water-refraction.md)。
+
+v0.28.1（候选）S4 #34/#35 没有删除 stable 类型或修改稳定签名。advanced `PostProcessSettings` 的
+canonical record 由 10 个组件扩展为 11 个（S4 #34 新增 `temporalDenoise`），再扩展为 12 个（S4 #35
+新增 `temporalUpscaling`）；原有 2/3/4/6/7/8/9/10/11 参数构造器全部保留，新组件默认 `disabled()`，
+源码兼容。S4 #34 新增 advanced `postprocess.TemporalDenoiseSettings`、`denoise.TemporalDenoiseInputs`
+与 `denoise.TemporalDenoisePass`；S4 #35 新增 advanced `postprocess.TemporalUpscalingSettings`、
+`postprocess.TemporalUpscalingSource`、`upscale.TemporalUpscalingInputs` 与
+`upscale.TemporalUpscalingPass`，`TemporalUpscalingHistory` 为包内实现。两个 temporal owner 都以
+pass-owned external target 发布颜色：`PostProcessPipeline` 在装配期拒绝 `Bloom` 与
+`ExposureMode.AUTO`（external-target producer 没有 managed colour/luminance source），
+temporal upscaling 还拒绝全分辨率 surface consumer、late reactive producer、非 HDR 和 TAA/MSAA。
+这些是首版 fail-closed 限制，不是静默回退。技术范围、限制与 GL 证据见
+[时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)与
+[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)。

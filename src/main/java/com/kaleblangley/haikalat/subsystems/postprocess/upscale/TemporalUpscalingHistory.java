@@ -86,12 +86,21 @@ final class TemporalUpscalingHistory implements AutoCloseable {
         return sharpening ? sharpenColorTexture() : writeColorTexture();
     }
 
-    /** @return the committed final output after {@link #commitSuccessfulFrame()} */
+    /**
+     * @return the output of the most recently recorded frame.  The resolve
+     *         colour stays committed across a failed frame, but the optional
+     *         single-buffered sharpen target is written during recording and is
+     *         not rolled back on failure; read this only after
+     *         {@link #commitSuccessfulFrame()}.
+     */
     Framebuffer readOutputFramebuffer() {
         return sharpening ? sharpenTarget : readFramebuffer();
     }
 
-    /** @return the committed final output texture after {@link #commitSuccessfulFrame()} */
+    /**
+     * @return the output texture of the most recently recorded frame; see
+     *         {@link #readOutputFramebuffer()} for the failure semantics
+     */
     int readOutputColorTexture() {
         return sharpening ? sharpenColorTexture() : readColorTexture();
     }

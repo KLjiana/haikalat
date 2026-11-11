@@ -1,6 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.runtime.BloomSettings;
+import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import org.junit.jupiter.api.Test;
@@ -24,80 +26,97 @@ class TemporalUpscalingPipelineCompositionTest {
 
     @Test
     void activeUpscalingAcceptsTheReducedSourceOnTheHdrChain() {
-        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, SOURCE));
-        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                hdr(AntiAliasingMode.FXAA), ACTIVE, 64, 64, false, SOURCE));
-        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                hdr(AntiAliasingMode.SMAA), ACTIVE, 64, 64, false, SOURCE));
+        assertAccepted(hdr(AntiAliasingMode.NONE), ACTIVE);
+        assertAccepted(hdr(AntiAliasingMode.FXAA), ACTIVE);
+        assertAccepted(hdr(AntiAliasingMode.SMAA), ACTIVE);
     }
 
     @Test
     void disabledUpscalingKeepsTheBaselineAndRejectsAStraySource() {
-        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalUpscalingComposition(
+        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalComposition(
                 hdr(AntiAliasingMode.NONE), PostProcessSettings.defaults(), 64, 64, true,
-                null));
+                false, null));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
+                () -> PostProcessPipeline.validateTemporalComposition(
                         hdr(AntiAliasingMode.NONE), PostProcessSettings.defaults(), 64, 64,
-                        true, SOURCE));
+                        true, false, SOURCE));
     }
 
     @Test
     void activeUpscalingRequiresTheSourceAndAnHdrChain() {
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, null));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, false, null));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
+                () -> PostProcessPipeline.validateTemporalComposition(
                         RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
                                 .toneMappingMode(ToneMappingMode.NONE).vsync(false).build(),
-                        ACTIVE, 64, 64, false, SOURCE));
+                        ACTIVE, 64, 64, false, false, SOURCE));
     }
 
     @Test
     void fullResolutionTemporalResolvesAndMsaaAreRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.TAA), ACTIVE, 64, 64, false, SOURCE));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.TAA), ACTIVE, 64, 64, false, false, SOURCE));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.MSAA), ACTIVE, 64, 64, false, SOURCE));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.MSAA), ACTIVE, 64, 64, false, false, SOURCE));
     }
 
     @Test
     void fullResolutionSurfaceConsumersAreRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, true, SOURCE));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, true, false, SOURCE));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withFog(), 64, 64, false, SOURCE));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withFog(), 64, 64, false, false, SOURCE));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withDepthOfField(), 64, 64, false, SOURCE));
-        assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withMotionBlur(), 64, 64, false, SOURCE));
-        assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withSsr(), 64, 64, false, SOURCE));
-        assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withTemporalDenoise(), 64, 64, false,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withDepthOfField(), 64, 64, false, false,
                         SOURCE));
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), withScreenDistortion(), 64, 64, false,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withMotionBlur(), 64, 64, false, false,
                         SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withSsr(), 64, 64, false, false, SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withTemporalDenoise(), 64, 64, false, false,
+                        SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withScreenDistortion(), 64, 64, false, false,
+                        SOURCE));
+    }
+
+    @Test
+    void externalTargetConsumersAndLateReactiveProducerAreRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdrWithBloom(), ACTIVE, 64, 64, false, false, SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdrWithAutoExposure(), ACTIVE, 64, 64, false, false, SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, true, SOURCE));
     }
 
     @Test
     void sourceExtentMustFitInsideTheOutputExtent() {
         TemporalUpscalingSource tooLarge = new TemporalUpscalingSource(1, 2, 80, 80);
         assertThrows(IllegalArgumentException.class,
-                () -> PostProcessPipeline.validateTemporalUpscalingComposition(
-                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, tooLarge));
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, false, tooLarge));
+    }
+
+    private static void assertAccepted(RenderSettings settings, PostProcessSettings effects) {
+        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalComposition(
+                settings, effects, 64, 64, false, false, SOURCE));
     }
 
     private static RenderSettings hdr(AntiAliasingMode mode) {
@@ -105,6 +124,24 @@ class TemporalUpscalingPipelineCompositionTest {
                 .antiAliasingMode(mode)
                 .toneMappingMode(ToneMappingMode.ACES)
                 .vsync(false)
+                .build();
+    }
+
+    private static RenderSettings hdrWithBloom() {
+        return RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false)
+                .bloomSettings(BloomSettings.builder().enabled(true).build())
+                .build();
+    }
+
+    private static RenderSettings hdrWithAutoExposure() {
+        return RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false)
+                .exposureMode(ExposureMode.AUTO)
                 .build();
     }
 

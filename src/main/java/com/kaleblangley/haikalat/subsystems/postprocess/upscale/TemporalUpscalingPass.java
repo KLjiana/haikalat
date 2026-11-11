@@ -307,16 +307,21 @@ public final class TemporalUpscalingPass implements GlResource {
     }
 
     /**
-     * @return the final output framebuffer produced by the last successful
-     *         frame (the sharpen target when sharpening, otherwise the committed
-     *         resolved colour)
+     * @return the final output record for the last recorded frame.  The
+     *         resolved history colour is rolled back on {@link #frameFailed()},
+     *         but the optional single-buffered sharpen target is written during
+     *         recording and cannot be rolled back; read this only after
+     *         {@link #frameSucceeded()}.
      */
     public Framebuffer readOutputFramebuffer() {
         ensureOpen();
         return history.readOutputFramebuffer();
     }
 
-    /** @return the final output texture produced by the last successful frame */
+    /**
+     * @return the final output texture recorded for the last frame; see
+     *         {@link #readOutputFramebuffer()} for the failure semantics
+     */
     public int readOutputColorTexture() {
         ensureOpen();
         return history.readOutputColorTexture();

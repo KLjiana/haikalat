@@ -259,16 +259,18 @@ void main() {
 
             if (historyWeight > TUS_EPSILON) {
                 vec3 historyRgb = historyAccum / historyWeight;
-                float currentLum = luminance(current.rgb);
-                float historyLum = luminance(historyRgb);
-                float shockScale = max(max(abs(currentLum), abs(historyLum)),
-                        TUS_EPSILON);
-                bool shocked = abs(currentLum - historyLum) / shockScale
-                        > uReactiveThreshold;
-                if (!shocked) {
-                    vec3 clamped = clamp(historyRgb, low, high);
-                    float currentWeight = clamp(1.0 - uHistoryBlend, 0.0, 1.0);
-                    resolved = mix(clamped, current.rgb, currentWeight);
+                if (finite3(historyRgb)) {
+                    float currentLum = luminance(current.rgb);
+                    float historyLum = luminance(historyRgb);
+                    float shockScale = max(max(abs(currentLum), abs(historyLum)),
+                            TUS_EPSILON);
+                    bool shocked = abs(currentLum - historyLum) / shockScale
+                            > uReactiveThreshold;
+                    if (!shocked) {
+                        vec3 clamped = clamp(historyRgb, low, high);
+                        float currentWeight = clamp(1.0 - uHistoryBlend, 0.0, 1.0);
+                        resolved = mix(clamped, current.rgb, currentWeight);
+                    }
                 }
             }
         }

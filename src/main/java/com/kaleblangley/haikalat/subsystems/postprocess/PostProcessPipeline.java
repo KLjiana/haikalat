@@ -202,8 +202,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(surfaceInputs, "surfaceInputs");
-        validateTemporalUpscalingComposition(settings, effects, width, height,
-                hdrVfx != null, temporalUpscalingSource);
+        validateTemporalComposition(settings, effects, width, height,
+                hdrVfx != null, lateSurface != null && lateSurface.enabled(),
+                temporalUpscalingSource);
         var owned = new ArrayList<AutoCloseable>();
         var borrowed = new ArrayList<AutoCloseable>();
         try {
@@ -337,21 +338,33 @@ public final class PostProcessPipeline implements AutoCloseable {
     }
 
     /**
-     * Pure composition contract shared by the assembly path and the JVM tests.
+     * Pure temporal-effect composition contract shared by the assembly path and
+     * the JVM tests.
      *
-     * <p>An active upscaler replaces the scene colour input, so every effect
-     * that would consume a full-resolution shared surface after it is rejected:
-     * the reduced-resolution scene render must own fog, VFX, distortion and
-     * depth-consuming effects itself.  Full-resolution TAA/MSAA are rejected
-     * because either would double-resolve the temporal signal or bypass the
-     * single-sample low-resolution source.  A supplied source without an active
-     * request is rejected instead of being silently ignored.</p>
+     * <p>Two temporal owners publish through a pass-owned external target:
+     * {@code TemporalDenoisePass} and {@code TemporalUpscalingPass}.  Neither is
+     * a managed graph pass, so {@code BloomChain} cannot size its extract source
+     * from a colour target and automatic exposure cannot read a luminance
+     * target.  Both are therefore rejected fail-closed while the external-target
+     * owner is active; this is a documented first-version limitation, not a
+     * silent fallback.</p>
+     *
+     * <p>An active upscaler additionally replaces the scene colour input, so
+     * every effect that would consume a full-resolution shared surface after it
+     * is rejected: the reduced-resolution scene render must own fog, VFX,
+     * distortion, the reactive mask and depth-consuming effects itself.
+     * Full-resolution TAA/MSAA are rejected because either would double-resolve
+     * the temporal signal or bypass the single-sample low-resolution source.  A
+     * supplied source without an active request is rejected instead of being
+     * silently ignored.</p>
      */
-    static void validateTemporalUpscalingComposition(RenderSettings settings,
-                                                     PostProcessSettings effects,
-                                                     int width, int height,
-                                                     boolean hdrVfx,
-                                                     TemporalUpscalingSource source) {
+    static void validateTemporalComposition(RenderSettings settings,
+                                            PostProcessSettings effects,
+                                            int width, int height,
+                                            boolean hdrVfx,
+                                            boolean lateSurfaceEnabled,
+                                            TemporalUpscalingSource source) {
+        validateExternalTargetConsumers(settings, effects);
         TemporalUpscalingSettings upscaling = effects.temporalUpscaling();
         if (!upscaling.active()) {
             if (source != null) {
@@ -389,6 +402,21 @@ public final class PostProcessPipeline implements AutoCloseable {
                     "temporal upscaling requires the reduced-resolution scene to own screen "
                             + "distortion");
         }
+        if (lateSurfaceEnabled) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires the reduced-resolution scene to own the reactive "
+                            + "mask; a late full-resolution reactive producer is not supported");
+        }
+        if (settings.bloomSettings().enabled()) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling does not yet support Bloom: the upscaler is an "
+                            + "external-target producer without a managed colour target");
+        }
+        if (settings.exposureMode() == ExposureMode.AUTO) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling does not yet support automatic exposure: the upscaler is "
+                            + "an external-target producer without a managed luminance source");
+        }
         if (effects.depthOfField().active() || effects.motionBlur().active()
                 || effects.ssr().active() || effects.temporalDenoise().active()) {
             throw new IllegalArgumentException(
@@ -397,6 +425,29 @@ public final class PostProcessPipeline implements AutoCloseable {
                             + "denoising");
         }
         source.validateAgainst(upscaling, width, height);
+    }
+
+    /**
+     * Rejects colour-chain effects that cannot consume an external-target
+     * temporal producer.  {@code PostProcessTargets#TEMPORAL_DENOISE_COLOR} is
+     * borrowed from a pass-owned framebuffer, so Bloom would have no managed
+     * source target and automatic exposure would read no luminance source.
+     */
+    private static void validateExternalTargetConsumers(RenderSettings settings,
+                                                        PostProcessSettings effects) {
+        if (!effects.temporalDenoise().active()) {
+            return;
+        }
+        if (settings.bloomSettings().enabled()) {
+            throw new IllegalArgumentException(
+                    "temporal denoising does not yet support Bloom: the denoiser is an "
+                            + "external-target producer without a managed colour target");
+        }
+        if (settings.exposureMode() == ExposureMode.AUTO) {
+            throw new IllegalArgumentException(
+                    "temporal denoising does not yet support automatic exposure: the denoiser is "
+                            + "an external-target producer without a managed luminance source");
+        }
     }
 
     private static <T extends AutoCloseable> T reuseOrCreate(T previous, Supplier<T> create,
@@ -467,10 +518,25 @@ public final class PostProcessPipeline implements AutoCloseable {
         hdrResolveSource = Objects.requireNonNull(producer);
     }
 
+    /**
+     * Baseline colour-chain pass names for a mode.
+     *
+     * <p>This is the static baseline contract; it does not model an active
+     * temporal upscaler.  With {@link PostProcessSettings#temporalUpscaling()}
+     * active the live chain additionally starts with
+     * {@link PostProcessTargets#TEMPORAL_UPSCALING_PASS} and the actual order
+     * must be read from {@link RenderGraph#description()} or
+     * {@link #finalPassName()}.</p>
+     */
     public static List<String> passNamesFor(AntiAliasingMode mode) {
         return passNamesFor(mode, ToneMappingMode.NONE);
     }
 
+    /**
+     * Baseline colour-chain pass names for a mode and tone-mapping stage.
+     *
+     * @see #passNamesFor(AntiAliasingMode)
+     */
     public static List<String> passNamesFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode) {
         Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(toneMappingMode, "toneMappingMode");
@@ -492,6 +558,13 @@ public final class PostProcessPipeline implements AutoCloseable {
         return List.copyOf(passes);
     }
 
+    /**
+     * Baseline final backbuffer pass name.
+     *
+     * <p>Like {@link #passNamesFor(AntiAliasingMode)}, this does not model an
+     * active temporal upscaler; the live final pass must be read through
+     * {@link #finalPassName()} after {@link #addFinalPass(RenderGraph)}.</p>
+     */
     public static String finalPassNameFor(AntiAliasingMode mode, ToneMappingMode toneMappingMode) {
         Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(toneMappingMode, "toneMappingMode");

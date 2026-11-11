@@ -151,6 +151,18 @@ v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（�
 resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享历史；无逐通道协方差/逐像素方差估计，
 历史约 48 B/px。合同、限制与 GL 参考见[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)，
 迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
+`renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
+quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`
+（借用低分辨率颜色/depth/velocity/previous-depth/reactive/UI 源）与 advanced
+`postprocess.upscale.TemporalUpscalingInputs`；advanced `postprocess.upscale.TemporalUpscalingPass`
+是 `GlResource`（稳定输出栅格重投影、邻域 clamp、曝光/reactive/UI 拒绝、双 slot 历史、candidate
+resize、bounded unsharp），`TemporalUpscalingHistory` 为包内实现、不进入 public API。`PostProcessSettings`
+追加 `temporalUpscaling` 组件（第 12 个 canonical 组件），原有构造器全部保留并默认 `disabled()`。
+`PostProcessPipeline` 在 HDR 链头部插入 upscale pass；external-target producer 因而拒绝 Bloom/自动
+曝光/全分辨率 surface consumer/late reactive producer，并与 TAA/MSAA 互斥（首版限制，装配期 fail-closed）。
+合同、限制与 GL 证据见[时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)，
+迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #15 新增 advanced GL-free `render3d.vfx.GpuParticleCollisionSettings`（启用、TEXEL_CENTRE/
 CONSERVATIVE_MIN_2X2 采样、世界厚度、restitution、friction、搜索步数/半径、opaque-only，构造期校验；
 默认 `disabled()`），`GpuParticleSystem` 扩展为可选碰撞 compute program 与 8 参数 `record(...)`，消费
