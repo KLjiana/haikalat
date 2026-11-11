@@ -42,6 +42,8 @@ uniform mat4 uPreviousViewProjection;
 uniform mat4 uPreviousInverseProjection;
 uniform int uHistoryValid;
 uniform int uUseVelocity;
+uniform vec2 uCurrentJitter;
+uniform vec2 uPreviousJitter;
 uniform int uNeighborhoodRadius;
 uniform float uHistoryBlend;
 uniform float uDepthRejectionThreshold;
@@ -129,7 +131,10 @@ void main() {
         if (uUseVelocity != 0) {
             vec2 velocity = texelFetch(uVelocity, pixel, 0).rg;
             if (finite2(velocity)) {
-                previousUv = uv + velocity;
+                // Current raster is jittered; velocity is a stable-raster
+                // displacement, so remove the current jitter and re-apply the
+                // previous frame's jitter to land on its history texel.
+                previousUv = uv + velocity - uCurrentJitter + uPreviousJitter;
                 expectedPreviousDepth = texelFetch(uPreviousDepth, pixel, 0).r;
                 reprojected = expectedPreviousDepth > 0.0;
             }
@@ -141,7 +146,10 @@ void main() {
                 vec3 worldPosition = (uInverseView * vec4(viewPosition, 1.0)).xyz;
                 vec4 previousClip = uPreviousViewProjection * vec4(worldPosition, 1.0);
                 if (finite3(previousClip.xyz) && previousClip.w > TDN_EPSILON) {
-                    previousUv = previousClip.xy / previousClip.w * 0.5 + 0.5;
+                    // previousViewProjection is stable; the history slot was
+                    // rasterised with the previous jitter.
+                    previousUv = previousClip.xy / previousClip.w * 0.5 + 0.5
+                            + uPreviousJitter;
                     vec4 previousView = uPreviousInverseProjection * previousClip;
                     if (finite3(previousView.xyz) && abs(previousView.w) > TDN_EPSILON) {
                         expectedPreviousDepth = abs(previousView.z / previousView.w);

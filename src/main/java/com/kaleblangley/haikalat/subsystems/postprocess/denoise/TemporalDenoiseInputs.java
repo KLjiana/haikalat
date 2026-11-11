@@ -27,7 +27,9 @@ import java.util.Objects;
  * <p>{@code inverseProjection} is the inverse of the raster projection used to
  * produce the depth (jitter included when a TAA jitter was active).
  * {@code stableViewProjection} is the jitter-free view-projection stored as the
- * next frame's reprojection matrix after a successful commit.</p>
+ * next frame's reprojection matrix after a successful commit.
+ * {@code jitterUvX/Y} is the current TAA UV jitter; the pass remembers it and
+ * converts both reprojection modes back to the previous jittered raster.</p>
  */
 public record TemporalDenoiseInputs(
         int noisyColorTexture,
@@ -35,6 +37,8 @@ public record TemporalDenoiseInputs(
         int normalTexture,
         int velocityTexture,
         int previousDepthTexture,
+        float jitterUvX,
+        float jitterUvY,
         Matrix4f inverseProjection,
         Matrix4f inverseView,
         Matrix4f stableViewProjection
@@ -53,11 +57,24 @@ public record TemporalDenoiseInputs(
             throw new IllegalArgumentException(
                     "velocity and previous depth must be provided together or both omitted");
         }
+        if (!Float.isFinite(jitterUvX) || !Float.isFinite(jitterUvY)) {
+            throw new IllegalArgumentException("temporal denoise jitter must be finite");
+        }
         inverseProjection = new Matrix4f(
                 Objects.requireNonNull(inverseProjection, "inverseProjection"));
         inverseView = new Matrix4f(Objects.requireNonNull(inverseView, "inverseView"));
         stableViewProjection = new Matrix4f(
                 Objects.requireNonNull(stableViewProjection, "stableViewProjection"));
+    }
+
+    /** Source-compatible no-jitter constructor for fixed-camera consumers. */
+    public TemporalDenoiseInputs(int noisyColorTexture, int depthTexture, int normalTexture,
+                                 int velocityTexture, int previousDepthTexture,
+                                 Matrix4f inverseProjection, Matrix4f inverseView,
+                                 Matrix4f stableViewProjection) {
+        this(noisyColorTexture, depthTexture, normalTexture, velocityTexture,
+                previousDepthTexture, 0.0f, 0.0f, inverseProjection, inverseView,
+                stableViewProjection);
     }
 
     /** @return true when the frozen velocity/previous-depth reprojection is used */

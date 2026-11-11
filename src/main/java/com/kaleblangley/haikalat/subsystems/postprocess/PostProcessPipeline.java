@@ -651,6 +651,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                         surfaceInputs.texture(res, denoiseDepth),
                         surfaceInputs.texture(res, denoiseNormal),
                         0, 0,
+                        frame.jitterUvX(), frame.jitterUvY(),
                         frame.inverseJitteredProjection(),
                         frame.inverseView(),
                         frame.stableViewProjection()));

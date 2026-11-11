@@ -46,6 +46,19 @@ class TemporalDenoiseContractTest {
                 new Matrix4f(), new Matrix4f(), new Matrix4f());
         assertTrue(velocity.usesVelocity());
 
+        TemporalDenoiseInputs jittered = new TemporalDenoiseInputs(11, 12, 13, 0, 0,
+                0.25f, -0.125f, new Matrix4f(), new Matrix4f(), new Matrix4f());
+        assertEquals(0.25f, jittered.jitterUvX(), 0.0f);
+        assertEquals(-0.125f, jittered.jitterUvY(), 0.0f);
+        assertThrows(IllegalArgumentException.class,
+                () -> new TemporalDenoiseInputs(11, 12, 13, 0, 0,
+                        Float.NaN, 0.0f, new Matrix4f(), new Matrix4f(),
+                        new Matrix4f()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new TemporalDenoiseInputs(11, 12, 13, 0, 0,
+                        0.0f, Float.POSITIVE_INFINITY, new Matrix4f(),
+                        new Matrix4f(), new Matrix4f()));
+
         assertThrows(IllegalArgumentException.class,
                 () -> new TemporalDenoiseInputs(0, 12, 13, 0, 0,
                         new Matrix4f(), new Matrix4f(), new Matrix4f()));
@@ -92,6 +105,8 @@ class TemporalDenoiseContractTest {
         assertTrue(source.contains("uHistoryMoments"));
         assertTrue(source.contains("uPreviousViewProjection"));
         assertTrue(source.contains("uUseVelocity"));
+        assertTrue(source.contains("uCurrentJitter"));
+        assertTrue(source.contains("uPreviousJitter"));
         assertTrue(source.contains("texelFetch(uHistoryColor"));
         assertTrue(source.contains("texelFetch(uHistoryState"));
         assertTrue(source.contains("outState = vec4(currentDepth, currentOct.x, currentOct.y, 1.0)"));

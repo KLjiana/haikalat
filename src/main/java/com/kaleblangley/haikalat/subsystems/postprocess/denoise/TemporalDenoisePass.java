@@ -39,8 +39,12 @@ public final class TemporalDenoisePass implements GlResource {
     private final TemporalDenoiseHistory history;
     private Matrix4f previousViewProjection;
     private Matrix4f previousInverseProjection;
+    private float previousJitterUvX;
+    private float previousJitterUvY;
     private Matrix4f pendingViewProjection;
     private Matrix4f pendingInverseProjection;
+    private float pendingJitterUvX;
+    private float pendingJitterUvY;
     private boolean closed;
 
     public TemporalDenoisePass(TemporalDenoiseSettings settings, int width, int height) {
@@ -140,6 +144,11 @@ public final class TemporalDenoisePass implements GlResource {
                         previousInverseProjectionForShader)
                 .setUniformInt(program, "uHistoryValid", historyValid ? 1 : 0)
                 .setUniformInt(program, "uUseVelocity", useVelocity ? 1 : 0)
+                .setUniformVec2(program, "uCurrentJitter", inputs.jitterUvX(),
+                        inputs.jitterUvY())
+                .setUniformVec2(program, "uPreviousJitter",
+                        historyValid ? previousJitterUvX : 0.0f,
+                        historyValid ? previousJitterUvY : 0.0f)
                 .setUniformInt(program, "uNeighborhoodRadius",
                         settings.neighborhoodClampRadius())
                 .setUniformFloat(program, "uHistoryBlend", settings.historyWeight())
@@ -157,6 +166,8 @@ public final class TemporalDenoisePass implements GlResource {
 
         pendingViewProjection = new Matrix4f(inputs.stableViewProjection());
         pendingInverseProjection = new Matrix4f(inputs.inverseProjection());
+        pendingJitterUvX = inputs.jitterUvX();
+        pendingJitterUvY = inputs.jitterUvY();
         return cmd;
     }
 
@@ -166,6 +177,8 @@ public final class TemporalDenoisePass implements GlResource {
         if (pendingViewProjection != null && pendingInverseProjection != null) {
             previousViewProjection = pendingViewProjection;
             previousInverseProjection = pendingInverseProjection;
+            previousJitterUvX = pendingJitterUvX;
+            previousJitterUvY = pendingJitterUvY;
         }
         pendingViewProjection = null;
         pendingInverseProjection = null;
@@ -182,6 +195,8 @@ public final class TemporalDenoisePass implements GlResource {
     public void invalidate() {
         previousViewProjection = null;
         previousInverseProjection = null;
+        previousJitterUvX = 0.0f;
+        previousJitterUvY = 0.0f;
         pendingViewProjection = null;
         pendingInverseProjection = null;
         history.invalidate();
@@ -276,6 +291,8 @@ public final class TemporalDenoisePass implements GlResource {
             // previous matrices from being paired with a different signal.
             owner.previousViewProjection = null;
             owner.previousInverseProjection = null;
+            owner.previousJitterUvX = 0.0f;
+            owner.previousJitterUvY = 0.0f;
             owner.pendingViewProjection = null;
             owner.pendingInverseProjection = null;
             committed = true;
