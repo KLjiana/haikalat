@@ -157,22 +157,23 @@ class TemporalUpscalingPassGlTest {
                          OUTPUT_WIDTH, OUTPUT_HEIGHT)) {
                 float[] nativeReference = highFrequencyScene(OUTPUT_WIDTH, OUTPUT_HEIGHT, 8, 0.0);
                 float[] firstFrameInput = jitteredHighFrequencyScene(0.0f, 0.0f);
-                float[] spatial = bilinearUpsample(firstFrameInput);
+                float[] spatial = bilinearUpsample(firstFrameInput, 0.0f, 0.0f);
                 double frameZeroError = meanAbsoluteError(spatial, nativeReference);
                 assertTrue(frameZeroError > 0.05,
                         "the single-frame bilinear reference must show visible aliasing, got "
                                 + frameZeroError);
 
                 // Independent upper bound for any phase-averaging reconstructor:
-                // the uniform average of the per-phase bilinear samples.  A
-                // temporal filter cannot beat this with the same current-sample
-                // kernel; the pass is expected to approach it, not to exceed it
-                // by a large factor.
+                // the uniform average of the per-phase bilinear samples.  The
+                // current sample position must include the jitter, exactly like
+                // the production `outputUv + jitter`; sampling the jittered
+                // fixture at the unshifted output UV would average shifted copies
+                // and be worse than a single frame.
                 float[] phaseAverageRgba = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT * 4];
                 for (float jitterPixels : JITTER_PHASES) {
                     float jitterUv = jitterPixels / INPUT_WIDTH;
                     float[] input = jitteredHighFrequencyScene(jitterUv, jitterUv);
-                    float[] phase = bilinearUpsample(input);
+                    float[] phase = bilinearUpsample(input, jitterUv, jitterUv);
                     for (int index = 0; index < phase.length; index++) {
                         phaseAverageRgba[index] += phase[index] / JITTER_PHASES.length;
                     }
@@ -926,15 +927,22 @@ class TemporalUpscalingPassGlTest {
     // Numeric helpers
     // ------------------------------------------------------------------
 
-    /** Manual CPU bilinear upsample of the low-resolution RGBA fixture to the output grid. */
-    private static float[] bilinearUpsample(float[] inputRgba) {
+    /**
+     * Manual CPU bilinear upsample of the low-resolution RGBA fixture to the
+     * output grid.  The sample position is shifted by the frame jitter exactly
+     * like the production {@code outputUv + uCurrentJitter}: a jittered fixture
+     * carries its content at {@code texel centre - jitter}, so the stable output
+     * position is only recovered when the sample offset is included.
+     */
+    private static float[] bilinearUpsample(float[] inputRgba, float jitterU, float jitterV) {
         double[] source = toDoubles(inputRgba);
         float[] output = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT * 4];
         for (int y = 0; y < OUTPUT_HEIGHT; y++) {
             for (int x = 0; x < OUTPUT_WIDTH; x++) {
                 double[] sample = TemporalUpscalingReference.bilinearRgba(source,
                         INPUT_WIDTH, INPUT_HEIGHT,
-                        (x + 0.5) / OUTPUT_WIDTH, (y + 0.5) / OUTPUT_HEIGHT);
+                        (x + 0.5) / OUTPUT_WIDTH + jitterU,
+                        (y + 0.5) / OUTPUT_HEIGHT + jitterV);
                 int offset = (y * OUTPUT_WIDTH + x) * 4;
                 output[offset] = (float) sample[0];
                 output[offset + 1] = (float) sample[1];

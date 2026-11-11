@@ -44,6 +44,25 @@ class TemporalUpscalingReferenceTest {
     }
 
     @Test
+    void jitteredReconstructionMustIncludeTheSampleOffset() {
+        // A 0.25-texel jitter moves the fixture content to stable positions
+        // texelCentre - jitter: the 2x2 ramp holds 0.0 and 0.5 in x.  Sampling
+        // at output 0.25 + jitter (0.5 in raster space) recovers the stable 0.25,
+        // while sampling the unshifted output UV returns the shifted 0.0.  The
+        // phase-average oracle in the GL case must use the same convention as
+        // the production `outputUv + uCurrentJitter`.
+        double[] jitteredRamp = {
+                0.0, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0,
+                0.0, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0};
+        double[] withOffset = TemporalUpscalingReference.bilinearRgba(
+                jitteredRamp, 2, 2, 0.25 + 0.25, 0.25);
+        assertEquals(0.25, withOffset[0], 1.0e-12);
+        double[] withoutOffset = TemporalUpscalingReference.bilinearRgba(
+                jitteredRamp, 2, 2, 0.25, 0.25);
+        assertEquals(0.0, withoutOffset[0], 1.0e-12);
+    }
+
+    @Test
     void stableOutputPositionIsTheReprojectionOrigin() {
         // A surface reconstructed at stable output position (0.5, 0.5) must
         // reproject onto that same output pixel when the previous view-projection
