@@ -127,6 +127,14 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S2 #27 新增 advanced GL-free `render3d.vfx.GpuParticleSettings`（capacity、粒子尺寸、寿命、
+重力/速度范围、发射窗口等，构造期校验）与 `GpuParticleEmission`（显式发射描述），以及 internal
+`render3d.vfx.GpuParticleSystem`（reset/update compute + 原子活跃索引 + counter SSBO 兼作
+`DrawArraysIndirectCommand` + `glDrawArraysIndirect`；CPU 不读计数、不 map，空集合由 GPU 语义零图元）。
+命令层新增 typed `CommandBuffer.drawArraysIndirect(...)` 与 `StateCache.bindDrawIndirectBuffer`。
+`RenderPipeline` 生产接线仍待 Integrator；#26 排序/#28 WBOIT/#15 碰撞都应在同一 active-set owner 上扩展。
+合同、限制与 GL 参考见[GPU 粒子间接渲染技术卡](../../planning/v0.28.1-s2-particle-indirect.md)，
+迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #11 新增 advanced GL-free `render3d.water.WaterRefractionSettings`（IOR/折射强度、最大屏幕
 偏移、厚度缩放、前景拒绝 bias、离屏回退，构造期校验；默认 `disabled()` 时水面 shader 与 #14 基线逐字节一致），
 `WaterSurfacePass` 新增带折射设置的重载/构造函数与 `recordBackgroundCopy(...)`，由

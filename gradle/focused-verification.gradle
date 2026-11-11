@@ -74,6 +74,8 @@ def jvmCases = [
         'PbrFallbackTexturesTest',
         'WaterRefractionSettingsTest', 'WaterRefractionReferenceMathTest',
         'WaterSurfacePassShaderBaselineTest',
+        'GpuParticleSettingsTest', 'GpuParticleEmissionTest', 'GpuParticleReferenceModelTest',
+        'GpuParticleIndirectShaderTest', 'IndirectDrawCommandTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
@@ -104,6 +106,7 @@ def glCases = [
         'ParallaxGlTest',
         'CausticsPassGlTest',
         'WaterRefractionGlTest',
+        'GpuParticleSystemGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
