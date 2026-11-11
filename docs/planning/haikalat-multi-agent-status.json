@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T08:45:10.4567085+08:00",
+    "updatedAt":  "2026-11-11T08:55:49.7899851+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -799,12 +799,12 @@
                       "featureIds":  [
                                          23
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "READY",
                       "scope":  "Vignette",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
+                      "owner":  null,
                       "writePaths":  [
 
                                      ],
@@ -822,19 +822,19 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
+                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
                   },
                   {
                       "taskId":  "R24",
                       "featureIds":  [
                                          24
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "READY",
                       "scope":  "Film Grain",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
+                      "owner":  null,
                       "writePaths":  [
 
                                      ],
@@ -852,19 +852,19 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
+                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
                   },
                   {
                       "taskId":  "R25",
                       "featureIds":  [
                                          25
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "READY",
                       "scope":  "Chromatic Aberration",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent 7e1a5601-efec-4a13-93d9-b300ccf6e645",
+                      "owner":  null,
                       "writePaths":  [
 
                                      ],
@@ -882,7 +882,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "S1 postprocess worker implementing vignette/grain/aberration"
+                      "nextAction":  "Worker produced no edits after restart; Orchestrator takeover for postprocess implementation"
                   },
                   {
                       "taskId":  "R26",
