@@ -8,12 +8,12 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "83ee7bee-b0e2-4443-b5d5-48f4b49d22b1",
+                                          "runId":  "ee6d9e75-a580-4153-8e4a-748ba122e6e6",
                                           "status":  "PASS",
-                                          "tests":  233,
+                                          "tests":  247,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/83ee7bee-b0e2-4443-b5d5-48f4b49d22b1/result.json",
+                                          "evidence":  "build/reports/bounded-verification/ee6d9e75-a580-4153-8e4a-748ba122e6e6/result.json",
                                           "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
                                           "freshness":  "FRESH"
                                       }
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T11:09:04.2044537+08:00",
+    "updatedAt":  "2026-11-11T11:12:52.5053621+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -815,8 +815,8 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify 279395b3: 245 tests PASS",
-                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
+                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "glSmoke VignettePassGlTest PASS"
                                    ],
                       "review":  "PENDING_INDEPENDENT",
                       "functional":  "PASS_FOCUSED",
@@ -846,8 +846,8 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify 279395b3: 245 tests PASS",
-                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
+                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "glSmoke VignettePassGlTest PASS"
                                    ],
                       "review":  "PENDING_INDEPENDENT",
                       "functional":  "PASS_FOCUSED",
@@ -877,8 +877,8 @@
 
                                         ],
                       "evidence":  [
-                                       "focused verify 279395b3: 245 tests PASS",
-                                       "glSmoke VignettePassGlTest (vignette pixel, grain pixel, chain order) PASS"
+                                       "focused verify ee6d9e75: 247 tests PASS",
+                                       "glSmoke VignettePassGlTest PASS"
                                    ],
                       "review":  "PENDING_INDEPENDENT",
                       "functional":  "PASS_FOCUSED",
@@ -1531,7 +1531,7 @@
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
-               "verificationRun":  "83ee7bee-b0e2-4443-b5d5-48f4b49d22b1",
+               "verificationRun":  "ee6d9e75-a580-4153-8e4a-748ba122e6e6",
                "tests":  233,
                "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
