@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T11:27:36.7539722+08:00",
+    "updatedAt":  "2026-11-11T11:54:15.9788290+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -349,30 +349,31 @@
                       "featureIds":  [
                                          8
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "BLOCKED",
                       "scope":  "Thin Translucency",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent d198a061-52a8-4627-bd5a-725833537b98",
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "d9a3c0b",
-                      "workerCommit":  null,
+                      "workerCommit":  "399e021",
                       "integrationCommit":  null,
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "worker JVM AssetPipelineTest 28 tests PASS",
+                                       "glSmoke ThinTranslucencyGlTest FAIL: backlit/front-lit center both 0 or equal baseline; fixture direct-light path unverified"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING",
+                      "functional":  "JVM_PASS_GL_FAIL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Thin translucency production implementation in s1-thin"
+                      "nextAction":  "Fix GL fixture direct-light path or prove production shader; do not integrate until GL PASS"
                   },
                   {
                       "taskId":  "R09",
