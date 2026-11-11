@@ -141,9 +141,10 @@ v0.28.1 S3 #31 新增 advanced GL-free `core.material.ParallaxOcclusionSettings`
 几何深度、shadow map、velocity 或轮廓，不扩张 silhouette，也不参与 clearcoat 法线；缺省用 1×1 黑色高度
 fallback。合同、限制与 GL 参考见[POM 技术卡](../../planning/v0.28.1-s3-pom.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #28 新增 advanced GL-free `render3d.transparency.WeightedOitSettings`（深度权重尺度/上限、
-alpha 下限、最大表面数）与 advanced `OitSurface`（调用方提供的最小透明表面描述），以及 internal
-`render3d.transparency.WeightedOitPass`（RGBA16F accum + R16F revealage MRT、加权累积与 resolve、
-`record`/`resolve` 可跨 command buffer 但必须先累积后 resolve）。共享命令层新增 typed
+逐层 alphaThreshold discard、最大表面数）与 advanced `OitSurface`（调用方提供的最小透明表面描述），以及 internal
+`render3d.transparency.WeightedOitPass`（RGBA16F accum：RGB=Σ(c·α·w)、A=revealage；R16F：Σ(α·w)；
+加权累积与 resolve；`record`/`resolve` 可跨 command buffer 但必须先累积后 resolve；surface/resolve 两端有界保护，
+任何合法表面列表不会写出 Inf/NaN）。共享命令层新增 typed
 `blendFuncSeparate`（`PipelineStateSink`/`StateCache`/`CommandBuffer`/`PendingPipelineState`）。首版是
 近似加权平均，不精确排序、不写/采样共享深度、不承诺 MSAA/任意透明交错；与 #26 按集合互斥切换。
 `RenderPipeline` 生产接线仍待 Integrator。合同、误差界与 GL 参考见
