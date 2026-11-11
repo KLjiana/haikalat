@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "a9bf347"
+                        "head":  "ef7896f"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T01:07:29.3905751+08:00",
+    "updatedAt":  "2026-11-12T01:13:10.0081927+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1108,22 +1108,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  "4e3dae0",
+                      "integrationCommit":  "ef7896f",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "glSmoke ParallaxGlTest 1/1 PASS",
-                                       "JVM Parallax* 21 tests PASS",
-                                       "focused verify 7c08146d: 584 tests PASS, 0 skipped",
-                                       "first GPU failure was a test oracle local/world alias bug; fixed at 82d2f59"
+                                       "glSmoke ParallaxGlTest 1/1 PASS (includes per-channel fallback phase)",
+                                       "JVM Parallax*/PbrFallbackTextures 22 tests PASS",
+                                       "focused verify a3e0451d: 604 tests PASS, 0 skipped",
+                                       "review ALPHA-fallback defect fixed at e5e14ca"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; no pipeline wiring needed"
+                      "nextAction":  "Bounded UV-only POM; no geometric depth/shadow/silhouette change, glTF height extension unsupported"
                   },
                   {
                       "taskId":  "R32",
@@ -1268,15 +1268,15 @@
                       "evidence":  [
                                        "glSmoke CausticsPassGlTest 6/6 PASS",
                                        "JVM Caustics* 9 tests PASS",
-                                       "focused verify 44ef2962: 599 tests PASS, 0 skipped",
-                                       "two real GPU rounds: missing uniform declaration, then foreground-depth fixture"
+                                       "focused verify a3e0451d: 604 tests PASS, 0 skipped",
+                                       "independent review APPROVE_WITH_SCOPE; docs status aligned"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending; RenderPipeline/water consumer unwired"
+                      "nextAction":  "Bounded artistic caustics pass; RenderPipeline/water consumer unwired"
                   },
                   {
                       "taskId":  "R37",
