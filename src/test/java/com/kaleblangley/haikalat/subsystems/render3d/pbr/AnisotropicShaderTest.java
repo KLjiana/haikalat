@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -161,6 +163,79 @@ class AnisotropicShaderTest {
         assertTrue(lookup.contains("local.y *= 1.0 - 0.35 * strength;"));
         assertTrue(lookup.contains("warped * inversesqrt(lengthSquared) : reflection"),
                 "the stretched lookup must be normalized with a bounded fallback");
+    }
+
+    @Test
+    void everyRadianceCallSitePassesTheAnisotropicArguments() throws IOException {
+        for (String path : new String[]{PBR, REFERENCE}) {
+            String source = resource(path);
+            List<String> directional = callArguments(source, "directionalRadiance");
+            List<String> local = callArguments(source, "localRadiance");
+            assertTrue(!directional.isEmpty(),
+                    path + " must call directionalRadiance");
+            assertTrue(!local.isEmpty(), path + " must call localRadiance");
+            for (String arguments : directional) {
+                assertAnisotropicTail(path, "directionalRadiance", arguments);
+            }
+            for (String arguments : local) {
+                assertAnisotropicTail(path, "localRadiance", arguments);
+            }
+        }
+    }
+
+    /**
+     * Enforces the 11-parameter call contract without relying on whitespace:
+     * the source test only compares helper sections elsewhere, which is exactly
+     * how the reference file kept stale 8-argument call sites.
+     */
+    private static void assertAnisotropicTail(String path, String method, String arguments) {
+        List<String> fields = splitTopLevel(arguments);
+        assertEquals(12, fields.size(), path + ": " + method + " call has "
+                + fields.size() + " arguments, expected 12: " + arguments);
+        assertEquals("anisotropicTangent", fields.get(9).strip());
+        assertEquals("anisotropicBitangent", fields.get(10).strip());
+        assertEquals("anisotropicStrength", fields.get(11).strip());
+    }
+
+    private static List<String> callArguments(String source, String method) {
+        List<String> calls = new ArrayList<>();
+        int index = 0;
+        while ((index = source.indexOf(method + "(", index)) >= 0) {
+            int open = index + method.length();
+            int depth = 0;
+            int close = -1;
+            for (int cursor = open; cursor < source.length(); cursor++) {
+                char value = source.charAt(cursor);
+                if (value == '(') depth++;
+                else if (value == ')' && --depth == 0) {
+                    close = cursor;
+                    break;
+                }
+            }
+            assertTrue(close > open, "unbalanced call to " + method);
+            String arguments = source.substring(open + 1, close);
+            // Skip the definition; its parameter list declares vec3 baseColor.
+            if (!arguments.contains("vec3 baseColor")) calls.add(arguments);
+            index = close;
+        }
+        return calls;
+    }
+
+    private static List<String> splitTopLevel(String arguments) {
+        List<String> fields = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < arguments.length(); index++) {
+            char value = arguments.charAt(index);
+            if (value == '(' || value == '[') depth++;
+            else if (value == ')' || value == ']') depth--;
+            else if (value == ',' && depth == 0) {
+                fields.add(arguments.substring(start, index));
+                start = index + 1;
+            }
+        }
+        fields.add(arguments.substring(start));
+        return fields;
     }
 
     @Test

@@ -403,6 +403,12 @@ class AnisotropicGlTest {
                 for (int channel = 0; channel < 3; channel++) {
                     float actual = image[offset + channel];
                     float reference = (float) expected[channel];
+                    assertTrue(Float.isFinite(actual),
+                            label + ": non-finite actual at (" + x + "," + y + ") channel "
+                                    + channel + ": " + actual);
+                    assertTrue(Float.isFinite(reference),
+                            label + ": non-finite oracle at (" + x + "," + y + ") channel "
+                                    + channel + ": " + reference);
                     float tolerance = TOLERANCE_ABSOLUTE
                             + TOLERANCE_RELATIVE * Math.abs(reference);
                     float delta = Math.abs(actual - reference);
@@ -450,6 +456,12 @@ class AnisotropicGlTest {
                 for (int channel = 0; channel < 3; channel++) {
                     float actual = image[offset + channel];
                     float reference = (float) expected[channel];
+                    assertTrue(Float.isFinite(actual),
+                            label + ": non-finite actual at (" + x + "," + y + ") channel "
+                                    + channel + ": " + actual);
+                    assertTrue(Float.isFinite(reference),
+                            label + ": non-finite oracle at (" + x + "," + y + ") channel "
+                                    + channel + ": " + reference);
                     float tolerance = TOLERANCE_ABSOLUTE
                             + TOLERANCE_RELATIVE * Math.abs(reference);
                     float delta = Math.abs(actual - reference);
