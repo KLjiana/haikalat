@@ -71,6 +71,7 @@ def jvmCases = [
         'WeightedOitSettingsTest', 'WeightedOitShaderTest', 'OitSurfaceTest',
         'PendingPipelineStateTest',
         'ParallaxOcclusionSettingsTest', 'ParallaxReferenceMathTest', 'ParallaxShaderTest',
+        'PbrFallbackTexturesTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
