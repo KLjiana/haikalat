@@ -82,3 +82,10 @@ v0.28.1 S3 #14 新增 advanced `render3d.water.WaterSurfaceSettings`（有限平
 `waterSurface` 组件，默认 `WaterSurfaceSettings.disabled()`；`RenderPipeline` 新增
 `waterSurface(...)`/`applyWaterSurface(...)`。开启要求 HDR，并与体积雾明确互斥。合同、成本与
 限制见[有限水面技术卡](../../planning/v0.28.1-s3-water-surface.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #13 新增 advanced GL-free `core.material.RefractionSettings`（IOR、厚度、粗糙
+透射、透射/反射权重与默认关闭路径）、`Material.refraction(...)` 模板组件、advanced
+`pbr.PbrMaterials.createGlass(...)` 材质工厂入口，以及 internal `pbr.RefractionPass`（快照
+复制与玻璃绘制 recorder）。启用时管线在 geometry/volumetric transparent 之后复制单采样
+scene colour 快照，再以共享颜色+深度的折射 pass 绘制玻璃；玻璃只采样快照，不采样正在写的
+附件。默认 disabled 时不创建 Pass、shader 或附件；多层/粗糙透射/离屏回退与反馈禁止见
+[折射技术卡](../../planning/v0.28.1-s3-refraction.md)。迁移说明见[迁移记录](migrations.md)。

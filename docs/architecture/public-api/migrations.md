@@ -170,3 +170,14 @@ no-op。新增 internal `render3d.water.WaterSurfacePass` 与 `RenderPipeline.wa
 public internal 类型，不构成兼容承诺）。水面开启要求 HDR tone mapping，且与体积雾互斥，
 非法组合在 `RenderFeaturePolicy`/`PipelineFeaturePolicy` 明确拒绝。范围、限制和验证见
 [有限水面技术卡](../../planning/v0.28.1-s3-water-surface.md)。
+v0.28.1（候选）单层折射没有删除 stable 类型，也没有修改现有构造器。新增 advanced GL-free
+`core.material.RefractionSettings(enabled,ior,thickness,roughness,transmission,reflection)`，
+默认 `disabled()`；`Material`/`Material.Builder` 新增 `refraction(RefractionSettings)` 与
+`refraction()`，默认 disabled，因此既有 `Material` 构建与绘制路径保持源码/行为兼容。新增
+advanced `pbr.PbrMaterials.createGlass(...)` 与 internal `pbr.RefractionPass`；玻璃材质强制
+`BlendMode.ALPHA` 并参与既有透明队列排序，管线在标准 forward 或体积雾 transparent pass 之后
+插入单采样快照复制与一个折射 pass。玻璃必须由调用方提供 `pbr-forward.vert` +
+`refraction-forward.frag` 程序；`RefractionSettings.disabled()` 或场景中没有启用折射的材质时
+不新增 Pass、附件或 shader。玻璃材质是否存在于场景是 build 期拓扑输入；运行期切换需要重新
+`build()`。多层玻璃、深度拒绝和逐层历史不承诺（见
+[技术卡](../../planning/v0.28.1-s3-refraction.md)）。
