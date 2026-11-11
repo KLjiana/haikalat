@@ -193,3 +193,14 @@ penumbra 经该级联的归一化正交深度比值和 world-texel 尺寸换算�
 `RenderFeatureSettings.directionalShadowMap(...)` 一次发布，不新增 GPU 资源、Pass、管理器或
 第二套阴影图集；启用但无方向光阴影或非 PBR 消费者时由装配策略明确拒绝。技术范围、验证边界
 与已知限制见[PCSS 技术卡](../../planning/v0.28.1-s2-pcss.md)。
+v0.28.1（候选）SMAA 没有删除 stable 类型。advanced `AntiAliasingMode` 新增 `SMAA` 常量；
+它是单值 AA 选择，因此与 NONE/MSAA/FXAA/TAA 天然互斥，不新增组合式配置。新增 advanced
+`postprocess.smaa.SmaaPass`（SMAA 1x 的 edge detection / blending weight / neighborhood
+blending 三 Pass，area/search 查找纹理在程序内由上游 MIT 生成器移植算法生成，不提交二进制
+资产；provenance/许可见 [SMAA licence](../../licenses/smaa.md)）。`RenderSettings.Builder`
+对 `SMAA + ToneMappingMode.NONE` 抛 `IllegalStateException`，`PostProcessPipeline` 的装配与
+pass-plan 查询同样拒绝；SMAA 只消费 HDR tone mapping 之后的 display-referred RGBA8，关闭时
+不创建 program、查找纹理或 Pass，`NONE` 保持原颜色链。`PipelineTopology` 仍以 AA mode 作为
+重建条件，SMAA 使用单采样（`sampleCount=1`）且不创建 TAA history/velocity/jitter。迁移方
+只需把 `--aa=`/profile 的 `smaa` 映射到新枚举值，并在 LDR profile 中继续使用 NONE/MSAA/FXAA；
+技术范围与 shader/查找表指纹见[技术卡](../../planning/v0.28.1-s2-smaa.md)。

@@ -97,3 +97,11 @@ v0.28.1 S3 #13 新增 advanced GL-free `core.material.RefractionSettings`（IOR�
 scene colour 快照，再以共享颜色+深度的折射 pass 绘制玻璃；玻璃只采样快照，不采样正在写的
 附件。默认 disabled 时不创建 Pass、shader 或附件；多层/粗糙透射/离屏回退与反馈禁止见
 [折射技术卡](../../planning/v0.28.1-s3-refraction.md)。迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S2 #22 在 advanced `AntiAliasingMode` 中新增 `SMAA` 枚举值（单值选择，因此与
+NONE/MSAA/FXAA/TAA 互斥），并新增 advanced
+`postprocess.smaa.SmaaPass`（SMAA 1x 三 Pass、程序内生成的 area/search 查找纹理与
+`docs/licenses/smaa.md` 记录的 MIT provenance）。SMAA 只接受 HDR tone mapping 之后的
+display-referred RGBA8，LDR 组合在 `RenderSettings`、`PostProcessPipeline`、
+`PipelineFeaturePolicy` 与 pass-plan 查询处明确拒绝；关闭/`NONE` 不创建任何 SMAA 资源或
+Pass，保持精确基线颜色链。技术范围与指纹见
+[SMAA 技术卡](../../planning/v0.28.1-s2-smaa.md)，迁移说明见[迁移记录](migrations.md)。
