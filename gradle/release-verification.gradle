@@ -303,7 +303,11 @@ tasks.register('releaseVerificationContracts') {
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow and cloud-shadow shader-state policies.
-        assert policies.size() == 42
+        assert policies.size() == 43
+        def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
+        assert displacementWarmup != null && displacementWarmup.id == 131218
+        assert displacementWarmup.maximum == 4
+        assert displacementWarmup.entry.contains('VfxLightingGlTest')
         def contactShadowPolicy = policies.find { it.owner == 'render3d/contact-shadows' }
         assert contactShadowPolicy != null && contactShadowPolicy.id == 131218
         assert contactShadowPolicy.maximum == 4
