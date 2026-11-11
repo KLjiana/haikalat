@@ -18,8 +18,8 @@ void main() {
     vec2 uv = (vec2(texel) + vec2(0.5)) / vec2(size);
     // x^2 parameterization keeps more rows near the dense ground.
     float radius = mix(1.0, uTopRadius, uv.x * uv.x);
-    // The LUT covers the upper hemisphere; occluded sun rays are rejected by
-    // the sampling helper in atmosphere-common.glsl.
+    // The LUT covers the upper hemisphere; the sky-view shader rejects
+    // occluded sun rays before sampling it.
     float mu = uv.y;
 
     float pathLength = atmosphereDistanceToTop(radius, mu, uTopRadius);

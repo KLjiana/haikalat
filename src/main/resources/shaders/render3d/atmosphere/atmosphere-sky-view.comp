@@ -50,8 +50,11 @@ void main() {
             float mieDensity = exp(-altitude / uMieScaleHeightUnit);
             vec3 viewTransmittance = exp(-viewOpticalDepth);
             float sunMu = dot(position / sampleRadius, uSunDirectionLocal);
-            vec3 sunTransmittance = atmosphereSampleSunTransmittance(uTransmittanceLut,
-                    sampleRadius, sunMu, 1.0, uTopRadius);
+            vec3 sunTransmittance = vec3(0.0);
+            if (sunMu > 0.0) {
+                sunTransmittance = texture(uTransmittanceLut, atmosphereTransmittanceUv(
+                        sampleRadius, sunMu, 1.0, uTopRadius)).rgb;
+            }
             vec3 inScatter = (uRayleighScatteringUnit * rayleighDensity * rayleighPhase
                     + vec3(uMieScatteringUnit * mieDensity * miePhase))
                     * viewTransmittance * sunTransmittance;

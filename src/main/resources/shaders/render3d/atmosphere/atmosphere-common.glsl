@@ -30,12 +30,6 @@ vec2 atmosphereTransmittanceUv(float radius, float mu, float groundRadius, float
     return vec2(sqrt(clamp(normalizedAltitude, 0.0, 1.0)), clamp(mu, 0.0, 1.0));
 }
 
-vec3 atmosphereSampleSunTransmittance(sampler2D lut, float radius, float mu,
-                                      float groundRadius, float topRadius) {
-    if (mu <= 0.0) return vec3(0.0);
-    return texture(lut, atmosphereTransmittanceUv(radius, mu, groundRadius, topRadius)).rgb;
-}
-
 float atmosphereRayleighPhase(float cosTheta) {
     return 3.0 / (16.0 * ATMOSPHERE_PI) * (1.0 + cosTheta * cosTheta);
 }
