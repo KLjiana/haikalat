@@ -127,6 +127,13 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #31 新增 advanced GL-free `core.material.ParallaxOcclusionSettings`（heightScale、min/max steps、
+角度/距离 fade、最大距离、height channel/flip，构造期校验；默认 `disabled()` 为精确 no-op），`Material`/
+`Material.Builder` 新增 `parallaxOcclusion(...)`/`parallaxOcclusion()`；新增 advanced
+`pbr.PbrMaterials.createWithParallax(...)` 与末位 `ParallaxOcclusionSettings` 的 `createWithBindings` 重载，
+`PbrTextureRole.HEIGHT`（LINEAR）绑定到 `PbrMaterials.HEIGHT_UNIT = 6`。POM 只位移材质 UV 采样，不改变
+几何深度、shadow map、velocity 或轮廓，不扩张 silhouette，也不参与 clearcoat 法线；缺省用 1×1 黑色高度
+fallback。合同、限制与 GL 参考见[POM 技术卡](../../planning/v0.28.1-s3-pom.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #28 新增 advanced GL-free `render3d.transparency.WeightedOitSettings`（深度权重尺度/上限、
 alpha 下限、最大表面数）与 advanced `OitSurface`（调用方提供的最小透明表面描述），以及 internal
 `render3d.transparency.WeightedOitPass`（RGBA16F accum + R16F revealage MRT、加权累积与 resolve、
