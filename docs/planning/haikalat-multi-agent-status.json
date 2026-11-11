@@ -21,15 +21,15 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "057b996"
+                        "head":  "bdbd2b5"
                     },
     "gpuQueue":  {
-                     "state":  "IDLE",
-                     "owner":  null,
-                     "taskId":  null,
-                     "startedAt":  null
+                     "state":  "BUSY",
+                     "owner":  "subagent 4316d60a",
+                     "taskId":  "R14",
+                     "startedAt":  "2026-11-11T19:30:10.9021694+08:00"
                  },
-    "updatedAt":  "2026-11-11T19:11:11.8701978+08:00",
+    "updatedAt":  "2026-11-11T19:30:10.9046604+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -776,21 +776,21 @@
                                      ],
                       "baseCommit":  "8c768cf",
                       "workerCommit":  "42cb991 + 3822430 + 2f5a4f6",
-                      "integrationCommit":  "057b996",
+                      "integrationCommit":  "bdbd2b5",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "glSmoke MotionBlurPassGlTest PASS (1 test, 0 failures)",
-                                       "JVM MotionBlurSettings/Math + settings/topology PASS",
+                                       "glSmoke MotionBlurPassGlTest PASS after raster-space fix",
+                                       "JVM MotionBlurSettings/Math PASS",
                                        "focused verify 8b5c01e6: 340 tests PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Re-review raster-space jitter fix at bdbd2b5"
                   },
                   {
                       "taskId":  "R22",
