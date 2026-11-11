@@ -78,6 +78,9 @@ def jvmCases = [
         'GpuParticleIndirectShaderTest', 'IndirectDrawCommandTest',
         'GpuParticleSortingSettingsTest', 'GpuParticleSortPlanTest',
         'GpuParticleSortingReferenceTest', 'GpuParticleSortingShaderTest',
+        'ReflectionProbeSettingsTest', 'ReflectionProbeSelectorTest',
+        'ReflectionProbeSetValidationTest', 'ReflectionProbeShaderTest',
+        'ReflectionProbeHdrFixtureTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
@@ -110,6 +113,7 @@ def glCases = [
         'WaterRefractionGlTest',
         'GpuParticleSystemGlTest',
         'GpuParticleSortingGlTest',
+        'ReflectionProbeGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

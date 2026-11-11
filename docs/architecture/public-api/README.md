@@ -136,6 +136,14 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S2 #18 新增 advanced GL-free `render3d.pbr.ReflectionProbeSettings`（探针位置、影响盒/球、
+blend distance、质量档、强度/旋转）、`ReflectionProbeSet`（有限数量静态 HDR 预计算、加载失败回滚、
+close 释放）与 `ReflectionProbeSelector`（影响区选择、权重/混合、全局 IBL 回退）；PBR shader 增加
+局部探针 cubemap/局部校正/权重采样，`PbrMaterials.bindReflectionProbes(instance, set, receiverPoint)`
+为每个 receiver 绑定探针。首版最多 2 个静态探针、只影响 specular（diffuse/BRDF LUT/clearcoat IBL 仍全局），
+逐 draw 在代表点选择；无实时捕获。关闭/无探针时仍写死专用 sampler unit 22/23，避免与 `uBaseColorMap`
+的 unit 0 别名。合同、限制与 GL 参考见
+[局部反射探针技术卡](../../planning/v0.28.1-s2-reflection-probes.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #26 新增 advanced GL-free `render3d.vfx.GpuParticleSortingSettings`（启用、VIEW_DEPTH/
 DISTANCE 键、方向、最大排序数、相同键 STABLE/UNSTABLE，构造期校验；默认 `disabled()`）与 GL-free
 `GpuParticleSortPlan`（2 的幂 padding、bitonic 序列、dispatch 组）。`GpuParticleSystem` 扩展为
