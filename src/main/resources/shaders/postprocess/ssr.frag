@@ -161,7 +161,7 @@ void main() {
     vec3 hitRadiance = vec3(0.0);
     {
         int stepCount = clamp(uStepCount, 1, SSR_MAX_STEPS);
-        float depthBias = max(uThickness * 0.02, 0.001);
+        float depthBias = min(max(uThickness * 0.02, 1.0e-5), uThickness * 0.5);
         float previousT = 0.0;
         float hitT = -1.0;
         for (int step = 1; step <= SSR_MAX_STEPS; step++) {

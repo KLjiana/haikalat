@@ -185,6 +185,10 @@ final class RenderFeaturePolicy {
                 throw new IllegalArgumentException(
                         "screen-space reflections require at least one metallic-roughness PBR material");
             }
+            if (!settings.imageBasedLighting()) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require image-based lighting for the fallback contract");
+            }
         }
         if (settings.directionalShadowMap().settings().contactShadows().active()) {
             if (!settings.directionalShadows() || !facts.directionalCaster()) {

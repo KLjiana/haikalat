@@ -1004,6 +1004,8 @@ public final class RenderPipeline {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
             new PipelineFeaturePolicy(topology, pbrEnvironment != null)
                     .validateRefractionWater(refraction);
+            new PipelineFeaturePolicy(topology, pbrEnvironment != null)
+                    .validateSsrComposition(postProcessSettings.ssr().active(), refraction);
             GtaoAllocationPlan.validateDeviceExtent(topology.width(), topology.height(), maximumTextureDimension);
             long retainedSurfaceBytes = activeGeneration == null ? 0 : activeGeneration.surfaceBytes();
             for (var retired : retiredGenerations) {

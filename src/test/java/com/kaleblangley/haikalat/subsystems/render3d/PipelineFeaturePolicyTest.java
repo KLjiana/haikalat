@@ -35,5 +35,11 @@ class PipelineFeaturePolicyTest {
                 () -> policy.validateRefractionWater(true));
         assertTrue(failure.getMessage().contains("mutually exclusive"));
         assertDoesNotThrow(() -> policy.validateRefractionWater(false));
+
+        assertThrows(IllegalStateException.class,
+                () -> policy.validateSsrComposition(true, false));
+        assertThrows(IllegalStateException.class,
+                () -> policy.validateSsrComposition(true, true));
+        assertDoesNotThrow(() -> policy.validateSsrComposition(false, true));
     }
 }

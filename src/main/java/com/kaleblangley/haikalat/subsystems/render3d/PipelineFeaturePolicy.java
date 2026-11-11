@@ -62,4 +62,23 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                             + "in this version; disable one of them");
         }
     }
+
+    /**
+     * The first SSR version consumes opaque-only surface depth/normal/roughness
+     * while the HDR colour may already contain water or glass.  Reject those
+     * compositions instead of reflecting through transparent pixels.
+     */
+    public void validateSsrComposition(boolean ssrPresent, boolean refractionPresent) {
+        if (!ssrPresent) return;
+        if (topology.waterSurface()) {
+            throw new IllegalStateException(
+                    "screen-space reflections do not compose with the finite water surface "
+                            + "in this version");
+        }
+        if (refractionPresent) {
+            throw new IllegalStateException(
+                    "screen-space reflections do not compose with single-layer refraction "
+                            + "in this version");
+        }
+    }
 }
