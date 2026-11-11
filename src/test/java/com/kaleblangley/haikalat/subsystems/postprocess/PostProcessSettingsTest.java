@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PostProcessSettingsTest {
     @Test
@@ -36,8 +37,38 @@ class PostProcessSettingsTest {
     }
 
     @Test
+    void defaultsKeepDepthOfFieldDisabledAndSevenArgumentConstructorIsCompatible() {
+        assertFalse(PostProcessSettings.defaults().depthOfField().active());
+        ScreenDistortionSettings distortion = ScreenDistortionSettings.disabled();
+        PostProcessSettings legacy = new PostProcessSettings(
+                ColorGradingSettings.disabled(), FogSettings.disabled(),
+                GtaoSettings.disabled(), VignetteSettings.disabled(),
+                FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
+                distortion);
+        assertEquals(distortion, legacy.screenDistortion());
+        assertFalse(legacy.depthOfField().active());
+    }
+
+    @Test
+    void replacingGtaoAndDepthOfFieldPreservesEveryOtherEffect() {
+        DepthOfFieldSettings depthOfField = DepthOfFieldSettings.of(5.0f, 4.0f, 10.0f);
+        PostProcessSettings original = PostProcessSettings.builder()
+                .vignette(VignetteSettings.of(0.4f, 0.6f, 0.3f))
+                .depthOfField(depthOfField).build();
+        PostProcessSettings updated = original.withGtao(GtaoSettings.defaults().withEnabled(true))
+                .withDepthOfField(DepthOfFieldSettings.of(7.0f, 5.6f, 6.0f));
+        assertEquals(original.vignette(), updated.vignette());
+        assertEquals(7.0f, updated.depthOfField().focusDistance());
+        assertEquals(5.6f, updated.depthOfField().aperture());
+        assertEquals(6.0f, updated.depthOfField().maxCocPixels());
+        assertTrue(updated.gtao().enabled());
+    }
+
+    @Test
     void withGtaoRejectsNull() {
         assertThrows(NullPointerException.class,
                 () -> PostProcessSettings.defaults().withGtao(null));
+        assertThrows(NullPointerException.class,
+                () -> PostProcessSettings.defaults().withDepthOfField(null));
     }
 }

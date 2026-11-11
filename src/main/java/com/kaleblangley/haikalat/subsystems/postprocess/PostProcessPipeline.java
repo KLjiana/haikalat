@@ -23,6 +23,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingC
 import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
 
 import java.util.ArrayList;
@@ -54,6 +55,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final FilmGrainPass filmGrain;
     private final ChromaticAberrationPass chromaticAberration;
     private final ScreenDistortionPass screenDistortion;
+    private final DepthOfFieldPass depthOfField;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final LateSurfaceProducer lateSurface;
@@ -76,6 +78,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 FilmGrainPass filmGrain,
                                 ChromaticAberrationPass chromaticAberration,
                                 ScreenDistortionPass screenDistortion,
+                                DepthOfFieldPass depthOfField,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 LateSurfaceProducer lateSurface,
@@ -93,6 +96,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.filmGrain = filmGrain;
         this.chromaticAberration = chromaticAberration;
         this.screenDistortion = screenDistortion;
+        this.depthOfField = depthOfField;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.lateSurface = lateSurface;
@@ -147,6 +151,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                     ? reuseOrCreate(donor == null ? null : donor.autoExposure, AutoExposureChain::new, owned, borrowed) : null;
             var fog = effects.fog().enabled()
                     ? reuseOrCreate(donor == null ? null : donor.fog, FogChain::new, owned, borrowed) : null;
+            if (effects.depthOfField().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "depth of field requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -183,9 +191,15 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.screenDistortion : null,
                             () -> new ScreenDistortionPass(effects.screenDistortion()),
                             owned, borrowed) : null;
+            DepthOfFieldPass depthOfField = effects.depthOfField().active()
+                    ? reuseOrCreate(donor != null && donor.depthOfField != null
+                                    && donor.depthOfField.settings().equals(effects.depthOfField())
+                                    ? donor.depthOfField : null,
+                            () -> new DepthOfFieldPass(effects.depthOfField()),
+                            owned, borrowed) : null;
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
+                    depthOfField, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -294,6 +308,10 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (fog != null) {
             surfaceInputs.validateDependency(PostProcessTargets.FOG_PASS,
+                    requireInput(SurfaceInputs.Channel.DEPTH));
+        }
+        if (depthOfField != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.DEPTH_OF_FIELD_PASS,
                     requireInput(SurfaceInputs.Channel.DEPTH));
         }
     }
@@ -439,6 +457,34 @@ public final class PostProcessPipeline implements AutoCloseable {
             addTaaPass(graph, hdrTexture, hdrProducer);
             hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.TAA_PASS;
+        }
+
+        if (depthOfField != null) {
+            final String focusInput = hdrTexture;
+            final String focusProducer = hdrProducer;
+            SurfaceInputs.Input depth = requireInput(SurfaceInputs.Channel.DEPTH);
+            var depthOfFieldPass = graph.addPass(PostProcessTargets.DEPTH_OF_FIELD_PASS)
+                    .createColor(PostProcessTargets.DEPTH_OF_FIELD_COLOR,
+                            RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(focusProducer);
+            if (!focusProducer.equals(depth.producerPass())) {
+                depthOfFieldPass.dependsOn(depth.producerPass());
+            }
+            depthOfFieldPass.execute((res, cmd) -> {
+                        TemporalFramePose frame = framePose;
+                        if (frame == null) {
+                            throw new IllegalStateException(
+                                    "depth of field requires a started frame pose");
+                        }
+                        depthOfField.recordIntoCurrentTarget(cmd,
+                                res.colorAttachment(focusInput),
+                                surfaceInputs.texture(res, depth),
+                                frame.inverseJitteredProjection(),
+                                graph.width(), graph.height());
+                    });
+            hdrTexture = PostProcessTargets.DEPTH_OF_FIELD_COLOR;
+            hdrProducer = PostProcessTargets.DEPTH_OF_FIELD_PASS;
         }
 
         final String exposureInput = hdrTexture;

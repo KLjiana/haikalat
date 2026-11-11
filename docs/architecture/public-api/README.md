@@ -58,3 +58,10 @@ v0.28.1 S2 #5 新增 advanced `VertexDisplacementSettings`（有界局部正弦�
 新增的 `recordVertexDisplacement`/`boundsPadding` 默认方法保持旧实现源码兼容。技术范围、
 顺序、bounds/previous-frame 和 shader 指纹见
 [顶点位移技术卡](../../planning/v0.28.1-s2-vertex-displacement.md)。
+
+v0.28.1 S3 #12 新增 advanced `DepthOfFieldSettings`（焦点距离、光圈 f-number、最大 CoC
+半径）与 `postprocess.depthoffield.DepthOfFieldPass`（HDR 16-tap 深度驱动 gather）。
+`PostProcessSettings` 追加 `depthOfField` 组件，默认关闭；关闭或 `maxCocPixels=0` 时不创建
+Pass、shader 或附件。开启要求 HDR tone mapping 与共享单采样深度，并在 TAA 之后、曝光/Bloom/
+tone mapping 之前运行；透明/VFX 与 UI 合成位置见
+[景深技术卡](../../planning/v0.28.1-s3-depth-of-field.md)。迁移说明见[迁移记录](migrations.md)。

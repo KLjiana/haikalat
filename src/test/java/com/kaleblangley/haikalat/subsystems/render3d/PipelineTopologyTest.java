@@ -9,14 +9,18 @@ import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PipelineTopologyTest {
     @Test
@@ -74,6 +78,23 @@ class PipelineTopologyTest {
                         800, 600, false, false, DirectionalCascadeSettings.disabled()),
                 PipelineTopology.capture(scene, second, PostProcessSettings.defaults(),
                         800, 600, false, false, DirectionalCascadeSettings.disabled()));
+    }
+
+    @Test
+    void depthOfFieldRequestsSharedDepthWithoutUnrelatedSurfaceChannels() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .depthOfField(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f)).build();
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+
+        assertTrue(topology.sceneSurface().requests()
+                .requires(SceneBufferChannel.DEPTH));
+        assertFalse(topology.sceneSurface().requests()
+                .requires(SceneBufferChannel.NORMAL));
+        assertFalse(topology.sceneSurface().hasResolve());
     }
 
     @Test

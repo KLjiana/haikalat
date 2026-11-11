@@ -171,7 +171,8 @@ public record PipelineTopology(int width,
                                                    PostProcessSettings effects, int samples,
                                                    boolean hdrVfx, boolean volume) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
-        if (effects.fog().enabled() || volume) {
+        // Analytic fog and depth of field both consume only the shared single-sample depth.
+        if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         if (effects.gtao().enabled()) {
