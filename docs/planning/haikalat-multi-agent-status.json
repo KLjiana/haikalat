@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T11:54:15.9788290+08:00",
+    "updatedAt":  "2026-11-11T12:01:39.8826003+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -366,14 +366,15 @@
                                         ],
                       "evidence":  [
                                        "worker JVM AssetPipelineTest 28 tests PASS",
-                                       "glSmoke ThinTranslucencyGlTest FAIL: backlit/front-lit center both 0 or equal baseline; fixture direct-light path unverified"
+                                       "glSmoke ThinTranslucencyGlTest FAIL: direct-light center energy 0 with ambient disabled or equal to ambient baseline; tried quad/triangle/sphere, point/directional, create/createWithBindings, default/zero env, HDR/default readback",
+                                       "pointSelected diagnostic \u003e0, so light selection itself succeeds"
                                    ],
                       "review":  "PENDING",
                       "functional":  "JVM_PASS_GL_FAIL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Fix GL fixture direct-light path or prove production shader; do not integrate until GL PASS"
+                      "nextAction":  "Isolate PBR light-buffer upload or reuse an existing pixel-reading PBR GL fixture known to show direct light; do not integrate until GL PASS"
                   },
                   {
                       "taskId":  "R09",
