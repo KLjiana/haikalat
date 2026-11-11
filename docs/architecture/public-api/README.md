@@ -256,3 +256,8 @@ canonical record 由 9 个组件扩展为 10 个，原 2/3/4/6/7/8/9 参数构�
 PBR 标量粗糙度）。开启要求 HDR tone mapping、PBR 材质与借用环境；关闭时不创建 program、Pass
 或附件，颜色链顺序保持精确基线。技术范围、坐标/深度约定、MSAA 解析和回退策略见
 [SSR 技术卡](../../planning/v0.28.1-s3-ssr.md)，迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S1 #6 新增 advanced `render3d.vfx.ProjectedDecal`、`ProjectedDecalSettings` 与
+`VfxRenderer.recordProjectedDecals`；包内 `ProjectedDecalPlan` 保持 internal。默认关闭，关闭时
+不创建 shader/网格、不录制命令；投射贴花借用现有 VFX 路径的调用方深度与 viewport，未进入
+`RenderFeatureSettings`（本轮未修改 `RenderPipeline`/forward 装配）。
