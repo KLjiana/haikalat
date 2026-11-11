@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PcssSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
@@ -163,6 +164,12 @@ class RenderFeatureControlTest {
                 cloudRequest(false), ALL_TRUE);
         assertMessage("cloud shadows require an enabled directional shadow caster",
                 cloudRequest(true), facts(true, false, true, true, true, true, true, false, false));
+        assertMessage("PCSS requires at least one metallic-roughness PBR material",
+                pcssRequest(true), NO_PBR);
+        assertMessage("PCSS requires an enabled directional shadow caster",
+                pcssRequest(false), ALL_TRUE);
+        assertMessage("PCSS requires an enabled directional shadow caster",
+                pcssRequest(true), facts(true, false, true, true, true, true, true, false, false));
     }
 
     @Test
@@ -229,6 +236,17 @@ class RenderFeatureControlTest {
                 .directionalShadowMap(new DirectionalShadowMap(
                         new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f,
                                 ContactShadowSettings.disabled(), clouds)))
+                .build();
+    }
+
+    private static RenderFeatureSettings pcssRequest(boolean directionalShadows) {
+        PcssSettings pcss = PcssSettings.disabled().withEnabled(true);
+        return hdrBuilder()
+                .directionalShadows(directionalShadows)
+                .directionalShadowMap(new DirectionalShadowMap(
+                        new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f,
+                                ContactShadowSettings.disabled(), CloudShadowSettings.disabled(),
+                                pcss)))
                 .build();
     }
 
