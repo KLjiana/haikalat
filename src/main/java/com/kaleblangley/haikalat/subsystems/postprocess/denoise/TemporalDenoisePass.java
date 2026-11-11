@@ -207,6 +207,16 @@ public final class TemporalDenoisePass implements GlResource {
                 && previousViewProjection != null && previousInverseProjection != null;
     }
 
+    /** Package-private diagnostic: previous jitter stored for the next resolve. */
+    float previousJitterUvXForTest() {
+        return previousJitterUvX;
+    }
+
+    /** Package-private diagnostic: previous jitter stored for the next resolve. */
+    float previousJitterUvYForTest() {
+        return previousJitterUvY;
+    }
+
     /** @return the committed colour produced by the last successful frame */
     public Framebuffer readFramebuffer() {
         ensureOpen();
