@@ -163,3 +163,8 @@ internal com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass
 advanced com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass
+
+# v0.28.1 S3 #30 planar reflection settings/math and pass-owned attachments.
+advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionMath
+internal com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass
