@@ -7,6 +7,8 @@ import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
@@ -120,6 +122,12 @@ class RenderFeatureControlTest {
                 .volumetricFog(volumetric())
                 .hdrVfx(true)
                 .build(), facts(true, true, true, true, true, true, false, false, false));
+        assertMessage("contact shadows require at least one metallic-roughness PBR material",
+                contactRequest(true), NO_PBR);
+        assertMessage("contact shadows require an enabled directional shadow caster",
+                contactRequest(false), ALL_TRUE);
+        assertMessage("contact shadows require an enabled directional shadow caster",
+                contactRequest(true), facts(true, false, true, true, true, true, true, false, false));
     }
 
     @Test
@@ -168,6 +176,15 @@ class RenderFeatureControlTest {
                 .toneMappingMode(ToneMappingMode.ACES)
                 .vsync(false)
                 .build());
+    }
+
+    private static RenderFeatureSettings contactRequest(boolean directionalShadows) {
+        ContactShadowSettings contact = new ContactShadowSettings(true, 1.0f, 0.5f, 8, 0.8f);
+        return hdrBuilder()
+                .directionalShadows(directionalShadows)
+                .directionalShadowMap(new DirectionalShadowMap(
+                        new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f, contact)))
+                .build();
     }
 
     private static VolumetricFogSettings volumetric() {

@@ -2,6 +2,7 @@
 // HAIKALAT_VOLUME_FOG_CONTRACT
 
 #define POINT_SHADOW_FACE_COUNT 6
+#define CONTACT_SHADOW_MAX_STEPS 32
 
 struct LightRecord {
     vec4 positionRange;    // world xyz, local range
@@ -86,6 +87,11 @@ uniform vec3 uCameraPosition;
 uniform int uHasDirectionalShadow;
 uniform int uDirectionalShadowFrameLightIndex;
 uniform float uShadowBias;
+uniform int uContactShadowEnabled;
+uniform float uContactShadowDistance;
+uniform float uContactShadowThickness;
+uniform int uContactShadowSteps;
+uniform float uContactShadowStrength;
 uniform int uDirectionalCascadeCount;
 uniform float uDirectionalCascadeSplits[4];
 uniform float uDirectionalCascadeBlendRange;
@@ -165,28 +171,49 @@ vec2 receiverPlaneGradient(vec3 projected) {
     return vec2(dx.z * dy.y - dy.z * dx.y, dy.z * dx.x - dx.z * dy.x) / determinant;
 }
 
-float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
-    vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
-    vec4 lightPosition = uDirectionalCascadeCount > 1
-        ? uDirectionalCascadeMatrices[cascade] * vec4(samplePosition, 1.0)
-        : uDirectionalLightSpace * vec4(samplePosition, 1.0);
-    vec3 projected = lightPosition.xyz / lightPosition.w;
-    projected = projected * 0.5 + 0.5;
-    if (projected.z <= 0.0 || projected.z >= 1.0
-            || any(lessThanEqual(projected.xy, vec2(0.0)))
-            || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
-    float bias = shadowDepthBias(uShadowBias, n, l);
+int directionalCascadeIndex() {
+    int count = max(uDirectionalCascadeCount, 1);
+    for (int index = 0; index < count; index++) {
+        if (vViewDepth <= uDirectionalCascadeSplits[index]) return index;
+    }
+    return count - 1;
+}
+
+mat4 directionalCascadeMatrix(int cascade) {
+    return uDirectionalCascadeCount > 1
+            ? uDirectionalCascadeMatrices[cascade] : uDirectionalLightSpace;
+}
+
+void directionalCascadeTile(int cascade, out vec2 scale, out vec2 offset,
+                            out vec2 tileMinimum, out vec2 tileMaximum) {
     int columns = uDirectionalCascadeCount == 2 || uDirectionalCascadeCount > 2 ? 2 : 1;
     int rows = uDirectionalCascadeCount > 2 ? 2 : 1;
-    vec2 scale = vec2(1.0 / float(columns), 1.0 / float(rows));
-    vec2 offset = vec2(float(cascade % columns), float(cascade / columns)) * scale;
+    scale = vec2(1.0 / float(columns), 1.0 / float(rows));
+    offset = vec2(float(cascade % columns), float(cascade / columns)) * scale;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    vec2 guard = texel * (float(shadowKernelRadius()) + 0.5);
+    tileMinimum = offset + guard;
+    tileMaximum = offset + scale - guard;
+}
+
+float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
+    vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
+    vec4 lightPosition = directionalCascadeMatrix(cascade) * vec4(samplePosition, 1.0);
+    vec3 projected = lightPosition.xyz / lightPosition.w;
+    projected = projected * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0) return 0.0;
+    vec2 scale;
+    vec2 offset;
+    vec2 tileMinimum;
+    vec2 tileMaximum;
+    directionalCascadeTile(cascade, scale, offset, tileMinimum, tileMaximum);
     projected.xy = projected.xy * scale + offset;
+    if (any(lessThanEqual(projected.xy, tileMinimum))
+            || any(greaterThanEqual(projected.xy, tileMaximum))) return 0.0;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
     int radius = shadowKernelRadius();
-    vec2 guard = texel * (float(radius) + 0.5);
-    vec2 tileMinimum = offset + guard;
-    vec2 tileMaximum = offset + scale - guard;
     vec2 gradient = receiverPlaneGradient(projected);
+    float bias = shadowDepthBias(uShadowBias, n, l);
     bias += min(dot(abs(gradient), texel) * 0.5, 0.01);
     float shadow = 0.0;
     for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y) {
@@ -203,10 +230,7 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
 float directionalShadowFactor(vec3 n, vec3 l) {
     if (uHasDirectionalShadow == 0) return 0.0;
     int count = max(uDirectionalCascadeCount, 1);
-    int cascade = count - 1;
-    for (int index = 0; index < count; index++) {
-        if (vViewDepth <= uDirectionalCascadeSplits[index]) { cascade = index; break; }
-    }
+    int cascade = directionalCascadeIndex();
     float current = sampleDirectionalCascade(cascade, n, l);
     if (cascade >= count - 1 || uDirectionalCascadeBlendRange <= 0.0) return current;
     float nearSplit = cascade == 0 ? 0.0 : uDirectionalCascadeSplits[cascade - 1];
@@ -217,6 +241,69 @@ float directionalShadowFactor(vec3 n, vec3 l) {
     if (weight <= 1.0e-4) return current;
     float next = sampleDirectionalCascade(cascade + 1, n, l);
     return weight >= 0.9999 ? next : mix(current, next, weight);
+}
+
+/**
+ * Refines the selected cascade with a bounded short-range march toward the
+ * light.  The receiver must be inside the cascade tile and the camera's stable
+ * view-projection; edge/off-screen receivers fall back to the cascaded result.
+ * The caller scales the result by the cascade's unshadowed visibility so a
+ * surface already darkened by the cascade is never darkened twice.
+ */
+float directionalContactShadow(vec3 n, vec3 l) {
+    if (uContactShadowEnabled == 0 || uHasDirectionalShadow == 0
+            || uContactShadowStrength <= 0.0 || dot(n, l) <= 0.0) return 0.0;
+    int cascade = directionalCascadeIndex();
+    mat4 lightSpace = directionalCascadeMatrix(cascade);
+    vec3 normalOffset = n * shadowNormalBias();
+    vec4 receiverClip = lightSpace * vec4(vWorldPosition + normalOffset, 1.0);
+    if (receiverClip.w <= 0.0) return 0.0;
+    vec3 receiver = receiverClip.xyz / receiverClip.w * 0.5 + 0.5;
+    if (receiver.z <= 0.0 || receiver.z >= 1.0) return 0.0;
+    vec2 scale;
+    vec2 offset;
+    vec2 tileMinimum;
+    vec2 tileMaximum;
+    directionalCascadeTile(cascade, scale, offset, tileMinimum, tileMaximum);
+    vec2 receiverUv = receiver.xy * scale + offset;
+    if (any(lessThanEqual(receiverUv, tileMinimum))
+            || any(greaterThanEqual(receiverUv, tileMaximum))) return 0.0;
+
+    vec4 screenClip = uStableViewProjection * vec4(vWorldPosition, 1.0);
+    if (screenClip.w <= 0.0) return 0.0;
+    vec2 screenUv = screenClip.xy / screenClip.w * 0.5 + 0.5;
+    float edge = min(min(screenUv.x, 1.0 - screenUv.x),
+                     min(screenUv.y, 1.0 - screenUv.y));
+    float edgeFade = smoothstep(0.0, 0.05, edge);
+    if (edgeFade <= 0.0) return 0.0;
+
+    int steps = clamp(uContactShadowSteps, 1, CONTACT_SHADOW_MAX_STEPS);
+    float distance = max(uContactShadowDistance, 0.0);
+    float depthPerWorld = abs(lightSpace[2][2]) * 0.5;
+    if (!(depthPerWorld > 0.0)) return 0.0;
+    float thickness = clamp(uContactShadowThickness, 0.0, distance);
+    float startOffset = max(thickness * 0.1, 0.001);
+    float bias = depthPerWorld * startOffset * 0.5 + 1.0e-5;
+    float thicknessDepth = max(thickness * depthPerWorld, 2.0 * bias);
+    vec3 origin = vWorldPosition + normalOffset + l * startOffset;
+    float occlusion = 0.0;
+    for (int step = 1; step <= CONTACT_SHADOW_MAX_STEPS; step++) {
+        if (step > steps) break;
+        float along = float(step) / float(steps);
+        vec4 sampleClip = lightSpace * vec4(origin + l * (distance * along), 1.0);
+        if (sampleClip.w <= 0.0) continue;
+        vec3 projected = sampleClip.xyz / sampleClip.w * 0.5 + 0.5;
+        if (projected.z <= 0.0 || projected.z >= 1.0) continue;
+        vec2 sampleUv = projected.xy * scale + offset;
+        if (any(lessThanEqual(sampleUv, tileMinimum))
+                || any(greaterThanEqual(sampleUv, tileMaximum))) continue;
+        float separation = projected.z - texture(uShadowMap, sampleUv).r;
+        if (separation > bias && separation <= bias + thicknessDepth) {
+            occlusion = 1.0 - 0.65 * along;
+            break;
+        }
+    }
+    return occlusion * edgeFade * clamp(uContactShadowStrength, 0.0, 1.0);
 }
 
 int pointShadowFace(vec3 direction) {
@@ -312,8 +399,14 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                          float metallic, float roughness, vec3 f0) {
     LightRecord light = uLights[index];
     vec3 l = normalize(-light.directionOuter.xyz);
-    float visibility = index == uDirectionalShadowFrameLightIndex
-            ? 1.0 - directionalShadowFactor(n, l) : 1.0;
+    float visibility = 1.0;
+    if (index == uDirectionalShadowFrameLightIndex) {
+        visibility = 1.0 - directionalShadowFactor(n, l);
+        if (visibility > 0.0) {
+            float contact = directionalContactShadow(n, l) * visibility;
+            visibility = max(visibility - contact, 0.0);
+        }
+    }
     return visibility * directBrdf(n, v, l, light.colorIntensity.rgb * light.colorIntensity.a,
             baseColor, metallic, roughness, f0);
 }

@@ -97,3 +97,10 @@ advanced `Render3dDiagnostics` canonical record 新增 `vfxLights` 组件，旧�
 继续懒加载并保持源兼容。二进制兼容影响：直接实现或反射读取 record canonical 组件的调用方需要
 更新；仅使用旧构造器和访问器的调用方保持兼容。
 v0.28.1 adds advanced VignetteSettings, FilmGrainSettings, ChromaticAberrationSettings and the corresponding postprocess passes. PostProcessSettings canonical record expanded from 3 to 6 components (binary break for direct canonical-constructor callers); the 2-arg, 3-arg and 4-arg source-compatible constructors remain. withGtao preserves all screen effects. Use PostProcessSettings.builder() for new code.
+
+v0.28.1（候选）接触阴影没有删除 stable 类型。`ShadowSettings` 是 advanced record，新增
+`contactShadows` 组件；原四参数和五参数构造器保留并默认使用
+`ContactShadowSettings.disabled()`，所以既有调用方无需修改。新增 advanced
+`render3d.shadow.ContactShadowSettings(enabled,distance,thickness,steps,strength)`，
+默认关闭，参数作为一次 `RenderFeatureSettings.directionalShadowMap(...)` 请求发布；
+它不新增 GPU 资源或 Pass，关闭时 PBR 不执行任何接触阴影采样。

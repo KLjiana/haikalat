@@ -171,6 +171,16 @@ final class RenderFeaturePolicy {
             throw new IllegalArgumentException(
                     "GTAO requires at least one metallic-roughness PBR material");
         }
+        if (settings.directionalShadowMap().settings().contactShadows().active()) {
+            if (!settings.directionalShadows() || !facts.directionalCaster()) {
+                throw new IllegalArgumentException(
+                        "contact shadows require an enabled directional shadow caster");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "contact shadows require at least one metallic-roughness PBR material");
+            }
+        }
         if (settings.volumetricFog().enabled() && settings.postProcess().fog().enabled()) {
             throw new IllegalArgumentException(
                     "volumetric fog replaces analytic fog; disable the other fog path");

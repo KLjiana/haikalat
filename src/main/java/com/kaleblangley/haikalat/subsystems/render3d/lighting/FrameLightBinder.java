@@ -73,6 +73,13 @@ public final class FrameLightBinder {
         cmd.trySetUniformInt(shader, "uHasDirectionalShadow", hasShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uShadowMap", SHADOW_TEXTURE_UNIT)
                 .trySetUniformFloat(shader, "uShadowBias", directionalShadowMap.settings().bias());
+        var contactShadows = directionalShadowMap.settings().contactShadows();
+        cmd.trySetUniformInt(shader, "uContactShadowEnabled",
+                        contactShadows.active() ? 1 : 0)
+                .trySetUniformFloat(shader, "uContactShadowDistance", contactShadows.distance())
+                .trySetUniformFloat(shader, "uContactShadowThickness", contactShadows.thickness())
+                .trySetUniformInt(shader, "uContactShadowSteps", contactShadows.steps())
+                .trySetUniformFloat(shader, "uContactShadowStrength", contactShadows.strength());
         if (hasShadow) {
             cmd.bindTexture(SHADOW_TEXTURE_UNIT, shadowTexture);
         }
