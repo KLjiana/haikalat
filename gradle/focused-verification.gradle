@@ -54,6 +54,7 @@ def glCases = [
         'ClusteredLightingResourcesLifecycleGlTest', 'EmbeddedPresentationGlTest',
         'VolumetricTextureGlTest',
         'VfxRendererGlTest', 'VfxTextureCacheGlTest', 'VfxLightingGlTest',
+        'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
         'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera',
