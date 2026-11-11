@@ -26,6 +26,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
@@ -92,6 +94,7 @@ public final class PipelineGeneration implements AutoCloseable {
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
     private StylizedSkyRenderer stylizedSky;
+    private AtmosphereSkyPass atmosphereSky;
     private SceneFrameBuilder sceneFrameBuilder = new SceneFrameBuilder();
     private GraphPreviewRenderer previewRenderer;
     private boolean closed;
@@ -168,7 +171,8 @@ public final class PipelineGeneration implements AutoCloseable {
         ClusteredLightingPassBuilder.addPasses(graph, topology, clusteredLightingBinder, fullScan);
     }
 
-    public void assembleEnvironment(PbrEnvironment environment, boolean stylized) {
+    public void assembleEnvironment(PbrEnvironment environment, boolean stylized,
+                                    AtmosphereSettings atmosphere) {
         var source = reuseSource;
         this.environment = environment;
         boolean reuseEnvironment = source != null && source.environment == environment;
@@ -178,8 +182,15 @@ public final class PipelineGeneration implements AutoCloseable {
             environmentBackground = !reuseEnvironment || source.environmentBackground == null
                     ? new EnvironmentBackgroundRenderer(environment) : borrow(source.environmentBackground);
         }
-        if (stylized) stylizedSky = source == null || source.stylizedSky == null
-                ? new StylizedSkyRenderer() : borrow(source.stylizedSky);
+        if (atmosphere != null) {
+            // The atmosphere pass owns LUTs and programs; a candidate generation
+            // always builds a fresh pair and retires the previous one with the
+            // generation, matching the stylized-sky ownership rule.
+            atmosphereSky = new AtmosphereSkyPass(atmosphere);
+        } else if (stylized) {
+            stylizedSky = source == null || source.stylizedSky == null
+                    ? new StylizedSkyRenderer() : borrow(source.stylizedSky);
+        }
     }
 
     public void assemblePostProcess(RenderSettings settings, PostProcessSettings effects,
@@ -367,6 +378,7 @@ public final class PipelineGeneration implements AutoCloseable {
     public PbrMaterialBinder pbrMaterialBinder() { return pbrMaterialBinder; }
     public EnvironmentBackgroundRenderer environmentBackground() { return environmentBackground; }
     public StylizedSkyRenderer stylizedSky() { return stylizedSky; }
+    public AtmosphereSkyPass atmosphereSky() { return atmosphereSky; }
     public SceneFrameBuilder sceneFrameBuilder() { return sceneFrameBuilder; }
     public GraphPreviewRenderer previewRenderer() { return previewRenderer; }
     public boolean submitted() { return submitted; }
@@ -597,6 +609,7 @@ public final class PipelineGeneration implements AutoCloseable {
         PbrMaterialBinder localPbrBinder = pbrMaterialBinder;
         EnvironmentBackgroundRenderer localBackground = environmentBackground;
         StylizedSkyRenderer localStylizedSky = stylizedSky;
+        AtmosphereSkyPass localAtmosphereSky = atmosphereSky;
         RenderGraph localGraph = graph;
         previewRenderer = null;
         shadowPrograms = null;
@@ -617,6 +630,7 @@ public final class PipelineGeneration implements AutoCloseable {
         pbrMaterialBinder = null;
         environmentBackground = null;
         stylizedSky = null;
+        atmosphereSky = null;
         graph = null;
         finalPassName = null;
 
@@ -638,6 +652,7 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localPbrBinder, failure);
         failure = closeCollecting(localBackground, failure);
         failure = closeCollecting(localStylizedSky, failure);
+        failure = closeCollecting(localAtmosphereSky, failure);
         failure = closeCollecting(localGraph, failure);
         if (failure != null) throw failure;
     }

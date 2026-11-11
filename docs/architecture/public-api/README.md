@@ -119,6 +119,12 @@ fallback。清漆是材质值而不是 `RenderFeatureSettings` 开关：`directi
 `KHR_materials_clearcoat`（默认严格策略拒绝该 payload，lenient 策略仅警告并忽略）。
 PBR/IBL 能量分割、法线空间、零值还原与 GL 参考见
 [清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S2 #29 新增 advanced GL-free `render3d.environment.AtmosphereSettings`（米制行星半径/大气厚度、
+Rayleigh RGB 与 Mie 散射/吸收系数、标高、太阳方向与辐照度、曝光、太阳圆盘、LUT 尺寸与采样数，构造期校验）
+与 internal `render3d.environment.AtmosphereSkyPass`（transmittance/sky-view LUT、全屏 HDR 背景绘制与
+事务式 LUT 重建，不作为兼容入口）。`RenderPipeline` 新增 `atmosphere(AtmosphereSettings)`/`applyAtmosphere(...)`，
+`null` 表示关闭；大气天空与 `outdoorEnvironment` 的 stylized 天空互斥，开启时替换背景且不叠加 IBL 背景。
+合同、限制与验证见[大气散射技术卡](../../planning/v0.28.1-s2-atmosphere.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #20 新增 advanced `SsrSettings`（最大世界距离、march 步数、命中厚度、粗糙度 cutoff、
 置信度下限、强度与屏幕边缘渐隐）、`SsrEnvironmentSource`（借用 PBR 环境/IBL 回退合同）与
 `postprocess.ssr.SsrPass`（HDR 有界屏幕空间反射）。`PostProcessSettings` 追加 `ssr` 组件，

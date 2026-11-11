@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
 
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
+import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
@@ -264,6 +265,8 @@ public final class RenderPipeline {
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private OutdoorEnvironmentSettings outdoorEnvironment = OutdoorEnvironmentSettings.disabled();
+    /** {@code null} means the bounded atmosphere background is disabled. */
+    private AtmosphereSettings atmosphereSettings;
     private VolumetricFogSettings volumetricFogSettings = VolumetricFogSettings.disabled();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
     private float waterTimeSeconds;
@@ -431,6 +434,10 @@ public final class RenderPipeline {
             throw new IllegalStateException("outdoor environment must be configured before build");
         }
         OutdoorEnvironmentSettings required = Objects.requireNonNull(value, "outdoorEnvironment");
+        if (required.enabled() && atmosphereSettings != null) {
+            throw new IllegalStateException(
+                    "stylized outdoor sky and atmosphere sky are mutually exclusive");
+        }
         outdoorEnvironment = required;
         topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         return this;
@@ -439,6 +446,84 @@ public final class RenderPipeline {
     /** Returns the immutable environment snapshot used by the next frame. */
     public OutdoorEnvironmentSettings outdoorEnvironment() {
         return outdoorEnvironment;
+    }
+
+    /**
+     * Configures the bounded atmosphere sky before build.  {@code null}
+     * disables it.  The atmosphere is a replacement background, so it cannot
+     * be selected together with the stylized outdoor sky.
+     */
+    public RenderPipeline atmosphere(AtmosphereSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyAtmosphere after build");
+        }
+        if (value != null && outdoorEnvironment.enabled()) {
+            throw new IllegalStateException(
+                    "atmosphere sky and stylized outdoor sky are mutually exclusive");
+        }
+        atmosphereSettings = value;
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current atmosphere sky configuration, or {@code null} when disabled. */
+    public AtmosphereSettings atmosphere() {
+        return atmosphereSettings;
+    }
+
+    /** Publishes atmosphere changes at a synchronous render-owner frame boundary. */
+    public void applyAtmosphere(AtmosphereSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) { applyAtmosphereInternal(value); }
+        } else {
+            applyAtmosphereInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyAtmosphereInternal(AtmosphereSettings value) {
+        if (executing) {
+            throw new IllegalStateException("atmosphere changes are only allowed at frame boundaries");
+        }
+        if (value != null && outdoorEnvironment.enabled()) {
+            throw new IllegalStateException(
+                    "atmosphere sky and stylized outdoor sky are mutually exclusive");
+        }
+        if (Objects.equals(value, atmosphereSettings)) return;
+        if (activeGeneration == null) { atmosphere(value); return; }
+        AtmosphereSettings previous = atmosphereSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        atmosphereSettings = value;
+        try {
+            if (sameAtmosphereLutExtents(previous, value)) {
+                // The pass samples the current settings every frame; only a LUT
+                // extent change needs a replacement generation.
+                topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+                return;
+            }
+            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
+                    directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                    waterSurfaceSettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) atmosphereSettings = previous;
+            throw failure;
+        }
+    }
+
+    private static boolean sameAtmosphereLutExtents(AtmosphereSettings first,
+                                                    AtmosphereSettings second) {
+        if (first == null || second == null) return first == second;
+        return first.transmittanceLutWidth() == second.transmittanceLutWidth()
+                && first.transmittanceLutHeight() == second.transmittanceLutHeight()
+                && first.skyViewLutWidth() == second.skyViewLutWidth()
+                && first.skyViewLutHeight() == second.skyViewLutHeight();
     }
 
     /** Configures independently lit three-dimensional fog before build. */
@@ -1000,6 +1085,10 @@ public final class RenderPipeline {
                 volumetricFogSettings);
         lastCandidateGenerationId = candidate.id();
         boolean refraction = RefractionPass.presentIn(generationScene);
+        if (atmosphereSettings != null && outdoorEnvironment.enabled()) {
+            throw new IllegalStateException(
+                    "atmosphere sky and stylized outdoor sky are mutually exclusive");
+        }
         try {
             new PipelineFeaturePolicy(topology, pbrEnvironment != null).validate();
             new PipelineFeaturePolicy(topology, pbrEnvironment != null)
@@ -1032,7 +1121,8 @@ public final class RenderPipeline {
             candidate.assembleGraph(clusteredLightingSettings, Boolean.getBoolean(FULL_SCAN_BENCHMARK_PROPERTY));
             candidate.assembleVolumetric(volumetricFogSettings, generationScene, reusable,
                     (res, cmd, shader) -> recordVolumeShadowInputs(requireGeneration(), res, cmd, shader));
-            candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled());
+            candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled(),
+                    atmosphereSettings);
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
             PassExecutor postVfx = topology.volumetricFog() || !hdrVfxEnabled
                     ? null : hdrVfxRecorder;
@@ -2563,7 +2653,10 @@ public final class RenderPipeline {
         @Override
         public void renderBackground(CommandBuffer cmd, Camera camera, int width, int height,
                                      int segment) {
-            if (generation.stylizedSky() != null) {
+            if (generation.atmosphereSky() != null) {
+                generation.atmosphereSky().record(cmd, camera, width, height,
+                        Math.max(0.0f, camera.position().y), atmosphereSettings);
+            } else if (generation.stylizedSky() != null) {
                 generation.stylizedSky().render(cmd, camera, width, height, outdoorEnvironment.sky());
             } else if (generation.environmentBackground() != null) {
                 generation.environmentBackground().render(cmd, camera, width, height);

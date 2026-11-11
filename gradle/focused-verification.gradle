@@ -63,7 +63,8 @@ def jvmCases = [
         'ClearcoatSettingsTest', 'ClearcoatShaderTest',
         'SmaaLookupTablesTest', 'SmaaContractTest', 'SmaaEdgeReferenceTest',
         'PipelineFeaturePolicyTest',
-        'SsrSettingsTest', 'SsrContractTest', 'SsrRayReferenceTest'
+        'SsrSettingsTest', 'SsrContractTest', 'SsrRayReferenceTest',
+        'AtmosphereSettingsTest', 'AtmosphereReferenceTest', 'AtmosphereShaderSourceTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -84,6 +85,8 @@ def glCases = [
         'ClearcoatGlTest',
         'SmaaPassGlTest',
         'SsrPassGlTest',
+        'AtmosphereSkyPassGlTest',
+        'AtmospherePipelineGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
