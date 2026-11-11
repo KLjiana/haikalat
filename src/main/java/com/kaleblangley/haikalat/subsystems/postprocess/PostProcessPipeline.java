@@ -21,6 +21,8 @@ import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose;
 import com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
+import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +50,8 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final AutoExposureChain autoExposure;
     private final FogChain fog;
     private final VignettePass vignette;
+    private final FilmGrainPass filmGrain;
+    private final ChromaticAberrationPass chromaticAberration;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final LateSurfaceProducer lateSurface;
@@ -67,6 +71,8 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 ToneMappingChain toneMapping, BloomChain bloom,
                                 AutoExposureChain autoExposure, FogChain fog,
                                 VignettePass vignette,
+                                FilmGrainPass filmGrain,
+                                ChromaticAberrationPass chromaticAberration,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 LateSurfaceProducer lateSurface,
@@ -81,6 +87,8 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.autoExposure = autoExposure;
         this.fog = fog;
         this.vignette = vignette;
+        this.filmGrain = filmGrain;
+        this.chromaticAberration = chromaticAberration;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.lateSurface = lateSurface;
@@ -135,16 +143,28 @@ public final class PostProcessPipeline implements AutoCloseable {
                     ? reuseOrCreate(donor == null ? null : donor.autoExposure, AutoExposureChain::new, owned, borrowed) : null;
             var fog = effects.fog().enabled()
                     ? reuseOrCreate(donor == null ? null : donor.fog, FogChain::new, owned, borrowed) : null;
-            if (effects.vignette().active() && !settings.hdrEnabled()) {
-                throw new IllegalArgumentException("vignette requires HDR tone mapping");
+            if ((effects.vignette().active() || effects.filmGrain().active()
+                    || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException("screen effects require HDR tone mapping");
             }
             VignettePass vignette = null;
             if (effects.vignette().active()) {
                 vignette = new VignettePass(effects.vignette());
                 owned.add(vignette);
             }
+            FilmGrainPass filmGrain = null;
+            if (effects.filmGrain().active()) {
+                filmGrain = new FilmGrainPass(effects.filmGrain());
+                owned.add(filmGrain);
+            }
+            ChromaticAberrationPass chromaticAberration = null;
+            if (effects.chromaticAberration().active()) {
+                chromaticAberration = new ChromaticAberrationPass(effects.chromaticAberration());
+                owned.add(chromaticAberration);
+            }
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
-                    autoExposure, fog, vignette, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
+                    autoExposure, fog, vignette, filmGrain, chromaticAberration,
+                    hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -403,26 +423,47 @@ public final class PostProcessPipeline implements AutoCloseable {
                 exposureOutput == null ? null : exposureOutput.producerPass(),
                 bloom == null ? 0.0f : bloom.intensity());
 
+        String screenTexture = PostProcessTargets.TONE_MAPPED_COLOR;
+        String screenProducer = PostProcessTargets.TONE_MAPPING_PASS;
         if (vignette != null) {
+            final String input = screenTexture;
             graph.addPass(PostProcessTargets.VIGNETTE_PASS)
                     .createColor(PostProcessTargets.VIGNETTE_COLOR, RenderFormat.RGBA8)
                     .noClear()
-                    .dependsOn(PostProcessTargets.TONE_MAPPING_PASS)
+                    .dependsOn(screenProducer)
                     .execute((res, cmd) -> vignette.recordIntoCurrentTarget(cmd,
-                            res.colorAttachment(PostProcessTargets.TONE_MAPPED_COLOR),
-                            graph.width(), graph.height()));
+                            res.colorAttachment(input), graph.width(), graph.height()));
+            screenTexture = PostProcessTargets.VIGNETTE_COLOR;
+            screenProducer = PostProcessTargets.VIGNETTE_PASS;
+        }
+        if (filmGrain != null) {
+            final String input = screenTexture;
+            graph.addPass(PostProcessTargets.FILM_GRAIN_PASS)
+                    .createColor(PostProcessTargets.FILM_GRAIN_COLOR, RenderFormat.RGBA8)
+                    .noClear()
+                    .dependsOn(screenProducer)
+                    .execute((res, cmd) -> filmGrain.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(input), graph.width(), graph.height()));
+            screenTexture = PostProcessTargets.FILM_GRAIN_COLOR;
+            screenProducer = PostProcessTargets.FILM_GRAIN_PASS;
+        }
+        if (chromaticAberration != null) {
+            final String input = screenTexture;
+            graph.addPass(PostProcessTargets.CHROMATIC_ABERRATION_PASS)
+                    .createColor(PostProcessTargets.CHROMATIC_ABERRATION_COLOR, RenderFormat.RGBA8)
+                    .noClear()
+                    .dependsOn(screenProducer)
+                    .execute((res, cmd) -> chromaticAberration.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(input), graph.width(), graph.height()));
+            screenTexture = PostProcessTargets.CHROMATIC_ABERRATION_COLOR;
+            screenProducer = PostProcessTargets.CHROMATIC_ABERRATION_PASS;
         }
 
         if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
-            fxaa.addHdrPass(graph,
-                    vignette == null ? PostProcessTargets.TONE_MAPPING_PASS
-                            : PostProcessTargets.VIGNETTE_PASS,
-                    vignette == null ? PostProcessTargets.TONE_MAPPED_COLOR
-                            : PostProcessTargets.VIGNETTE_COLOR);
+            fxaa.addHdrPass(graph, screenProducer, screenTexture);
             recordFinalPass(PostProcessTargets.FXAA_PASS);
         } else {
-            String presentSource = vignette == null ? PostProcessTargets.TONE_MAPPING_PASS
-                    : PostProcessTargets.VIGNETTE_PASS;
+            String presentSource = screenProducer;
             graph.addPass(PostProcessTargets.PRESENT_PASS)
                     .writeToBackbuffer()
                     .noClear()

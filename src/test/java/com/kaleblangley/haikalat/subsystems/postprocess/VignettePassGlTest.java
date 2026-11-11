@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
+import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -73,6 +74,10 @@ class VignettePassGlTest {
                     .postProcessSettings(PostProcessSettings.builder()
                             .vignette(VignetteSettings.builder().enabled(true)
                                     .intensity(0.4f).build())
+                            .filmGrain(FilmGrainSettings.builder().enabled(true)
+                                    .intensity(0.04f).seed(3).build())
+                            .chromaticAberration(ChromaticAberrationSettings.builder()
+                                    .enabled(true).intensity(0.002f).build())
                             .build());
             try {
                 pipeline.build();
@@ -80,16 +85,51 @@ class VignettePassGlTest {
                 var passes = pipeline.graph().lastFrameProfile().passes();
                 int tone = -1;
                 int vignette = -1;
+                int grain = -1;
+                int aberration = -1;
                 for (int index = 0; index < passes.size(); index++) {
                     String name = passes.get(index).passName();
                     if (PostProcessTargets.TONE_MAPPING_PASS.equals(name)) tone = index;
                     if (PostProcessTargets.VIGNETTE_PASS.equals(name)) vignette = index;
+                    if (PostProcessTargets.FILM_GRAIN_PASS.equals(name)) grain = index;
+                    if (PostProcessTargets.CHROMATIC_ABERRATION_PASS.equals(name)) aberration = index;
                 }
-                assertTrue(tone >= 0 && vignette > tone,
-                        "vignette must be recorded after tone mapping");
+                assertTrue(tone >= 0 && vignette > tone
+                                && grain > vignette && aberration > grain,
+                        "screen effects must run after tone mapping in vignette/grain/aberration order");
             } finally {
                 pipeline.close();
             }
+        }
+    }
+
+    @Test
+    void filmGrainPerturbsAFlatImage() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(32, 32)
+                .title("Film Grain GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            try (Framebuffer target = Framebuffer.singleSampled(32, 32);
+                 Texture2D source = grayTexture()) {
+                FilmGrainSettings settings = FilmGrainSettings.builder().enabled(true)
+                        .intensity(0.2f).response(0.0f).seed(5).build();
+                try (FilmGrainPass pass = new FilmGrainPass(settings)) {
+                    target.bind();
+                    GlRenderDevice device = new GlRenderDevice();
+                    var commands = device.createCommandBuffer();
+                    pass.recordIntoCurrentTarget(commands, source.id(), 32, 32);
+                    device.execute(commands);
+                    ByteBuffer pixels = BufferUtils.createByteBuffer(32 * 32 * 4);
+                    glReadPixels(0, 0, 32, 32, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                    int changed = 0;
+                    for (int offset = 0; offset < pixels.capacity(); offset += 4) {
+                        if (Byte.toUnsignedInt(pixels.get(offset)) != 160) changed++;
+                    }
+                    assertTrue(changed > 32, "film grain must perturb a flat image");
+                }
+            }
+            assertTrue(glGetError() == org.lwjgl.opengl.GL11.GL_NO_ERROR);
         }
     }
 
