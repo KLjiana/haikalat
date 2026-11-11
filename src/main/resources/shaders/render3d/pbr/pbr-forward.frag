@@ -68,6 +68,7 @@ uniform sampler2D uNormalMap;
 uniform sampler2D uMetallicRoughnessMap;
 uniform sampler2D uOcclusionMap;
 uniform sampler2D uEmissiveMap;
+uniform sampler2D uClearcoatNormalMap;
 #ifndef HAIKALAT_VOLUME_FOG
 uniform sampler2D uShadowMap;
 uniform sampler2D uPointShadowMap;
@@ -129,6 +130,10 @@ uniform int uHasVertexColor;
 uniform int uDoubleSided;
 uniform float uAlphaCutoff;
 uniform int uAlphaMode; // 0 OPAQUE, 1 MASK, 2 BLEND
+// Bounded clearcoat overlay; zero is the backwards-compatible exact no-op.
+uniform int uClearcoatEnabled;
+uniform float uClearcoatRoughness;
+uniform float uClearcoatNormalStrength;
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;
@@ -136,6 +141,10 @@ uniform int uGtaoMaterialOptOut;
 uniform int uGtaoPreview;
 
 const float PI = 3.14159265358979323846;
+// Clearcoat interface reflectance at normal incidence (glTF clearcoat value).
+const float CLEARCOAT_F0 = 0.04;
+// Same safe GGX floor as the base layer.
+const float CLEARCOAT_MIN_ROUGHNESS = 0.045;
 
 int shadowKernelRadius() {
     return clamp(uShadowQualityMeta.x, 0, 2);
@@ -182,6 +191,53 @@ vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
     return f0 + (max(vec3(1.0 - roughness), f0) - f0)
             * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+/**
+ * Tangent-space clearcoat normal.
+ *
+ * <p>The optional clearcoat normal map uses the base normal map's convention:
+ * sampled XYZ decodes from [0,1] to [-1,1], the XY slope is scaled by
+ * uClearcoatNormalStrength and the TBN frame comes from pbr-forward.vert
+ * (tangent, handedness-corrected bitangent, geometric normal). The coat is
+ * oriented from the geometric normal, not the base normal map, so the thin
+ * layer keeps its own smooth orientation. Strength zero reduces to the
+ * geometric normal exactly.</p>
+ */
+vec3 clearcoatNormal(vec3 geometricNormal) {
+    vec3 sampled = texture(uClearcoatNormalMap, vTexCoord).xyz * 2.0 - 1.0;
+    sampled.xy *= uClearcoatNormalStrength;
+    vec3 t = normalize(vTangent);
+    vec3 b = normalize(cross(geometricNormal, t)) * vTangentHandedness;
+    return normalize(mat3(t, b, geometricNormal) * sampled);
+}
+
+/** Coat interface Fresnel; the complementary share is transmitted to the base layer. */
+float clearcoatFresnel(float cosTheta) {
+    return CLEARCOAT_F0
+            + (1.0 - CLEARCOAT_F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+/** Roughness-aware coat Fresnel for the IBL split; shares the base Schlick form. */
+float clearcoatFresnelRoughness(float cosTheta, float roughness) {
+    return CLEARCOAT_F0
+            + (max(1.0 - roughness, CLEARCOAT_F0) - CLEARCOAT_F0)
+            * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+/**
+ * Clearcoat specular lobe for one light, already multiplied by the coat N.L.
+ * Reuses the bounded GGX/Smith evaluator with the independent coat roughness
+ * and the fixed CLEARCOAT_F0 interface reflectance.
+ */
+vec3 clearcoatDirectBrdf(vec3 cn, vec3 v, vec3 l, float roughness) {
+    float nDotL = max(dot(cn, l), 0.0);
+    if (nDotL <= 0.0) return vec3(0.0);
+    vec3 h = normalize(v + l);
+    float f = clearcoatFresnel(max(dot(h, v), 0.0));
+    float d = distributionGgx(cn, h, roughness);
+    float g = geometrySmith(cn, v, l, roughness);
+    return vec3(d * g * f / max(4.0 * max(dot(cn, v), 0.0) * nDotL, 1.0e-5) * nDotL);
 }
 
 vec2 receiverPlaneGradient(vec3 projected) {
@@ -579,7 +635,8 @@ float rangeInverseSquareAttenuation(float distanceToLight, float range) {
 }
 
 vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
-                         float metallic, float roughness, vec3 f0) {
+                         float metallic, float roughness, vec3 f0,
+                         vec3 clearcoatNormalValue, float clearcoatRoughness) {
     LightRecord light = uLights[index];
     vec3 l = normalize(-light.directionOuter.xyz);
     float visibility = 1.0;
@@ -594,12 +651,21 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         // IBL and other lights are untouched.
         visibility *= cloudShadowVisibility(n, l);
     }
-    return visibility * directBrdf(n, v, l, light.colorIntensity.rgb * light.colorIntensity.a,
-            baseColor, metallic, roughness, f0);
+    vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a;
+    vec3 base = directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    if (uClearcoatEnabled != 0) {
+        vec3 h = normalize(v + l);
+        float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
+        base = base * transmitted
+                + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
+                        * radiance;
+    }
+    return visibility * base;
 }
 
 vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
-                   float metallic, float roughness, vec3 f0) {
+                   float metallic, float roughness, vec3 f0,
+                   vec3 clearcoatNormalValue, float clearcoatRoughness) {
     LightRecord light = uLights[index];
     vec3 lightPosition = light.positionRange.xyz;
     vec3 delta = lightPosition - vWorldPosition;
@@ -620,9 +686,16 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                 ? pointShadowFactor(slot, lightPosition, n, l)
                 : spotShadowFactor(slot, n, l));
     }
-    return visibility * directBrdf(n, v, l,
-            light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone,
-            baseColor, metallic, roughness, f0);
+    vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
+    vec3 base = directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    if (uClearcoatEnabled != 0) {
+        vec3 h = normalize(v + l);
+        float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
+        base = base * transmitted
+                + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
+                        * radiance;
+    }
+    return visibility * base;
 }
 
 int resolveCluster() {
@@ -688,6 +761,7 @@ void main() {
     float metallic = clamp(mr.y * uMetallicFactor, 0.0, 1.0);
     vec3 n = normalize(vNormal);
     if (uDoubleSided != 0 && !gl_FrontFacing) n = -n;
+    vec3 geometricNormal = n;
     if (uEnableNormalMap != 0) {
         vec3 sampled = texture(uNormalMap, vTexCoord).xyz * 2.0 - 1.0;
         sampled.xy *= uNormalScale;
@@ -697,6 +771,13 @@ void main() {
     }
     vec3 v = normalize(uCameraPosition - vWorldPosition);
     vec3 f0 = mix(vec3(0.04), baseSample.rgb, metallic);
+    // Lazy clearcoat setup: disabled keeps the original single-layer values.
+    vec3 clearcoatNormalValue = n;
+    float clearcoatRoughness = 0.0;
+    if (uClearcoatEnabled != 0) {
+        clearcoatNormalValue = clearcoatNormal(geometricNormal);
+        clearcoatRoughness = clamp(uClearcoatRoughness, CLEARCOAT_MIN_ROUGHNESS, 1.0);
+    }
     if (uClusterDebugMode != 0) {
         uint localLightCount = uLightHeader.y;
         int debugCluster = localLightCount > 0u ? resolveCluster() : -1;
@@ -709,7 +790,7 @@ void main() {
         uint localCount = uLightHeader.y;
         for (uint i = 0u; i < directionalCount; i++) {
             direct += directionalRadiance(int(i), n, v, baseSample.rgb,
-                    metallic, roughness, f0);
+                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
         }
         int cluster = localCount > 0u ? resolveCluster() : -1;
         if (cluster >= 0) {
@@ -719,13 +800,14 @@ void main() {
                 // evaluator so no light is lost, however expensive.
                 for (uint i = 0u; i < localCount; i++) {
                     direct += localRadiance(int(directionalCount + i), n, v, baseSample.rgb,
-                            metallic, roughness, f0);
+                            metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
                 }
             } else {
                 uint count = header.y;
                 for (uint k = 0u; k < count; k++) {
                     direct += localRadiance(int(uClusterIndices[header.x + k]), n, v,
-                            baseSample.rgb, metallic, roughness, f0);
+                            baseSample.rgb, metallic, roughness, f0,
+                            clearcoatNormalValue, clearcoatRoughness);
                 }
             }
         }
@@ -748,6 +830,23 @@ void main() {
     vec3 indirect = vec3(0.0);
     if (uEnableDiffuseIbl != 0) indirect += kd * diffuseIbl;
     if (uEnableSpecularIbl != 0) indirect += specularIbl;
+    if (uClearcoatEnabled != 0) {
+        // Same convex interface split as the direct path: the base indirect
+        // term keeps (1 - F_coat) and the coat adds its own prefiltered
+        // specular evaluated at the independent coat roughness.  The coat
+        // reflection is rotated by the existing environment rotation but is
+        // not tinted by the base metallic/roughness terms.
+        float cnDotV = max(dot(clearcoatNormalValue, v), 0.0);
+        float clearcoatF = clearcoatFresnelRoughness(cnDotV, clearcoatRoughness);
+        indirect *= 1.0 - clearcoatF;
+        if (uEnableSpecularIbl != 0) {
+            vec3 coatReflection = rotateEnvironment(reflect(-v, clearcoatNormalValue));
+            vec3 coatPrefiltered = textureLod(uPrefilteredMap, coatReflection,
+                    clearcoatRoughness * uPrefilterMaxLod).rgb;
+            vec2 coatBrdf = texture(uBrdfLut, vec2(cnDotV, clearcoatRoughness)).rg;
+            indirect += coatPrefiltered * (clearcoatF * coatBrdf.x + coatBrdf.y);
+        }
+    }
     float gtao = 1.0;
     if (uGtaoEnabled != 0 && uGtaoMaterialOptOut == 0) {
         gtao = texture(uGtaoMap, gl_FragCoord.xy / vec2(textureSize(uGtaoMap, 0))).r;

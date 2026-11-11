@@ -44,6 +44,7 @@ public final class Material implements GlResource {
     private final CullMode cullMode;
     private final boolean volumetricFogOptOut;
     private final RefractionSettings refraction;
+    private final ClearcoatSettings clearcoat;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -57,6 +58,7 @@ public final class Material implements GlResource {
         this.cullMode = builder.cullMode;
         this.volumetricFogOptOut = builder.volumetricFogOptOut;
         this.refraction = builder.refraction;
+        this.clearcoat = builder.clearcoat;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -117,6 +119,9 @@ public final class Material implements GlResource {
     public boolean volumetricFogOptOut() { return volumetricFogOptOut; }
     /** Single-layer transmissive material contract; disabled by default. */
     public RefractionSettings refraction() { return refraction; }
+
+    /** Bounded clearcoat overlay contract; disabled is the exact no-op default. */
+    public ClearcoatSettings clearcoat() { return clearcoat; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -188,6 +193,7 @@ public final class Material implements GlResource {
         private CullMode cullMode = CullMode.NONE;
         private boolean volumetricFogOptOut;
         private RefractionSettings refraction = RefractionSettings.disabled();
+        private ClearcoatSettings clearcoat = ClearcoatSettings.disabled();
 
         /** Explicitly exempts a custom transparent shader from the depth-aware volume contract. */
         public Builder volumetricFogOptOut(boolean value) { volumetricFogOptOut = value; return this; }
@@ -200,6 +206,17 @@ public final class Material implements GlResource {
          */
         public Builder refraction(RefractionSettings value) {
             refraction = Objects.requireNonNull(value, "refraction");
+            return this;
+        }
+
+        /**
+         * Declares the bounded clearcoat overlay stored on this material. The
+         * pipeline and PBR shader read the matching {@code uClearcoat*}
+         * uniforms; {@link ClearcoatSettings#disabled()} keeps the original
+         * single-layer output.
+         */
+        public Builder clearcoat(ClearcoatSettings value) {
+            clearcoat = Objects.requireNonNull(value, "clearcoat");
             return this;
         }
 

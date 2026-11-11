@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
+import com.kaleblangley.haikalat.core.material.ClearcoatSettings;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.RefractionSettings;
 import com.kaleblangley.haikalat.core.CullMode;
@@ -16,6 +17,13 @@ import java.util.Objects;
 
 /** 将不可变 PBR 定义装配为通用 runtime Material 的便利入口。 */
 public final class PbrMaterials {
+    /**
+     * Frozen fragment texture unit of the optional clearcoat normal map. Units
+     * 0-4 are the metallic-roughness roles and 8-10 are borrowed from the
+     * per-frame IBL binder.
+     */
+    public static final int CLEARCOAT_NORMAL_UNIT = 5;
+
     private PbrMaterials() {
     }
 
@@ -42,11 +50,13 @@ public final class PbrMaterials {
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
         builder.setInt("uAlphaMode", 0);
+        applyClearcoat(builder, ClearcoatSettings.disabled());
         bind(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR, supplied, fallbacks);
         bind(builder, 1, "uNormalMap", PbrTextureRole.NORMAL, supplied, fallbacks);
         bind(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
         bind(builder, 3, "uOcclusionMap", PbrTextureRole.OCCLUSION, supplied, fallbacks);
         bind(builder, 4, "uEmissiveMap", PbrTextureRole.EMISSIVE, supplied, fallbacks);
+        bindClearcoatNormal(builder, null, fallbacks);
         return builder.build();
     }
 
@@ -82,6 +92,28 @@ public final class PbrMaterials {
                                                PbrFallbackTextures fallbacks, CullMode cullMode,
                                                boolean doubleSided, boolean hasVertexColor,
                                                float alphaCutoff, BlendMode blendMode) {
+        return createWithBindings(shader, properties, supplied, fallbacks, cullMode, doubleSided,
+                hasVertexColor, alphaCutoff, blendMode, ClearcoatSettings.disabled(), null);
+    }
+
+    /**
+     * Creates a glTF-style PBR material with a bounded clearcoat overlay.
+     *
+     * <p>The clearcoat settings are stored on the material and uploaded as the
+     * {@code uClearcoat*} uniforms. {@code clearcoatNormal} is an optional
+     * tangent-space normal map bound to {@link #CLEARCOAT_NORMAL_UNIT}; the
+     * fallback is the flat PBR normal, so omitting it (or a normal strength of
+     * zero) leaves the coat on the geometric normal. The map is never borrowed
+     * implicitly from the base normal role. Disabled settings are the exact
+     * pre-clearcoat output.</p>
+     */
+    public static Material createWithBindings(ShaderProgram shader, PbrMaterialProperties properties,
+                                               Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                               PbrFallbackTextures fallbacks, CullMode cullMode,
+                                               boolean doubleSided, boolean hasVertexColor,
+                                               float alphaCutoff, BlendMode blendMode,
+                                               ClearcoatSettings clearcoat,
+                                               PbrTextureBinding clearcoatNormal) {
         if (!Float.isFinite(alphaCutoff) || alphaCutoff < 0.0f || alphaCutoff > 1.0f) {
             throw new IllegalArgumentException("alphaCutoff must be finite and in [0, 1]");
         }
@@ -89,7 +121,8 @@ public final class PbrMaterials {
         Objects.requireNonNull(properties, "properties");
         supplied = Map.copyOf(Objects.requireNonNull(supplied, "supplied"));
         Objects.requireNonNull(fallbacks, "fallbacks");
-        Material.Builder builder = baseBuilder(shader, properties)
+        Objects.requireNonNull(clearcoat, "clearcoat");
+        Material.Builder builder = baseBuilder(shader, properties, clearcoat)
                 .cullMode(cullMode)
                 .blendMode(Objects.requireNonNull(blendMode, "blendMode"))
                 .setInt("uDoubleSided", doubleSided ? 1 : 0)
@@ -102,7 +135,21 @@ public final class PbrMaterials {
         bindWithSampler(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
         bindWithSampler(builder, 3, "uOcclusionMap", PbrTextureRole.OCCLUSION, supplied, fallbacks);
         bindWithSampler(builder, 4, "uEmissiveMap", PbrTextureRole.EMISSIVE, supplied, fallbacks);
+        bindClearcoatNormal(builder, clearcoatNormal, fallbacks);
         return builder.build();
+    }
+
+    /**
+     * Hand-built PBR material with a clearcoat overlay and the default raster
+     * state (no culling, single-sided, no vertex colour, OPAQUE).
+     */
+    public static Material createWithClearcoat(ShaderProgram shader, PbrMaterialProperties properties,
+                                               Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                               PbrFallbackTextures fallbacks,
+                                               ClearcoatSettings clearcoat,
+                                               PbrTextureBinding clearcoatNormal) {
+        return createWithBindings(shader, properties, supplied, fallbacks, CullMode.NONE,
+                false, false, 0.0f, BlendMode.OPAQUE, clearcoat, clearcoatNormal);
     }
 
     /**
@@ -170,8 +217,9 @@ public final class PbrMaterials {
         builder.texture(unit, samplerName, texture, fallbacks.sampler());
     }
 
-    private static Material.Builder baseBuilder(ShaderProgram shader, PbrMaterialProperties properties) {
-        return Material.builder(shader)
+    private static Material.Builder baseBuilder(ShaderProgram shader, PbrMaterialProperties properties,
+                                                ClearcoatSettings clearcoat) {
+        Material.Builder builder = Material.builder(shader)
                 .model(MaterialModel.METALLIC_ROUGHNESS)
                 .setVec4("uBaseColorFactor", properties.baseColorFactor())
                 .setFloat("uMetallicFactor", properties.metallicFactor())
@@ -186,6 +234,36 @@ public final class PbrMaterials {
                 .setInt("uHasVertexColor", 0)
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
+        return applyClearcoat(builder, clearcoat);
+    }
+
+    /** Uploads the bounded clearcoat settings as the frozen material uniforms. */
+    private static Material.Builder applyClearcoat(Material.Builder builder,
+                                                   ClearcoatSettings clearcoat) {
+        Objects.requireNonNull(clearcoat, "clearcoat");
+        return builder
+                .clearcoat(clearcoat)
+                .setInt("uClearcoatEnabled", clearcoat.active() ? 1 : 0)
+                .setFloat("uClearcoatRoughness", clearcoat.roughness())
+                .setFloat("uClearcoatNormalStrength", clearcoat.normalStrength());
+    }
+
+    /**
+     * Binds the optional clearcoat normal map, or the flat PBR normal fallback.
+     * A supplied map must be linear data, like the base normal role.
+     */
+    private static void bindClearcoatNormal(Material.Builder builder,
+                                            PbrTextureBinding binding,
+                                            PbrFallbackTextures fallbacks) {
+        Texture2D texture = binding == null
+                ? fallbacks.texture(PbrTextureRole.NORMAL) : binding.texture();
+        Sampler sampler = binding == null ? fallbacks.sampler() : binding.sampler();
+        if (texture.colorSpace() != PbrTextureRole.NORMAL.requiredColorSpace()) {
+            throw new IllegalArgumentException(PbrTextureRole.NORMAL
+                    + " requires " + PbrTextureRole.NORMAL.requiredColorSpace()
+                    + " texture, got " + texture.colorSpace());
+        }
+        builder.texture(CLEARCOAT_NORMAL_UNIT, "uClearcoatNormalMap", texture, sampler);
     }
 
     private static void bindWithSampler(Material.Builder builder, int unit, String samplerName,
