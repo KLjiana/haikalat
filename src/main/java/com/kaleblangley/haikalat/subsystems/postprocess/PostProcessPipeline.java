@@ -20,6 +20,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidation
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose;
 import com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingChain;
+import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +47,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final BloomChain bloom;
     private final AutoExposureChain autoExposure;
     private final FogChain fog;
+    private final VignettePass vignette;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final LateSurfaceProducer lateSurface;
@@ -64,6 +66,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 FxaaChain fxaa, TemporalChain temporal,
                                 ToneMappingChain toneMapping, BloomChain bloom,
                                 AutoExposureChain autoExposure, FogChain fog,
+                                VignettePass vignette,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 LateSurfaceProducer lateSurface,
@@ -77,6 +80,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.bloom = bloom;
         this.autoExposure = autoExposure;
         this.fog = fog;
+        this.vignette = vignette;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.lateSurface = lateSurface;
@@ -131,8 +135,16 @@ public final class PostProcessPipeline implements AutoCloseable {
                     ? reuseOrCreate(donor == null ? null : donor.autoExposure, AutoExposureChain::new, owned, borrowed) : null;
             var fog = effects.fog().enabled()
                     ? reuseOrCreate(donor == null ? null : donor.fog, FogChain::new, owned, borrowed) : null;
+            if (effects.vignette().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException("vignette requires HDR tone mapping");
+            }
+            VignettePass vignette = null;
+            if (effects.vignette().active()) {
+                vignette = new VignettePass(effects.vignette());
+                owned.add(vignette);
+            }
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
-                    autoExposure, fog, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
+                    autoExposure, fog, vignette, hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -391,17 +403,32 @@ public final class PostProcessPipeline implements AutoCloseable {
                 exposureOutput == null ? null : exposureOutput.producerPass(),
                 bloom == null ? 0.0f : bloom.intensity());
 
+        if (vignette != null) {
+            graph.addPass(PostProcessTargets.VIGNETTE_PASS)
+                    .createColor(PostProcessTargets.VIGNETTE_COLOR, RenderFormat.RGBA8)
+                    .noClear()
+                    .dependsOn(PostProcessTargets.TONE_MAPPING_PASS)
+                    .execute((res, cmd) -> vignette.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(PostProcessTargets.TONE_MAPPED_COLOR),
+                            graph.width(), graph.height()));
+        }
+
         if (settings.antiAliasingMode() == AntiAliasingMode.FXAA) {
-            fxaa.addHdrPass(graph, PostProcessTargets.TONE_MAPPING_PASS,
-                    PostProcessTargets.TONE_MAPPED_COLOR);
+            fxaa.addHdrPass(graph,
+                    vignette == null ? PostProcessTargets.TONE_MAPPING_PASS
+                            : PostProcessTargets.VIGNETTE_PASS,
+                    vignette == null ? PostProcessTargets.TONE_MAPPED_COLOR
+                            : PostProcessTargets.VIGNETTE_COLOR);
             recordFinalPass(PostProcessTargets.FXAA_PASS);
         } else {
+            String presentSource = vignette == null ? PostProcessTargets.TONE_MAPPING_PASS
+                    : PostProcessTargets.VIGNETTE_PASS;
             graph.addPass(PostProcessTargets.PRESENT_PASS)
                     .writeToBackbuffer()
                     .noClear()
-                    .dependsOn(PostProcessTargets.TONE_MAPPING_PASS)
+                    .dependsOn(presentSource)
                     .execute((res, cmd) -> {
-                        Framebuffer source = res.framebufferOfPass(PostProcessTargets.TONE_MAPPING_PASS);
+                        Framebuffer source = res.framebufferOfPass(presentSource);
                         PresentationTarget target = res.presentationTarget();
                         if (source != null && target != null) {
                             cmd.blitFramebuffer(source.id(), target.drawFramebufferId(),

@@ -18,6 +18,7 @@ public final class PostProcessTargets {
     public static final String FOG_PASS = "FogPass";
     public static final String VFX_COMPOSITE_PASS = "VfxCompositePass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
+    public static final String VIGNETTE_PASS = "VignettePass";
     public static final String BLOOM_EXTRACT_PASS = "BloomExtractPass";
     public static final String BLOOM_DOWN_PASS_PREFIX = "BloomDownPass";
     public static final String BLOOM_UP_PASS_PREFIX = "BloomUpPass";
@@ -60,6 +61,7 @@ public final class PostProcessTargets {
     public static final String VFX_COMPOSITE_COLOR = "vfxCompositeColor";
     public static final String VFX_SCENE_DEPTH = "vfxSceneDepth";
     public static final String TONE_MAPPED_COLOR = "toneMappedColor";
+    public static final String VIGNETTE_COLOR = "vignetteColor";
     public static final String BLOOM_DOWN_COLOR_PREFIX = "bloomDownColor";
     public static final String BLOOM_UP_COLOR_PREFIX = "bloomUpColor";
     public static final String AUTO_EXPOSURE_LUMINANCE = "autoExposureLuminance";

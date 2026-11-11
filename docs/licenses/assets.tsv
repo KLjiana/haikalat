@@ -41,6 +41,7 @@ src/demo/resources/scenes/gltf/radio.gltf	glTF Demo asset	Project maintainer; do
 src/demo/resources/ui/ui-demo.properties	UI Demo text	Haikalat project	project license	v0.14	64081cfd4eec83d86d015eca196c5725c6dc0140dba10532193f4f9873e6bca7	project source UTF-8	yes
 src/demo/resources/textures/learnopengl/wall.png	Legacy Demo texture	Project maintainer	project-provided redistribution grant	pre-v0.14	f8a75cd56bfea6c88ff94d8ed3381278880c615ef43020bf726db8a595cae3a9	copied without transformation	yes
 src/main/resources/shaders/postprocess/aces-tone-mapping.frag	Runtime shader	Haikalat project	project license	Milestone 2 / 2026-07-25	9d360f20f269a80d52bde84e092496bb9966dccf2b3bcd49d50a031d61d5ec24	project source	yes
+src/main/resources/shaders/postprocess/vignette.frag	Runtime shader	Haikalat project	project license	v0.28.1 / 2026-11-11	9028511460d98ce44377b1f47d5e33aae7493fc1de7de133e3338701efed0e6f	Display-referred aspect-correct vignette pass	yes
 src/main/resources/shaders/postprocess/bloom-downsample.frag	Runtime shader	Haikalat project	project license	v0.14	0ba4e078b14ecc1c31ed4634fc71ad9a115ecdf8007ade96ba09d5736d5d9fba	project source	yes
 src/main/resources/shaders/postprocess/bloom-extract.frag	Runtime shader	Haikalat project	project license	v0.14	8e57788e542c561d7e51b99473e256392ad97c38fe7e4527e02682f3f5af9a26	project source	yes
 src/main/resources/shaders/postprocess/bloom-upsample.frag	Runtime shader	Haikalat project	project license	v0.14	dc8124325658e0dd8b16888a905a99fa800618ab618c60d968b8ec0b888a0e25	project source	yes

@@ -18,6 +18,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.VignetteSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomPass
@@ -31,6 +32,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidati
 advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalAccumulationPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose
 advanced com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain
