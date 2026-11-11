@@ -53,13 +53,20 @@ import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
 /**
  * Real-consumer acceptance for the bounded PBR clearcoat layer.
  *
- * <p>The fixture is two camera-facing PBR quads that share the builtin textured
- * quad mesh and an axis-aligned transform.  For that mesh the UV-derived frame
- * is exactly tangent {@code +X}, bitangent {@code +Y}, handedness {@code +1}
+ * <p>The fixture is one camera-facing PBR quad that shares the builtin textured
+ * quad and an axis-aligned transform.  For that mesh the UV-derived frame is
+ * exactly tangent {@code +X}, bitangent {@code +Y} and handedness {@code +1}
  * (the two triangles give {@code e1 = +X, e2 = +X + Y} in UV space), so the
  * fixture's tangent space equals world space and the CPU reference can decode
- * the coat normal without reading production state.  The left quad uses the
- * flat fallback normal, the right quad a constant tilted clearcoat normal map.</p>
+ * the coat normal without reading production state.  The base normal scale is
+ * zero so the base macro normal stays geometric.</p>
+ *
+ * <p>All variants render through the same pipeline, camera, geometry and
+ * material template; {@link MaterialInstance} uniform and texture overrides
+ * switch between the clearcoat-off baseline, two coat roughness values, the
+ * flat fallback coat normal, a constant tilted coat normal map at three
+ * strengths and the IBL reference material.  Because the frame is always the
+ * same single draw, pixels correspond exactly across frames.</p>
  *
  * <p>Direct lighting is validated against an independent CPU implementation of
  * the layered BRDF written in this test: base GGX/Smith/Schlick attenuated by
@@ -69,20 +76,16 @@ import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
  * a black-base PBR material whose only remaining term is the dielectric
  * specular IBL lobe at the coat roughness, and the clearcoat-disabled base
  * image.  A correct implementation must satisfy
- * {@code composite = base * (1 - F(n.v)) + specularReference} in linear HDR.</p>
- *
- * <p>Every variant is rendered through the same pipeline, camera and geometry,
- * so pixels correspond exactly across frames.  The disabled default and the
- * exact restore after re-disabling are compared byte for byte.</p>
+ * {@code composite = base * (1 - F(n.v)) + specularReference} in linear HDR.
+ * The disabled default and the exact restore after re-disabling are compared
+ * byte for byte.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class ClearcoatGlTest {
     private static final int WIDTH = 200;
     private static final int HEIGHT = 140;
-    private static final float CAMERA_Z = 4.2f;
+    private static final float CAMERA_Z = 3.4f;
     private static final float QUAD_HALF = 1.0f;
-    private static final float LEFT_CENTER_X = -1.15f;
-    private static final float RIGHT_CENTER_X = 1.15f;
     private static final Vector3f CAMERA_POSITION = new Vector3f(0.0f, 0.0f, CAMERA_Z);
     private static final Vector3f LIGHT_TRAVEL_DIRECTION = new Vector3f(-0.35f, -0.55f, -1.0f);
     private static final Vector3f LIGHT_COLOR = new Vector3f(1.0f, 0.97f, 0.92f);
@@ -130,22 +133,17 @@ class ClearcoatGlTest {
                 PbrMaterialProperties properties = new PbrMaterialProperties(BASE_COLOR,
                         BASE_METALLIC, BASE_ROUGHNESS, BASE_NORMAL_SCALE, 1.0f,
                         new Vector3f(), Map.of());
-                Material flatMaterial = PbrMaterials.createWithClearcoat(shader, properties,
+                Material material = PbrMaterials.createWithClearcoat(shader, properties,
                         Map.of(), fallbacks, ClearcoatSettings.disabled(), null);
-                Material tiltedMaterial = PbrMaterials.createWithClearcoat(shader, properties,
-                        Map.of(), fallbacks, ClearcoatSettings.disabled(),
-                        new PbrTextureBinding(tiltedNormal, coatSampler));
                 try {
-                    MaterialInstance flat = flatMaterial.createInstance();
-                    MaterialInstance tilted = tiltedMaterial.createInstance();
+                    MaterialInstance instance = material.createInstance();
+                    PbrTextureBinding tiltedBinding = new PbrTextureBinding(tiltedNormal,
+                            coatSampler);
                     Camera camera = new Camera(CAMERA_POSITION, new Vector3f(0.0f, 1.0f, 0.0f),
                             -90.0f, 0.0f);
                     Scene scene = new Scene(camera);
-                    scene.add(MeshRenderer.of(quad, flat,
-                            Transform.at(LEFT_CENTER_X, 0.0f, 0.0f)
-                                    .scale(QUAD_HALF * 2.0f, QUAD_HALF * 2.0f, 1.0f)));
-                    scene.add(MeshRenderer.of(quad, tilted,
-                            Transform.at(RIGHT_CENTER_X, 0.0f, 0.0f)
+                    scene.add(MeshRenderer.of(quad, instance,
+                            Transform.at(0.0f, 0.0f, 0.0f)
                                     .scale(QUAD_HALF * 2.0f, QUAD_HALF * 2.0f, 1.0f)));
                     scene.addLight(SceneLight.directional(LIGHT_TRAVEL_DIRECTION,
                             LIGHT_COLOR, LIGHT_INTENSITY));
@@ -171,48 +169,51 @@ class ClearcoatGlTest {
 
                         Matrix4f inverse = inverseViewProjection(camera);
                         float[] disabled = render(pipeline, device);
+                        assertDirectReference("disabled default", disabled, inverse,
+                                false, COAT_ROUGHNESS_SMOOTH, 0.0f, false);
 
-                        float[] smooth = renderCoat(pipeline, device, flat, tilted,
-                                COAT_ROUGHNESS_SMOOTH, 1.0f, 1.0f);
-                        assertDirectReference("smooth coat", smooth, inverse,
-                                COAT_ROUGHNESS_SMOOTH, 1.0f, 1.0f, true);
-                        assertDiffers("smooth coat vs disabled", smooth, disabled, 0.02f);
+                        float[] smoothFlat = coatFrame(pipeline, device, instance, null,
+                                COAT_ROUGHNESS_SMOOTH, 1.0f);
+                        assertDirectReference("smooth coat, flat fallback normal", smoothFlat,
+                                inverse, false, COAT_ROUGHNESS_SMOOTH, 1.0f, true);
+                        assertDiffers("smooth coat vs disabled", smoothFlat, disabled, 0.02f);
 
-                        float[] rough = renderCoat(pipeline, device, flat, tilted,
-                                COAT_ROUGHNESS_ROUGH, 1.0f, 1.0f);
-                        assertDirectReference("rough coat", rough, inverse,
-                                COAT_ROUGHNESS_ROUGH, 1.0f, 1.0f, true);
-                        assertDiffers("roughness variation", rough, smooth, 0.02f);
+                        float[] roughFlat = coatFrame(pipeline, device, instance, null,
+                                COAT_ROUGHNESS_ROUGH, 1.0f);
+                        assertDirectReference("rough coat, flat fallback normal", roughFlat,
+                                inverse, false, COAT_ROUGHNESS_ROUGH, 1.0f, true);
+                        assertDiffers("roughness variation", roughFlat, smoothFlat, 0.02f);
 
-                        float[] partialNormal = renderCoat(pipeline, device, flat, tilted,
-                                COAT_ROUGHNESS_SMOOTH, 1.0f, COAT_STRENGTH_PARTIAL);
-                        assertDirectReference("partial coat normal", partialNormal, inverse,
-                                COAT_ROUGHNESS_SMOOTH, 1.0f, COAT_STRENGTH_PARTIAL, true);
-                        assertDiffersAlongQuad("coat normal strength", partialNormal, smooth,
-                                inverse, 0.02f);
+                        float[] tilted = coatFrame(pipeline, device, instance, tiltedBinding,
+                                COAT_ROUGHNESS_SMOOTH, 1.0f);
+                        assertDirectReference("tilted coat normal", tilted, inverse, true,
+                                COAT_ROUGHNESS_SMOOTH, 1.0f, true);
+                        assertDiffers("tilted coat normal vs flat", tilted, smoothFlat, 0.01f);
 
-                        float[] flatNormal = renderCoat(pipeline, device, flat, tilted,
-                                COAT_ROUGHNESS_SMOOTH, 0.0f, 0.0f);
-                        assertDirectReference("zero coat normal strength", flatNormal, inverse,
-                                COAT_ROUGHNESS_SMOOTH, 0.0f, 0.0f, true);
+                        float[] partial = coatFrame(pipeline, device, instance, tiltedBinding,
+                                COAT_ROUGHNESS_SMOOTH, COAT_STRENGTH_PARTIAL);
+                        assertDirectReference("partial coat normal strength", partial, inverse,
+                                true, COAT_ROUGHNESS_SMOOTH, COAT_STRENGTH_PARTIAL, true);
+                        assertDiffers("coat normal strength", partial, tilted, 0.01f);
+
+                        float[] zeroStrength = coatFrame(pipeline, device, instance, tiltedBinding,
+                                COAT_ROUGHNESS_SMOOTH, 0.0f);
+                        assertDirectReference("zero coat normal strength", zeroStrength, inverse,
+                                true, COAT_ROUGHNESS_SMOOTH, 0.0f, true);
 
                         // Disabled default and exact restore: no coat term may survive.
-                        assertDirectReference("disabled default", disabled, inverse,
-                                COAT_ROUGHNESS_SMOOTH, 0.0f, 0.0f, false);
-                        flat.clearOverrides();
-                        tilted.clearOverrides();
+                        instance.clearOverrides();
                         assertArrayEquals(disabled, render(pipeline, device), 0.0f,
                                 "disabling the clearcoat must restore the exact previous image");
 
-                        assertIblSplit(pipeline, device, flat, inverse);
+                        assertIblSplit(pipeline, device, instance, inverse);
 
                         GlDebug.checkError("clearcoat acceptance");
                     } finally {
                         pipeline.close();
                     }
                 } finally {
-                    flatMaterial.close();
-                    tiltedMaterial.close();
+                    material.close();
                     tiltedNormal.close();
                     coatSampler.close();
                 }
@@ -220,14 +221,29 @@ class ClearcoatGlTest {
         }
     }
 
+    /** Renders one direct-lit clearcoat variant through instance overrides. */
+    private static float[] coatFrame(RenderPipeline pipeline, GlRenderDevice device,
+                                     MaterialInstance instance, PbrTextureBinding tiltedNormal,
+                                     float coatRoughness, float strength) {
+        instance.clearOverrides();
+        if (tiltedNormal != null) {
+            instance.texture(PbrMaterials.CLEARCOAT_NORMAL_UNIT, "uClearcoatNormalMap",
+                    tiltedNormal.texture(), tiltedNormal.sampler());
+        }
+        instance.setInt("uClearcoatEnabled", 1)
+                .setFloat("uClearcoatRoughness", coatRoughness)
+                .setFloat("uClearcoatNormalStrength", strength);
+        return render(pipeline, device);
+    }
+
     /**
-     * IBL-only phase: no lights, so the captured images contain the environment
-     * terms only.  For each coat roughness the composite must equal the
-     * attenuated base image plus the independently rendered dielectric specular
-     * reference at that roughness.
+     * IBL-only phase: no direct light, so the captured images contain the
+     * environment terms only.  For each coat roughness the composite must equal
+     * the attenuated base image plus the independently rendered dielectric
+     * specular reference at that roughness.
      */
     private static void assertIblSplit(RenderPipeline pipeline, GlRenderDevice device,
-                                       MaterialInstance flat, Matrix4f inverse) {
+                                       MaterialInstance instance, Matrix4f inverse) {
         RenderFeatureSettings ibl = pipeline.features().effective().toBuilder()
                 .directLighting(false)
                 .imageBasedLighting(true)
@@ -239,41 +255,55 @@ class ClearcoatGlTest {
                 .build();
         pipeline.features().submit(ibl);
 
-        flat.clearOverrides();
+        instance.clearOverrides();
         float[] base = render(pipeline, device);
+        assertTrue(maxLuminance(base) > 1.0e-3f,
+                "the IBL base frame must contain real environment radiance");
 
         for (float coatRoughness : new float[]{COAT_ROUGHNESS_SMOOTH, COAT_ROUGHNESS_ROUGH}) {
-            flat.clearOverrides();
-            float[] reference = renderIblReference(pipeline, device, flat, coatRoughness);
-            flat.clearOverrides();
-            float[] composite = renderCoat(pipeline, device, flat, null, coatRoughness,
-                    0.0f, 0.0f);
+            instance.clearOverrides();
+            instance.setVec4("uBaseColorFactor", new Vector4f(0.0f, 0.0f, 0.0f, 1.0f))
+                    .setFloat("uRoughnessFactor", coatRoughness);
+            float[] reference = render(pipeline, device);
+            assertTrue(maxLuminance(reference) > 1.0e-3f,
+                    "the black-base specular reference must contain real environment radiance");
+            assertTrue(difference(reference, base) > 1.0e-3f,
+                    "the specular reference must not equal the clearcoat-disabled base frame");
+
+            instance.clearOverrides();
+            instance.setInt("uClearcoatEnabled", 1)
+                    .setFloat("uClearcoatRoughness", coatRoughness)
+                    .setFloat("uClearcoatNormalStrength", 0.0f);
+            float[] composite = render(pipeline, device);
+            assertDiffers("IBL coat over base at roughness " + coatRoughness, composite, base,
+                    0.001f);
+
             assertIblComposite("IBL coat roughness " + coatRoughness, composite, base,
                     reference, inverse, coatRoughness);
         }
-        flat.clearOverrides();
+        instance.clearOverrides();
     }
 
-    /** Black-base material: its only remaining term is the F0 = 0.04 specular IBL lobe. */
-    private static float[] renderIblReference(RenderPipeline pipeline, GlRenderDevice device,
-                                              MaterialInstance flat, float roughness) {
-        flat.setVec4("uBaseColorFactor", new Vector4f(0.0f, 0.0f, 0.0f, 1.0f))
-                .setFloat("uRoughnessFactor", roughness);
-        return render(pipeline, device);
+    private static float maxLuminance(float[] image) {
+        float maximum = 0.0f;
+        for (int pixel = 0; pixel < image.length / 4; pixel++) {
+            maximum = Math.max(maximum, luminance(image, pixel));
+        }
+        return maximum;
     }
 
-    private static float[] renderCoat(RenderPipeline pipeline, GlRenderDevice device,
-                                      MaterialInstance flat, MaterialInstance tilted,
-                                      float coatRoughness, float flatStrength, float tiltedStrength) {
-        enableCoat(flat, coatRoughness, flatStrength);
-        if (tilted != null) enableCoat(tilted, coatRoughness, tiltedStrength);
-        return render(pipeline, device);
+    private static float difference(float[] image, float[] other) {
+        float maximum = 0.0f;
+        for (int index = 0; index < image.length; index++) {
+            maximum = Math.max(maximum, Math.abs(image[index] - other[index]));
+        }
+        return maximum;
     }
 
-    private static void enableCoat(MaterialInstance instance, float roughness, float strength) {
-        instance.setInt("uClearcoatEnabled", 1)
-                .setFloat("uClearcoatRoughness", roughness)
-                .setFloat("uClearcoatNormalStrength", strength);
+    private static float luminance(float[] image, int pixel) {
+        int offset = pixel * 4;
+        return 0.2126f * image[offset] + 0.7152f * image[offset + 1]
+                + 0.0722f * image[offset + 2];
     }
 
     private static float[] render(RenderPipeline pipeline, GlRenderDevice device) {
@@ -291,8 +321,8 @@ class ClearcoatGlTest {
      * every pixel that shows the known quad plane.
      */
     private static void assertDirectReference(String label, float[] image, Matrix4f inverse,
-                                               float coatRoughness, float flatStrength,
-                                               float tiltedStrength, boolean coatEnabled) {
+                                               boolean tiltedNormalMap, float coatRoughness,
+                                               float strength, boolean coatEnabled) {
         int compared = 0;
         int failures = 0;
         float worst = 0.0f;
@@ -301,9 +331,7 @@ class ClearcoatGlTest {
             for (int x = 0; x < WIDTH; x++) {
                 Vector3f world = quadWorldPosition(inverse, x, y);
                 if (world == null) continue;
-                boolean tilted = world.x > 0.0f;
-                float strength = tilted ? tiltedStrength : flatStrength;
-                Vector3f expected = directReference(world, tilted, strength,
+                Vector3f expected = directReference(world, tiltedNormalMap, strength,
                         coatRoughness, coatEnabled);
                 int offset = (y * WIDTH + x) * 4;
                 for (int channel = 0; channel < 3; channel++) {
@@ -322,7 +350,11 @@ class ClearcoatGlTest {
                 compared++;
             }
         }
-        assertTrue(compared > WIDTH * HEIGHT / 4,
+        if (failures > 0) {
+            System.out.println("DIAG " + label + " failures=" + failures + " worst=" + worst
+                    + " at " + worstPixel);
+        }
+        assertTrue(compared > WIDTH * HEIGHT / 5,
                 label + ": the fixture must cover a large part of the frame, got " + compared);
         assertEquals(0, failures, label + ": one or more channels differ from the independent "
                 + "reference, worst " + worst + " at " + worstPixel);
@@ -333,8 +365,9 @@ class ClearcoatGlTest {
      * with an independent CPU implementation of the shader's documented BRDF
      * model.
      */
-    private static Vector3f directReference(Vector3f world, boolean tilted, float strength,
-                                            float coatRoughness, boolean coatEnabled) {
+    private static Vector3f directReference(Vector3f world, boolean tiltedNormalMap,
+                                            float strength, float coatRoughness,
+                                            boolean coatEnabled) {
         Vector3f n = new Vector3f(0.0f, 0.0f, 1.0f);
         Vector3f v = new Vector3f(CAMERA_POSITION).sub(world).normalize();
         Vector3f l = new Vector3f(LIGHT_TRAVEL_DIRECTION).normalize().negate();
@@ -343,7 +376,7 @@ class ClearcoatGlTest {
         Vector3f base = directBrdf(n, v, l, radiance, baseColor, BASE_METALLIC,
                 BASE_ROUGHNESS, ClearcoatSettings.F0);
         if (!coatEnabled) return base;
-        Vector3f coatNormal = coatNormal(tilted, strength);
+        Vector3f coatNormal = coatNormal(tiltedNormalMap, strength);
         Vector3f h = new Vector3f(v).add(l).normalize();
         float coatFresnel = clearcoatFresnel(Math.max(h.dot(v), 0.0f));
         Vector3f coat = clearcoatDirect(coatNormal, v, l, coatRoughness).mul(radiance);
@@ -353,7 +386,8 @@ class ClearcoatGlTest {
     /**
      * Decodes the constant clearcoat normal texel and rotates it from the
      * fixture's tangent space, which equals world space for the known quad
-     * frame.  The flat template samples the shared 128,128,255 PBR fallback.
+     * frame.  Without an instance texture override the flat 128,128,255 PBR
+     * fallback is sampled.
      */
     private static Vector3f coatNormal(boolean tilted, float strength) {
         float x = decodeTexel(tilted ? TILT_R : 128);
@@ -446,7 +480,7 @@ class ClearcoatGlTest {
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
                 Vector3f world = quadWorldPosition(inverse, x, y);
-                if (world == null || world.x > 0.0f) continue;
+                if (world == null) continue;
                 float nDotV = CAMERA_Z / (float) Math.sqrt(
                         CAMERA_POSITION.distanceSquared(world));
                 float coatFresnel = clearcoatFresnelRoughness(nDotV, coatRoughness);
@@ -468,8 +502,8 @@ class ClearcoatGlTest {
                 compared++;
             }
         }
-        assertTrue(compared > WIDTH * HEIGHT / 16,
-                label + ": the flat quad must cover a reusable pixel region, got " + compared);
+        assertTrue(compared > WIDTH * HEIGHT / 5,
+                label + ": the quad must cover a reusable pixel region, got " + compared);
         assertEquals(0, failures, label + ": the composite differs from base*(1-F) + "
                 + "specular reference, worst " + worst + " at " + worstPixel);
     }
@@ -488,29 +522,6 @@ class ClearcoatGlTest {
                 + " pixels changed; the coat term must be visible");
     }
 
-    /** Variation assertion restricted to the right (tilted normal) quad. */
-    private static void assertDiffersAlongQuad(String label, float[] enabled, float[] baseline,
-                                               Matrix4f inverse, float threshold) {
-        int changed = 0;
-        int samples = 0;
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                Vector3f world = quadWorldPosition(inverse, x, y);
-                if (world == null || world.x < 0.0f) continue;
-                samples++;
-                int offset = (y * WIDTH + x) * 4;
-                float delta = Math.abs(enabled[offset] - baseline[offset])
-                        + Math.abs(enabled[offset + 1] - baseline[offset + 1])
-                        + Math.abs(enabled[offset + 2] - baseline[offset + 2]);
-                if (delta > threshold) changed++;
-            }
-        }
-        assertTrue(samples > WIDTH * HEIGHT / 32,
-                label + ": no right-quad samples, got " + samples);
-        assertTrue(changed > 64, label + ": only " + changed
-                + " right-quad pixels changed; the coat normal input must move the highlight");
-    }
-
     private static Matrix4f inverseViewProjection(Camera camera) {
         Matrix4f view = camera.getViewMatrix(new Matrix4f());
         Matrix4f projection = CameraProjection.stable(camera, WIDTH, HEIGHT, new Matrix4f());
@@ -519,7 +530,7 @@ class ClearcoatGlTest {
 
     /**
      * World point where a pixel ray crosses the {@code z = 0} quad plane, or
-     * {@code null} when it misses both known quads.
+     * {@code null} when it misses the known quad.
      */
     private static Vector3f quadWorldPosition(Matrix4f inverseViewProjection, int x, int y) {
         float ndcX = (x + 0.5f) / WIDTH * 2.0f - 1.0f;
@@ -537,9 +548,8 @@ class ClearcoatGlTest {
         float t = -origin.z / direction.z;
         if (t <= 0.0f) return null;
         Vector3f world = new Vector3f(origin).fma(t, direction);
-        if (Math.abs(world.y) > QUAD_HALF - 1.0e-4f) return null;
-        if (Math.abs(world.x - LEFT_CENTER_X) > QUAD_HALF - 1.0e-4f
-                && Math.abs(world.x - RIGHT_CENTER_X) > QUAD_HALF - 1.0e-4f) return null;
+        if (Math.abs(world.x) > QUAD_HALF - 1.0e-4f
+                || Math.abs(world.y) > QUAD_HALF - 1.0e-4f) return null;
         return world;
     }
 
