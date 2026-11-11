@@ -14,32 +14,48 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The first-version water surface and single-layer refraction both own the
  * post-process scene-colour producer; the combination must fail loudly instead
- * of silently discarding one of them.
+ * of silently discarding one of them.  SSR is opaque-only, so it must also
+ * reject both producers independently rather than reflect through them.
  */
 class PipelineFeaturePolicyTest {
     @Test
     void rejectsRefractionAndWaterSurfaceTogether() {
-        RenderSettings settings = RenderSettings.builder()
-                .antiAliasingMode(AntiAliasingMode.NONE)
-                .toneMappingMode(ToneMappingMode.ACES)
-                .vsync(false).build();
-        PipelineTopology topology = PipelineTopology.capture(
-                new Scene(new Camera()), settings, PostProcessSettings.defaults(),
-                64, 64, false, false, DirectionalCascadeSettings.defaults(),
-                LocalShadowPipelineSettings.legacyDefaults(),
-                VolumetricFogSettings.disabled(), false, false, false,
-                WaterSurfaceSettings.disabled().withEnabled(true));
-        PipelineFeaturePolicy policy = new PipelineFeaturePolicy(topology, true);
+        PipelineFeaturePolicy policy = new PipelineFeaturePolicy(
+                topology(WaterSurfaceSettings.disabled().withEnabled(true)), true);
         assertDoesNotThrow(policy::validate);
         IllegalStateException failure = assertThrows(IllegalStateException.class,
                 () -> policy.validateRefractionWater(true));
         assertTrue(failure.getMessage().contains("mutually exclusive"));
         assertDoesNotThrow(() -> policy.validateRefractionWater(false));
 
-        assertThrows(IllegalStateException.class,
+        IllegalStateException waterSsr = assertThrows(IllegalStateException.class,
                 () -> policy.validateSsrComposition(true, false));
+        assertTrue(waterSsr.getMessage().contains("finite water surface"));
         assertThrows(IllegalStateException.class,
                 () -> policy.validateSsrComposition(true, true));
         assertDoesNotThrow(() -> policy.validateSsrComposition(false, true));
+    }
+
+    @Test
+    void rejectsSsrWithRefractionWhenWaterIsDisabled() {
+        PipelineFeaturePolicy policy = new PipelineFeaturePolicy(
+                topology(WaterSurfaceSettings.disabled()), true);
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> policy.validateSsrComposition(true, true));
+        assertTrue(failure.getMessage().contains("single-layer refraction"));
+        assertDoesNotThrow(() -> policy.validateSsrComposition(true, false));
+        assertDoesNotThrow(() -> policy.validateSsrComposition(false, true));
+    }
+
+    private static PipelineTopology topology(WaterSurfaceSettings water) {
+        RenderSettings settings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false).build();
+        return PipelineTopology.capture(
+                new Scene(new Camera()), settings, PostProcessSettings.defaults(),
+                64, 64, false, false, DirectionalCascadeSettings.defaults(),
+                LocalShadowPipelineSettings.legacyDefaults(),
+                VolumetricFogSettings.disabled(), false, false, false, water);
     }
 }

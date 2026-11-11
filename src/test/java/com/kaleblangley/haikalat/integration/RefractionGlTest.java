@@ -18,7 +18,9 @@ import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -32,6 +34,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionReferenceMath;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
@@ -47,7 +50,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_FUNC;
+import static org.lwjgl.opengl.GL11.GL_LESS;
+import static org.lwjgl.opengl.GL11.glGetInteger;
 
 /**
  * Real-consumer acceptance for the bounded single-layer refraction path.
@@ -197,6 +204,79 @@ class RefractionGlTest {
                     GlDebug.checkError("refraction acceptance");
                 } finally {
                     fallbackMaterial.close();
+                    glassMaterial.close();
+                    background.close();
+                }
+            }
+        }
+    }
+
+    @Test
+    void rejectsWaterAndSsrCompositionAndRestoresDepthFunction() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
+                .title("Refraction Composition Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram pbr = ShaderProgram.fromResource(getClass(),
+                    "/shaders/render3d/pbr/pbr-forward.vert",
+                    "/shaders/render3d/pbr/pbr-forward.frag");
+                 ShaderProgram glass = ShaderProgram.fromResource(getClass(),
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/refraction-forward.frag");
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 Mesh quad = Mesh.from(TangentGenerator.generate(
+                         BuiltinMeshData.texturedQuad("refraction-composition-quad")).mesh());
+                 Texture2D bars = emissiveRamp();
+                 PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                         "/environments/pbr/studio-small.hdr",
+                         PbrEnvironmentSettings.testQuality())) {
+                Material background = backgroundMaterial(pbr, fallbacks, bars);
+                Material glassMaterial = PbrMaterials.createGlass(glass,
+                        PbrMaterialProperties.defaults(), Map.of(), fallbacks, GLASS_SETTINGS);
+                try {
+                    Scene scene = refractedScene(camera(), quad, background, glassMaterial, 0.0f);
+                    WaterSurfaceSettings water = WaterSurfaceSettings.builder()
+                            .enabled(true).level(0.0f).bounds(-6.0f, -6.0f, 6.0f, 6.0f)
+                            .waveWavelength(8.0f).waveSpeed(0.6f).waveAmplitude(0.06f)
+                            .waveDirectionRadians(0.0f)
+                            .waterColor(0.05f, 0.2f, 0.25f)
+                            .absorptionDensity(0.35f).shoreFadeDistance(0.75f)
+                            .reflectionFallback(0.35f, 0.5f, 0.65f)
+                            .build();
+                    RenderPipeline waterPipeline = new RenderPipeline(window, scene, null,
+                            renderSettings(), environment).waterSurface(water);
+                    try {
+                        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                                waterPipeline::build);
+                        assertTrue(failure.getMessage().contains("mutually exclusive"),
+                                "glass + water must fail with the explicit policy message, got "
+                                        + failure.getMessage());
+                    } finally {
+                        waterPipeline.close();
+                    }
+
+                    PostProcessSettings ssr = PostProcessSettings.defaults()
+                            .withSsr(SsrSettings.builder().enabled(true).build());
+                    RenderPipeline ssrPipeline = new RenderPipeline(window, scene, null,
+                            renderSettings(), environment).postProcessSettings(ssr);
+                    try {
+                        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                                ssrPipeline::build);
+                        assertTrue(failure.getMessage().contains("single-layer refraction"),
+                                "SSR + glass must fail with the explicit policy message, got "
+                                        + failure.getMessage());
+                    } finally {
+                        ssrPipeline.close();
+                    }
+
+                    RenderResult result = render(window, device, scene, environment);
+                    assertTrue(hasPass(result.graph(), RefractionPass.PASS_NAME));
+                    assertEquals(GL_LESS, glGetInteger(GL_DEPTH_FUNC),
+                            "the refraction pass must restore the previous GL_LESS depth function");
+                    GlDebug.checkError("refraction composition acceptance");
+                } finally {
                     glassMaterial.close();
                     background.close();
                 }

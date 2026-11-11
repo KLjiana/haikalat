@@ -10,6 +10,7 @@ import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -161,12 +162,46 @@ class WaterSurfacePipelineGlTest {
         try (Fixture fixture = new Fixture(settings(0.35f, 0.75f),
                 AntiAliasingMode.MSAA, 4)) {
             assertTrue(fixture.pipeline.graph().hasPass(WaterSurfacePass.PASS_NAME));
+            var description = fixture.pipeline.graph().description();
+            var resolve = description.passes().stream()
+                    .filter(pass -> pass.name().equals(PostProcessTargets.HDR_RESOLVE_PASS))
+                    .findFirst().orElseThrow();
+            assertTrue(resolve.directDependencies().contains(WaterSurfacePass.PASS_NAME),
+                    "MSAA HDR resolve must consume the water pass output");
+
             fixture.frame(0.0f);
-            float[] pixels = fixture.capture();
-            assertEquals(fixture.width * fixture.height * 4, pixels.length);
-            for (float value : pixels) {
+            float[] withWater = fixture.capture();
+            assertEquals(fixture.width * fixture.height * 4, withWater.length);
+            for (float value : withWater) {
                 assertTrue(Float.isFinite(value), "MSAA water capture must be finite");
             }
+
+            fixture.pipeline.applyWaterSurface(WaterSurfaceSettings.disabled());
+            assertFalse(fixture.pipeline.graph().hasPass(WaterSurfacePass.PASS_NAME),
+                    "disabling water at runtime must remove the pass");
+            fixture.frame(0.0f);
+            float[] withoutWater = fixture.capture();
+            assertEquals(withWater.length, withoutWater.length);
+
+            WaterSurfaceSettings bounds = settings(0.35f, 0.75f);
+            float[] projected = projectedBounds(fixture.camera, bounds,
+                    fixture.width, fixture.height);
+            int changed = 0;
+            for (int y = Math.max(0, (int) projected[1]);
+                 y <= Math.min(fixture.height - 1, (int) projected[3]); y++) {
+                for (int x = Math.max(0, (int) projected[0]);
+                     x <= Math.min(fixture.width - 1, (int) projected[2]); x++) {
+                    int index = (y * fixture.width + x) * 4;
+                    if (Math.abs(withWater[index] - withoutWater[index]) > 1.0e-4f
+                            || Math.abs(withWater[index + 1] - withoutWater[index + 1]) > 1.0e-4f
+                            || Math.abs(withWater[index + 2] - withoutWater[index + 2]) > 1.0e-4f) {
+                        changed++;
+                    }
+                }
+            }
+            assertTrue(changed > 32,
+                    "MSAA water must change resolved pixels inside the finite rectangle, changed="
+                            + changed);
             assertEquals(GL_NO_ERROR, glGetError());
         }
     }
