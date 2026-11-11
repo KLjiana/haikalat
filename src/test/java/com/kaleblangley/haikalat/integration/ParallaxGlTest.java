@@ -535,9 +535,14 @@ class ParallaxGlTest {
         if (Math.abs(local.x) > 0.5f - margin || Math.abs(local.y) > 0.5f - margin) {
             return null;
         }
-        Vector3f world = model.transformPosition(local);
+        // JOML's transformPosition(Vector3f) mutates its argument in place, so
+        // take the UV before transforming the point to world space; otherwise
+        // the oracle would report world x/y + 0.5 as the sampled UV.
+        double u = local.x + 0.5;
+        double v = local.y + 0.5;
+        Vector3f world = model.transformPosition(new Vector3f(local));
         if (world.distance(CAMERA_POSITION) < 0.01f) return null;
-        return new SurfacePoint(world, local.x + 0.5, local.y + 0.5);
+        return new SurfacePoint(world, u, v);
     }
 
     private static Vector3f rotatedVector(float x, float y, float z) {
