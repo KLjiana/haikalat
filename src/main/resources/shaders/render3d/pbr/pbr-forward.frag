@@ -172,6 +172,17 @@ uniform float uParallaxFadeStartDistance;
 uniform float uParallaxMaxDistance;
 uniform int uParallaxHeightChannel;
 uniform int uParallaxFlipHeight;
+// Bounded subsurface scattering; zero is the backwards-compatible exact no-op.
+uniform int uSubsurfaceEnabled;
+uniform vec3 uSubsurfaceScatterColor;
+uniform float uSubsurfaceIntensity;
+uniform int uSubsurfaceProfile;          // 0 uniform, 1 skin-like channel penetration
+uniform float uSubsurfaceProfileScale;   // mean free path in world units (metres)
+uniform int uSubsurfaceThicknessSource;  // 0 constant, 1 occlusion proxy, 2 base-alpha proxy
+uniform float uSubsurfaceThickness;      // metres; constant thickness or derived-thickness scale
+uniform float uSubsurfaceDiffusionRadius;
+uniform int uSubsurfaceScreenSpace;
+uniform float uSubsurfaceMaxDistance;
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;
@@ -191,6 +202,19 @@ const int PARALLAX_MAX_STEPS = 128;
 const float PARALLAX_MAX_SLOPE = 8.0;
 // Smallest tangent-space view depth that still participates in the march.
 const float PARALLAX_MIN_VIEW_Z = 1.0e-4;
+// Subsurface-scattering bounds; PbrMaterials/SubsurfaceScatteringSettings validate
+// the authored values against the same numbers before they reach the GPU.
+const float SUBSURFACE_MIN_PROFILE_SCALE = 0.001;
+const float SUBSURFACE_MAX_PROFILE_SCALE = 10.0;
+const float SUBSURFACE_MAX_THICKNESS = 2.0;
+const float SUBSURFACE_MAX_INTENSITY = 4.0;
+// Red survives the longest in the skin profile; green and blue are absorbed
+// faster in the same thickness. Wax uses the uniform (1, 1, 1) profile.
+const vec3 SUBSURFACE_SKIN_PENETRATION = vec3(1.0, 0.55, 0.30);
+// Thickness is resolved once per fragment before the light loops and is read
+// by the per-light transmission term. It is a shader-invocation global so the
+// direct-light helper signatures (and their existing tests) stay unchanged.
+float gSubsurfaceThickness;
 
 int shadowKernelRadius() {
     return clamp(uShadowQualityMeta.x, 0, 2);
@@ -650,6 +674,83 @@ vec2 receiverPlaneGradient(vec3 projected) {
     return vec2(dx.z * dy.y - dy.z * dx.y, dy.z * dx.x - dx.z * dy.x) / determinant;
 }
 
+/**
+ * Per-channel penetration of the selected analytic profile. UNIFORM (wax)
+ * returns one for every channel; SKIN returns the fixed red-dominant ratios.
+ */
+vec3 subsurfacePenetration() {
+    return uSubsurfaceProfile == 1 ? SUBSURFACE_SKIN_PENETRATION : vec3(1.0);
+}
+
+// Comparison-based sanitizers: a NaN/Inf raw uniform override must fail closed
+// to the inert value instead of contaminating the direct radiance.
+float subsurfaceSafeThickness() {
+    return uSubsurfaceThickness >= 0.0 && uSubsurfaceThickness <= SUBSURFACE_MAX_THICKNESS
+            ? uSubsurfaceThickness : 0.0;
+}
+
+float subsurfaceSafeProfileScale() {
+    return uSubsurfaceProfileScale >= SUBSURFACE_MIN_PROFILE_SCALE
+            && uSubsurfaceProfileScale <= SUBSURFACE_MAX_PROFILE_SCALE
+            ? uSubsurfaceProfileScale : SUBSURFACE_MIN_PROFILE_SCALE;
+}
+
+float subsurfaceSafeIntensity() {
+    return uSubsurfaceIntensity >= 0.0 && uSubsurfaceIntensity <= SUBSURFACE_MAX_INTENSITY
+            ? uSubsurfaceIntensity : 0.0;
+}
+
+vec3 subsurfaceSafeTint() {
+    vec3 tint = uSubsurfaceScatterColor;
+    bool valid = tint.r >= 0.0 && tint.r <= 1.0
+            && tint.g >= 0.0 && tint.g <= 1.0
+            && tint.b >= 0.0 && tint.b <= 1.0;
+    return valid ? tint : vec3(0.0);
+}
+
+/**
+ * Per-pixel thickness in metres. CONSTANT uses the authored value directly;
+ * OCCLUSION treats the occlusion map as a thickness proxy and BASE_ALPHA uses
+ * the base-colour alpha. The returned value is bounded to
+ * {@link #SUBSURFACE_MAX_THICKNESS}, so no texture or raw override can make the
+ * attenuation unbounded.
+ */
+float subsurfaceThickness(vec4 baseSample, vec2 materialUv) {
+    float thickness = subsurfaceSafeThickness();
+    if (uSubsurfaceThicknessSource == 1) {
+        float occlusion = clamp(texture(uOcclusionMap, materialUv).r, 0.0, 1.0);
+        thickness = clamp((1.0 - occlusion) * thickness, 0.0, SUBSURFACE_MAX_THICKNESS);
+    } else if (uSubsurfaceThicknessSource == 2) {
+        float alpha = clamp(baseSample.a, 0.0, 1.0);
+        thickness = clamp((1.0 - alpha) * thickness, 0.0, SUBSURFACE_MAX_THICKNESS);
+    }
+    return thickness;
+}
+
+/** Exponential per-channel attenuation for the resolved thickness, in metres. */
+vec3 subsurfaceAttenuation(float thickness) {
+    float scale = subsurfaceSafeProfileScale();
+    vec3 penetration = max(subsurfacePenetration(), vec3(0.001));
+    return exp(-thickness / max(scale * penetration,
+            vec3(SUBSURFACE_MIN_PROFILE_SCALE)));
+}
+
+/**
+ * Bounded back-light transmission for one light, in the same linear radiance
+ * space as the direct BRDF. It depends only on the back-facing cosine, the
+ * resolved thickness and the analytic profile; it is added next to the
+ * unchanged diffuse/specular terms, so a front highlight is never scaled by
+ * the scatter weight and a back-lit thin surface receives a bounded glow.
+ */
+vec3 subsurfaceTransmission(vec3 n, vec3 l, vec3 radiance) {
+    float backFacing = clamp(dot(-n, l), 0.0, 1.0);
+    if (!(backFacing > 0.0)) return vec3(0.0);
+    float intensity = subsurfaceSafeIntensity();
+    if (!(intensity > 0.0)) return vec3(0.0);
+    return subsurfaceSafeTint() * intensity * radiance
+            * backFacing * subsurfaceAttenuation(gSubsurfaceThickness);
+}
+
 int directionalCascadeIndex() {
     int count = max(uDirectionalCascadeCount, 1);
     for (int index = 0; index < count; index++) {
@@ -1068,6 +1169,11 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                 + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
                         * radiance;
     }
+    if (uSubsurfaceEnabled != 0) {
+        // Separate back-light term: the existing diffuse and specular output
+        // above is untouched, including a front-facing specular highlight.
+        base += subsurfaceTransmission(n, l, radiance);
+    }
     return visibility * base;
 }
 
@@ -1107,6 +1213,11 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         base = base * transmitted
                 + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
                         * radiance;
+    }
+    if (uSubsurfaceEnabled != 0) {
+        // Separate back-light term: the existing diffuse and specular output
+        // above is untouched, including a front-facing specular highlight.
+        base += subsurfaceTransmission(n, l, radiance);
     }
     return visibility * base;
 }
@@ -1227,6 +1338,13 @@ void main() {
             anisotropicTangent = vec3(0.0);
             anisotropicBitangent = vec3(0.0);
         }
+    }
+    // Resolve the bounded thickness once for the two light evaluators. The
+    // disabled path leaves it zero and never samples the occlusion map or the
+    // base alpha for this term.
+    gSubsurfaceThickness = 0.0;
+    if (uSubsurfaceEnabled != 0) {
+        gSubsurfaceThickness = subsurfaceThickness(baseSample, materialUv);
     }
     vec3 direct = vec3(0.0);
     if (uEnableDirect != 0) {

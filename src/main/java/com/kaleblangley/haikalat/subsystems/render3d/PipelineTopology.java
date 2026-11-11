@@ -202,6 +202,12 @@ public record PipelineTopology(int width,
         if (effects.ssr().active()) {
             requirements = requirements.mergeView(SceneBufferRequirements.ssr());
         }
+        // Screen-space subsurface diffusion consumes depth, world normals and
+        // the per-material mask/radius/thickness channel.
+        if (effects.subsurfaceScattering().screenSpaceActive()) {
+            requirements = requirements.mergeView(
+                    SceneBufferRequirements.subsurfaceScattering());
+        }
         if (effects.gtao().enabled()) {
             requirements = requirements.mergeView(
                     SceneBufferRequirements.gtao(effects.gtao().temporal()));

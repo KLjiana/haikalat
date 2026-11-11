@@ -97,6 +97,23 @@ class PostProcessSettingsTest {
     }
 
     @Test
+    void subsurfaceScatteringIsDisabledByDefaultAndPreservedByOtherWithers() {
+        assertFalse(PostProcessSettings.defaults().subsurfaceScattering().active());
+        var scattering = com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings
+                .ofSkin();
+        PostProcessSettings updated = PostProcessSettings.defaults()
+                .withSubsurfaceScattering(scattering);
+        assertEquals(scattering, updated.subsurfaceScattering());
+        assertEquals(PostProcessSettings.defaults().ssr(), updated.ssr());
+        assertEquals(scattering, PostProcessSettings.builder()
+                .subsurfaceScattering(scattering).build().subsurfaceScattering());
+        assertThrows(NullPointerException.class,
+                () -> PostProcessSettings.defaults().withSubsurfaceScattering(null));
+        assertThrows(NullPointerException.class,
+                () -> PostProcessSettings.builder().subsurfaceScattering(null));
+    }
+
+    @Test
     void withGtaoRejectsNull() {
         assertThrows(NullPointerException.class,
                 () -> PostProcessSettings.defaults().withGtao(null));

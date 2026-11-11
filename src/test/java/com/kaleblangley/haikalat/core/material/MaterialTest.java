@@ -243,6 +243,34 @@ class MaterialTest {
                 "the settings record must reject an inverted step range before the builder stores it");
     }
 
+    @Test
+    void subsurfaceScatteringDefaultsToDisabledAndRejectsUnsupportedRasterState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.subsurfaceScattering().active(),
+                "existing materials must keep the exact no-op subsurface path");
+        assertEquals(SubsurfaceScatteringSettings.disabled(), plain.subsurfaceScattering());
+
+        SubsurfaceScatteringSettings settings = SubsurfaceScatteringSettings.ofSkin();
+        Material scattering = Material.builder(shader(8))
+                .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                .subsurfaceScattering(settings).build();
+        assertEquals(settings, scattering.subsurfaceScattering());
+        assertTrue(scattering.subsurfaceScattering().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).subsurfaceScattering(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10))
+                        .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                        .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA)
+                        .subsurfaceScattering(settings).build(),
+                "an active subsurface material must stay opaque");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11))
+                        .model(com.kaleblangley.haikalat.core.assets.MaterialModel.LEGACY)
+                        .subsurfaceScattering(settings).build(),
+                "an active subsurface material must use the metallic-roughness model");
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);

@@ -50,6 +50,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFi
 advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.sss.SubsurfaceScatteringPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseInputs
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass
 

@@ -165,6 +165,39 @@ class PipelineTopologyTest {
     }
 
     @Test
+    void subsurfaceScatteringRequestsDepthNormalAndTheResolvedMaterialMask() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings disabled = PostProcessSettings.defaults();
+        PipelineTopology without = PipelineTopology.capture(scene, settings, disabled,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+        assertFalse(without.sceneSurface().requests()
+                .requires(SceneBufferChannel.SUBSURFACE));
+        assertFalse(without.sceneSurface().hasResolve());
+
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .subsurfaceScattering(
+                        com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings
+                                .ofSkin())
+                .build();
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.DEPTH));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.NORMAL));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.SUBSURFACE));
+        assertTrue(topology.sceneSurface().hasResolve(),
+                "MSAA renders the mask multisampled and resolves it");
+        var mask = topology.sceneSurface().single(SceneBufferChannel.SUBSURFACE);
+        assertEquals(PostProcessTargets.SCENE_SUBSURFACE, mask.name());
+        assertEquals(RenderFormat.RGBA16F, mask.format());
+        assertEquals(1, mask.samples());
+        assertNotEquals(without, topology);
+    }
+
+    @Test
     void gtaoTopologyUsesCeilHalfExtentAndRequiresPbr() {
         Scene scene = new Scene(new Camera());
         PostProcessSettings gtao = PostProcessSettings.builder()

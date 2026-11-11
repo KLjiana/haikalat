@@ -78,6 +78,15 @@ public final class SceneBufferRequirements {
                 SceneBufferChannel.ROUGHNESS);
     }
 
+    /**
+     * Screen-space subsurface diffusion needs the shared depth and world normal
+     * for boundary rejection, plus the material mask/radius/thickness channel.
+     */
+    public static SceneBufferRequirements subsurfaceScattering() {
+        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
+                SceneBufferChannel.SUBSURFACE);
+    }
+
     /** Native TAA surface data; reactive is requested only when a producer exists. */
     public static SceneBufferRequirements taa(boolean reactive) {
         EnumSet<SceneBufferChannel> set = EnumSet.of(SceneBufferChannel.DEPTH,
