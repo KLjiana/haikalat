@@ -127,6 +127,13 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #30 新增 advanced GL-free `render3d.planar.PlanarReflectionSettings`（单平面点/法线、
+分辨率缩放与上限、更新间隔帧数、近平面偏移，构造期校验）与 advanced GL-free
+`render3d.planar.PlanarReflectionMath`（镜像相机、`V*R`、Lengyel 斜近平面裁剪），以及 internal
+`render3d.planar.PlanarReflectionPass`（自有 RGBA16F+DEPTH24 反射 FBO、`SceneRecorder` 回调、
+更新节流、绕序/目标/viewport 恢复，不作为兼容入口）。首版最多 1 个平面且非递归；Pass 尚未接入
+`RenderPipeline` 生产帧路径，水面/SSR 下游采样仍是明确的接线缺口。合同、限制与 GL 参考见
+[平面反射技术卡](../../planning/v0.28.1-s3-planar-reflections.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S2 #29 新增 advanced GL-free `render3d.environment.AtmosphereSettings`（米制行星半径/大气厚度、
 Rayleigh RGB 与 Mie 散射/吸收系数、标高、太阳方向与辐照度、曝光、太阳圆盘、LUT 尺寸与采样数，构造期校验）
 与 internal `render3d.environment.AtmosphereSkyPass`（transmittance/sky-view LUT、全屏 HDR 背景绘制与

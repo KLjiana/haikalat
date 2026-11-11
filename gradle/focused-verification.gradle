@@ -66,7 +66,8 @@ def jvmCases = [
         'SsrSettingsTest', 'SsrContractTest', 'SsrRayReferenceTest',
         'AtmosphereSettingsTest', 'AtmosphereReferenceTest', 'AtmosphereShaderSourceTest',
         'AnisotropicSettingsTest', 'AnisotropicReferenceMathTest', 'AnisotropicShaderTest',
-        'AnisotropicEnvironmentFixtureTest'
+        'AnisotropicEnvironmentFixtureTest',
+        'PlanarReflectionSettingsTest', 'PlanarReflectionMathTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -90,6 +91,7 @@ def glCases = [
         'AtmosphereSkyPassGlTest',
         'AtmospherePipelineGlTest',
         'AnisotropicGlTest',
+        'PlanarReflectionPassGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
