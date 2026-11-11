@@ -302,9 +302,9 @@ tasks.register('releaseVerificationContracts') {
         }
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
-        // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field and motion-blur
-        // shader-state policies.
-        assert policies.size() == 45
+        // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
+        // motion-blur and refraction shader-state policies.
+        assert policies.size() == 46
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -337,6 +337,19 @@ tasks.register('releaseVerificationContracts') {
                 motionBlurDevice + motionBlurMessage * 2, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPassGlTest.xml',
                 motionBlurDevice + motionBlurMessage * 3, policies).violations.isEmpty()
+        def refractionPolicy = policies.find { it.owner == 'render3d/refraction' }
+        assert refractionPolicy != null && refractionPolicy.id == 131218
+        assert refractionPolicy.maximum == 4
+        assert refractionPolicy.entry == '.*RefractionGlTest.*'
+        def refractionDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def refractionMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 7 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage.replace('Vertex', 'Geometry'),
+                policies).violations.isEmpty()
         def cloudDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def cloudMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 18 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-CloudShadowsGlTest.xml', cloudDevice + cloudMessage, policies).violations.isEmpty()
