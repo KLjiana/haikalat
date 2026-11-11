@@ -429,6 +429,24 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void gpuParticleSystemKeepsTheActiveCountOnTheGpu() throws IOException {
+        Path source = HAIKALAT.resolve(Path.of("subsystems", "render3d", "vfx",
+                "GpuParticleSystem.java"));
+        String code = Files.readString(source);
+
+        for (String forbidden : Set.of("glGetNamedBufferSubData", "glGetBufferSubData",
+                ".read(", "glMapNamedBuffer", "glReadPixels", ".custom(")) {
+            assertFalse(code.contains(forbidden),
+                    "GPU particle system must not read the active count on the CPU; found "
+                            + forbidden);
+        }
+        assertTrue(code.contains("drawArraysIndirect"),
+                "the owner must consume the GPU indirect command");
+        assertTrue(code.contains("GL_COMMAND_BARRIER_BIT"),
+                "the draw count must be published with an explicit command barrier");
+    }
+
+    @Test
     void pbrSubsystemKeepsOwnershipAndTypedCommandBoundaries() throws IOException {
         Path pbr = HAIKALAT.resolve(Path.of("subsystems", "render3d", "pbr"));
         if (Files.isDirectory(pbr)) {

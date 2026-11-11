@@ -32,6 +32,7 @@ import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
 import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
+import static org.lwjgl.opengl.GL40.glDrawArraysIndirect;
 import static org.lwjgl.opengl.GL42.glMemoryBarrier;
 import static org.lwjgl.opengl.GL43.glDispatchCompute;
 import static org.lwjgl.opengl.GL45.glGenerateTextureMipmap;
@@ -214,6 +215,18 @@ final class CommandExecutor {
                     glDrawArraysInstanced(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++));
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
+                }
+                case DRAW_ARRAYS_INDIRECT -> {
+                    int mode = stream.integerAt(integerCursor++);
+                    long offset = stream.longAt(longCursor++);
+                    BufferUploadTarget target =
+                            (BufferUploadTarget) stream.objectAt(objectCursor++);
+                    if (target instanceof GlResource resource && resource.isClosed()) {
+                        throw new GlException("Buffer is closed");
+                    }
+                    cache.bindDrawIndirectBuffer(target.id());
+                    glDrawArraysIndirect(mode, offset);
                     failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ELEMENTS_INSTANCED -> {

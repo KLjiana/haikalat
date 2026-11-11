@@ -94,6 +94,7 @@ public final class CommandBuffer {
     static final byte BIND_IMAGE_3D_LAYER = 56;
     static final byte SAMPLE_SHADING = 57;
     static final byte BLEND_EQUATION = 58;
+    static final byte DRAW_ARRAYS_INDIRECT = 59;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -560,6 +561,34 @@ public final class CommandBuffer {
         integer(indexType);
         integer(instanceCount);
         longValue(indexOffsetBytes);
+        return this;
+    }
+
+    /**
+     * 记录由 GPU 写入参数缓冲的 indirect non-indexed draw。
+     *
+     * <p>参数缓冲按 {@code DrawArraysIndirectCommand} 布局读取：绘制数量、实例数、
+     * 起始顶点和 base instance 各一个 uint，命令使用 {@code offsetBytes} 处的记录。
+     * 绑定目标只在执行期校验存活状态；命令本身不读取也不缓存计数，因此调用方
+     * 无法用 CPU 读回决定每帧 draw 数量。</p>
+     *
+     * @param mode           图元模式，例如 {@code GL_POINTS}
+     * @param indirectBuffer 保存 indirect 命令的 buffer
+     * @param offsetBytes    命令在 buffer 中的字节偏移，必须非负
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer drawArraysIndirect(int mode, BufferUploadTarget indirectBuffer,
+                                            long offsetBytes) {
+        Objects.requireNonNull(indirectBuffer, "indirectBuffer");
+        requireOpenBuffer(indirectBuffer);
+        if (offsetBytes < 0L) {
+            throw new IllegalArgumentException("indirect draw offset must be non-negative");
+        }
+        flushPendingState();
+        opcode(DRAW_ARRAYS_INDIRECT);
+        integer(mode);
+        longValue(offsetBytes);
+        object(indirectBuffer);
         return this;
     }
 
@@ -1071,6 +1100,32 @@ public final class CommandBuffer {
 
     byte recordedOpcodeAt(int commandIndex) {
         return stream.opcodeAt(commandIndex);
+    }
+
+    /**
+     * 返回录制流中按顺序保存的 integer payload。
+     *
+     * <p>advanced diagnostics：只用于命令解码与容量测试，调用方不能据此重建
+     * opcode 边界或执行命令。{@link #reset()} 后清空。</p>
+     *
+     * @param payloadIndex integer payload 下标
+     * @return 对应位置的原始 int
+     */
+    int recordedIntegerAt(int payloadIndex) {
+        return stream.integerAt(payloadIndex);
+    }
+
+    /**
+     * 返回录制流中按顺序保存的 long payload。
+     *
+     * <p>advanced diagnostics：与 {@link #recordedIntegerAt(int)} 同属解码测试入口，
+     * 不承诺 opcode 边界或执行语义。{@link #reset()} 后清空。</p>
+     *
+     * @param payloadIndex long payload 下标
+     * @return 对应位置的原始 long
+     */
+    long recordedLongAt(int payloadIndex) {
+        return stream.longAt(payloadIndex);
     }
 
     Object objectPayloadAt(int payloadIndex) {

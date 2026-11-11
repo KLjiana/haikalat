@@ -14,10 +14,12 @@ import static org.lwjgl.opengl.GL33.glBindSampler;
 import static org.lwjgl.opengl.GL31.GL_MAX_UNIFORM_BUFFER_BINDINGS;
 import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
 import static org.lwjgl.opengl.GL31.glBindBufferRange;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL42.GL_MAX_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL42.glBindImageTexture;
 import static org.lwjgl.opengl.GL43.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS;
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
+import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
 
 public final class StateCache implements PipelineStateSink {
     private int currentProgram;
@@ -42,6 +44,7 @@ public final class StateCache implements PipelineStateSink {
     private int[] imageFormats = new int[0];
     private int currentReadFramebuffer;
     private int currentDrawFramebuffer;
+    private int drawIndirectBuffer;
     private int viewportX;
     private int viewportY;
     private int viewportW;
@@ -225,6 +228,14 @@ public final class StateCache implements PipelineStateSink {
             storageBuffers[bindingPoint] = buffer;
             storageBufferOffsets[bindingPoint] = offset;
             storageBufferSizes[bindingPoint] = size;
+        }
+    }
+
+    /** Binds the buffer consumed by the next {@code glDrawArraysIndirect}. */
+    public void bindDrawIndirectBuffer(int buffer) {
+        if (changeRequired(drawIndirectBuffer != buffer)) {
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer);
+            drawIndirectBuffer = buffer;
         }
     }
 
@@ -506,6 +517,7 @@ public final class StateCache implements PipelineStateSink {
         Arrays.fill(imageFormats, -1);
         currentReadFramebuffer = -1;
         currentDrawFramebuffer = -1;
+        drawIndirectBuffer = -1;
         viewportSet = false;
         blendCached = false;
         blendFuncCached = false;

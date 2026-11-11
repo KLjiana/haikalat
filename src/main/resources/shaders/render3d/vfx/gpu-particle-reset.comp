@@ -1,0 +1,21 @@
+#version 460 core
+
+// Re-arms the indirect draw command at the start of every particle record.
+// The leading four uints are exactly an std430 DrawArraysIndirectCommand, so
+// the update pass increments the first word and the owner consumes the same
+// storage through glDrawArraysIndirect without a CPU count read.
+layout (local_size_x = 1) in;
+
+layout (std430, binding = 1) buffer CounterBuffer {
+    uint activeCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint baseInstance;
+} counters;
+
+void main() {
+    counters.activeCount = 0u;
+    counters.instanceCount = 1u;
+    counters.firstVertex = 0u;
+    counters.baseInstance = 0u;
+}
