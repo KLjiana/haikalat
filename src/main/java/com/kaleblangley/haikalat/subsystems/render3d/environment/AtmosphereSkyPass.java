@@ -370,13 +370,49 @@ public final class AtmosphereSkyPass implements GlResource {
     }
 
     private static String computeSource(String shaderPath) {
-        return "#version 460 core\n" + readResource(COMMON_SHADER) + "\n"
-                + readResource(shaderPath);
+        return composeShaderSource(shaderPath);
     }
 
     private static String fragmentSource() {
+        return composeShaderSource(SKY_SHADER);
+    }
+
+    /**
+     * Composes the single-version shader source used by the compiler.
+     *
+     * <p>Every body file keeps a readable {@code #version} line for standalone
+     * inspection, so the body's directive is stripped before concatenation; the
+     * composed source owns the sole version line.  The first real GL run failed
+     * with {@code C0204: version directive must be first statement and may not be
+     * repeated} because an earlier composition prepended a second version line.</p>
+     */
+    static String composeShaderSource(String shaderPath) {
+        Objects.requireNonNull(shaderPath, "shaderPath");
         return "#version 460 core\n" + readResource(COMMON_SHADER) + "\n"
-                + readResource(SKY_SHADER);
+                + stripVersionDirective(readResource(shaderPath));
+    }
+
+    /**
+     * Removes the first non-blank line when it is a {@code #version} directive.
+     * Leading blank lines and a UTF-8 BOM are tolerated; a body without a
+     * version directive is returned unchanged.
+     */
+    static String stripVersionDirective(String source) {
+        Objects.requireNonNull(source, "source");
+        String text = source.startsWith("\uFEFF") ? source.substring(1) : source;
+        int lineStart = 0;
+        while (lineStart < text.length()) {
+            int lineEnd = text.indexOf('\n', lineStart);
+            int effectiveEnd = lineEnd < 0 ? text.length() : lineEnd;
+            String line = text.substring(lineStart, effectiveEnd);
+            if (!line.isBlank()) {
+                if (!line.stripLeading().startsWith("#version")) return text;
+                int next = lineEnd < 0 ? text.length() : lineEnd + 1;
+                return next >= text.length() ? "" : text.substring(next);
+            }
+            lineStart = lineEnd < 0 ? text.length() : lineEnd + 1;
+        }
+        return text;
     }
 
     private static String readResource(String path) {
