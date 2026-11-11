@@ -36,6 +36,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSelector
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSet;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
+import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
@@ -101,7 +102,7 @@ class ReflectionProbeGlTest {
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
             try (GlDebug.ResourceTrackingLease ignored = GlDebug.acquireResourceTracking()) {
-                runAcceptance(window);
+                runAcceptance();
             }
         }
     }
@@ -118,8 +119,10 @@ class ReflectionProbeGlTest {
     }
 
     /** Runs the probe acceptance with resource tracking active. */
-    private static void runAcceptance(GlfwWindow window) {
+    private static void runAcceptance() {
         GlRenderDevice device = new GlRenderDevice();
+        MutableTarget pbrOnlyTarget = new MutableTarget(WIDTH, HEIGHT);
+        MutableTarget mainTarget = new MutableTarget(WIDTH, HEIGHT);
         try (ShaderProgram shader = ShaderProgram.fromResource(ReflectionProbeGlTest.class,
                 "/shaders/render3d/pbr/pbr-forward.vert",
                 "/shaders/render3d/pbr/pbr-forward.frag");
@@ -161,7 +164,7 @@ class ReflectionProbeGlTest {
                 pbrOnlyScene.add(MeshRenderer.of(quad, pbrOnlyInstance, identityTransform));
                 pbrOnlyScene.addLight(SceneLight.directional(new Vector3f(-0.3f, -0.5f, -1.0f),
                         new Vector3f(1.0f), 1.0f));
-                RenderPipeline pbrOnlyPipeline = new RenderPipeline(window, pbrOnlyScene,
+                RenderPipeline pbrOnlyPipeline = new RenderPipeline(pbrOnlyTarget, pbrOnlyScene,
                         null, RenderSettings.builder()
                                 .antiAliasingMode(AntiAliasingMode.NONE)
                                 .toneMappingMode(ToneMappingMode.ACES)
@@ -232,7 +235,7 @@ class ReflectionProbeGlTest {
                         .toneMappingMode(ToneMappingMode.ACES)
                         .vsync(false)
                         .build();
-                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                RenderPipeline pipeline = new RenderPipeline(mainTarget, scene, null,
                         renderSettings, environment);
                 try {
                     RenderFeatureSettings ibl = pipeline.features().effective().toBuilder()
@@ -373,6 +376,10 @@ class ReflectionProbeGlTest {
                             "clearing the probe overrides must restore the exact baseline");
 
                     // Probe resources are independent of render-target size.
+                    // The mutable host target makes the next execute publish a
+                    // real 96x72 generation; pipeline.resize alone would be
+                    // reverted to the host/window extent at execute time.
+                    mainTarget.resize(96, 72);
                     pipeline.resize(96, 72);
                     float[] resizedBaseline = globalFrame(pipeline, device, instance,
                             96, 72);
@@ -617,6 +624,38 @@ class ReflectionProbeGlTest {
         } catch (RuntimeException failure) {
             texture.close();
             throw failure;
+        }
+    }
+
+    /**
+     * Host extent with an explicit resize. The real GLFW window only owns the
+     * context; using a mutable target lets {@code execute()} publish a real
+     * 96x72 generation instead of reverting to the window framebuffer size.
+     */
+    private static final class MutableTarget implements RenderWindow {
+        private int width;
+        private int height;
+
+        private MutableTarget(int width, int height) {
+            resize(width, height);
+        }
+
+        private void resize(int width, int height) {
+            if (width <= 0 || height <= 0) {
+                throw new IllegalArgumentException("target dimensions must be positive");
+            }
+            this.width = width;
+            this.height = height;
+        }
+
+        @Override
+        public int width() {
+            return width;
+        }
+
+        @Override
+        public int height() {
+            return height;
         }
     }
 
