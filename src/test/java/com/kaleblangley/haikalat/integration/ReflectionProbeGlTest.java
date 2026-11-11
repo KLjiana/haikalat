@@ -51,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_RGBA8;
@@ -58,7 +59,7 @@ import static org.lwjgl.opengl.GL11.GL_RGBA8;
 /**
  * Real-consumer acceptance for static local reflection probes (#18).
  *
- * <p>The fixture is one metallic-white PBR quad at the screen centre rendered
+ * <p>The fixture is one metallic-grey PBR quad at the screen centre rendered
  * through the production {@link PbrMaterials} + {@code pbr-forward.frag} path.
  * The global environment and both probe environments are uniform test HDR
  * fixtures, so the linear HDR image isolates the probe weights: the BRDF
@@ -133,7 +134,7 @@ class ReflectionProbeGlTest {
                      ReflectionProbeGlTest.class, List.of(probeA(), probeB()));
              Texture2D metalRough = metallicRoughnessTexture()) {
             Material material = PbrMaterials.create(shader,
-                    new PbrMaterialProperties(new Vector4f(1.0f, 1.0f, 1.0f, 1.0f),
+                    new PbrMaterialProperties(new Vector4f(0.5f, 0.5f, 0.5f, 1.0f),
                             1.0f, 0.1f, 0.0f, 1.0f, new Vector3f(), Map.of()),
                     Map.of(PbrTextureRole.METALLIC_ROUGHNESS, metalRough), fallbacks);
             try {
@@ -167,6 +168,43 @@ class ReflectionProbeGlTest {
                             .build();
                     pipeline.features().submit(ibl);
                     pipeline.build();
+
+                    // Verify the fixture's metallic-roughness texel is really
+                    // the bound unit-2 map, not the shared fallback (which
+                    // would leave metallic at zero and hide the probe lobe
+                    // behind the global diffuse term).
+                    Material.TextureBinding metallicBinding = material.defaultTextures()
+                            .stream()
+                            .filter(binding -> binding.unit() == 2)
+                            .findFirst()
+                            .orElseThrow();
+                    assertEquals("uMetallicRoughnessMap", metallicBinding.samplerName());
+                    assertSame(metalRough, metallicBinding.texture(),
+                            "the fixture metallic-roughness texture must be the bound map");
+
+                    // Emissive red proves the quad itself covers the centre
+                    // pixel independent of lighting/metallic state.
+                    instance.clearOverrides();
+                    instance.setVec3("uEmissiveFactor", new Vector3f(1.0f, 0.0f, 0.0f));
+                    float[] coverageFrame = render(pipeline, device, WIDTH, HEIGHT);
+                    assertQuadCoverage("emissive coverage", coverageFrame, WIDTH, HEIGHT);
+                    assertTrue(centrePixel(coverageFrame, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the emissive coverage frame must show the quad's red output");
+                    instance.clearOverrides();
+
+                    // With diffuse IBL disabled, a working metallic map leaves
+                    // a visible specular lobe; a fallback dielectric map would
+                    // leave almost nothing. This catches a silently unbound
+                    // metallic-roughness texture before the probe assertions.
+                    instance.clearOverrides();
+                    instance.setInt("uEnableDiffuseIbl", 0);
+                    float[] specularOnly = render(pipeline, device, WIDTH, HEIGHT);
+                    float specularLuminance = luminance(centrePixel(specularOnly,
+                            WIDTH, HEIGHT));
+                    assertTrue(specularLuminance > 0.04f,
+                            "the metallic map must leave a specular lobe when diffuse IBL is "
+                                    + "disabled, got luminance " + specularLuminance);
+                    instance.clearOverrides();
 
                     float[] baseline = globalFrame(pipeline, device, instance, WIDTH, HEIGHT);
                     assertQuadCoverage("baseline", baseline, WIDTH, HEIGHT);
