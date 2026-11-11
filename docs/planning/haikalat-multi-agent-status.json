@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T15:26:58.6153229+08:00",
+    "updatedAt":  "2026-11-11T15:28:30.1103525+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -229,16 +229,16 @@
                       "featureIds":  [
                                          4
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Screen-Space Distortion",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 9e2fad5e-5ea3-45df-ab69-d3f74490d0a7",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "13aaed0",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -252,7 +252,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Screen-space distortion production implementation in s1-distort"
                   },
                   {
                       "taskId":  "R05",
