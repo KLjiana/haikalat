@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T13:27:50.2776709+08:00",
+    "updatedAt":  "2026-11-11T13:59:16.9927360+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -416,30 +416,31 @@
                       "featureIds":  [
                                          10
                                      ],
-                      "state":  "IMPLEMENTING",
+                      "state":  "DONE",
                       "scope":  "Cloud Shadows",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent 29e3cc71-73d1-48af-ae1d-ecc406027570",
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "41959bb",
-                      "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "workerCommit":  "6bf5b88",
+                      "integrationCommit":  "bcc823d",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "integration focused verify ea787b04: 265 tests PASS",
+                                       "glSmoke CloudShadowsGlTest PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Cloud shadows production implementation in s1-cloud"
+                      "nextAction":  "Independent reviewer sign-off"
                   },
                   {
                       "taskId":  "R11",
