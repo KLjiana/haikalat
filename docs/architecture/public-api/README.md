@@ -136,6 +136,14 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（renderScale、history blend、
+sharpness、reactive/曝光/深度拒绝、最大重投影误差、quality 档，构造期校验；默认 `disabled()`）与
+`TemporalUpscalingSource`（借用低分辨率 color/depth/velocity/prevDepth/reactive/UI 源），以及 internal
+`postprocess.upscale.TemporalUpscalingPass`（prev-VP/velocity 重投影、邻域 clamp、bounded sharpen、双 slot
+history、candidate resize）。`PostProcessSettings` 追加 `temporalUpscaling` 组件并保持旧构造器兼容；
+`PostProcessPipeline` 在 HDR 链头部插入 upscale。首版无 ML/DLSS/FSR/帧生成，不重建输出深度，active 时
+拒绝原地 resize 与全分辨率 surface consumer 组合。合同、限制与 GL 参考见
+[时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（启用、历史混合、邻域 clamp
 半径、深度/法线拒绝阈值、reactive/亮度突变阈值、最大重投影距离，构造期校验；默认 `disabled()`），
 `PostProcessSettings` 追加 `temporalDenoise` 组件并保持旧构造器兼容；`PostProcessPipeline` 在 SSR 之后插入
