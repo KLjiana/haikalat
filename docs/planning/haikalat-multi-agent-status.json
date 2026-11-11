@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "3829cfc"
+                        "head":  "afb781a"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T02:36:47.9422114+08:00",
+    "updatedAt":  "2026-11-12T03:05:19.7495789+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -941,7 +941,7 @@
                       "featureIds":  [
                                          26
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "GPU Particle Sorting",
                       "dependencies":  [
                                            27
@@ -952,19 +952,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "afb781a",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused GL GpuParticleSortingGlTest 7/7 PASS",
+                                       "JVM GpuParticleSort* 22 tests PASS",
+                                       "focused verify 4c675a0d: 680 tests PASS, 0 skipped",
+                                       "first GPU failure was the test distance oracle; fixed at 0d85712"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; pipeline/transparent integration unwired"
                   },
                   {
                       "taskId":  "R27",
