@@ -134,6 +134,10 @@ uniform int uAlphaMode; // 0 OPAQUE, 1 MASK, 2 BLEND
 uniform int uClearcoatEnabled;
 uniform float uClearcoatRoughness;
 uniform float uClearcoatNormalStrength;
+// Bounded anisotropic base-specular input; zero strength is the exact isotropic path.
+uniform int uAnisotropicEnabled;
+uniform float uAnisotropicStrength;
+uniform float uAnisotropicRotation;
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;
@@ -145,6 +149,8 @@ const float PI = 3.14159265358979323846;
 const float CLEARCOAT_F0 = 0.04;
 // Same safe GGX floor as the base layer.
 const float CLEARCOAT_MIN_ROUGHNESS = 0.045;
+// Per-axis GGX alpha floor: the square of the base 0.045 roughness floor.
+const float ANISOTROPIC_MIN_ALPHA = 0.002025;
 
 int shadowKernelRadius() {
     return clamp(uShadowQualityMeta.x, 0, 2);
@@ -191,6 +197,163 @@ vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
     return f0 + (max(vec3(1.0 - roughness), f0) - f0)
             * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+/**
+ * Deterministic tangent axis used when the mesh has no usable TANGENT.
+ *
+ * <p>Same construction as the CPU tangent generator's degenerate fallback:
+ * pick a reference axis that cannot be parallel to the normal, then take its
+ * cross product with the normal. Comparisons are false for NaN, so a tangent
+ * attribute that normalized to NaN (or a tangent parallel to the normal) is
+ * routed here through the caller's {@code !(dot > epsilon)} checks.</p>
+ */
+vec3 fallbackAnisotropicTangent(vec3 n) {
+    vec3 reference = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+    vec3 tangent = cross(reference, n);
+    float lengthSquared = dot(tangent, tangent);
+    return lengthSquared > 1.0e-12 ? tangent * inversesqrt(lengthSquared) : vec3(1.0, 0.0, 0.0);
+}
+
+/** Handedness-corrected unit bitangent; zero when the product is unusable. */
+vec3 tangentFrameBitangent(vec3 n, vec3 t, float handedness) {
+    vec3 bitangent = cross(n, t) * (handedness < 0.0 ? -1.0 : 1.0);
+    float lengthSquared = dot(bitangent, bitangent);
+    return lengthSquared > 1.0e-8 ? bitangent * inversesqrt(lengthSquared) : vec3(0.0);
+}
+
+/**
+ * Bounded anisotropic tangent frame for the shaded normal.
+ *
+ * <p>The vertex tangent is re-projected onto the shaded normal (so normal-map
+ * perturbation does not invalidate the frame), and the bitangent is rebuilt
+ * with the handedness sign emitted by {@code pbr-forward.vert}. That sign
+ * already includes the mirrored-UV/negative-model-determinant term, so a
+ * negative determinant flips the bitangent instead of silently producing a
+ * left-handed frame. A missing, zero, non-finite or normal-parallel tangent
+ * falls back to {@link #fallbackAnisotropicTangent}; the fallback is still a
+ * valid anisotropic frame, never an unbounded normalization. The rotation
+ * happens inside the tangent plane, with zero aligning the stretch with the
+ * mesh tangent. Returns false only when even the fallback cannot build a
+ * finite orthonormal frame.</p>
+ */
+bool anisotropicTangentFrame(vec3 n, out vec3 tangent, out vec3 bitangent) {
+    tangent = vec3(0.0);
+    bitangent = vec3(0.0);
+    if (!(dot(n, n) > 1.0e-12)) return false;
+    vec3 candidate = vTangent;
+    if (!(dot(candidate, candidate) > 1.0e-8)) {
+        candidate = fallbackAnisotropicTangent(n);
+    }
+    vec3 projected = candidate - n * dot(n, candidate);
+    if (!(dot(projected, projected) > 1.0e-8)) {
+        projected = fallbackAnisotropicTangent(n);
+    }
+    if (!(dot(projected, projected) > 1.0e-8)) return false;
+    tangent = normalize(projected);
+    bitangent = tangentFrameBitangent(n, tangent, vTangentHandedness);
+    if (!(dot(bitangent, bitangent) > 1.0e-8)) {
+        tangent = fallbackAnisotropicTangent(n);
+        bitangent = tangentFrameBitangent(n, tangent, 1.0);
+    }
+    if (!(dot(bitangent, bitangent) > 1.0e-8)) return false;
+    float c = cos(uAnisotropicRotation);
+    float s = sin(uAnisotropicRotation);
+    vec3 rotatedTangent = tangent * c + bitangent * s;
+    vec3 rotatedBitangent = bitangent * c - tangent * s;
+    float tangentLengthSquared = dot(rotatedTangent, rotatedTangent);
+    float bitangentLengthSquared = dot(rotatedBitangent, rotatedBitangent);
+    if (!(tangentLengthSquared > 1.0e-8) || !(bitangentLengthSquared > 1.0e-8)) return false;
+    tangent = rotatedTangent * inversesqrt(tangentLengthSquared);
+    bitangent = rotatedBitangent * inversesqrt(bitangentLengthSquared);
+    return true;
+}
+
+/**
+ * Burley anisotropic GGX distribution.
+ *
+ * <p>{@code at}/{@code ab} are the tangential GGX alphas along the anisotropy
+ * direction and perpendicular to it. The half-vector is evaluated in the
+ * (tangent, bitangent, normal) frame; the result reduces to the isotropic GGX
+ * distribution when both axes are equal. A non-finite/degenerate scaled
+ * half-vector returns zero instead of propagating NaN.</p>
+ */
+float distributionGgxAnisotropic(vec3 n, vec3 h, vec3 t, vec3 b, float at, float ab) {
+    float nDotH = max(dot(n, h), 0.0);
+    float tDotH = dot(t, h);
+    float bDotH = dot(b, h);
+    float a2 = at * ab;
+    vec3 scaled = vec3(ab * tDotH, at * bDotH, a2 * nDotH);
+    float lengthSquared = dot(scaled, scaled);
+    if (!(lengthSquared > 1.0e-20) || !(a2 > 0.0)) return 0.0;
+    float weight = a2 / lengthSquared;
+    return a2 * weight * weight / PI;
+}
+
+/**
+ * Burley anisotropic Smith visibility {@code V = G / (4 (n.v) (n.l))}.
+ *
+ * <p>Direct specular is {@code D * V * F}, matching the isotropic path's
+ * split of GGX and Smith. The visibility is finite for every finite frame;
+ * the caller's positive {@code n.l} gate keeps the grazing denominator out of
+ * the final radiance.</p>
+ */
+float visibilitySmithAnisotropic(vec3 n, vec3 v, vec3 l, vec3 t, vec3 b,
+                                 float at, float ab) {
+    float nDotV = max(dot(n, v), 0.0);
+    float nDotL = max(dot(n, l), 0.0);
+    vec3 scaledView = vec3(at * dot(t, v), ab * dot(b, v), nDotV);
+    vec3 scaledLight = vec3(at * dot(t, l), ab * dot(b, l), nDotL);
+    float lambdaV = nDotL * length(scaledView);
+    float lambdaL = nDotV * length(scaledLight);
+    return 0.5 / max(lambdaV + lambdaL, 1.0e-5);
+}
+
+/**
+ * Base-layer direct BRDF with the Burley anisotropic distribution and Smith
+ * visibility. Only the base specular lobe is anisotropic: the diffuse term,
+ * Schlick Fresnel and the optional clearcoat split stay isotropic. Strength
+ * zero never reaches this function; the caller keeps the original
+ * {@code directBrdf} path so the isotropic output is unchanged.</p>
+ */
+vec3 directBrdfAnisotropic(vec3 n, vec3 v, vec3 l, vec3 radiance,
+                           vec3 baseColor, float metallic, float roughness, vec3 f0,
+                           vec3 tangent, vec3 bitangent, float strength) {
+    float nDotL = max(dot(n, l), 0.0);
+    if (nDotL <= 0.0) return vec3(0.0);
+    vec3 h = normalize(v + l);
+    vec3 f = fresnelSchlick(max(dot(h, v), 0.0), f0);
+    float alpha = max(roughness * roughness, ANISOTROPIC_MIN_ALPHA);
+    float at = max(alpha * (1.0 + strength), ANISOTROPIC_MIN_ALPHA);
+    float ab = max(alpha * (1.0 - strength), ANISOTROPIC_MIN_ALPHA);
+    float d = distributionGgxAnisotropic(n, h, tangent, bitangent, at, ab);
+    float visibility = visibilitySmithAnisotropic(n, v, l, tangent, bitangent, at, ab);
+    vec3 specular = d * visibility * f;
+    vec3 kd = (1.0 - f) * (1.0 - metallic);
+    return (kd * baseColor / PI + specular) * radiance * nDotL;
+}
+
+/**
+ * Bounded anisotropic IBL lookup direction.
+ *
+ * <p>The isotropic reflection vector is stretched inside the tangent plane
+ * along the anisotropy direction and squeezed across it, then renormalized.
+ * The main shader also widens the prefiltered-environment mip with the same
+ * strength. This is a deliberate bounded energy approximation: it reuses the
+ * existing prefiltered cubemap and isotropic BRDF LUT instead of a true
+ * anisotropic prefilter, so it must not be read as an exact anisotropic IBL
+ * solution.</p>
+ */
+vec3 anisotropicReflectionDirection(vec3 n, vec3 v, vec3 tangent, vec3 bitangent,
+                                    float strength) {
+    vec3 reflection = reflect(-v, n);
+    vec3 local = vec3(dot(reflection, tangent), dot(reflection, bitangent),
+                      dot(reflection, n));
+    local.x *= 1.0 + 0.5 * strength;
+    local.y *= 1.0 - 0.35 * strength;
+    vec3 warped = tangent * local.x + bitangent * local.y + n * local.z;
+    float lengthSquared = dot(warped, warped);
+    return lengthSquared > 1.0e-8 ? warped * inversesqrt(lengthSquared) : reflection;
 }
 
 /**
@@ -636,7 +799,9 @@ float rangeInverseSquareAttenuation(float distanceToLight, float range) {
 
 vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                          float metallic, float roughness, vec3 f0,
-                         vec3 clearcoatNormalValue, float clearcoatRoughness) {
+                         vec3 clearcoatNormalValue, float clearcoatRoughness,
+                         vec3 anisotropicTangent, vec3 anisotropicBitangent,
+                         float anisotropicStrength) {
     LightRecord light = uLights[index];
     vec3 l = normalize(-light.directionOuter.xyz);
     float visibility = 1.0;
@@ -652,7 +817,10 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         visibility *= cloudShadowVisibility(n, l);
     }
     vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a;
-    vec3 base = directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    vec3 base = anisotropicStrength > 0.0
+            ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
+                    anisotropicTangent, anisotropicBitangent, anisotropicStrength)
+            : directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
     if (uClearcoatEnabled != 0) {
         vec3 h = normalize(v + l);
         float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
@@ -665,7 +833,9 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
 
 vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                    float metallic, float roughness, vec3 f0,
-                   vec3 clearcoatNormalValue, float clearcoatRoughness) {
+                   vec3 clearcoatNormalValue, float clearcoatRoughness,
+                   vec3 anisotropicTangent, vec3 anisotropicBitangent,
+                   float anisotropicStrength) {
     LightRecord light = uLights[index];
     vec3 lightPosition = light.positionRange.xyz;
     vec3 delta = lightPosition - vWorldPosition;
@@ -687,7 +857,10 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                 : spotShadowFactor(slot, n, l));
     }
     vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
-    vec3 base = directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    vec3 base = anisotropicStrength > 0.0
+            ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
+                    anisotropicTangent, anisotropicBitangent, anisotropicStrength)
+            : directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
     if (uClearcoatEnabled != 0) {
         vec3 h = normalize(v + l);
         float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
@@ -784,13 +957,25 @@ void main() {
         FragColor = vec4(clusterDebugColor(debugCluster), 1.0);
         return;
     }
+    // Lazy anisotropic setup: disabled or zero strength keeps the original
+    // isotropic BRDF and the original environment sample sequence.
+    float anisotropicStrength = 0.0;
+    vec3 anisotropicTangent = vec3(0.0);
+    vec3 anisotropicBitangent = vec3(0.0);
+    if (uAnisotropicEnabled != 0 && uAnisotropicStrength > 0.0) {
+        anisotropicStrength = clamp(uAnisotropicStrength, 0.0, 1.0);
+        if (!anisotropicTangentFrame(n, anisotropicTangent, anisotropicBitangent)) {
+            anisotropicStrength = 0.0;
+        }
+    }
     vec3 direct = vec3(0.0);
     if (uEnableDirect != 0) {
         uint directionalCount = uLightHeader.x;
         uint localCount = uLightHeader.y;
         for (uint i = 0u; i < directionalCount; i++) {
             direct += directionalRadiance(int(i), n, v, baseSample.rgb,
-                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
+                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness,
+                    anisotropicTangent, anisotropicBitangent, anisotropicStrength);
         }
         int cluster = localCount > 0u ? resolveCluster() : -1;
         if (cluster >= 0) {
@@ -800,14 +985,16 @@ void main() {
                 // evaluator so no light is lost, however expensive.
                 for (uint i = 0u; i < localCount; i++) {
                     direct += localRadiance(int(directionalCount + i), n, v, baseSample.rgb,
-                            metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
+                            metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness,
+                            anisotropicTangent, anisotropicBitangent, anisotropicStrength);
                 }
             } else {
                 uint count = header.y;
                 for (uint k = 0u; k < count; k++) {
                     direct += localRadiance(int(uClusterIndices[header.x + k]), n, v,
                             baseSample.rgb, metallic, roughness, f0,
-                            clearcoatNormalValue, clearcoatRoughness);
+                            clearcoatNormalValue, clearcoatRoughness,
+                            anisotropicTangent, anisotropicBitangent, anisotropicStrength);
                 }
             }
         }
@@ -821,8 +1008,19 @@ void main() {
     // Lambert BRDF must divide by PI exactly once here.
     vec3 diffuseIbl = texture(uIrradianceMap, rotatedN).rgb * baseSample.rgb / PI;
     vec3 reflection = rotateEnvironment(reflect(-v, n));
+    float prefilterRoughness = roughness;
+    if (anisotropicStrength > 0.0) {
+        // Bounded approximation, not an exact anisotropic IBL: the existing
+        // prefiltered cubemap is sampled through a tangent-plane-stretched
+        // direction at a slightly widened mip. The isotropic BRDF LUT and
+        // Fresnel term are reused, so energy is only approximately preserved.
+        reflection = rotateEnvironment(anisotropicReflectionDirection(
+                n, v, anisotropicTangent, anisotropicBitangent, anisotropicStrength));
+        prefilterRoughness = clamp(roughness * (1.0 + 0.5 * anisotropicStrength),
+                0.0, 1.0);
+    }
     vec3 prefiltered = textureLod(uPrefilteredMap, reflection,
-            roughness * uPrefilterMaxLod).rgb;
+            prefilterRoughness * uPrefilterMaxLod).rgb;
     vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
     vec3 specularIbl = prefiltered * (f * brdf.x + brdf.y);
     float aoSample = texture(uOcclusionMap, vTexCoord).r;

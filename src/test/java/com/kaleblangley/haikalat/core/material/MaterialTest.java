@@ -196,6 +196,29 @@ class MaterialTest {
                 () -> Material.builder(shader(9)).clearcoat(null));
     }
 
+    @Test
+    void anisotropicDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.anisotropic().active(),
+                "existing materials must keep the exact no-op anisotropic path");
+        assertEquals(AnisotropicSettings.disabled(), plain.anisotropic());
+
+        AnisotropicSettings settings = AnisotropicSettings.of(0.8f, 0.6f);
+        Material anisotropic = Material.builder(shader(8)).anisotropic(settings).build();
+        assertEquals(settings, anisotropic.anisotropic());
+        assertTrue(anisotropic.anisotropic().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).anisotropic(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).anisotropic(
+                        AnisotropicSettings.of(1.5f, 0.0f)),
+                "the settings record must reject an out-of-range strength before the builder stores it");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11)).anisotropic(
+                        AnisotropicSettings.of(0.5f, Float.NaN)),
+                "the settings record must reject a non-finite rotation before the builder stores it");
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);

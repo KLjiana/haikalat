@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
+import com.kaleblangley.haikalat.core.material.AnisotropicSettings;
 import com.kaleblangley.haikalat.core.material.ClearcoatSettings;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.RefractionSettings;
@@ -51,6 +52,7 @@ public final class PbrMaterials {
                 .setFloat("uAlphaCutoff", 0.0f);
         builder.setInt("uAlphaMode", 0);
         applyClearcoat(builder, ClearcoatSettings.disabled());
+        applyAnisotropic(builder, AnisotropicSettings.disabled());
         bind(builder, 0, "uBaseColorMap", PbrTextureRole.BASE_COLOR, supplied, fallbacks);
         bind(builder, 1, "uNormalMap", PbrTextureRole.NORMAL, supplied, fallbacks);
         bind(builder, 2, "uMetallicRoughnessMap", PbrTextureRole.METALLIC_ROUGHNESS, supplied, fallbacks);
@@ -114,6 +116,31 @@ public final class PbrMaterials {
                                                float alphaCutoff, BlendMode blendMode,
                                                ClearcoatSettings clearcoat,
                                                PbrTextureBinding clearcoatNormal) {
+        return createWithBindings(shader, properties, supplied, fallbacks, cullMode, doubleSided,
+                hasVertexColor, alphaCutoff, blendMode, clearcoat, clearcoatNormal,
+                AnisotropicSettings.disabled());
+    }
+
+    /**
+     * Creates a glTF-style PBR material with the bounded clearcoat overlay and
+     * the bounded anisotropic base-specular input.
+     *
+     * <p>{@code anisotropic} is stored on the material and uploaded as the
+     * {@code uAnisotropicEnabled}/{@code uAnisotropicStrength}/
+     * {@code uAnisotropicRotation} uniforms. It stretches only the base
+     * metallic-roughness specular lobe; the clearcoat layer, diffuse term and
+     * Fresnel split stay isotropic. Disabled settings are the exact
+     * pre-anisotropy output, including the original prefiltered-IBL sample
+     * sequence.</p>
+     */
+    public static Material createWithBindings(ShaderProgram shader, PbrMaterialProperties properties,
+                                               Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                               PbrFallbackTextures fallbacks, CullMode cullMode,
+                                               boolean doubleSided, boolean hasVertexColor,
+                                               float alphaCutoff, BlendMode blendMode,
+                                               ClearcoatSettings clearcoat,
+                                               PbrTextureBinding clearcoatNormal,
+                                               AnisotropicSettings anisotropic) {
         if (!Float.isFinite(alphaCutoff) || alphaCutoff < 0.0f || alphaCutoff > 1.0f) {
             throw new IllegalArgumentException("alphaCutoff must be finite and in [0, 1]");
         }
@@ -122,7 +149,8 @@ public final class PbrMaterials {
         supplied = Map.copyOf(Objects.requireNonNull(supplied, "supplied"));
         Objects.requireNonNull(fallbacks, "fallbacks");
         Objects.requireNonNull(clearcoat, "clearcoat");
-        Material.Builder builder = baseBuilder(shader, properties, clearcoat)
+        Objects.requireNonNull(anisotropic, "anisotropic");
+        Material.Builder builder = baseBuilder(shader, properties, clearcoat, anisotropic)
                 .cullMode(cullMode)
                 .blendMode(Objects.requireNonNull(blendMode, "blendMode"))
                 .setInt("uDoubleSided", doubleSided ? 1 : 0)
@@ -150,6 +178,22 @@ public final class PbrMaterials {
                                                PbrTextureBinding clearcoatNormal) {
         return createWithBindings(shader, properties, supplied, fallbacks, CullMode.NONE,
                 false, false, 0.0f, BlendMode.OPAQUE, clearcoat, clearcoatNormal);
+    }
+
+    /**
+     * Hand-built PBR material with a bounded anisotropic highlight and the
+     * default raster state (no culling, single-sided, no vertex colour,
+     * OPAQUE). Anisotropy is available together with clearcoat through the
+     * full {@code createWithBindings(...)} overload.
+     */
+    public static Material createWithAnisotropy(ShaderProgram shader,
+                                                PbrMaterialProperties properties,
+                                                Map<PbrTextureRole, PbrTextureBinding> supplied,
+                                                PbrFallbackTextures fallbacks,
+                                                AnisotropicSettings anisotropic) {
+        return createWithBindings(shader, properties, supplied, fallbacks, CullMode.NONE,
+                false, false, 0.0f, BlendMode.OPAQUE, ClearcoatSettings.disabled(), null,
+                anisotropic);
     }
 
     /**
@@ -218,7 +262,8 @@ public final class PbrMaterials {
     }
 
     private static Material.Builder baseBuilder(ShaderProgram shader, PbrMaterialProperties properties,
-                                                ClearcoatSettings clearcoat) {
+                                                ClearcoatSettings clearcoat,
+                                                AnisotropicSettings anisotropic) {
         Material.Builder builder = Material.builder(shader)
                 .model(MaterialModel.METALLIC_ROUGHNESS)
                 .setVec4("uBaseColorFactor", properties.baseColorFactor())
@@ -234,7 +279,7 @@ public final class PbrMaterials {
                 .setInt("uHasVertexColor", 0)
                 .setInt("uDoubleSided", 0)
                 .setFloat("uAlphaCutoff", 0.0f);
-        return applyClearcoat(builder, clearcoat);
+        return applyAnisotropic(applyClearcoat(builder, clearcoat), anisotropic);
     }
 
     /** Uploads the bounded clearcoat settings as the frozen material uniforms. */
@@ -246,6 +291,17 @@ public final class PbrMaterials {
                 .setInt("uClearcoatEnabled", clearcoat.active() ? 1 : 0)
                 .setFloat("uClearcoatRoughness", clearcoat.roughness())
                 .setFloat("uClearcoatNormalStrength", clearcoat.normalStrength());
+    }
+
+    /** Uploads the bounded anisotropic settings as the frozen material uniforms. */
+    private static Material.Builder applyAnisotropic(Material.Builder builder,
+                                                     AnisotropicSettings anisotropic) {
+        Objects.requireNonNull(anisotropic, "anisotropic");
+        return builder
+                .anisotropic(anisotropic)
+                .setInt("uAnisotropicEnabled", anisotropic.active() ? 1 : 0)
+                .setFloat("uAnisotropicStrength", anisotropic.strength())
+                .setFloat("uAnisotropicRotation", anisotropic.rotation());
     }
 
     /**

@@ -81,3 +81,4 @@ stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader
 stable com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene
 advanced com.kaleblangley.haikalat.core.material.RefractionSettings
 advanced com.kaleblangley.haikalat.core.material.ClearcoatSettings
+advanced com.kaleblangley.haikalat.core.material.AnisotropicSettings

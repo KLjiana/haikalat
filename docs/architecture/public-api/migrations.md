@@ -229,3 +229,15 @@ canonical record 由 9 个组件扩展为 10 个（新增 `ssr`）；原 2/3/4/6
 `RenderFeaturePolicy` 在统一请求入口拒绝非 HDR 或没有 PBR 材质的 SSR 请求。禁用时不创建任何
 SSR 资源，pass 顺序与 `passNamesFor` 保持原语义。技术范围与指纹见
 [技术卡](../../planning/v0.28.1-s3-ssr.md)。
+v0.28.1（候选）S2 #17 各向异性高光没有删除 stable 类型，也没有修改既有构造器。新增
+advanced GL-free `core.material.AnisotropicSettings(strength, rotation)`（strength 有限
+`[0,1]`，rotation 有限弧度；0 强度精确走各向同性路径），并在 `core.allowlist` 登记。
+`Material`/`Material.Builder` 新增 `anisotropic(AnisotropicSettings)` 与
+`anisotropic()`，默认 `AnisotropicSettings.disabled()`；既有 `Material` 构建与绘制路径
+保持源码/行为兼容。`pbr.PbrMaterials` 新增 `createWithAnisotropy(...)` 与末位带
+`AnisotropicSettings` 的 `createWithBindings(...)` 重载；既有重载保留并默认
+`AnisotropicSettings.disabled()`，glTF 材质路径行为不变。各向异性是材质值，不是
+`RenderFeatureSettings` 拓扑项；不新增 Pass、纹理、附件或 GPU owner，逐对象切换使用
+`MaterialInstance` 覆盖 `uAnisotropicEnabled`/`uAnisotropicStrength`/
+`uAnisotropicRotation` 即可，无需重建候选。Burley D/V、切线帧回退、镜像/负行列式与
+有界 IBL 近似见[技术卡](../../planning/v0.28.1-s2-anisotropic.md)。

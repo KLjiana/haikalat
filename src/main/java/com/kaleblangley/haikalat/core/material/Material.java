@@ -45,6 +45,7 @@ public final class Material implements GlResource {
     private final boolean volumetricFogOptOut;
     private final RefractionSettings refraction;
     private final ClearcoatSettings clearcoat;
+    private final AnisotropicSettings anisotropic;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -59,6 +60,7 @@ public final class Material implements GlResource {
         this.volumetricFogOptOut = builder.volumetricFogOptOut;
         this.refraction = builder.refraction;
         this.clearcoat = builder.clearcoat;
+        this.anisotropic = builder.anisotropic;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -122,6 +124,9 @@ public final class Material implements GlResource {
 
     /** Bounded clearcoat overlay contract; disabled is the exact no-op default. */
     public ClearcoatSettings clearcoat() { return clearcoat; }
+
+    /** Bounded anisotropic highlight contract; disabled is the exact no-op default. */
+    public AnisotropicSettings anisotropic() { return anisotropic; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -194,6 +199,7 @@ public final class Material implements GlResource {
         private boolean volumetricFogOptOut;
         private RefractionSettings refraction = RefractionSettings.disabled();
         private ClearcoatSettings clearcoat = ClearcoatSettings.disabled();
+        private AnisotropicSettings anisotropic = AnisotropicSettings.disabled();
 
         /** Explicitly exempts a custom transparent shader from the depth-aware volume contract. */
         public Builder volumetricFogOptOut(boolean value) { volumetricFogOptOut = value; return this; }
@@ -219,6 +225,20 @@ public final class Material implements GlResource {
          */
         public Builder clearcoat(ClearcoatSettings value) {
             clearcoat = Objects.requireNonNull(value, "clearcoat");
+            return this;
+        }
+
+        /**
+         * Declares the bounded anisotropic highlight stored on this material
+         * as template metadata. {@code PbrMaterials} applies the matching
+         * {@code uAnisotropic*} uniforms; a raw {@code Material.builder(...)}
+         * caller must upload those uniforms itself. The settings record
+         * validates strength and rotation, so an invalid value cannot reach
+         * this builder. {@link AnisotropicSettings#disabled()} keeps the
+         * original isotropic output.
+         */
+        public Builder anisotropic(AnisotropicSettings value) {
+            anisotropic = Objects.requireNonNull(value, "anisotropic");
             return this;
         }
 
