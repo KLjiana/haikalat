@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "1ed1a14"
+                        "head":  "b129168"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T22:32:55.0166593+08:00",
+    "updatedAt":  "2026-11-11T23:08:02.4703146+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1025,7 +1025,7 @@
                       "featureIds":  [
                                          29
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Atmospheric Scattering",
                       "dependencies":  [
                                            null
@@ -1036,19 +1036,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "b129168",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke AtmosphereSkyPassGlTest 4/4 PASS",
+                                       "glSmoke AtmospherePipelineGlTest 1/1 PASS",
+                                       "JVM Atmosphere* 16 tests PASS",
+                                       "focused verify f36cf5e5: 477 tests PASS, 0 skipped"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R30",
