@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T13:24:09.1097255+08:00",
+    "updatedAt":  "2026-11-11T13:27:50.2776709+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -416,16 +416,16 @@
                       "featureIds":  [
                                          10
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Cloud Shadows",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 29e3cc71-73d1-48af-ae1d-ecc406027570",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "41959bb",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -439,7 +439,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Cloud shadows production implementation in s1-cloud"
                   },
                   {
                       "taskId":  "R11",
