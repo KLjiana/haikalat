@@ -83,8 +83,15 @@ class AnisotropicGlTest {
     private static final float CAMERA_Z = 3.4f;
     private static final float QUAD_HALF = 1.0f;
     private static final Vector3f CAMERA_POSITION = new Vector3f(0.0f, 0.0f, CAMERA_Z);
+    /**
+     * Chosen so the isotropic specular mirror point ({@code ~(-0.68, -0.34)} on
+     * the z = 0 plane) stays inside the quad. With the earlier
+     * {@code (-0.35, -0.55, -1)} direction the mirror point was outside the
+     * quad, the positive specular difference for rotation zero was empty, and
+     * the rotation-orientation moment check had no participating pixels.
+     */
     private static final Vector3f LIGHT_TRAVEL_DIRECTION =
-            new Vector3f(-0.35f, -0.55f, -1.0f);
+            new Vector3f(-0.2f, -0.1f, -1.0f);
     private static final Vector3f LIGHT_COLOR = new Vector3f(1.0f, 0.97f, 0.92f);
     private static final float LIGHT_INTENSITY = 2.5f;
     private static final Vector4f BASE_COLOR = new Vector4f(0.55f, 0.50f, 0.45f, 1.0f);
@@ -492,22 +499,33 @@ class AnisotropicGlTest {
         double[] tangentAxis = specularMoments(stretched, baseline);
         double[] bitangentAxis = specularMoments(quarterTurn, baseline);
         assertTrue(tangentAxis[2] > 16.0,
-                "the tangent-axis highlight must contain enough changed pixels");
+                "the tangent-axis highlight must contain enough participating pixels: "
+                        + (int) tangentAxis[2]);
         assertTrue(bitangentAxis[2] > 16.0,
-                "the rotated highlight must contain enough changed pixels");
+                "the rotated highlight must contain enough participating pixels: "
+                        + (int) bitangentAxis[2]);
         assertTrue(tangentAxis[0] > tangentAxis[1] * 1.15,
                 "rotation zero must stretch the highlight along the tangent axis: mxx="
-                        + tangentAxis[0] + " myy=" + tangentAxis[1]);
+                        + tangentAxis[0] + " myy=" + tangentAxis[1]
+                        + " pixels=" + (int) tangentAxis[2]);
         assertTrue(bitangentAxis[1] > bitangentAxis[0] * 1.15,
                 "a quarter turn must stretch the highlight along the bitangent axis: mxx="
-                        + bitangentAxis[0] + " myy=" + bitangentAxis[1]);
+                        + bitangentAxis[0] + " myy=" + bitangentAxis[1]
+                        + " pixels=" + (int) bitangentAxis[2]);
     }
 
-    /** Returns {@code {mxx, myy, weightSum}} of the positive specular difference. */
+    /**
+     * Returns {@code {mxx, myy, participantCount}} of the positive specular
+     * difference. Both moments are normalized by the luminance weight sum, so
+     * the orientation check is independent of exposure and absolute energy; the
+     * count reports how many pixels carry a positive difference above the
+     * fixed 1e-4 luminance floor and is therefore also scale independent.
+     */
     private static double[] specularMoments(float[] image, float[] baseline) {
         double weightSum = 0.0;
         double centroidX = 0.0;
         double centroidY = 0.0;
+        int participantCount = 0;
         double[] weights = new double[WIDTH * HEIGHT];
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
@@ -520,6 +538,7 @@ class AnisotropicGlTest {
                 weightSum += luminance;
                 centroidX += luminance * x;
                 centroidY += luminance * y;
+                participantCount++;
             }
         }
         if (weightSum <= 0.0) return new double[]{0.0, 0.0, 0.0};
@@ -537,7 +556,7 @@ class AnisotropicGlTest {
                 myy += weight * dy * dy;
             }
         }
-        return new double[]{mxx / weightSum, myy / weightSum, weightSum};
+        return new double[]{mxx / weightSum, myy / weightSum, participantCount};
     }
 
     private static void assertFiniteBounded(String label, float[] image) {
