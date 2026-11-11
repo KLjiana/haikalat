@@ -119,6 +119,14 @@ fallback。清漆是材质值而不是 `RenderFeatureSettings` 开关：`directi
 `KHR_materials_clearcoat`（默认严格策略拒绝该 payload，lenient 策略仅警告并忽略）。
 PBR/IBL 能量分割、法线空间、零值还原与 GL 参考见
 [清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(strength, rotation)`
+（strength `[0,1]`、rotation 有限弧度，0 强度为精确 isotropic 路径），`Material`/`Material.Builder` 新增
+`anisotropic(...)`/`anisotropic()`，默认 `disabled()`；新增 advanced
+`pbr.PbrMaterials.createWithAnisotropy(...)` 与带末位 `AnisotropicSettings` 的 `createWithBindings` 重载，
+旧工厂默认 disabled。各向异性是材质值而非帧级开关：只拉伸 base specular（Burley GGX/Smith），清漆保持
+各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
+内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
+[各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S2 #29 新增 advanced GL-free `render3d.environment.AtmosphereSettings`（米制行星半径/大气厚度、
 Rayleigh RGB 与 Mie 散射/吸收系数、标高、太阳方向与辐照度、曝光、太阳圆盘、LUT 尺寸与采样数，构造期校验）
 与 internal `render3d.environment.AtmosphereSkyPass`（transmittance/sky-view LUT、全屏 HDR 背景绘制与
