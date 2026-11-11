@@ -7,11 +7,14 @@ import com.kaleblangley.haikalat.backend.texture.TextureColorSpace;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.MeshData;
+import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -190,6 +193,71 @@ class AssetPipelineTest {
         assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
                 new org.joml.Vector4f(1.0f), 0.0f, 1.01f, 1.0f, 1.0f,
                 new org.joml.Vector3f(), java.util.Map.of()));
+    }
+
+    @Test
+    void pbrPropertiesKeepLegacyDefaultsAndRoundTripThinTranslucencyControls() {
+        PbrMaterialProperties legacy = new PbrMaterialProperties(new Vector4f(1.0f), 0.0f, 1.0f,
+                1.0f, 1.0f, new Vector3f(), Map.of());
+        assertEquals(0.0f, legacy.thicknessFactor());
+        assertEquals(0.0f, legacy.transmissionFactor());
+        assertEquals(0.0f, legacy.backlightFactor());
+        assertEquals(0.0f, PbrMaterialProperties.defaults().thicknessFactor());
+        assertEquals(0.0f, PbrMaterialProperties.defaults().transmissionFactor());
+        assertEquals(0.0f, PbrMaterialProperties.defaults().backlightFactor());
+
+        PbrMaterialProperties explicit = new PbrMaterialProperties(new Vector4f(0.8f, 0.9f, 0.4f, 1.0f),
+                0.0f, 0.65f, 1.0f, 0.5f, new Vector3f(0.1f), Map.of(),
+                0.35f, 0.7f, 0.9f);
+        assertEquals(0.35f, explicit.thicknessFactor());
+        assertEquals(0.7f, explicit.transmissionFactor());
+        assertEquals(0.9f, explicit.backlightFactor());
+    }
+
+    @Test
+    void sceneConfigRoundTripsThinTranslucencyControls() {
+        PbrMaterialProperties parsed = SceneAssetConfig.parseProperties("""
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                material.leaf.shader=pbrForward
+                material.leaf.model=metallicRoughness
+                material.leaf.pbr.thicknessFactor=0.25
+                material.leaf.pbr.transmissionFactor=0.7
+                material.leaf.pbr.backlightFactor=0.9
+                """).materials().get("leaf").pbr();
+
+        assertEquals(new PbrMaterialProperties(new Vector4f(1.0f), 0.0f, 1.0f, 1.0f, 1.0f,
+                new Vector3f(), Map.of(), 0.25f, 0.7f, 0.9f), parsed);
+        assertEquals(0.0f, SceneAssetConfig.parseProperties("""
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                material.leaf.shader=pbrForward
+                material.leaf.model=metallicRoughness
+                """).materials().get("leaf").pbr().backlightFactor());
+    }
+
+    @Test
+    void pbrPropertiesRejectOutOfRangeThinTranslucencyControls() {
+        assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
+                new Vector4f(1.0f), 0.0f, 1.0f, 1.0f, 1.0f, new Vector3f(), Map.of(),
+                Float.NaN, 0.5f, 0.5f));
+        assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
+                new Vector4f(1.0f), 0.0f, 1.0f, 1.0f, 1.0f, new Vector3f(), Map.of(),
+                0.0f, -0.1f, 0.5f));
+        assertThrows(IllegalArgumentException.class, () -> new PbrMaterialProperties(
+                new Vector4f(1.0f), 0.0f, 1.0f, 1.0f, 1.0f, new Vector3f(), Map.of(),
+                0.0f, 0.5f, 1.01f));
+        String base = """
+                shader.pbrForward.vertex=/pbr.vert
+                shader.pbrForward.fragment=/pbr.frag
+                material.leaf.shader=pbrForward
+                material.leaf.model=metallicRoughness
+                """;
+        GlException error = assertThrows(GlException.class,
+                () -> SceneAssetConfig.parseProperties(base
+                        + "material.leaf.pbr.transmissionFactor=1.5\n"));
+        assertTrue(error.getMessage().contains("transmissionFactor"),
+                "parse failure should identify the invalid thin-translucency control");
     }
 
     @Test

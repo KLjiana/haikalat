@@ -108,6 +108,10 @@ uniform float uRoughnessFactor;
 uniform float uNormalScale;
 uniform float uOcclusionStrength;
 uniform vec3 uEmissiveFactor;
+// Thin-surface controls. Zero keeps the original metallic-roughness output.
+uniform float uThicknessFactor;
+uniform float uTransmissionFactor;
+uniform float uBacklightFactor;
 uniform int uClusterDebugMode;
 uniform float uEnvironmentIntensity;
 uniform float uEnvironmentRotation;
@@ -1132,6 +1136,22 @@ vec3 directBrdf(vec3 n, vec3 v, vec3 l, vec3 radiance,
     return (kd * baseColor / PI + specular) * radiance * nDotL;
 }
 
+// Artistic thin-surface backlighting. The current double-sided-corrected
+// normal decides whether this face is backlit; the forward lobe is tightened
+// and attenuated by normalized thickness. This is deliberately not an
+// energy-conserving transmission model and only runs when both controls are on.
+vec3 thinSurfaceTransmission(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 baseColor) {
+    if (uTransmissionFactor <= 0.0 || uBacklightFactor <= 0.0) return vec3(0.0);
+    float back = clamp(dot(-n, l), 0.0, 1.0);
+    if (back <= 0.0) return vec3(0.0);
+    float forward = clamp(dot(v, -l), 0.0, 1.0);
+    float thickness = clamp(uThicknessFactor, 0.0, 1.0);
+    float lobe = pow(forward, mix(1.0, 8.0, thickness));
+    float absorption = exp(-2.0 * thickness);
+    return baseColor * radiance
+            * (uTransmissionFactor * uBacklightFactor * back * lobe * absorption);
+}
+
 float rangeInverseSquareAttenuation(float distanceToLight, float range) {
     float rangeWindow = clamp(1.0 - distanceToLight / max(range, 1.0e-4), 0.0, 1.0);
     return (rangeWindow * rangeWindow) / max(distanceToLight * distanceToLight, 1.0e-4);
@@ -1173,6 +1193,9 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         // above is untouched, including a front-facing specular highlight.
         base += subsurfaceTransmission(n, l, radiance);
     }
+    // Thin-surface backlight transmission is an additive artistic term next to
+    // the unchanged reflection lobe. Zero controls return exactly zero.
+    base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
     return visibility * base;
 }
 
@@ -1202,6 +1225,7 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                 : spotShadowFactor(slot, n, l));
     }
     vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
+    vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
     vec3 base = anisotropicStrength > 0.0
             ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
                     anisotropicTangent, anisotropicBitangent, anisotropicStrength)
@@ -1218,6 +1242,7 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         // above is untouched, including a front-facing specular highlight.
         base += subsurfaceTransmission(n, l, radiance);
     }
+    base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
     return visibility * base;
 }
 

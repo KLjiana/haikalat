@@ -153,6 +153,10 @@ final class ScenePropertiesParser {
         Vector3f emissive = SceneValueParser.vector3(
                 properties.getProperty(prefix + "emissiveFactor", "0,0,0"),
                 prefix + "emissiveFactor");
+        float thickness = SceneValueParser.floatValue(properties, prefix + "thicknessFactor", 0.0f);
+        float transmission = SceneValueParser.floatValue(properties,
+                prefix + "transmissionFactor", 0.0f);
+        float backlight = SceneValueParser.floatValue(properties, prefix + "backlightFactor", 0.0f);
         EnumMap<PbrTextureRole, String> roleTextures = new EnumMap<>(PbrTextureRole.class);
         addRoleTexture(properties, prefix, "baseColorTexture", PbrTextureRole.BASE_COLOR, roleTextures);
         addRoleTexture(properties, prefix, "normalTexture", PbrTextureRole.NORMAL, roleTextures);
@@ -162,7 +166,7 @@ final class ScenePropertiesParser {
         addRoleTexture(properties, prefix, "emissiveTexture", PbrTextureRole.EMISSIVE, roleTextures);
         try {
             return new PbrMaterialProperties(baseColor, metallic, roughness, normalScale,
-                    occlusion, emissive, roleTextures);
+                    occlusion, emissive, roleTextures, thickness, transmission, backlight);
         } catch (IllegalArgumentException error) {
             throw new GlException("Invalid PBR parameters for "
                     + materialPrefix.substring(0, materialPrefix.length() - 1)
@@ -186,7 +190,8 @@ final class ScenePropertiesParser {
 
     private static void rejectUnknownPbrKeys(Properties properties, String materialPrefix) {
         Set<String> allowed = Set.of("baseColorFactor", "metallicFactor", "roughnessFactor",
-                "normalScale", "occlusionStrength", "emissiveFactor", "baseColorTexture",
+                "normalScale", "occlusionStrength", "emissiveFactor", "thicknessFactor",
+                "transmissionFactor", "backlightFactor", "baseColorTexture",
                 "normalTexture", "metallicRoughnessTexture", "occlusionTexture", "emissiveTexture");
         String prefix = materialPrefix + "pbr.";
         for (String key : properties.stringPropertyNames()) {
