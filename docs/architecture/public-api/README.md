@@ -128,7 +128,8 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S2 #27 新增 advanced GL-free `render3d.vfx.GpuParticleSettings`（capacity、粒子尺寸、寿命、
-重力/速度范围、发射窗口等，构造期校验）与 `GpuParticleEmission`（显式发射描述），以及 internal
+重力/速度范围等，构造期校验）与 package-private `GpuParticleEmission`（显式发射窗口/描述，不属于
+公共 API），以及 advanced
 `render3d.vfx.GpuParticleSystem`（reset/update compute + 原子活跃索引 + counter SSBO 兼作
 `DrawArraysIndirectCommand` + `glDrawArraysIndirect`；CPU 不读计数、不 map，空集合由 GPU 语义零图元）。
 命令层新增 typed `CommandBuffer.drawArraysIndirect(...)` 与 `StateCache.bindDrawIndirectBuffer`。
