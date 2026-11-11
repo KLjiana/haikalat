@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T08:27:21.6174229+08:00",
+    "updatedAt":  "2026-11-11T08:41:47.2008435+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -57,12 +57,12 @@
                                        "focused verify 49f488fd: 233 tests, 0 skipped/failures",
                                        "GPU glSmoke B0-M/B0-T targeted PASS"
                                    ],
-                      "review":  "APPROVED_AFTER_FOLLOWUP",
-                      "functional":  "PASS_FOCUSED",
+                      "review":  "APPROVED_SCOPE_REDUCED",
+                      "functional":  "PASS_SCOPE_REDUCED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Closed in B0 checkpoint"
+                      "nextAction":  "C05 filtered/minified sampling deferred; cell isolation + LOD0 contract documented"
                   },
                   {
                       "taskId":  "B0-T",
@@ -91,7 +91,7 @@
                                        "focused verify 49f488fd: 233 tests, 0 skipped/failures",
                                        "GPU glSmoke B0-M/B0-T targeted PASS"
                                    ],
-                      "review":  "APPROVED_AFTER_FOLLOWUP",
+                      "review":  "APPROVED",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
@@ -1526,17 +1526,20 @@
                   "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed."
               ],
     "b0":  {
-               "state":  "INTEGRATED",
+               "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
                "verificationRun":  "49f488fd-a9dd-4da8-b09e-8e7488e9ad5a",
                "tests":  233,
-               "review":  "REVIEWED_WITH_FOLLOWUP",
+               "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
                "notes":  [
-                             "B0-M: transformed rim + analytic slanted-normal GL, 2x1 atlas cell isolation and minified base-level sampling",
-                             "B0-T: no LIGHTING invalidation/graph rebuild on effect-light value change; TAA camera+occluder reveal compared to no-VFX reference",
-                             "B0-R: pause/apply/A-B/light/dissolve regressions covered by controller and GL suites",
-                             "Static shadow cache claim was dropped: cacheStaticTiles is disabled in legacy defaults; not claimed as PASS"
-                         ]
+                             "B0-M: transformed rim + analytic slanted-normal GL PASS; 2x1 cell selection/adjacent isolation PASS; flipbook LOD0 policy documented, filtered/minified sampling NOT claimed",
+                             "B0-T: no LIGHTING invalidation/graph rebuild on effect-light value change; TAA camera+occluder reveal compared to no-VFX reference; static shadow cache claim dropped (legacy cache disabled)",
+                             "B0-R: pause/apply/A-B/light/dissolve regressions covered by controller and GL suites"
+                         ],
+               "knownGaps":  [
+                                 "C05 actual filtered/minified flipbook sampling remains unproven; production uses documented LOD0 for unpadded atlases",
+                                 "Static shadow-cache reaction to effect-light changes was not claimed because legacy defaults disable cacheStaticTiles"
+                             ]
            }
 }

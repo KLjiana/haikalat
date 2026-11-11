@@ -296,7 +296,7 @@ class VfxRendererGlTest {
                 render(renderer, device, atlasSnapshot(redCell, 0.0f, 1.5f));
                 ByteBuffer minified = readFrame();
                 assertEquals(0, maximumChannel(minified, 1),
-                        "mip selection must not average the adjacent atlas cell into a small particle");
+                        "a small sprite must not sample the adjacent atlas cell");
 
                 render(renderer, device, atlasSnapshot(redCell, 1.0f));
                 ByteBuffer green = readFrame();

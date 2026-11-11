@@ -111,6 +111,7 @@ VfxLightDiagnostics lights = pipeline.vfxLightDiagnostics();
 
 - 轮廓只对带 NORMAL 的 MeshVfx 生效；旧 quad/Ribbon/Decal 继续走旧路径。
 - 首版噪声为 renderer 自有程序化纹理，不是可替换的外部噪声资产；不支持任意噪声资源热替换。
+- 非 padded Flipbook 图集固定使用 LOD0 采样，避免 mip 选择把相邻 cell 平均进来；代价是缩小粒子不参与 mip 过滤，高细节/抗锯齿不保证。当前测试证明 cell 选择与相邻 cell 隔离，不宣称 filtered/minified 采样通过。
 - `LIFECYCLE` 溶解进度由 particle 的归一化年龄和 mesh 的 `lifetimeProgress` 提供；Ribbon/Decal 当前没有年龄字段，使用 0，需要时间驱动时应配置 `EXPLICIT` 并由效果阶段显式设置进度。
 - 溶解是 VFX 材质效果，不是场景材质通用溶解；没有逐 primitive 的独立噪声相位。
 - 特效灯只有无阴影点光；不支持聚光、投影、逐粒子灯或空间参数混合。
