@@ -8,12 +8,12 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "b1100523-7860-453e-9f67-2371c1ad809b",
+                                          "runId":  "02719607-1ab7-42f2-96f2-f60adb745820",
                                           "status":  "PASS",
-                                          "tests":  292,
+                                          "tests":  308,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/b1100523-7860-453e-9f67-2371c1ad809b/result.json",
+                                          "evidence":  "build/reports/bounded-verification/02719607-1ab7-42f2-96f2-f60adb745820/result.json",
                                           "logicReport":  "build/reports/logic-verification/037afdc5-b32c-46f4-8b7a-2df05d23e18b/report.json",
                                           "freshness":  "FRESH"
                                       }
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T16:59:17.6335408+08:00",
+    "updatedAt":  "2026-11-11T17:41:41.6039920+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -278,15 +278,16 @@
 
                                         ],
                       "evidence":  [
-                                       "integration focused verify 02fdd283: 307 tests PASS",
-                                       "glSmoke VertexDisplacementGlTest PASS after moving-speed test fix"
+                                       "focused verify 02719607: 308 tests PASS",
+                                       "glSmoke VertexDisplacementGlTest PASS",
+                                       "reviewer blockers: exact normal denominator fixed; immutable bounds fast path checks deformation revision; focused cases included"
                                    ],
-                      "review":  "PENDING_INDEPENDENT",
+                      "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer sign-off"
+                      "nextAction":  "Re-review exact normal and bounds-cache changes"
                   },
                   {
                       "taskId":  "R06",
@@ -1549,7 +1550,7 @@
     "b0":  {
                "state":  "INTEGRATED_WITH_SCOPE_NOTE",
                "integrationCommit":  "687639f",
-               "verificationRun":  "b1100523-7860-453e-9f67-2371c1ad809b",
+               "verificationRun":  "02719607-1ab7-42f2-96f2-f60adb745820",
                "tests":  233,
                "review":  "REVIEWED_SCOPE_REDUCED",
                "functional":  "PASS_FOCUSED",
