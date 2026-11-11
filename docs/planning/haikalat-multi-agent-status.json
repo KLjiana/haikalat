@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T12:45:32.8611409+08:00",
+    "updatedAt":  "2026-11-11T12:49:22.2825510+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -381,32 +381,32 @@
                       "featureIds":  [
                                          9
                                      ],
-                      "state":  "REVIEWING",
+                      "state":  "DONE",
                       "scope":  "Contact Shadows",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  "subagent e48e90b6-eca9-470f-8b18-189e46378a73",
+                      "owner":  "orchestrator",
                       "writePaths":  [
 
                                      ],
                       "baseCommit":  "3cb2990",
                       "workerCommit":  "a859e0b",
-                      "integrationCommit":  null,
+                      "integrationCommit":  "f95dedd",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-                                       "worker JVM full 1222 tests PASS",
-                                       "glSmoke ContactShadowsGlTest PASS after narrow debug-policy allowance",
-                                       "focused verify c01231d1: 248 tests PASS"
+                                       "integration focused verify 59c0372d: 255 tests PASS",
+                                       "glSmoke ContactShadowsGlTest PASS",
+                                       "reviewer scope acceptance pending"
                                    ],
                       "review":  "PENDING_INDEPENDENT",
-                      "functional":  "GL_PASS_LOCAL",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent review of shadow-map-space contact refinement and scope deviation",
+                      "nextAction":  "Await reviewer verdict on shadow-map-space scope deviation",
                       "scopeNote":  "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
                       "policyCommit":  "0c14652"
                   },
