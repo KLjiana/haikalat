@@ -127,6 +127,14 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #28 新增 advanced GL-free `render3d.transparency.WeightedOitSettings`（深度权重尺度/上限、
+alpha 下限、最大表面数）与 advanced `OitSurface`（调用方提供的最小透明表面描述），以及 internal
+`render3d.transparency.WeightedOitPass`（RGBA16F accum + R16F revealage MRT、加权累积与 resolve、
+`record`/`resolve` 可跨 command buffer 但必须先累积后 resolve）。共享命令层新增 typed
+`blendFuncSeparate`（`PipelineStateSink`/`StateCache`/`CommandBuffer`/`PendingPipelineState`）。首版是
+近似加权平均，不精确排序、不写/采样共享深度、不承诺 MSAA/任意透明交错；与 #26 按集合互斥切换。
+`RenderPipeline` 生产接线仍待 Integrator。合同、误差界与 GL 参考见
+[加权 OIT 技术卡](../../planning/v0.28.1-s3-oit.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #30 新增 advanced GL-free `render3d.planar.PlanarReflectionSettings`（单平面点/法线、
 分辨率缩放与上限、更新间隔帧数、近平面偏移，构造期校验）与 advanced GL-free
 `render3d.planar.PlanarReflectionMath`（镜像相机、`V*R`、Lengyel 斜近平面裁剪），以及 internal

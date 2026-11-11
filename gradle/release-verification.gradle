@@ -303,8 +303,8 @@ tasks.register('releaseVerificationContracts') {
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
-        // motion-blur, refraction, clearcoat, PCSS, atmosphere and anisotropic shader-state policies.
-        assert policies.size() == 50
+        // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT and cluster shader-state policies.
+        assert policies.size() == 51
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -357,6 +357,16 @@ tasks.register('releaseVerificationContracts') {
                 anisotropicDevice + anisotropicMessage * 2, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.AnisotropicGlTest.xml',
                 anisotropicDevice + anisotropicMessage * 3, policies).violations.isEmpty()
+        def clusterGlPolicy = policies.find { it.owner == 'render3d/cluster-lighting-gl' }
+        assert clusterGlPolicy != null && clusterGlPolicy.id == 131218
+        assert clusterGlPolicy.maximum == 4
+        assert clusterGlPolicy.entry.contains('ClusterLightingGlTest')
+        def clusterDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def clusterMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.ClusterLightingGlTest.xml',
+                clusterDevice + clusterMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.ClusterLightingGlTest.xml',
+                clusterDevice + clusterMessage * 5, policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
