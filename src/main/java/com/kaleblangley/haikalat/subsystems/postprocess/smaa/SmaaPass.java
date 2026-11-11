@@ -112,6 +112,7 @@ public final class SmaaPass implements GlResource {
         ensureOpen();
         prepare(cmd);
         cmd.bindShader(edgeProgram);
+        cmd.bindSampler(0, null);
         cmd.bindTexture(0, sceneTexture);
         cmd.setUniformInt(edgeProgram, "uColor", 0);
         cmd.setUniformVec2(edgeProgram, "uInvResolution", 1.0f / width, 1.0f / height);
@@ -125,6 +126,9 @@ public final class SmaaPass implements GlResource {
         ensureOpen();
         prepare(cmd);
         cmd.bindShader(blendProgram);
+        cmd.bindSampler(0, null);
+        cmd.bindSampler(1, null);
+        cmd.bindSampler(2, null);
         cmd.bindTexture(0, edgesTexture);
         cmd.bindTexture(1, areaTexture);
         cmd.bindTexture(2, searchTexture);
@@ -143,6 +147,8 @@ public final class SmaaPass implements GlResource {
         ensureOpen();
         prepare(cmd);
         cmd.bindShader(neighborhoodProgram);
+        cmd.bindSampler(0, null);
+        cmd.bindSampler(1, null);
         cmd.bindTexture(0, sceneTexture);
         cmd.bindTexture(1, blendTexture);
         cmd.setUniformInt(neighborhoodProgram, "uColor", 0);

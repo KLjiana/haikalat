@@ -29,9 +29,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
+import static org.lwjgl.opengl.GL11.GL_REPEAT;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_SCISSOR_TEST;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearColor;
@@ -40,6 +46,10 @@ import static org.lwjgl.opengl.GL11.glGetError;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
+import static org.lwjgl.opengl.GL33.glBindSampler;
+import static org.lwjgl.opengl.GL33.glDeleteSamplers;
+import static org.lwjgl.opengl.GL33.glGenSamplers;
+import static org.lwjgl.opengl.GL33.glSamplerParameteri;
 
 /**
  * Real-GL contract for the SMAA 1x production passes.
@@ -118,8 +128,18 @@ class SmaaPassGlTest {
 
             clear(edges);
             CommandBuffer commands = device.createCommandBuffer();
+            // A preceding PBR/glTF material may leave a nearest/repeat sampler
+            // on unit 0.  SMAA must clear it and keep its linear/clamp contract.
+            int hostileSampler = glGenSamplers();
+            glSamplerParameteri(hostileSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glSamplerParameteri(hostileSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glSamplerParameteri(hostileSampler, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glSamplerParameteri(hostileSampler, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glBindSampler(0, hostileSampler);
             pass.recordEdgeDetection(commands, sourceTexture.id(), SIZE, SIZE);
             device.execute(commands);
+            glBindSampler(0, 0);
+            glDeleteSamplers(hostileSampler);
             byte[] edgeMask = read(edges);
 
             byte[] expectedEdges = SmaaEdgeReference.detect(source, SIZE, SIZE);
