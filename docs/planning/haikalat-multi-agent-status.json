@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "1fcf623"
+                        "head":  "74ffd5a"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T06:23:42.3911072+08:00",
+    "updatedAt":  "2026-11-12T07:20:08.3566038+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1238,7 +1238,7 @@
                       "featureIds":  [
                                          35
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Temporal Upscaling",
                       "dependencies":  [
                                            null
@@ -1249,19 +1249,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "74ffd5a",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused GL TemporalUpscalingPassGlTest 6/6 PASS",
+                                       "JVM TemporalUpscaling* 28 tests PASS",
+                                       "focused verify 9e46cd77: 792 tests PASS, 0 skipped",
+                                       "two GPU rounds: output-raster reprojection and jittered oracle; fixed at a963798/bd1658b"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; low-resolution pipeline/RenderFeature wiring unwired"
                   },
                   {
                       "taskId":  "R36",
