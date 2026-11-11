@@ -2463,6 +2463,23 @@ public final class RenderPipeline {
     }
 
     private void synchronizeOutdoorSun(Scene targetScene) {
+        if (atmosphereSettings != null) {
+            // The atmosphere owns the sun direction, but the scene's light
+            // colour/intensity stay authored; the vector convention is the
+            // same light-travel direction used by SceneLight and the shader.
+            List<SceneLight> lights = targetScene.lights();
+            for (int i = 0; i < lights.size(); i++) {
+                SceneLight light = lights.get(i);
+                if (light.type() == LightType.DIRECTIONAL && light.castShadows()) {
+                    SceneLight replacement = SceneLight.shadowedDirectional(
+                            new Vector3f(atmosphereSettings.sunDirection()),
+                            light.color(), light.intensity());
+                    if (!replacement.equals(light)) targetScene.setLight(i, replacement);
+                    return;
+                }
+            }
+            return;
+        }
         if (!outdoorEnvironment.enabled()) return;
         List<SceneLight> lights = targetScene.lights();
         for (int i = 0; i < lights.size(); i++) {

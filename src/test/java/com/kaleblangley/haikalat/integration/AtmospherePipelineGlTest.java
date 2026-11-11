@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
+import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Vector3f;
@@ -50,6 +51,9 @@ class AtmospherePipelineGlTest {
             Camera camera = new Camera(new Vector3f(0.0f, 1_000.0f, 0.0f),
                     new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
             Scene scene = new Scene(camera);
+            scene.addLight(SceneLight.shadowedDirectional(
+                    new Vector3f(0.2f, -1.0f, 0.1f).normalize(),
+                    new Vector3f(1.0f, 1.0f, 1.0f), 3.0f));
             AtmosphereSettings base = AtmosphereSettings.earth(AtmosphereSettings.Quality.LOW)
                     .withSunDirection(new Vector3f(-0.35f, -0.55f, -1.0f).normalize())
                     .withExposure(1.0f);
@@ -58,6 +62,11 @@ class AtmospherePipelineGlTest {
                     .atmosphere(base);
             try {
                 pipeline.build();
+                Vector3f lightDirection = scene.lights().get(0).direction();
+                assertEquals(base.sunDirection().x, lightDirection.x, 1.0e-6f,
+                        "the atmosphere sun direction must drive the directional light");
+                assertEquals(base.sunDirection().y, lightDirection.y, 1.0e-6f);
+                assertEquals(base.sunDirection().z, lightDirection.z, 1.0e-6f);
                 pipeline.execute(device);
                 float[] first = pipeline.captureLinearHdrRgbaFloat();
                 assertEquals(width * height * 4, first.length);
