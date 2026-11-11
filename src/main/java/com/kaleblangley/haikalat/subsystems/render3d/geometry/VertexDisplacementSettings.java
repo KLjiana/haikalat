@@ -16,12 +16,15 @@ import java.util.Objects;
  * offset = axis * amplitude * sin(phase)
  * </pre>
  *
- * <p>Normals use the first-order analytic gradient of the same offset field,
- * {@code n' = normalize(n - waveDirection * slope * dot(axis, n))} with
- * {@code slope = 2*pi * frequency * amplitude * cos(phase)}.  Positions and
- * normals are evaluated in the mesh's local/rest space, before skinning and
- * model transforms.  The caller supplies time; no hidden clock or random seed
- * is used, so the same inputs always produce the same deformation.</p>
+ * <p>Normals use the exact inverse-transpose gradient of the same offset field,
+ * {@code n' = normalize(n - waveDirection * slope * dot(axis, n)
+ * / (1 + slope * dot(axis, waveDirection)))} with
+ * {@code slope = 2*pi * frequency * amplitude * cos(phase)}.  The denominator
+ * falls back to the unmodified normal only when it is too close to zero to
+ * invert safely.  Positions and normals are evaluated in the mesh's local/rest
+ * space, before skinning and model transforms.  The caller supplies time; no
+ * hidden clock or random seed is used, so the same inputs always produce the
+ * same deformation.</p>
  *
  * <p>{@link #disabled()} is the exact no-op value: no offset, unchanged normal,
  * zero bounds padding.  Amplitude, frequency, speed, phase and the two

@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d.geometry;
 
+import org.joml.Matrix3f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
@@ -109,6 +110,42 @@ class VertexDisplacementSettingsTest {
                 new Vector3f(0, 1, 0), 0.0f, new Vector3f());
         assertTrue(normal.y > 0.0f,
                 "exact inverse-transpose normal must stay on the +Y side at legal max slope");
+    }
+
+    @Test
+    void exactNormalMatchesInverseTransposeForNonOrthogonalWave() {
+        Vector3f axis = new Vector3f(0, 1, 0);
+        Vector3f wave = new Vector3f(1, 0, 0.35f).normalize();
+        VertexDisplacementSettings settings = new VertexDisplacementSettings(true,
+                0.2f, 1.1f, 0.4f, 0.2f, axis, wave);
+        Vector3f position = new Vector3f(0.3f, -0.2f, 0.1f);
+        Vector3f normal = new Vector3f(0.2f, 1, 0.1f).normalize();
+        float time = 0.7f;
+        float phase = (float) (Math.PI * 2.0) * (1.1f * position.dot(wave) + 0.4f * time)
+                + 0.2f;
+        float slope = (float) (Math.PI * 2.0) * 1.1f * 0.2f * (float) Math.cos(phase);
+        Matrix3f jacobian = new Matrix3f().identity();
+        jacobian.set(0, 0, 1.0f + axis.x * slope * wave.x);
+        jacobian.set(0, 1, axis.x * slope * wave.y);
+        jacobian.set(0, 2, axis.x * slope * wave.z);
+        jacobian.set(1, 0, axis.y * slope * wave.x);
+        jacobian.set(1, 1, 1.0f + axis.y * slope * wave.y);
+        jacobian.set(1, 2, axis.y * slope * wave.z);
+        jacobian.set(2, 0, axis.z * slope * wave.x);
+        jacobian.set(2, 1, axis.z * slope * wave.y);
+        jacobian.set(2, 2, 1.0f + axis.z * slope * wave.z);
+        Matrix3f inverse = new Matrix3f(jacobian).invert();
+        Vector3f expected = new Vector3f(
+                inverse.get(0, 0) * normal.x + inverse.get(1, 0) * normal.y
+                        + inverse.get(2, 0) * normal.z,
+                inverse.get(0, 1) * normal.x + inverse.get(1, 1) * normal.y
+                        + inverse.get(2, 1) * normal.z,
+                inverse.get(0, 2) * normal.x + inverse.get(1, 2) * normal.y
+                        + inverse.get(2, 2) * normal.z).normalize();
+        Vector3f actual = settings.displacedNormal(position, normal, time, new Vector3f());
+        assertEquals(expected.x, actual.x, 2.0e-4f, "expected=" + expected + " actual=" + actual);
+        assertEquals(expected.y, actual.y, 2.0e-4f, "expected=" + expected + " actual=" + actual);
+        assertEquals(expected.z, actual.z, 2.0e-4f, "expected=" + expected + " actual=" + actual);
     }
 
     @Test

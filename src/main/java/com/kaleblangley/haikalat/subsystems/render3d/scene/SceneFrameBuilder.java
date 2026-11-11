@@ -144,12 +144,15 @@ public final class SceneFrameBuilder {
             int finite = 0;
             int changedCount = 0;
             long stageStart = System.nanoTime();
-            if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady) {
+            boolean immutableBindingsUnchanged = immutableBindingsUnchanged();
+            if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady
+                    && immutableBindingsUnchanged) {
                 staticRenderers = entryCount;
                 modelHits = entryCount;
                 boundsHits = entryCount;
                 finite = immutableFiniteCount;
             } else {
+                if (!immutableBindingsUnchanged) immutableSceneCacheReady = false;
                 for (int index = 0; index < entryCount; index++) {
                     MeshRenderer renderer = renderers[index];
                     boolean revisioned = renderer.revisionedModel();

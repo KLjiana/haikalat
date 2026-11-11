@@ -5,8 +5,12 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
+import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrame;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -214,6 +218,64 @@ class VertexDisplacementGlTest {
                 gtaoDepth.close();
                 forward.close();
                 mesh.close();
+            }
+        }
+    }
+
+    /**
+     * Regression for the immutable-scene shortcut: a fixed object whose
+     * displacement binding starts disabled must not keep its rest-pose bounds
+     * after the binding becomes active.  The cached immutable path is only
+     * valid while every binding is still non-deforming and revision-stable.
+     */
+    @Test
+    void immutableFastPathRebuildsBoundsAfterFixedObjectDisplacementTurnsOn() {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(SIZE, SIZE)
+                .title("Scene Frame Immutable Bounds Test")
+                .visible(false)
+                .build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            ShaderProgram shader = ShaderProgram.builder()
+                    .stage(ShaderStage.VERTEX, """
+                            #version 460 core
+                            void main() { gl_Position = vec4(0.0); }
+                            """, "scene-frame-bounds.vert")
+                    .stage(ShaderStage.FRAGMENT, """
+                            #version 460 core
+                            void main() {}
+                            """, "scene-frame-bounds.frag")
+                    .link();
+            Mesh mesh = gridMesh();
+            try {
+                Material material = Material.builder(shader).build();
+                VertexDisplacementDrawBinding binding = new VertexDisplacementDrawBinding(
+                        VertexDisplacementSettings.disabled());
+                Scene scene = new Scene(new Camera());
+                scene.add(SceneObject.fixed(mesh, material, new Matrix4f(), true, binding));
+                SceneFrameBuilder builder = new SceneFrameBuilder();
+                Matrix4f shadowMatrix = new Matrix4f();
+
+                SceneFrame rest = builder.build(scene, SIZE, SIZE, shadowMatrix,
+                        false, false, 0);
+                assertEquals(1, rest.rendererCount());
+                assertFalse(rest.bounds(0).unbounded());
+                float restMaxX = rest.bounds(0).maxX();
+
+                binding.update(VertexDisplacementSettings.localSinusoidal(
+                        0.25f, 1.0f, 1.0f, 0.0f), 0.0f);
+                SceneFrame deformed = builder.build(scene, SIZE, SIZE, shadowMatrix,
+                        false, false, 1);
+                assertEquals(1, deformed.changedCount(),
+                        "an activated fixed binding must invalidate its cached bounds");
+                assertTrue(deformed.bounds(0).maxX() > restMaxX + 0.2f,
+                        "displacement padding must be included in the rebuilt bounds");
+                assertTrue(deformed.bounds(0).minX() < -1.2f,
+                        "padding must expand both bounds sides");
+            } finally {
+                mesh.close();
+                shader.close();
             }
         }
     }
