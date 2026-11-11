@@ -29,7 +29,7 @@
                      "taskId":  "R13",
                      "startedAt":  "2026-11-11T18:36:20.1890902+08:00"
                  },
-    "updatedAt":  "2026-11-11T18:36:20.1911214+08:00",
+    "updatedAt":  "2026-11-11T18:39:39.7403820+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -704,16 +704,16 @@
                       "featureIds":  [
                                          19
                                      ],
-                      "state":  "TODO",
-                      "scope":  "PCSS",
+                      "state":  "IMPLEMENTING",
+                      "scope":  "Directional PCSS on the existing cascade atlas",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent d6ad6cc3-1dfc-4123-9c4a-ae20a83d95e6",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "57a1c13",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -727,7 +727,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Implement in s2-pcss; JVM first, GPU queued"
                   },
                   {
                       "taskId":  "R20",
