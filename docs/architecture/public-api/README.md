@@ -118,3 +118,11 @@ fallback。清漆是材质值而不是 `RenderFeatureSettings` 开关：`directi
 `KHR_materials_clearcoat`（默认严格策略拒绝该 payload，lenient 策略仅警告并忽略）。
 PBR/IBL 能量分割、法线空间、零值还原与 GL 参考见
 [清漆技术卡](../../planning/v0.28.1-s2-clearcoat.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #20 新增 advanced `SsrSettings`（最大世界距离、march 步数、命中厚度、粗糙度 cutoff、
+置信度下限、强度与屏幕边缘渐隐）、`SsrEnvironmentSource`（借用 PBR 环境/IBL 回退合同）与
+`postprocess.ssr.SsrPass`（HDR 有界屏幕空间反射）。`PostProcessSettings` 追加 `ssr` 组件，
+canonical record 由 9 个组件扩展为 10 个，原 2/3/4/6/7/8/9 参数构造器保留并默认
+`SsrSettings.disabled()`。共享表面新增 `SceneBufferChannel.ROUGHNESS`（R8，可选分配；首版为
+PBR 标量粗糙度）。开启要求 HDR tone mapping、PBR 材质与借用环境；关闭时不创建 program、Pass
+或附件，颜色链顺序保持精确基线。技术范围、坐标/深度约定、MSAA 解析和回退策略见
+[SSR 技术卡](../../planning/v0.28.1-s3-ssr.md)，迁移说明见[迁移记录](migrations.md)。

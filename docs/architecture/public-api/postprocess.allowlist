@@ -14,6 +14,8 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.LateSurfaceProducer
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortion
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad
 
 # Effect settings and public effect passes.
@@ -46,6 +48,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDisto
 advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain

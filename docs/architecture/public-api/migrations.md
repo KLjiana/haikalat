@@ -218,3 +218,14 @@ glTF 材质路径行为不变。清漆法线贴图固定 unit 5
 候选。`KHR_materials_clearcoat` 不承诺、不加载：默认严格策略拒绝材质级扩展 payload，
 lenient 策略仅警告并忽略。能量分割、法线空间与零值还原见
 [技术卡](../../planning/v0.28.1-s2-clearcoat.md)。
+v0.28.1（候选）S3 #20 屏幕空间反射没有删除 stable 类型。`PostProcessSettings` 的 advanced
+canonical record 由 9 个组件扩展为 10 个（新增 `ssr`）；原 2/3/4/6/7/8/9 参数构造器保留并默认
+`SsrSettings.disabled()`，因此旧构造器、`with*` 与访问器调用保持源码兼容，直接调用 canonical
+构造器或反射读取组件列表的调用方需要更新。新增 advanced `SsrSettings`、
+`SsrEnvironmentSource` 与 `postprocess.ssr.SsrPass`；`SceneBufferChannel` 追加 `ROUGHNESS`
+（既有枚举值不变，只有请求该通道的布局才分配 R8 附件），`SurfaceInputs.Channel` 同步追加
+`NORMAL` 与 `ROUGHNESS`（既有取值不变）。`PostProcessPipeline.create` 保留原签名并新增带
+`SsrEnvironmentSource` 的重载；`replacementAssembly` 增加环境参数，仅生产装配调用。
+`RenderFeaturePolicy` 在统一请求入口拒绝非 HDR 或没有 PBR 材质的 SSR 请求。禁用时不创建任何
+SSR 资源，pass 顺序与 `passNamesFor` 保持原语义。技术范围与指纹见
+[技术卡](../../planning/v0.28.1-s3-ssr.md)。
