@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T13:59:16.9927360+08:00",
+    "updatedAt":  "2026-11-11T13:59:27.8875753+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -440,7 +440,8 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer sign-off"
+                      "nextAction":  "Independent reviewer sign-off",
+                      "policyCommit":  "6e2b2b8"
                   },
                   {
                       "taskId":  "R11",
