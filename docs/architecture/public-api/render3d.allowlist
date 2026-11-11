@@ -168,6 +168,7 @@ internal com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass
 advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionMath
 internal com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass
-advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings
-advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface
-internal com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass
+
+# v0.28.1 S3 #36 bounded water-caustics settings and pass-owned colour target.
+advanced com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass
