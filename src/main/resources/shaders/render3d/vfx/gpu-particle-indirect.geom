@@ -3,6 +3,7 @@
 layout (points) in;
 layout (triangle_strip, max_vertices = 4) out;
 
+uniform mat4 uViewProjection;
 uniform float uViewportAspect;
 uniform float uParticleSize;
 
@@ -12,7 +13,14 @@ layout (location = 1) out vec2 gUv;
 
 void emitCorner(vec2 corner) {
     vec4 center = gl_in[0].gl_Position;
-    vec2 offset = vec2(corner.x / uViewportAspect, corner.y) * uParticleSize * center.w;
+    // uViewProjection[1][1] is the projection Y scale (1/tan(fovY/2) for a
+    // standard perspective matrix, 1/halfHeight for an orthographic one). The
+    // clip-space offset is therefore constant and the perspective divide gives
+    // NDC size = uParticleSize * projectionScale / center.w, i.e. a world-size
+    // billboard. Multiplying the offset by center.w here would cancel in that
+    // division and turn the size into a constant screen fraction.
+    vec2 offset = vec2(corner.x / uViewportAspect, corner.y)
+            * uParticleSize * uViewProjection[1][1];
     gl_Position = center + vec4(offset, 0.0, 0.0);
     gColor = vColor[0];
     gUv = corner;

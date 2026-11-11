@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.BufferUtils;
@@ -102,8 +103,8 @@ class GpuParticleSystemGlTest {
             GlRenderDevice device = new GlRenderDevice();
 
             try (Framebuffer target = target(SIZE, SIZE);
-                 GpuParticleSystem particles =
-                         new GpuParticleSystem(pointSettings(128, 10.0f))) {
+                 GpuParticleSystem particles = new GpuParticleSystem(
+                         pointSettings(128, 10.0f, 0.5f, 0.25f, 0.0f))) {
                 particles.emit(32);
                 renderFrame(device, target, particles, 1.0f / 60.0f);
 
@@ -115,9 +116,10 @@ class GpuParticleSystemGlTest {
 
                 ByteBuffer indirect = readPixels(target);
                 int indirectCoverage = nonBlackPixels(indirect);
-                assertTrue(indirectCoverage > 32,
-                        "32 overlapping billboards must cover more than a few pixels: "
+                assertTrue(indirectCoverage > 100,
+                        "32 world-size billboards must cover a substantial disc: "
                                 + indirectCoverage);
+                assertProjectedCentroid(indirect, 0.5f, 0.25f, 0.0f, indirectCoverage);
 
                 ByteBuffer fullRange = drawFullRangeReference(device, target, particles);
                 assertPixelsClose(indirect, fullRange, 2);
@@ -245,7 +247,12 @@ class GpuParticleSystemGlTest {
                 assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17),
                         sorted(readActiveIndices(particles, 18)));
                 assertPixelsEqual(first, replay);
-                assertTrue(nonBlackPixels(replay) > 32);
+                int firstCoverage = nonBlackPixels(first);
+                assertEquals(firstCoverage, nonBlackPixels(replay),
+                        "replay must reproduce the same visible coverage");
+                assertTrue(firstCoverage > 100,
+                        "the replay fixture must render a meaningful billboard disc: "
+                                + firstCoverage);
                 assertEquals(GL_NO_ERROR, glGetError());
             }
         }
@@ -433,6 +440,35 @@ class GpuParticleSystemGlTest {
         return result;
     }
 
+    private static void assertProjectedCentroid(ByteBuffer pixels, float worldX,
+                                                float worldY, float worldZ, int coverage) {
+        Vector4f clip = viewProjection().transform(new Vector4f(worldX, worldY, worldZ, 1.0f));
+        float expectedX = (clip.x / clip.w * 0.5f + 0.5f) * SIZE - 0.5f;
+        float expectedY = (clip.y / clip.w * 0.5f + 0.5f) * SIZE - 0.5f;
+        double sumX = 0.0;
+        double sumY = 0.0;
+        int count = 0;
+        for (int offset = 0; offset < pixels.capacity(); offset += 4) {
+            int sum = Byte.toUnsignedInt(pixels.get(offset))
+                    + Byte.toUnsignedInt(pixels.get(offset + 1))
+                    + Byte.toUnsignedInt(pixels.get(offset + 2));
+            if (sum > 12) {
+                int pixel = offset / 4;
+                sumX += pixel % SIZE;
+                sumY += pixel / SIZE;
+                count++;
+            }
+        }
+        assertEquals(coverage, count, "coverage counter must agree with nonBlackPixels");
+        assertTrue(count > 0, "the projected billboard disc must be visible");
+        // A missing/identity uViewProjection would place the disc at the raw NDC
+        // position (48, 40) instead of the projected (44.9, 38.4) and fail this.
+        assertEquals(expectedX, (float) (sumX / count), 1.0f,
+                "billboard centroid x must follow the uploaded view-projection");
+        assertEquals(expectedY, (float) (sumY / count), 1.0f,
+                "billboard centroid y must follow the uploaded view-projection");
+    }
+
     private static ByteBuffer readPixels(Framebuffer target) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, target.id());
         glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -490,9 +526,14 @@ class GpuParticleSystemGlTest {
     }
 
     private static GpuParticleSettings pointSettings(int capacity, float lifetimeSeconds) {
+        return pointSettings(capacity, lifetimeSeconds, 0.0f, 0.0f, 0.0f);
+    }
+
+    private static GpuParticleSettings pointSettings(int capacity, float lifetimeSeconds,
+                                                     float x, float y, float z) {
         return new GpuParticleSettings(capacity,
-                new Vector3f(0.0f, 0.0f, 0.0f), new Vector3f(0.0f, 0.0f, 0.0f),
-                lifetimeSeconds, 0.0f, 0.0f, 0.0f, 0.08f,
+                new Vector3f(x, y, z), new Vector3f(x, y, z),
+                lifetimeSeconds, 0.0f, 0.0f, 0.0f, 0.35f,
                 new Vector3f(1.0f, 1.0f, 1.0f), 1.0f);
     }
 

@@ -71,7 +71,12 @@ class GpuParticleIndirectShaderTest {
 
         String geometry = resource(GEOMETRY);
         assertTrue(geometry.contains("if (gl_in[0].gl_Position.w <= 0.0)"));
-        assertTrue(geometry.contains("uParticleSize * center.w"));
+        assertTrue(geometry.contains("uniform mat4 uViewProjection;"));
+        assertTrue(geometry.contains("uParticleSize * uViewProjection[1][1]"),
+                "the clip offset must use the projection scale, not center.w");
+        assertFalse(geometry.contains("uParticleSize * center.w"),
+                "multiplying the clip offset by center.w cancels in NDC and turns "
+                        + "the size into a constant screen fraction");
         assertTrue(geometry.contains("layout (triangle_strip, max_vertices = 4) out;"));
 
         String fragment = resource(FRAGMENT);

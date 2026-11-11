@@ -11,7 +11,10 @@ import java.util.Objects;
  * {@link GpuParticleSystem}: it describes a finite capacity and the pure
  * emission/lifetime rules executed by the compute pass. Positions and speeds
  * are world-space units per second; gravity is a downward acceleration on the
- * Y axis. No texture, sorting or collision input is part of this version.</p>
+ * Y axis; {@code particleSize} is the world-space billboard half-width and is
+ * divided by the clip depth in the geometry stage, so screen coverage shrinks
+ * with distance. No texture, sorting or collision input is part of this
+ * version.</p>
  *
  * <p>Every component is validated at construction. Values are deliberately
  * bounded instead of silently clamped, so an author error fails at the owner
@@ -39,7 +42,7 @@ public record GpuParticleSettings(
     public static final float MAXIMUM_GRAVITY = 1_000.0f;
     /** Largest accepted initial speed in world units/s. */
     public static final float MAXIMUM_SPEED = 1_000.0f;
-    /** Largest accepted billboard size in world units at unit view depth. */
+    /** Largest accepted billboard half-size in world units. */
     public static final float MAXIMUM_PARTICLE_SIZE = 100.0f;
     /** Largest accepted colour or intensity component. */
     public static final float MAXIMUM_COLOR_COMPONENT = 16.0f;
