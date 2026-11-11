@@ -349,11 +349,14 @@ class TemporalDenoisePassGlTest {
                             INVERSE_PROJECTION, IDENTITY, PROJECTION);
                     float[] output = readAttachment(pass.readFramebuffer(), 0, SIZE);
                     for (int pixel = 0; pixel < SIZE * SIZE; pixel++) {
-                        assertEquals(0.3f, output[pixel * 4], 1.0e-4f,
+                        // The history colour attachment is RGBA16F; the
+                        // half-float representation of 0.3/0.4 differs from the
+                        // decimal literal by less than one half ULP.
+                        assertEquals(0.3f, output[pixel * 4], 1.0e-3f,
                                 "static red must not drift at frame " + frame);
-                        assertEquals(0.4f, output[pixel * 4 + 1], 1.0e-4f,
+                        assertEquals(0.4f, output[pixel * 4 + 1], 1.0e-3f,
                                 "static green must not drift at frame " + frame);
-                        assertEquals(0.5f, output[pixel * 4 + 2], 1.0e-4f,
+                        assertEquals(0.5f, output[pixel * 4 + 2], 1.0e-3f,
                                 "static blue must not drift at frame " + frame);
                     }
                 }

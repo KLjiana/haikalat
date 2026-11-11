@@ -35,6 +35,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPas
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -438,6 +439,28 @@ public final class PostProcessPipeline implements AutoCloseable {
         return input;
     }
 
+    /**
+     * Unique surface producer passes for a consumer's dependency edge.
+     *
+     * <p>Depth/normal/roughness often share one producer; a RenderGraph pass
+     * rejects duplicate dependency declarations, so the colour-chain assembler
+     * must add each producer once and must not add the colour producer again.</p>
+     */
+    static List<String> uniqueSurfaceProducers(String consumerProducer,
+                                               List<SurfaceInputs.Input> inputs) {
+        Objects.requireNonNull(consumerProducer, "consumerProducer");
+        Objects.requireNonNull(inputs, "inputs");
+        var producers = new LinkedHashSet<String>();
+        for (SurfaceInputs.Input input : inputs) {
+            Objects.requireNonNull(input, "surface input");
+            String producer = input.producerPass();
+            if (!consumerProducer.equals(producer)) {
+                producers.add(producer);
+            }
+        }
+        return List.copyOf(producers);
+    }
+
     void addTaaPass(RenderGraph graph, String inputTexture, String colorProducer) {
         temporal.addPass(graph, colorProducer, inputTexture, surfaceInputs, reactiveRequested());
     }
@@ -584,16 +607,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     .createColor(PostProcessTargets.SSR_COLOR, RenderFormat.RGBA16F)
                     .noClear()
                     .dependsOn(reflectionProducer);
-            for (SurfaceInputs.Input input : List.of(ssrDepth, ssrNormal, ssrRoughness)) {
-                if (!reflectionProducer.equals(input.producerPass())
-                        && !graph.hasPass(input.producerPass())) {
+            for (String producer : uniqueSurfaceProducers(reflectionProducer,
+                    List.of(ssrDepth, ssrNormal, ssrRoughness))) {
+                if (!graph.hasPass(producer)) {
                     throw new IllegalStateException(
                             "screen-space reflections require surface producer "
-                                    + input.producerPass());
+                                    + producer);
                 }
-                if (!reflectionProducer.equals(input.producerPass())) {
-                    ssrPass.dependsOn(input.producerPass());
-                }
+                ssrPass.dependsOn(producer);
             }
             ssrPass.execute((res, cmd) -> {
                 TemporalFramePose frame = framePose;
@@ -629,16 +650,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     .writeToExternalTarget()
                     .noClear()
                     .dependsOn(denoiseProducer);
-            for (SurfaceInputs.Input input : List.of(denoiseDepth, denoiseNormal)) {
-                if (!denoiseProducer.equals(input.producerPass())
-                        && !graph.hasPass(input.producerPass())) {
+            for (String producer : uniqueSurfaceProducers(denoiseProducer,
+                    List.of(denoiseDepth, denoiseNormal))) {
+                if (!graph.hasPass(producer)) {
                     throw new IllegalStateException(
                             "temporal denoising requires surface producer "
-                                    + input.producerPass());
+                                    + producer);
                 }
-                if (!denoiseProducer.equals(input.producerPass())) {
-                    denoisePass.dependsOn(input.producerPass());
-                }
+                denoisePass.dependsOn(producer);
             }
             denoisePass.execute((res, cmd) -> {
                 TemporalFramePose frame = framePose;
