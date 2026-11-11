@@ -162,6 +162,20 @@ class MaterialTest {
         assertEquals(3.0f, mat.value().m32(), 0.0f);
     }
 
+    @Test
+    void refractionDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.refraction().active(),
+                "existing materials must keep the exact no-op refraction path");
+
+        RefractionSettings glass = RefractionSettings.of(1.52f, 0.4f, 0.2f, 0.9f, 0.1f);
+        Material refractive = Material.builder(shader(8)).refraction(glass).build();
+        assertEquals(glass, refractive.refraction());
+        assertTrue(refractive.refraction().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).refraction(null));
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);

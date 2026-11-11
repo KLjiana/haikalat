@@ -56,7 +56,8 @@ def jvmCases = [
         'VertexDisplacementShaderTest',
         'DepthOfFieldSettingsTest', 'DepthOfFieldMathTest',
         'MotionBlurSettingsTest', 'MotionBlurMathTest', 'MotionBlurShaderTest',
-        'WaterSurfaceSettingsTest'
+        'WaterSurfaceSettingsTest',
+        'RefractionSettingsTest', 'RefractionReferenceMathTest', 'RefractionShaderTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -72,6 +73,7 @@ def glCases = [
         'DepthOfFieldPassGlTest',
         'MotionBlurPassGlTest',
         'WaterSurfacePassGlTest', 'WaterSurfacePipelineGlTest',
+        'RefractionGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
