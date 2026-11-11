@@ -435,18 +435,15 @@ public final class PbrMaterials {
         // The shader statically declares both probe samplerCubes. Their sampler
         // uniforms must never be left at GL's default unit 0, where the
         // sampler2D base-colour binding would make the PBR draw invalid even
-        // though the count-zero branch never samples a probe. On the target
-        // 32-unit context use the frozen 22/23 slots; on a smaller ordinary
-        // context fall back to 14/15 (free in the non-volume variant). Probe
-        // sets themselves still require the full 24 units.
-        int units = glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
-        int probeUnit0 = units > REFLECTION_PROBE_UNIT_1
-                ? REFLECTION_PROBE_UNIT_0 : 14;
+        // though the count-zero branch never samples a probe. Units 22/23 are
+        // the first pair free in both the ordinary and the volume-fog variants;
+        // this makes the probe-aware PBR shader require the documented 24
+        // fragment texture units even when the feature is disabled.
         return builder
                 .setInt("uReflectionProbeCount", 0)
                 .setFloat("uReflectionProbeGlobalWeight", 1.0f)
-                .setInt("uReflectionProbe0", probeUnit0)
-                .setInt("uReflectionProbe1", probeUnit0 + 1);
+                .setInt("uReflectionProbe0", REFLECTION_PROBE_UNIT_0)
+                .setInt("uReflectionProbe1", REFLECTION_PROBE_UNIT_1);
     }
 
     /** Uploads the bounded clearcoat settings as the frozen material uniforms. */

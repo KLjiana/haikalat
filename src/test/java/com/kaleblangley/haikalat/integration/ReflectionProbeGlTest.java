@@ -317,7 +317,7 @@ class ReflectionProbeGlTest {
                     // before the GPU path is exercised.
                     assertFixtureSelection(probes, PROBE_A_X, 1, 0, 1.0f);
                     assertFixtureSelection(probes, PROBE_B_X, 1, 1, 1.0f);
-                    assertFixtureSelection(probes, 0.0f, 2, -1, 0.0f);
+                    assertFixtureSelection(probes, 0.0f, 2, 0, 0.5f);
                     assertFixtureSelection(probes, 1.8f, 0, -1, 0.0f);
 
                     // Probe identity: full A and full B radiance.
