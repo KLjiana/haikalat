@@ -187,3 +187,5 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem
 # v0.28.1 S3 #26 bounded GPU particle sorting settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings
+# v0.28.1 S3 #15 bounded depth-based GPU particle collision settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionSettings

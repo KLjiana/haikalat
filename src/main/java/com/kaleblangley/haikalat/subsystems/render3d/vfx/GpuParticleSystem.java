@@ -56,15 +56,30 @@ import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
  * disabled path records the exact #27 command sequence and additive blend.
  * See {@code docs/planning/v0.28.1-s3-particle-sorting.md}.</p>
  *
+ * <p>When {@link GpuParticleCollisionSettings} is enabled <em>and</em> the
+ * record call supplies a single-sample opaque scene-depth texture, the update
+ * dispatch is the collision variant
+ * ({@code gpu-particle-collision.comp}) instead of the unmodified #27 program.
+ * That variant projects each live particle with the same view projection,
+ * fetches the scene depth at its texel, reconstructs the surface plane and
+ * resolves a bounded penetration with restitution and friction. The CPU never
+ * reads, maps or synchronizes the depth texture; the texture is borrowed for the
+ * recorded dispatch only. A disabled collision owner, or an enabled owner whose
+ * record call has no valid depth texture (texture id 0, for example an offscreen
+ * or depth-less pass), records the exact #27 update program and free-flight
+ * trajectory. See {@code docs/planning/v0.28.1-s3-particle-collision.md}.</p>
+ *
  * <p>Empty sets are not special-cased on the CPU: the GPU count is zero and
  * the indirect draw generates no primitives. Capacity changes prepare a
  * replacement candidate through {@link #resized(int)}; the caller publishes it
  * and retires this owner. Call {@link #close()} on the GPU owner thread.</p>
  *
  * <p>Limits: no CPU readback drives the draw, no sorting across owners, no
- * transparency resolve and no depth collision. See
- * {@code docs/planning/v0.28.1-s2-particle-indirect.md} and
- * {@code docs/planning/v0.28.1-s3-particle-sorting.md}.</p>
+ * transparency resolve, no continuous collision or complex shapes, and collision
+ * sees only the opaque screen-space depth behind the current camera. See
+ * {@code docs/planning/v0.28.1-s2-particle-indirect.md},
+ * {@code docs/planning/v0.28.1-s3-particle-sorting.md} and
+ * {@code docs/planning/v0.28.1-s3-particle-collision.md}.</p>
  */
 public final class GpuParticleSystem implements GlResource {
     /** Hard upper bound shared with {@link GpuParticleSettings}. */
@@ -91,21 +106,27 @@ public final class GpuParticleSystem implements GlResource {
     private final ShaderProgram sortKeyProgram;
     private final ShaderProgram sortStepProgram;
     private final ShaderProgram sortedDrawProgram;
+    private final ShaderProgram collisionUpdateProgram;
     private final VertexArray vertexArray;
     private final GpuParticleEmission emission;
     private final GpuParticleSortingSettings sorting;
+    private final GpuParticleCollisionSettings collision;
     private final GpuParticleSortPlan sortPlan;
     private final Matrix4f viewProjectionScratch = new Matrix4f();
+    private final Matrix4f inverseViewProjectionScratch = new Matrix4f();
     private final Matrix4f viewScratch = new Matrix4f();
+    private final Matrix4f inverseViewScratch = new Matrix4f();
     private final Vector3f spawnMinimumScratch = new Vector3f();
     private final Vector3f spawnMaximumScratch = new Vector3f();
+    private final Vector3f cameraScratch = new Vector3f();
     private final Vector4f colorScratch = new Vector4f();
     private GpuParticleSettings settings;
     private Statistics statistics;
     private boolean closed;
 
     public GpuParticleSystem(GpuParticleSettings settings) {
-        this(settings, GpuParticleSortingSettings.disabled());
+        this(settings, GpuParticleSortingSettings.disabled(),
+                GpuParticleCollisionSettings.disabled());
     }
 
     /**
@@ -121,8 +142,39 @@ public final class GpuParticleSystem implements GlResource {
      *                 selects the exact #27 indirect path
      */
     public GpuParticleSystem(GpuParticleSettings settings, GpuParticleSortingSettings sorting) {
+        this(settings, sorting, GpuParticleCollisionSettings.disabled());
+    }
+
+    /**
+     * Creates an owner with an explicit collision generation.
+     *
+     * @param settings  particle configuration
+     * @param collision collision configuration; {@link GpuParticleCollisionSettings#disabled()}
+     *                  selects the exact #27 indirect path
+     */
+    public GpuParticleSystem(GpuParticleSettings settings,
+                             GpuParticleCollisionSettings collision) {
+        this(settings, GpuParticleSortingSettings.disabled(), collision);
+    }
+
+    /**
+     * Creates an owner with explicit sorting and collision generations.
+     *
+     * <p>Both bounds are fixed for the lifetime of this owner because the sort
+     * scratch and the collision program are allocated here. Change them through
+     * {@link #resized(int, GpuParticleSortingSettings, GpuParticleCollisionSettings)}
+     * instead of mutating a published owner.</p>
+     *
+     * @param settings  particle configuration
+     * @param sorting   sorting configuration
+     * @param collision collision configuration; an enabled value links one extra
+     *                  compute program, a disabled value records the exact #27 path
+     */
+    public GpuParticleSystem(GpuParticleSettings settings, GpuParticleSortingSettings sorting,
+                             GpuParticleCollisionSettings collision) {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.sorting = Objects.requireNonNull(sorting, "sorting");
+        this.collision = Objects.requireNonNull(collision, "collision");
         capacity = settings.capacity();
         if (sorting.enabled() && sorting.maximumSortedParticles() > capacity) {
             throw new IllegalArgumentException("maximumSortedParticles must not exceed capacity "
@@ -148,6 +200,7 @@ public final class GpuParticleSystem implements GlResource {
         GlBuffer createdSortedIndices = null;
         ShaderProgram createdReset = null;
         ShaderProgram createdUpdate = null;
+        ShaderProgram createdCollisionUpdate = null;
         ShaderProgram createdDraw = null;
         ShaderProgram createdSortKey = null;
         ShaderProgram createdSortStep = null;
@@ -166,6 +219,10 @@ public final class GpuParticleSystem implements GlResource {
                     "/shaders/render3d/vfx/gpu-particle-reset.comp");
             createdUpdate = ShaderProgram.fromComputeResource(GpuParticleSystem.class,
                     "/shaders/render3d/vfx/gpu-particle-indirect.comp");
+            if (collision.enabled()) {
+                createdCollisionUpdate = ShaderProgram.fromComputeResource(GpuParticleSystem.class,
+                        "/shaders/render3d/vfx/gpu-particle-collision.comp");
+            }
             createdDraw = ShaderProgram.builder()
                     .resource(GpuParticleSystem.class, ShaderStage.VERTEX,
                             "/shaders/render3d/vfx/gpu-particle-indirect.vert")
@@ -199,6 +256,7 @@ public final class GpuParticleSystem implements GlResource {
             closeSuppressing(createdSortStep, failure);
             closeSuppressing(createdSortKey, failure);
             closeSuppressing(createdDraw, failure);
+            closeSuppressing(createdCollisionUpdate, failure);
             closeSuppressing(createdUpdate, failure);
             closeSuppressing(createdReset, failure);
             closeSuppressing(createdSortedIndices, failure);
@@ -219,6 +277,7 @@ public final class GpuParticleSystem implements GlResource {
         sortKeyProgram = createdSortKey;
         sortStepProgram = createdSortStep;
         sortedDrawProgram = createdSortedDraw;
+        collisionUpdateProgram = createdCollisionUpdate;
         vertexArray = createdVertexArray;
         emission = new GpuParticleEmission(capacity);
         statistics = new Statistics(capacity, workGroups, 0, 0, storageBytes, 0L, 0L,
@@ -248,6 +307,12 @@ public final class GpuParticleSystem implements GlResource {
     public GpuParticleSortingSettings sortingSettings() {
         ensureOpen();
         return sorting;
+    }
+
+    /** @return the immutable collision generation of this owner */
+    public GpuParticleCollisionSettings collisionSettings() {
+        ensureOpen();
+        return collision;
     }
 
     /**
@@ -298,7 +363,7 @@ public final class GpuParticleSystem implements GlResource {
 
     /**
      * Prepares a replacement candidate with another capacity and the same sort
-     * generation.
+     * and collision generations.
      *
      * <p>This owner and its live particles are unchanged. The caller publishes
      * the returned candidate only after all GPU resources were created and then
@@ -309,7 +374,7 @@ public final class GpuParticleSystem implements GlResource {
      */
     public GpuParticleSystem resized(int newCapacity) {
         ensureOpen();
-        return resized(newCapacity, sorting);
+        return resized(newCapacity, sorting, collision);
     }
 
     /**
@@ -323,7 +388,38 @@ public final class GpuParticleSystem implements GlResource {
      */
     public GpuParticleSystem resized(int newCapacity, GpuParticleSortingSettings newSorting) {
         ensureOpen();
-        return new GpuParticleSystem(settings.withCapacity(newCapacity), newSorting);
+        return new GpuParticleSystem(settings.withCapacity(newCapacity), newSorting, collision);
+    }
+
+    /**
+     * Prepares a replacement candidate with another capacity and collision
+     * generation.
+     *
+     * @param newCapacity  capacity in [1, {@link #MAX_PARTICLES}]
+     * @param newCollision collision generation for the candidate
+     * @return a new, independent owner
+     */
+    public GpuParticleSystem resized(int newCapacity,
+                                     GpuParticleCollisionSettings newCollision) {
+        ensureOpen();
+        return new GpuParticleSystem(settings.withCapacity(newCapacity), sorting,
+                newCollision);
+    }
+
+    /**
+     * Prepares a replacement candidate with another capacity, sort generation
+     * and collision generation.
+     *
+     * @param newCapacity  capacity in [1, {@link #MAX_PARTICLES}]
+     * @param newSorting   sorting generation for the candidate
+     * @param newCollision collision generation for the candidate
+     * @return a new, independent owner
+     */
+    public GpuParticleSystem resized(int newCapacity, GpuParticleSortingSettings newSorting,
+                                     GpuParticleCollisionSettings newCollision) {
+        ensureOpen();
+        return new GpuParticleSystem(settings.withCapacity(newCapacity), newSorting,
+                newCollision);
     }
 
     /**
@@ -331,9 +427,9 @@ public final class GpuParticleSystem implements GlResource {
      * indirect point draw without a view matrix.
      *
      * <p>This is the exact #27 signature and remains valid for owners whose
-     * sorting is disabled. An enabled owner must use
-     * {@link #record(CommandBuffer, float, Matrix4fc, Matrix4fc, float)} so the
-     * sort key can be derived from the view.</p>
+     * sorting and collision are disabled. An enabled sorting or collision owner
+     * must use the overload with a view matrix; an enabled collision owner that
+     * wants collision must also provide the scene-depth overload below.</p>
      *
      * @param commands       target command buffer
      * @param deltaSeconds   finite non-negative frame delta in seconds
@@ -348,7 +444,12 @@ public final class GpuParticleSystem implements GlResource {
             throw new IllegalArgumentException("enabled particle sorting requires the record "
                     + "overload with a view matrix");
         }
-        return recordInternal(commands, deltaSeconds, viewProjection, null, viewportAspect);
+        if (collision.enabled()) {
+            throw new IllegalArgumentException("enabled particle collision requires the record "
+                    + "overload with a view matrix");
+        }
+        return recordInternal(commands, deltaSeconds, viewProjection, null, viewportAspect,
+                0, 0, 0);
     }
 
     /**
@@ -357,13 +458,16 @@ public final class GpuParticleSystem implements GlResource {
      *
      * <p>This method never reads the active count, never maps the buffers and
      * never decides the draw range on the CPU. The recorded draw always
-     * consumes the GPU counter, including when it is zero.</p>
+     * consumes the GPU counter, including when it is zero. An enabled collision
+     * owner that uses this overload (no scene depth) keeps free flight and
+     * records the exact #27 update program.</p>
      *
      * @param commands       target command buffer
      * @param deltaSeconds   finite non-negative frame delta in seconds
      * @param viewProjection camera view-projection for the billboard centres
-     * @param view           camera view matrix used by the sort key; required
-     *                       when sorting is enabled and ignored otherwise
+     * @param view           camera view matrix used by the sort key and the
+     *                       collision camera position; required when sorting or
+     *                       collision is enabled and otherwise ignored
      * @param viewportAspect positive render-target aspect ratio
      * @return the current statistics snapshot
      */
@@ -371,7 +475,40 @@ public final class GpuParticleSystem implements GlResource {
                              Matrix4fc viewProjection, Matrix4fc view, float viewportAspect) {
         ensureOpen();
         Objects.requireNonNull(view, "view");
-        return recordInternal(commands, deltaSeconds, viewProjection, view, viewportAspect);
+        return recordInternal(commands, deltaSeconds, viewProjection, view, viewportAspect,
+                0, 0, 0);
+    }
+
+    /**
+     * Records reset, compute update, an optional GPU sort, the optional bounded
+     * depth collision, barriers and one indirect point draw.
+     *
+     * <p>The depth texture is borrowed only for this recorded dispatch. It must
+     * be the single-sample opaque scene depth rendered for the same frame,
+     * view matrix and viewport as the particle draw. A non-positive texture id
+     * selects the free-flight fallback and records the unmodified #27 update
+     * program; the extent is then ignored. Nothing is read back, mapped or
+     * synchronized on the CPU.</p>
+     *
+     * @param commands        target command buffer
+     * @param deltaSeconds    finite non-negative frame delta in seconds
+     * @param viewProjection  camera view-projection for the billboard centres
+     * @param view            camera view matrix used by the sort key and the
+     *                        collision camera position
+     * @param viewportAspect  positive render-target aspect ratio
+     * @param sceneDepthTexture single-sample opaque scene-depth texture id, or
+     *                          0 for free flight
+     * @param sceneWidth      depth texture width in pixels when a texture is given
+     * @param sceneHeight     depth texture height in pixels when a texture is given
+     * @return the current statistics snapshot
+     */
+    public Statistics record(CommandBuffer commands, float deltaSeconds,
+                             Matrix4fc viewProjection, Matrix4fc view, float viewportAspect,
+                             int sceneDepthTexture, int sceneWidth, int sceneHeight) {
+        ensureOpen();
+        Objects.requireNonNull(view, "view");
+        return recordInternal(commands, deltaSeconds, viewProjection, view, viewportAspect,
+                sceneDepthTexture, sceneWidth, sceneHeight);
     }
 
     public Statistics statistics() {
@@ -406,6 +543,9 @@ public final class GpuParticleSystem implements GlResource {
             sortKeyProgram.close();
         }
         drawProgram.close();
+        if (collisionUpdateProgram != null) {
+            collisionUpdateProgram.close();
+        }
         updateProgram.close();
         resetProgram.close();
         if (sortedIndices != null) {
@@ -421,7 +561,8 @@ public final class GpuParticleSystem implements GlResource {
 
     private Statistics recordInternal(CommandBuffer commands, float deltaSeconds,
                                       Matrix4fc viewProjection, Matrix4fc view,
-                                      float viewportAspect) {
+                                      float viewportAspect, int sceneDepthTexture,
+                                      int sceneWidth, int sceneHeight) {
         CommandBuffer cmd = Objects.requireNonNull(commands, "commands");
         Objects.requireNonNull(viewProjection, "viewProjection");
         if (!Float.isFinite(deltaSeconds) || deltaSeconds < 0.0f) {
@@ -430,8 +571,32 @@ public final class GpuParticleSystem implements GlResource {
         if (!Float.isFinite(viewportAspect) || viewportAspect <= 0.0f) {
             throw new IllegalArgumentException("viewportAspect must be finite and positive");
         }
+        boolean collisionActive = collision.enabled() && sceneDepthTexture > 0;
+        if (collisionActive) {
+            Objects.requireNonNull(view, "view");
+            if (sceneWidth <= 0 || sceneHeight <= 0
+                    || sceneWidth > GpuParticleCollisionSettings.MAXIMUM_SCENE_EXTENT
+                    || sceneHeight > GpuParticleCollisionSettings.MAXIMUM_SCENE_EXTENT) {
+                throw new IllegalArgumentException("collision scene extent must be in [1, "
+                        + GpuParticleCollisionSettings.MAXIMUM_SCENE_EXTENT + "]");
+            }
+            if (!(Math.abs(viewProjection.determinant()) > 1.0e-12)
+                    || !(Math.abs(view.determinant()) > 1.0e-12)) {
+                throw new IllegalArgumentException(
+                        "collision requires invertible view-projection and view matrices");
+            }
+            inverseViewProjectionScratch.set(viewProjection).invert();
+            inverseViewScratch.set(view).invert();
+            inverseViewScratch.getTranslation(cameraScratch);
+            if (!Float.isFinite(cameraScratch.x) || !Float.isFinite(cameraScratch.y)
+                    || !Float.isFinite(cameraScratch.z)) {
+                throw new IllegalArgumentException(
+                        "collision camera position must be finite");
+            }
+        }
         GpuParticleEmission.Step step = emission.beginFrame(deltaSeconds);
-        recordStep(cmd, step, deltaSeconds, viewProjection, view, viewportAspect);
+        recordStep(cmd, step, deltaSeconds, viewProjection, view, viewportAspect,
+                collisionActive ? sceneDepthTexture : 0, sceneWidth, sceneHeight);
         statistics = new Statistics(capacity, workGroups, step.spawnCount(),
                 emission.pendingEmission(), storageBytes,
                 Math.incrementExact(statistics.framesRecorded()),
@@ -442,29 +607,56 @@ public final class GpuParticleSystem implements GlResource {
 
     private void recordStep(CommandBuffer cmd, GpuParticleEmission.Step step,
                             float deltaSeconds, Matrix4fc viewProjection, Matrix4fc view,
-                            float viewportAspect) {
+                            float viewportAspect, int sceneDepthTexture, int sceneWidth,
+                            int sceneHeight) {
         viewProjectionScratch.set(viewProjection);
+        boolean collisionActive = sceneDepthTexture > 0;
+        ShaderProgram activeUpdate = collisionActive ? collisionUpdateProgram : updateProgram;
         cmd.bindShader(resetProgram)
                 .bindStorageBuffer(1, counters, 0L, COUNTER_BYTES)
                 .dispatchCompute(1, 1, 1)
                 .memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT)
-                .bindShader(updateProgram)
+                .bindShader(activeUpdate)
                 .bindStorageBuffer(0, particles, 0L, particleStorageBytes)
                 .bindStorageBuffer(1, counters, 0L, COUNTER_BYTES)
                 .bindStorageBuffer(2, activeIndices, 0L, activeIndexStorageBytes)
-                .setUniformInt(updateProgram, "uCapacity", capacity)
-                .setUniformInt(updateProgram, "uEmitStart", step.spawnStart())
-                .setUniformInt(updateProgram, "uEmitCount", step.spawnCount())
-                .setUniformInt(updateProgram, "uClearParticles", step.clearParticles() ? 1 : 0)
-                .setUniformInt(updateProgram, "uFrameIndex", step.frameIndex())
-                .setUniformFloat(updateProgram, "uDeltaSeconds", deltaSeconds)
-                .setUniformFloat(updateProgram, "uLifetimeSeconds", settings.lifetimeSeconds())
-                .setUniformFloat(updateProgram, "uGravity", settings.gravity())
-                .setUniformFloat(updateProgram, "uMinimumSpeed", settings.minimumSpeed())
-                .setUniformFloat(updateProgram, "uMaximumSpeed", settings.maximumSpeed())
-                .setUniformVec3(updateProgram, "uSpawnMin", spawnMinimumScratch)
-                .setUniformVec3(updateProgram, "uSpawnMax", spawnMaximumScratch)
-                .dispatchCompute(workGroups, 1, 1);
+                .setUniformInt(activeUpdate, "uCapacity", capacity)
+                .setUniformInt(activeUpdate, "uEmitStart", step.spawnStart())
+                .setUniformInt(activeUpdate, "uEmitCount", step.spawnCount())
+                .setUniformInt(activeUpdate, "uClearParticles", step.clearParticles() ? 1 : 0)
+                .setUniformInt(activeUpdate, "uFrameIndex", step.frameIndex())
+                .setUniformFloat(activeUpdate, "uDeltaSeconds", deltaSeconds)
+                .setUniformFloat(activeUpdate, "uLifetimeSeconds", settings.lifetimeSeconds())
+                .setUniformFloat(activeUpdate, "uGravity", settings.gravity())
+                .setUniformFloat(activeUpdate, "uMinimumSpeed", settings.minimumSpeed())
+                .setUniformFloat(activeUpdate, "uMaximumSpeed", settings.maximumSpeed())
+                .setUniformVec3(activeUpdate, "uSpawnMin", spawnMinimumScratch)
+                .setUniformVec3(activeUpdate, "uSpawnMax", spawnMaximumScratch);
+        if (collisionActive) {
+            // Clear any leftover sampler object so the depth texture is sampled
+            // with its own NEAREST parameters, never a comparison sampler.
+            cmd.bindTexture(0, sceneDepthTexture)
+                    .bindSampler(0, null)
+                    .setUniformInt(activeUpdate, "uSceneDepth", 0)
+                    .setUniformMat4(activeUpdate, "uViewProjection", viewProjectionScratch)
+                    .setUniformMat4(activeUpdate, "uInverseViewProjection",
+                            inverseViewProjectionScratch)
+                    .setUniformVec3(activeUpdate, "uCameraPosition", cameraScratch)
+                    .setUniformVec2(activeUpdate, "uViewportSize", sceneWidth, sceneHeight)
+                    .setUniformFloat(activeUpdate, "uCollisionThickness",
+                            collision.thickness())
+                    .setUniformFloat(activeUpdate, "uRestitution", collision.restitution())
+                    .setUniformFloat(activeUpdate, "uFriction", collision.friction())
+                    .setUniformInt(activeUpdate, "uMaximumSearchSteps",
+                            collision.maximumSearchSteps())
+                    .setUniformFloat(activeUpdate, "uSearchRadiusPixels",
+                            collision.searchRadiusPixels())
+                    .setUniformInt(activeUpdate, "uDepthSampling",
+                            collision.depthSampling()
+                                    == GpuParticleCollisionSettings.DepthSampling
+                                            .CONSERVATIVE_MIN_2X2 ? 1 : 0);
+        }
+        cmd.dispatchCompute(workGroups, 1, 1);
         if (sorting.enabled()) {
             recordSort(cmd, Objects.requireNonNull(view, "view"));
             cmd.memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT)
