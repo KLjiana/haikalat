@@ -44,6 +44,33 @@ class TemporalUpscalingReferenceTest {
     }
 
     @Test
+    void stableOutputPositionIsTheReprojectionOrigin() {
+        // A surface reconstructed at stable output position (0.5, 0.5) must
+        // reproject onto that same output pixel when the previous view-projection
+        // is static.  Reprojecting from the containing low-res texel centre would
+        // instead shift history by up to half a low-res texel.
+        double[] previousViewProjection = {
+                0.5, 0.0, 0.0, 0.0,
+                0.0, 0.5, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0};
+        double[] staticClip = TemporalUpscalingReference.transform(previousViewProjection,
+                new double[]{0.0, 0.0, 0.0, 1.0});
+        assertArrayEquals(new double[]{0.5, 0.5},
+                TemporalUpscalingReference.previousUv(staticClip), 1.0e-12);
+
+        double[] translatedViewProjection = {
+                0.5, 0.0, 0.0, -0.1,
+                0.0, 0.5, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0};
+        double[] movedClip = TemporalUpscalingReference.transform(translatedViewProjection,
+                new double[]{0.0, 0.0, 0.0, 1.0});
+        assertArrayEquals(new double[]{0.45, 0.5},
+                TemporalUpscalingReference.previousUv(movedClip), 1.0e-12);
+    }
+
+    @Test
     void reprojectionBudgetIsMeasuredInOutputPixels() {
         double displacement = TemporalUpscalingReference.reprojectionPixels(
                 new double[]{0.5, 0.5}, new double[]{0.65, 0.7}, 64, 64);

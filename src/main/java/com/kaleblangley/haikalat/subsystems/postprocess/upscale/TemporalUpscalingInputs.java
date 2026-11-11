@@ -13,15 +13,23 @@ import java.util.Objects;
  * <ul>
  *   <li><b>Velocity mode</b>: {@code velocityTexture} and
  *       {@code previousDepthTexture} are non-zero.  The velocity is a
- *       stable-raster UV displacement of the low-resolution sample and the
- *       expected previous view depth is sampled from the previous stable-raster
- *       depth at the reprojected position.</li>
+ *       stable-raster UV displacement of the low-resolution sample, so the
+ *       previous stable position is the current output UV plus that
+ *       displacement; the expected previous view depth is sampled from the
+ *       previous stable-raster depth there.</li>
  *   <li><b>Previous-view-projection mode</b>: both textures are zero.  The
- *       current low-resolution surface is reconstructed in world space and
- *       projected with the pass's previous successful stable view-projection.
- *       This follows camera motion; a moving object is rejected by the depth
- *       check instead of smearing.</li>
+ *       current surface is reconstructed in world space at the stable output
+ *       position (the jittered inverse projection recovers it from the
+ *       jitter-shifted sample) and projected with the pass's previous successful
+ *       stable view-projection.  This follows camera motion; a moving object is
+ *       rejected by the depth check instead of smearing.</li>
  * </ul>
+ *
+ * <p>The stable output position, not the containing low-resolution texel centre,
+ * is the reprojection origin.  The texel centre is only used to fetch the
+ * depth/velocity/mask channels and the spatial clamp neighbourhood; using it as
+ * the reprojection origin would offset history by up to half a low-resolution
+ * texel and blur high-frequency detail.</p>
  *
  * <p>{@code jitterUvX/Y} is the low-resolution TAA jitter in UV units that was
  * active when the colour and depth were rasterised; the pass uses it to recover

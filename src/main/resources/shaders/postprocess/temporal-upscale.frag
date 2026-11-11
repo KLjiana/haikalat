@@ -123,14 +123,14 @@ void main() {
 
     // The output history raster is the stable display raster.  The current
     // low-resolution signal may have been rasterised with a sub-pixel jitter, so
-    // the sample position is shifted by it and the jittered inverse projection
-    // recovers the stable surface.
+    // the colour sample is shifted by it and the jittered inverse projection
+    // recovers the stable surface at this output pixel.  The stable position is
+    // the output UV itself: the low-res texel centre is only used to fetch the
+    // depth/velocity/mask channels, never as the reprojection origin.
     vec2 sampleUv = outputUv + uCurrentJitter;
     ivec2 inputExtent = ivec2(uInputExtent);
     ivec2 inputPixel = clamp(ivec2(floor(sampleUv * uInputExtent)),
             ivec2(0), inputExtent - ivec2(1));
-    vec2 inputUv = (vec2(inputPixel) + 0.5) / uInputExtent;
-    vec2 stableSampleUv = inputUv - uCurrentJitter;
 
     vec4 current = currentBilinear(sampleUv);
     float deviceDepth = texelFetch(uDepth, inputPixel, 0).r;
@@ -140,7 +140,7 @@ void main() {
         return;
     }
 
-    float currentDepth = viewDepthAt(inputUv, deviceDepth);
+    float currentDepth = viewDepthAt(sampleUv, deviceDepth);
     if (!(currentDepth > 0.0) || !(currentDepth < 1.0e12)) {
         outColor = current;
         outState = vec4(-1.0, uExposure, 0.0, 0.0);
@@ -195,18 +195,19 @@ void main() {
         if (uUseVelocity != 0) {
             vec2 velocity = texelFetch(uVelocity, inputPixel, 0).rg;
             if (finite2(velocity)) {
-                vec2 previousStableUv = stableSampleUv + velocity;
-                previousUv = previousStableUv;
+                // Velocity is a stable-raster UV displacement; the history
+                // raster is stable, so the previous stable position is the
+                // output position plus that displacement.
+                previousUv = outputUv + velocity;
                 ivec2 previousPixel = clamp(
-                        ivec2(floor(previousStableUv * uInputExtent)),
+                        ivec2(floor(previousUv * uInputExtent)),
                         ivec2(0), inputExtent - ivec2(1));
                 expectedPreviousDepth = texelFetch(uPreviousDepth, previousPixel, 0).r;
-                displacementPixels = length((previousStableUv - stableSampleUv)
-                        * uOutputExtent);
+                displacementPixels = length(velocity * uOutputExtent);
                 reprojected = expectedPreviousDepth > 0.0;
             }
         } else {
-            vec4 viewPosition = viewPositionAt(inputUv, deviceDepth);
+            vec4 viewPosition = viewPositionAt(sampleUv, deviceDepth);
             if (viewPosition.w > 0.0 && finite3(viewPosition.xyz)) {
                 vec3 worldPosition = (uInverseView * vec4(viewPosition.xyz, 1.0)).xyz;
                 vec4 previousClip = uPreviousViewProjection * vec4(worldPosition, 1.0);
@@ -217,7 +218,7 @@ void main() {
                         previousUv = previousStableUv;
                         expectedPreviousDepth = abs(previousView.z / previousView.w);
                         displacementPixels = length(
-                                (previousStableUv - stableSampleUv) * uOutputExtent);
+                                (previousStableUv - outputUv) * uOutputExtent);
                         reprojected = expectedPreviousDepth > 0.0;
                     }
                 }

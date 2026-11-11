@@ -157,28 +157,30 @@ class TemporalUpscalingPassGlTest {
                          OUTPUT_WIDTH, OUTPUT_HEIGHT)) {
                 float[] nativeReference = highFrequencyScene(OUTPUT_WIDTH, OUTPUT_HEIGHT, 8, 0.0);
                 float[] firstFrameInput = jitteredHighFrequencyScene(0.0f, 0.0f);
-                float[][] spatialBilinear = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT][3];
-                for (int y = 0; y < OUTPUT_HEIGHT; y++) {
-                    for (int x = 0; x < OUTPUT_WIDTH; x++) {
-                        double[] sample = TemporalUpscalingReference.bilinearRgba(
-                                toDoubles(firstFrameInput), INPUT_WIDTH, INPUT_HEIGHT,
-                                (x + 0.5) / OUTPUT_WIDTH, (y + 0.5) / OUTPUT_HEIGHT);
-                        int offset = (y * OUTPUT_WIDTH + x) * 3;
-                        spatialBilinear[y * OUTPUT_WIDTH + x][0] = (float) sample[0];
-                        spatialBilinear[y * OUTPUT_WIDTH + x][1] = (float) sample[1];
-                        spatialBilinear[y * OUTPUT_WIDTH + x][2] = (float) sample[2];
+                float[] spatial = bilinearUpsample(firstFrameInput);
+                double frameZeroError = meanAbsoluteError(spatial, nativeReference);
+                assertTrue(frameZeroError > 0.05,
+                        "the single-frame bilinear reference must show visible aliasing, got "
+                                + frameZeroError);
+
+                // Independent upper bound for any phase-averaging reconstructor:
+                // the uniform average of the per-phase bilinear samples.  A
+                // temporal filter cannot beat this with the same current-sample
+                // kernel; the pass is expected to approach it, not to exceed it
+                // by a large factor.
+                float[] phaseAverageRgba = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT * 4];
+                for (float jitterPixels : JITTER_PHASES) {
+                    float jitterUv = jitterPixels / INPUT_WIDTH;
+                    float[] input = jitteredHighFrequencyScene(jitterUv, jitterUv);
+                    float[] phase = bilinearUpsample(input);
+                    for (int index = 0; index < phase.length; index++) {
+                        phaseAverageRgba[index] += phase[index] / JITTER_PHASES.length;
                     }
                 }
-                float[] spatial = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT * 3];
-                for (int pixel = 0; pixel < OUTPUT_WIDTH * OUTPUT_HEIGHT; pixel++) {
-                    spatial[pixel * 3] = spatialBilinear[pixel][0];
-                    spatial[pixel * 3 + 1] = spatialBilinear[pixel][1];
-                    spatial[pixel * 3 + 2] = spatialBilinear[pixel][2];
-                }
-                double spatialError = meanAbsoluteErrorRgb(spatial, nativeReference);
-                assertTrue(spatialError > 0.05,
-                        "the single-frame bilinear reference must show visible aliasing, got "
-                                + spatialError);
+                double phaseAverageError = meanAbsoluteError(phaseAverageRgba, nativeReference);
+                assertTrue(phaseAverageError < frameZeroError * 0.9,
+                        "the phase-averaged reference itself must improve on one frame: "
+                                + phaseAverageError + " vs " + frameZeroError);
 
                 float[] temporal = null;
                 for (int frame = 0; frame < 24; frame++) {
@@ -194,10 +196,16 @@ class TemporalUpscalingPassGlTest {
                 }
                 assertTrue(pass.historyValid());
                 double temporalError = meanAbsoluteError(temporal, nativeReference);
-                assertTrue(temporalError < spatialError * 0.7,
+                assertTrue(temporalError < frameZeroError,
                         "temporal reconstruction must beat single-frame bilinear: "
-                                + temporalError + " vs " + spatialError);
-                assertTrue(temporalError < 0.12,
+                                + temporalError + " vs " + frameZeroError);
+                assertTrue(temporalError < frameZeroError * 0.85,
+                        "temporal reconstruction must improve by the measured margin: "
+                                + temporalError + " vs " + frameZeroError);
+                assertTrue(temporalError <= phaseAverageError * 1.10,
+                        "temporal reconstruction must approach the phase-average bound: "
+                                + temporalError + " vs " + phaseAverageError);
+                assertTrue(temporalError < 0.045,
                         "temporal reconstruction must stay close to the native reference, got "
                                 + temporalError);
             }
@@ -220,32 +228,69 @@ class TemporalUpscalingPassGlTest {
         try (Textures textures = new Textures();
              TemporalUpscalingPass tracking = new TemporalUpscalingPass(CONVERGENCE,
                      OUTPUT_WIDTH, OUTPUT_HEIGHT);
-             TemporalUpscalingPass frozen = new TemporalUpscalingPass(
-                     CONVERGENCE.withMaxReprojectionPixels(0.0f), OUTPUT_WIDTH, OUTPUT_HEIGHT)) {
+             TemporalUpscalingPass sameUv = new TemporalUpscalingPass(CONVERGENCE,
+                     OUTPUT_WIDTH, OUTPUT_HEIGHT)) {
             float[] truth = null;
             float[] tracked = null;
-            float[] frozenFrame = null;
+            float[] sameUvFrame = null;
+            float finalCameraX = 0.0f;
             for (int frame = 0; frame < 24; frame++) {
                 float cameraX = frame * 0.05f;
+                finalCameraX = cameraX;
                 float[] input = worldScene(INPUT_WIDTH, INPUT_HEIGHT, cameraX, 1);
                 truth = worldScene(OUTPUT_WIDTH, OUTPUT_HEIGHT, cameraX, 4);
                 Matrix4f stableViewProjection = new Matrix4f(PROJECTION)
                         .mul(new Matrix4f().translate(-cameraX, 0.0f, 0.0f));
                 Matrix4f inverseView = new Matrix4f().translate(cameraX, 0.0f, 0.0f);
-                Frame frameData = new Frame(INPUT_WIDTH, INPUT_HEIGHT, input,
+                Frame reprojectedFrame = new Frame(INPUT_WIDTH, INPUT_HEIGHT, input,
                         constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_DEVICE_DEPTH),
                         null, null, null, null, 0.0f, 0.0f, 1.0f,
                         INVERSE_PROJECTION, inverseView, stableViewProjection);
-                tracked = runFrame(tracking, device, textures, frameData);
-                frozenFrame = runFrame(frozen, device, textures, frameData);
+                tracked = runFrame(tracking, device, textures, reprojectedFrame);
+                // The same-UV control uses the velocity contract with a zero
+                // displacement, so history is accepted on the current pixel
+                // while the world-locked content moves across the raster.  This
+                // is the real no-reprojection control; rejecting history (a zero
+                // pixel budget) would instead produce a sharp single-frame
+                // spatial result and is not a reproducibility control.
+                sameUvFrame = runFrame(sameUv, device, textures, new Frame(
+                        INPUT_WIDTH, INPUT_HEIGHT, input,
+                        constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_DEVICE_DEPTH),
+                        constantVelocity(INPUT_WIDTH, INPUT_HEIGHT, 0.0f, 0.0f),
+                        constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_VIEW_DEPTH),
+                        null, null, 0.0f, 0.0f, 1.0f,
+                        INVERSE_PROJECTION, IDENTITY, PROJECTION));
             }
             double trackedError = meanAbsoluteError(tracked, truth);
-            double frozenError = meanAbsoluteError(frozenFrame, truth);
-            assertTrue(trackedError < 0.15,
+            double sameUvError = meanAbsoluteError(sameUvFrame, truth);
+            assertTrue(trackedError < 0.06,
                     "reprojected history must track the moving camera, got " + trackedError);
-            assertTrue(trackedError < frozenError * 0.85,
-                    "reprojected history must beat a zero-budget control: "
-                            + trackedError + " vs " + frozenError);
+            assertTrue(trackedError < sameUvError * 0.8,
+                    "reprojection must reduce the motion smear against a same-UV history "
+                            + "control: " + trackedError + " vs " + sameUvError);
+
+            // Once the camera stops the history must converge back to the current
+            // frame; a misaligned reprojection would leave a permanent ghost.
+            double settleError = trackedError;
+            for (int frame = 0; frame < 32; frame++) {
+                float[] input = worldScene(INPUT_WIDTH, INPUT_HEIGHT, finalCameraX, 1);
+                truth = worldScene(OUTPUT_WIDTH, OUTPUT_HEIGHT, finalCameraX, 4);
+                Matrix4f stableViewProjection = new Matrix4f(PROJECTION)
+                        .mul(new Matrix4f().translate(-finalCameraX, 0.0f, 0.0f));
+                Matrix4f inverseView = new Matrix4f().translate(finalCameraX, 0.0f, 0.0f);
+                tracked = runFrame(tracking, device, textures, new Frame(
+                        INPUT_WIDTH, INPUT_HEIGHT, input,
+                        constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_DEVICE_DEPTH),
+                        null, null, null, null, 0.0f, 0.0f, 1.0f,
+                        INVERSE_PROJECTION, inverseView, stableViewProjection));
+                settleError = meanAbsoluteError(tracked, truth);
+            }
+            assertTrue(settleError < 0.035,
+                    "a stopped camera must converge back to the current frame, got "
+                            + settleError);
+            assertTrue(settleError < trackedError,
+                    "settling must reduce the motion error: " + settleError + " vs "
+                            + trackedError);
         }
     }
 
@@ -268,7 +313,7 @@ class TemporalUpscalingPassGlTest {
                 Frame velocityFrame = new Frame(INPUT_WIDTH, INPUT_HEIGHT, input,
                         constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_DEVICE_DEPTH),
                         velocity,
-                        constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_DEVICE_DEPTH),
+                        constantDepth(INPUT_WIDTH, INPUT_HEIGHT, PLANE_VIEW_DEPTH),
                         null, null, 0.0f, 0.0f, 1.0f,
                         INVERSE_PROJECTION, IDENTITY, PROJECTION);
                 tracked = runFrame(tracking, device, textures, velocityFrame);
@@ -881,18 +926,23 @@ class TemporalUpscalingPassGlTest {
     // Numeric helpers
     // ------------------------------------------------------------------
 
-    private static double meanAbsoluteErrorRgb(float[] actualRgb, float[] referenceRgba) {
-        int pixels = referenceRgba.length / 4;
-        double sum = 0.0;
-        for (int pixel = 0; pixel < pixels; pixel++) {
-            int referenceOffset = pixel * 4;
-            int actualOffset = pixel * 3;
-            for (int channel = 0; channel < 3; channel++) {
-                sum += Math.abs(actualRgb[actualOffset + channel]
-                        - referenceRgba[referenceOffset + channel]);
+    /** Manual CPU bilinear upsample of the low-resolution RGBA fixture to the output grid. */
+    private static float[] bilinearUpsample(float[] inputRgba) {
+        double[] source = toDoubles(inputRgba);
+        float[] output = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT * 4];
+        for (int y = 0; y < OUTPUT_HEIGHT; y++) {
+            for (int x = 0; x < OUTPUT_WIDTH; x++) {
+                double[] sample = TemporalUpscalingReference.bilinearRgba(source,
+                        INPUT_WIDTH, INPUT_HEIGHT,
+                        (x + 0.5) / OUTPUT_WIDTH, (y + 0.5) / OUTPUT_HEIGHT);
+                int offset = (y * OUTPUT_WIDTH + x) * 4;
+                output[offset] = (float) sample[0];
+                output[offset + 1] = (float) sample[1];
+                output[offset + 2] = (float) sample[2];
+                output[offset + 3] = (float) sample[3];
             }
         }
-        return sum / (pixels * 3.0);
+        return output;
     }
 
     private static double meanAbsoluteError(float[] actual, float[] reference) {
