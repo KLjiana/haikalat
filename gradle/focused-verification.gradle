@@ -51,7 +51,9 @@ def jvmCases = [
         'PostProcessSettingsTest', 'ContactShadowSettingsTest', 'ContactShadowShaderTest',
         'CloudShadowSettingsTest', 'CloudShadowShaderTest', 'CloudShadowFrameTimeTest',
         'ShadowCacheStateTest', 'ScreenDistortionTest', 'ScreenDistortionSettingsTest',
-        'VfxDistortionTest', 'VfxDistortionProjectorTest'
+        'VfxDistortionTest', 'VfxDistortionProjectorTest',
+        'VertexDisplacementSettingsTest', 'VertexDisplacementDrawBindingTest',
+        'VertexDisplacementShaderTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -63,6 +65,7 @@ def glCases = [
         'ContactShadowsGlTest',
         'CloudShadowsGlTest',
         'ScreenDistortionPassGlTest',
+        'VertexDisplacementGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
