@@ -24,11 +24,12 @@ import java.util.Objects;
  *       normal velocity and slides).</li>
  *   <li>{@code friction} in [0, 1] removes that fraction of the tangential
  *       velocity on a collision.</li>
- *   <li>{@code maximumSearchSteps} bounds the total number of depth fetches per
- *       colliding particle (the centre texel plus at most {@code steps - 1}
+ *   <li>{@code maximumSearchSteps} bounds the number of depth sample locations
+ *       per colliding particle (the centre texel plus at most {@code steps - 1}
  *       deterministic ring taps), and {@code searchRadiusPixels} bounds the
- *       screen-space radius of those taps. The default of one step and zero
- *       radius samples only the particle's own texel.</li>
+ *       screen-space radius of those taps. Each location also fetches its four
+ *       neighbours to reconstruct the surface normal. The default of one step
+ *       and zero radius samples only the particle's own texel.</li>
  *   <li>{@code depthSampling} selects point sampling of the centre texel or a
  *       conservative 2x2 minimum that prefers the nearest surface in the
  *       footprint (useful for thin geometry at the cost of extra fetches).</li>
@@ -56,7 +57,7 @@ public record GpuParticleCollisionSettings(
         boolean opaqueDepthOnly) {
     /** Largest accepted world-space collision thickness. */
     public static final float MAXIMUM_THICKNESS = 100.0f;
-    /** Largest accepted number of depth fetches for one particle. */
+    /** Largest accepted number of depth sample locations for one particle. */
     public static final int MAXIMUM_SEARCH_STEPS = 16;
     /** Largest accepted screen-space search radius in pixels. */
     public static final float MAXIMUM_SEARCH_RADIUS_PIXELS = 32.0f;
@@ -119,7 +120,7 @@ public record GpuParticleCollisionSettings(
      * @param thickness          world-space thickness band in (0, {@link #MAXIMUM_THICKNESS}]
      * @param restitution        normal-velocity scale in [0, 1]
      * @param friction           tangential-velocity loss in [0, 1]
-     * @param maximumSearchSteps depth fetches per particle in [1, {@link #MAXIMUM_SEARCH_STEPS}]
+     * @param maximumSearchSteps depth sample locations per particle in [1, {@link #MAXIMUM_SEARCH_STEPS}]
      * @param searchRadiusPixels ring-tap radius in [0, {@link #MAXIMUM_SEARCH_RADIUS_PIXELS}]
      * @return an enabled opaque-depth-only configuration
      */
