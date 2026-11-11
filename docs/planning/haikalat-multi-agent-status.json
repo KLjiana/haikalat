@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T15:12:09.5823225+08:00",
+    "updatedAt":  "2026-11-11T15:16:22.0047779+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -306,13 +306,15 @@
                                         ],
                       "evidence":  [
                                        "worker JVM ProjectedDecalTest 5/5 PASS + 69 regression PASS",
-                                       "glSmoke ProjectedDecalGlTest FAIL: drawn=1 but sloped receiver center unchanged; tried flat receiver and solid test atlas, still unchanged"
+                                       "glSmoke ProjectedDecalGlTest FAIL: drawn=1/drawCalls=1 but sloped receiver center unchanged",
+                                       "tried flat receiver, solid two-cell test atlas, separate color-only output FBO to avoid depth feedback; still unchanged",
+                                       "diagnostic red-output shader could not run because optimized uniforms throw before coverage test"
                                    ],
                       "functional":  "JVM_PASS_GL_FAIL",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Debug decal fragment acceptance/depth reconstruction; do not integrate until GL PASS",
+                      "nextAction":  "Debug fragment contract/geometry coverage with a debug-safe uniform path; do not integrate until GL PASS",
                       "review":  "PENDING"
                   },
                   {
