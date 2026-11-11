@@ -302,12 +302,16 @@ tasks.register('releaseVerificationContracts') {
         }
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
-        // v0.28.1 adds one bounded contact-shadow shader-state specialization policy.
-        assert policies.size() == 41
+        // v0.28.1 adds bounded contact-shadow and cloud-shadow shader-state policies.
+        assert policies.size() == 42
         def contactShadowPolicy = policies.find { it.owner == 'render3d/contact-shadows' }
         assert contactShadowPolicy != null && contactShadowPolicy.id == 131218
         assert contactShadowPolicy.maximum == 4
         assert contactShadowPolicy.entry.contains('ContactShadowsGlTest')
+        def cloudShadowPolicy = policies.find { it.owner == 'render3d/cloud-shadows' }
+        assert cloudShadowPolicy != null && cloudShadowPolicy.id == 131218
+        assert cloudShadowPolicy.maximum == 4
+        assert cloudShadowPolicy.entry.contains('CloudShadowsGlTest')
         def featureControlPolicy = policies.find { it.owner == 'render3d/feature-control' }
         assert featureControlPolicy != null && featureControlPolicy.id == 131218
         assert featureControlPolicy.maximum == 4
