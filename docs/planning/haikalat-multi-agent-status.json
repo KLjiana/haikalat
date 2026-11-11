@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T14:31:28.0249868+08:00",
+    "updatedAt":  "2026-11-11T14:32:22.4875979+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -289,16 +289,16 @@
                       "featureIds":  [
                                          6
                                      ],
-                      "state":  "TODO",
+                      "state":  "IMPLEMENTING",
                       "scope":  "Projected Decals",
                       "dependencies":  [
                                            null
                                        ],
-                      "owner":  null,
+                      "owner":  "subagent 4423d493-3c94-4a2b-a5f2-c73fa6479a45",
                       "writePaths":  [
 
                                      ],
-                      "baseCommit":  null,
+                      "baseCommit":  "db36fa8",
                       "workerCommit":  null,
                       "integrationCommit":  null,
                       "requiredCases":  [
@@ -312,7 +312,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Projected decals production implementation in s1-decals"
                   },
                   {
                       "taskId":  "R07",
