@@ -29,8 +29,12 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +47,11 @@ import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
+import static org.lwjgl.opengl.GL11.GL_RENDERER;
+import static org.lwjgl.opengl.GL11.GL_VENDOR;
+import static org.lwjgl.opengl.GL11.GL_VERSION;
 import static org.lwjgl.opengl.GL11.glGetError;
+import static org.lwjgl.opengl.GL11.glGetString;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
@@ -111,6 +119,7 @@ class SsrPassGlTest {
             window.bindContext();
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
+            recordDevice();
             GlRenderDevice device = new GlRenderDevice();
             try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
                     "/environments/pbr/studio-small.hdr",
@@ -125,8 +134,10 @@ class SsrPassGlTest {
                 assertReflectionFollowsTheMirrorGeometry(fixture, baseline);
                 assertRoughAndBackgroundPixelsAreExact(fixture, baseline);
 
-                SsrSettings bounded = SETTINGS.withMaxDistanceMetres(0.6f)
-                        .withThicknessMetres(0.3f);
+                // The fixture's nearest analytic reflection distance is about
+                // 0.199 m, so a 0.15 m bound cannot reach the wall anywhere.
+                SsrSettings bounded = SETTINGS.withMaxDistanceMetres(0.15f)
+                        .withThicknessMetres(0.1f);
                 Fixture boundedFixture = fixture();
                 float[] boundedOutput = render(device, boundedFixture.colour(),
                         boundedFixture.depth(), boundedFixture.normal(),
@@ -157,6 +168,34 @@ class SsrPassGlTest {
             assertEnabledChain();
             assertDisabledBaseline();
             assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    /** Records the actual device/driver next to the JUnit XML evidence. */
+    private static void recordDevice() {
+        String vendor = glGetString(GL_VENDOR);
+        String renderer = glGetString(GL_RENDERER);
+        String version = glGetString(GL_VERSION);
+        var snapshot = GlDebug.messages();
+        StringBuilder text = new StringBuilder();
+        text.append("vendor=").append(vendor).append('\n')
+                .append("renderer=").append(renderer).append('\n')
+                .append("version=").append(version).append('\n')
+                .append("debugMessages=").append(snapshot.messages().size())
+                .append(" dropped=").append(snapshot.droppedCount()).append('\n');
+        for (var message : snapshot.messages()) {
+            text.append("  ").append(message.severity()).append(' ')
+                    .append(message.source()).append(' ').append(message.type())
+                    .append(" id=").append(message.driverId()).append(' ')
+                    .append(message.message()).append('\n');
+        }
+        try {
+            Path directory = Path.of("build", "reports", "gl");
+            Files.createDirectories(directory);
+            Files.writeString(directory.resolve("ssr-pass-device.txt"), text.toString(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException failure) {
+            throw new IllegalStateException("cannot record the SSR GL device identity", failure);
         }
     }
 
@@ -277,6 +316,7 @@ class SsrPassGlTest {
         Texture2D texture = Texture2D.createEmpty(SIZE, SIZE, GL_R8);
         ByteBuffer upload = BufferUtils.createByteBuffer(SIZE * SIZE);
         upload.put(roughness);
+        upload.flip();
         texture.uploadRegion(0, 0, SIZE, SIZE, upload);
         texture.setFiltering(GL_NEAREST, GL_NEAREST);
         return texture;
@@ -453,6 +493,7 @@ class SsrPassGlTest {
                 Vector3f surfaceNormal;
                 float surfaceRoughness;
                 Vector3f surfaceColour;
+                boolean skyPixel = false;
                 if (wallCandidate && (!floorHit || wallT < floorT)) {
                     position = new Vector3f(EYE).fma(wallT, direction);
                     surfaceNormal = new Vector3f(0.0f, 0.0f, 1.0f);
@@ -469,6 +510,7 @@ class SsrPassGlTest {
                     surfaceNormal = new Vector3f(0.0f, 0.0f, 1.0f);
                     surfaceRoughness = SKY_ROUGHNESS;
                     surfaceColour = SKY_COLOR;
+                    skyPixel = true;
                 }
 
                 worldPosition[index * 3] = position.x;
@@ -478,7 +520,10 @@ class SsrPassGlTest {
                 worldNormal[index * 3 + 1] = surfaceNormal.y;
                 worldNormal[index * 3 + 2] = surfaceNormal.z;
 
-                if (surfaceRoughness <= 0.4f) {
+                // Every rendered surface keeps its device depth, including the
+                // rough wall: roughness is an SSR eligibility property, not a
+                // coverage property.
+                if (!skyPixel) {
                     Vector4f viewPosition = new Vector4f(position, 1.0f).mul(VIEW);
                     Vector4f clip = new Vector4f(viewPosition).mul(PROJECTION);
                     depth[index] = clip.z / clip.w * 0.5f + 0.5f;
