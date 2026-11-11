@@ -78,7 +78,12 @@ vec3 vertexDisplacementNormal(vec3 localPosition, vec3 localNormal, float timeSe
             * dot(localPosition, waveDirection) + uDisplacementSpeed * timeSeconds)
             + uDisplacementPhase;
     float slope = 6.28318530718 * uDisplacementFrequency * uDisplacementAmplitude * cos(phase);
-    vec3 perturbed = localNormal - waveDirection * (slope * dot(axis, localNormal));
+    float denominator = 1.0 + slope * dot(axis, waveDirection);
+    if (abs(denominator) <= 1.0e-4) {
+        return localNormal;
+    }
+    vec3 perturbed = localNormal
+            - waveDirection * (slope * dot(axis, localNormal) / denominator);
     float lengthSquared = dot(perturbed, perturbed);
     return lengthSquared > 1.0e-12 ? normalize(perturbed) : localNormal;
 }

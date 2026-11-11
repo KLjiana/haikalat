@@ -128,8 +128,12 @@ public record VertexDisplacementSettings(
         }
         float angle = wavePhase(localPosition, timeSeconds);
         float slope = TWO_PI * frequency * amplitude * (float) Math.cos(angle);
+        float denominator = 1.0f + slope * axis.dot(waveDirection);
+        if (Math.abs(denominator) <= 1.0e-4f) {
+            return destination.set(localNormal);
+        }
         float axisAlongNormal = axis.dot(localNormal);
-        destination.set(localNormal).fma(-slope * axisAlongNormal, waveDirection);
+        destination.set(localNormal).fma(-slope * axisAlongNormal / denominator, waveDirection);
         float lengthSquared = destination.lengthSquared();
         return lengthSquared > NORMAL_EPSILON ? destination.normalize() : destination.set(localNormal);
     }

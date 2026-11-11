@@ -101,6 +101,17 @@ class VertexDisplacementSettingsTest {
     }
 
     @Test
+    void exactNormalDoesNotInvertAtMaximumAxisAlignedSlope() {
+        VertexDisplacementSettings settings = new VertexDisplacementSettings(true,
+                0.25f, 4.0f, 0.0f, 0.0f,
+                new Vector3f(0, 1, 0), new Vector3f(0, 1, 0));
+        Vector3f normal = settings.displacedNormal(new Vector3f(0, 0, 0),
+                new Vector3f(0, 1, 0), 0.0f, new Vector3f());
+        assertTrue(normal.y > 0.0f,
+                "exact inverse-transpose normal must stay on the +Y side at legal max slope");
+    }
+
+    @Test
     void analyticNormalMatchesIndependentHeightFieldFiniteDifference() {
         VertexDisplacementSettings settings = new VertexDisplacementSettings(true,
                 0.15f, 1.2f, 0.5f, 0.3f,

@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
@@ -304,6 +305,17 @@ public final class SceneFrameBuilder {
         }
     }
 
+    private boolean immutableBindingsUnchanged() {
+        for (int index = 0; index < entryCount; index++) {
+            SceneDrawBinding binding = renderers[index].drawBinding();
+            if (binding.deformsVertices()
+                    || binding.boundsRevision() != cachedDeformationRevisions[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private boolean canReuseImmutableFrame(Camera camera, long sceneRevision, int width, int height,
                                            Matrix4fc shadowMatrix, boolean shadowEnabled,
                                            boolean cullingEnabled, boolean shadowCulling,
@@ -313,6 +325,7 @@ public final class SceneFrameBuilder {
         return camera.getClass() == Camera.class
                 && staticCacheEnabled && queueCacheEnabled
                 && allModelsImmutable && immutableSceneCacheReady
+                && immutableBindingsUnchanged()
                 && cachedRevision == sceneRevision
                 && cachedCameraRevision == camera.visibilityRevision()
                 && cachedWidth == width && cachedHeight == height
