@@ -6,7 +6,6 @@ layout (location = 0) out vec4 fragColor;
 uniform sampler2D uColor;
 uniform sampler2D uVelocity;
 uniform sampler2D uValidity;
-uniform vec2 uJitter;
 uniform vec2 uViewportSize;
 uniform float uShutterFraction;
 uniform float uMaxRadiusPixels;
@@ -24,12 +23,12 @@ void main() {
     vec2 rasterUv = clamp(vUv, 0.5 / viewport, 1.0 - 0.5 / viewport);
     vec4 center = texture(uColor, rasterUv);
 
-    // The shared velocity is produced with the stable projection.  Evaluate it
-    // at the stable position by removing this frame's raster jitter instead of
-    // adding jitter to the reconstruction.
-    vec2 stableUv = clamp(rasterUv - uJitter, 0.5 / viewport, 1.0 - 0.5 / viewport);
-    vec2 velocity = texture(uVelocity, stableUv).rg;
-    float validity = texture(uValidity, stableUv).r;
+    // The shared colour, velocity and validity are all raster-indexed in the
+    // current frame.  The velocity value itself is jitter-free
+    // (previousStableUv - currentStableUv), so no explicit jitter correction is
+    // applied here; the raster origins already agree.
+    vec2 velocity = texture(uVelocity, rasterUv).rg;
+    float validity = texture(uValidity, rasterUv).r;
 
     // Camera cuts, first frames and invalid deformation write validity 0 and
     // zero velocity.  Without valid velocity the pass is an exact identity:
@@ -59,7 +58,7 @@ void main() {
     float weight = 1.0;
     for (int i = 0; i < TAP_COUNT; ++i) {
         float fraction = (float(i) + 0.5) / float(TAP_COUNT);
-        vec2 sampleUv = clamp(stableUv + motionUv * fraction,
+        vec2 sampleUv = clamp(rasterUv + motionUv * fraction,
                 0.5 / viewport, 1.0 - 0.5 / viewport);
         sum += texture(uColor, sampleUv).rgb;
         weight += 1.0;

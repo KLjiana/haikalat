@@ -30,6 +30,7 @@ import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTarget
 import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.MOTION_BLUR_COLOR;
 import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.MOTION_BLUR_PASS;
 import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.SCENE_COLOR;
+import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.TAA_PASS;
 import static com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.TONE_MAPPING_PASS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -107,14 +108,14 @@ class MotionBlurPassGlTest {
                 velocityTexture = velocityTexture(0.0f, SIZE);
                 validityTexture = validityTexture(255);
                 ByteBuffer staticFrame = render(source, target, pass,
-                        velocityTexture, validityTexture, 0.0f, 0.0f);
+                        velocityTexture, validityTexture);
                 assertBuffersEqual(sharp, staticFrame, "zero velocity must be an exact identity");
 
                 // Camera cut / first frame: validity 0 must also be an exact identity.
                 velocityTexture = velocityTexture(-4.0f / SIZE, SIZE);
                 validityTexture = validityTexture(0);
                 ByteBuffer invalidVelocity = render(source, target, pass,
-                        velocityTexture, validityTexture, 0.0f, 0.0f);
+                        velocityTexture, validityTexture);
                 assertBuffersEqual(sharp, invalidVelocity,
                         "camera cuts and velocity-less surfaces must not smear");
 
@@ -122,7 +123,7 @@ class MotionBlurPassGlTest {
                 // gather reaches left and the bright bar smears to its right.
                 validityTexture = validityTexture(255);
                 ByteBuffer panned = render(source, target, pass,
-                        velocityTexture, validityTexture, 0.0f, 0.0f);
+                        velocityTexture, validityTexture);
                 assertTrue(red(panned, BAR_END + 1, SIZE / 2) > 0,
                         "camera motion must smear the bright bar beyond its edge");
                 assertTrue(red(panned, BAR_END + 3, SIZE / 2) > 0,
@@ -143,7 +144,7 @@ class MotionBlurPassGlTest {
                 // background does not invent an object trail (single-frame gather).
                 velocityTexture = barVelocityTexture(-4.0f / SIZE, 0.0f);
                 ByteBuffer objectOnly = render(source, target, pass,
-                        velocityTexture, validityTexture, 0.0f, 0.0f);
+                        velocityTexture, validityTexture);
                 assertTrue(red(objectOnly, BAR_START, SIZE / 2) < red(sharp, BAR_START, SIZE / 2) - 40,
                         "the moving bar's leading edge must soften in the velocity direction");
                 assertTrue(red(objectOnly, BAR_END, SIZE / 2) >= 250,
@@ -156,7 +157,7 @@ class MotionBlurPassGlTest {
             }
 
             assertMaxRadiusClamp();
-            assertJitterIsRemoved();
+            assertTaaPipelineOrdersMotionBlurAfterResolve();
             assertDisabledPipelineHasNoMotionBlurPass();
             assertActivePipelineWritesADistinctMotionBlurAttachment();
             assertEquals(GL_NO_ERROR, glGetError());
@@ -172,8 +173,8 @@ class MotionBlurPassGlTest {
              MotionBlurPass large = new MotionBlurPass(MotionBlurSettings.of(SHUTTER, 8.0f))) {
             prepareBar(source);
             ByteBuffer sharp = readFramebuffer(source);
-            ByteBuffer smallBlur = render(source, target, small, velocity, validity, 0.0f, 0.0f);
-            ByteBuffer largeBlur = render(source, target, large, velocity, validity, 0.0f, 0.0f);
+            ByteBuffer smallBlur = render(source, target, small, velocity, validity);
+            ByteBuffer largeBlur = render(source, target, large, velocity, validity);
             int smallExtension = lastModifiedColumn(smallBlur, sharp, BAR_END + 1) - BAR_END;
             int largeExtension = lastModifiedColumn(largeBlur, sharp, BAR_END + 1) - BAR_END;
             assertTrue(smallExtension <= 2, "2 px max radius must not exceed its bound");
@@ -186,26 +187,26 @@ class MotionBlurPassGlTest {
         }
     }
 
-    private static void assertJitterIsRemoved() {
-        int velocity = velocityTexture(-4.0f / SIZE, SIZE);
-        int validity = validityTexture(255);
-        try (Framebuffer source = Framebuffer.colorOnly(SIZE, SIZE);
-             Framebuffer target = Framebuffer.colorOnly(SIZE, SIZE);
-             MotionBlurPass pass = new MotionBlurPass(MotionBlurSettings.of(SHUTTER, 8.0f))) {
-            prepareBar(source);
-            ByteBuffer sharp = readFramebuffer(source);
-            ByteBuffer noJitter = render(source, target, pass, velocity, validity, 0.0f, 0.0f);
-            ByteBuffer halfPixelJitter = render(source, target, pass, velocity, validity,
-                    -0.5f / SIZE, 0.5f / SIZE);
-            assertTrue(differingBytes(noJitter, halfPixelJitter) > 0,
-                    "the pass must consume the current-frame jitter uniform");
-            assertTrue(red(halfPixelJitter, BAR_START - 1, SIZE / 2) <= 16,
-                    "jitter removal may only bleed sub-pixel energy to the opposite side");
-            assertTrue(lastModifiedColumn(halfPixelJitter, sharp, BAR_END + 1) - (BAR_END + 1) <= 4,
-                    "jitter removal must not exceed the unjittered bounded segment");
-        } finally {
-            glDeleteTextures(velocity);
-            glDeleteTextures(validity);
+    private static void assertTaaPipelineOrdersMotionBlurAfterResolve() {
+        PostProcessSettings effects = PostProcessSettings.builder()
+                .motionBlur(MotionBlurSettings.of(SHUTTER, 8.0f)).build();
+        RenderSettings taa = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.TAA)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false).build();
+        try (PostProcessPipeline pipeline = PostProcessPipeline.create(
+                taa, effects, SIZE, SIZE, null, velocitySurfaceWithDepth(), null);
+             RenderGraph graph = sceneColorGraph()) {
+            pipeline.beginFrame(framePose());
+            pipeline.addFinalPass(graph);
+            assertTrue(graph.hasPass(MOTION_BLUR_PASS));
+            List<String> order = graph.description().executionOrder();
+            assertTrue(order.contains(TAA_PASS),
+                    "TAA must be present in the TAA motion-blur graph");
+            assertTrue(order.indexOf(TAA_PASS) < order.indexOf(MOTION_BLUR_PASS),
+                    "motion blur must run after the TAA resolve");
+            assertTrue(order.indexOf(MOTION_BLUR_PASS) < order.indexOf(TONE_MAPPING_PASS),
+                    "motion blur must run before tone mapping");
         }
     }
 
@@ -332,6 +333,8 @@ class MotionBlurPassGlTest {
                 new SurfaceInputs.Input(SurfaceInputs.Channel.VELOCITY, "sceneVelocity", GEOMETRY_PASS);
         SurfaceInputs.Input validity =
                 new SurfaceInputs.Input(SurfaceInputs.Channel.VALIDITY, "sceneValidity", GEOMETRY_PASS);
+        SurfaceInputs.Input previousDepth = new SurfaceInputs.Input(
+                SurfaceInputs.Channel.PREVIOUS_SURFACE_DEPTH, "previousSceneDepth", GEOMETRY_PASS);
         return new SurfaceInputs() {
             @Override
             public Input single(Channel channel) {
@@ -341,6 +344,7 @@ class MotionBlurPassGlTest {
                     case DEPTH -> depth;
                     case VELOCITY -> velocity;
                     case VALIDITY -> validity;
+                    case PREVIOUS_SURFACE_DEPTH -> previousDepth;
                     default -> null;
                 };
             }
@@ -358,8 +362,7 @@ class MotionBlurPassGlTest {
     }
 
     private static ByteBuffer render(Framebuffer source, Framebuffer target, MotionBlurPass pass,
-                                     int velocityTexture, int validityTexture,
-                                     float jitterUvX, float jitterUvY) {
+                                     int velocityTexture, int validityTexture) {
         target.bind();
         glViewport(0, 0, SIZE, SIZE);
         glDisable(GL_SCISSOR_TEST);
@@ -368,7 +371,7 @@ class MotionBlurPassGlTest {
         GlRenderDevice device = new GlRenderDevice();
         var commands = device.createCommandBuffer();
         pass.recordIntoCurrentTarget(commands, source.colorAttachment(), velocityTexture,
-                validityTexture, jitterUvX, jitterUvY, SIZE, SIZE);
+                validityTexture, SIZE, SIZE);
         device.execute(commands);
         ByteBuffer pixels = BufferUtils.createByteBuffer(SIZE * SIZE * 4);
         glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_UNSIGNED_BYTE, pixels);

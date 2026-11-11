@@ -1,11 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.postprocess.motionblur;
 
-import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
-import com.kaleblangley.haikalat.subsystems.render3d.geometry.TemporalJitter;
-import org.joml.Matrix4f;
-import org.joml.Vector2f;
-import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,11 +60,11 @@ class MotionBlurMathTest {
         // The clamp preserves the requested aspect-ratio direction.
         assertEquals(WIDTH / (float) HEIGHT, diagonal.uPixels() / diagonal.vPixels(), 1.0e-5f);
 
-        // A huge but finite velocity still lands exactly on the radius bound
-        // instead of overflowing the scale.
+        // A finite velocity above the shader's defensive bound falls back to
+        // the same zero-motion identity instead of clamping.
         MotionBlurMath.ScreenMotion huge =
                 MotionBlurMath.offsetPixels(1.0e6f, 0.0f, WIDTH, HEIGHT, small);
-        assertEquals(4.0f, huge.lengthPixels(), 1.0e-5f);
+        assertEquals(MotionBlurMath.ScreenMotion.ZERO, huge);
     }
 
     @Test
@@ -100,32 +95,6 @@ class MotionBlurMathTest {
     }
 
     @Test
-    void stableCoordinateRemovesTheActualProjectionJitter() {
-        // Independent oracle: project the same world point through the stable
-        // and jittered projections and verify that subtracting the published
-        // jitter UV recovers the stable coordinate (same sign as TAA history).
-        int width = 1280;
-        int height = 720;
-        Matrix4f stable = new Matrix4f().perspective(
-                (float) Math.toRadians(60.0f), width / (float) height, 0.1f, 100.0f);
-        Matrix4f jittered = new Matrix4f(stable);
-        TemporalJitter.applyProjection(jittered, width, height, AntiAliasingMode.TAA, 1);
-        Vector4f world = new Vector4f(0.01f, -0.02f, -5.0f, 1.0f);
-        Vector4f stableClip = stable.transform(new Vector4f(world));
-        Vector4f jitteredClip = jittered.transform(new Vector4f(world));
-        float stableU = stableClip.x / stableClip.w * 0.5f + 0.5f;
-        float stableV = stableClip.y / stableClip.w * 0.5f + 0.5f;
-        float jitteredU = jitteredClip.x / jitteredClip.w * 0.5f + 0.5f;
-        float jitteredV = jitteredClip.y / jitteredClip.w * 0.5f + 0.5f;
-        Vector2f jitter = TemporalJitter.uvOffset(
-                AntiAliasingMode.TAA, 1, width, height, new Vector2f());
-        assertTrue(jitter.x != 0.0f && jitter.y != 0.0f);
-        assertEquals(stableU, MotionBlurMath.stableCoordinate(jitteredU, jitter.x), 1.0e-6f);
-        assertEquals(stableV, MotionBlurMath.stableCoordinate(jitteredV, jitter.y), 1.0e-6f);
-        assertEquals(jitteredU, MotionBlurMath.stableCoordinate(stableU, -jitter.x), 1.0e-6f);
-    }
-
-    @Test
     void rejectsInvalidExtentSettingsAndTapArguments() {
         MotionBlurSettings settings = MotionBlurSettings.of(0.5f, 16.0f);
         assertThrows(IllegalArgumentException.class,
@@ -140,7 +109,5 @@ class MotionBlurMathTest {
                 () -> MotionBlurMath.tapFraction(12, 12));
         assertThrows(NullPointerException.class,
                 () -> MotionBlurMath.tapOffset(null, 0, 12));
-        assertThrows(IllegalArgumentException.class,
-                () -> MotionBlurMath.stableCoordinate(Float.NaN, 0.0f));
     }
 }

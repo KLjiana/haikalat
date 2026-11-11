@@ -9,30 +9,19 @@ import java.util.Objects;
  * the motion-blur shader.
  *
  * <p>The shared velocity buffer stores {@code previousStableUv - currentStableUv}
- * in UV units.  It is already produced from the stable (non-jittered) camera
- * projection, so this helper removes the current-frame raster jitter instead of
- * adding it: {@code stableUv = rasterUv - jitterUv}, matching the sign locked by
- * {@code TemporalJitterTest}.  Offsets are scaled by the shutter fraction,
- * clamped to the configured pixel radius, and collapsed to zero below half a
- * pixel so a static camera is byte-identical to the input.</p>
+ * in UV units.  Its value is already jitter-free, while colour, velocity and
+ * validity are all sampled at the same current raster coordinate, so no
+ * explicit jitter correction is needed.  Offsets are scaled by the shutter
+ * fraction, clamped to the configured pixel radius, and collapsed to zero below
+ * half a pixel so a static camera is byte-identical to the input.</p>
  */
 final class MotionBlurMath {
     /** Sub-pixel motion below this threshold is treated as static. */
     static final float MINIMUM_MOTION_PIXELS = 0.5f;
+    /** Matches the shader's defensive upper bound on a finite velocity. */
+    static final float MAXIMUM_ABSOLUTE_VELOCITY = 1.0e4f;
 
     private MotionBlurMath() {
-    }
-
-    /**
-     * Removes the current-frame projection jitter from a raster coordinate.
-     * The jitter UV is {@code jittered - stable}, so the stable coordinate is
-     * the raster coordinate minus the jitter.
-     */
-    static float stableCoordinate(float rasterCoordinate, float jitterUv) {
-        if (!Float.isFinite(rasterCoordinate) || !Float.isFinite(jitterUv)) {
-            throw new IllegalArgumentException("raster coordinate and jitter must be finite");
-        }
-        return rasterCoordinate - jitterUv;
     }
 
     /** Pixel-space reconstruction vector from the current toward the previous position. */
@@ -67,7 +56,9 @@ final class MotionBlurMath {
         }
         // Invalid velocity is the documented velocity-less fallback: the pass
         // leaves the pixel unblurred instead of propagating NaN/Inf.
-        if (!Float.isFinite(velocityUvX) || !Float.isFinite(velocityUvY)) {
+        if (!Float.isFinite(velocityUvX) || !Float.isFinite(velocityUvY)
+                || Math.abs(velocityUvX) > MAXIMUM_ABSOLUTE_VELOCITY
+                || Math.abs(velocityUvY) > MAXIMUM_ABSOLUTE_VELOCITY) {
             return ScreenMotion.ZERO;
         }
         double u = (double) velocityUvX * width * settings.shutterFraction();

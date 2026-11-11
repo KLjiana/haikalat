@@ -70,7 +70,8 @@ v0.28.1 S3 #21 新增 advanced `MotionBlurSettings`（曝光比例与最大半�
 `postprocess.motionblur.MotionBlurPass`（HDR 有界屏幕空间 velocity gather）。
 `PostProcessSettings` 追加 `motionBlur` 组件，默认关闭；关闭、`shutterFraction=0` 或
 `maxRadiusPixels=0` 时不创建 Pass、shader 或附件。开启要求 HDR tone mapping 与共享单采样
-velocity/validity，并在 TAA、景深之后，曝光/Bloom/tone mapping 之前运行；不拥有或采样历史，
-相机切镜和无效 velocity 由 validity=0 精确还原输入。无 velocity 的透明/VFX 使用其身后不透明
-表面的 velocity。输入/输出、钳制、jitter 去除与单帧 gather 限制见
+velocity/validity，并在 TAA、景深之后，曝光/Bloom/tone mapping 之前运行；颜色、velocity、validity
+统一按当前 raster 坐标采样，velocity 值本身已去 jitter；不拥有或采样历史，相机切镜和无效 velocity
+由 validity=0 精确还原输入。无 velocity 的透明/VFX 使用其身后不透明表面的 velocity；若身后没有
+不透明表面（天空等），validity=0 使该像素保持清晰。输入/输出、钳制与单帧 gather 限制见
 [运动模糊技术卡](../../planning/v0.28.1-s3-motion-blur.md)。迁移说明见[迁移记录](migrations.md)。

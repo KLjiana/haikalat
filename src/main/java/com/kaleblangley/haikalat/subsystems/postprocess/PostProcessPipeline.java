@@ -532,7 +532,6 @@ public final class PostProcessPipeline implements AutoCloseable {
                         res.colorAttachment(blurInput),
                         surfaceInputs.texture(res, velocity),
                         surfaceInputs.texture(res, validity),
-                        frame.jitterUvX(), frame.jitterUvY(),
                         graph.width(), graph.height());
             });
             hdrTexture = PostProcessTargets.MOTION_BLUR_COLOR;

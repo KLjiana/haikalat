@@ -59,21 +59,15 @@ public final class MotionBlurPass implements GlResource {
      * @param colorTexture    resolved HDR colour read by the pass
      * @param velocityTexture shared {@code previousStableUv - currentStableUv} velocity
      * @param validityTexture shared per-pixel motion validity
-     * @param jitterUvX       current-frame projection jitter, already in UV units
-     * @param jitterUvY       current-frame projection jitter, already in UV units
      */
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int colorTexture,
                                                  int velocityTexture, int validityTexture,
-                                                 float jitterUvX, float jitterUvY,
                                                  int width, int height) {
         ensureOpen();
         Objects.requireNonNull(cmd, "cmd");
         if (colorTexture <= 0 || velocityTexture <= 0 || validityTexture <= 0) {
             throw new IllegalArgumentException(
                     "motion blur requires colour, velocity and validity textures");
-        }
-        if (!Float.isFinite(jitterUvX) || !Float.isFinite(jitterUvY)) {
-            throw new IllegalArgumentException("motion blur jitter must be finite");
         }
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("motion blur viewport must be positive");
@@ -89,7 +83,6 @@ public final class MotionBlurPass implements GlResource {
                 .setUniformInt(program, "uColor", 0)
                 .setUniformInt(program, "uVelocity", 1)
                 .setUniformInt(program, "uValidity", 2)
-                .setUniformVec2(program, "uJitter", jitterUvX, jitterUvY)
                 .setUniformVec2(program, "uViewportSize", width, height)
                 .setUniformFloat(program, "uShutterFraction", settings.shutterFraction())
                 .setUniformFloat(program, "uMaxRadiusPixels", settings.maxRadiusPixels())

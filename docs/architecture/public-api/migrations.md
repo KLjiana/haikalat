@@ -152,5 +152,6 @@ v0.28.1（候选）运动模糊没有删除 stable 类型。`PostProcessSettings
 否则装配/依赖校验明确拒绝。`PipelineTopology` 仅在运动模糊 active 时请求 velocity 及其
 previous-surface-depth/validity 校验通道，MSAA 下经共享 surface resolve 提供单采样结果。
 Pass 不采样任何历史：相机切镜由 validity=0 精确还原输入，无 velocity 的透明/VFX 采用其身后
-不透明表面的 velocity。本包没有修改 `RenderPipeline` 公共入口；曝光比例和最大半径是装配期值，
+不透明表面的 velocity；身后没有不透明表面（天空等）时同样由 validity=0 保持清晰。本包没有修改
+`RenderPipeline` 公共入口；曝光比例和最大半径是装配期值，
 改变后需要重新 build/重建候选（见[技术卡](../../planning/v0.28.1-s3-motion-blur.md)）。
