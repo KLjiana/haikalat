@@ -589,10 +589,7 @@ public final class PbrMaterials {
                 .setInt("uSubsurfaceProfile", subsurface.profile().shaderIndex())
                 .setFloat("uSubsurfaceProfileScale", subsurface.profileScaleMetres())
                 .setInt("uSubsurfaceThicknessSource", subsurface.thicknessSource().shaderIndex())
-                .setFloat("uSubsurfaceThickness", subsurface.thicknessMetres())
-                .setFloat("uSubsurfaceDiffusionRadius", subsurface.diffusionRadiusMetres())
-                .setInt("uSubsurfaceScreenSpace", subsurface.screenSpaceEnabled() ? 1 : 0)
-                .setFloat("uSubsurfaceMaxDistance", subsurface.maxDistanceMetres());
+                .setFloat("uSubsurfaceThickness", subsurface.thicknessMetres());
     }
 
     /**

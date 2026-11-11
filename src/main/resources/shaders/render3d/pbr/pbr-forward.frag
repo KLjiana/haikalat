@@ -180,9 +180,8 @@ uniform int uSubsurfaceProfile;          // 0 uniform, 1 skin-like channel penet
 uniform float uSubsurfaceProfileScale;   // mean free path in world units (metres)
 uniform int uSubsurfaceThicknessSource;  // 0 constant, 1 occlusion proxy, 2 base-alpha proxy
 uniform float uSubsurfaceThickness;      // metres; constant thickness or derived-thickness scale
-uniform float uSubsurfaceDiffusionRadius;
-uniform int uSubsurfaceScreenSpace;
-uniform float uSubsurfaceMaxDistance;
+// Screen-space radius/participation/distance are consumed by the shared
+// scene-surface mask producer and SubsurfaceScatteringPass, not by this shader.
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;

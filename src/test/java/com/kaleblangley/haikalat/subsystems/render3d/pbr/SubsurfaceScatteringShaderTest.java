@@ -7,7 +7,13 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,12 +42,16 @@ class SubsurfaceScatteringShaderTest {
                 "uniform int uSubsurfaceProfile;",
                 "uniform float uSubsurfaceProfileScale;",
                 "uniform int uSubsurfaceThicknessSource;",
-                "uniform float uSubsurfaceThickness;",
-                "uniform float uSubsurfaceDiffusionRadius;",
-                "uniform int uSubsurfaceScreenSpace;",
-                "uniform float uSubsurfaceMaxDistance;"}) {
+                "uniform float uSubsurfaceThickness;"}) {
             assertTrue(source.contains(uniform), "missing forward uniform " + uniform);
         }
+        assertEverySubsurfaceUniformReferenced(source, "pbr-forward.frag");
+        assertFalse(source.contains("uSubsurfaceDiffusionRadius"),
+                "the radius is consumed by the mask/pass, not the forward shader");
+        assertFalse(source.contains("uSubsurfaceScreenSpace"),
+                "the screen-space toggle is consumed by the mask/pass");
+        assertFalse(source.contains("uSubsurfaceMaxDistance"),
+                "the gather distance is consumed by the mask/pass");
         assertTrue(source.contains("const float SUBSURFACE_MIN_PROFILE_SCALE = "
                 + SubsurfaceScatteringSettings.MINIMUM_PROFILE_SCALE + ";"));
         assertTrue(source.contains("const float SUBSURFACE_MAX_PROFILE_SCALE = "
@@ -108,6 +118,7 @@ class SubsurfaceScatteringShaderTest {
                 "uniform sampler2D uOcclusionMap;"}) {
             assertTrue(source.contains(uniform), "missing mask uniform " + uniform);
         }
+        assertEverySubsurfaceUniformReferenced(source, "scene-surface.frag");
         assertTrue(source.contains("const vec3 SUBSURFACE_SKIN_PENETRATION = vec3(1.0, 0.55, 0.30);"));
         assertTrue(source.contains("texture(uOcclusionMap, vTexCoord).r"));
         assertTrue(source.contains("(1.0 - clamp(base.a, 0.0, 1.0)) * thickness"));
@@ -153,6 +164,34 @@ class SubsurfaceScatteringShaderTest {
     }
 
     @Test
+    void pbrMaterialsUploadsOnlySubsurfaceUniformsReferencedByTheForwardShader()
+            throws IOException {
+        String javaSource = Files.readString(Path.of("src", "main", "java", "com",
+                "kaleblangley", "haikalat", "subsystems", "render3d", "pbr",
+                "PbrMaterials.java"));
+        Matcher upload = Pattern.compile(
+                "set(?:Float|Int|Vec3)\\(\"(uSubsurface[A-Za-z0-9_]*)\"").matcher(javaSource);
+        Set<String> uploaded = new LinkedHashSet<>();
+        while (upload.find()) {
+            assertTrue(uploaded.add(upload.group(1)),
+                    "duplicate subsurface upload " + upload.group(1));
+        }
+        assertEquals(Set.of("uSubsurfaceEnabled", "uSubsurfaceScatterColor",
+                        "uSubsurfaceIntensity", "uSubsurfaceProfile",
+                        "uSubsurfaceProfileScale", "uSubsurfaceThicknessSource",
+                        "uSubsurfaceThickness"),
+                uploaded,
+                "the forward material upload set must match the uniforms the forward shader "
+                        + "actually consumes");
+        String forward = resource(PBR);
+        for (String name : uploaded) {
+            assertTrue(countIdentifier(forward, name) >= 2,
+                    name + " is uploaded by PbrMaterials but is not declared and used by "
+                            + "pbr-forward.frag; GLSL may optimize it out");
+        }
+    }
+
+    @Test
     void disabledPassIsRejectedBeforeAnyGlObjectIsCreated() {
         IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
                 () -> new SubsurfaceScatteringPass(SubsurfaceScatteringSettings.disabled()));
@@ -166,6 +205,35 @@ class SubsurfaceScatteringShaderTest {
         int end = normalized.indexOf(endMarker, start + startMarker.length());
         assertTrue(end > start, "missing section end: " + endMarker);
         return normalized.substring(start, end);
+    }
+
+    /**
+     * Every declared subsurface uniform must be referenced outside its own
+     * declaration. GLSL drops unused uniforms from the linked program, and a
+     * later {@code uniformLocation} upload then fails at draw time; this guard
+     * catches that class of contract drift before the GPU queue.
+     */
+    private static void assertEverySubsurfaceUniformReferenced(String source, String label) {
+        Matcher declaration = Pattern.compile(
+                "uniform\\s+\\w+\\s+(uSubsurface\\w+)").matcher(source);
+        int declared = 0;
+        while (declaration.find()) {
+            declared++;
+            String name = declaration.group(1);
+            assertTrue(countIdentifier(source, name) >= 2,
+                    label + ": uniform " + name
+                            + " is declared but never referenced and may be optimized out");
+        }
+        assertTrue(declared > 0, label + " must declare at least one subsurface uniform");
+    }
+
+    private static int countIdentifier(String source, String name) {
+        Matcher matcher = Pattern.compile("\\b" + Pattern.quote(name) + "\\b").matcher(source);
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
     }
 
     private static int occurrences(String source, String needle) {

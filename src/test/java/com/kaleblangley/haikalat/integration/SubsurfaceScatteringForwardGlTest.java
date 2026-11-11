@@ -330,10 +330,7 @@ class SubsurfaceScatteringForwardGlTest {
                 .setFloat("uSubsurfaceProfileScale", profileScaleMetres)
                 .setInt("uSubsurfaceThicknessSource",
                         SubsurfaceScatteringSettings.ThicknessSource.CONSTANT.shaderIndex())
-                .setFloat("uSubsurfaceThickness", thicknessMetres)
-                .setFloat("uSubsurfaceDiffusionRadius", 0.12f)
-                .setInt("uSubsurfaceScreenSpace", 0)
-                .setFloat("uSubsurfaceMaxDistance", 2.0f);
+                .setFloat("uSubsurfaceThickness", thicknessMetres);
     }
 
     private static float[] render(RenderPipeline pipeline, GlRenderDevice device) {
