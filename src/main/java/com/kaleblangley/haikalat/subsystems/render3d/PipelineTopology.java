@@ -8,9 +8,11 @@ import com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings;
 
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
@@ -49,7 +51,8 @@ public record PipelineTopology(int width,
                         int gtaoHalfHeight,
                         SceneSurfaceLayout sceneSurface,
                         boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
-                        boolean volumetricEmission) {
+                        boolean volumetricEmission,
+                        boolean waterSurface) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -123,9 +126,22 @@ public record PipelineTopology(int width,
                                     LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
                                     boolean directionalShadowRequested, boolean pointShadowRequested,
                                     boolean spotShadowRequested) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, WaterSurfaceSettings.disabled());
+    }
+
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
+        Objects.requireNonNull(waterSurface, "waterSurface");
         boolean bloom = settings.bloomSettings().enabled();
         int samples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                 ? Math.max(2, settings.msaaSamples()) : 1;
@@ -162,14 +178,16 @@ public record PipelineTopology(int width,
                 localShadows.spot().resolution(), pbr, hdrVfx, embedded,
                 effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
-                sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled()),
+                sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled(),
+                        waterSurface.active()),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
-                volume.enabled() && volume.hasEmission());
+                volume.enabled() && volume.hasEmission(), waterSurface.active());
     }
 
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
                                                    PostProcessSettings effects, int samples,
-                                                   boolean hdrVfx, boolean volume) {
+                                                   boolean hdrVfx, boolean volume,
+                                                   boolean waterSurface) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
         // Analytic fog and depth of field both consume only the shared single-sample depth.
         if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
@@ -190,7 +208,12 @@ public record PipelineTopology(int width,
             else if (reactiveProducerPresent(scene, hdrVfx)) reactive = SceneSurfaceLayout.ReactiveMode.SCENE;
             requirements = requirements.mergeView(SceneBufferRequirements.taa(reactive != SceneSurfaceLayout.ReactiveMode.NONE));
         }
-        var raw = volume ? SceneBufferRequirements.fog().withSamples(samples) : SceneBufferRequirements.none();
+        // Water needs the raster depth at geometry sample count so the pass can
+        // compare plane depth with the exact depth it samples; no resolve copy.
+        boolean rasterDepth = volume || waterSurface;
+        var raw = rasterDepth
+                ? SceneBufferRequirements.of(SceneBufferChannel.DEPTH).withSamples(samples)
+                : SceneBufferRequirements.none();
         return SceneSurfaceLayout.plan(samples, raw, requirements, reactive);
     }
 
@@ -222,6 +245,6 @@ public record PipelineTopology(int width,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
                 gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
-                volumetricFog, volumetricQuality, volumetricEmission);
+                volumetricFog, volumetricQuality, volumetricEmission, waterSurface);
     }
 }

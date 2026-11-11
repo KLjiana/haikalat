@@ -3,6 +3,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import java.util.Objects;
 
@@ -31,7 +32,8 @@ public record RenderFeatureSettings(
         DirectionalShadowMap directionalShadowMap,
         DirectionalCascadeSettings directionalCascades,
         LocalShadowPipelineSettings localShadows,
-        ClusteredLightingSettings clusteredLighting) {
+        ClusteredLightingSettings clusteredLighting,
+        WaterSurfaceSettings waterSurface) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -41,6 +43,7 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(directionalCascades, "directionalCascades");
         Objects.requireNonNull(localShadows, "localShadows");
         Objects.requireNonNull(clusteredLighting, "clusteredLighting");
+        Objects.requireNonNull(waterSurface, "waterSurface");
     }
 
     public static RenderFeatureSettings defaults() {
@@ -64,7 +67,8 @@ public record RenderFeatureSettings(
                 .directionalShadowMap(directionalShadowMap)
                 .directionalCascades(directionalCascades)
                 .localShadows(localShadows)
-                .clusteredLighting(clusteredLighting);
+                .clusteredLighting(clusteredLighting)
+                .waterSurface(waterSurface);
     }
 
     public static Builder builder() {
@@ -88,6 +92,7 @@ public record RenderFeatureSettings(
         private DirectionalCascadeSettings directionalCascades = DirectionalCascadeSettings.defaults();
         private LocalShadowPipelineSettings localShadows = LocalShadowPipelineSettings.legacyDefaults();
         private ClusteredLightingSettings clusteredLighting = ClusteredLightingSettings.defaults();
+        private WaterSurfaceSettings waterSurface = WaterSurfaceSettings.disabled();
 
         private Builder() {
         }
@@ -172,11 +177,16 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder waterSurface(WaterSurfaceSettings value) {
+            waterSurface = Objects.requireNonNull(value, "waterSurface");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
                     postProcess, volumetricFog, outdoorEnvironment, directionalShadowMap,
-                    directionalCascades, localShadows, clusteredLighting);
+                    directionalCascades, localShadows, clusteredLighting, waterSurface);
         }
     }
 }

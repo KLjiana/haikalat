@@ -32,5 +32,13 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         if (topology.fog() && topology.antiAliasingMode() == AntiAliasingMode.MSAA) {
             DepthResolveDescriptor.forTopology(topology);
         }
+        if (topology.waterSurface() && !topology.hdr()) {
+            throw new IllegalStateException(
+                    "water surface requires HDR tone mapping for linear absorption composition");
+        }
+        if (topology.waterSurface() && topology.volumetricFog()) {
+            throw new IllegalStateException(
+                    "water surface does not compose with volumetric fog in this version");
+        }
     }
 }

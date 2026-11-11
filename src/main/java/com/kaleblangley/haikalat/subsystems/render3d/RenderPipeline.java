@@ -24,6 +24,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneRevisionSnapshot
 import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalFrameState;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalSceneState;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogDiagnostics;
@@ -31,6 +32,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogVie
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import com.kaleblangley.haikalat.subsystems.vfx.VfxLight;
 
@@ -56,6 +59,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowSlotPlan;
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.state.HostGlState;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
@@ -110,6 +114,8 @@ import static org.lwjgl.opengl.GL11.GL_FLOAT;
 public final class RenderPipeline {
     private static final String FULL_SCAN_BENCHMARK_PROPERTY =
             "haikalat.internal.benchmark.fullScanReference";
+    /** Deterministic wave clock limit; beyond one hour float phase precision is not useful. */
+    private static final float WATER_TIME_LIMIT_SECONDS = 3600.0f;
     private static final String HOST_COLOR_IMPORT = "HaikalatHostColor";
     private static final String HOST_DEPTH_IMPORT = "HaikalatHostDepth";
     private static final String HOST_STENCIL_IMPORT = "HaikalatHostStencil";
@@ -258,6 +264,8 @@ public final class RenderPipeline {
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
     private OutdoorEnvironmentSettings outdoorEnvironment = OutdoorEnvironmentSettings.disabled();
     private VolumetricFogSettings volumetricFogSettings = VolumetricFogSettings.disabled();
+    private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
+    private float waterTimeSeconds;
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
     private FogCameraPassExecutor fogAwareHdrVfxRecorder;
@@ -464,7 +472,8 @@ public final class RenderPipeline {
             PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
                     activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, replacement, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                    directionalCascadeSettings, localShadowSettings, replacement, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                    waterSurfaceSettings);
             if (!topology.equals(activeGeneration.topology()))
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             else activeGeneration.postProcess().invalidateTemporalHistory(TaaInvalidationReason.VOLUMETRIC_SETTINGS);
@@ -475,9 +484,61 @@ public final class RenderPipeline {
         }
     }
 
+    /** Configures the finite water surface before the first generation is built. */
+    public RenderPipeline waterSurface(WaterSurfaceSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) throw new IllegalStateException("use applyWaterSurface after build");
+        WaterSurfaceSettings replacement = Objects.requireNonNull(value, "waterSurface");
+        if (waterSurfaceSettings.active() != replacement.active()) {
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        }
+        waterSurfaceSettings = replacement;
+        return this;
+    }
+
+    /** Current finite water surface configuration; does not expose GPU resources. */
+    public WaterSurfaceSettings waterSurface() {
+        return waterSurfaceSettings;
+    }
+
+    /** Publishes scalar water changes or a fully built replacement generation at a frame boundary. */
+    public void applyWaterSurface(WaterSurfaceSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) { applyWaterSurfaceInternal(value); }
+        } else {
+            applyWaterSurfaceInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyWaterSurfaceInternal(WaterSurfaceSettings value) {
+        WaterSurfaceSettings replacement = Objects.requireNonNull(value, "waterSurface");
+        if (executing) throw new IllegalStateException("water surface changes are only allowed at frame boundaries");
+        if (replacement.equals(waterSurfaceSettings)) return;
+        if (activeGeneration == null) { waterSurface(replacement); return; }
+        WaterSurfaceSettings previous = waterSurfaceSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        waterSurfaceSettings = replacement;
+        try {
+            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
+                    directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                    replacement);
+            if (!topology.equals(activeGeneration.topology())) {
+                activateGeneration(createGeneration(scene, topology, activeGeneration));
+            }
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) waterSurfaceSettings = previous;
+            throw failure;
+        }
+    }
+
     /** Current advanced GTAO configuration; does not expose private resources. */
     public com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings gtao() { return postProcessSettings.gtao(); }
-
     /** Updates only GTAO at a synchronous render-owner frame boundary. */
     public void applyGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings replacement) {
         requireGpuOwner();
@@ -498,7 +559,8 @@ public final class RenderPipeline {
             if (before != null) {
                 var topology = PipelineTopology.capture(scene, settings, postProcessSettings,
                         before.graph().width(), before.graph().height(), hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                        directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                        directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                        waterSurfaceSettings);
                 if (!topology.equals(before.topology())) activateGeneration(createGeneration(scene, topology, before));
                 else {
                     if (before.gtao() != null) {
@@ -607,7 +669,8 @@ public final class RenderPipeline {
             PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
                     postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                    waterSurfaceSettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration,
                     outdoorEnvironment);
             if (!activeGeneration.topology().equals(candidateTopology) || outdoorPassShapeChanged
@@ -699,7 +762,8 @@ public final class RenderPipeline {
             PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
                     postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                    waterSurfaceSettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration, replacement);
             if (!replaceEnvironment && activeGeneration.topology().equals(candidateTopology) && !outdoorPassShapeChanged) {
                 // The active sky reads the immutable appearance at frame boundaries.
@@ -902,7 +966,8 @@ public final class RenderPipeline {
         PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
                 postProcessSettings, w, h, hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                 directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                waterSurfaceSettings);
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -986,6 +1051,14 @@ public final class RenderPipeline {
                         volumeInputs, volumetricTransparentExecutor());
                 candidate.volumetric().addReactivePass(candidate.graph(), topology, volumeInputs, volumetricReactiveExecutor());
                 candidate.postProcess().sceneColorInput(VolumetricPassBuilder.SCENE_COLOR, VolumetricPassBuilder.TRANSPARENT_PASS);
+            }
+            if (candidate.topology().waterSurface()) {
+                candidate.assembleWaterSurface(waterExecutor(candidate));
+                candidate.postProcess().sceneColorInput(WaterSurfacePass.COLOR,
+                        WaterSurfacePass.PASS_NAME);
+                if (candidate.topology().sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(WaterSurfacePass.PASS_NAME);
+                }
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);
@@ -1127,7 +1200,8 @@ public final class RenderPipeline {
                 hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                 directionalCascadeSettings,
                 localShadowSettings, volumetricFogSettings,
-                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                waterSurfaceSettings);
         if (generation.topology().equals(candidateTopology)) {
             synchronizeOutdoorSun(candidateScene);
             scene = candidateScene;
@@ -1479,6 +1553,10 @@ public final class RenderPipeline {
         long previewFrameSequence = pipelineFrameIndex;
         activeFrameIndex = instanced == null ? pipelineFrameIndex : instanced.frameIndex();
         pipelineFrameIndex++;
+        if (generation.topology().waterSurface()) {
+            waterTimeSeconds = Math.min(WATER_TIME_LIMIT_SECONDS,
+                    waterTimeSeconds + Math.max(0.0f, deltaSeconds));
+        }
         VfxLightBridge.Result mergedLights = vfxLightBridge.merge(scene.lightEntries(),
                 pendingVfxLights, clusteredLightingSettings.maxLocalLights(), maxVfxLights,
                 hdrVfxEnabled, features.effective().directLighting(), vfxLightInputRevision);
@@ -1829,7 +1907,8 @@ public final class RenderPipeline {
                 imageBasedLightingEnabled, directionalShadowsEnabled, pointShadowsEnabled,
                 spotShadowsEnabled, hdrVfxEnabled, previewEnabled, settings, postProcessSettings,
                 volumetricFogSettings, outdoorEnvironment, directionalShadowMap,
-                directionalCascadeSettings, localShadowSettings, clusteredLightingSettings);
+                directionalCascadeSettings, localShadowSettings, clusteredLightingSettings,
+                waterSurfaceSettings);
     }
 
     private RenderFeaturePolicy.Facts featureFacts() {
@@ -1884,6 +1963,7 @@ public final class RenderPipeline {
         directionalCascadeSettings = requested.directionalCascades();
         localShadowSettings = requested.localShadows();
         clusteredLightingSettings = requested.clusteredLighting();
+        waterSurfaceSettings = requested.waterSurface();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -1912,7 +1992,8 @@ public final class RenderPipeline {
                 next.directionalCascades())
                 && java.util.Objects.equals(previous.localShadows(), next.localShadows())
                 && java.util.Objects.equals(previous.clusteredLighting(),
-                next.clusteredLighting());
+                next.clusteredLighting())
+                && java.util.Objects.equals(previous.waterSurface(), next.waterSurface());
     }
 
     private void applyPendingFeatureRequest() {
@@ -1937,7 +2018,8 @@ public final class RenderPipeline {
                         postProcessSettings, current.graph().width(), current.graph().height(),
                         hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                         directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                        directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled);
+                        directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                        waterSurfaceSettings);
                 PipelineGeneration candidate = createGeneration(scene, topology, current);
                 synchronizeOutdoorSun(scene);
                 activateGeneration(candidate);
@@ -2043,6 +2125,30 @@ public final class RenderPipeline {
             var inputs = generation.surfaceInputs().frame();
             generation.sceneSurfaceResolvePass().record(cmd, res, generation.surfaceInputs());
             inputs.resolveProduced(res);
+        };
+    }
+
+    private PassExecutor waterExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            var layout = generation.topology().sceneSurface();
+            var depth = layout.raw(SceneBufferChannel.DEPTH);
+            if (depth == null) {
+                throw new IllegalStateException("water surface requires the shared raster depth");
+            }
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "water surface requires a prepared temporal frame state");
+            }
+            Framebuffer sceneColor = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+            Framebuffer target = res.currentTarget();
+            if (sceneColor == null || target == null) {
+                throw new IllegalStateException("water surface requires the geometry colour target");
+            }
+            generation.waterSurfacePass().record(cmd, sceneColor, target,
+                    res.depthAttachment(depth.name()), frame,
+                    waterSurfaceSettings, pbrEnvironment, iblIntensity, iblRotationRadians,
+                    waterTimeSeconds);
         };
     }
 

@@ -26,6 +26,7 @@ final class RenderFeaturePolicy {
                     boolean volumetricFog, boolean sky, boolean bloom, boolean autoExposure,
                     boolean analyticFog, boolean antiAliasing, boolean toneMapping,
                     boolean colorGrading, boolean hdrVfx, boolean preview,
+                    boolean waterSurface,
                     List<RenderFeatureActivity> activities) {
         Resolved {
             activities = List.copyOf(activities);
@@ -62,6 +63,7 @@ final class RenderFeaturePolicy {
         boolean colorGrading = settings.postProcess().colorGrading().enabled();
         boolean hdrVfx = settings.hdrVfx() && facts.hdrVfxRecorderPresent();
         boolean preview = settings.preview() && facts.previewSourceSelected();
+        boolean waterSurface = settings.waterSurface().active();
 
         List<RenderFeatureActivity> activities = new ArrayList<>();
         activities.add(activity(RenderFeature.MASTER, master,
@@ -97,6 +99,8 @@ final class RenderFeaturePolicy {
         activities.add(child(RenderFeature.PREVIEW, master, preview,
                 facts.previewSourceSelected()
                         ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE));
+        activities.add(child(RenderFeature.WATER_SURFACE, master, waterSurface,
+                RenderFeatureReason.DISABLED));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -105,6 +109,7 @@ final class RenderFeaturePolicy {
                 effective(master, analyticFog), effective(master, antiAliasing),
                 effective(master, toneMapping), effective(master, colorGrading),
                 effective(master, hdrVfx), effective(master, preview),
+                effective(master, waterSurface),
                 List.copyOf(activities));
     }
 
@@ -194,6 +199,14 @@ final class RenderFeaturePolicy {
         if (settings.volumetricFog().enabled() && settings.postProcess().fog().enabled()) {
             throw new IllegalArgumentException(
                     "volumetric fog replaces analytic fog; disable the other fog path");
+        }
+        if (settings.waterSurface().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "water surface requires HDR tone mapping for linear absorption composition");
+        }
+        if (settings.waterSurface().active() && settings.volumetricFog().enabled()) {
+            throw new IllegalArgumentException(
+                    "water surface does not compose with volumetric fog in this version");
         }
         if (settings.volumetricFog().enabled() && settings.hdrVfx()
                 && facts.hdrVfxRecorderPresent() && !facts.hdrVfxFogAware()

@@ -75,3 +75,10 @@ velocity/validity，并在 TAA、景深之后，曝光/Bloom/tone mapping 之前
 由 validity=0 精确还原输入。无 velocity 的透明/VFX 使用其身后不透明表面的 velocity；若身后没有
 不透明表面（天空等），validity=0 使该像素保持清晰。输入/输出、钳制与单帧 gather 限制见
 [运动模糊技术卡](../../planning/v0.28.1-s3-motion-blur.md)。迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #14 新增 advanced `render3d.water.WaterSurfaceSettings`（有限平面 bounds、
+`level`、双列波 wavelength/speed/amplitude/direction、吸收色与密度、岸边渐隐、IBL 回退色，
+全部构造期校验）与 internal `render3d.water.WaterSurfacePass`（单位矩形水面绘制、深度
+吸收/岸边过渡与 Fresnel 反射，不作为兼容入口）。`RenderFeatureSettings` 追加
+`waterSurface` 组件，默认 `WaterSurfaceSettings.disabled()`；`RenderPipeline` 新增
+`waterSurface(...)`/`applyWaterSurface(...)`。开启要求 HDR，并与体积雾明确互斥。合同、成本与
+限制见[有限水面技术卡](../../planning/v0.28.1-s3-water-surface.md)，迁移说明见[迁移记录](migrations.md)。

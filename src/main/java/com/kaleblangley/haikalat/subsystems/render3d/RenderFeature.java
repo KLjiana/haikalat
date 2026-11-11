@@ -18,5 +18,6 @@ public enum RenderFeature {
     TONE_MAPPING,
     COLOR_GRADING,
     HDR_VFX,
-    PREVIEW
+    PREVIEW,
+    WATER_SURFACE
 }

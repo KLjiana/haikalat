@@ -157,3 +157,5 @@ internal com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder
 internal com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer
 
 advanced com.kaleblangley.haikalat.subsystems.render3d.VfxLightDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass

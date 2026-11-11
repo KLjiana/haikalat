@@ -10,6 +10,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
@@ -73,6 +74,33 @@ class RenderFeatureControlTest {
                     feature.name());
             assertFalse(activity(resolved, feature).active(), feature.name());
         }
+    }
+
+    @Test
+    void waterSurfaceActivityFollowsMasterPauseAndRejectsUnsupportedModes() {
+        WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true).build();
+        var resolved = RenderFeaturePolicy.resolve(
+                hdrBuilder().waterSurface(water).build(), NO_PBR);
+        assertTrue(resolved.waterSurface());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(resolved, RenderFeature.WATER_SURFACE).reason());
+
+        var paused = RenderFeaturePolicy.resolve(
+                hdrBuilder().enabled(false).waterSurface(water).build(), NO_PBR);
+        assertFalse(paused.waterSurface());
+        assertEquals(RenderFeatureReason.PAUSED_BY_MASTER,
+                activity(paused, RenderFeature.WATER_SURFACE).reason());
+
+        RenderFeatureSettings ldr = RenderFeatureSettings.builder().waterSurface(water).build();
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(ldr, NO_PBR),
+                "linear water absorption requires HDR tone mapping");
+
+        RenderFeatureSettings volumetric = hdrBuilder()
+                .waterSurface(water).volumetricFog(volumetric()).build();
+        assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(volumetric, ALL_TRUE),
+                "volumetric fog composition is not part of the first water version");
     }
 
     @Test

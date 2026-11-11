@@ -67,6 +67,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private String linearHdrTextureName;
     private String sceneColorInput = PostProcessTargets.SCENE_COLOR;
     private String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
+    private String hdrResolveSource = PostProcessTargets.GEOMETRY_PASS;
     private final List<AutoCloseable> owned;
     private final List<AutoCloseable> borrowed;
     private PostProcessPipeline donor;
@@ -263,6 +264,16 @@ public final class PostProcessPipeline implements AutoCloseable {
         sceneColorProducer = Objects.requireNonNull(producer);
     }
 
+    /**
+     * Overrides the multisample colour source copied into the single-sample HDR
+     * resolve.  Render3D uses this when a late scene-colour producer (for
+     * example the water surface pass) replaces {@code GeometryPass} as the
+     * source of the HDR chain.
+     */
+    public void hdrResolveSource(String producer) {
+        hdrResolveSource = Objects.requireNonNull(producer);
+    }
+
     public static List<String> passNamesFor(AntiAliasingMode mode) {
         return passNamesFor(mode, ToneMappingMode.NONE);
     }
@@ -402,7 +413,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         String hdrProducer = sceneColorProducer;
 
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
-            final String resolveProducer = hdrProducer;
+            final String resolveProducer = hdrResolveSource;
             graph.addPass(PostProcessTargets.HDR_RESOLVE_PASS)
                     .createColor(PostProcessTargets.HDR_RESOLVED_COLOR, RenderFormat.RGBA16F)
                     .noClear()

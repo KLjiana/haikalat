@@ -15,6 +15,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 
@@ -147,6 +148,48 @@ class PipelineTopologyTest {
         assertEquals(2, topology.gtaoHalfHeight());
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(topology, false).validate());
+    }
+
+    @Test
+    void waterSurfaceRequestsRasterDepthAndRejectsUnsupportedCombinations() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings hdrMsaa = RenderSettings.builder()
+                .toneMappingMode(ToneMappingMode.ACES)
+                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4).build();
+        WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true).build();
+        LocalShadowPipelineSettings localShadows = LocalShadowPipelineSettings.legacyDefaults();
+        PipelineTopology base = PipelineTopology.capture(scene, hdrMsaa,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), localShadows,
+                VolumetricFogSettings.disabled(), true, true, true);
+        PipelineTopology withWater = PipelineTopology.capture(scene, hdrMsaa,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), localShadows,
+                VolumetricFogSettings.disabled(), true, true, true, water);
+
+        assertFalse(base.waterSurface());
+        assertTrue(withWater.waterSurface());
+        assertNotEquals(base, withWater);
+        assertEquals(4, withWater.sceneSurface().raw(SceneBufferChannel.DEPTH).samples());
+        assertFalse(withWater.sceneSurface().hasResolve(),
+                "water reads the raster depth directly; no MSAA resolve copy is required");
+        new PipelineFeaturePolicy(withWater, false).validate();
+
+        PipelineTopology ldr = PipelineTopology.capture(scene, RenderSettings.builder().build(),
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), localShadows,
+                VolumetricFogSettings.disabled(), true, true, true, water);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> new PipelineFeaturePolicy(ldr, false).validate());
+
+        PipelineTopology volume = PipelineTopology.capture(scene, hdrMsaa,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), localShadows,
+                new VolumetricFogSettings(true, 16, VolumetricFogSettings.Quality.LOW,
+                        FogMediumSettings.vacuum(), java.util.List.of(), 0.0f, false, 0.0f,
+                        1337, new Vector3f()), true, true, true, water);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> new PipelineFeaturePolicy(volume, false).validate());
     }
 
     @Test

@@ -35,6 +35,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
@@ -50,6 +51,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowLightScheduler
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
@@ -84,6 +86,7 @@ public final class PipelineGeneration implements AutoCloseable {
     private SceneSurfacePass sceneSurfacePass;
     private SceneSurfaceResolvePass sceneSurfaceResolvePass;
     private SceneReactivePass sceneReactivePass;
+    private WaterSurfacePass waterSurfacePass;
     private String finalPassName;
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
@@ -266,6 +269,35 @@ public final class PipelineGeneration implements AutoCloseable {
         }
     }
 
+    /**
+     * Declares the finite water colour pass after geometry.  The pass owns only
+     * its shader/mesh/sampler; scene colour, scene depth and the IBL environment
+     * are borrowed per frame, so a compatible donor can be reused.
+     */
+    public void assembleWaterSurface(RenderGraph.PassExecutor executor) {
+        var source = reuseSource;
+        var depth = topology.sceneSurface().raw(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
+        if (depth == null) {
+            throw new IllegalStateException("water surface requires the shared raster depth");
+        }
+        waterSurfacePass = source != null && source.waterSurfacePass != null
+                && source.waterSurfacePass.samples() == topology.sampleCount()
+                ? borrow(source.waterSurfacePass) : new WaterSurfacePass(topology.sampleCount());
+        RenderGraph.PassBuilder pass = graph.addPass(WaterSurfacePass.PASS_NAME)
+                .noClear()
+                .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS)
+                .dependsOn(depth.producer());
+        if (topology.sampleCount() > 1) {
+            pass.createColorMS(WaterSurfacePass.COLOR, RenderFormat.RGBA16F,
+                    topology.sampleCount());
+        } else {
+            pass.createColor(WaterSurfacePass.COLOR, RenderFormat.RGBA16F);
+        }
+        pass.execute(executor);
+    }
+
+
     public PipelineGeneration(PipelineTopology topology) {
         this(topology, null, false, 0, VolumetricFogSettings.disabled());
     }
@@ -326,6 +358,7 @@ public final class PipelineGeneration implements AutoCloseable {
     public SceneSurfacePass sceneSurfacePass() { return sceneSurfacePass; }
     public SceneSurfaceResolvePass sceneSurfaceResolvePass() { return sceneSurfaceResolvePass; }
     public SceneReactivePass sceneReactivePass() { return sceneReactivePass; }
+    public WaterSurfacePass waterSurfacePass() { return waterSurfacePass; }
     public String finalPassName() { return finalPassName; }
     public PbrMaterialBinder pbrMaterialBinder() { return pbrMaterialBinder; }
     public EnvironmentBackgroundRenderer environmentBackground() { return environmentBackground; }
@@ -553,6 +586,7 @@ public final class PipelineGeneration implements AutoCloseable {
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
         SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
         SceneReactivePass localSceneReactive = sceneReactivePass;
+        WaterSurfacePass localWaterSurface = waterSurfacePass;
         ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
         ClusteredLightingResources localClusteredResources = clusteredResources;
         ClusteredLightingBinder localClusteredBinder = clusteredLightingBinder;
@@ -572,6 +606,7 @@ public final class PipelineGeneration implements AutoCloseable {
         sceneSurfacePass = null;
         sceneSurfaceResolvePass = null;
         sceneReactivePass = null;
+        waterSurfacePass = null;
         shadowSamplingBlock = null;
         clusteredResources = null;
         clusteredLightingBinder = null;
@@ -591,6 +626,7 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);
         failure = closeCollecting(localSceneReactive, failure);
+        failure = closeCollecting(localWaterSurface, failure);
         failure = closeCollecting(localDeformationDefaults, failure);
         failure = closeCollecting(localShadowSamplingBlock, failure);
         failure = closeCollecting(localClusteredBinder, failure);

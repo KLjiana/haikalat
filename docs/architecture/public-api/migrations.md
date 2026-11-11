@@ -155,3 +155,15 @@ Pass 不采样任何历史：相机切镜由 validity=0 精确还原输入，无
 不透明表面的 velocity；身后没有不透明表面（天空等）时同样由 validity=0 保持清晰。本包没有修改
 `RenderPipeline` 公共入口；曝光比例和最大半径是装配期值，
 改变后需要重新 build/重建候选（见[技术卡](../../planning/v0.28.1-s3-motion-blur.md)）。
+v0.28.1（候选）有限水面没有删除 stable 类型。advanced `RenderFeatureSettings` canonical
+record 从 16 个组件扩展为 17 个（末尾新增 `waterSurface`）；既有 builder、`defaults()`、
+`toBuilder()` 和访问器调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。新增
+advanced `render3d.water.WaterSurfaceSettings`（`enabled, level, minX/minZ/maxX/maxZ,
+waveWavelength, waveSpeed, waveAmplitude, waveDirectionRadians, waterColor,
+absorptionDensity, shoreFadeDistance, reflectionFallback`），默认 `disabled()` 是精确
+no-op。新增 internal `render3d.water.WaterSurfacePass` 与 `RenderPipeline.waterSurface(...)`/
+`waterSurface()`/`applyWaterSurface(...)`；`PipelineTopology` 仅在水面 active 时把 DEPTH
+并入 raster 表面请求，并在 topology 中新增 `waterSurface` 组件（canonical 构造器为
+public internal 类型，不构成兼容承诺）。水面开启要求 HDR tone mapping，且与体积雾互斥，
+非法组合在 `RenderFeaturePolicy`/`PipelineFeaturePolicy` 明确拒绝。范围、限制和验证见
+[有限水面技术卡](../../planning/v0.28.1-s3-water-surface.md)。
