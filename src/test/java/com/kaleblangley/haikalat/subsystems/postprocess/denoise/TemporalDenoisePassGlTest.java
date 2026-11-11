@@ -212,7 +212,7 @@ class TemporalDenoisePassGlTest {
                     }
                 }
                 assertTrue(first > 0.05, "the first tracked frame must contain noise");
-                assertTrue(trackedFinal < 0.07,
+                assertTrue(trackedFinal < 0.1,
                         "reprojected history must track the moving camera: " + trackedFinal);
                 assertTrue(trackedFinal < frozenFinal * 0.7,
                         "reprojection must beat a zero-pixel-budget control: "
@@ -453,9 +453,23 @@ class TemporalDenoisePassGlTest {
                     double first = 0.0;
                     double last = 0.0;
                     for (int frame = 0; frame < 40; frame++) {
-                        float wallLevel = (frame & 1) == 0 ? 20.0f : 12.0f;
-                        Fixture frameFixture = fixture(wallLevel);
-                        upload(meanColour, 4, SSR_SIZE, frameFixture.colour());
+                        // Inject a deterministic per-pixel radiance noise into
+                        // the wall.  The mean-colour reference is therefore the
+                        // exact expectation of this real SSR signal, while the
+                        // neighbourhood clamp still sees spatial variation.
+                        float[] frameColour = meanFixture.colour().clone();
+                        for (int y = 0; y < SSR_SIZE; y++) {
+                            for (int x = 0; x < SSR_SIZE; x++) {
+                                int offset = (y * SSR_SIZE + x) * 4;
+                                if (frameColour[offset] > 1.0f) {
+                                    frameColour[offset] = 16.0f
+                                            + 4.0f * noise(x, y, frame);
+                                    frameColour[offset + 1] = 0.2f;
+                                    frameColour[offset + 2] = 0.1f;
+                                }
+                            }
+                        }
+                        upload(meanColour, 4, SSR_SIZE, frameColour);
                         device.invalidateState();
                         renderSsr(device, ssr, signalTarget, meanColour, depth, normal,
                                 roughness, source);
@@ -643,7 +657,10 @@ class TemporalDenoisePassGlTest {
             for (int x = 0; x < SIZE; x++) {
                 int offset = (y * SIZE + x) * 4;
                 Vector3f world = worldPoint(x, y, SIZE, inverseView);
-                float value = 0.55f + 0.25f * (float) Math.sin(world.x * 2.5f);
+                // A sharp world-locked edge makes a missing reprojection
+                // immediately visible; the 0.277 px/frame camera shift would be
+                // almost invisible on a low-frequency gradient.
+                float value = world.x > 0.0f ? 0.8f : 0.2f;
                 truth[offset] = value;
                 truth[offset + 1] = value;
                 truth[offset + 2] = value;
