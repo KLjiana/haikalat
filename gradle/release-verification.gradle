@@ -304,7 +304,7 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster and particle-indirect policies.
-        assert policies.size() == 55
+        assert policies.size() == 57
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -403,6 +403,26 @@ tasks.register('releaseVerificationContracts') {
                 upscaleDevice + upscaleMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPassGlTest.xml',
                 upscaleDevice + upscaleMessage * 5, policies).violations.isEmpty()
+        def volumetricParticleReadback = policies.find { it.owner == 'render3d/volumetric-particle-readback' }
+        assert volumetricParticleReadback != null && volumetricParticleReadback.id == 131186
+        assert volumetricParticleReadback.maximum == 2
+        assert volumetricParticleReadback.entry == '.*VolumetricParticleGlTest.*'
+        def volumetricParticleCold = policies.find { it.owner == 'render3d/volumetric-particle-cold' }
+        assert volumetricParticleCold != null && volumetricParticleCold.id == 131218
+        assert volumetricParticleCold.maximum == 4
+        assert volumetricParticleCold.entry == '.*VolumetricParticleGlTest.*'
+        def volumetricParticleDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def volumetricParticleEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleGlTest.xml'
+        def volumetricParticleReadbackMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_SHADER_STORAGE_BUFFER, and GL_SHADER_STORAGE_BUFFER (3), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        def volumetricParticleColdMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleReadbackMessage * 2 + volumetricParticleColdMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleReadbackMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleColdMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.OtherGlTest.xml',
+                volumetricParticleDevice + volumetricParticleReadbackMessage, policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
