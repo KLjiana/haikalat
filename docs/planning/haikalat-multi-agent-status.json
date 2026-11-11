@@ -8,20 +8,20 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "04cf147e-dc19-477f-bfc6-1e0892e809d0",
+                                          "runId":  "dba3b63a-e802-454c-ad32-b352dda4a9b1",
                                           "status":  "PASS",
-                                          "tests":  407,
+                                          "tests":  416,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/04cf147e-dc19-477f-bfc6-1e0892e809d0/result.json",
-                                          "logicReport":  "build/reports/logic-verification/c49a3e9b-1f38-44dc-8672-0828638984d2/report.json",
+                                          "evidence":  "build/reports/bounded-verification/dba3b63a-e802-454c-ad32-b352dda4a9b1/result.json",
+                                          "logicReport":  "build/reports/logic-verification/bac8635b-2507-404c-8c22-53b53aa3da28/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "0b3c9b0"
+                        "head":  "e55700e"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T20:31:52.2691417+08:00",
+    "updatedAt":  "2026-11-11T20:44:55.1979490+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -549,7 +549,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review water/refraction rejection and fixes"
+                      "nextAction":  "Re-review fixes after review findings"
                   },
                   {
                       "taskId":  "R14",
@@ -580,7 +580,7 @@
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Re-review water/refraction rejection and fixes"
+                      "nextAction":  "Re-review fixes after review findings"
                   },
                   {
                       "taskId":  "R15",
@@ -726,12 +726,12 @@
                                        "fresh real-GL contract PASS in worker worktree",
                                        "focused verify 7bb1da70: 391 tests PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Scope: single directional light, no MSAA/TAA/transparent casters/perf"
                   },
                   {
                       "taskId":  "R20",
@@ -821,12 +821,12 @@
                                        "JVM Smaa* PASS",
                                        "focused verify 04cf147e: 407 tests PASS"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Re-review fixes after review findings"
                   },
                   {
                       "taskId":  "R23",
