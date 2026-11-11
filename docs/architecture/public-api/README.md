@@ -136,6 +136,13 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #15 新增 advanced GL-free `render3d.vfx.GpuParticleCollisionSettings`（启用、TEXEL_CENTRE/
+CONSERVATIVE_MIN_2X2 采样、世界厚度、restitution、friction、搜索步数/半径、opaque-only，构造期校验；
+默认 `disabled()`），`GpuParticleSystem` 扩展为可选碰撞 compute program 与 8 参数 `record(...)`，消费
+同帧/同 view/同 viewport 的单采样不透明深度；离屏/无深度保持自由飞行，disabled 逐字节保留 #27 轨迹。
+限制：仅屏幕空间当前可见深度、有界厚度平面近似、无连续碰撞/复杂形状、无 GPU 读回；与 #26/#28 的组合
+仍需接线。合同与 GL 参考见[粒子碰撞技术卡](../../planning/v0.28.1-s3-particle-collision.md)，
+迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S2 #18 新增 advanced GL-free `render3d.pbr.ReflectionProbeSettings`（探针位置、影响盒/球、
 blend distance、质量档、强度/旋转）、`ReflectionProbeSet`（有限数量静态 HDR 预计算、加载失败回滚、
 close 释放）与 `ReflectionProbeSelector`（影响区选择、权重/混合、全局 IBL 回退）；PBR shader 增加
