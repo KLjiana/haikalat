@@ -5,17 +5,25 @@ package com.kaleblangley.haikalat.subsystems.postprocess;
  *
  * <p>The effect is disabled by default and contributes no pass, shader or
  * attachment when inactive.  Focus distance is expressed in world units
- * (metres), aperture is the conventional f-number of a fixed 50 mm
- * full-frame-equivalent lens model, and maximum CoC is the output-pixel radius
- * clamp.  The model is an artistic approximation: it does not derive a focal
- * length or sensor width from the camera projection.</p>
+ * (metres), focal length is a 35 mm full-frame-equivalent millimetre value
+ * combined with the fixed 36 mm sensor width, aperture is the conventional
+ * f-number, and maximum CoC is the output-pixel radius clamp.  The model is an
+ * artistic thin-lens approximation; it does not derive focal length or sensor
+ * width from the camera projection.</p>
  */
 public record DepthOfFieldSettings(boolean enabled, float focusDistance,
-                                   float aperture, float maxCocPixels) {
+                                   float aperture, float maxCocPixels,
+                                   float focalLengthMm) {
     /** Smallest accepted focus distance in world units. */
     public static final float MINIMUM_FOCUS_DISTANCE = 0.1f;
     /** Largest accepted focus distance in world units. */
     public static final float MAXIMUM_FOCUS_DISTANCE = 1000.0f;
+    /** Smallest accepted full-frame-equivalent focal length in millimetres. */
+    public static final float MINIMUM_FOCAL_LENGTH_MM = 10.0f;
+    /** Largest accepted full-frame-equivalent focal length in millimetres. */
+    public static final float MAXIMUM_FOCAL_LENGTH_MM = 200.0f;
+    /** Default 50 mm full-frame-equivalent focal length. */
+    public static final float DEFAULT_FOCAL_LENGTH_MM = 50.0f;
     /** Smallest accepted f-number. */
     public static final float MINIMUM_APERTURE = 1.0f;
     /** Largest accepted f-number. */
@@ -23,12 +31,24 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
     /** Largest accepted circle-of-confusion radius in output pixels. */
     public static final float MAXIMUM_COC_PIXELS = 16.0f;
 
+    /** Source-compatible constructor that keeps the original 50 mm lens. */
+    public DepthOfFieldSettings(boolean enabled, float focusDistance,
+                                float aperture, float maxCocPixels) {
+        this(enabled, focusDistance, aperture, maxCocPixels, DEFAULT_FOCAL_LENGTH_MM);
+    }
+
     public DepthOfFieldSettings {
         if (!Float.isFinite(focusDistance)
                 || focusDistance < MINIMUM_FOCUS_DISTANCE
                 || focusDistance > MAXIMUM_FOCUS_DISTANCE) {
             throw new IllegalArgumentException("focusDistance must be finite and in ["
                     + MINIMUM_FOCUS_DISTANCE + ", " + MAXIMUM_FOCUS_DISTANCE + "]");
+        }
+        if (!Float.isFinite(focalLengthMm)
+                || focalLengthMm < MINIMUM_FOCAL_LENGTH_MM
+                || focalLengthMm > MAXIMUM_FOCAL_LENGTH_MM) {
+            throw new IllegalArgumentException("focalLengthMm must be finite and in ["
+                    + MINIMUM_FOCAL_LENGTH_MM + ", " + MAXIMUM_FOCAL_LENGTH_MM + "]");
         }
         if (!Float.isFinite(aperture)
                 || aperture < MINIMUM_APERTURE || aperture > MAXIMUM_APERTURE) {
@@ -43,13 +63,22 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
     }
 
     public static DepthOfFieldSettings disabled() {
-        return new DepthOfFieldSettings(false, 4.0f, 2.8f, 8.0f);
+        return new DepthOfFieldSettings(false, 4.0f, 2.8f, 8.0f,
+                DEFAULT_FOCAL_LENGTH_MM);
     }
 
-    /** Enables the effect with the supplied lens parameters. */
+    /** Enables the effect with the supplied focus/aperture and a 50 mm lens. */
     public static DepthOfFieldSettings of(float focusDistance, float aperture,
                                           float maxCocPixels) {
-        return new DepthOfFieldSettings(true, focusDistance, aperture, maxCocPixels);
+        return new DepthOfFieldSettings(true, focusDistance, aperture, maxCocPixels,
+                DEFAULT_FOCAL_LENGTH_MM);
+    }
+
+    /** Enables the effect with an explicit full-frame-equivalent focal length. */
+    public static DepthOfFieldSettings of(float focusDistance, float focalLengthMm,
+                                          float aperture, float maxCocPixels) {
+        return new DepthOfFieldSettings(true, focusDistance, aperture, maxCocPixels,
+                focalLengthMm);
     }
 
     /** A zero maximum CoC is an exact no-op: no pass, shader or attachment is created. */
@@ -58,19 +87,28 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
     }
 
     public DepthOfFieldSettings withEnabled(boolean value) {
-        return new DepthOfFieldSettings(value, focusDistance, aperture, maxCocPixels);
+        return new DepthOfFieldSettings(value, focusDistance, aperture, maxCocPixels,
+                focalLengthMm);
     }
 
     public DepthOfFieldSettings withFocusDistance(float value) {
-        return new DepthOfFieldSettings(enabled, value, aperture, maxCocPixels);
+        return new DepthOfFieldSettings(enabled, value, aperture, maxCocPixels,
+                focalLengthMm);
+    }
+
+    public DepthOfFieldSettings withFocalLengthMm(float value) {
+        return new DepthOfFieldSettings(enabled, focusDistance, aperture, maxCocPixels,
+                value);
     }
 
     public DepthOfFieldSettings withAperture(float value) {
-        return new DepthOfFieldSettings(enabled, focusDistance, value, maxCocPixels);
+        return new DepthOfFieldSettings(enabled, focusDistance, value, maxCocPixels,
+                focalLengthMm);
     }
 
     public DepthOfFieldSettings withMaxCocPixels(float value) {
-        return new DepthOfFieldSettings(enabled, focusDistance, aperture, value);
+        return new DepthOfFieldSettings(enabled, focusDistance, aperture, value,
+                focalLengthMm);
     }
 
     public static Builder builder() {
@@ -80,6 +118,7 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
     public static final class Builder {
         private boolean enabled;
         private float focusDistance = 4.0f;
+        private float focalLengthMm = DEFAULT_FOCAL_LENGTH_MM;
         private float aperture = 2.8f;
         private float maxCocPixels = 8.0f;
 
@@ -96,6 +135,11 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
             return this;
         }
 
+        public Builder focalLengthMm(float value) {
+            focalLengthMm = value;
+            return this;
+        }
+
         public Builder aperture(float value) {
             aperture = value;
             return this;
@@ -107,7 +151,8 @@ public record DepthOfFieldSettings(boolean enabled, float focusDistance,
         }
 
         public DepthOfFieldSettings build() {
-            return new DepthOfFieldSettings(enabled, focusDistance, aperture, maxCocPixels);
+            return new DepthOfFieldSettings(enabled, focusDistance, aperture,
+                    maxCocPixels, focalLengthMm);
         }
     }
 }

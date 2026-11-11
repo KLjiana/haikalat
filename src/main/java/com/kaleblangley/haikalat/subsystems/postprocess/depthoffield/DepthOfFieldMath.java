@@ -8,13 +8,12 @@ import java.util.Objects;
  * Pure-JVM reference for the thin-lens circle-of-confusion model used by the
  * depth-of-field shader.
  *
- * <p>The shader and this helper both use a fixed 50 mm focal length and a
- * 36 mm sensor width.  Distances are world units treated as metres.  The
- * result is a radius in output pixels, already clamped to
- * {@link DepthOfFieldSettings#maxCocPixels()}.</p>
+ * <p>The shader and this helper both use the configured full-frame-equivalent
+ * focal length and a fixed 36 mm sensor width.  Distances are world units
+ * treated as metres.  The result is a radius in output pixels, already clamped
+ * to {@link DepthOfFieldSettings#maxCocPixels()}.</p>
  */
 final class DepthOfFieldMath {
-    static final double FOCAL_LENGTH_METERS = 0.05;
     static final double SENSOR_WIDTH_METERS = 0.036;
     private static final double MIN_DISTANCE_METERS = 0.001;
 
@@ -39,14 +38,15 @@ final class DepthOfFieldMath {
         if (!settings.active()) {
             return 0.0f;
         }
+        double focalLengthMeters = settings.focalLengthMm() / 1000.0;
         double distance = Math.max(viewDistance, MIN_DISTANCE_METERS);
         double focus = settings.focusDistance();
         double denominator = settings.aperture() * distance
-                * Math.max(focus - FOCAL_LENGTH_METERS, MIN_DISTANCE_METERS);
+                * Math.max(focus - focalLengthMeters, MIN_DISTANCE_METERS);
         if (denominator <= 0.0) {
             return settings.maxCocPixels();
         }
-        double diameterMeters = FOCAL_LENGTH_METERS * FOCAL_LENGTH_METERS
+        double diameterMeters = focalLengthMeters * focalLengthMeters
                 * Math.abs(distance - focus) / denominator;
         double radiusPixels = 0.5 * diameterMeters * (viewportWidth / SENSOR_WIDTH_METERS);
         if (!Double.isFinite(radiusPixels)) {

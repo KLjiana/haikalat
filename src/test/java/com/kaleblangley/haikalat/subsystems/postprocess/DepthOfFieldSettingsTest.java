@@ -17,6 +17,9 @@ class DepthOfFieldSettingsTest {
         assertTrue(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f).active());
         assertFalse(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f)
                 .withEnabled(false).active());
+        assertEquals(DepthOfFieldSettings.DEFAULT_FOCAL_LENGTH_MM,
+                DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f).focalLengthMm());
+        assertTrue(DepthOfFieldSettings.of(4.0f, 85.0f, 2.8f, 8.0f).active());
     }
 
     @Test
@@ -27,6 +30,12 @@ class DepthOfFieldSettingsTest {
                 () -> new DepthOfFieldSettings(true, 1001.0f, 2.8f, 8.0f));
         assertThrows(IllegalArgumentException.class,
                 () -> new DepthOfFieldSettings(true, Float.NaN, 2.8f, 8.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DepthOfFieldSettings(true, 4.0f, 2.8f, 8.0f, 9.9f));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DepthOfFieldSettings(true, 4.0f, 2.8f, 8.0f, 200.1f));
+        assertThrows(IllegalArgumentException.class,
+                () -> new DepthOfFieldSettings(true, 4.0f, 2.8f, 8.0f, Float.NaN));
         assertThrows(IllegalArgumentException.class,
                 () -> new DepthOfFieldSettings(true, 4.0f, 0.9f, 8.0f));
         assertThrows(IllegalArgumentException.class,
@@ -50,6 +59,10 @@ class DepthOfFieldSettingsTest {
                 settings.withAperture(4.0f));
         assertEquals(new DepthOfFieldSettings(true, 4.0f, 2.8f, 12.0f),
                 settings.withMaxCocPixels(12.0f));
+        assertEquals(new DepthOfFieldSettings(true, 4.0f, 2.8f, 8.0f, 85.0f),
+                settings.withFocalLengthMm(85.0f));
+        assertEquals(85.0f, DepthOfFieldSettings.builder().enabled(true)
+                .focalLengthMm(85.0f).build().focalLengthMm(), 0.0f);
     }
 
     @Test

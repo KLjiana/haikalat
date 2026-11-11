@@ -33,6 +33,14 @@ class DepthOfFieldMathTest {
     }
 
     @Test
+    void longerFocalLengthIncreasesCircleOfConfusion() {
+        DepthOfFieldSettings fifty = DepthOfFieldSettings.of(FOCUS, 50.0f, APERTURE, 16.0f);
+        DepthOfFieldSettings hundred = DepthOfFieldSettings.of(FOCUS, 100.0f, APERTURE, 16.0f);
+        assertTrue(DepthOfFieldMath.cocRadiusPixels(10.0f, hundred, WIDTH)
+                > DepthOfFieldMath.cocRadiusPixels(10.0f, fifty, WIDTH));
+    }
+
+    @Test
     void largerApertureNumberReducesBlurAndNearSideBlursMoreThanFarSide() {
         DepthOfFieldSettings wide = DepthOfFieldSettings.of(FOCUS, 1.4f, 16.0f);
         DepthOfFieldSettings narrow = DepthOfFieldSettings.of(FOCUS, 11.0f, 16.0f);

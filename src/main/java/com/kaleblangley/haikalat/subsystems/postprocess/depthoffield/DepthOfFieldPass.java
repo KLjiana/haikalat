@@ -85,6 +85,8 @@ public final class DepthOfFieldPass implements GlResource {
                 .setUniformMat4(program, "uInverseProjection", inverseProjection)
                 .setUniformVec2(program, "uViewportSize", width, height)
                 .setUniformFloat(program, "uFocusDistance", settings.focusDistance())
+                .setUniformFloat(program, "uFocalLengthMeters",
+                        settings.focalLengthMm() / 1000.0f)
                 .setUniformFloat(program, "uAperture", settings.aperture())
                 .setUniformFloat(program, "uMaxCocPixels", settings.maxCocPixels())
                 .bindVertexArray(quad.id())

@@ -41,6 +41,7 @@ import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glClearDepth;
+import static org.lwjgl.opengl.GL11.glDepthMask;
 import static org.lwjgl.opengl.GL11.glDisable;
 import static org.lwjgl.opengl.GL11.glEnable;
 import static org.lwjgl.opengl.GL11.glGetError;
@@ -111,8 +112,13 @@ class DepthOfFieldPassGlTest {
                         "the bounded max CoC must control the defocus footprint");
                 assertTrue(maxDistance(smallRadius, square, 2) <= 4,
                         "2 px max CoC must not spread beyond its bounded radius");
-                assertTrue(maxDistance(largeRadius, square, 2) <= 14,
+                assertTrue(maxDistance(largeRadius, square, 2) >= 10,
+                        "the 12 px max CoC must produce a visibly wide footprint");
+                assertTrue(maxDistance(largeRadius, square, 2) <= 13,
                         "12 px max CoC must not spread beyond its bounded radius");
+                assertEquals(0, red(largeRadius,
+                                square.x() + square.width() - 1 + 13, SIZE / 2),
+                        "the 12 px clamp must not reach 13 px beyond the square");
             }
 
             try (Framebuffer source = Framebuffer.withDepthTexture(SIZE, SIZE);
@@ -128,6 +134,31 @@ class DepthOfFieldPassGlTest {
                 assertTrue(red(leakControlled, SIZE / 2 - 1, SIZE / 2) <= 2,
                         "defocused background must not leak over a sharp foreground edge");
 
+                // A defocused receiver must reject a farther sample whose own CoC
+                // is much larger; otherwise a distant white wall would wash over it.
+                // The far-depth region starts one pixel before the white colour so
+                // bilinear colour filtering cannot smuggle a white edge tap past
+                // the depth guard.
+                Region farDepth = new Region(SIZE / 2 + 3, 0, SIZE / 2 - 3, SIZE);
+                Region farColor = new Region(SIZE / 2 + 4, 0, SIZE / 2 - 4, SIZE);
+                prepareSource(source, projection,
+                        List.of(new ColorRegion(farColor, 1.0f, 1.0f, 1.0f)),
+                        List.of(new DepthRegion(new Region(0, 0, SIZE / 2 + 3, SIZE), 0.4f),
+                                new DepthRegion(farDepth, FAR)));
+                ByteBuffer farSampleRejected = render(source, target, pass, projection);
+                assertTrue(red(farSampleRejected, SIZE / 2 - 1, SIZE / 2) <= 2,
+                        "a farther, more-defocused sample must not cover a defocused receiver; x31="
+                                + red(farSampleRejected, SIZE / 2 - 1, SIZE / 2));
+
+                // A nearer defocused sample may spread over a focused receiver.
+                prepareSource(source, projection,
+                        List.of(new ColorRegion(rightHalf, 1.0f, 1.0f, 1.0f)),
+                        List.of(new DepthRegion(new Region(0, 0, SIZE / 2, SIZE), FOCUS),
+                                new DepthRegion(rightHalf, 0.1f)));
+                ByteBuffer nearSampleSpread = render(source, target, pass, projection);
+                assertTrue(red(nearSampleSpread, SIZE / 2 - 1, SIZE / 2) > 10,
+                        "a nearer defocused sample must spread over a focused receiver");
+
                 prepareSource(source, projection,
                         List.of(new ColorRegion(rightHalf, 1.0f, 1.0f, 1.0f)),
                         List.of(new DepthRegion(new Region(0, 0, SIZE, SIZE), FAR)));
@@ -135,10 +166,10 @@ class DepthOfFieldPassGlTest {
                 assertTrue(red(unguarded, SIZE / 2 - 1, SIZE / 2) > 10,
                         "the same edge must blur when the receiver is also defocused");
             }
-            assertEquals(GL_NO_ERROR, glGetError());
 
             assertDisabledPipelineHasNoDepthOfFieldPass();
             assertActivePipelineWritesADistinctDofAttachment();
+            assertEquals(GL_NO_ERROR, glGetError());
         }
     }
 
@@ -248,6 +279,7 @@ class DepthOfFieldPassGlTest {
         source.bind();
         glViewport(0, 0, SIZE, SIZE);
         glDisable(GL_SCISSOR_TEST);
+        glDepthMask(true);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClearDepth(1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

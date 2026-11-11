@@ -132,9 +132,11 @@ composite，否则装配期明确拒绝。逐帧贡献通过 `ScreenDistortionSo
 v0.28.1（候选）景深没有删除 stable 类型。`PostProcessSettings` 的 advanced canonical record
 从 7 个组件扩展为 8 个（新增 `depthOfField`）；v0.28.1 屏幕效果使用的 7 参数构造器和更早的
 2/3/4/6 参数构造器保留，默认填入 `DepthOfFieldSettings.disabled()`，因此旧构造器、builder
-与访问器调用保持源码兼容；直接调用 canonical 构造器或反射读取组件的调用方需要更新。新增
-advanced `postprocess.DepthOfFieldSettings(enabled,focusDistance,aperture,maxCocPixels)` 与
-`postprocess.depthoffield.DepthOfFieldPass`。效果默认关闭，`maxCocPixels=0` 也是精确 no-op；
+与访问器调用保持源码兼容；直接调用 8 参数 canonical 构造器或反射读取 8 个组件的调用方需要
+更新，7 参数构造器的 descriptor 不变。新增 advanced
+`postprocess.DepthOfFieldSettings(enabled,focusDistance,aperture,maxCocPixels,focalLengthMm)` 与
+`postprocess.depthoffield.DepthOfFieldPass`；原 4 参数构造器保留并默认 50 mm 焦距。效果默认
+关闭，`maxCocPixels=0` 也是精确 no-op；
 开启要求 HDR tone mapping 与共享单采样场景深度，否则装配/依赖校验明确拒绝。`PipelineTopology`
 仅在景深 active 时把既有 depth 通道并入表面请求；本包没有修改 `RenderPipeline` 公共入口，
 景深设置是装配期值，改变焦点等标量需要重新 build/重建候选（见

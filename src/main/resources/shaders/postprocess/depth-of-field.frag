@@ -8,12 +8,12 @@ uniform sampler2D uDepth;
 uniform mat4 uInverseProjection;
 uniform vec2 uViewportSize;
 uniform float uFocusDistance;
+uniform float uFocalLengthMeters;
 uniform float uAperture;
 uniform float uMaxCocPixels;
 
 const int TAP_COUNT = 16;
 const float GOLDEN_ANGLE = 2.39996323;
-const float FOCAL_LENGTH_METERS = 0.05;
 const float SENSOR_WIDTH_METERS = 0.036;
 const float MIN_VIEW_DISTANCE = 0.001;
 
@@ -27,8 +27,8 @@ float viewDistance(float deviceDepth) {
 
 float cocRadiusPixels(float distance) {
     float denominator = max(uAperture * distance
-            * max(uFocusDistance - FOCAL_LENGTH_METERS, 0.001), 1.0e-6);
-    float diameterMeters = FOCAL_LENGTH_METERS * FOCAL_LENGTH_METERS
+            * max(uFocusDistance - uFocalLengthMeters, 0.001), 1.0e-6);
+    float diameterMeters = uFocalLengthMeters * uFocalLengthMeters
             * abs(distance - uFocusDistance) / denominator;
     float radiusPixels = 0.5 * diameterMeters * (uViewportSize.x / SENSOR_WIDTH_METERS);
     return min(radiusPixels, uMaxCocPixels);
@@ -37,8 +37,10 @@ float cocRadiusPixels(float distance) {
 void main() {
     vec2 viewport = max(uViewportSize, vec2(1.0));
     vec2 uv = gl_FragCoord.xy / viewport;
+    ivec2 depthExtent = textureSize(uDepth, 0);
+    ivec2 centerTexel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), depthExtent - 1);
     vec4 center = texture(uColor, uv);
-    float centerDistance = viewDistance(texture(uDepth, uv).r);
+    float centerDistance = viewDistance(texelFetch(uDepth, centerTexel, 0).r);
     float centerCoc = cocRadiusPixels(centerDistance);
 
     vec3 sum = center.rgb;
@@ -50,7 +52,12 @@ void main() {
         vec2 offsetPixels = vec2(cos(angle), sin(angle)) * radius;
         vec2 sampleUv = clamp(uv + offsetPixels / viewport,
                 0.5 / viewport, 1.0 - 0.5 / viewport);
-        float sampleDistance = viewDistance(texture(uDepth, sampleUv).r);
+        // Depth is a resolved single-sample or MSAA-resolved R32F surface.  A
+        // nearest texel fetch avoids interpolating device depth across an edge
+        // (which would fabricate CoC) while colour keeps its bilinear filter.
+        ivec2 sampleTexel = clamp(ivec2(sampleUv * vec2(depthExtent)),
+                ivec2(0), depthExtent - 1);
+        float sampleDistance = viewDistance(texelFetch(uDepth, sampleTexel, 0).r);
         float sampleCoc = cocRadiusPixels(sampleDistance);
 
         if (centerCoc < 0.5) {
