@@ -10,6 +10,8 @@ import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
+import com.kaleblangley.haikalat.core.material.UniformKey;
+import com.kaleblangley.haikalat.core.material.UniformValue;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
@@ -24,17 +26,16 @@ import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.Transform;
-import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
+import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSelector;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSet;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
-import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
@@ -42,12 +43,14 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_RGBA8;
@@ -55,18 +58,21 @@ import static org.lwjgl.opengl.GL11.GL_RGBA8;
 /**
  * Real-consumer acceptance for static local reflection probes (#18).
  *
- * <p>The fixture is one metallic-white PBR quad rendered through the
- * production {@link PbrMaterials} + {@code pbr-forward.frag} path. The global
- * environment and both probe environments are uniform test HDR fixtures, so
- * the linear HDR image isolates the probe weights: the BRDF factor cancels
- * when the same geometry is first rendered with the global environment only.
- * Probe A is warm, probe B is cool, their blend shells overlap, and the quad is
- * moved between representative world points. Each frame compares the
- * projected quad-centre pixel with an independent selection/weight reference,
- * checks the warm/cool identities, and verifies the exact global fallback
- * outside every probe and after clearing the overrides. The second case
- * injects a probe loading failure and closes a set twice under GL resource
- * tracking.</p>
+ * <p>The fixture is one metallic-white PBR quad at the screen centre rendered
+ * through the production {@link PbrMaterials} + {@code pbr-forward.frag} path.
+ * The global environment and both probe environments are uniform test HDR
+ * fixtures, so the linear HDR image isolates the probe weights: the BRDF
+ * factor cancels when the same geometry is first rendered with the global
+ * environment only. Probe A is warm and probe B is cool; their blend shells
+ * overlap. The quad itself stays fixed (guaranteeing a covered centre pixel)
+ * while each frame binds the production selector for a different
+ * representative world point; the shader still performs its local-correction
+ * lookup at the fixed receiver, but uniform probe colours make that direction
+ * irrelevant to the expected weight colour. This separates the selection /
+ * binding contract from object-transform updates. An independent CPU
+ * reference recomputes every weight and also checks the selector's selected
+ * probe identity/count before each frame. The second case injects a probe
+ * loading failure and closes a set twice under GL resource tracking.</p>
  *
  * <p>This class is guarded by {@code -Dhaikalat.glSmoke=true} and is not part
  * of the default JVM test set.</p>
@@ -162,37 +168,41 @@ class ReflectionProbeGlTest {
                     pipeline.features().submit(ibl);
                     pipeline.build();
 
+                    float[] baseline = globalFrame(pipeline, device, instance, WIDTH, HEIGHT);
+                    assertQuadCoverage("baseline", baseline, WIDTH, HEIGHT);
+
+                    // The selector itself must report the expected identity
+                    // before the GPU path is exercised.
+                    assertFixtureSelection(probes, PROBE_A_X, 1, 0, 1.0f);
+                    assertFixtureSelection(probes, PROBE_B_X, 1, 1, 1.0f);
+                    assertFixtureSelection(probes, 0.0f, 2, -1, 0.0f);
+                    assertFixtureSelection(probes, 1.8f, 0, -1, 0.0f);
+
                     // Probe identity: full A and full B radiance.
                     float[] probeA = probeFrame(pipeline, device, instance, probes,
-                            transform, PROBE_A_X, WIDTH, HEIGHT);
-                    assertChannelOrder("probe A", pixelAt(probeA, camera, PROBE_A_X,
-                            WIDTH, HEIGHT), true);
+                            PROBE_A_X, WIDTH, HEIGHT);
+                    assertChannelOrder("probe A", centrePixel(probeA, WIDTH, HEIGHT), true);
+                    GlDebug.checkError("probe A binding/render");
                     float[] probeB = probeFrame(pipeline, device, instance, probes,
-                            transform, PROBE_B_X, WIDTH, HEIGHT);
-                    assertChannelOrder("probe B", pixelAt(probeB, camera, PROBE_B_X,
-                            WIDTH, HEIGHT), false);
+                            PROBE_B_X, WIDTH, HEIGHT);
+                    assertChannelOrder("probe B", centrePixel(probeB, WIDTH, HEIGHT), false);
 
                     // The handover point must be an actual weighted blend.
-                    float[] handoverGlobal = globalFrame(pipeline, device, instance,
-                            transform, 0.0f, WIDTH, HEIGHT);
                     float[] handover = probeFrame(pipeline, device, instance, probes,
-                            transform, 0.0f, WIDTH, HEIGHT);
-                    assertSelectionMatch("handover", handover, handoverGlobal, 0.0f,
-                            camera, WIDTH, HEIGHT);
+                            0.0f, WIDTH, HEIGHT);
+                    assertSelectionMatch("handover", handover, baseline, 0.0f,
+                            WIDTH, HEIGHT);
 
-                    // A sweep across both volumes must be continuous and
-                    // match the independent weight reference at every point.
+                    // A sweep across both volumes must be continuous and match
+                    // the independent weight reference at every point.
                     float previousLuminance = Float.NaN;
                     float worstStep = 0.0f;
                     for (float x = -1.8f; x <= 1.8f + 1.0e-4f; x += 0.06f) {
-                        float[] global = globalFrame(pipeline, device, instance,
-                                transform, x, WIDTH, HEIGHT);
                         float[] frame = probeFrame(pipeline, device, instance, probes,
-                                transform, x, WIDTH, HEIGHT);
-                        assertSelectionMatch("sweep x=" + x, frame, global, x, camera,
+                                x, WIDTH, HEIGHT);
+                        assertSelectionMatch("sweep x=" + x, frame, baseline, x,
                                 WIDTH, HEIGHT);
-                        float luminance = luminance(pixelAt(frame, camera, x,
-                                WIDTH, HEIGHT));
+                        float luminance = luminance(centrePixel(frame, WIDTH, HEIGHT));
                         if (!Float.isNaN(previousLuminance)) {
                             worstStep = Math.max(worstStep,
                                     Math.abs(luminance - previousLuminance));
@@ -204,21 +214,16 @@ class ReflectionProbeGlTest {
 
                     // Outside both probes: the shader must take the exact
                     // global path even with stale probe bindings present.
-                    float[] globalOnly = globalFrame(pipeline, device, instance,
-                            transform, 1.8f, WIDTH, HEIGHT);
                     float[] fallback = probeFrame(pipeline, device, instance, probes,
-                            transform, 1.8f, WIDTH, HEIGHT);
-                    assertArrayEquals(globalOnly, fallback, 0.0f,
+                            1.8f, WIDTH, HEIGHT);
+                    assertArrayEquals(baseline, fallback, 0.0f,
                             "outside every probe the output must equal the global frame exactly");
 
                     // Clearing the overrides after probe use restores the
                     // original global image byte for byte.
-                    transform.position(0.0f, 0.0f, 0.0f);
-                    instance.clearOverrides();
-                    float[] baseline = render(pipeline, device, WIDTH, HEIGHT);
                     PbrMaterials.bindReflectionProbes(instance, probes, new Vector3f());
                     float[] withProbes = render(pipeline, device, WIDTH, HEIGHT);
-                    assertFalse(java.util.Arrays.equals(baseline, withProbes),
+                    assertFalse(Arrays.equals(baseline, withProbes),
                             "the probe binding must change the image at the handover point");
                     instance.clearOverrides();
                     assertArrayEquals(baseline, render(pipeline, device, WIDTH, HEIGHT),
@@ -227,15 +232,15 @@ class ReflectionProbeGlTest {
 
                     // Probe resources are independent of render-target size.
                     pipeline.resize(96, 72);
-                    transform.position(0.0f, 0.0f, 0.0f);
-                    float[] resizedGlobal = globalFrame(pipeline, device, instance,
-                            transform, 0.0f, 96, 72);
+                    float[] resizedBaseline = globalFrame(pipeline, device, instance,
+                            96, 72);
+                    assertQuadCoverage("resized baseline", resizedBaseline, 96, 72);
                     float[] resizedProbe = probeFrame(pipeline, device, instance, probes,
-                            transform, 0.0f, 96, 72);
-                    assertFalse(java.util.Arrays.equals(resizedGlobal, resizedProbe),
+                            0.0f, 96, 72);
+                    assertFalse(Arrays.equals(resizedBaseline, resizedProbe),
                             "local probes must still contribute after resize");
-                    assertSelectionMatch("resized", resizedProbe, resizedGlobal, 0.0f,
-                            camera, 96, 72);
+                    assertSelectionMatch("resized", resizedProbe, resizedBaseline, 0.0f,
+                            96, 72);
                     GlDebug.checkError("reflection probe acceptance");
                 } finally {
                     pipeline.close();
@@ -294,17 +299,32 @@ class ReflectionProbeGlTest {
 
     private static float[] probeFrame(RenderPipeline pipeline, GlRenderDevice device,
                                       MaterialInstance instance, ReflectionProbeSet probes,
-                                      Transform transform, float x, int width, int height) {
-        transform.position(x, 0.0f, 0.0f);
+                                      float selectorPointX, int width, int height) {
+        int expectedCount = probes.select(new Vector3f(selectorPointX, 0.0f, 0.0f)).count();
         instance.clearOverrides();
-        PbrMaterials.bindReflectionProbes(instance, probes, new Vector3f(x, 0.0f, 0.0f));
+        PbrMaterials.bindReflectionProbes(instance, probes,
+                new Vector3f(selectorPointX, 0.0f, 0.0f));
+        assertEquals(expectedCount, probeCountOverride(instance),
+                "the Java-side probe count must match the selector at x=" + selectorPointX);
+        if (expectedCount > 0) {
+            assertTrue(instance.uniformOverrides().containsKey(
+                            UniformKey.int1("uReflectionProbe0")),
+                    "the probe sampler uniform must be uploaded before the draw");
+        }
         return render(pipeline, device, width, height);
     }
 
+    private static int probeCountOverride(MaterialInstance instance) {
+        UniformValue value = instance.uniformOverrides().get(
+                UniformKey.int1("uReflectionProbeCount"));
+        assertNotNull(value, "uReflectionProbeCount override must exist after probe binding");
+        assertTrue(value instanceof UniformValue.IntVal,
+                "uReflectionProbeCount must be an int override");
+        return ((UniformValue.IntVal) value).value();
+    }
+
     private static float[] globalFrame(RenderPipeline pipeline, GlRenderDevice device,
-                                       MaterialInstance instance, Transform transform,
-                                       float x, int width, int height) {
-        transform.position(x, 0.0f, 0.0f);
+                                       MaterialInstance instance, int width, int height) {
         instance.clearOverrides();
         return render(pipeline, device, width, height);
     }
@@ -320,6 +340,43 @@ class ReflectionProbeGlTest {
         return image;
     }
 
+    private static void assertFixtureSelection(ReflectionProbeSet probes, float x,
+                                               int expectedCount, int expectedFirstIndex,
+                                               float expectedFirstWeight) {
+        ReflectionProbeSelector.Selection selection = probes.select(
+                new Vector3f(x, 0.0f, 0.0f));
+        assertEquals(expectedCount, selection.count(),
+                "selector count at x=" + x + " (selection=" + selection + ")");
+        if (expectedCount == 0) {
+            assertEquals(1.0f, selection.globalWeight(), 1.0e-5f,
+                    "outside every probe the selector must return the global fallback");
+            return;
+        }
+        assertEquals(expectedFirstIndex, selection.probes().getFirst().probeIndex(),
+                "selector identity at x=" + x);
+        assertEquals(expectedFirstWeight, selection.probes().getFirst().weight(), 1.0e-4f,
+                "selector weight at x=" + x);
+        if (expectedCount == 2) {
+            assertEquals(0.0f, selection.globalWeight(), 1.0e-5f,
+                    "two full-overlap probes must leave no global weight");
+            assertEquals(1.0f, selection.totalProbeWeight(), 1.0e-5f);
+        }
+    }
+
+    /**
+     * Verifies that the fixed quad actually covers the sampled centre pixel.
+     * A background-only pixel would make every later comparison vacuous.
+     */
+    private static void assertQuadCoverage(String label, float[] image, int width, int height) {
+        float[] centre = centrePixel(image, width, height);
+        float[] background = pixelAt(image, width, height, 2, 2);
+        float delta = Math.max(Math.abs(centre[0] - background[0]),
+                Math.max(Math.abs(centre[1] - background[1]),
+                        Math.abs(centre[2] - background[2])));
+        assertTrue(delta > 0.005f, label + ": the fixed quad must cover the centre pixel; "
+                + "centre=" + describe(centre) + " background=" + describe(background));
+    }
+
     private static void assertChannelOrder(String label, float[] pixel, boolean warmDominant) {
         assertTrue(pixel[0] + pixel[1] + pixel[2] > 0.0f, label + " is black");
         if (warmDominant) {
@@ -333,16 +390,16 @@ class ReflectionProbeGlTest {
 
     /**
      * Compares one probe frame with the independent weight reference. The
-     * global-only frame at the same x supplies the material/BRDF factor, so
-     * the expected colour is
+     * global-only frame supplies the material/BRDF factor, so the expected
+     * colour is
      * {@code global * (globalWeight * GLOBAL_LEVEL + wA * warm + wB * cool)
      * / GLOBAL_LEVEL}.
      */
     private static void assertSelectionMatch(String label, float[] frame, float[] globalFrame,
-                                             float x, Camera camera, int width, int height) {
+                                             float x, int width, int height) {
         float[] weights = referenceWeights(x);
-        float[] global = pixelAt(globalFrame, camera, x, width, height);
-        float[] actual = pixelAt(frame, camera, x, width, height);
+        float[] global = centrePixel(globalFrame, width, height);
+        float[] actual = centrePixel(frame, width, height);
         for (int channel = 0; channel < 3; channel++) {
             float mixed = weights[0] * GLOBAL_LEVEL
                     + weights[1] * channel(WARM, channel)
@@ -352,7 +409,7 @@ class ReflectionProbeGlTest {
             assertEquals(expected, actual[channel], tolerance,
                     label + " channel " + channel + " expected " + expected
                             + " actual " + actual[channel] + " weights="
-                            + java.util.Arrays.toString(weights));
+                            + Arrays.toString(weights));
         }
     }
 
@@ -379,25 +436,13 @@ class ReflectionProbeGlTest {
         return 0.5 * (1.0 - t * t * (3.0 - 2.0 * t));
     }
 
-    /**
-     * Reads the pixel containing the projected quad centre. The sweep moves
-     * the quad along X, so the screen centre alone is not enough.
-     */
-    private static float[] pixelAt(float[] image, Camera camera, float x,
-                                   int width, int height) {
-        Matrix4f view = camera.getViewMatrix(new Matrix4f());
-        Matrix4f projection = CameraProjection.stable(camera, width, height,
-                new Matrix4f());
-        Matrix4f viewProjection = new Matrix4f(projection).mul(view);
-        Vector4f clip = viewProjection.transform(new Vector4f(x, 0.0f, 0.0f, 1.0f));
-        assertTrue(clip.w > 0.0f, "the fixture point must be in front of the camera");
-        float ndcX = clip.x / clip.w;
-        float ndcY = clip.y / clip.w;
-        int pixelX = Math.max(1, Math.min(width - 2,
-                (int) Math.floor((ndcX * 0.5f + 0.5f) * width)));
-        int pixelY = Math.max(1, Math.min(height - 2,
-                (int) Math.floor((ndcY * 0.5f + 0.5f) * height)));
-        int offset = (pixelY * width + pixelX) * 4;
+    private static float[] centrePixel(float[] image, int width, int height) {
+        return pixelAt(image, width, height, width / 2, height / 2);
+    }
+
+    private static float[] pixelAt(float[] image, int width, int height, int x, int y) {
+        int offset = (Math.max(0, Math.min(height - 1, y)) * width
+                + Math.max(0, Math.min(width - 1, x))) * 4;
         return new float[]{image[offset], image[offset + 1], image[offset + 2],
                 image[offset + 3]};
     }
