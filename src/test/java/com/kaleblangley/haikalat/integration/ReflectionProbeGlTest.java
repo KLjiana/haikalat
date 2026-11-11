@@ -3,13 +3,16 @@ package com.kaleblangley.haikalat.integration;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
+import com.kaleblangley.haikalat.core.assets.PbrTextureRole;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.core.mesh.TangentGenerator;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
@@ -38,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.opengl.GL;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
@@ -46,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.lwjgl.opengl.GL11.GL_RGBA8;
 
 /**
  * Real-consumer acceptance for static local reflection probes (#18).
@@ -112,16 +117,19 @@ class ReflectionProbeGlTest {
                 "/shaders/render3d/pbr/pbr-forward.vert",
                 "/shaders/render3d/pbr/pbr-forward.frag");
              PbrFallbackTextures fallbacks = new PbrFallbackTextures();
-             Mesh quad = Mesh.from(BuiltinMeshData.texturedQuad("reflection-probe-quad"));
-             PbrEnvironment environment = PbrEnvironmentLoader.load(device, ReflectionProbeGlTest.class,
+             Mesh quad = Mesh.from(TangentGenerator.generate(
+                     BuiltinMeshData.texturedQuad("reflection-probe-quad")).mesh());
+             PbrEnvironment environment = PbrEnvironmentLoader.load(device,
+                     ReflectionProbeGlTest.class,
                      "/environments/pbr/probe-neutral.hdr",
                      PbrEnvironmentSettings.testQuality());
-             ReflectionProbeSet probes = ReflectionProbeSet.load(device, ReflectionProbeGlTest.class,
-                     List.of(probeA(), probeB()))) {
+             ReflectionProbeSet probes = ReflectionProbeSet.load(device,
+                     ReflectionProbeGlTest.class, List.of(probeA(), probeB()));
+             Texture2D metalRough = metallicRoughnessTexture()) {
             Material material = PbrMaterials.create(shader,
                     new PbrMaterialProperties(new Vector4f(1.0f, 1.0f, 1.0f, 1.0f),
                             1.0f, 0.1f, 0.0f, 1.0f, new Vector3f(), Map.of()),
-                    Map.of(), fallbacks);
+                    Map.of(PbrTextureRole.METALLIC_ROUGHNESS, metalRough), fallbacks);
             try {
                 MaterialInstance instance = material.createInstance();
                 Camera camera = new Camera(CAMERA_POSITION,
@@ -404,6 +412,25 @@ class ReflectionProbeGlTest {
 
     private static String describe(float[] pixel) {
         return "(" + pixel[0] + ", " + pixel[1] + ", " + pixel[2] + ")";
+    }
+
+    /**
+     * One fully metallic, maximally rough texel. The material factors scale it
+     * to roughness 0.1 and metallic 1, so the fixture has no diffuse IBL and
+     * the probe colour mixing is isolated in the specular term.
+     */
+    private static Texture2D metallicRoughnessTexture() {
+        Texture2D texture = Texture2D.createEmpty(1, 1, GL_RGBA8);
+        try {
+            ByteBuffer data = ByteBuffer.allocateDirect(4)
+                    .put((byte) 0).put((byte) 255).put((byte) 255).put((byte) 255)
+                    .flip();
+            texture.uploadRegion(0, 0, 1, 1, data);
+            return texture;
+        } catch (RuntimeException failure) {
+            texture.close();
+            throw failure;
+        }
     }
 
     private static GlfwWindow hiddenWindow(int width, int height) {
