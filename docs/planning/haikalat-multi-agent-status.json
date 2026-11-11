@@ -8,20 +8,20 @@
                      "buildVersion":  "0.28.0",
                      "verifiedAt":  "2026-11-11",
                      "verification":  {
-                                          "runId":  "dba3b63a-e802-454c-ad32-b352dda4a9b1",
+                                          "runId":  "1055f5bf-bb32-4593-a381-c9d33577fdfc",
                                           "status":  "PASS",
-                                          "tests":  416,
+                                          "tests":  430,
                                           "skipped":  0,
                                           "failures":  0,
-                                          "evidence":  "build/reports/bounded-verification/dba3b63a-e802-454c-ad32-b352dda4a9b1/result.json",
-                                          "logicReport":  "build/reports/logic-verification/bac8635b-2507-404c-8c22-53b53aa3da28/report.json",
+                                          "evidence":  "build/reports/bounded-verification/1055f5bf-bb32-4593-a381-c9d33577fdfc/result.json",
+                                          "logicReport":  "build/reports/logic-verification/d998934c-2647-4a02-87d5-bf5b4b0e2a7c/report.json",
                                           "freshness":  "FRESH"
                                       }
                  },
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "e55700e"
+                        "head":  "918b8ae"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T20:49:05.1374246+08:00",
+    "updatedAt":  "2026-11-11T21:00:11.6804245+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -617,8 +617,8 @@
                       "featureIds":  [
                                          16
                                      ],
-                      "state":  "TODO",
-                      "scope":  "Clearcoat Shading",
+                      "state":  "DONE",
+                      "scope":  "Clearcoat shading",
                       "dependencies":  [
                                            null
                                        ],
@@ -628,19 +628,21 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "f4a8168",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke ClearcoatGlTest 1/1 PASS",
+                                       "JVM ClearcoatSettings/Shader PASS",
+                                       "focused verify 1055f5bf: 430 tests PASS"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R17",
