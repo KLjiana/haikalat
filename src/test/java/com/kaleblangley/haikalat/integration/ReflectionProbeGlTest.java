@@ -132,7 +132,13 @@ class ReflectionProbeGlTest {
                      PbrEnvironmentSettings.testQuality());
              ReflectionProbeSet probes = ReflectionProbeSet.load(device,
                      ReflectionProbeGlTest.class, List.of(probeA(), probeB()));
-             Texture2D metalRough = metallicRoughnessTexture()) {
+             Texture2D metalRough = metallicRoughnessTexture();
+             ShaderProgram unlitShader = ShaderProgram.fromResource(ReflectionProbeGlTest.class,
+                     "/shaders/reflection-probe-unlit.vert",
+                     "/shaders/reflection-probe-unlit.frag");
+             Material unlitMaterial = Material.builder(unlitShader)
+                     .setInt("uUnlitVisible", 0)
+                     .build()) {
             Material material = PbrMaterials.create(shader,
                     new PbrMaterialProperties(new Vector4f(0.5f, 0.5f, 0.5f, 1.0f),
                             1.0f, 0.1f, 0.0f, 1.0f, new Vector3f(), Map.of()),
@@ -145,6 +151,14 @@ class ReflectionProbeGlTest {
                 Transform transform = Transform.at(0.0f, 0.0f, 0.0f)
                         .scale(QUAD_SCALE, QUAD_SCALE, 1.0f);
                 scene.add(MeshRenderer.of(quad, instance, transform));
+                // Known-good unlit control geometry behind the PBR receiver.
+                // It is discarded unless the control frame explicitly enables
+                // it; when the PBR receiver is discarded, red centre pixels
+                // prove the geometry pass/camera/transform are working.
+                MaterialInstance unlitInstance = unlitMaterial.createInstance();
+                scene.add(MeshRenderer.of(quad, unlitInstance,
+                        Transform.at(0.0f, 0.0f, -0.5f)
+                                .scale(QUAD_SCALE, QUAD_SCALE, 1.0f)));
                 // Present but disabled by the feature request; keeps the
                 // fixture independent of any empty-light assumptions.
                 scene.addLight(SceneLight.directional(new Vector3f(-0.3f, -0.5f, -1.0f),
@@ -168,6 +182,25 @@ class ReflectionProbeGlTest {
                             .build();
                     pipeline.features().submit(ibl);
                     pipeline.build();
+
+                    // Geometry/camera/transform control: discard every PBR
+                    // receiver fragment, enable the known unlit red quad
+                    // behind it, and require red at the centre. This separates
+                    // a pipeline/visibility failure from a PBR material one.
+                    instance.clearOverrides();
+                    instance.setInt("uAlphaMode", 1)
+                            .setFloat("uAlphaCutoff", 2.0f);
+                    unlitInstance.clearOverrides();
+                    unlitInstance.setInt("uUnlitVisible", 1);
+                    float[] unlitControl = render(pipeline, device, WIDTH, HEIGHT);
+                    assertQuadCoverage("unlit geometry control", unlitControl,
+                            WIDTH, HEIGHT);
+                    assertTrue(centrePixel(unlitControl, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the unlit control quad must produce red at the centre; if this "
+                                    + "fails, the geometry pass/camera/visibility is not drawing "
+                                    + "the receiver");
+                    unlitInstance.clearOverrides();
+                    instance.clearOverrides();
 
                     // Verify the fixture's metallic-roughness texel is really
                     // the bound unit-2 map, not the shared fallback (which
