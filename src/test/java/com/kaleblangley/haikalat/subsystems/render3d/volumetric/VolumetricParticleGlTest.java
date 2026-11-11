@@ -298,7 +298,11 @@ class VolumetricParticleGlTest {
                     commands = device.createCommandBuffer();
                     commands.bindShader(query).bindStorageBuffer(3, fogValues, 0, fogBytes);
                     builder.bindQuery(commands, query);
-                    commands.dispatchCompute(SIZE / 8, SIZE / 8, 1)
+                    // The fog query resolves at the fixture's opaque depth. Without
+                    // this upload uDepth stays 0 and volumeQuery returns slice 0
+                    // (T=1, S=0), which would make single/double fog identical.
+                    commands.setUniformFloat(query, "uDepth", FLOOR_DISTANCE)
+                            .dispatchCompute(SIZE / 8, SIZE / 8, 1)
                             .memoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
                     device.execute(commands);
                     FloatBuffer fogQuery = BufferUtils.createFloatBuffer(SIZE * SIZE * 4);
@@ -319,8 +323,21 @@ class VolumetricParticleGlTest {
                     FloatBuffer fogColor = readColor(fogTarget);
 
                     int center = (32 * SIZE + 32) * 4;
+                    // The fixture is self-checking: a 0.2/m homogeneous medium over
+                    // the 12 m fixture depth has T = exp(-2.4) and no emission.
+                    // This catches a query evaluated at the wrong depth or a fog
+                    // path that silently contributes nothing before the
+                    // single-versus-doubled comparison below.
+                    double expectedFogTransmittance = Math.exp(-0.2 * FLOOR_DISTANCE);
+                    assertEquals(expectedFogTransmittance, fogQuery.get(center + 3), 0.02,
+                            "the fog query must resolve the 0.2/m medium at the fixture depth");
+                    assertEquals(0.0, fogQuery.get(center), 1.0e-3,
+                            "the fixture fog has no emission and lighting is disabled");
                     assertTrue(fogColor.get(center) < BRIGHT_BACKGROUND[0] * 0.5f,
                             "the fixture must actually apply the fog transmittance");
+                    assertEquals(expectedFogTransmittance * BRIGHT_BACKGROUND[0],
+                            fogColor.get(center), 0.01,
+                            "the composite must apply the queried transmittance exactly once");
 
                     VolumetricParticleSettings settings = settings(new Vector3f(), 48, 0.05f,
                             0.5f, 1.0f, 1.0f, VolumetricParticleSettings.FogBlend.OCCLUDING);
