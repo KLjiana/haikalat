@@ -96,3 +96,4 @@ advanced `Render3dDiagnostics` canonical record 新增 `vfxLights` 组件，旧�
 `vfxLightDiagnostics`，`VfxRenderer` 新增 `prepare` 与 `Preparation`；旧 `record` 入口
 继续懒加载并保持源兼容。二进制兼容影响：直接实现或反射读取 record canonical 组件的调用方需要
 更新；仅使用旧构造器和访问器的调用方保持兼容。
+v0.28.1 adds advanced VignetteSettings, FilmGrainSettings, ChromaticAberrationSettings and the corresponding postprocess passes. PostProcessSettings canonical record expanded from 3 to 6 components (binary break for direct canonical-constructor callers); the 2-arg, 3-arg and 4-arg source-compatible constructors remain. withGtao preserves all screen effects. Use PostProcessSettings.builder() for new code.

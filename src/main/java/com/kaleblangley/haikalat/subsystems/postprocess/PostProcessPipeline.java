@@ -147,21 +147,23 @@ public final class PostProcessPipeline implements AutoCloseable {
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
             }
-            VignettePass vignette = null;
-            if (effects.vignette().active()) {
-                vignette = new VignettePass(effects.vignette());
-                owned.add(vignette);
-            }
-            FilmGrainPass filmGrain = null;
-            if (effects.filmGrain().active()) {
-                filmGrain = new FilmGrainPass(effects.filmGrain());
-                owned.add(filmGrain);
-            }
-            ChromaticAberrationPass chromaticAberration = null;
-            if (effects.chromaticAberration().active()) {
-                chromaticAberration = new ChromaticAberrationPass(effects.chromaticAberration());
-                owned.add(chromaticAberration);
-            }
+            VignettePass vignette = effects.vignette().active()
+                    ? reuseOrCreate(donor != null && donor.vignette != null
+                                    && donor.vignette.settings().equals(effects.vignette())
+                                    ? donor.vignette : null,
+                            () -> new VignettePass(effects.vignette()), owned, borrowed) : null;
+            FilmGrainPass filmGrain = effects.filmGrain().active()
+                    ? reuseOrCreate(donor != null && donor.filmGrain != null
+                                    && donor.filmGrain.settings().equals(effects.filmGrain())
+                                    ? donor.filmGrain : null,
+                            () -> new FilmGrainPass(effects.filmGrain()), owned, borrowed) : null;
+            ChromaticAberrationPass chromaticAberration = effects.chromaticAberration().active()
+                    ? reuseOrCreate(donor != null && donor.chromaticAberration != null
+                                    && donor.chromaticAberration.settings()
+                                    .equals(effects.chromaticAberration())
+                                    ? donor.chromaticAberration : null,
+                            () -> new ChromaticAberrationPass(effects.chromaticAberration()),
+                            owned, borrowed) : null;
             return new PostProcessPipeline(settings, effects, fxaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration,
                     hdrVfx, surfaceInputs, lateSurface, owned, borrowed, donor);

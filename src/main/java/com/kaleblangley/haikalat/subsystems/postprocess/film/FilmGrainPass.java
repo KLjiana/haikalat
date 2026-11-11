@@ -40,6 +40,10 @@ public final class FilmGrainPass implements GlResource {
         quad = createdQuad;
     }
 
+    public FilmGrainSettings settings() {
+        return settings;
+    }
+
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int colorTexture,
                                                  int width, int height) {
         ensureOpen();
@@ -51,6 +55,7 @@ public final class FilmGrainPass implements GlResource {
         return cmd.enableBlend(false)
                 .enableDepthTest(false)
                 .enableCullFace(false)
+                .enableFramebufferSrgb(false)
                 .bindShader(program)
                 .bindTexture(0, colorTexture)
                 .setUniformInt(program, "uColor", 0)

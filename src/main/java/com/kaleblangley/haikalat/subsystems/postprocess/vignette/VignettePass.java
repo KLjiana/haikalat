@@ -52,6 +52,7 @@ public final class VignettePass implements GlResource {
         return cmd.enableBlend(false)
                 .enableDepthTest(false)
                 .enableCullFace(false)
+                .enableFramebufferSrgb(false)
                 .bindShader(program)
                 .bindTexture(0, colorTexture)
                 .setUniformInt(program, "uColor", 0)

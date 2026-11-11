@@ -22,6 +22,7 @@ import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
@@ -97,6 +98,35 @@ class VignettePassGlTest {
                 assertTrue(tone >= 0 && vignette > tone
                                 && grain > vignette && aberration > grain,
                         "screen effects must run after tone mapping in vignette/grain/aberration order");
+            } finally {
+                pipeline.close();
+            }
+        }
+    }
+
+    @Test
+    void disabledScreenEffectsRecordNoPasses() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(32, 32)
+                .title("Disabled Screen Effects GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 4.0f)));
+            RenderSettings settings = RenderSettings.builder()
+                    .antiAliasingMode(AntiAliasingMode.NONE)
+                    .toneMappingMode(ToneMappingMode.ACES)
+                    .vsync(false).build();
+            RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings)
+                    .postProcessSettings(PostProcessSettings.defaults());
+            try {
+                pipeline.build();
+                pipeline.execute(new GlRenderDevice());
+                var passes = pipeline.graph().lastFrameProfile().passes();
+                for (var pass : passes) {
+                    assertFalse(PostProcessTargets.VIGNETTE_PASS.equals(pass.passName()));
+                    assertFalse(PostProcessTargets.FILM_GRAIN_PASS.equals(pass.passName()));
+                    assertFalse(PostProcessTargets.CHROMATIC_ABERRATION_PASS.equals(pass.passName()));
+                }
             } finally {
                 pipeline.close();
             }
