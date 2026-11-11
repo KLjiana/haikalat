@@ -74,6 +74,77 @@ class TemporalDenoiseReferenceTest {
     }
 
     @Test
+    void jitteredPreviousWorldAlignmentPredictsTheRampError() {
+        int size = 32;
+        Matrix4d stable = new Matrix4d().perspective(
+                Math.toRadians(60.0), 1.0, 0.1, 100.0);
+        Vector4d depthClip = new Vector4d(0.0, 0.0, -2.0, 1.0).mul(stable);
+        double deviceDepth = depthClip.z / depthClip.w * 0.5 + 0.5;
+
+        Matrix4d currentJittered = new Matrix4d(stable);
+        applyJitter(currentJittered, size, size, 0.75, 0.75);
+        Matrix4d previousJittered = new Matrix4d(stable);
+        applyJitter(previousJittered, size, size, -0.75, -0.75);
+        Matrix4d inverseCurrent = new Matrix4d(currentJittered).invert();
+        Matrix4d inversePrevious = new Matrix4d(previousJittered).invert();
+
+        double currentCameraX = 0.23;
+        double previousCameraX = 0.22;
+        Matrix4d currentInverseView = new Matrix4d().translate(currentCameraX, 0.0, 0.0);
+        Matrix4d previousInverseView = new Matrix4d().translate(previousCameraX, 0.0, 0.0);
+        Matrix4d previousStableViewProjection = new Matrix4d(stable)
+                .mul(new Matrix4d().translate(-previousCameraX, 0.0, 0.0));
+
+        double u = 20.5 / size;
+        double v = 16.5 / size;
+        Vector3d currentWorld = TemporalDenoiseReference.reconstructWorld(
+                inverseCurrent, currentInverseView, u, v, deviceDepth);
+        assertNotNull(currentWorld);
+        double[] stableUv = TemporalDenoiseReference.previousUv(
+                previousStableViewProjection, currentWorld);
+        assertNotNull(stableUv);
+
+        double previousJitterPixels = -0.75;
+        double previousJitterUv = -previousJitterPixels / size;
+        Vector3d alignedWorld = TemporalDenoiseReference.reconstructWorld(
+                inversePrevious, previousInverseView,
+                stableUv[0] + previousJitterUv, stableUv[1] + previousJitterUv,
+                deviceDepth);
+        assertNotNull(alignedWorld);
+        assertEquals(currentWorld.x, alignedWorld.x, 1.0e-9,
+                "adding previousJitter must land on the same world point");
+        assertEquals(currentWorld.y, alignedWorld.y, 1.0e-9);
+
+        Vector3d noJitterWorld = TemporalDenoiseReference.reconstructWorld(
+                inversePrevious, previousInverseView, stableUv[0], stableUv[1],
+                deviceDepth);
+        assertNotNull(noJitterWorld);
+        double worldShift = Math.abs(noJitterWorld.x - currentWorld.x);
+        double expectedShift = (0.75 / size) * (2.0 * Math.tan(Math.toRadians(30.0)) * 2.0);
+        assertEquals(expectedShift, worldShift, 1.0e-6,
+                "a 0.75 px omission shifts the world point by the CPU-predicted amount");
+        double rampSlope = 3.0;
+        double expectedRampError = rampSlope * expectedShift;
+        assertEquals(expectedRampError, rampSlope * worldShift, 1.0e-12);
+        assertTrue(expectedRampError > 0.15 && expectedRampError < 0.17,
+                "the GL jitter fixture must predict a measurable ~0.162 ramp error");
+    }
+
+    private static void applyJitter(Matrix4d projection, int width, int height,
+                                    double pixelsX, double pixelsY) {
+        double deltaX = pixelsX * 2.0 / width;
+        double deltaY = pixelsY * 2.0 / height;
+        projection.m00(projection.m00() - deltaX * projection.m03());
+        projection.m10(projection.m10() - deltaX * projection.m13());
+        projection.m20(projection.m20() - deltaX * projection.m23());
+        projection.m30(projection.m30() - deltaX * projection.m33());
+        projection.m01(projection.m01() - deltaY * projection.m03());
+        projection.m11(projection.m11() - deltaY * projection.m13());
+        projection.m21(projection.m21() - deltaY * projection.m23());
+        projection.m31(projection.m31() - deltaY * projection.m33());
+    }
+
+    @Test
     void brightnessShockResetsOnRelativeLuminanceJumps() {
         assertTrue(TemporalDenoiseReference.brightnessShock(1.0, 10.0, 0.5));
         assertFalse(TemporalDenoiseReference.brightnessShock(10.0, 10.5, 0.5));

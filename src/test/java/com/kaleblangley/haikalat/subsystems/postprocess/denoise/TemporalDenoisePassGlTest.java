@@ -75,7 +75,14 @@ import static org.lwjgl.opengl.GL30.glReadBuffer;
  *       improvement comes from reprojection rather than from the denoiser
  *       simply clamping everything;</li>
  *   <li>a depth disocclusion, a normal flip and a luminance shock must reset
- *       the history instead of smearing the old signal;</li>
+ *       the history instead of smearing the old signal; each reset is tested
+ *       with a non-uniform current neighbourhood so the accepted blend is
+ *       distinguishable;</li>
+ *   <li>the default 0.5 reactive threshold accepts a sub-threshold change and
+ *       rejects an over-threshold change;</li>
+ *   <li>TAA jitter plus camera motion must align the history through the
+ *       previous-jitter correction; a zero-jitter control must be measurably
+ *       worse;</li>
  *   <li>a static frame must remain bit-stable and update its history moments;</li>
  *   <li>resize, failed-frame rollback, injected resize failure and double close
  *       must leave no tracked resource and no GL error;</li>
@@ -223,6 +230,82 @@ class TemporalDenoisePassGlTest {
     }
 
     @Test
+    void taaJitterAndCameraMotionReprojectionAlignTheHistory() {
+        try (GlfwWindow window = window("Temporal Denoise TAA Jitter");) {
+            try (Texture2D noisy = floatTexture(4, SIZE, new float[SIZE * SIZE * 4]);
+                 Texture2D depth = floatTexture(1, SIZE, constantDepth(SIZE, PLANE_DEVICE_DEPTH));
+                 Texture2D normal = floatTexture(4, SIZE, constantNormal(SIZE, new Vector3f(0, 0, 1)));
+                 TemporalDenoisePass aligned = new TemporalDenoisePass(
+                         CONVERGENCE_SETTINGS, SIZE, SIZE);
+                 TemporalDenoisePass noJitter = new TemporalDenoisePass(
+                         CONVERGENCE_SETTINGS, SIZE, SIZE)) {
+                setNearest(noisy);
+                setNearest(depth);
+                setNearest(normal);
+                GlRenderDevice device = new GlRenderDevice();
+                double alignedFinal = 0.0;
+                double noJitterFinal = 0.0;
+                for (int frame = 0; frame < 24; frame++) {
+                    float cameraX = frame * 0.01f;
+                    Matrix4f view = new Matrix4f().translate(-cameraX, 0.0f, 0.0f);
+                    Matrix4f inverseView = new Matrix4f().translate(cameraX, 0.0f, 0.0f);
+                    Matrix4f stableViewProjection = new Matrix4f(PROJECTION).mul(view);
+                    // The production TAA amplitude is 0.25 px.  This case uses
+                    // 0.75 px through the same clip-space translation so the
+                    // previous-jitter correction is measurable rather than lost in
+                    // half-float/readback noise.
+                    float jitterPixelsX = (frame & 1) == 0 ? -0.75f : 0.75f;
+                    float jitterPixelsY = (frame & 2) == 0 ? -0.75f : 0.75f;
+                    Matrix4f jitteredProjection = new Matrix4f(PROJECTION);
+                    applyTestJitter(jitteredProjection, SIZE, SIZE,
+                            jitterPixelsX, jitterPixelsY);
+                    Matrix4f inverseJitteredProjection = new Matrix4f(
+                            jitteredProjection).invert();
+                    float jitterUvX = -jitterPixelsX / SIZE;
+                    float jitterUvY = -jitterPixelsY / SIZE;
+                    float[] truth = jitteredRamp(inverseJitteredProjection, inverseView);
+                    upload(noisy, 4, SIZE, addNoise(truth, frame, 0.01f));
+                    device.invalidateState();
+                    runFrame(aligned, device, noisy, depth, normal, null, null,
+                            inverseJitteredProjection, inverseView, stableViewProjection,
+                            jitterUvX, jitterUvY);
+                    runFrame(noJitter, device, noisy, depth, normal, null, null,
+                            inverseJitteredProjection, inverseView, stableViewProjection,
+                            0.0f, 0.0f);
+                    if (frame == 23) {
+                        alignedFinal = rmse(readAttachment(
+                                aligned.readFramebuffer(), 0, SIZE), truth,
+                                SIZE * SIZE);
+                        noJitterFinal = rmse(readAttachment(
+                                noJitter.readFramebuffer(), 0, SIZE), truth,
+                                SIZE * SIZE);
+                    }
+                }
+                assertTrue(alignedFinal < 0.02,
+                        "TAA jitter reprojection must track the world-locked ramp: "
+                                + alignedFinal);
+                // The control must differ in exactly the stored previous jitter,
+                // not in the current projection or current sample.
+                assertEquals(-0.75f / SIZE, aligned.previousJitterUvXForTest(), 1.0e-6f,
+                        "the aligned pass must store the frame-23 jitter");
+                assertEquals(-0.75f / SIZE, aligned.previousJitterUvYForTest(), 1.0e-6f);
+                assertEquals(0.0f, noJitter.previousJitterUvXForTest(), 0.0f,
+                        "the negative control must store zero previous jitter");
+                assertEquals(0.0f, noJitter.previousJitterUvYForTest(), 0.0f);
+                assertTrue(alignedFinal < noJitterFinal * 0.7,
+                        "dropping previousJitter must measurably misalign history: "
+                                + alignedFinal + " vs " + noJitterFinal);
+                assertTrue(noJitterFinal - alignedFinal > 0.04,
+                        "the jitter control must differ by the CPU-predicted shift");
+                assertTrue(noJitterFinal > 0.06,
+                        "a 0.75 px jitter omission must shift the 3.0/m ramp by about 0.162; got "
+                                + noJitterFinal);
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
     void velocityReprojectionFollowsARigidObjectAndRejectsAStaticHistoryControl() {
         try (GlfwWindow window = window("Temporal Denoise Object Motion");) {
             try (Texture2D noisy = floatTexture(4, SIZE, new float[SIZE * SIZE * 4]);
@@ -283,49 +366,126 @@ class TemporalDenoisePassGlTest {
                 setNearest(depth);
                 setNearest(normal);
                 GlRenderDevice device = new GlRenderDevice();
+                int center = ((SIZE / 2) * SIZE + SIZE / 2) * 4;
 
-                upload(noisy, 4, SIZE, uniformColour(SIZE, 4.0f, 0.0f, 0.0f));
-                device.invalidateState();
-                runFrame(pass, device, noisy, depth, normal, null, null,
-                        INVERSE_PROJECTION, IDENTITY, PROJECTION);
+                // Each segment starts from a known 1.0 centre history whose
+                // value lies inside the next current-neighbourhood AABB.  If the
+                // tested rejection branch is removed, the history is therefore
+                // accepted and produces a clearly different blended value; the
+                // reset output is the current centre value.
+                setupResetHistory(pass, device, noisy, depth, normal,
+                        1.0f, 1.2f, PLANE_DEVICE_DEPTH, new Vector3f(0.0f, 0.0f, 1.0f));
 
-                upload(noisy, 4, SIZE, uniformColour(SIZE, 0.05f, 0.05f, 0.05f));
+                upload(noisy, 4, SIZE, resetCaseColour(SIZE, 0.05f, 1.2f));
                 device.invalidateState();
                 runFrame(pass, device, noisy, depth, normal, null, null,
                         INVERSE_PROJECTION, IDENTITY, PROJECTION);
                 float[] afterShock = readAttachment(pass.readFramebuffer(), 0, SIZE);
-                assertEquals(0.05f, afterShock[0], 0.01f,
-                        "a tenfold luminance shock must reset the bright history");
-                assertEquals(0.05f, afterShock[1], 0.01f);
-                assertEquals(0.05f, afterShock[2], 0.01f);
+                assertEquals(0.05f, afterShock[center], 0.01f,
+                        "a luminance shock must reset the bright history");
+                assertTrue(Math.abs(afterShock[center] - 0.905f) > 0.3f,
+                        "the reset output must differ from the accepted blend 0.905");
 
-                upload(noisy, 4, SIZE, uniformColour(SIZE, 4.0f, 0.0f, 0.0f));
-                device.invalidateState();
-                runFrame(pass, device, noisy, depth, normal, null, null,
-                        INVERSE_PROJECTION, IDENTITY, PROJECTION);
-
-                upload(noisy, 4, SIZE, uniformColour(SIZE, 0.0f, 0.0f, 1.0f));
-                upload(depth, 1, SIZE, constantDepth(SIZE,
-                        deviceDepth(PROJECTION, 4.0f)));
+                pass.invalidate();
+                setupResetHistory(pass, device, noisy, depth, normal,
+                        1.0f, 1.2f, PLANE_DEVICE_DEPTH, new Vector3f(0.0f, 0.0f, 1.0f));
+                upload(noisy, 4, SIZE, resetCaseColour(SIZE, 0.6f, 1.2f));
+                upload(depth, 1, SIZE, constantDepth(SIZE, deviceDepth(PROJECTION, 4.0f)));
                 device.invalidateState();
                 runFrame(pass, device, noisy, depth, normal, null, null,
                         INVERSE_PROJECTION, IDENTITY, PROJECTION);
                 float[] afterDisocclusion = readAttachment(pass.readFramebuffer(), 0, SIZE);
-                assertEquals(0.0f, afterDisocclusion[0], 0.01f,
-                        "a depth disocclusion must not keep the red history");
-                assertEquals(1.0f, afterDisocclusion[2], 0.01f,
-                        "the current blue sample must survive the disocclusion");
+                assertEquals(0.6f, afterDisocclusion[center], 0.01f,
+                        "a depth disocclusion must not keep the previous history");
+                assertTrue(Math.abs(afterDisocclusion[center] - 0.96f) > 0.2f,
+                        "the reset output must differ from the accepted blend 0.96");
 
+                pass.invalidate();
+                setupResetHistory(pass, device, noisy, depth, normal,
+                        1.0f, 1.2f, 2.0f, new Vector3f(0.0f, 0.0f, 1.0f));
+                upload(noisy, 4, SIZE, resetCaseColour(SIZE, 0.6f, 1.2f));
                 upload(normal, 4, SIZE, constantNormal(SIZE, new Vector3f(0.0f, 1.0f, 0.0f)));
-                upload(noisy, 4, SIZE, uniformColour(SIZE, 0.0f, 1.0f, 0.0f));
                 device.invalidateState();
                 runFrame(pass, device, noisy, depth, normal, null, null,
                         INVERSE_PROJECTION, IDENTITY, PROJECTION);
                 float[] afterNormalFlip = readAttachment(pass.readFramebuffer(), 0, SIZE);
-                assertEquals(0.0f, afterNormalFlip[0], 0.01f,
+                assertEquals(0.6f, afterNormalFlip[center], 0.01f,
                         "a normal flip must reject the previous normal");
-                assertEquals(1.0f, afterNormalFlip[1], 0.01f,
-                        "the current green sample must survive the normal flip");
+                assertTrue(Math.abs(afterNormalFlip[center] - 0.96f) > 0.2f,
+                        "the reset output must differ from the accepted blend 0.96");
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    private static void setupResetHistory(TemporalDenoisePass pass, GlRenderDevice device,
+                                          Texture2D noisy, Texture2D depth, Texture2D normal,
+                                          float centreValue, float neighbourValue,
+                                          float viewDepth, Vector3f normalValue) {
+        upload(noisy, 4, SIZE, resetCaseColour(SIZE, centreValue, neighbourValue));
+        upload(depth, 1, SIZE, constantDepth(SIZE, deviceDepth(PROJECTION, viewDepth)));
+        upload(normal, 4, SIZE, constantNormal(SIZE, normalValue));
+        device.invalidateState();
+        runFrame(pass, device, noisy, depth, normal, null, null,
+                INVERSE_PROJECTION, IDENTITY, PROJECTION);
+        float[] output = readAttachment(pass.readFramebuffer(), 0, SIZE);
+        assertEquals(centreValue, output[((SIZE / 2) * SIZE + SIZE / 2) * 4], 0.01f,
+                "the invalid-history setup frame must write the centre value exactly");
+    }
+
+    private static float[] resetCaseColour(int size, float centreValue,
+                                           float neighbourValue) {
+        float[] colour = uniformColour(size, neighbourValue, neighbourValue,
+                neighbourValue);
+        int centre = ((size / 2) * size + size / 2) * 4;
+        colour[centre] = centreValue;
+        colour[centre + 1] = centreValue;
+        colour[centre + 2] = centreValue;
+        return colour;
+    }
+
+    @Test
+    void defaultReactiveThresholdAcceptsSmallAndRejectsLargeLuminanceChanges() {
+        try (GlfwWindow window = window("Temporal Denoise Default Reactive");) {
+            try (Texture2D noisy = floatTexture(4, SIZE, new float[SIZE * SIZE * 4]);
+                 Texture2D depth = floatTexture(1, SIZE, constantDepth(SIZE, PLANE_DEVICE_DEPTH));
+                 Texture2D normal = floatTexture(4, SIZE, constantNormal(SIZE, new Vector3f(0, 0, 1)));
+                 TemporalDenoisePass pass = new TemporalDenoisePass(
+                         TemporalDenoiseSettings.defaults(), SIZE, SIZE)) {
+                setNearest(noisy);
+                setNearest(depth);
+                setNearest(normal);
+                GlRenderDevice device = new GlRenderDevice();
+                int centre = ((SIZE / 2) * SIZE + SIZE / 2) * 4;
+
+                // A 1.0 -> 0.6 centre change is a 40% relative luminance jump:
+                // inside the default 0.5 window, so the 1.0 history is accepted
+                // and the 0.1 current weight gives the distinguishable 0.96 mix.
+                pass.invalidate();
+                setupResetHistory(pass, device, noisy, depth, normal,
+                        1.0f, 1.2f, 2.0f, new Vector3f(0.0f, 0.0f, 1.0f));
+                upload(noisy, 4, SIZE, resetCaseColour(SIZE, 0.6f, 1.2f));
+                device.invalidateState();
+                runFrame(pass, device, noisy, depth, normal, null, null,
+                        INVERSE_PROJECTION, IDENTITY, PROJECTION);
+                float[] accepted = readAttachment(pass.readFramebuffer(), 0, SIZE);
+                assertEquals(0.96f, accepted[centre], 0.03f,
+                        "a sub-threshold luminance change must keep the history");
+
+                // A 1.0 -> 0.05 centre change is a 95% jump: outside the default
+                // window, so the same in-AABB history must be rejected.
+                pass.invalidate();
+                setupResetHistory(pass, device, noisy, depth, normal,
+                        1.0f, 1.2f, 2.0f, new Vector3f(0.0f, 0.0f, 1.0f));
+                upload(noisy, 4, SIZE, resetCaseColour(SIZE, 0.05f, 1.2f));
+                device.invalidateState();
+                runFrame(pass, device, noisy, depth, normal, null, null,
+                        INVERSE_PROJECTION, IDENTITY, PROJECTION);
+                float[] rejected = readAttachment(pass.readFramebuffer(), 0, SIZE);
+                assertEquals(0.05f, rejected[centre], 0.02f,
+                        "an over-threshold luminance change must reset the history");
+                assertTrue(Math.abs(rejected[centre] - 0.905f) > 0.3f,
+                        "the reset output must differ from the accepted blend 0.905");
             }
             assertEquals(GL_NO_ERROR, glGetError());
         }
@@ -598,12 +758,23 @@ class TemporalDenoisePassGlTest {
                                  Texture2D velocity, Texture2D previousDepth,
                                  Matrix4f inverseProjection, Matrix4f inverseView,
                                  Matrix4f stableViewProjection) {
+        runFrame(pass, device, noisy, depth, normal, velocity, previousDepth,
+                inverseProjection, inverseView, stableViewProjection, 0.0f, 0.0f);
+    }
+
+    private static void runFrame(TemporalDenoisePass pass, GlRenderDevice device,
+                                 Texture2D noisy, Texture2D depth, Texture2D normal,
+                                 Texture2D velocity, Texture2D previousDepth,
+                                 Matrix4f inverseProjection, Matrix4f inverseView,
+                                 Matrix4f stableViewProjection,
+                                 float jitterUvX, float jitterUvY) {
         pass.beginFrame();
         CommandBuffer commands = device.createCommandBuffer();
         pass.record(commands, new TemporalDenoiseInputs(
                 noisy.id(), depth.id(), normal.id(),
                 velocity == null ? 0 : velocity.id(),
                 previousDepth == null ? 0 : previousDepth.id(),
+                jitterUvX, jitterUvY,
                 inverseProjection, inverseView, stableViewProjection));
         device.execute(commands);
         pass.frameSucceeded();
@@ -673,6 +844,47 @@ class TemporalDenoisePassGlTest {
         return truth;
     }
 
+    /**
+     * Same clip-space translation as {@code TemporalJitter.applyProjection},
+     * exposed here with a configurable pixel amplitude for the GL oracle.
+     */
+    private static void applyTestJitter(Matrix4f projection, int width, int height,
+                                        float pixelsX, float pixelsY) {
+        float deltaX = pixelsX * 2.0f / width;
+        float deltaY = pixelsY * 2.0f / height;
+        projection.m00(projection.m00() - deltaX * projection.m03());
+        projection.m10(projection.m10() - deltaX * projection.m13());
+        projection.m20(projection.m20() - deltaX * projection.m23());
+        projection.m30(projection.m30() - deltaX * projection.m33());
+        projection.m01(projection.m01() - deltaY * projection.m03());
+        projection.m11(projection.m11() - deltaY * projection.m13());
+        projection.m21(projection.m21() - deltaY * projection.m23());
+        projection.m31(projection.m31() - deltaY * projection.m33());
+    }
+
+    private static float[] jitteredRamp(Matrix4f inverseJitteredProjection,
+                                        Matrix4f inverseView) {
+        float[] truth = new float[SIZE * SIZE * 4];
+        for (int y = 0; y < SIZE; y++) {
+            for (int x = 0; x < SIZE; x++) {
+                int offset = (y * SIZE + x) * 4;
+                Vector3f world = worldPoint(x, y, SIZE, inverseJitteredProjection,
+                        inverseView);
+                // Linear in world.x at constant view depth, hence linear in raster
+                // UV.  Bilinear history sampling is exact for this signal, so the
+                // only error under correct reprojection is the noise/quantisation
+                // floor.  The 3.0/m slope keeps the omitted-jitter shift well above
+                // that floor: 0.75 px -> 0.0541 m -> 0.162 value.
+                float value = 4.0f + 3.0f * world.x;
+                truth[offset] = value;
+                truth[offset + 1] = value;
+                truth[offset + 2] = value;
+                truth[offset + 3] = 1.0f;
+            }
+        }
+        return truth;
+    }
+
     private static float[] movingObject(int objectX) {
         float[] truth = new float[SIZE * SIZE * 4];
         for (int y = 0; y < SIZE; y++) {
@@ -689,11 +901,17 @@ class TemporalDenoisePassGlTest {
     }
 
     private static Vector3f worldPoint(int x, int y, int size, Matrix4f inverseView) {
+        return worldPoint(x, y, size, INVERSE_PROJECTION, inverseView);
+    }
+
+    private static Vector3f worldPoint(int x, int y, int size,
+                                       Matrix4f inverseProjection,
+                                       Matrix4f inverseView) {
         float ndcX = (x + 0.5f) / size * 2.0f - 1.0f;
         float ndcY = (y + 0.5f) / size * 2.0f - 1.0f;
-        Vector4f near = new Vector4f(ndcX, ndcY, -1.0f, 1.0f).mul(INVERSE_PROJECTION);
+        Vector4f near = new Vector4f(ndcX, ndcY, -1.0f, 1.0f).mul(inverseProjection);
         near.div(near.w);
-        Vector4f far = new Vector4f(ndcX, ndcY, 1.0f, 1.0f).mul(INVERSE_PROJECTION);
+        Vector4f far = new Vector4f(ndcX, ndcY, 1.0f, 1.0f).mul(inverseProjection);
         far.div(far.w);
         Vector3f direction = new Vector3f(far.x - near.x, far.y - near.y,
                 far.z - near.z).normalize();
@@ -702,11 +920,15 @@ class TemporalDenoisePassGlTest {
     }
 
     private static float[] addNoise(float[] truth, int frame) {
+        return addNoise(truth, frame, NOISE_AMPLITUDE);
+    }
+
+    private static float[] addNoise(float[] truth, int frame, float amplitude) {
         float[] noisy = truth.clone();
         for (int pixel = 0; pixel < SIZE * SIZE; pixel++) {
             int x = pixel % SIZE;
             int y = pixel / SIZE;
-            float value = NOISE_AMPLITUDE * noise(x, y, frame);
+            float value = amplitude * noise(x, y, frame);
             noisy[pixel * 4] = Math.max(0.0f, noisy[pixel * 4] + value);
             noisy[pixel * 4 + 1] = Math.max(0.0f, noisy[pixel * 4 + 1] + value);
             noisy[pixel * 4 + 2] = Math.max(0.0f, noisy[pixel * 4 + 2] + value);
