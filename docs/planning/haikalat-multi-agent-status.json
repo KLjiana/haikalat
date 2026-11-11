@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "d57557e"
+                        "head":  "1e4c717"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T23:29:05.5630023+08:00",
+    "updatedAt":  "2026-11-11T23:34:02.1138848+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -1061,7 +1061,7 @@
                       "featureIds":  [
                                          30
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Planar Reflections",
                       "dependencies":  [
                                            null
@@ -1072,19 +1072,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "1e4c717",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke PlanarReflectionPassGlTest 6/6 PASS",
+                                       "JVM PlanarReflection* 13 tests PASS",
+                                       "focused verify e0e8474e: 520 tests PASS, 0 skipped",
+                                       "pipeline/water consumption documented as remaining gap"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict; RenderPipeline/water consumption still unwired"
                   },
                   {
                       "taskId":  "R31",
