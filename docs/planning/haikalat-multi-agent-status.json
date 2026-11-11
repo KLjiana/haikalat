@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "bf9b964"
+                        "head":  "f846f03"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-12T04:45:18.6268939+08:00",
+    "updatedAt":  "2026-11-12T05:18:30.9330476+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -594,7 +594,7 @@
                       "featureIds":  [
                                          15
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Depth-Based Particle Collision",
                       "dependencies":  [
                                            27
@@ -605,19 +605,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "f846f03",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "focused GL GpuParticleCollisionGlTest 4/4 PASS",
+                                       "JVM GpuParticleCollision* 12 tests PASS",
+                                       "focused verify db0e2716: 725 tests PASS, 0 skipped",
+                                       "bounded 131186 policy row added"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; VFX/transparent wiring unwired"
                   },
                   {
                       "taskId":  "R16",
