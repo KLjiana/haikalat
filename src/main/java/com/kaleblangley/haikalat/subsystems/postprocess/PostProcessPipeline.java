@@ -6,6 +6,7 @@ import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
@@ -26,6 +27,8 @@ import com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass;
 import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass;
 
@@ -64,6 +67,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final DepthOfFieldPass depthOfField;
     private final MotionBlurPass motionBlur;
     private final SsrPass ssr;
+    private final TemporalDenoisePass temporalDenoise;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final SsrEnvironmentSource ssrEnvironment;
@@ -91,6 +95,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 DepthOfFieldPass depthOfField,
                                 MotionBlurPass motionBlur,
                                 SsrPass ssr,
+                                TemporalDenoisePass temporalDenoise,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 SsrEnvironmentSource ssrEnvironment,
@@ -113,6 +118,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.depthOfField = depthOfField;
         this.motionBlur = motionBlur;
         this.ssr = ssr;
+        this.temporalDenoise = temporalDenoise;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.ssrEnvironment = ssrEnvironment;
@@ -205,6 +211,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "screen-space reflections require a bound PBR environment");
             }
+            if (effects.temporalDenoise().active() && !effects.ssr().active()) {
+                throw new IllegalArgumentException(
+                        "temporal denoising requires an active screen-space reflection signal");
+            }
+            if (effects.temporalDenoise().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "temporal denoising requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -259,10 +273,16 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.ssr : null,
                             () -> new SsrPass(effects.ssr()),
                             owned, borrowed) : null;
+            TemporalDenoisePass temporalDenoise = null;
+            if (effects.temporalDenoise().active()) {
+                temporalDenoise = new TemporalDenoisePass(effects.temporalDenoise(),
+                        width, height);
+                owned.add(temporalDenoise);
+            }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, ssr, hdrVfx, surfaceInputs, ssrEnvironment,
-                    lateSurface, owned, borrowed, donor);
+                    depthOfField, motionBlur, ssr, temporalDenoise, hdrVfx, surfaceInputs,
+                    ssrEnvironment, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -595,6 +615,50 @@ public final class PostProcessPipeline implements AutoCloseable {
             hdrProducer = PostProcessTargets.SSR_PASS;
         }
 
+        if (temporalDenoise != null) {
+            final String denoiseInput = hdrTexture;
+            final String denoiseProducer = hdrProducer;
+            SurfaceInputs.Input denoiseDepth = requireInput(SurfaceInputs.Channel.DEPTH);
+            SurfaceInputs.Input denoiseNormal = requireInput(SurfaceInputs.Channel.NORMAL);
+            var denoiseTarget = temporalDenoise.writeFramebuffer();
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_DENOISE_COLOR,
+                    ExternalAttachment.borrowedColor(denoiseTarget.colorAttachment(0),
+                            RenderFormat.RGBA16F, denoiseTarget.width(),
+                            denoiseTarget.height()));
+            var denoisePass = graph.addPass(PostProcessTargets.TEMPORAL_DENOISE_PASS)
+                    .writeToExternalTarget()
+                    .noClear()
+                    .dependsOn(denoiseProducer);
+            for (SurfaceInputs.Input input : List.of(denoiseDepth, denoiseNormal)) {
+                if (!denoiseProducer.equals(input.producerPass())
+                        && !graph.hasPass(input.producerPass())) {
+                    throw new IllegalStateException(
+                            "temporal denoising requires surface producer "
+                                    + input.producerPass());
+                }
+                if (!denoiseProducer.equals(input.producerPass())) {
+                    denoisePass.dependsOn(input.producerPass());
+                }
+            }
+            denoisePass.execute((res, cmd) -> {
+                TemporalFramePose frame = framePose;
+                if (frame == null) {
+                    throw new IllegalStateException(
+                            "temporal denoising requires a started frame pose");
+                }
+                temporalDenoise.record(cmd, new TemporalDenoiseInputs(
+                        res.colorAttachment(denoiseInput),
+                        surfaceInputs.texture(res, denoiseDepth),
+                        surfaceInputs.texture(res, denoiseNormal),
+                        0, 0,
+                        frame.inverseJitteredProjection(),
+                        frame.inverseView(),
+                        frame.stableViewProjection()));
+            });
+            hdrTexture = PostProcessTargets.TEMPORAL_DENOISE_COLOR;
+            hdrProducer = PostProcessTargets.TEMPORAL_DENOISE_PASS;
+        }
+
         if (depthOfField != null) {
             final String focusInput = hdrTexture;
             final String focusProducer = hdrProducer;
@@ -808,6 +872,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporal != null) {
             temporal.beginFrame(pose);
         }
+        if (temporalDenoise != null) {
+            temporalDenoise.beginFrame();
+        }
     }
 
     /**
@@ -824,6 +891,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporal != null) {
             temporal.frameSucceeded();
         }
+        if (temporalDenoise != null) {
+            temporalDenoise.frameSucceeded();
+        }
     }
 
     public void frameFailed() {
@@ -832,6 +902,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporal != null) {
             temporal.frameFailed();
+        }
+        if (temporalDenoise != null) {
+            temporalDenoise.frameFailed();
         }
     }
 
@@ -842,6 +915,9 @@ public final class PostProcessPipeline implements AutoCloseable {
     public void invalidateTemporalHistory(TaaInvalidationReason reason) {
         if (temporal != null) {
             temporal.invalidate(reason);
+        }
+        if (temporalDenoise != null) {
+            temporalDenoise.invalidate();
         }
     }
 
@@ -854,6 +930,11 @@ public final class PostProcessPipeline implements AutoCloseable {
         return temporal == null ? null : temporal.historyForTest();
     }
 
+    /** @return true when the bound temporal-denoise owner has a committed history */
+    public boolean temporalDenoiseHistoryValid() {
+        return temporalDenoise != null && temporalDenoise.historyValid();
+    }
+
     /**
      * Publishes this frame's history write colour as a borrowed logical texture
      * for passes that run after the TAA resolve.
@@ -861,6 +942,12 @@ public final class PostProcessPipeline implements AutoCloseable {
     public void synchronizeTemporalImports(RenderGraph graph) {
         if (temporal != null) {
             temporal.synchronizeImports(graph);
+        }
+        if (temporalDenoise != null) {
+            var target = temporalDenoise.writeFramebuffer();
+            graph.importExternalColor(PostProcessTargets.TEMPORAL_DENOISE_COLOR,
+                    ExternalAttachment.borrowedColor(target.colorAttachment(0),
+                            RenderFormat.RGBA16F, target.width(), target.height()));
         }
     }
 
@@ -880,7 +967,18 @@ public final class PostProcessPipeline implements AutoCloseable {
     }
 
     public ResizeCandidate prepareResize(int width, int height) {
-        return new ResizeCandidate(this, temporal == null ? null : temporal.prepareResize(width, height));
+        TaaHistory.ResizeCandidate taa = temporal == null
+                ? null : temporal.prepareResize(width, height);
+        TemporalDenoisePass.ResizeCandidate denoiseCandidate = null;
+        try {
+            denoiseCandidate = temporalDenoise == null
+                    ? null : temporalDenoise.prepareResize(width, height);
+            return new ResizeCandidate(this, taa, denoiseCandidate);
+        } catch (RuntimeException | Error failure) {
+            closeAfterFailure(taa, failure);
+            closeAfterFailure(denoiseCandidate, failure);
+            throw failure;
+        }
     }
 
     public void commitResize(ResizeCandidate candidate) {
@@ -899,13 +997,16 @@ public final class PostProcessPipeline implements AutoCloseable {
     public static final class ResizeCandidate implements AutoCloseable {
         private final PostProcessPipeline owner;
         private final TaaHistory.ResizeCandidate taaCandidate;
+        private final TemporalDenoisePass.ResizeCandidate denoiseCandidate;
         private boolean committed;
         private boolean closed;
 
         private ResizeCandidate(PostProcessPipeline owner,
-                                TaaHistory.ResizeCandidate taaCandidate) {
+                                TaaHistory.ResizeCandidate taaCandidate,
+                                TemporalDenoisePass.ResizeCandidate denoiseCandidate) {
             this.owner = owner;
             this.taaCandidate = taaCandidate;
+            this.denoiseCandidate = denoiseCandidate;
         }
 
         void validateFor(PostProcessPipeline expectedOwner) {
@@ -921,6 +1022,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             if (taaCandidate != null) {
                 owner.temporal.commitResize(taaCandidate);
             }
+            if (denoiseCandidate != null) {
+                owner.temporalDenoise.commitResize(denoiseCandidate);
+            }
             committed = true;
         }
 
@@ -934,6 +1038,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     taaCandidate.close();
                 } catch (RuntimeException closeFailure) {
                     failure = closeFailure;
+                }
+            }
+            if (denoiseCandidate != null) {
+                try {
+                    denoiseCandidate.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
                 }
             }
             if (failure != null) throw failure;

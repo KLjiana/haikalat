@@ -24,6 +24,7 @@ public final class PostProcessTargets {
     public static final String DEPTH_OF_FIELD_PASS = "DepthOfFieldPass";
     public static final String MOTION_BLUR_PASS = "MotionBlurPass";
     public static final String SSR_PASS = "SsrPass";
+    public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
     public static final String FILM_GRAIN_PASS = "FilmGrainPass";
@@ -77,6 +78,7 @@ public final class PostProcessTargets {
     public static final String DEPTH_OF_FIELD_COLOR = "depthOfFieldColor";
     public static final String MOTION_BLUR_COLOR = "motionBlurColor";
     public static final String SSR_COLOR = "ssrColor";
+    public static final String TEMPORAL_DENOISE_COLOR = "temporalDenoiseColor";
     public static final String TONE_MAPPED_COLOR = "toneMappedColor";
     public static final String VIGNETTE_COLOR = "vignetteColor";
     public static final String FILM_GRAIN_COLOR = "filmGrainColor";
