@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "1e4c717"
+                        "head":  "901b9b2"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T23:34:02.1138848+08:00",
+    "updatedAt":  "2026-11-12T00:09:27.2464474+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -670,16 +670,16 @@
                                         ],
                       "evidence":  [
                                        "glSmoke AnisotropicGlTest 1/1 PASS",
-                                       "JVM Anisotropic* 23 tests PASS",
-                                       "focused verify 4360db13: 501 tests PASS, 0 skipped",
-                                       "4 real-GL rounds: 3 failed fixtures/fail-closed, final pass"
+                                       "JVM Anisotropic* 25 tests PASS",
+                                       "full-scan call-site regression fixed; cluster GL 6/6 PASS",
+                                       "focused verify 317cbe60: 560 tests PASS, 0 skipped"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "APPROVE_WITH_SCOPE",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict pending"
+                      "nextAction":  "Bounded anisotropic base specular; exact IBL/clearcoat anisotropy and NaN-normal-map path documented as limits"
                   },
                   {
                       "taskId":  "R18",
@@ -998,7 +998,7 @@
                       "featureIds":  [
                                          28
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Weighted Blended OIT",
                       "dependencies":  [
                                            27
@@ -1009,19 +1009,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "901b9b2",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke WeightedOitPassGlTest 5/5 PASS",
+                                       "JVM WeightedOit*/OitSurface/PendingPipelineState PASS",
+                                       "focused verify 317cbe60: 560 tests PASS, 0 skipped",
+                                       "first GPU failure was a test oracle background error; fixed at 03ca340"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending; RenderPipeline particle consumer not wired"
                   },
                   {
                       "taskId":  "R29",
@@ -1077,17 +1080,17 @@
 
                                         ],
                       "evidence":  [
-                                       "glSmoke PlanarReflectionPassGlTest 6/6 PASS",
-                                       "JVM PlanarReflection* 13 tests PASS",
-                                       "focused verify e0e8474e: 520 tests PASS, 0 skipped",
-                                       "pipeline/water consumption documented as remaining gap"
+                                       "glSmoke PlanarReflectionPassGlTest 10/10 PASS",
+                                       "JVM PlanarReflection* 14 tests PASS",
+                                       "focused verify 317cbe60: 560 tests PASS, 0 skipped",
+                                       "review blockers fixed at ca73bd7; re-review in progress"
                                    ],
-                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "review":  "FIXED_PENDING_REREVIEW",
                       "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Independent reviewer verdict; RenderPipeline/water consumption still unwired"
+                      "nextAction":  "Re-review of ortho rejection and resize publishing; pipeline/water consumption still unwired"
                   },
                   {
                       "taskId":  "R31",
