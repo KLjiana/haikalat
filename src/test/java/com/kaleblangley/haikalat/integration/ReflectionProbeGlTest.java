@@ -148,9 +148,51 @@ class ReflectionProbeGlTest {
                 MaterialInstance instance = material.createInstance();
                 Camera camera = new Camera(CAMERA_POSITION,
                         new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
-                Scene scene = new Scene(camera);
-                Transform transform = Transform.at(0.0f, 0.0f, 0.0f)
+                Transform identityTransform = Transform.at(0.0f, 0.0f, 0.0f)
                         .scale(QUAD_SCALE, QUAD_SCALE, 1.0f);
+
+                // Minimal PBR-only control: same quad/material factory, a fresh
+                // instance with only an emissive override, no probes, no IBL
+                // and no direct light. A red centre proves the PBR material,
+                // shader and draw state can render at all.
+                MaterialInstance pbrOnlyInstance = material.createInstance();
+                pbrOnlyInstance.setVec3("uEmissiveFactor", new Vector3f(1.0f, 0.0f, 0.0f));
+                Scene pbrOnlyScene = new Scene(camera);
+                pbrOnlyScene.add(MeshRenderer.of(quad, pbrOnlyInstance, identityTransform));
+                pbrOnlyScene.addLight(SceneLight.directional(new Vector3f(-0.3f, -0.5f, -1.0f),
+                        new Vector3f(1.0f), 1.0f));
+                RenderPipeline pbrOnlyPipeline = new RenderPipeline(window, pbrOnlyScene,
+                        null, RenderSettings.builder()
+                                .antiAliasingMode(AntiAliasingMode.NONE)
+                                .toneMappingMode(ToneMappingMode.ACES)
+                                .vsync(false)
+                                .build(), environment);
+                try {
+                    RenderFeatureSettings pbrOnlyFeatures = pbrOnlyPipeline.features()
+                            .effective().toBuilder()
+                            .imageBasedLighting(false)
+                            .directLighting(false)
+                            .directionalShadows(false)
+                            .pointShadows(false)
+                            .spotShadows(false)
+                            .directionalCascades(DirectionalCascadeSettings.disabled())
+                            .localShadows(LocalShadowPipelineSettings.legacyDefaults())
+                            .build();
+                    pbrOnlyPipeline.features().submit(pbrOnlyFeatures);
+                    pbrOnlyPipeline.build();
+                    float[] pbrOnlyImage = render(pbrOnlyPipeline, device, WIDTH, HEIGHT);
+                    assertQuadCoverage("PBR-only emissive control", pbrOnlyImage,
+                            WIDTH, HEIGHT);
+                    assertTrue(centrePixel(pbrOnlyImage, WIDTH, HEIGHT)[0] > 0.5f,
+                            "the PBR-only emissive control must produce red at the centre; "
+                                    + "if this fails, PbrMaterials/pbr-forward.frag cannot render "
+                                    + "the fixture at all");
+                } finally {
+                    pbrOnlyPipeline.close();
+                }
+
+                Scene scene = new Scene(camera);
+                Transform transform = identityTransform;
                 scene.add(MeshRenderer.of(quad, instance, transform));
                 // Known-good unlit control geometry behind the PBR receiver.
                 // It is discarded unless the control frame explicitly enables
@@ -158,7 +200,7 @@ class ReflectionProbeGlTest {
                 // prove the geometry pass/camera/transform are working.
                 MaterialInstance unlitInstance = unlitMaterial.createInstance();
                 scene.add(MeshRenderer.of(quad, unlitInstance,
-                        Transform.at(0.0f, 0.0f, -0.5f)
+                        Transform.at(0.0f, 0.0f, 0.5f)
                                 .scale(QUAD_SCALE, QUAD_SCALE, 1.0f)));
                 // Present but disabled by the feature request; keeps the
                 // fixture independent of any empty-light assumptions.
@@ -188,9 +230,8 @@ class ReflectionProbeGlTest {
                     // receiver fragment, enable the known unlit red quad
                     // behind it, and require red at the centre. This separates
                     // a pipeline/visibility failure from a PBR material one.
-                    instance.clearOverrides();
-                    instance.setInt("uAlphaMode", 1)
-                            .setFloat("uAlphaCutoff", 2.0f);
+                    // The unlit quad sits in front of the receiver, so this
+                    // control does not mutate the PBR instance state.
                     unlitInstance.clearOverrides();
                     unlitInstance.setInt("uUnlitVisible", 1)
                             .setInt("uClipSpace", 1);
@@ -210,7 +251,6 @@ class ReflectionProbeGlTest {
                                     + "if clip-space passed, the camera/projection/model path "
                                     + "is wrong");
                     unlitInstance.clearOverrides();
-                    instance.clearOverrides();
 
                     // Verify the fixture's metallic-roughness texel is really
                     // the bound unit-2 map, not the shared fallback (which
