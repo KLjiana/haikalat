@@ -47,7 +47,7 @@ def jvmCases = [
         'RenderGraphCompilerTest', 'RenderFeatureControlTest',
         'VfxMaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
         'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
-        'VignetteSettingsTest'
+        'VignetteSettingsTest', 'FilmGrainSettingsTest', 'ChromaticAberrationSettingsTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
