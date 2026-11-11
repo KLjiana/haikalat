@@ -21,7 +21,7 @@
     "integration":  {
                         "branch":  "codex/render-roadmap-integration-lf",
                         "worktree":  "D:/project/Java/learnopengl-worktrees/integration2",
-                        "head":  "b129168"
+                        "head":  "95f4de2"
                     },
     "gpuQueue":  {
                      "state":  "IDLE",
@@ -29,7 +29,7 @@
                      "taskId":  null,
                      "startedAt":  null
                  },
-    "updatedAt":  "2026-11-11T23:08:02.4703146+08:00",
+    "updatedAt":  "2026-11-11T23:23:43.8282591+08:00",
     "tasks":  [
                   {
                       "taskId":  "B0-M",
@@ -653,7 +653,7 @@
                       "featureIds":  [
                                          17
                                      ],
-                      "state":  "TODO",
+                      "state":  "DONE",
                       "scope":  "Anisotropic Shading",
                       "dependencies":  [
                                            null
@@ -664,19 +664,22 @@
                                      ],
                       "baseCommit":  null,
                       "workerCommit":  null,
-                      "integrationCommit":  null,
+                      "integrationCommit":  "95f4de2",
                       "requiredCases":  [
 
                                         ],
                       "evidence":  [
-
+                                       "glSmoke AnisotropicGlTest 1/1 PASS",
+                                       "JVM Anisotropic* 23 tests PASS",
+                                       "focused verify 4360db13: 501 tests PASS, 0 skipped",
+                                       "4 real-GL rounds: 3 failed fixtures/fail-closed, final pass"
                                    ],
-                      "review":  "NOT_RUN",
-                      "functional":  "NOT_RUN",
+                      "review":  "PENDING_INDEPENDENT_REVIEW",
+                      "functional":  "PASS_FOCUSED",
                       "performance":  "NOT_EVALUATED",
                       "humanVisual":  "NOT_EVALUATED",
                       "blockedReason":  null,
-                      "nextAction":  "Preflight, technical card and dependency freeze"
+                      "nextAction":  "Independent reviewer verdict pending"
                   },
                   {
                       "taskId":  "R18",
