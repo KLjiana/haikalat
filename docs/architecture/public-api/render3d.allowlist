@@ -182,3 +182,5 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSett
 # v0.28.1 S2 #27 production GPU particle indirect owner and bounded settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem
+# v0.28.1 S3 #26 bounded GPU particle sorting settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings

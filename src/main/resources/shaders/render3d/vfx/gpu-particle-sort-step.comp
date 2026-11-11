@@ -1,0 +1,74 @@
+#version 460 core
+
+// One compare-exchange step of the bounded bitonic particle sort (#26).
+//
+// The owner records one dispatch per (block size, compare distance) pair and a
+// shader-storage barrier between dependent steps; the pair list comes from the
+// padded sort capacity, which is always a power of two. Every invocation owns
+// exactly one pair, so no atomics or two-sided writes are involved:
+//
+//   low  = (invocation / distance) * (2 * distance) + (invocation % distance)
+//   high = low + distance
+//   ascending sub-block when (low & blockSize) == 0, descending otherwise
+//
+// Keys are (primary, tie) pairs compared lexicographically. The tie key makes
+// the stable policy a total order over the padded array, so equal primary keys
+// keep the active-list order the preparation pass published.
+//
+// Empty and single-element sets are skipped on the GPU: the CPU never reads the
+// active count, so it cannot skip the dispatch itself, but no memory is touched
+// when fewer than two indices are sorted.
+layout (local_size_x = 64) in;
+
+layout (std430, binding = 1) readonly buffer CounterBuffer {
+    uint activeCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint baseInstance;
+} counters;
+
+layout (std430, binding = 3) buffer SortKeyBuffer {
+    uvec2 sortKeys[];
+};
+
+layout (std430, binding = 4) buffer SortedIndexBuffer {
+    uint sortedIndices[];
+};
+
+uniform int uSortCapacity;
+uniform int uBlockSize;
+uniform int uCompareDistance;
+uniform int uMaximumSortedParticles;
+
+bool keyLess(uvec2 left, uvec2 right) {
+    return left.x < right.x || (left.x == right.x && left.y < right.y);
+}
+
+void main() {
+    uint pairs = uint(uSortCapacity) >> 1;
+    uint invocation = gl_GlobalInvocationID.x;
+    if (invocation >= pairs) {
+        return;
+    }
+    if (min(counters.activeCount, uint(uMaximumSortedParticles)) <= 1u) {
+        return;
+    }
+
+    uint distance = uint(uCompareDistance);
+    uint blockSize = uint(uBlockSize);
+    uint low = (invocation / distance) * (distance << 1) + (invocation % distance);
+    uint high = low + distance;
+
+    uvec2 lowKey = sortKeys[low];
+    uvec2 highKey = sortKeys[high];
+    bool ascending = (low & blockSize) == 0u;
+    bool exchange = ascending ? keyLess(highKey, lowKey) : keyLess(lowKey, highKey);
+    if (!exchange) {
+        return;
+    }
+    sortKeys[low] = highKey;
+    sortKeys[high] = lowKey;
+    uint lowIndex = sortedIndices[low];
+    sortedIndices[low] = sortedIndices[high];
+    sortedIndices[high] = lowIndex;
+}
