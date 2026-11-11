@@ -160,4 +160,6 @@ internal com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer
 advanced com.kaleblangley.haikalat.subsystems.render3d.VfxLightDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass
+advanced com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass
