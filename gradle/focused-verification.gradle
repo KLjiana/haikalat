@@ -92,6 +92,7 @@ def glCases = [
         'AtmospherePipelineGlTest',
         'AnisotropicGlTest',
         'PlanarReflectionPassGlTest',
+        'ClusterLightingGlTest', 'ClusterRotatedViewAuditGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

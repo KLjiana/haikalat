@@ -987,13 +987,15 @@ void main() {
         uint localCount = uLightHeader.y;
         for (uint i = 0u; i < directionalCount; i++) {
             direct += directionalRadiance(int(i), n, v, baseSample.rgb,
-                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
+                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness,
+                    anisotropicTangent, anisotropicBitangent, anisotropicStrength);
         }
         // Test-only full-scan reference: every local light is evaluated in
         // frameLightIndex order, bypassing the cluster lists entirely.
         for (uint i = 0u; i < localCount; i++) {
             direct += localRadiance(int(directionalCount + i), n, v, baseSample.rgb,
-                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness);
+                    metallic, roughness, f0, clearcoatNormalValue, clearcoatRoughness,
+                    anisotropicTangent, anisotropicBitangent, anisotropicStrength);
         }
     }
 
