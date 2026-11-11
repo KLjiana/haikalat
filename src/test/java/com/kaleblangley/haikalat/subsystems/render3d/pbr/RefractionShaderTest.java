@@ -35,6 +35,10 @@ class RefractionShaderTest {
                 "rough transmission must have a fixed bounded tap loop");
         assertTrue(source.contains("uRefractionRoughness <= 1.0e-4"),
                 "zero roughness must take the single-tap path");
+        assertTrue(source.contains("clamp(uRefractionIor, 1.0, 2.5)"),
+                "the shader must clamp runtime IOR overrides to the published range");
+        assertTrue(source.contains("clamp(uRefractionThickness, 0.0, 2.0)"),
+                "the shader must clamp runtime thickness overrides to the published range");
 
         // The only colour input is the pre-pass snapshot. The shader must not
         // declare the scene colour writer, history, depth or any other target.

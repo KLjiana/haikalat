@@ -49,6 +49,9 @@ public final class RefractionReferenceMath {
                                           Vector3f world, Vector3f normal,
                                           Vector3f camera, float ior, float thickness,
                                           int width, int height) {
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("reference extent must be positive");
+        }
         // The caller supplies the fragment's world position; its projection is
         // the pixel-centre UV used by gl_FragCoord in the shader.
         Vector2f centre = projectToUv(projection, view, world);

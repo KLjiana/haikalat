@@ -89,15 +89,17 @@ void main() {
 
     vec2 centreUv = gl_FragCoord.xy / uRefractionExtent;
     vec2 offset = vec2(0.0);
+    float ior = clamp(uRefractionIor, 1.0, 2.5);
+    float thickness = clamp(uRefractionThickness, 0.0, 2.0);
     vec3 incident = -v;
-    vec3 refracted = refract(incident, n, 1.0 / max(uRefractionIor, 1.0));
+    vec3 refracted = refract(incident, n, 1.0 / max(ior, 1.0));
     if (dot(refracted, refracted) <= 1.0e-12) {
         // Total internal reflection has no transmitted screen position; the
         // pixel keeps its untouched background and only Fresnel reflection may
         // still contribute.
         refracted = incident;
     }
-    vec3 refractedWorld = vWorldPosition + refracted * uRefractionThickness;
+    vec3 refractedWorld = vWorldPosition + refracted * thickness;
     vec2 refractedUv = projectToUv(refractedWorld);
     if (insideUnitSquare(refractedUv)) {
         offset = refractedUv - centreUv;
@@ -121,12 +123,12 @@ void main() {
         refractedColor /= float(REFRACTION_MAX_ROUGH_TAPS);
     }
     vec3 tint = exp(-(vec3(1.0) - clamp(baseColor, 0.0, 1.0))
-            * (uRefractionThickness * REFRACTION_ATTENUATION_PER_WORLD_UNIT));
+            * (thickness * REFRACTION_ATTENUATION_PER_WORLD_UNIT));
     vec3 background = texture(uRefractionSource, centreUv).rgb;
     vec3 transmitted = mix(background, refractedColor * tint,
             clamp(uRefractionTransmission, 0.0, 1.0));
 
-    float f0scalar = (uRefractionIor - 1.0) / (uRefractionIor + 1.0);
+    float f0scalar = (ior - 1.0) / (ior + 1.0);
     float f0 = f0scalar * f0scalar;
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - nDotV, 5.0);
     vec3 reflection = baseColor * (fresnel * clamp(uRefractionReflection, 0.0, 1.0));

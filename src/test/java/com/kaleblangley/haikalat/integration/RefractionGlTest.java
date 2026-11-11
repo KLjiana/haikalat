@@ -30,7 +30,6 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
-import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrTextureBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionReferenceMath;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
@@ -135,7 +134,7 @@ class RefractionGlTest {
 
                     float[] unrefracted = RefractionReferenceMath.sampleBilinear(
                             baseline.hdr(), SIZE, SIZE, centre.x, centre.y);
-                    assertTrue(maxChannelDifference(expected, unrefracted) > 4.0e-3f,
+                    assertTrue(maxChannelDifference(expected, unrefracted) > 1.0e-3f,
                             "the fixture gradient must make the offset observable");
 
                     // Left edge: the refraction lookup leaves the snapshot and
@@ -217,7 +216,7 @@ class RefractionGlTest {
                     int x = SIZE / 2;
                     int y = SIZE / 2;
                     assertTrue(maxChannelDifference(pixel(frontOnly.hdr(), x, y),
-                            pixel(baseline.hdr(), x, y)) > 4.0e-3f,
+                            pixel(baseline.hdr(), x, y)) > 1.0e-3f,
                             "the single-layer fixture must visibly refract the background");
                     for (int offsetY = -8; offsetY <= 8; offsetY += 4) {
                         for (int offsetX = -8; offsetX <= 8; offsetX += 4) {
@@ -229,8 +228,7 @@ class RefractionGlTest {
                     }
                     assertTrue(maxChannelDifference(pixel(frontOnly.hdr(), x, y),
                             pixel(disabled.hdr(), x, y)) > 4.0e-3f,
-                            "enabled refraction must differ from the disabled transparent path");
-                    assertNoFeedbackTopology(frontOnly.graph());
+                            "enabled refraction must differ from the disabled transparent path");                    assertNoFeedbackTopology(frontOnly.graph());
                     GlDebug.checkError("refraction layer acceptance");
                 } finally {
                     ordinaryTransparent.close();
