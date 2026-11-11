@@ -217,6 +217,8 @@ public final class CausticsPass implements GlResource {
                 .setUniformFloat(shader, "uReceiverMaximumHeight",
                         settings.receiverMaximumHeight())
                 .setUniformFloat(shader, "uDepthBias", settings.depthBias())
+                .setUniformFloat(shader, "uMaximumProjectionDistance",
+                        settings.maximumProjectionDistance())
                 .setUniformFloat(shader, "uDistanceFalloff", settings.distanceFalloff())
                 .setUniformFloat(shader, "uEdgeFadeDistance", settings.edgeFadeDistance())
                 .setUniformFloat(shader, "uMinimumReceiverUpDot",
@@ -244,7 +246,12 @@ public final class CausticsPass implements GlResource {
                 .blendFunc(GL_ONE, GL_ONE)
                 .bindMesh(screen)
                 .drawMesh(screen);
-        cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
+        // Pending state is applied at the next observable GPU boundary.  Force
+        // one so the documented restored depth mask/test and blend state are
+        // visible to a caller that records a raw clear or another draw after
+        // this pass on the same command buffer.
+        cmd.enableBlend(false).depthMask(true).enableDepthTest(true)
+                .blendEquation(GL_FUNC_ADD);
     }
 
     /**

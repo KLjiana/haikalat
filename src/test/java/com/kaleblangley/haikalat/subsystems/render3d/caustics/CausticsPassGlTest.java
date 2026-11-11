@@ -33,6 +33,7 @@ import static org.lwjgl.opengl.GL11.GL_SCISSOR_TEST;
 import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glClearDepth;
+import static org.lwjgl.opengl.GL11.glDepthMask;
 import static org.lwjgl.opengl.GL11.glDisable;
 import static org.lwjgl.opengl.GL11.glEnable;
 import static org.lwjgl.opengl.GL11.glGetError;
@@ -72,6 +73,14 @@ class CausticsPassGlTest {
     private static final float TIME_A = 0.4f;
     private static final float TIME_B = 1.9f;
     private static final float PIXEL_TOLERANCE = 5.0e-3f;
+    /**
+     * RGBA16F stores the colour-clear background with half precision: red
+     * 0.05 reads back as 0.049987793. An unchanged background also sits next to
+     * smooth region/height fades where float-vs-double boundary classification
+     * can differ by a sub-threshold amount, so 1e-3 is the meaningful bound; a
+     * real misplaced caustic is two orders of magnitude larger.
+     */
+    private static final float BACKGROUND_TOLERANCE = 1.0e-3f;
     private static final Vector3f LIGHT = new Vector3f(0.24f, -1.0f, 0.18f).normalize();
 
     @Test
@@ -141,13 +150,14 @@ class CausticsPassGlTest {
                         for (int x = 0; x < SIZE; x++) {
                             double amount = expectedAmount(scene, regional, floorDepth,
                                     TIME_A, x, y);
-                            if (amount > 0.01) {
+                            if (amount > 0.0) {
                                 lit++;
                                 assertPixel(expectedColor(regional, amount), pixels, pixel(x, y),
                                         PIXEL_TOLERANCE, "lit caustics receiver");
                             } else {
                                 rejected++;
-                                assertPixel(background(), pixels, pixel(x, y), 1.0e-6f,
+                                assertPixel(background(), pixels, pixel(x, y),
+                                        BACKGROUND_TOLERANCE,
                                         "rejected receiver must keep the copied background");
                             }
                         }
@@ -164,7 +174,7 @@ class CausticsPassGlTest {
                     FloatBuffer pixels = render(scene, pass, TIME_A);
                     for (int y = 0; y < SIZE; y++) {
                         for (int x = 0; x < SIZE; x++) {
-                            assertPixel(background(), pixels, pixel(x, y), 1.0e-6f,
+                            assertPixel(background(), pixels, pixel(x, y), BACKGROUND_TOLERANCE,
                                     "maximum projection distance rejection");
                         }
                     }
@@ -177,7 +187,7 @@ class CausticsPassGlTest {
                     FloatBuffer pixels = render(scene, pass, TIME_A);
                     for (int y = 0; y < SIZE; y++) {
                         for (int x = 0; x < SIZE; x++) {
-                            assertPixel(background(), pixels, pixel(x, y), 1.0e-6f,
+                            assertPixel(background(), pixels, pixel(x, y), BACKGROUND_TOLERANCE,
                                     "receiver height band rejection");
                         }
                     }
@@ -211,7 +221,7 @@ class CausticsPassGlTest {
                     clearDepthRegion(covered[0] - 4, covered[1] - 4, 9, 9, foregroundDepth);
                     FloatBuffer withOccluder = render(scene, pass, TIME_A);
                     assertPixel(background(), withOccluder, pixel(covered[0], covered[1]),
-                            1.0e-6f,
+                            BACKGROUND_TOLERANCE,
                             "B side foreground must not receive caustics intended for the floor");
                     double visibleAmount = expectedAmount(scene, settings, floorDepth, TIME_A,
                             visible[0], visible[1]);
@@ -241,8 +251,8 @@ class CausticsPassGlTest {
                     FloatBuffer pixels = render(scene, pass, TIME_A);
                     for (int y = 0; y < SIZE; y++) {
                         for (int x = 0; x < SIZE; x++) {
-                            assertPixel(background(), pixels, pixel(x, y), 1.0e-6f,
-                                    "zero intensity must copy the scene colour exactly");
+                            assertPixel(background(), pixels, pixel(x, y), BACKGROUND_TOLERANCE,
+                                    "zero intensity must copy the scene colour within half-float quantization");
                         }
                     }
                     assertEquals(GL_NO_ERROR, glGetError());
@@ -470,6 +480,11 @@ class CausticsPassGlTest {
     private static void clearScene(Framebuffer source, float depth) {
         source.bind();
         glViewport(0, 0, source.width(), source.height());
+        // The pass restores depth writes at the next GPU boundary, but raw GL
+        // clears in this fixture must not depend on that state having been
+        // flushed; set the mask explicitly before clearing depth.
+        glDisable(GL_SCISSOR_TEST);
+        glDepthMask(true);
         glClearColor(BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 1.0f);
         glClearDepth(depth);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -477,6 +492,7 @@ class CausticsPassGlTest {
     }
 
     private static void clearDepthRegion(int x, int y, int width, int height, float depth) {
+        glDepthMask(true);
         glEnable(GL_SCISSOR_TEST);
         glScissor(x, y, width, height);
         glClearDepth(depth);

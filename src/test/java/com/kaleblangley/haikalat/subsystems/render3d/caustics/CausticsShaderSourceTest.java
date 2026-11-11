@@ -26,6 +26,9 @@ class CausticsShaderSourceTest {
         assertFalse(base.contains("#define CAUSTICS_MSAA"));
         assertTrue(base.contains("uniform sampler2D uSceneDepth;"));
         assertTrue(base.contains("uniform mat4 uInverseProjection;"));
+        assertTrue(base.contains("uniform float uMaximumProjectionDistance;"),
+                "the shader must declare every uniform the pass uploads");
+        assertTrue(base.contains("travel <= uMaximumProjectionDistance"));
         assertTrue(base.contains("float causticPattern("));
         assertTrue(base.contains("ARTISTIC APPROXIMATION"));
 

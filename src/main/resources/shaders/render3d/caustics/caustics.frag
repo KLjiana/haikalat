@@ -52,6 +52,7 @@ uniform float uWaterMaxZ;
 uniform float uReceiverMinimumHeight;
 uniform float uReceiverMaximumHeight;
 uniform float uDepthBias;
+uniform float uMaximumProjectionDistance;
 uniform float uDistanceFalloff;
 uniform float uEdgeFadeDistance;
 uniform float uMinimumReceiverUpDot;
