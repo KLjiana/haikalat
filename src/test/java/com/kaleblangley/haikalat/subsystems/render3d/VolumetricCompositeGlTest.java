@@ -887,6 +887,30 @@ class VolumetricCompositeGlTest {
                     int offset=(8*33+16)*4;
                     assertTrue(revealed[offset]-gone[offset]>.015f,
                             "TAA history must not retain a dissolved VFX after camera move/reveal");
+
+                    var referenceCamera=new Camera(new Vector3f(0,0,4));
+                    var referenceScene=new Scene(referenceCamera);
+                    add(referenceScene,background,shader,10,new Vector4f(.1f,.2f,.3f,1),BlendMode.OPAQUE);
+                    float[] referenceOccluderX={0.0f};
+                    referenceScene.add(new SceneObject(occluderMesh,occluderMaterial,
+                            (out,frame)->out.identity().translation(referenceOccluderX[0],0,-1).scale(8),false));
+                    var referencePipeline=pipeline(referenceScene,AntiAliasingMode.TAA,1,true);
+                    try {
+                        referencePipeline.hdrVfxWithFog((res,cmd,frameCamera,fog)->{});
+                        referencePipeline.build();
+                        var referenceDevice=new GlRenderDevice();
+                        referencePipeline.execute(referenceDevice);
+                        referenceCamera.processKeyboard(Camera.Movement.RIGHT,0.08f);
+                        referenceOccluderX[0]=100.0f;
+                        referencePipeline.execute(referenceDevice);
+                        referencePipeline.execute(referenceDevice);
+                        referencePipeline.execute(referenceDevice);
+                        float[] reference=referencePipeline.captureLinearHdrRgbaFloat();
+                        for (int channel=0;channel<3;channel++) {
+                            assertEquals(reference[offset+channel],gone[offset+channel],.015f,
+                                    "dissolved VFX must match the no-VFX TAA reference channel "+channel);
+                        }
+                    } finally { referencePipeline.close(); }
                     GlDebug.assertNoError("TAA dissolve camera/occluder reveal");
                 } finally { pipeline.close(); }
             }

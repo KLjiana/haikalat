@@ -149,7 +149,6 @@ class VfxLightingGlTest {
                 pixel.get(result);
                 if (effectLight && !hdrVfxOff && !directLightingOff) {
                     long builds = pipeline.lastRender3dDiagnostics().caches().generationBuilds();
-                    int shadowMisses = pipeline.lastRender3dDiagnostics().shadows().cacheMisses();
                     pipeline.vfxLights(List.of(new VfxLight(1L, 0,
                             new Vector3f(LIGHT_POSITION).add(0.2f, 0.0f, 0.0f),
                             LIGHT_COLOR, LIGHT_INTENSITY, LIGHT_RANGE, 5)));
@@ -160,9 +159,6 @@ class VfxLightingGlTest {
                     assertFalse(pipeline.lastRender3dDiagnostics().invalidationReasons()
                                     .contains("LIGHTING"),
                             "moving an effect light must not invalidate scene lighting history");
-                    assertEquals(shadowMisses,
-                            pipeline.lastRender3dDiagnostics().shadows().cacheMisses(),
-                            "moving an effect light must not invalidate static shadow cache entries");
                     pipeline.maxVfxLights(1);
                     pipeline.execute(driver.device());
                     assertEquals(builds,

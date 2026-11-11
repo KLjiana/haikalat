@@ -241,7 +241,9 @@ public final class VfxRenderer implements AutoCloseable {
                         .setUniformInt(shader, "uDepthEnabled", sceneDepthTexture == 0 ? 0 : 1)
                         .setUniformVec4(shader, "uUvRegion", uvVector(uv))
                         .setUniformVec4(shader, "uNextUvRegion", uvVector(uv))
-                        .setUniformFloat(shader, "uFlipbookBlend", 0.0f);
+                        .setUniformFloat(shader, "uFlipbookBlend", 0.0f)
+                        .setUniformInt(shader, "uFlipbook",
+                                material.flipbook().isPresent() ? 1 : 0);
                 uploadUvFlow(commands, shader, material.uvFlow().orElse(null));
                 uploadDissolve(commands, shader, material.dissolve().orElse(null));
                 uploadRim(commands, shader, material.rimLight().orElse(null));
