@@ -72,6 +72,8 @@ def jvmCases = [
         'PendingPipelineStateTest',
         'ParallaxOcclusionSettingsTest', 'ParallaxReferenceMathTest', 'ParallaxShaderTest',
         'PbrFallbackTexturesTest',
+        'WaterRefractionSettingsTest', 'WaterRefractionReferenceMathTest',
+        'WaterSurfacePassShaderBaselineTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
@@ -101,6 +103,7 @@ def glCases = [
         'WeightedOitPassGlTest',
         'ParallaxGlTest',
         'CausticsPassGlTest',
+        'WaterRefractionGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

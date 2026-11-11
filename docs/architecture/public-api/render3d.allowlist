@@ -176,3 +176,6 @@ internal com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass
 advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface
 internal com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass
+
+# v0.28.1 S3 #11 bounded screen-space water refraction settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings

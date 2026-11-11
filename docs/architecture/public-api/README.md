@@ -127,6 +127,12 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #11 新增 advanced GL-free `render3d.water.WaterRefractionSettings`（IOR/折射强度、最大屏幕
+偏移、厚度缩放、前景拒绝 bias、离屏回退，构造期校验；默认 `disabled()` 时水面 shader 与 #14 基线逐字节一致），
+`WaterSurfacePass` 新增带折射设置的重载/构造函数与 `recordBackgroundCopy(...)`，由
+`WaterSurfacePass.REFRACTION_BACKGROUND_PASS` 提供受控背景颜色拷贝。屏幕空间近似：无真实水下体积/色散/
+多层水体/焦散，前景拒绝仅用共享不透明深度；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。
+合同、限制与 GL 参考见[水面折射技术卡](../../planning/v0.28.1-s3-water-refraction.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #36 新增 advanced GL-free `render3d.caustics.CausticsSettings`（强度/颜色、世界尺度、
 动画速度、水面矩形/水位、接收面高度带、最大投射距离、深度偏置/衰减、可选图样纹理，构造期校验）与
 internal `render3d.caustics.CausticsPass`（自有 RGBA16F 目标、程序化图样 + 共享深度拒绝、resize/close
