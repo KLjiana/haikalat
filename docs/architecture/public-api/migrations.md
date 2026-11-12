@@ -355,3 +355,25 @@ RGBA16F 颜色附件、无深度附件，激活要求 HDR、单采样和不透�
 不改变图。云层在 #10 云影启用时要求同一 coverage field。没有新增 public 顶层类型，
 `docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、限制与接线验证见
 [体积云技术卡](../../planning/v0.28.1-s4-clouds.md)与[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。
+
+v0.28.1（候选）S3 #28/#30/#36 生产接线没有删除 stable 类型或修改稳定签名。advanced
+`RenderFeatureSettings` canonical record 由 22 个组件扩展为 25 个（末尾新增 `weightedOit`、
+`planarReflections`、`caustics`，默认各自 `disabled()`）；**本次保留原 19 参数构造器**，它委托给新
+canonical 构造器并填充新增组件的 disabled 默认值，因此直接构造的旧源码保持兼容。`RenderFeature` 末尾追加
+`WEIGHTED_OIT`、`PLANAR_REFLECTIONS`、`CAUSTICS`；`RenderFeatureReason` 追加
+`NO_TRANSPARENT_SET`、`NO_WATER`、`NO_PLANE`（既有常量与序号不变）。`RenderPipeline` 新增
+`weightedOit(...)`/`weightedOit()`/`applyWeightedOit(...)`、
+`weightedOitSurfaces(...)`/`weightedOitSurfaces()`/`weightedOitSetDeclared()`、
+`planarReflections(...)`/`planarReflections()`/`applyPlanarReflections(...)`、
+`caustics(...)`/`caustics()`/`applyCaustics(...)`；其余构造器与 `passNamesFor` 入口不变。
+`PipelineTopology` 追加 `weightedOit`/`planarReflections`/`caustics` 三个 internal 组件，并提供
+保留旧 33 参数列表的构造器与旧 `capture(...)` 重载。`PipelineGeneration` 新增
+`assembleWeightedOit`/`assemblePlanarReflection`/`assembleCaustics` 与对应访问器；
+`TaaInvalidationReason` 末尾追加 `WEIGHTED_OIT_SETTINGS`、`PLANAR_REFLECTION_SETTINGS`、
+`CAUSTICS_SETTINGS`（既有常量与序号不变）。`WeightedOitSettings` 新增 `defaults()`，
+`PlanarReflectionSettings` 新增 `hasPlane()`，`CausticsSettings` 新增
+`MINIMUM_LIGHT_DOWNWARD_Y`。没有新增 public 顶层类型，
+`docs/architecture/public-api/render3d.allowlist` 无需新增条目。顺序、互斥、回滚与 GL 未执行范围见
+[加权 OIT 技术卡](../../planning/v0.28.1-s3-oit.md)、
+[平面反射技术卡](../../planning/v0.28.1-s3-planar-reflections.md)与
+[焦散技术卡](../../planning/v0.28.1-s3-caustics.md)。

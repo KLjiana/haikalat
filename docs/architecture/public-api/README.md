@@ -164,6 +164,23 @@ v0.28.1 S4 #38/#37 生产接线（`codex/render-pipeline-wiring`）：`RenderFea
 （粒子/随机透明）与 TAA（随机透明）报告 `UNAVAILABLE` 且不改变图。`TaaInvalidationReason` 末尾追加
 `VOLUMETRIC_PARTICLE_SETTINGS`/`STOCHASTIC_TRANSPARENCY_SETTINGS`（既有常量与序号不变）。本接线没有
 新增 public 顶层类型，`render3d.allowlist` 无需新增条目；迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #28/#30/#36 生产接线（`codex/render-wiring-b1`）：`RenderFeatureSettings` 追加
+`weightedOit`、`planarReflections`、`caustics`（第 20/21/22 个 canonical 组件，默认各自 `disabled()`；
+旧 19 参数构造器保留，源码兼容）；`RenderFeature` 末尾追加 `WEIGHTED_OIT`、`PLANAR_REFLECTIONS`、
+`CAUSTICS`；`RenderFeatureReason` 追加 `NO_TRANSPARENT_SET`、`NO_WATER`、`NO_PLANE`。`RenderPipeline`
+新增 `weightedOit(...)`/`weightedOit()`/`applyWeightedOit(...)`/
+`weightedOitSurfaces(...)`/`weightedOitSurfaces()`/`weightedOitSetDeclared()`、
+`planarReflections(...)`/`planarReflections()`/`applyPlanarReflections(...)` 与
+`caustics(...)`/`caustics()`/`applyCaustics(...)`。`WeightedOitSettings.defaults()`、
+`PlanarReflectionSettings.hasPlane()`、`CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y` 为新增辅助入口。
+`PipelineTopology` 追加 `weightedOit`/`planarReflections`/`caustics` 三个 internal 组件，保留旧
+33 参数构造器和旧 `capture(...)` 重载；`PipelineGeneration` 拥有/借用/事务式 resize/退役三个 Pass。
+顺序为 `scene colour producer → PlanarReflection → Caustics → WaterSurface → Refraction → OIT →
+Stochastic → PostProcess`；OIT 与随机透明是同一透明集合的互斥策略（重叠集合 fail-closed，可证明不相交
+时允许共存），OIT 要求 HDR + 单采样非 TAA + 已声明集合，平面反射要求 HDR + 合法单平面，焦散要求 HDR + 水面 +
+向下方向光且首版不接 MSAA。关闭时拓扑与基线逐字节一致。焦散采用“水面之前”的安全顺序而非
+“水面/折射之后”，理由与剩余下游缺口见三张技术卡。没有新增 public 顶层类型，`render3d.allowlist`
+无需新增条目；迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
 `renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
 quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`
