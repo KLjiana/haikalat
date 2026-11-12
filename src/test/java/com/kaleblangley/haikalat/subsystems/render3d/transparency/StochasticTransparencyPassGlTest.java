@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
@@ -752,6 +753,49 @@ class StochasticTransparencyPassGlTest {
     // ------------------------------------------------------------------
     // Rendering, fixture and readback helpers
     // ------------------------------------------------------------------
+
+    @Test
+    void previousViewProjectionMatchesProjectionTimesView() {
+        try (Fixture fixture = new Fixture(); Framebuffer target = hdrTarget()) {
+            StochasticTransparencySettings settings = settings(4, 0x5EED_5EED, true).build();
+            int depthTexture = depthFixture(fixture, 4.0f);
+            try (StochasticTransparencyPass pass =
+                         new StochasticTransparencyPass(SIZE, SIZE, settings)) {
+                OitSurface surface = screenQuad(4.0f, 0.9f, 0.2f, 0.1f, 0.5f);
+                Matrix4f view = viewForCameraX(0.45f);
+                Matrix4f projection = projection();
+                renderFrame(fixture, pass, target, List.of(surface),
+                        new StochasticTransparencyInputs(view, projection,
+                                new Matrix4f(projection).invert(),
+                                new Matrix4f(view).invert(), depthTexture),
+                        settings);
+                Matrix4f actual = pass.previousViewProjectionForTest();
+                assertNotNull(actual, "a successful temporal frame must commit a pose");
+                Matrix4f expected = new Matrix4f(projection).mul(view);
+                Matrix4f wrongOrder = new Matrix4f(view).mul(projection);
+                double maximumError = 0.0;
+                double orderDifference = 0.0;
+                for (int column = 0; column < 4; column++) {
+                    for (int row = 0; row < 4; row++) {
+                        maximumError = Math.max(maximumError,
+                                Math.abs(expected.get(column, row) - actual.get(column, row)));
+                        orderDifference = Math.max(orderDifference,
+                                Math.abs(wrongOrder.get(column, row) - actual.get(column, row)));
+                    }
+                }
+                assertTrue(maximumError < 1.0e-6,
+                        "the committed pose must be projection * view, max error "
+                                + maximumError);
+                assertTrue(orderDifference > 0.1,
+                        "a non-identity camera translation must distinguish P*V from V*P, "
+                                + "difference " + orderDifference);
+                Vector4f clip = new Vector4f(0.25f, 0.1f, -4.0f, 1.0f).mul(actual);
+                assertEquals(0.43964f * SIZE, (clip.x / clip.w * 0.5f + 0.5f) * SIZE,
+                        0.05f, "independent world-point reprojection");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
 
     private static void renderFrame(Fixture fixture, StochasticTransparencyPass pass,
                                     Framebuffer target, List<OitSurface> surfaces,

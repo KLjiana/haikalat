@@ -384,7 +384,10 @@ public final class StochasticTransparencyPass implements GlResource {
             historyLength = Math.min(historyLength + 1,
                     StochasticTransparencySettings.MAXIMUM_HISTORY_LENGTH);
             previousView = pendingView;
-            previousViewProjection = new Matrix4f(pendingView).mul(pendingProjection);
+            // The shader multiplies this matrix by a world position, so the
+            // convention is projection * view (the same as RenderPipeline and
+            // TemporalDenoisePass), not view * projection.
+            previousViewProjection = new Matrix4f(pendingProjection).mul(pendingView);
         } else {
             historyValid = false;
             historyLength = 0;
@@ -423,6 +426,14 @@ public final class StochasticTransparencyPass implements GlResource {
     /** @return number of committed temporal frames since the last invalidation */
     public int historyLength() {
         return historyLength;
+    }
+
+    /**
+     * Package-private diagnostic used by the real-GL matrix-order contract: the
+     * previous stable view-projection that the next resolve uploads.
+     */
+    Matrix4f previousViewProjectionForTest() {
+        return previousViewProjection == null ? null : new Matrix4f(previousViewProjection);
     }
 
     public int width() {
