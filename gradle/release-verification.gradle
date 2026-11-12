@@ -304,7 +304,7 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster and particle-indirect policies.
-        assert policies.size() == 58
+        assert policies.size() == 59
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -423,6 +423,14 @@ tasks.register('releaseVerificationContracts') {
                 volumetricParticleDevice + volumetricParticleColdMessage * 5, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.OtherGlTest.xml',
                 volumetricParticleDevice + volumetricParticleReadbackMessage, policies).violations.isEmpty()
+        def vctReadbackPolicy = policies.find { it.owner == 'render3d/vct-readback' }
+        assert vctReadbackPolicy != null && vctReadbackPolicy.id == 131186
+        assert vctReadbackPolicy.maximum == 8
+        assert vctReadbackPolicy.entry == '.*VctGlTest.*'
+        def vctEntry = 'TEST-com.kaleblangley.haikalat.integration.VctGlTest.xml'
+        def vctMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_SHADER_STORAGE_BUFFER, and GL_SHADER_STORAGE_BUFFER (1), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        assert auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 8, policies).violations.isEmpty()
+        assert !auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 9, policies).violations.isEmpty()
         def subsurfaceForwardPolicy = policies.find { it.owner == 'render3d/subsurface-forward-cold' }
         assert subsurfaceForwardPolicy != null && subsurfaceForwardPolicy.id == 131218
         assert subsurfaceForwardPolicy.maximum == 2
