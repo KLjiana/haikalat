@@ -192,3 +192,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionS
 # v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass
+# v0.28.1 S5 #44 dynamic DDGI probe settings and pass-owned probe/query resources.
+advanced com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass
