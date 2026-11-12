@@ -384,6 +384,8 @@ class VctGlTest {
             ExternalCamera external = ExternalCamera.of(view, projection,
                     new Vector3f(0.0f, 0.0f, 4.0f), 0.0f);
             depthTexture = createDepthTexture(WIDTH, HEIGHT, depth);
+            assertEquals(depth, readDepthTexture(depthTexture, WIDTH, HEIGHT), 1.0e-4f,
+                    "the composite fixture depth upload must be readable");
 
             Framebuffer target = Framebuffer.fromDescriptor(FramebufferDescriptor
                     .builder(WIDTH, HEIGHT).colorTexture(GL_RGBA16F).build());
@@ -571,8 +573,7 @@ class VctGlTest {
         return ndc * 0.5f + 0.5f;
     }
 
-    private static int createDepthTexture(int width, int height, float depth) {
-        int texture = glGenTextures();
+    private static int createDepthTexture(int width, int height, float depth) {        int texture = glGenTextures();
         try {
             glBindTexture(GL_TEXTURE_2D, texture);
             glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, width, height);
@@ -592,6 +593,16 @@ class VctGlTest {
             glDeleteTextures(texture);
             throw failure;
         }
+    }
+
+    private static float readDepthTexture(int texture, int width, int height) {
+        glBindTexture(GL_TEXTURE_2D, texture);
+        FloatBuffer pixels = BufferUtils.createFloatBuffer(width * height);
+        org.lwjgl.opengl.GL11.glGetTexImage(GL_TEXTURE_2D, 0,
+                org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT, GL_FLOAT, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        GlDebug.assertNoError("vct depth texture readback");
+        return pixels.get(0);
     }
 
     private float[] clearAndRead(Framebuffer target) {
