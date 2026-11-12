@@ -3,6 +3,8 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import java.util.Objects;
@@ -33,7 +35,9 @@ public record RenderFeatureSettings(
         DirectionalCascadeSettings directionalCascades,
         LocalShadowPipelineSettings localShadows,
         ClusteredLightingSettings clusteredLighting,
-        WaterSurfaceSettings waterSurface) {
+        WaterSurfaceSettings waterSurface,
+        VolumetricParticleSettings volumetricParticles,
+        StochasticTransparencySettings stochasticTransparency) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -44,6 +48,8 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(localShadows, "localShadows");
         Objects.requireNonNull(clusteredLighting, "clusteredLighting");
         Objects.requireNonNull(waterSurface, "waterSurface");
+        Objects.requireNonNull(volumetricParticles, "volumetricParticles");
+        Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
     }
 
     public static RenderFeatureSettings defaults() {
@@ -68,7 +74,9 @@ public record RenderFeatureSettings(
                 .directionalCascades(directionalCascades)
                 .localShadows(localShadows)
                 .clusteredLighting(clusteredLighting)
-                .waterSurface(waterSurface);
+                .waterSurface(waterSurface)
+                .volumetricParticles(volumetricParticles)
+                .stochasticTransparency(stochasticTransparency);
     }
 
     public static Builder builder() {
@@ -93,6 +101,10 @@ public record RenderFeatureSettings(
         private LocalShadowPipelineSettings localShadows = LocalShadowPipelineSettings.legacyDefaults();
         private ClusteredLightingSettings clusteredLighting = ClusteredLightingSettings.defaults();
         private WaterSurfaceSettings waterSurface = WaterSurfaceSettings.disabled();
+        private VolumetricParticleSettings volumetricParticles =
+                VolumetricParticleSettings.disabled();
+        private StochasticTransparencySettings stochasticTransparency =
+                StochasticTransparencySettings.disabled();
 
         private Builder() {
         }
@@ -182,11 +194,22 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder volumetricParticles(VolumetricParticleSettings value) {
+            volumetricParticles = Objects.requireNonNull(value, "volumetricParticles");
+            return this;
+        }
+
+        public Builder stochasticTransparency(StochasticTransparencySettings value) {
+            stochasticTransparency = Objects.requireNonNull(value, "stochasticTransparency");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
                     postProcess, volumetricFog, outdoorEnvironment, directionalShadowMap,
-                    directionalCascades, localShadows, clusteredLighting, waterSurface);
+                    directionalCascades, localShadows, clusteredLighting, waterSurface,
+                    volumetricParticles, stochasticTransparency);
         }
     }
 }

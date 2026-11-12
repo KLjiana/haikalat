@@ -309,3 +309,21 @@ canonical record 由 12 个组件扩展为 13 个（S4 #32/#33 新增 `subsurfac
 调用方已合成的 HDR 颜色与同帧不透明深度，不接管体积雾 owner，也不包含 #43 烟雾模拟。技术范围、限制与 GL
 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)与
 [体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)。
+
+v0.28.1（候选）S4 #38/#37 生产接线没有删除 stable 类型或修改稳定签名。advanced
+`RenderFeatureSettings` canonical record 由 17 个组件扩展为 19 个（末尾新增 `volumetricParticles`
+与 `stochasticTransparency`，默认 `disabled()`）；既有 builder、`defaults()`、`toBuilder()` 与访问器
+调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加
+`VOLUMETRIC_PARTICLES`、`STOCHASTIC_TRANSPARENCY`；`TaaInvalidationReason` 末尾追加
+`VOLUMETRIC_PARTICLE_SETTINGS`、`STOCHASTIC_TRANSPARENCY_SETTINGS`（既有常量与序号不变）。
+`RenderPipeline` 新增 `volumetricParticles(...)`/`volumetricParticles()`/
+`applyVolumetricParticles(...)`、`stochasticTransparency(...)`/`stochasticTransparency()`/
+`applyStochasticTransparency(...)` 与 `stochasticTransparencySurfaces(...)`/
+`stochasticTransparencySurfaces()`；`RenderPipeline` 其余构造器与 `passNamesFor` 入口不变。
+`PipelineTopology` 追加 `volumetricParticles`/`stochasticTransparency` 两个 internal 组件，并提供
+保留旧参数列表的 `capture(...)` 重载。粒子接线只在体积雾合成之后、透明 replay/HDR VFX 之前插入；
+随机透明在最终场景颜色上原位合成，图节点不声明深度附件。关闭时拓扑与基线逐字节一致；MSAA
+（粒子/随机透明）与 TAA（随机透明）保持 `UNAVAILABLE`，不改变图。没有新增 public 顶层类型，
+`docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、限制与接线验证见
+[体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)与
+[随机透明技术卡](../../planning/v0.28.1-s4-stochastic-transparency.md)。
