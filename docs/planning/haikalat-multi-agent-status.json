@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T19:18:42+08:00",
+  "updatedAt": "2026-11-12T19:26:01+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1022,7 +1022,8 @@
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
         "per-feature matrix 20261112-165030: #30 JVM 18/29 + GL 11/11 PASS",
         "independent acceptance F3: planar target is recorded but no surface samples it; water/SSR consumption missing",
-        "water shader now samples the planar target at unit 3 (e5cde50f); PlanarReflectionPipelineGlTest 2/2 real GL PASS including water enable/disable pixel change and exact environment restore; update throttling, camera-cut, resize and SSR consumption still pending"
+        "water shader now samples the planar target at unit 3 (e5cde50f); PlanarReflectionPipelineGlTest 2/2 real GL PASS including water enable/disable pixel change and exact environment restore; update throttling, camera-cut, resize and SSR consumption still pending",
+        "resize coverage: PlanarReflectionPipelineGlTest 3/3 real GL PASS (water consumer survives resize and the owner is rebuilt at the settings-derived extent, 879a5d8c)"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
