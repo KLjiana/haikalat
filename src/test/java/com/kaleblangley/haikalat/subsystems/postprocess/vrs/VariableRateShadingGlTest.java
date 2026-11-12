@@ -47,7 +47,11 @@ import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL30.GL_R32F;
+import static org.lwjgl.opengl.GL30.GL_R8UI;
+import static org.lwjgl.opengl.GL30.GL_RED_INTEGER;
 import static org.lwjgl.opengl.GL30.GL_RGBA32F;
+import static org.lwjgl.opengl.GL45.glGetTextureImage;
+import static org.lwjgl.opengl.GL45.glGetTextureLevelParameteri;
 
 /**
  * Real-GL acceptance for roadmap feature #42, Variable Rate Shading.
@@ -85,10 +89,9 @@ class VariableRateShadingGlTest {
             }
             """;
 
-    private static final String VRS_PROBE_FRAGMENT = """
+    static final String VRS_PROBE_FRAGMENT = """
             #version 460 core
             layout(location = 0) out vec4 FragColor;
-            uniform vec2 uViewportSize;
             uniform float uThinLineX;
             uniform float uAlphaGradient;
 
@@ -183,6 +186,19 @@ class VariableRateShadingGlTest {
                     .coarseRate(VariableRateShadingRate.TWO_BY_TWO).build();
             try (VariableRateShadingPass shading = new VariableRateShadingPass(settings,
                     capability, SIZE, SIZE)) {
+                assertEquals(GL_R8UI, glGetTextureLevelParameteri(shading.rateImage().id(),
+                                0, org.lwjgl.opengl.GL11.GL_TEXTURE_INTERNAL_FORMAT),
+                        "the owner must create an R8UI shading-rate image");
+                ByteBuffer uploadedTiles = BufferUtils.createByteBuffer(
+                        shading.plan().tilesX() * shading.plan().tilesY());
+                glGetTextureImage(shading.rateImage().id(), 0, GL_RED_INTEGER,
+                        GL_UNSIGNED_BYTE, uploadedTiles);
+                byte[] uploaded = new byte[shading.plan().tilesX() * shading.plan().tilesY()];
+                uploadedTiles.get(uploaded);
+                assertArrayEquals(shading.plan().tileIndices(), uploaded,
+                        "the uploaded palette-index map must match the pure plan");
+                assertNoGlError("rate image readback");
+
                 byte[] baseline = renderProbe(target, false, null, false);
                 target.bind();
                 int previousBinding = VariableRateShadingState.boundImage();
@@ -273,14 +289,23 @@ class VariableRateShadingGlTest {
             try (VariableRateShadingPass shading = new VariableRateShadingPass(settings,
                     capability, SIZE, SIZE)) {
                 float[] fine = renderSubsurface(target, false, null);
+                float[] fineAgain = renderSubsurface(target, false, null);
+                assertArrayEquals(fine, fineAgain, 0.0f,
+                        "the full-rate SSS fixture must be deterministic before VRS comparison");
                 float[] coarse = renderSubsurface(target, true, shading);
+                System.out.println("VRS SSS first pixels fine="
+                        + Arrays.toString(Arrays.copyOf(fine, 8))
+                        + " coarse=" + Arrays.toString(Arrays.copyOf(coarse, 8)));
+                // With real VRS the outer tiles are one invocation per 2x2 group;
+                // the centre stays at one invocation per pixel. Those two facts
+                // alone prove the arrays differ, independent of fixture values.
+                assertCoarseBlocksAreFloatUniform(coarse, shading.plan());
+                assertFineRegionHasFloatVariation(coarse, shading.plan());
                 assertFalse(Arrays.equals(fine, coarse),
                         "the real SSS consumer must produce different pixels under VRS");
                 for (float value : coarse) {
                     assertTrue(Float.isFinite(value), "SSS output must stay finite");
                 }
-                assertCoarseBlocksAreFloatUniform(coarse, shading.plan());
-                assertFineRegionHasFloatVariation(coarse, shading.plan());
                 assertEquals(GL_NO_ERROR, glGetError());
             }
         }
@@ -358,7 +383,6 @@ class VariableRateShadingGlTest {
                 began = true;
             }
             cmd.bindShader(shader)
-                    .setUniformVec2(shader, "uViewportSize", SIZE, SIZE)
                     .setUniformFloat(shader, "uThinLineX", THIN_LINE_X)
                     .setUniformFloat(shader, "uAlphaGradient", blend ? 1.0f : 0.0f)
                     .bindVertexArray(vao.id())
@@ -373,6 +397,7 @@ class VariableRateShadingGlTest {
             glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
             byte[] result = new byte[SIZE * SIZE * 4];
             pixels.get(result);
+            assertNoGlError("probe render");
             return result;
         }
     }
@@ -409,6 +434,7 @@ class VariableRateShadingGlTest {
             glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_FLOAT, pixels);
             float[] result = new float[SIZE * SIZE * 4];
             pixels.get(result);
+            assertNoGlError("subsurface render");
             return result;
         }
     }
@@ -427,8 +453,10 @@ class VariableRateShadingGlTest {
         for (int y = 0; y < SIZE; y++) {
             for (int x = 0; x < SIZE; x++) {
                 int index = (y * SIZE + x) * 4;
-                data[index] = (x % 8) / 7.0f;
-                data[index + 1] = (y % 8) / 7.0f;
+                // Strong per-pixel checkerboard: a 2x2 shading group cannot
+                // accidentally match the per-pixel full-rate result.
+                data[index] = (x & 1) == 0 ? 0.0f : 1.0f;
+                data[index + 1] = (y & 1) == 0 ? 0.0f : 1.0f;
                 data[index + 2] = 0.25f;
                 data[index + 3] = 1.0f;
             }
@@ -456,11 +484,18 @@ class VariableRateShadingGlTest {
         float[] data = new float[SIZE * SIZE * 4];
         for (int index = 0; index < SIZE * SIZE; index++) {
             data[index * 4] = 1.0f;
-            data[index * 4 + 1] = 0.02f;
+            data[index * 4 + 1] = 0.01f;
             data[index * 4 + 2] = 0.05f;
             data[index * 4 + 3] = 1.0f;
         }
         return data;
+    }
+
+    private static void assertNoGlError(String label) {
+        int error = glGetError();
+        if (error != GL_NO_ERROR) {
+            throw new AssertionError(label + " produced " + GlDebug.errorName(error));
+        }
     }
 
     private static void assertCoarseBlocksAreUniform(byte[] pixels,

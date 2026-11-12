@@ -132,7 +132,8 @@ public record VariableRateShadingCapability(
         boolean nvEntryPoints = nvAdvertised
                 && capabilities.glBindShadingRateImageNV != 0L
                 && capabilities.glShadingRateImagePaletteNV != 0L
-                && capabilities.glGetShadingRateImagePaletteNV != 0L;
+                && capabilities.glGetShadingRateImagePaletteNV != 0L
+                && capabilities.glShadingRateImageBarrierNV != 0L;
         boolean extEntryPoints = extAdvertised
                 && functionAddress(EXT_RATE_FUNCTION) != 0L
                 && functionAddress(EXT_FRAMEBUFFER_RATE_FUNCTION) != 0L;
@@ -182,7 +183,7 @@ public record VariableRateShadingCapability(
         if (nvExtensionAdvertised && !nvEntryPointsLoaded) {
             return NV_SHADING_RATE_IMAGE + " is advertised but one or more required entry "
                     + "points are missing (" + NV_BIND_FUNCTION + ", " + NV_PALETTE_FUNCTION
-                    + ", " + NV_GET_PALETTE_FUNCTION + ")";
+                    + ", " + NV_GET_PALETTE_FUNCTION + ", glShadingRateImageBarrierNV)";
         }
         if (nvExtensionAdvertised && nvEntryPointsLoaded) {
             return NV_SHADING_RATE_IMAGE + " entry points are present but the queried limits are "

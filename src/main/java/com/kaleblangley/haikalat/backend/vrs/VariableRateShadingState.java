@@ -8,6 +8,7 @@ import static org.lwjgl.opengl.GL11.glGetInteger;
 import static org.lwjgl.opengl.NVShadingRateImage.GL_SHADING_RATE_IMAGE_BINDING_NV;
 import static org.lwjgl.opengl.NVShadingRateImage.glBindShadingRateImageNV;
 import static org.lwjgl.opengl.NVShadingRateImage.glGetShadingRateImagePaletteNV;
+import static org.lwjgl.opengl.NVShadingRateImage.glShadingRateImageBarrierNV;
 import static org.lwjgl.opengl.NVShadingRateImage.glShadingRateImagePaletteNV;
 
 /**
@@ -22,11 +23,13 @@ import static org.lwjgl.opengl.NVShadingRateImage.glShadingRateImagePaletteNV;
  * happen while commands execute; {@code CommandBuffer} therefore records a
  * begin/end pair that {@code CommandExecutor} maps onto this adapter.</p>
  *
- * <p>Only viewport 0 is touched.  The sample order is never modified, and no
- * implicit image barrier is issued: the rate image is produced by ordinary
- * texture uploads, which are already ordered before the draw.  A future
- * implementation that writes the image with image stores must call
- * {@code glShadingRateImageBarrierNV} before shading.</p>
+ * <p>Only viewport 0 is touched.  The sample order is never modified.  After
+ * binding the image the adapter calls
+ * {@code glShadingRateImageBarrierNV(true)}: the NV raster path requires an
+ * explicit ordering point even when the image was produced by ordinary texture
+ * uploads.  The synchronizing form is used for the first correctness version;
+ * the image is static after creation, so the wait normally has no outstanding
+ * upload to drain.</p>
  */
 public final class VariableRateShadingState {
     private static final int VIEWPORT = 0;
@@ -93,8 +96,14 @@ public final class VariableRateShadingState {
         }
         int previousImage = glGetInteger(GL_SHADING_RATE_IMAGE_BINDING_NV);
         int[] previousPalette = readPalette(0, palette.length);
-        writePalette(palette);
         glBindShadingRateImageNV(textureId);
+        writePalette(palette);
+        // TexSubImage uploads are already ordered before the draw, but the
+        // shading-rate image is read through a raster path that NV requires
+        // applications to order explicitly. Use the synchronizing form for the
+        // first correctness version; the image is static after creation, so the
+        // wait normally has no outstanding upload to drain.
+        glShadingRateImageBarrierNV(true);
         return new Snapshot(previousImage, previousPalette);
     }
 
@@ -128,7 +137,8 @@ public final class VariableRateShadingState {
         if (!capabilities.GL_NV_shading_rate_image
                 || capabilities.glBindShadingRateImageNV == 0L
                 || capabilities.glShadingRateImagePaletteNV == 0L
-                || capabilities.glGetShadingRateImagePaletteNV == 0L) {
+                || capabilities.glGetShadingRateImagePaletteNV == 0L
+                || capabilities.glShadingRateImageBarrierNV == 0L) {
             throw new IllegalStateException(
                     "GL_NV_shading_rate_image entry points are unavailable in the current context");
         }
@@ -174,7 +184,6 @@ public final class VariableRateShadingState {
             writePalette(previousPalette);
             restored = true;
         }
-
         @Override
         public void close() {
             restore();
