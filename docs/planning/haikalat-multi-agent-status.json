@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "af3d57b"
+    "head": "a09d934"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T08:42:00+08:00",
+  "updatedAt": "2026-11-12T08:52:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1080,19 +1080,20 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "a8f2eb0",
+      "integrationCommit": "a09d934",
       "requiredCases": [],
       "evidence": [
-        "JVM PASS: TemporalDenoiseSettingsTest 6, ReferenceTest 7, ContractTest 4, PipelineDependencyTest 2, CompositionTest 3",
-        "GL PASS in worker 74f8ee7 and integration a8f2eb0: TemporalDenoisePassGlTest 10/10, 0 skipped, 0 failures, gate green",
-        "history-moment clamp shader synced (SHA-256 f46f148d...) with matching assets.tsv row"
+        "JVM PASS: TemporalDenoiseSettingsTest 6, ReferenceTest 7, ContractTest 4, PipelineDependencyTest 2, CompositionTest 3 (22 total)",
+        "GL PASS fresh at a09d934 (--rerun-tasks): TemporalDenoisePassGlTest 10/10, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/temporal-denoise/",
+        "velocity case now passes PLANE_VIEW_DEPTH as previousDepth and requires 10-frame noise reduction, so history acceptance is exercised",
+        "historySigma/sigma=max(currentSigma, historySigma) shader-contract assertions restored; history-moment shader synced with assets.tsv f46f148d"
       ],
-      "review": "PENDING_INDEPENDENT_REVIEW",
+      "review": "PENDING",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent re-review of the 10-case evidence and shader sync"
+      "nextAction": "final reviewer verdict after the evidence/velocity/guard fixes"
     },
     {
       "taskId": "R35",
