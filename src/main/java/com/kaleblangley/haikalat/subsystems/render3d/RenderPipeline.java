@@ -30,9 +30,15 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAlloca
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
@@ -59,6 +65,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowTileRect;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowSlotPlan;
 
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.state.HostGlState;
@@ -268,6 +275,12 @@ public final class RenderPipeline {
     /** {@code null} means the bounded atmosphere background is disabled. */
     private AtmosphereSettings atmosphereSettings;
     private VolumetricFogSettings volumetricFogSettings = VolumetricFogSettings.disabled();
+    private VolumetricParticleSettings volumetricParticleSettings =
+            VolumetricParticleSettings.disabled();
+    private StochasticTransparencySettings stochasticTransparencySettings =
+            StochasticTransparencySettings.disabled();
+    /** Caller-selected stochastic surface set for subsequent frames; empty means no draw. */
+    private List<OitSurface> stochasticTransparencySurfaces = List.of();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
     private float waterTimeSeconds;
     private PassExecutor hdrVfxRecorder;
@@ -508,7 +521,7 @@ public final class RenderPipeline {
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                     directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
                     directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings);
+                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
             activateGeneration(createGeneration(scene, topology, activeGeneration));
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
@@ -559,7 +572,7 @@ public final class RenderPipeline {
                     activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                     directionalCascadeSettings, localShadowSettings, replacement, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings);
+                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
             if (!topology.equals(activeGeneration.topology()))
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             else activeGeneration.postProcess().invalidateTemporalHistory(TaaInvalidationReason.VOLUMETRIC_SETTINGS);
@@ -568,6 +581,169 @@ public final class RenderPipeline {
             if (activeGeneration == previousGeneration) volumetricFogSettings = previous;
             throw failure;
         }
+    }
+
+    /** Configures the bounded local volumetric-particle medium before build. */
+    public RenderPipeline volumetricParticles(VolumetricParticleSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyVolumetricParticles after build");
+        }
+        volumetricParticleSettings = Objects.requireNonNull(value, "volumetricParticles");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current local volumetric-particle configuration; no GPU resource is exposed. */
+    public VolumetricParticleSettings volumetricParticles() {
+        return volumetricParticleSettings;
+    }
+
+    /**
+     * Publishes a particle settings change at a frame boundary. The pass bakes its
+     * settings at construction, so the complete candidate generation is rebuilt;
+     * a failure keeps both the active generation and the previous settings.
+     */
+    public void applyVolumetricParticles(VolumetricParticleSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyVolumetricParticlesInternal(value);
+            }
+        } else {
+            applyVolumetricParticlesInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyVolumetricParticlesInternal(VolumetricParticleSettings value) {
+        VolumetricParticleSettings replacement =
+                Objects.requireNonNull(value, "volumetricParticles");
+        if (executing) {
+            throw new IllegalStateException(
+                    "volumetric particle changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(volumetricParticleSettings)) {
+            return;
+        }
+        if (activeGeneration == null) {
+            volumetricParticles(replacement);
+            return;
+        }
+        VolumetricParticleSettings previous = volumetricParticleSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        volumetricParticleSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration, replacement,
+                    stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.VOLUMETRIC_PARTICLE_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                volumetricParticleSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /** Configures the bounded stochastic-transparency collection before build. */
+    public RenderPipeline stochasticTransparency(StochasticTransparencySettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyStochasticTransparency after build");
+        }
+        stochasticTransparencySettings = Objects.requireNonNull(value, "stochasticTransparency");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current stochastic-transparency configuration; no GPU resource is exposed. */
+    public StochasticTransparencySettings stochasticTransparency() {
+        return stochasticTransparencySettings;
+    }
+
+    /**
+     * Publishes a stochastic-transparency settings change at a frame boundary. A
+     * capacity change allocates a new quad owner; a failure keeps the active
+     * generation, pass and previous settings.
+     */
+    public void applyStochasticTransparency(StochasticTransparencySettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyStochasticTransparencyInternal(value);
+            }
+        } else {
+            applyStochasticTransparencyInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyStochasticTransparencyInternal(StochasticTransparencySettings value) {
+        StochasticTransparencySettings replacement =
+                Objects.requireNonNull(value, "stochasticTransparency");
+        if (executing) {
+            throw new IllegalStateException(
+                    "stochastic transparency changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(stochasticTransparencySettings)) {
+            return;
+        }
+        if (replacement.active()
+                && stochasticTransparencySurfaces.size() > replacement.maximumSurfaces()) {
+            throw new IllegalArgumentException("the staged stochastic surface set ("
+                    + stochasticTransparencySurfaces.size()
+                    + ") exceeds the requested maximumSurfaces "
+                    + replacement.maximumSurfaces());
+        }
+        if (activeGeneration == null) {
+            stochasticTransparency(replacement);
+            return;
+        }
+        StochasticTransparencySettings previous = stochasticTransparencySettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        stochasticTransparencySettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, replacement);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.STOCHASTIC_TRANSPARENCY_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                stochasticTransparencySettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Stages the caller-selected transparent surface set for the next and
+     * subsequent frames. An empty list records no draw and advances no history.
+     * The list is copied; surfaces are never retained by the pass.
+     */
+    public RenderPipeline stochasticTransparencySurfaces(List<OitSurface> surfaces) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException(
+                    "stochastic surfaces are only allowed at frame boundaries");
+        }
+        List<OitSurface> copy = List.copyOf(Objects.requireNonNull(surfaces, "surfaces"));
+        if (copy.size() > stochasticTransparencySettings.maximumSurfaces()) {
+            throw new IllegalArgumentException("surface count " + copy.size()
+                    + " exceeds the configured maximumSurfaces "
+                    + stochasticTransparencySettings.maximumSurfaces());
+        }
+        stochasticTransparencySurfaces = copy;
+        return this;
+    }
+
+    /** Current caller-selected stochastic surface set; immutable and empty by default. */
+    public List<OitSurface> stochasticTransparencySurfaces() {
+        return stochasticTransparencySurfaces;
     }
 
     /** Configures the finite water surface before the first generation is built. */
@@ -612,7 +788,7 @@ public final class RenderPipeline {
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                     directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
                     directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    replacement);
+                    replacement, volumetricParticleSettings, stochasticTransparencySettings);
             if (!topology.equals(activeGeneration.topology())) {
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             }
@@ -646,7 +822,7 @@ public final class RenderPipeline {
                 var topology = PipelineTopology.capture(scene, settings, postProcessSettings,
                         before.graph().width(), before.graph().height(), hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                         directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                        waterSurfaceSettings);
+                        waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
                 if (!topology.equals(before.topology())) activateGeneration(createGeneration(scene, topology, before));
                 else {
                     if (before.gtao() != null) {
@@ -756,7 +932,7 @@ public final class RenderPipeline {
                     postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                     directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings);
+                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration,
                     outdoorEnvironment);
             if (!activeGeneration.topology().equals(candidateTopology) || outdoorPassShapeChanged
@@ -849,7 +1025,7 @@ public final class RenderPipeline {
                     postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
                     hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                     directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings);
+                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration, replacement);
             if (!replaceEnvironment && activeGeneration.topology().equals(candidateTopology) && !outdoorPassShapeChanged) {
                 // The active sky reads the immutable appearance at frame boundaries.
@@ -1053,7 +1229,7 @@ public final class RenderPipeline {
                 postProcessSettings, w, h, hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                 directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
                 directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                waterSurfaceSettings);
+                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -1062,6 +1238,68 @@ public final class RenderPipeline {
         } else {
             publishCompatibilityFeatureState();
         }
+    }
+
+    private PipelineTopology captureTopology(PipelineGeneration generation,
+                                             VolumetricParticleSettings particles,
+                                             StochasticTransparencySettings stochastic) {
+        return captureTopology(scene, generation.graph().width(),
+                generation.graph().height(), particles, stochastic);
+    }
+
+    private PipelineTopology captureTopology(Scene captureScene, int width, int height,
+                                             VolumetricParticleSettings particles,
+                                             StochasticTransparencySettings stochastic) {
+        return PipelineTopology.capture(captureScene, settings, postProcessSettings,
+                width, height, hdrVfxEnabled && hdrVfxRecorder != null, embedded,
+                directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
+                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
+                waterSurfaceSettings, particles, stochastic);
+    }
+
+    /**
+     * Colour producer consumed by the volumetric transparency replay. The
+     * particle bridge, when present, sits after the fog composite so the
+     * recorded order is fog composite -&gt; particles -&gt; transparency/HDR VFX.
+     */
+    static String volumetricTransparentColorSource(boolean particlesActive) {
+        return particlesActive ? VolumetricParticlePass.PASS_NAME
+                : VolumetricPassBuilder.COMPOSITE_PASS;
+    }
+
+    /**
+     * Declares the particle colour bridge between the fog composite and the
+     * transparency replay. The pass owns the copied/composited image; this graph
+     * pass hands that image back into the shared colour chain so the ordered
+     * consumer chain remains fog composite -> particles -> transparency/HDR VFX.
+     */
+    static void addVolumetricParticlePass(RenderGraph graph, String colorSourcePass,
+                                          String depthProducer, PassExecutor executor) {
+        graph.addPass(VolumetricParticlePass.PASS_NAME)
+                .createColor(VolumetricParticlePass.COLOR_TEXTURE, RenderFormat.RGBA16F)
+                .noClear()
+                .dependsOn(colorSourcePass)
+                .dependsOn(depthProducer)
+                .execute(executor);
+    }
+
+    /**
+     * Declares the in-place stochastic composite over the current scene colour.
+     * The pass borrows only the colour storage: it has no depth attachment and
+     * never writes the shared opaque depth.
+     */
+    static void addStochasticTransparencyPass(RenderGraph graph, String colorTexture,
+                                              String colorProducer, RenderFormat format,
+                                              int sampleCount, String depthProducer,
+                                              PassExecutor executor) {
+        var pass = graph.addPass(StochasticTransparencyPass.PASS_NAME)
+                .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
+                        sampleCount)
+                .noClear();
+        if (!depthProducer.equals(colorProducer)) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.execute(executor);
     }
 
     private PipelineGeneration createGeneration(Scene generationScene,
@@ -1118,9 +1356,14 @@ public final class RenderPipeline {
             if (topology.volumetricFog() && hdrVfxRecorder != null && fogAwareHdrVfxRecorder == null && !hdrVfxFogOptOut)
                 throw new IllegalStateException("custom HDR VFX must use hdrVfxWithFog or explicitly opt out of fog");
             validatePbrVertexLayouts(generationScene);
+            if (topology.volumetricParticles()) {
+                volumetricParticleSettings.validateFogComposition(volumetricFogSettings);
+            }
             candidate.assembleGraph(clusteredLightingSettings, Boolean.getBoolean(FULL_SCAN_BENCHMARK_PROPERTY));
             candidate.assembleVolumetric(volumetricFogSettings, generationScene, reusable,
                     (res, cmd, shader) -> recordVolumeShadowInputs(requireGeneration(), res, cmd, shader));
+            candidate.assembleVolumetricParticles(volumetricParticleSettings, reusable);
+            candidate.assembleStochasticTransparency(stochasticTransparencySettings, reusable);
             candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled(),
                     atmosphereSettings);
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
@@ -1141,18 +1384,41 @@ public final class RenderPipeline {
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
                     surfaceExecutor(candidate), surfaceResolveExecutor(candidate), geometryExecutor(),
                     refraction);
+            String sceneColorTexture = PostProcessTargets.SCENE_COLOR;
+            String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
             VolumetricSurfaceInputs volumeInputs = null;
             if (candidate.volumetric() != null) {
                 volumeInputs = new VolumetricSurfaceInputs(candidate.surfaceInputs());
-                candidate.volumetric().addColorPasses(candidate.graph(), generationScene, topology,
-                        volumeInputs, volumetricTransparentExecutor());
+                candidate.volumetric().addColorPrePasses(candidate.graph(), generationScene,
+                        topology, volumeInputs);
+                String transparentColorSource = volumetricTransparentColorSource(
+                        candidate.volumetricParticles() != null);
+                if (candidate.volumetricParticles() != null) {
+                    // Particles consume the fog-composited HDR colour and opaque depth,
+                    // then hand their pass-owned target back to the graph colour chain
+                    // before the transparency replay and HDR VFX.
+                    var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                    if (singleDepth == null) {
+                        throw new IllegalStateException(
+                                "volumetric particles require the shared single-sample opaque depth");
+                    }
+                    addVolumetricParticlePass(candidate.graph(),
+                            VolumetricPassBuilder.COMPOSITE_PASS, singleDepth.producer(),
+                            volumetricParticleExecutor(candidate));
+                    transparentColorSource = volumetricTransparentColorSource(true);
+                }
+                candidate.volumetric().addTransparentPass(candidate.graph(), topology, volumeInputs,
+                        volumetricTransparentExecutor(), transparentColorSource);
                 candidate.volumetric().addReactivePass(candidate.graph(), topology, volumeInputs, volumetricReactiveExecutor());
                 candidate.postProcess().sceneColorInput(VolumetricPassBuilder.SCENE_COLOR, VolumetricPassBuilder.TRANSPARENT_PASS);
+                sceneColorProducer = VolumetricPassBuilder.TRANSPARENT_PASS;
             }
             if (candidate.topology().waterSurface()) {
                 candidate.assembleWaterSurface(waterExecutor(candidate));
                 candidate.postProcess().sceneColorInput(WaterSurfacePass.COLOR,
                         WaterSurfacePass.PASS_NAME);
+                sceneColorTexture = WaterSurfacePass.COLOR;
+                sceneColorProducer = WaterSurfacePass.PASS_NAME;
                 if (candidate.topology().sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(WaterSurfacePass.PASS_NAME);
                 }
@@ -1173,8 +1439,29 @@ public final class RenderPipeline {
                         refractionExecutor());
                 candidate.postProcess().sceneColorInput(PostProcessTargets.SCENE_COLOR,
                         RefractionPass.PASS_NAME);
+                sceneColorProducer = RefractionPass.PASS_NAME;
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
+                }
+            }
+            if (candidate.stochasticTransparency() != null) {
+                // The collection composites over the final scene colour in place and
+                // before every post-process fog/DOF/Bloom/TAA consumer. Its shared
+                // colour target has no depth attachment, so opaque depth is never
+                // written by this pass.
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                if (singleDepth == null) {
+                    throw new IllegalStateException(
+                            "stochastic transparency requires the shared single-sample scene depth");
+                }
+                addStochasticTransparencyPass(candidate.graph(), sceneColorTexture,
+                        sceneColorProducer, ForwardPassBuilder.sceneColorFormat(settings),
+                        topology.sampleCount(), singleDepth.producer(),
+                        stochasticTransparencyExecutor(candidate));
+                candidate.postProcess().sceneColorInput(sceneColorTexture,
+                        StochasticTransparencyPass.PASS_NAME);
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(StochasticTransparencyPass.PASS_NAME);
                 }
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
@@ -1318,7 +1605,7 @@ public final class RenderPipeline {
                 directionalCascadeSettings,
                 localShadowSettings, volumetricFogSettings,
                 directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                waterSurfaceSettings);
+                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
         if (generation.topology().equals(candidateTopology)) {
             synchronizeOutdoorSun(candidateScene);
             scene = candidateScene;
@@ -1773,6 +2060,9 @@ public final class RenderPipeline {
             }
             // Infallible publish phase.
             generation.postProcess().frameSucceeded();
+            if (generation.stochasticTransparency() != null) {
+                generation.stochasticTransparency().frameSucceeded();
+            }
             if (generation.gtao() != null) generation.gtao().frameSucceeded();
             if (generation.volumetric() != null) generation.volumetric().frameSucceeded();
             if (temporalActive) {
@@ -1824,6 +2114,9 @@ public final class RenderPipeline {
                 }
             }
             if (postProcessFrameStarted) generation.postProcess().frameFailed();
+            if (generation.stochasticTransparency() != null) {
+                generation.stochasticTransparency().frameFailed();
+            }
             if (generation.gtao() != null) generation.gtao().frameFailed();
             if (generation.volumetric() != null) generation.volumetric().frameFailed();
             temporalFrameState.discardFrame();
@@ -1954,6 +2247,9 @@ public final class RenderPipeline {
             candidate.postProcess().invalidateTemporalHistory();
             if (candidate.gtao() != null) candidate.gtao().invalidateHistory(GtaoPasses.InvalidationReason.WORLD);
             if (candidate.volumetric() != null) candidate.volumetric().invalidateHistory();
+            if (candidate.stochasticTransparency() != null) {
+                candidate.stochasticTransparency().invalidate();
+            }
         } else if (reusesSceneState && candidate.postProcess() != null) {
             boolean gtaoChanged = retired.gtao() != candidate.gtao() || gtaoSettingsChanged;
             boolean volumeChanged = retired.volumetric() != candidate.volumetric()
@@ -2025,7 +2321,7 @@ public final class RenderPipeline {
                 spotShadowsEnabled, hdrVfxEnabled, previewEnabled, settings, postProcessSettings,
                 volumetricFogSettings, outdoorEnvironment, directionalShadowMap,
                 directionalCascadeSettings, localShadowSettings, clusteredLightingSettings,
-                waterSurfaceSettings);
+                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
     }
 
     private RenderFeaturePolicy.Facts featureFacts() {
@@ -2081,6 +2377,8 @@ public final class RenderPipeline {
         localShadowSettings = requested.localShadows();
         clusteredLightingSettings = requested.clusteredLighting();
         waterSurfaceSettings = requested.waterSurface();
+        volumetricParticleSettings = requested.volumetricParticles();
+        stochasticTransparencySettings = requested.stochasticTransparency();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -2110,7 +2408,11 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.localShadows(), next.localShadows())
                 && java.util.Objects.equals(previous.clusteredLighting(),
                 next.clusteredLighting())
-                && java.util.Objects.equals(previous.waterSurface(), next.waterSurface());
+                && java.util.Objects.equals(previous.waterSurface(), next.waterSurface())
+                && java.util.Objects.equals(previous.volumetricParticles(),
+                next.volumetricParticles())
+                && java.util.Objects.equals(previous.stochasticTransparency(),
+                next.stochasticTransparency());
     }
 
     private void applyPendingFeatureRequest() {
@@ -2136,7 +2438,7 @@ public final class RenderPipeline {
                         hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                         directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
                         directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                        waterSurfaceSettings);
+                        waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
                 PipelineGeneration candidate = createGeneration(scene, topology, current);
                 synchronizeOutdoorSun(scene);
                 activateGeneration(candidate);
@@ -2362,6 +2664,9 @@ public final class RenderPipeline {
             activeGeneration.postProcess().invalidateTemporalHistory();
             if (activeGeneration.gtao() != null) activeGeneration.gtao().invalidateHistory();
             if (activeGeneration.volumetric() != null) activeGeneration.volumetric().invalidateHistory();
+            if (activeGeneration.stochasticTransparency() != null) {
+                activeGeneration.stochasticTransparency().invalidate();
+            }
         }
     }
 
@@ -2447,6 +2752,74 @@ public final class RenderPipeline {
                     plan.spots().isEmpty() ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME),0,2);
             if (hdrVfxRecorder != null) hdrVfxRecorder.execute(res,cmd);
             cmd.sampleShading(false,0).enableBlend(false).depthMask(true).enableDepthTest(true);
+        };
+    }
+
+    private PassExecutor volumetricParticleExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            var particles = generation.volumetricParticles();
+            if (particles == null || generation.volumetric() == null) {
+                throw new IllegalStateException(
+                        "volumetric particles require the volumetric fog colour composition");
+            }
+            Framebuffer source = res.framebufferOfPass(VolumetricPassBuilder.COMPOSITE_PASS);
+            if (source == null) {
+                throw new IllegalStateException(
+                        "volumetric particles require the fog opaque colour composite");
+            }
+            var singleDepth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (singleDepth == null) {
+                throw new IllegalStateException(
+                        "volumetric particles require the shared single-sample opaque depth");
+            }
+            int depth = generation.surfaceInputs().frame().require(res, singleDepth);
+            // The fog compositor reconstructs against the jittered raster, so the
+            // particle rays must use the same camera even when the frame is TAA.
+            particles.record(cmd, source, depth, fogRasterCamera());
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "volumetric particles require a managed colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(particles.colorTarget(), target);
+        };
+    }
+
+    private PassExecutor stochasticTransparencyExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            var stochastic = generation.stochasticTransparency();
+            if (stochastic == null) {
+                throw new IllegalStateException(
+                        "stochastic transparency pass is absent from the active topology");
+            }
+            List<OitSurface> surfaces = stochasticTransparencySurfaces;
+            if (surfaces.isEmpty()) {
+                // No selected set means no draw and no history advance.
+                return;
+            }
+            var singleDepth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (singleDepth == null) {
+                throw new IllegalStateException(
+                        "stochastic transparency requires the shared single-sample scene depth");
+            }
+            int depth = generation.surfaceInputs().frame().require(res, singleDepth);
+            ExternalCamera camera = externalFrameCamera();
+            StochasticTransparencyInputs inputs = new StochasticTransparencyInputs(
+                    camera.view(), camera.projection(), camera.inverseProjection(),
+                    camera.inverseView(), depth);
+            stochastic.record(cmd, surfaces, inputs, stochasticTransparencySettings);
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "stochastic transparency requires the shared scene colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height());
+            stochastic.resolve(cmd, stochasticTransparencySettings);
         };
     }
 

@@ -39,8 +39,12 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 
@@ -82,6 +86,10 @@ public final class PipelineGeneration implements AutoCloseable {
     private com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder frameLightBinder;
     private com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer sceneRenderer;
     private VolumetricPassBuilder volumetric;
+    private VolumetricParticlePass volumetricParticles;
+    private StochasticTransparencyPass stochasticTransparency;
+    private StochasticTransparencySettings stochasticSettings =
+            StochasticTransparencySettings.disabled();
     private ShadowPrograms shadowPrograms;
     private GtaoPasses gtao;
     private GtaoSurfaceInputs gtaoInputs;
@@ -255,6 +263,37 @@ public final class PipelineGeneration implements AutoCloseable {
                 && source.volumetric.compatibleScene(scene, topology);
     }
 
+    /**
+     * Owns the optional local particle pass. A compatible donor with identical
+     * settings is borrowed so an unrelated topology rebuild preserves its target;
+     * any settings change allocates a complete candidate before publication.
+     */
+    public void assembleVolumetricParticles(VolumetricParticleSettings settings,
+                                            PipelineGeneration source) {
+        if (!topology.volumetricParticles()) return;
+        boolean reuse = source != null && source.volumetricParticles != null
+                && source.topology.sameManagedExtent(topology)
+                && source.volumetricParticles.settings().equals(settings);
+        volumetricParticles = reuse ? borrow(source.volumetricParticles)
+                : new VolumetricParticlePass(settings, topology.width(), topology.height());
+    }
+
+    /**
+     * Owns the optional stochastic-transparency collection. The pass allocates
+     * its quad capacity at construction, so only an equal capacity donor is
+     * borrowed; per-frame scalars remain arguments of record/resolve.
+     */
+    public void assembleStochasticTransparency(StochasticTransparencySettings settings,
+                                               PipelineGeneration source) {
+        if (!topology.stochasticTransparency()) return;
+        boolean reuse = source != null && source.stochasticTransparency != null
+                && source.topology.sameManagedExtent(topology)
+                && source.stochasticTransparency.maximumSurfaces() == settings.maximumSurfaces();
+        stochasticTransparency = reuse ? borrow(source.stochasticTransparency)
+                : new StochasticTransparencyPass(topology.width(), topology.height(), settings);
+        stochasticSettings = settings;
+    }
+
     public void assembleGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings settings,
                       PipelineGeneration source, boolean instances, boolean shared) {
         if (!settings.enabled()) return;
@@ -366,6 +405,9 @@ public final class PipelineGeneration implements AutoCloseable {
     public FrameLightBinder frameLightBinder() { return frameLightBinder; }
     public SceneRenderer sceneRenderer() { return sceneRenderer; }
     public VolumetricPassBuilder volumetric() { return volumetric; }
+    public VolumetricParticlePass volumetricParticles() { return volumetricParticles; }
+    public StochasticTransparencyPass stochasticTransparency() { return stochasticTransparency; }
+    public StochasticTransparencySettings stochasticSettings() { return stochasticSettings; }
     public ShadowPrograms shadowPrograms() { return shadowPrograms; }
     public GtaoPasses gtao() { return gtao; }
     public GtaoSurfaceInputs gtaoInputs() { return gtaoInputs; }
@@ -446,6 +488,8 @@ public final class PipelineGeneration implements AutoCloseable {
         ClusteredLightingResources.ResizeCandidate clusteredCandidate = null;
         VolumetricResources.ResizeCandidate volumeCandidate = null;
         GtaoPasses.ResizeCandidate gtaoCandidate = null;
+        VolumetricParticlePass particleCandidate = null;
+        StochasticTransparencyPass stochasticCandidate = null;
         try {
             GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
             var newSurfaceStorage = surfaceStorageAt(width, height);
@@ -462,10 +506,23 @@ public final class PipelineGeneration implements AutoCloseable {
             clusteredCandidate = clusteredResources.prepareResize(width, height);
             if (volumetric != null) volumeCandidate = volumetric.prepareResize(width, height);
             if (gtao != null) gtaoCandidate = gtao.prepareResize(width, height);
+            if (volumetricParticles != null) {
+                // The pass target is transactional only inside resize(); allocate a
+                // complete second owner here so a failed commit cannot mix extents.
+                particleCandidate = new VolumetricParticlePass(
+                        volumetricParticles.settings(), width, height);
+            }
+            if (stochasticTransparency != null) {
+                stochasticCandidate = new StochasticTransparencyPass(width, height,
+                        stochasticSettings);
+            }
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
-                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate, gtaoCandidate,
+                    graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate,
+                    gtaoCandidate, particleCandidate, stochasticCandidate,
                     allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
+            closeCandidate(stochasticCandidate, failure);
+            closeCandidate(particleCandidate, failure);
             closeCandidate(gtaoCandidate, failure);
             closeCandidate(volumeCandidate, failure);
             closeCandidate(clusteredCandidate, failure);
@@ -502,6 +559,8 @@ public final class PipelineGeneration implements AutoCloseable {
         private final ClusteredLightingResources.ResizeCandidate clusteredCandidate;
         private final VolumetricResources.ResizeCandidate volumeCandidate;
         private final GtaoPasses.ResizeCandidate gtaoCandidate;
+        private VolumetricParticlePass particleCandidate;
+        private StochasticTransparencyPass stochasticCandidate;
         private final VolumetricAllocationPlan allocation;
         private final GtaoAllocationPlan gtaoPlan;
         private final SceneSurfaceLayout.Storage surfaceStorage;
@@ -515,6 +574,8 @@ public final class PipelineGeneration implements AutoCloseable {
                                 PostProcessPipeline.ResizeCandidate postProcessCandidate,
                                 ClusteredLightingResources.ResizeCandidate clusteredCandidate,
                                 VolumetricResources.ResizeCandidate volumeCandidate, GtaoPasses.ResizeCandidate gtaoCandidate,
+                                VolumetricParticlePass particleCandidate,
+                                StochasticTransparencyPass stochasticCandidate,
                                 VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
                                 SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
             this.owner = owner;
@@ -526,6 +587,8 @@ public final class PipelineGeneration implements AutoCloseable {
             this.clusteredCandidate = clusteredCandidate;
             this.volumeCandidate = volumeCandidate;
             this.gtaoCandidate = gtaoCandidate;
+            this.particleCandidate = particleCandidate;
+            this.stochasticCandidate = stochasticCandidate;
             this.allocation = allocation;
             this.gtaoPlan = gtaoPlan;
             this.surfaceStorage = surfaceStorage;
@@ -551,12 +614,22 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.clusteredResources.commitResize(clusteredCandidate);
             if (volumeCandidate != null) owner.volumetric.commitResize(volumeCandidate);
             if (gtaoCandidate != null) owner.gtao.commitResize(gtaoCandidate);
+            VolumetricParticlePass previousParticle = owner.volumetricParticles;
+            StochasticTransparencyPass previousStochastic = owner.stochasticTransparency;
+            owner.volumetricParticles = particleCandidate;
+            owner.stochasticTransparency = stochasticCandidate;
+            particleCandidate = null;
+            stochasticCandidate = null;
             owner.topology = candidateTopology;
             owner.volumeAllocation = allocation;
             owner.gtaoAllocation = gtaoPlan;
             owner.surfaceStorage = surfaceStorage;
             owner.surfacePeakBytes = surfacePeak;
             committed = true;
+            RuntimeException failure = null;
+            failure = closeOne(previousStochastic, failure);
+            failure = closeOne(previousParticle, failure);
+            if (failure != null) throw failure;
         }
 
         @Override
@@ -564,6 +637,8 @@ public final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
+            failure = closeOne(stochasticCandidate, failure);
+            failure = closeOne(particleCandidate, failure);
             failure = closeOne(gtaoCandidate, failure);
             failure = closeOne(volumeCandidate, failure);
             failure = closeOne(clusteredCandidate, failure);
@@ -597,6 +672,8 @@ public final class PipelineGeneration implements AutoCloseable {
         GtaoPasses localGtao = gtao;
         PostProcessPipeline localPostProcess = postProcess;
         VolumetricPassBuilder localVolume = volumetric;
+        VolumetricParticlePass localParticles = volumetricParticles;
+        StochasticTransparencyPass localStochastic = stochasticTransparency;
         CameraUniforms localCameraUniforms = cameraUniforms;
         SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
@@ -618,6 +695,8 @@ public final class PipelineGeneration implements AutoCloseable {
         gtaoInputs = null;
         postProcess = null;
         volumetric = null;
+        volumetricParticles = null;
+        stochasticTransparency = null;
         cameraUniforms = null;
         deformationDefaults = null;
         sceneSurfacePass = null;
@@ -640,6 +719,8 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localGtao, failure);
         failure = closeCollecting(localPostProcess, failure);
         failure = closeCollecting(localVolume, failure);
+        failure = closeCollecting(localParticles, failure);
+        failure = closeCollecting(localStochastic, failure);
         failure = closeCollecting(localCameraUniforms, failure);
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);

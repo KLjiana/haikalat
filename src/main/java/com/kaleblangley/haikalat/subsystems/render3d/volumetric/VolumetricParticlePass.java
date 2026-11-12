@@ -66,6 +66,8 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 public final class VolumetricParticlePass implements GlResource {
     /** RenderGraph pass name reserved for integration. */
     public static final String PASS_NAME = "VolumetricParticlePass";
+    /** RenderGraph colour alias created for the particle-composited HDR output. */
+    public static final String COLOR_TEXTURE = "volume.particleColor";
     /** Fragment texture unit of the borrowed single-sample scene depth. */
     public static final int DEPTH_UNIT = 0;
     /** Largest accepted target edge in pixels. */

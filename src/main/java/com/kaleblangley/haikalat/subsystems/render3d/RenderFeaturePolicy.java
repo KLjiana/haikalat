@@ -26,7 +26,8 @@ final class RenderFeaturePolicy {
                     boolean volumetricFog, boolean sky, boolean bloom, boolean autoExposure,
                     boolean analyticFog, boolean antiAliasing, boolean toneMapping,
                     boolean colorGrading, boolean hdrVfx, boolean preview,
-                    boolean waterSurface,
+                    boolean waterSurface, boolean volumetricParticles,
+                    boolean stochasticTransparency,
                     List<RenderFeatureActivity> activities) {
         Resolved {
             activities = List.copyOf(activities);
@@ -64,6 +65,20 @@ final class RenderFeaturePolicy {
         boolean hdrVfx = settings.hdrVfx() && facts.hdrVfxRecorderPresent();
         boolean preview = settings.preview() && facts.previewSourceSelected();
         boolean waterSurface = settings.waterSurface().active();
+        boolean particlesEligible = PipelineTopology.volumetricParticleCompositionActive(
+                settings.render(), settings.volumetricFog(), settings.volumetricParticles());
+        boolean stochasticEligible = PipelineTopology.stochasticTransparencyCompositionActive(
+                settings.render(), settings.stochasticTransparency());
+        boolean volumetricParticles = particlesEligible;
+        boolean stochasticTransparency = stochasticEligible;
+        RenderFeatureReason particleReason = !settings.volumetricParticles().active()
+                ? RenderFeatureReason.DISABLED
+                : !particlesEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason stochasticReason = !settings.stochasticTransparency().active()
+                ? RenderFeatureReason.DISABLED
+                : !stochasticEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
 
         List<RenderFeatureActivity> activities = new ArrayList<>();
         activities.add(activity(RenderFeature.MASTER, master,
@@ -101,6 +116,10 @@ final class RenderFeaturePolicy {
                         ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE));
         activities.add(child(RenderFeature.WATER_SURFACE, master, waterSurface,
                 RenderFeatureReason.DISABLED));
+        activities.add(child(RenderFeature.VOLUMETRIC_PARTICLES, master, volumetricParticles,
+                particleReason));
+        activities.add(child(RenderFeature.STOCHASTIC_TRANSPARENCY, master,
+                stochasticTransparency, stochasticReason));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -109,7 +128,8 @@ final class RenderFeaturePolicy {
                 effective(master, analyticFog), effective(master, antiAliasing),
                 effective(master, toneMapping), effective(master, colorGrading),
                 effective(master, hdrVfx), effective(master, preview),
-                effective(master, waterSurface),
+                effective(master, waterSurface), effective(master, volumetricParticles),
+                effective(master, stochasticTransparency),
                 List.copyOf(activities));
     }
 
@@ -237,6 +257,15 @@ final class RenderFeaturePolicy {
                 && !facts.hdrVfxFogOptOut()) {
             throw new IllegalArgumentException(
                     "custom HDR VFX must use hdrVfxWithFog or explicitly opt out of fog");
+        }
+        if (settings.volumetricParticles().active() && settings.volumetricFog().enabled()) {
+            // The particle pass consumes the fog-composited colour; declaring the same
+            // body as a positive LocalFogVolume would composite that medium twice.
+            settings.volumetricParticles().validateFogComposition(settings.volumetricFog());
+        }
+        if (settings.stochasticTransparency().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "stochastic transparency requires HDR tone mapping for linear compositing");
         }
     }
 }

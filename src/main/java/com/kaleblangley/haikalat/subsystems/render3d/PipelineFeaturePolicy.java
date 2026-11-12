@@ -49,6 +49,34 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
             throw new IllegalStateException(
                     "water surface does not compose with volumetric fog in this version");
         }
+        if (topology.volumetricParticles()) {
+            if (!topology.volumetricFog()) {
+                throw new IllegalStateException(
+                        "volumetric particles require the volumetric fog colour composition");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "volumetric particles require a resolved single-sample colour source");
+            }
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "volumetric particles require the shared single-sample opaque depth");
+            }
+        }
+        if (topology.stochasticTransparency()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "stochastic transparency requires HDR tone mapping for linear compositing");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "stochastic transparency requires a stable single-sample HDR target");
+            }
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "stochastic transparency requires the shared single-sample scene depth");
+            }
+        }
     }
 
     /**

@@ -13,6 +13,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirem
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.assets.MaterialModel;
@@ -52,7 +54,9 @@ public record PipelineTopology(int width,
                         SceneSurfaceLayout sceneSurface,
                         boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
                         boolean volumetricEmission,
-                        boolean waterSurface) {
+                        boolean waterSurface,
+                        boolean volumetricParticles,
+                        boolean stochasticTransparency) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -83,7 +87,7 @@ public record PipelineTopology(int width,
     }
 
     /** Graph replacement retains compatible targets at the same managed extent. */
-    boolean sameManagedExtent(PipelineTopology other) {
+    public boolean sameManagedExtent(PipelineTopology other) {
         return width == other.width && height == other.height && embedded == other.embedded;
     }
 
@@ -138,10 +142,33 @@ public record PipelineTopology(int width,
                                     boolean directionalShadowRequested, boolean pointShadowRequested,
                                     boolean spotShadowRequested,
                                     WaterSurfaceSettings waterSurface) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled());
+    }
+
+    /**
+     * Captures the complete topology key including the two opt-in composition
+     * features. An active request only changes the key when its required
+     * composition inputs exist, so an unavailable request stays a soft
+     * effective-state observation instead of silently altering the graph.
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(waterSurface, "waterSurface");
+        Objects.requireNonNull(volumetricParticles, "volumetricParticles");
+        Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
         boolean bloom = settings.bloomSettings().enabled();
         int samples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                 ? Math.max(2, settings.msaaSamples()) : 1;
@@ -164,6 +191,10 @@ public record PipelineTopology(int width,
                 break;
             }
         }
+        boolean particles = volumetricParticleCompositionActive(settings, volume,
+                volumetricParticles);
+        boolean stochastic = stochasticTransparencyCompositionActive(settings,
+                stochasticTransparency);
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -179,18 +210,52 @@ public record PipelineTopology(int width,
                 effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
                 sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled(),
-                        waterSurface.active()),
+                        waterSurface.active(), stochastic),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
-                volume.enabled() && volume.hasEmission(), waterSurface.active());
+                volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
+                stochastic);
+    }
+
+    /**
+     * A particle request participates only with an active volumetric-fog
+     * composition and a single-sample colour/depth raster.
+     */
+    public static boolean volumetricParticleCompositionActive(RenderSettings settings,
+                                                              VolumetricFogSettings fog,
+                                                              VolumetricParticleSettings particles) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(fog, "fog");
+        Objects.requireNonNull(particles, "particles");
+        return particles.active() && fog.enabled()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA;
+    }
+
+    /**
+     * Stochastic transparency is specified for a stable single-sample raster;
+     * MSAA and TAA have no compatible caller target/depth in this version.
+     */
+    public static boolean stochasticTransparencyCompositionActive(RenderSettings settings,
+                                                                  StochasticTransparencySettings stochastic) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(stochastic, "stochastic");
+        return stochastic.active()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && settings.antiAliasingMode() != AntiAliasingMode.TAA;
     }
 
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
                                                    PostProcessSettings effects, int samples,
                                                    boolean hdrVfx, boolean volume,
-                                                   boolean waterSurface) {
+                                                   boolean waterSurface,
+                                                   boolean stochasticTransparency) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
         // Analytic fog and depth of field both consume only the shared single-sample depth.
         if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
+            requirements = requirements.mergeView(SceneBufferRequirements.fog());
+        }
+        // The stochastic collection reprojects against the shared opaque depth; it
+        // never writes that depth.
+        if (stochasticTransparency) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         // Motion blur consumes the shared single-sample velocity and validity.
@@ -256,6 +321,7 @@ public record PipelineTopology(int width,
                 directionalShadowAtlasSize, pointShadowCapacity, pointShadowResolution,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
                 gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
-                volumetricFog, volumetricQuality, volumetricEmission, waterSurface);
+                volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency);
     }
 }
