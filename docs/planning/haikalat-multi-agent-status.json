@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "733d33ed"
+    "head": "49c7d04a"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1341,7 +1341,7 @@
       "featureIds": [
         42
       ],
-      "state": "TODO",
+      "state": "PARTIAL",
       "scope": "Variable Rate Shading",
       "dependencies": [
         null
@@ -1349,16 +1349,26 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "89a86ae..3027344a",
+      "integrationCommit": "49c7d04a",
+      "requiredCases": [
+        "VariableRateShadingCapabilityTest",
+        "VariableRateShadingPlanTest",
+        "VariableRateShadingSettingsTest",
+        "VariableRateShadingShaderContractTest",
+        "VariableRateShadingGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: capability 3, plan 6, settings 5, shader contract 6 (29 total with the GL-guarded class skipped)",
+        "GL PASS on worker 3ea3e2a9 and integration 49c7d04a: VariableRateShadingGlTest 6/6, 0 skipped, 0 failures, gate green",
+        "GPU rounds caught the dead probe uniform, missing TexSubImage barrier, single-entry palette query and indexed per-viewport enable; all fixed against NV_shading_rate_image rev.3"
+      ],
+      "review": "PENDING",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review; feature-control/demo exposure and EXT_fragment_shading_rate path remain"
     },
     {
       "taskId": "R43",
