@@ -220,6 +220,106 @@ class PlanarReflectionPipelineGlTest {
         }
     }
 
+    @Test
+    void throttledPlanarTargetReusesTheLastValidReflection() {
+        try (var window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("planar-water-throttle"));
+                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                Material material = Material.builder(shader).build();
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 3.0f, 6.0f)));
+                scene.add(new SceneObject(mesh, material, (model, frame) ->
+                        model.identity().translate(0.0f, 1.0f, 0.0f).scale(2.0f)));
+                var water = com.kaleblangley.haikalat.subsystems.render3d.water
+                        .WaterSurfaceSettings.builder().enabled(true).level(0.0f)
+                        .bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                        .waveSpeed(0.0f).waveAmplitude(0.0f).build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        hdrSettings()).waterSurface(water)
+                        .planarReflections(PlanarReflectionSettings.builder().enabled(true)
+                                .planeY(0.0f).maxResolution(128)
+                                .updateIntervalFrames(2).build());
+                try {
+                    pipeline.build();
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    PlanarReflectionPass pass = pipeline.activeGenerationForTest()
+                            .planarReflection();
+                    long firstUpdate = pass.updateCount();
+                    assertTrue(firstUpdate >= 1, "the first frame must record the reflection");
+                    float[] first = pipeline.captureLinearHdrRgbaFloat();
+
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertEquals(firstUpdate, pass.updateCount(),
+                            "the throttled frame must not record the reflection");
+                    assertArrayEquals(first, pipeline.captureLinearHdrRgbaFloat(),
+                            "water must keep sampling the last valid throttled reflection");
+
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertTrue(pass.updateCount() > firstUpdate,
+                            "the next interval must record the reflection again");
+                    assertTrue(pass.hasValidContent());
+                } finally {
+                    pipeline.close();
+                    material.close();
+                    shader.close();
+                    mesh.close();
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+            GlDebug.assertNoError("planar reflection throttling");
+        }
+    }
+
+    @Test
+    void cameraCutRefreshesThePlanarReflectionUsedByWater() {
+        try (var window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("planar-water-cut"));
+                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                Material material = Material.builder(shader).build();
+                Camera camera = new Camera(new Vector3f(0.0f, 3.0f, 6.0f));
+                Scene scene = new Scene(camera);
+                scene.add(new SceneObject(mesh, material, (model, frame) ->
+                        model.identity().translate(0.0f, 1.0f, 0.0f).scale(2.0f)));
+                var water = com.kaleblangley.haikalat.subsystems.render3d.water
+                        .WaterSurfaceSettings.builder().enabled(true).level(0.0f)
+                        .bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                        .waveSpeed(0.0f).waveAmplitude(0.0f).build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        hdrSettings()).waterSurface(water)
+                        .planarReflections(PlanarReflectionSettings.builder().enabled(true)
+                                .planeY(0.0f).maxResolution(128).build());
+                try {
+                    pipeline.build();
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    PlanarReflectionPass pass = pipeline.activeGenerationForTest()
+                            .planarReflection();
+                    long before = pass.updateCount();
+                    float[] first = pipeline.captureLinearHdrRgbaFloat();
+
+                    camera.setPosition(new Vector3f(1.5f, 3.5f, 5.0f));
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertTrue(pass.updateCount() > before,
+                            "a camera cut must record the reflection again");
+                    assertTrue(pass.hasValidContent());
+                    assertTrue(different(first, pipeline.captureLinearHdrRgbaFloat()),
+                            "the water reflection must follow the new camera view");
+                } finally {
+                    pipeline.close();
+                    material.close();
+                    shader.close();
+                    mesh.close();
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+            GlDebug.assertNoError("planar reflection camera cut");
+        }
+    }
+
     private static boolean different(float[] first, float[] second) {
         if (first.length != second.length) return true;
         for (int i = 0; i < first.length; i++) {
