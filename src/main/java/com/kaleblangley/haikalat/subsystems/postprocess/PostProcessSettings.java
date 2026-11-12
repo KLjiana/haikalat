@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
 import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
 
 import java.util.Objects;
 
@@ -15,7 +16,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                   SsrSettings ssr,
                                   TemporalDenoiseSettings temporalDenoise,
                                   TemporalUpscalingSettings temporalUpscaling,
-                                  SubsurfaceScatteringSettings subsurfaceScattering) {
+                                  SubsurfaceScatteringSettings subsurfaceScattering,
+                                  VariableRateShadingSettings variableRateShading) {
     /** Source-compatible constructor retained for existing callers. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog) {
         this(colorGrading, fog, GtaoSettings.disabled(), VignetteSettings.disabled(),
@@ -23,7 +25,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before v0.28.1. */
@@ -34,7 +36,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before grain/aberration. */
@@ -44,7 +46,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ChromaticAberrationSettings.disabled(), ScreenDistortionSettings.disabled(),
                 DepthOfFieldSettings.disabled(), MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before screen distortion. */
@@ -56,7 +59,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before depth of field. */
@@ -68,7 +71,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, DepthOfFieldSettings.disabled(), MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before motion blur. */
@@ -81,7 +85,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before screen-space reflections. */
@@ -95,7 +100,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal denoise. */
@@ -110,7 +115,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr,
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal upscaling. */
@@ -125,7 +130,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                TemporalDenoiseSettings temporalDenoise) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
-                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before subsurface scattering. */
@@ -141,7 +146,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                TemporalUpscalingSettings temporalUpscaling) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
-                temporalUpscaling, SubsurfaceScatteringSettings.disabled());
+                temporalUpscaling, SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     public PostProcessSettings {
@@ -158,6 +163,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         Objects.requireNonNull(temporalDenoise, "temporalDenoise");
         Objects.requireNonNull(temporalUpscaling, "temporalUpscaling");
         Objects.requireNonNull(subsurfaceScattering, "subsurfaceScattering");
+        Objects.requireNonNull(variableRateShading, "variableRateShading");
     }
 
     public static PostProcessSettings defaults() {
@@ -167,7 +173,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), VariableRateShadingSettings.disabled());
     }
 
     /** Returns a copy with GTAO replaced and every other effect preserved. */
@@ -175,7 +181,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
                 vignette, filmGrain, chromaticAberration, screenDistortion, depthOfField,
                 motionBlur, ssr, temporalDenoise, temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, variableRateShading);
     }
 
     /** Returns a copy with depth of field replaced and every other effect preserved. */
@@ -183,7 +189,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion,
                 Objects.requireNonNull(value, "depthOfField"), motionBlur, ssr,
-                temporalDenoise, temporalUpscaling, subsurfaceScattering);
+                temporalDenoise, temporalUpscaling, subsurfaceScattering, variableRateShading);
     }
 
     /** Returns a copy with motion blur replaced and every other effect preserved. */
@@ -191,7 +197,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField,
                 Objects.requireNonNull(value, "motionBlur"), ssr, temporalDenoise,
-                temporalUpscaling, subsurfaceScattering);
+                temporalUpscaling, subsurfaceScattering, variableRateShading);
     }
 
     /** Returns a copy with screen-space reflections replaced and every other effect preserved. */
@@ -199,7 +205,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur,
                 Objects.requireNonNull(value, "ssr"), temporalDenoise, temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, variableRateShading);
     }
 
     /** Returns a copy with temporal denoising replaced and every other effect preserved. */
@@ -207,7 +213,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 Objects.requireNonNull(value, "temporalDenoise"), temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, variableRateShading);
     }
 
     /** Returns a copy with temporal upscaling replaced and every other effect preserved. */
@@ -215,7 +221,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 temporalDenoise, Objects.requireNonNull(value, "temporalUpscaling"),
-                subsurfaceScattering);
+                subsurfaceScattering, variableRateShading);
     }
 
     /**
@@ -228,7 +234,19 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 temporalDenoise, temporalUpscaling,
-                Objects.requireNonNull(value, "subsurfaceScattering"));
+                Objects.requireNonNull(value, "subsurfaceScattering"), variableRateShading);
+    }
+
+    /**
+     * Returns a copy with the selective shading-rate request replaced and every
+     * other effect preserved. The request only becomes active when the declared
+     * subsurface consumer is active and the runtime capability supports it.
+     */
+    public PostProcessSettings withVariableRateShading(VariableRateShadingSettings value) {
+        return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
+                chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
+                temporalDenoise, temporalUpscaling, subsurfaceScattering,
+                Objects.requireNonNull(value, "variableRateShading"));
     }
 
     public static Builder builder() {
@@ -251,6 +269,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         private TemporalUpscalingSettings temporalUpscaling = TemporalUpscalingSettings.disabled();
         private SubsurfaceScatteringSettings subsurfaceScattering =
                 SubsurfaceScatteringSettings.disabled();
+        private VariableRateShadingSettings variableRateShading =
+                VariableRateShadingSettings.disabled();
 
         private Builder() {
         }
@@ -320,10 +340,15 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
             return this;
         }
 
+        public Builder variableRateShading(VariableRateShadingSettings value) {
+            variableRateShading = Objects.requireNonNull(value, "variableRateShading");
+            return this;
+        }
+
         public PostProcessSettings build() {
             return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                     chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
-                    temporalDenoise, temporalUpscaling, subsurfaceScattering);
+                    temporalDenoise, temporalUpscaling, subsurfaceScattering, variableRateShading);
         }
     }
 }

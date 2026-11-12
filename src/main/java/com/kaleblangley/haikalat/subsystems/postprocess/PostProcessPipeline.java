@@ -34,6 +34,9 @@ import com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistort
 import com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingInputs;
 import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingPass;
+import com.kaleblangley.haikalat.backend.vrs.VariableRateShadingCapability;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
 
 import org.joml.Matrix4f;
 
@@ -72,6 +75,8 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final MotionBlurPass motionBlur;
     private final SsrPass ssr;
     private final SubsurfaceScatteringPass subsurfaceScattering;
+    private final VariableRateShadingPass variableRateShading;
+    private final String variableRateShadingStatus;
     private final TemporalDenoisePass temporalDenoise;
     private final TemporalUpscalingPass temporalUpscaling;
     private final TemporalUpscalingSource temporalUpscalingSource;
@@ -103,6 +108,8 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 MotionBlurPass motionBlur,
                                 SsrPass ssr,
                                 SubsurfaceScatteringPass subsurfaceScattering,
+                                VariableRateShadingPass variableRateShading,
+                                String variableRateShadingStatus,
                                 TemporalDenoisePass temporalDenoise,
                                 TemporalUpscalingPass temporalUpscaling,
                                 TemporalUpscalingSource temporalUpscalingSource,
@@ -129,6 +136,8 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.motionBlur = motionBlur;
         this.ssr = ssr;
         this.subsurfaceScattering = subsurfaceScattering;
+        this.variableRateShading = variableRateShading;
+        this.variableRateShadingStatus = variableRateShadingStatus;
         this.temporalDenoise = temporalDenoise;
         this.temporalUpscaling = temporalUpscaling;
         this.temporalUpscalingSource = temporalUpscalingSource;
@@ -265,6 +274,16 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "screen-space subsurface scattering requires HDR tone mapping");
             }
+            if (effects.variableRateShading().active()
+                    && !effects.subsurfaceScattering().screenSpaceActive()) {
+                throw new IllegalArgumentException(
+                        "variable rate shading requires the declared screen-space subsurface "
+                                + "scattering consumer");
+            }
+            if (effects.variableRateShading().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "variable rate shading requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -328,6 +347,27 @@ public final class PostProcessPipeline implements AutoCloseable {
                             () -> new SubsurfaceScatteringPass(
                                     effects.subsurfaceScattering()),
                             owned, borrowed) : null;
+            VariableRateShadingPass variableRateShading = null;
+            String variableRateShadingStatus = "disabled";
+            VariableRateShadingSettings shadingRequest = effects.variableRateShading();
+            if (shadingRequest.active()) {
+                VariableRateShadingCapability capability =
+                        VariableRateShadingCapability.inspectCurrent();
+                VariableRateShadingSettings.Decision decision = shadingRequest.decide(capability);
+                if (decision == VariableRateShadingSettings.Decision.ACTIVE_NV_IMAGE) {
+                    variableRateShading = new VariableRateShadingPass(shadingRequest, capability,
+                            width, height);
+                    owned.add(variableRateShading);
+                    variableRateShadingStatus = "active:" + shadingRequest.summary()
+                            + ":" + capability.summary();
+                } else {
+                    // Fail closed: no rate image, no scope commands, no silent pass. The
+                    // consumer keeps rendering at full rate and the diagnostics call it
+                    // a fallback rather than an active VRS path.
+                    variableRateShadingStatus = "fallback:" + shadingRequest.summary()
+                            + ":" + capability.unsupportedReason();
+                }
+            }
             TemporalDenoisePass temporalDenoise = null;
             if (effects.temporalDenoise().active()) {
                 temporalDenoise = new TemporalDenoisePass(effects.temporalDenoise(),
@@ -345,7 +385,8 @@ public final class PostProcessPipeline implements AutoCloseable {
             }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, ssr, subsurfaceScattering, temporalDenoise,
+                    depthOfField, motionBlur, ssr, subsurfaceScattering, variableRateShading,
+                    variableRateShadingStatus, temporalDenoise,
                     temporalUpscaling,
                     effects.temporalUpscaling().active() ? temporalUpscalingSource : null,
                     hdrVfx, surfaceInputs, ssrEnvironment, lateSurface, owned, borrowed, donor);
@@ -934,13 +975,25 @@ public final class PostProcessPipeline implements AutoCloseable {
                     throw new IllegalStateException(
                             "screen-space subsurface scattering requires a started frame pose");
                 }
-                subsurfaceScattering.recordIntoCurrentTarget(cmd,
-                        res.colorAttachment(diffusionInput),
-                        surfaceInputs.texture(res, diffusionDepth),
-                        surfaceInputs.texture(res, diffusionNormal),
-                        surfaceInputs.texture(res, diffusionMask),
-                        frame.inverseJitteredProjection(), frame.inverseView(),
-                        graph.width(), graph.height());
+                VariableRateShadingPass shading = variableRateShading;
+                boolean shadingBegan = false;
+                if (shading != null) {
+                    shading.recordBegin(cmd);
+                    shadingBegan = true;
+                }
+                try {
+                    subsurfaceScattering.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(diffusionInput),
+                            surfaceInputs.texture(res, diffusionDepth),
+                            surfaceInputs.texture(res, diffusionNormal),
+                            surfaceInputs.texture(res, diffusionMask),
+                            frame.inverseJitteredProjection(), frame.inverseView(),
+                            graph.width(), graph.height());
+                } finally {
+                    if (shadingBegan) {
+                        shading.recordEnd(cmd);
+                    }
+                }
             });
             hdrTexture = PostProcessTargets.SUBSURFACE_SCATTERING_COLOR;
             hdrProducer = PostProcessTargets.SUBSURFACE_SCATTERING_PASS;
@@ -1222,6 +1275,32 @@ public final class PostProcessPipeline implements AutoCloseable {
         return linearHdrTextureName;
     }
 
+    /** @return the requested selective shading-rate settings, active or not */
+    public VariableRateShadingSettings variableRateShadingRequest() {
+        return effects.variableRateShading();
+    }
+
+    /**
+     * @return whether the NV per-tile shading-rate scope is actually applied to
+     *         the declared consumer; false for a disabled request or a fallback
+     */
+    public boolean variableRateShadingActive() {
+        return variableRateShading != null;
+    }
+
+    /**
+     * Effective status of the shading-rate request.
+     *
+     * <p>Possible prefixes are {@code disabled:}, {@code active:} and
+     * {@code fallback:}.  A fallback keeps the consumer at full rate and is
+     * never evidence that variable rate shading is implemented on this driver.</p>
+     *
+     * @return a stable one-line status suitable for logs and acceptance reports
+     */
+    public String variableRateShadingStatus() {
+        return variableRateShadingStatus;
+    }
+
     private void recordFinalPass(String passName) {
         if (finalPassName != null) {
             throw new IllegalStateException("Final backbuffer pass has already been recorded: "
@@ -1368,13 +1447,17 @@ public final class PostProcessPipeline implements AutoCloseable {
         TaaHistory.ResizeCandidate taa = temporal == null
                 ? null : temporal.prepareResize(width, height);
         TemporalDenoisePass.ResizeCandidate denoiseCandidate = null;
+        VariableRateShadingPass.ResizeCandidate shadingCandidate = null;
         try {
             denoiseCandidate = temporalDenoise == null
                     ? null : temporalDenoise.prepareResize(width, height);
-            return new ResizeCandidate(this, taa, denoiseCandidate);
+            shadingCandidate = variableRateShading == null
+                    ? null : variableRateShading.prepareResize(width, height);
+            return new ResizeCandidate(this, taa, denoiseCandidate, shadingCandidate);
         } catch (RuntimeException | Error failure) {
             closeAfterFailure(taa, failure);
             closeAfterFailure(denoiseCandidate, failure);
+            closeAfterFailure(shadingCandidate, failure);
             throw failure;
         }
     }
@@ -1396,15 +1479,18 @@ public final class PostProcessPipeline implements AutoCloseable {
         private final PostProcessPipeline owner;
         private final TaaHistory.ResizeCandidate taaCandidate;
         private final TemporalDenoisePass.ResizeCandidate denoiseCandidate;
+        private final VariableRateShadingPass.ResizeCandidate shadingCandidate;
         private boolean committed;
         private boolean closed;
 
         private ResizeCandidate(PostProcessPipeline owner,
                                 TaaHistory.ResizeCandidate taaCandidate,
-                                TemporalDenoisePass.ResizeCandidate denoiseCandidate) {
+                                TemporalDenoisePass.ResizeCandidate denoiseCandidate,
+                                VariableRateShadingPass.ResizeCandidate shadingCandidate) {
             this.owner = owner;
             this.taaCandidate = taaCandidate;
             this.denoiseCandidate = denoiseCandidate;
+            this.shadingCandidate = shadingCandidate;
         }
 
         void validateFor(PostProcessPipeline expectedOwner) {
@@ -1422,6 +1508,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             }
             if (denoiseCandidate != null) {
                 owner.temporalDenoise.commitResize(denoiseCandidate);
+            }
+            if (shadingCandidate != null) {
+                owner.variableRateShading.commitResize(shadingCandidate);
             }
             committed = true;
         }
@@ -1441,6 +1530,14 @@ public final class PostProcessPipeline implements AutoCloseable {
             if (denoiseCandidate != null) {
                 try {
                     denoiseCandidate.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
+                }
+            }
+            if (shadingCandidate != null) {
+                try {
+                    shadingCandidate.close();
                 } catch (RuntimeException closeFailure) {
                     if (failure == null) failure = closeFailure;
                     else failure.addSuppressed(closeFailure);

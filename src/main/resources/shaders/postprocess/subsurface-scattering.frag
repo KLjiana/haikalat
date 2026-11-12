@@ -8,6 +8,12 @@
 // reconstructed view position at the same depth), rejects depth/normal
 // boundaries, protects specular highlights and leaves a non-scattering pixel
 // bit-exact. There is no history, no private target and no read-back.
+//
+// This pass is the declared consumer of selective fragment shading rate
+// (feature #42). Colour and depth samples use an explicit LOD 0 so a coarse
+// fragment footprint cannot change implicit-derivative LOD selection; the
+// surface mask and normals already use texelFetch. All inputs have a single
+// mip level, so the explicit LOD is behaviour-preserving at 1x1 shading rate.
 
 in vec2 vUv;
 
@@ -84,9 +90,9 @@ float highlightProtection(vec3 color) {
 
 void main() {
     vec2 uv = gl_FragCoord.xy / uViewportSize;
-    vec4 centerColor = texture(uColor, uv);
+    vec4 centerColor = textureLod(uColor, uv, 0.0);
     vec4 centerMask = texelFetch(uSubsurface, ivec2(gl_FragCoord.xy), 0);
-    float centerDeviceDepth = texture(uDepth, uv).r;
+    float centerDeviceDepth = textureLod(uDepth, uv, 0.0).r;
     bool centerValid = centerMask.r > 0.0 && centerMask.a > 0.5
             && centerDeviceDepth < 1.0;
     if (!centerValid) {
@@ -139,7 +145,7 @@ void main() {
         vec4 sampleMask = texelFetch(uSubsurface, samplePixel, 0);
         if (sampleMask.r <= 0.0 || sampleMask.a <= 0.5) continue;
 
-        float sampleDeviceDepth = texture(uDepth, sampleUv).r;
+        float sampleDeviceDepth = textureLod(uDepth, sampleUv, 0.0).r;
         if (sampleDeviceDepth >= 1.0) continue;
         vec3 sampleView = viewPosition(sampleUv, sampleDeviceDepth);
         if (!(sampleView.z < 0.0)) continue;
@@ -159,7 +165,7 @@ void main() {
                 SUBSURFACE_DEPTH_TOLERANCE * abs(centerView.z));
         if (abs(dot(delta, centerNormal)) > tolerance) continue;
 
-        vec3 sampleColor = texture(uColor, sampleUv).rgb;
+        vec3 sampleColor = textureLod(uColor, sampleUv, 0.0).rgb;
         float radial = length(tap);
         float weight = exp(-SUBSURFACE_KERNEL_FALLOFF * radial * radial);
         // A bright specular tap contributes little to the diffusion halo, so a
