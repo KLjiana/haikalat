@@ -98,6 +98,8 @@ def jvmCases = [
         'HairStrandSettingsTest', 'HairStrandReferenceTest', 'HairStrandShaderTest',
         'SmokeSimulationSettingsTest', 'SmokeSimulationReferenceTest',
         'SmokeShaderContractTest', 'SmokeCompositionTest',
+        'AdaptiveSamplingSettingsTest', 'AdaptiveSamplingReferenceTest',
+        'AdaptiveSamplingShaderContractTest', 'AdaptiveSamplingWiringTest',
         'SsgiSettingsTest', 'SsgiIndirectReferenceTest', 'SsgiShaderTest',
         'SsgiPipelineCompositionTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
@@ -144,6 +146,7 @@ def glCases = [
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
         'SsgiPassGlTest',
+        'SsrAdaptiveSamplingGlTest',
         'SmokeSimulationGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',

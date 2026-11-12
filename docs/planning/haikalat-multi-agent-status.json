@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "a87ce2c"
+    "head": "7fd336d"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1256,12 +1256,12 @@
         "GL PASS on worker 2df84e4 and integration 896e113: SsgiPassGlTest 8/8, 0 skipped, 0 failures, gate green",
         "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #39; RenderPipeline/feature-control exposure remains"
+      "nextAction": "SSGI needs RenderFeature/policy exposure and an ALBEDO MSAA resolve GL case; the non-PBR policy error now names SSR and SSGI"
     },
     {
       "taskId": "R40",

@@ -327,3 +327,5 @@ v0.28.1（候选）S4 #38/#37 生产接线没有删除 stable 类型或修改稳
 `docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、限制与接线验证见
 [体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)与
 [随机透明技术卡](../../planning/v0.28.1-s4-stochastic-transparency.md)。
+
+v0.28.1（候选）S5 #39 与 S4 #41 没有删除 stable 类型或修改稳定签名。advanced `PostProcessSettings` canonical record 扩展为 15 个组件（新增 `ssgi`、`adaptiveSampling`）；原有构造器全部保留，新组件默认 `disabled()`。新增 advanced `postprocess.SsgiSettings`、`postprocess.ssgi.SsgiPass`、`postprocess.AdaptiveSamplingSettings`，以及 `SsrPass` 的自适应重载；共享 surface 新增 `ALBEDO` 通道。SSGI 与 temporal upscaling 在装配期互斥；adaptive sampling 要求 SSR active + HDR 且 ceiling ≤ SSR maxSteps。
