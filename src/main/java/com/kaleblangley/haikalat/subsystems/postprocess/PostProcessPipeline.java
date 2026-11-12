@@ -17,6 +17,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureCha
 import com.kaleblangley.haikalat.subsystems.postprocess.fog.FogChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.ssgi.SsgiPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.sss.SubsurfaceScatteringPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
@@ -71,6 +72,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final DepthOfFieldPass depthOfField;
     private final MotionBlurPass motionBlur;
     private final SsrPass ssr;
+    private final SsgiPass ssgi;
     private final SubsurfaceScatteringPass subsurfaceScattering;
     private final TemporalDenoisePass temporalDenoise;
     private final TemporalUpscalingPass temporalUpscaling;
@@ -78,6 +80,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final SsrEnvironmentSource ssrEnvironment;
+    private final SsgiEnvironmentSource ssgiEnvironment;
     private final LateSurfaceProducer lateSurface;
     private float manualExposure;
     private float deltaSeconds = 1.0f / 60.0f;
@@ -102,6 +105,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 DepthOfFieldPass depthOfField,
                                 MotionBlurPass motionBlur,
                                 SsrPass ssr,
+                                SsgiPass ssgi,
                                 SubsurfaceScatteringPass subsurfaceScattering,
                                 TemporalDenoisePass temporalDenoise,
                                 TemporalUpscalingPass temporalUpscaling,
@@ -109,6 +113,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 SsrEnvironmentSource ssrEnvironment,
+                                SsgiEnvironmentSource ssgiEnvironment,
                                 LateSurfaceProducer lateSurface,
                                 List<AutoCloseable> owned, List<AutoCloseable> borrowed,
                                 PostProcessPipeline donor) {
@@ -128,6 +133,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.depthOfField = depthOfField;
         this.motionBlur = motionBlur;
         this.ssr = ssr;
+        this.ssgi = ssgi;
         this.subsurfaceScattering = subsurfaceScattering;
         this.temporalDenoise = temporalDenoise;
         this.temporalUpscaling = temporalUpscaling;
@@ -135,6 +141,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.ssrEnvironment = ssrEnvironment;
+        this.ssgiEnvironment = ssgiEnvironment;
         this.lateSurface = lateSurface;
         this.owned = owned;
         this.borrowed = borrowed;
@@ -193,8 +200,26 @@ public final class PostProcessPipeline implements AutoCloseable {
                                              LateSurfaceProducer lateSurface,
                                              SsrEnvironmentSource ssrEnvironment,
                                              TemporalUpscalingSource temporalUpscalingSource) {
-        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
+        return create(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
                 ssrEnvironment, temporalUpscalingSource, null);
+    }
+
+    /**
+     * Creates the colour chain with a borrowed irradiance environment for
+     * screen-space indirect diffuse. The source is optional: without one the
+     * pass uses the request's uniform ambient fallback and still contributes a
+     * bounded, non-black offscreen approximation.
+     */
+    public static PostProcessPipeline create(RenderSettings settings, PostProcessSettings effects,
+                                             int width, int height,
+                                             RenderGraph.PassExecutor hdrVfx,
+                                             SurfaceInputs surfaceInputs,
+                                             LateSurfaceProducer lateSurface,
+                                             SsrEnvironmentSource ssrEnvironment,
+                                             TemporalUpscalingSource temporalUpscalingSource,
+                                             SsgiEnvironmentSource ssgiEnvironment) {
+        return assemble(settings, effects, width, height, hdrVfx, surfaceInputs, lateSurface,
+                ssrEnvironment, temporalUpscalingSource, ssgiEnvironment, null);
     }
 
     private static PostProcessPipeline assemble(RenderSettings settings, PostProcessSettings effects,
@@ -202,6 +227,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                                 SurfaceInputs surfaceInputs, LateSurfaceProducer lateSurface,
                                                 SsrEnvironmentSource ssrEnvironment,
                                                 TemporalUpscalingSource temporalUpscalingSource,
+                                                SsgiEnvironmentSource ssgiEnvironment,
                                                 PostProcessPipeline donor) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -265,6 +291,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "screen-space subsurface scattering requires HDR tone mapping");
             }
+            if (effects.ssgi().active() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "screen-space indirect diffuse requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -319,6 +349,12 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.ssr : null,
                             () -> new SsrPass(effects.ssr()),
                             owned, borrowed) : null;
+            SsgiPass ssgi = effects.ssgi().active()
+                    ? reuseOrCreate(donor != null && donor.ssgi != null
+                                    && donor.ssgi.settings().equals(effects.ssgi())
+                                    ? donor.ssgi : null,
+                            () -> new SsgiPass(effects.ssgi()),
+                            owned, borrowed) : null;
             SubsurfaceScatteringPass subsurfaceScattering =
                     effects.subsurfaceScattering().screenSpaceActive()
                     ? reuseOrCreate(donor != null && donor.subsurfaceScattering != null
@@ -345,10 +381,11 @@ public final class PostProcessPipeline implements AutoCloseable {
             }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, ssr, subsurfaceScattering, temporalDenoise,
+                    depthOfField, motionBlur, ssr, ssgi, subsurfaceScattering, temporalDenoise,
                     temporalUpscaling,
                     effects.temporalUpscaling().active() ? temporalUpscalingSource : null,
-                    hdrVfx, surfaceInputs, ssrEnvironment, lateSurface, owned, borrowed, donor);
+                    hdrVfx, surfaceInputs, ssrEnvironment, ssgiEnvironment, lateSurface, owned,
+                    borrowed, donor);
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
@@ -500,10 +537,30 @@ public final class PostProcessPipeline implements AutoCloseable {
                                                    LateSurfaceProducer replacementLateSurface,
                                                    SsrEnvironmentSource replacementSsrEnvironment,
                                                    TemporalUpscalingSource replacementUpscalingSource) {
+        return replacementAssembly(replacement, replacementEffects, width, height,
+                replacementSurface, vfx, replacementLateSurface, replacementSsrEnvironment,
+                replacementUpscalingSource, null);
+    }
+
+    /**
+     * Candidate assembly with the borrowed SSGI environment. A candidate that
+     * keeps screen-space indirect diffuse active must carry the source it was
+     * assembled with; a missing source simply selects the uniform ambient
+     * fallback and is not an error.
+     */
+    public PostProcessPipeline replacementAssembly(RenderSettings replacement,
+                                                   PostProcessSettings replacementEffects,
+                                                   int width, int height,
+                                                   SurfaceInputs replacementSurface,
+                                                   RenderGraph.PassExecutor vfx,
+                                                   LateSurfaceProducer replacementLateSurface,
+                                                   SsrEnvironmentSource replacementSsrEnvironment,
+                                                   TemporalUpscalingSource replacementUpscalingSource,
+                                                   SsgiEnvironmentSource replacementSsgiEnvironment) {
         if (closed || donor != null) throw new IllegalStateException("invalid postprocess donor");
         return assemble(replacement, replacementEffects, width, height, vfx,
                 replacementSurface, replacementLateSurface, replacementSsrEnvironment,
-                replacementUpscalingSource, this);
+                replacementUpscalingSource, replacementSsgiEnvironment, this);
     }
 
     public void validateTransferTo(PostProcessPipeline candidate) {
@@ -642,6 +699,16 @@ public final class PostProcessPipeline implements AutoCloseable {
                     requireInput(SurfaceInputs.Channel.NORMAL));
             surfaceInputs.validateDependency(PostProcessTargets.SSR_PASS,
                     requireInput(SurfaceInputs.Channel.ROUGHNESS));
+        }
+        if (ssgi != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                    requireInput(SurfaceInputs.Channel.DEPTH));
+            surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                    requireInput(SurfaceInputs.Channel.NORMAL));
+            surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                    requireInput(SurfaceInputs.Channel.ROUGHNESS));
+            surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                    requireInput(SurfaceInputs.Channel.ALBEDO));
         }
         if (subsurfaceScattering != null) {
             surfaceInputs.validateDependency(PostProcessTargets.SUBSURFACE_SCATTERING_PASS,
@@ -906,6 +973,47 @@ public final class PostProcessPipeline implements AutoCloseable {
             addTaaPass(graph, hdrTexture, hdrProducer);
             hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.TAA_PASS;
+        }
+
+        if (ssgi != null) {
+            final String indirectInput = hdrTexture;
+            final String indirectProducer = hdrProducer;
+            SurfaceInputs.Input giDepth = requireInput(SurfaceInputs.Channel.DEPTH);
+            SurfaceInputs.Input giNormal = requireInput(SurfaceInputs.Channel.NORMAL);
+            SurfaceInputs.Input giRoughness = requireInput(SurfaceInputs.Channel.ROUGHNESS);
+            SurfaceInputs.Input giAlbedo = requireInput(SurfaceInputs.Channel.ALBEDO);
+            var indirectPass = graph.addPass(PostProcessTargets.SSGI_PASS)
+                    .createColor(PostProcessTargets.SSGI_COLOR, RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(indirectProducer);
+            for (String producer : uniqueSurfaceProducers(indirectProducer,
+                    List.of(giDepth, giNormal, giRoughness, giAlbedo))) {
+                if (!graph.hasPass(producer)) {
+                    throw new IllegalStateException(
+                            "screen-space indirect diffuse requires surface producer "
+                                    + producer);
+                }
+                indirectPass.dependsOn(producer);
+            }
+            indirectPass.execute((res, cmd) -> {
+                TemporalFramePose frame = framePose;
+                if (frame == null) {
+                    throw new IllegalStateException(
+                            "screen-space indirect diffuse requires a started frame pose");
+                }
+                Matrix4f projection = new Matrix4f(frame.inverseJitteredProjection()).invert();
+                Matrix4f view = new Matrix4f(frame.inverseView()).invert();
+                ssgi.recordIntoCurrentTarget(cmd,
+                        res.colorAttachment(indirectInput),
+                        surfaceInputs.texture(res, giDepth),
+                        surfaceInputs.texture(res, giNormal),
+                        surfaceInputs.texture(res, giRoughness),
+                        surfaceInputs.texture(res, giAlbedo),
+                        frame.inverseJitteredProjection(), projection,
+                        view, ssgiEnvironment, graph.width(), graph.height());
+            });
+            hdrTexture = PostProcessTargets.SSGI_COLOR;
+            hdrProducer = PostProcessTargets.SSGI_PASS;
         }
 
         if (subsurfaceScattering != null) {

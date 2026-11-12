@@ -87,6 +87,15 @@ public final class SceneBufferRequirements {
                 SceneBufferChannel.SUBSURFACE);
     }
 
+    /**
+     * Screen-space indirect diffuse needs depth and world normals for the
+     * hemisphere march, the hit roughness gate and the receiver albedo weight.
+     */
+    public static SceneBufferRequirements ssgi() {
+        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
+                SceneBufferChannel.ROUGHNESS, SceneBufferChannel.ALBEDO);
+    }
+
     /** Native TAA surface data; reactive is requested only when a producer exists. */
     public static SceneBufferRequirements taa(boolean reactive) {
         EnumSet<SceneBufferChannel> set = EnumSet.of(SceneBufferChannel.DEPTH,

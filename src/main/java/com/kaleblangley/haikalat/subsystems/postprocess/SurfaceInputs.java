@@ -19,6 +19,8 @@ public interface SurfaceInputs {
         DEPTH,
         NORMAL,
         ROUGHNESS,
+        /** Linear material albedo; consumed by screen-space indirect diffuse. */
+        ALBEDO,
         SUBSURFACE,
         VELOCITY,
         PREVIOUS_SURFACE_DEPTH,

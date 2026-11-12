@@ -22,6 +22,10 @@ uniform sampler2DMS uValidity;
 layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
 uniform sampler2DMS uRoughness;
 #endif
+#ifdef SCENE_SLOT_ALBEDO
+layout(location = SCENE_SLOT_ALBEDO) out vec4 outAlbedo;
+uniform sampler2DMS uAlbedo;
+#endif
 #ifdef SCENE_SLOT_SUBSURFACE
 layout(location = SCENE_SLOT_SUBSURFACE) out vec4 outSubsurface;
 uniform sampler2DMS uSubsurface;
@@ -58,6 +62,9 @@ void main() {
 #ifdef SCENE_SLOT_ROUGHNESS
         outRoughness = 1.0;
 #endif
+#ifdef SCENE_SLOT_ALBEDO
+        outAlbedo = vec4(0.0);
+#endif
 #ifdef SCENE_SLOT_SUBSURFACE
         outSubsurface = vec4(0.0);
 #endif
@@ -79,6 +86,9 @@ void main() {
 #endif
 #ifdef SCENE_SLOT_ROUGHNESS
     outRoughness = texelFetch(uRoughness, pixel, best).r;
+#endif
+#ifdef SCENE_SLOT_ALBEDO
+    outAlbedo = texelFetch(uAlbedo, pixel, best);
 #endif
 #ifdef SCENE_SLOT_SUBSURFACE
     outSubsurface = texelFetch(uSubsurface, pixel, best);

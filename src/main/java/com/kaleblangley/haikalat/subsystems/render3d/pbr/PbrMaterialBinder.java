@@ -83,6 +83,18 @@ public final class PbrMaterialBinder implements AutoCloseable {
         return environment.prefilteredSpecular().mipLevels() - 1.0f;
     }
 
+    /**
+     * Binds the borrowed irradiance cube for an ambient/GI consumer that samples
+     * the same environment the forward IBL diffuse term uses. The caller owns
+     * the unit assignment; this binder's sampler matches the PBR forward pass.
+     *
+     * @return true when the borrowed irradiance cube was bound
+     */
+    public boolean bindIrradiance(CommandBuffer cmd, int unit) {
+        cmd.bindTextureCube(unit, environment.irradiance(), cubeSampler);
+        return true;
+    }
+
     /** @return the current environment intensity override */
     public float environmentIntensity() {
         return intensity;
