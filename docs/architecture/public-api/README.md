@@ -324,3 +324,13 @@ RGBA16F 颜色附件，不写共享不透明深度。两者要求 HDR + 单采�
 与 `SmokeVolumePass.COLOR_TEXTURE` 是图颜色附件逻辑名。没有新增 public 顶层类型，
 `render3d.allowlist` 无需新增条目；迁移说明见[迁移记录](migrations.md)，接线合同见
 [体积云技术卡](../../planning/v0.28.1-s4-clouds.md)与[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。
+
+v0.28.1 F2 #15/#26/#27 新增 advanced `render3d.vfx.GpuParticleVfx`（固定 60 Hz 步长、每步发射预算、
+暂停/恢复/取消/回放状态机、none/GPU 排序选择与 bounded 统计；CPU 排序因 owner 不读回 active set 在
+配置期 fail-closed），并新增 `VfxRenderer.recordGpuParticles(...)` 生产入口及其显式
+`GpuParticleVfx.Boundary` 重载。`GpuParticleVfx` 不拥有 GL 资源，粒子 storage/indirect 命令仍由
+`GpuParticleSystem` 拥有；`VfxRenderer.resizeGpuParticles(...)` 走 owner 的 `resized(...)` 候选事务，
+失败保留旧 owner 与 consumer 状态。GPU 粒子是独立的深度测试透明 draw（不写深度），不计入调用方的
+weighted-OIT/随机透明 surface 集；同色目标上必须在这些 collector 之前记录，声称属于其 surface 集会在
+录制任何命令前抛 `IllegalArgumentException`。`VfxRenderer` 的既有 `record`/`prepare` 入口保持源码兼容，
+本类型未进入 `RenderFeatureSettings`，也未修改 `RenderPipeline`。

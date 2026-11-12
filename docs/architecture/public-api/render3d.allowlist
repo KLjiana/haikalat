@@ -192,6 +192,8 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings
 # v0.28.1 S3 #15 bounded depth-based GPU particle collision settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionSettings
+# v0.28.1 F2 #15/#26/#27 production VFX consumer for the GPU particle owner.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleVfx
 # v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass

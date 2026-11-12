@@ -42,6 +42,7 @@ public final class VfxRenderer implements AutoCloseable {
     private final Mesh quad;
     private final VfxTextureCache textureCache;
     private final VfxNoiseTexture noiseTexture;
+    private final GpuParticleVfx gpuParticles = new GpuParticleVfx();
     // Projected decals are optional: the program and volume cube are created on
     // the first active frame so a disabled renderer owns no extra GPU resource.
     private ShaderProgram projectedDecalShader;
@@ -252,6 +253,117 @@ public final class VfxRenderer implements AutoCloseable {
         }
         return new ProjectedDecalStatistics(plan.submitted(), plan.size(),
                 plan.rejected(), plan.size());
+    }
+
+    /**
+     * The production GPU-particle consumer owned by this renderer.
+     *
+     * <p>It carries the fixed-step lifecycle, emission budget, sorting
+     * selection and bounded statistics; the caller still owns the
+     * {@link GpuParticleSystem} and passes it to {@link #recordGpuParticles}.
+     * The consumer allocates no GL resource, so closing this renderer needs no
+     * extra GPU teardown for it.</p>
+     *
+     * @return the GPU-particle consumer
+     */
+    public GpuParticleVfx gpuParticleVfx() {
+        ensureOpen();
+        return gpuParticles;
+    }
+
+    /**
+     * Replaces the GPU-particle consumer configuration.
+     *
+     * @param settings fixed step, emission budget and sorting selection
+     * @return this renderer
+     */
+    public VfxRenderer gpuParticleSettings(GpuParticleVfx.Settings settings) {
+        ensureOpen();
+        gpuParticles.configure(settings);
+        return this;
+    }
+
+    /**
+     * Records the fixed-step GPU-particle consumer into the caller's current
+     * scene colour target.
+     *
+     * <p>This is the required production entry point. It uses the caller's
+     * same-frame single-sample scene depth, draws with depth testing enabled
+     * and never writes depth, and records before OIT/stochastic collectors by
+     * contract. See {@link GpuParticleVfx} for the pause/cancel/replay and
+     * transparent-boundary semantics.</p>
+     *
+     * @param commands         target command buffer
+     * @param system           published GPU particle owner
+     * @param settings         particle settings with the owner's capacity
+     * @param projection       camera projection
+     * @param view             camera view
+     * @param sceneDepthTexture same-frame single-sample opaque scene depth, or
+     *                          0 for a depth-less/free-flight owner
+     * @param viewportWidth    colour target width
+     * @param viewportHeight   colour target height
+     * @return bounded consumer statistics
+     */
+    public GpuParticleVfx.Statistics recordGpuParticles(CommandBuffer commands,
+                                                        GpuParticleSystem system,
+                                                        GpuParticleSettings settings,
+                                                        Matrix4fc projection, Matrix4fc view,
+                                                        int sceneDepthTexture,
+                                                        int viewportWidth,
+                                                        int viewportHeight) {
+        ensureOpen();
+        return gpuParticles.record(commands, system, settings, projection, view,
+                sceneDepthTexture, viewportWidth, viewportHeight);
+    }
+
+    /**
+     * Records the fixed-step GPU-particle consumer with an explicit
+     * transparent-collector boundary claim.
+     *
+     * <p>{@link GpuParticleVfx.Boundary#BEFORE_TRANSPARENT_COLLECTORS} is the
+     * only accepted claim. Claiming that the same draw is part of a weighted-OIT
+     * or stochastic-transparency surface set fails closed before any command is
+     * recorded instead of silently double-compositing.</p>
+     *
+     * @param commands         target command buffer
+     * @param system           published GPU particle owner
+     * @param settings         particle settings with the owner's capacity
+     * @param projection       camera projection
+     * @param view             camera view
+     * @param sceneDepthTexture same-frame single-sample opaque scene depth, or
+     *                          0 for a depth-less/free-flight owner
+     * @param viewportWidth    colour target width
+     * @param viewportHeight   colour target height
+     * @param boundary         caller claim about transparent collectors
+     * @return bounded consumer statistics
+     */
+    public GpuParticleVfx.Statistics recordGpuParticles(CommandBuffer commands,
+                                                        GpuParticleSystem system,
+                                                        GpuParticleSettings settings,
+                                                        Matrix4fc projection, Matrix4fc view,
+                                                        int sceneDepthTexture,
+                                                        int viewportWidth,
+                                                        int viewportHeight,
+                                                        GpuParticleVfx.Boundary boundary) {
+        ensureOpen();
+        return gpuParticles.record(commands, system, settings, projection, view,
+                sceneDepthTexture, viewportWidth, viewportHeight, boundary);
+    }
+
+    /**
+     * Prepares a replacement GPU-particle owner with another capacity.
+     *
+     * <p>The candidate is complete before this method returns; the caller
+     * publishes it and closes the previous owner. A failure leaves the previous
+     * owner and the consumer state untouched.</p>
+     *
+     * @param system      currently published owner
+     * @param newCapacity capacity in [1, {@link GpuParticleSettings#MAXIMUM_CAPACITY}]
+     * @return the replacement candidate
+     */
+    public GpuParticleSystem resizeGpuParticles(GpuParticleSystem system, int newCapacity) {
+        ensureOpen();
+        return gpuParticles.resize(system, newCapacity);
     }
 
     private void ensureProjectedDecalProgram() {
