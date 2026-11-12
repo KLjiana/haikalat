@@ -208,6 +208,9 @@ class PlanarReflectionPipelineGlTest {
                     assertNotNull(resized, "resize must keep the planar owner");
                     assertEquals(planar.renderWidth(48, 36), resized.width());
                     assertEquals(planar.renderHeight(48, 36), resized.height());
+                    assertFalse(resized.hasValidContent(),
+                            "a resized planar target is invalid until the next record, so the water "
+                                    + "consumer must fall back to its environment path");
                 } finally {
                     pipeline.close();
                     material.close();
