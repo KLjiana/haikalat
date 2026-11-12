@@ -1549,7 +1549,15 @@ public final class RenderPipeline {
         try {
             PipelineTopology topology = captureTopology(activeGeneration,
                     volumetricParticleSettings, stochasticTransparencySettings);
-            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            PipelineGeneration candidate = createGeneration(scene, topology, activeGeneration);
+            activateGeneration(candidate);
+            // Generation replacement reuses the static shadow cache when the
+            // shadow shape is unchanged. The hair lock is outside that cache key,
+            // so enabling/disabling the caster (or rebuilding its geometry) must
+            // invalidate the borrowed tiles exactly like a model move does.
+            if (castsShadow(previous) || castsShadow(replacement)) {
+                candidate.shadowCache().invalidateAll();
+            }
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) {
@@ -1557,6 +1565,10 @@ public final class RenderPipeline {
             }
             throw failure;
         }
+    }
+
+    private static boolean castsShadow(HairStrandSettings settings) {
+        return settings.active() && settings.castsShadow();
     }
 
     /**

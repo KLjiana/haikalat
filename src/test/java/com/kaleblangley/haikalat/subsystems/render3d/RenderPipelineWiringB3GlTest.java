@@ -52,6 +52,17 @@ import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class RenderPipelineWiringB3GlTest {
     private static final int SIZE = 32;
+    private static final int SHADOW_WIDTH = 192;
+    private static final int SHADOW_HEIGHT = 144;
+    /** Insets the receiver region so black background pixels never count as shadow. */
+    private static final int SHADOW_REGION_MARGIN = 8;
+    /** Receiver lit luminance is 0.63; this threshold separates it from shadow. */
+    private static final float SHADOW_LUMINANCE = 0.3f;
+    private static final int MINIMUM_SHADOW_PIXELS = 100;
+    private static final int MINIMUM_CHANGED_PIXELS = 150;
+    private static final double MINIMUM_CENTROID_SHIFT_PIXELS = 10.0;
+    /** Lock-only move large enough to shift the wall shadow by about 35 pixels. */
+    private static final float HAIR_SHIFT_X = 1.2f;
 
     @Test
     void ddgiIndirectContributesAndDisabledRestoresBaselineWithoutDepthWrites() {
@@ -214,6 +225,138 @@ class RenderPipelineWiringB3GlTest {
         }
     }
 
+    /**
+     * Regression for the R46/#46 independent-acceptance F5 finding.
+     *
+     * <p>The hair lock is a dynamic shadow caster outside the
+     * scene/light/planner/camera cache key. A static directional tile must not
+     * survive a lock move, so the required event sequence is executed on real
+     * GL: pre-hair baseline, first miss after the lock exists, static reuse,
+     * a lock-only move that forces a redraw, stable reuse, and the disabled
+     * baseline again.</p>
+     *
+     * <p>The receiver is a fixed, non-casting quad that samples the production
+     * {@code DirectionalShadowMap} through the same
+     * {@code uDirectionalLightSpace}/{@code uHasDirectionalShadow}/{@code uShadowBias}
+     * frame uniforms the PBR forward path consumes. The lock itself is staged
+     * above the camera frustum (the visible half-height at its plane is about
+     * 1.7 world units while the root disc spans y=4.1..4.9), so the only pixels
+     * that may change when the model matrix moves are the lock's projected
+     * shadow on the receiver.</p>
+     */
+    @Test
+    void movingOnlyTheHairLockInvalidatesTheStaticShadowCacheAndTheShadowFollows() {
+        try (var window = window(SHADOW_WIDTH, SHADOW_HEIGHT)) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (var fixture = shadowFixture(window)) {
+                    RenderPipeline pipeline = fixture.pipeline();
+                    pipeline.build();
+                    execute(pipeline);
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    float[] preHair = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(0, countShadowPixels(preHair, width, height),
+                            "the receiver must be fully lit before the hair lock exists");
+
+                    // Place the lock with its fixed model matrix, then enable it.
+                    // The lock is outside the camera frustum; only its shadow is
+                    // visible on the receiver.
+                    pipeline.hairStrandModel(hairModel(0.0f));
+                    pipeline.applyHairStrands(hairWithShadow());
+                    assertTrue(pipeline.graph().hasPass(HairStrandPass.PASS_NAME));
+
+                    // Frame 1: the dynamic caster's first shadow render is a miss
+                    // even though the scene/light/camera keys are unchanged.
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary first =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(1, first.tilesRendered(),
+                            "the first hair shadow render must be a cache miss");
+                    assertEquals(0, first.tilesReused(),
+                            "a miss must not report a reused tile");
+                    float[] firstFrame = pipeline.captureLinearHdrRgbaFloat();
+                    assertTrue(countShadowPixels(firstFrame, width, height)
+                                    >= MINIMUM_SHADOW_PIXELS,
+                            "the enabled hair lock must darken receiver pixels: "
+                                    + countShadowPixels(firstFrame, width, height));
+
+                    // Frame 2: static cache hit; no shadow redraw and no pixel
+                    // change.
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary reused =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(0, reused.tilesRendered(),
+                            "an unchanged static tile must not be redrawn");
+                    assertEquals(1, reused.tilesReused(),
+                            "the second frame must reuse the cached directional tile");
+                    float[] reusedFrame = pipeline.captureLinearHdrRgbaFloat();
+                    assertArrayBitsEqual(firstFrame, reusedFrame,
+                            "static reuse must not move or restage the shadow");
+
+                    // Move only the hair. The scene/light/camera key is unchanged,
+                    // so without ShadowCacheState.invalidateAll() this frame would
+                    // remain a hit and the receiver would keep the old shadow.
+                    pipeline.hairStrandModel(hairModel(HAIR_SHIFT_X));
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary moved =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(1, moved.tilesRendered(),
+                            "moving the hair lock must invalidate and redraw the tile");
+                    assertEquals(0, moved.tilesReused(),
+                            "the invalidation frame must not report a reused tile");
+                    float[] movedFrame = pipeline.captureLinearHdrRgbaFloat();
+                    int changed = countChangedPixelsInRegion(reusedFrame, movedFrame,
+                            width, height);
+                    assertTrue(changed >= MINIMUM_CHANGED_PIXELS,
+                            "the receiver shadow region must change after the lock moves: "
+                                    + changed);
+                    assertTrue(countShadowPixels(movedFrame, width, height)
+                                    >= MINIMUM_SHADOW_PIXELS,
+                            "the moved lock must still cast a visible shadow");
+                    double before = shadowCentroidX(reusedFrame, width, height);
+                    double after = shadowCentroidX(movedFrame, width, height);
+                    assertTrue(after - before >= MINIMUM_CENTROID_SHIFT_PIXELS,
+                            "the shadow must follow the lock in +X: before=" + before
+                                    + " after=" + after);
+
+                    // Frame 4: stable reuse again with no further pixel churn.
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary stable =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(0, stable.tilesRendered(),
+                            "the moved tile must be reused once its key is stable");
+                    assertEquals(1, stable.tilesReused(),
+                            "frame 4 must reuse the redrawn directional tile");
+                    float[] stableFrame = pipeline.captureLinearHdrRgbaFloat();
+                    assertArrayBitsEqual(movedFrame, stableFrame,
+                            "stable reuse after the move must not change pixels");
+
+                    // Disabling the caster must also invalidate the borrowed
+                    // static tile; otherwise the previous lock's shadow survives
+                    // with no caster left in the scene.
+                    pipeline.applyHairStrands(HairStrandSettings.disabled());
+                    assertFalse(pipeline.graph().hasPass(HairStrandPass.PASS_NAME),
+                            "disabled hair must remove its forward pass");
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary disabled =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(1, disabled.tilesRendered(),
+                            "disabling the hair caster must invalidate the static tile");
+                    float[] restored = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(0, countShadowPixels(restored, width, height),
+                            "the disabled caster must leave no receiver shadow");
+                    assertArrayBitsEqual(preHair, restored,
+                            "disabling hair must restore the byte-identical pre-hair baseline");
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                        "the hair shadow fixture must release every tracked resource");
+            }
+            GlDebug.assertNoError("hair shadow-cache regression");
+        }
+    }
+
     private static Fixture pipeline(GlfwWindow window, String name) {
         MeshData data = BuiltinMeshData.coloredCube(name);
         ShaderProgram shader = ShaderProgram.fromSources(VERTEX_SOURCE, FRAGMENT_SOURCE);
@@ -339,8 +482,74 @@ class RenderPipelineWiringB3GlTest {
                 .build();
     }
 
+    /**
+     * Receiver/light scene for the shadow-cache regression. The receiver is a
+     * fixed wall that does not cast, so the only depth ever written into the
+     * directional tile comes from the hair caster hook.
+     */
+    private static Fixture shadowFixture(GlfwWindow window) {
+        ShaderProgram shader = ShaderProgram.fromSources(SHADOW_VERTEX_SOURCE,
+                SHADOW_FRAGMENT_SOURCE);
+        Mesh mesh = Mesh.from(BuiltinMeshData.coloredQuad("hair-shadow-receiver"));
+        Material material = Material.builder(shader).build();
+        Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 6.0f)));
+        scene.add(SceneObject.fixed(mesh, material,
+                new Matrix4f().scale(8.0f, 5.6f, 1.0f), false));
+        scene.addLight(SceneLight.shadowedDirectional(new Vector3f(0.0f, -1.0f, -0.45f),
+                new Vector3f(1.0f), 1.0f));
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null, RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false)
+                .build())
+                .localShadows(LocalShadowPipelineSettings.balanced());
+        return new Fixture(pipeline, material, shader, mesh);
+    }
+
+    /** A shadow-casting, high-detail horizontal lock that is wider than a texel. */
+    private static HairStrandSettings hairWithShadow() {
+        return HairStrandSettings.builder()
+                .strandCount(64)
+                .segmentsPerStrand(8)
+                .strandLengthMetres(2.0f)
+                .rootSpreadMetres(0.4f)
+                .curlMetres(0.0f)
+                .strandRadiusMetres(0.03f)
+                .flowDirection(new Vector3f(1.0f, 0.0f, 0.0f))
+                .widthPixels(6.0f)
+                .minimumWidthPixels(2.0f)
+                .maximumWidthPixels(10.0f)
+                .nearDistanceMetres(20.0f)
+                .farDistanceMetres(40.0f)
+                .lodMinimumPixels(1.0f)
+                .lodWidthScale(1.0f)
+                .alpha(1.0f)
+                .alphaCutoff(0.35f)
+                .transparency(HairStrandSettings.Transparency.CUTOUT)
+                .rootColor(new Vector3f(1.0f, 1.0f, 1.0f))
+                .tipColor(new Vector3f(1.0f, 1.0f, 1.0f))
+                .diffuseStrength(1.0f)
+                .specularStrength(0.0f)
+                .colorVariation(0.0f)
+                .castsShadow(true)
+                .seed(4242L)
+                .build();
+    }
+
+    /**
+     * Places the local x=[0,2] lock in front of the receiver wall and above the
+     * camera frustum, so only its shadow can reach the visible receiver.
+     */
+    private static Matrix4f hairModel(float shiftX) {
+        return new Matrix4f().translate(-1.0f + shiftX, 4.5f, 2.0f);
+    }
+
     private static GlfwWindow window() {
-        return new GlfwWindow.Builder().dimensions(SIZE, SIZE).visible(false)
+        return window(SIZE, SIZE);
+    }
+
+    private static GlfwWindow window(int width, int height) {
+        return new GlfwWindow.Builder().dimensions(width, height).visible(false)
                 .title("Render3D wiring B3").build();
     }
 
@@ -382,6 +591,51 @@ class RenderPipelineWiringB3GlTest {
         }
     }
 
+    /**
+     * Counts shadowed receiver pixels. The inset keeps black background pixels
+     * out even when a future fixture no longer fills the viewport.
+     */
+    private static int countShadowPixels(float[] pixels, int width, int height) {
+        int count = 0;
+        for (int y = SHADOW_REGION_MARGIN; y < height - SHADOW_REGION_MARGIN; y++) {
+            for (int x = SHADOW_REGION_MARGIN; x < width - SHADOW_REGION_MARGIN; x++) {
+                if (luminance(pixels, (y * width + x) * 4) < SHADOW_LUMINANCE) count++;
+            }
+        }
+        return count;
+    }
+
+    /** Mean screen x of the receiver-shadow pixels; NaN when none are visible. */
+    private static double shadowCentroidX(float[] pixels, int width, int height) {
+        double sum = 0.0;
+        int count = 0;
+        for (int y = SHADOW_REGION_MARGIN; y < height - SHADOW_REGION_MARGIN; y++) {
+            for (int x = SHADOW_REGION_MARGIN; x < width - SHADOW_REGION_MARGIN; x++) {
+                if (luminance(pixels, (y * width + x) * 4) < SHADOW_LUMINANCE) {
+                    sum += x;
+                    count++;
+                }
+            }
+        }
+        return count == 0 ? Double.NaN : sum / count;
+    }
+
+    private static int countChangedPixelsInRegion(float[] left, float[] right,
+                                                  int width, int height) {
+        int changed = 0;
+        for (int y = SHADOW_REGION_MARGIN; y < height - SHADOW_REGION_MARGIN; y++) {
+            for (int x = SHADOW_REGION_MARGIN; x < width - SHADOW_REGION_MARGIN; x++) {
+                if (!samePixel(left, right, (y * width + x) * 4)) changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static double luminance(float[] pixels, int index) {
+        return 0.2126 * pixels[index] + 0.7152 * pixels[index + 1]
+                + 0.0722 * pixels[index + 2];
+    }
+
     private static boolean different(float[] left, float[] right) {
         return countChangedPixels(left, right) > 0;
     }
@@ -404,6 +658,61 @@ class RenderPipelineWiringB3GlTest {
         }
         return true;
     }
+
+    /**
+     * Test-owned receiver shader. It consumes the production directional
+     * shadow frame uniforms exactly like the PBR forward material, but reduces
+     * the visible result to "lit vs shadowed" so a shadow move is a
+     * deterministic luminance change instead of a lighting-model difference.
+     */
+    private static final String SHADOW_VERTEX_SOURCE = """
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (std140) uniform CameraBlock {
+                mat4 uProjection;
+                mat4 uView;
+            };
+            uniform mat4 uModel;
+            out vec3 vWorldPosition;
+            void main() {
+                vec4 world = uModel * vec4(aPos, 1.0);
+                vWorldPosition = world.xyz;
+                gl_Position = uProjection * uView * world;
+            }
+            """;
+
+    private static final String SHADOW_FRAGMENT_SOURCE = """
+            #version 330 core
+            in vec3 vWorldPosition;
+            layout (location = 0) out vec4 FragColor;
+            uniform sampler2D uShadowMap;
+            uniform int uHasDirectionalShadow;
+            uniform mat4 uDirectionalLightSpace;
+            uniform float uShadowBias;
+            void main() {
+                vec3 lit = vec3(0.8, 0.6, 0.4);
+                vec3 shadowed = vec3(0.16, 0.12, 0.08);
+                float visibility = 1.0;
+                if (uHasDirectionalShadow != 0) {
+                    vec4 lightClip = uDirectionalLightSpace * vec4(vWorldPosition, 1.0);
+                    vec3 projected = lightClip.xyz / lightClip.w * 0.5 + 0.5;
+                    if (all(greaterThan(projected, vec3(0.0)))
+                            && all(lessThan(projected, vec3(1.0)))) {
+                        vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+                        float occluded = 0.0;
+                        for (int x = -1; x <= 1; ++x) {
+                            for (int y = -1; y <= 1; ++y) {
+                                float stored = texture(uShadowMap,
+                                        projected.xy + vec2(x, y) * texel).r;
+                                occluded += projected.z - uShadowBias > stored ? 1.0 : 0.0;
+                            }
+                        }
+                        visibility = 1.0 - occluded / 9.0;
+                    }
+                }
+                FragColor = vec4(mix(shadowed, lit, visibility), 1.0);
+            }
+            """;
 
     private static final String VERTEX_SOURCE = """
             #version 330 core

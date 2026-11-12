@@ -1616,14 +1616,15 @@
         "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
         "per-feature matrix 20261112-165030: #46 JVM 21/28 + GL 7/7 PASS",
-        "independent acceptance F5: moving the hair lock did not invalidate the static shadow cache; invalidateAll fix landed in cbf1ec48, the GL event-sequence regression is still pending"
+        "independent acceptance F5 GL regression (2026-11-13): RenderPipelineWiringB3GlTest.movingOnlyTheHairLockInvalidatesTheStaticShadowCacheAndTheShadowFollows executes pre-hair baseline -> first miss -> static reuse -> lock-only move (miss and receiver shadow follows) -> stable reuse -> disabled baseline; 11/11 real GL PASS (RenderPipelineWiringB3GlTest 4/4 + HairStrandGlTest 7/7, 0 skipped, 0 failures, RTX 3050)",
+        "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F5: moving the hair lock did not invalidate the static shadow cache; invalidateAll fix landed in cbf1ec48, the GL event-sequence regression is still pending"
+      "nextAction": "F5 GL event sequence closed; independent re-acceptance, performance and human visual still not evaluated"
     },
     {
       "taskId": "S6",
