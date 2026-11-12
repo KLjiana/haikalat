@@ -42,6 +42,20 @@ public final class FrameLightBinder {
     private final boolean directLightingEnabled;
     private final boolean imageBasedLightingEnabled;
     private final CloudShadowFrameTime cloudShadowFrameTime = new CloudShadowFrameTime();
+    private boolean forwardContactShadowsEnabled = true;
+
+    /**
+     * Suppresses the material-level shadow-map-space contact term while the
+     * production screen-space pass is the single contact-shadow consumer.
+     */
+    public void forwardContactShadowsEnabled(boolean value) {
+        forwardContactShadowsEnabled = value;
+    }
+
+    /** @return whether the material-level contact term is currently bound */
+    public boolean forwardContactShadowsEnabled() {
+        return forwardContactShadowsEnabled;
+    }
 
     public FrameLightBinder(CameraUniforms cameraUniforms, ShadowFrameBinder shadowFrameBinder,
                             ShadowSamplingBlock shadowSamplingBlock,
@@ -87,7 +101,7 @@ public final class FrameLightBinder {
         bindCascadeTexelWorld(shader, cmd, shadowPlan);
         var contactShadows = directionalShadowMap.settings().contactShadows();
         cmd.trySetUniformInt(shader, "uContactShadowEnabled",
-                        contactShadows.active() ? 1 : 0)
+                        contactShadows.active() && forwardContactShadowsEnabled ? 1 : 0)
                 .trySetUniformFloat(shader, "uContactShadowDistance", contactShadows.distance())
                 .trySetUniformFloat(shader, "uContactShadowThickness", contactShadows.thickness())
                 .trySetUniformInt(shader, "uContactShadowSteps", contactShadows.steps())

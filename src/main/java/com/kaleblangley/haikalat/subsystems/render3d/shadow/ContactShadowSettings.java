@@ -4,8 +4,10 @@ package com.kaleblangley.haikalat.subsystems.render3d.shadow;
  * Immutable controls for the main directional light's short-range contact
  * shadow.
  *
- * <p>The effect refines the existing cascaded shadow map along the light
- * direction; it creates no attachment and no draw pass.  Distances and
+ * <p>The production consumer is the screen-space contact-shadow pass, which
+ * consumes the camera depth buffer and owns one colour target.  The legacy
+ * material-level shadow-map-space term remains available but is suppressed
+ * while the screen-space pass is active so a receiver is darkened once.  Distances and
  * thickness are world units.  The default is disabled and contributes no
  * samples or image change.  Settings belong to {@code ShadowSettings} and are
  * published as part of a Render3D feature request, not mutated per frame.</p>

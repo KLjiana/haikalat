@@ -3569,6 +3569,11 @@ public final class RenderPipeline {
         }
         activeGeneration = candidate;
         scene = candidateScene;
+        // One contact-shadow consumer: when the production screen-space pass is
+        // active it owns the attenuation, so the material-level shadow-map-space
+        // term must not darken the same receiver a second time.
+        candidate.frameLightBinder().forwardContactShadowsEnabled(
+                !candidate.topology().screenSpaceContactShadows());
         boolean gtaoSettingsChanged = candidate.gtao() != null && !candidate.gtao().settings().equals(postProcessSettings.gtao());
         if (gtaoSettingsChanged) candidate.gtao().applySettings(postProcessSettings.gtao());
         if (worldChanged) {
