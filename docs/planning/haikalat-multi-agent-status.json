@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "a2b3f43"
+    "head": "b89819b"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1291,7 +1291,8 @@
       "evidence": [
         "JVM PASS: Settings 6, Reference 8, Reconstruction 5, HistoryPolicy 2, CameraFixture 3, Shader 5",
         "GL PASS on worker 5e4940f and integration 3be4300: VolumetricCloudGlTest 7/7, 0 skipped, 0 failures, gate green",
-        "GPU rounds caught a non-invertible ortho fixture, a binary32 hash-wrap reference artifact and a history-order bug; all fixed without relaxing physics"
+        "GPU rounds caught a non-invertible ortho fixture, a binary32 hash-wrap reference artifact and a history-order bug; all fixed without relaxing physics",
+        "integration GL rerun at b89819b: VolumetricCloudGlTest 7/7 PASS, gate green; XML archived in build/reports/gl/clouds/"
       ],
       "review": "PENDING",
       "functional": "PASS_FOCUSED",
@@ -1432,7 +1433,7 @@
       "featureIds": [
         45
       ],
-      "state": "TODO",
+      "state": "PARTIAL",
       "scope": "Voxel Cone Tracing",
       "dependencies": [
         null
@@ -1440,16 +1441,27 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "dcccfb8..08bd4c4",
+      "integrationCommit": "b89819b",
+      "requiredCases": [
+        "VctSettingsTest",
+        "VctReferenceTest",
+        "VctUpdatePlannerTest",
+        "VctShaderTest",
+        "VctPassTest",
+        "VctGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 5, Reference 5, UpdatePlanner 7, Shader 7, Pass 6",
+        "GL PASS on worker aefca87 and integration b89819b: VctGlTest 8/8, 0 skipped, 0 failures, gate green",
+        "GPU rounds caught a dead uniform, four wrong box-face normals, probe view signs and a one-sided shell AABB; all fixed without relaxing assertions"
+      ],
+      "review": "PENDING",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review; RenderPipeline/feature-control wiring, per-pixel material roughness/normal remain"
     },
     {
       "taskId": "R46",
