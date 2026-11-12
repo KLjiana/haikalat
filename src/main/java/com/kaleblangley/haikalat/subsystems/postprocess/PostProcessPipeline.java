@@ -374,8 +374,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             SsgiPass ssgi = effects.ssgi().active()
                     ? reuseOrCreate(donor != null && donor.ssgi != null
                                     && donor.ssgi.settings().equals(effects.ssgi())
+                                    && donor.ssgi.compatibleExtent(width, height)
                                     ? donor.ssgi : null,
-                            () -> new SsgiPass(effects.ssgi()),
+                            () -> new SsgiPass(effects.ssgi(), width, height),
                             owned, borrowed) : null;
             SubsurfaceScatteringPass subsurfaceScattering =
                     effects.subsurfaceScattering().screenSpaceActive()
@@ -785,6 +786,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     requireInput(SurfaceInputs.Channel.ROUGHNESS));
             surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
                     requireInput(SurfaceInputs.Channel.ALBEDO));
+            if (ssgi.temporalActive()) {
+                surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                        requireInput(SurfaceInputs.Channel.VELOCITY));
+                surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                        requireInput(SurfaceInputs.Channel.PREVIOUS_SURFACE_DEPTH));
+                surfaceInputs.validateDependency(PostProcessTargets.SSGI_PASS,
+                        requireInput(SurfaceInputs.Channel.VALIDITY));
+            }
         }
         if (subsurfaceScattering != null) {
             surfaceInputs.validateDependency(PostProcessTargets.SUBSURFACE_SCATTERING_PASS,
@@ -1054,16 +1063,42 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (ssgi != null) {
             final String indirectInput = hdrTexture;
             final String indirectProducer = hdrProducer;
+            final boolean temporalSsgi = ssgi.temporalActive();
             SurfaceInputs.Input giDepth = requireInput(SurfaceInputs.Channel.DEPTH);
             SurfaceInputs.Input giNormal = requireInput(SurfaceInputs.Channel.NORMAL);
             SurfaceInputs.Input giRoughness = requireInput(SurfaceInputs.Channel.ROUGHNESS);
             SurfaceInputs.Input giAlbedo = requireInput(SurfaceInputs.Channel.ALBEDO);
+            SurfaceInputs.Input giVelocity = temporalSsgi
+                    ? requireInput(SurfaceInputs.Channel.VELOCITY) : null;
+            SurfaceInputs.Input giPreviousDepth = temporalSsgi
+                    ? requireInput(SurfaceInputs.Channel.PREVIOUS_SURFACE_DEPTH) : null;
+            SurfaceInputs.Input giValidity = temporalSsgi
+                    ? requireInput(SurfaceInputs.Channel.VALIDITY) : null;
             var indirectPass = graph.addPass(PostProcessTargets.SSGI_PASS)
-                    .createColor(PostProcessTargets.SSGI_COLOR, RenderFormat.RGBA16F)
-                    .noClear()
-                    .dependsOn(indirectProducer);
+                    .noClear();
+            if (temporalSsgi) {
+                var target = ssgi.writeFramebuffer();
+                graph.importExternalColor(PostProcessTargets.SSGI_COLOR,
+                        ExternalAttachment.borrowedColor(ssgi.writeColorTexture(),
+                                RenderFormat.RGBA16F, target.width(), target.height()));
+                indirectPass.writeToExternalTarget();
+            } else {
+                indirectPass.createColor(PostProcessTargets.SSGI_COLOR,
+                        RenderFormat.RGBA16F);
+            }
+            indirectPass.dependsOn(indirectProducer);
+            var dependencyInputs = new ArrayList<SurfaceInputs.Input>();
+            dependencyInputs.add(giDepth);
+            dependencyInputs.add(giNormal);
+            dependencyInputs.add(giRoughness);
+            dependencyInputs.add(giAlbedo);
+            if (temporalSsgi) {
+                dependencyInputs.add(giVelocity);
+                dependencyInputs.add(giPreviousDepth);
+                dependencyInputs.add(giValidity);
+            }
             for (String producer : uniqueSurfaceProducers(indirectProducer,
-                    List.of(giDepth, giNormal, giRoughness, giAlbedo))) {
+                    dependencyInputs)) {
                 if (!graph.hasPass(producer)) {
                     throw new IllegalStateException(
                             "screen-space indirect diffuse requires surface producer "
@@ -1079,14 +1114,28 @@ public final class PostProcessPipeline implements AutoCloseable {
                 }
                 Matrix4f projection = new Matrix4f(frame.inverseJitteredProjection()).invert();
                 Matrix4f view = new Matrix4f(frame.inverseView()).invert();
-                ssgi.recordIntoCurrentTarget(cmd,
-                        res.colorAttachment(indirectInput),
-                        surfaceInputs.texture(res, giDepth),
-                        surfaceInputs.texture(res, giNormal),
-                        surfaceInputs.texture(res, giRoughness),
-                        surfaceInputs.texture(res, giAlbedo),
-                        frame.inverseJitteredProjection(), projection,
-                        view, ssgiEnvironment, graph.width(), graph.height());
+                if (temporalSsgi) {
+                    ssgi.recordTemporal(cmd, new SsgiPass.TemporalInputs(
+                            res.colorAttachment(indirectInput),
+                            surfaceInputs.texture(res, giDepth),
+                            surfaceInputs.texture(res, giNormal),
+                            surfaceInputs.texture(res, giRoughness),
+                            surfaceInputs.texture(res, giAlbedo),
+                            surfaceInputs.texture(res, giVelocity),
+                            surfaceInputs.texture(res, giPreviousDepth),
+                            surfaceInputs.texture(res, giValidity),
+                            frame.inverseJitteredProjection(), projection, view,
+                            ssgiEnvironment, graph.width(), graph.height()));
+                } else {
+                    ssgi.recordIntoCurrentTarget(cmd,
+                            res.colorAttachment(indirectInput),
+                            surfaceInputs.texture(res, giDepth),
+                            surfaceInputs.texture(res, giNormal),
+                            surfaceInputs.texture(res, giRoughness),
+                            surfaceInputs.texture(res, giAlbedo),
+                            frame.inverseJitteredProjection(), projection,
+                            view, ssgiEnvironment, graph.width(), graph.height());
+                }
             });
             hdrTexture = PostProcessTargets.SSGI_COLOR;
             hdrProducer = PostProcessTargets.SSGI_PASS;
@@ -1463,6 +1512,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporal != null) {
             temporal.beginFrame(pose);
         }
+        if (ssgi != null) {
+            ssgi.beginFrame();
+        }
         if (temporalDenoise != null) {
             temporalDenoise.beginFrame();
         }
@@ -1485,6 +1537,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporal != null) {
             temporal.frameSucceeded();
         }
+        if (ssgi != null) {
+            ssgi.frameSucceeded();
+        }
         if (temporalDenoise != null) {
             temporalDenoise.frameSucceeded();
         }
@@ -1499,6 +1554,9 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporal != null) {
             temporal.frameFailed();
+        }
+        if (ssgi != null) {
+            ssgi.frameFailed();
         }
         if (temporalDenoise != null) {
             temporalDenoise.frameFailed();
@@ -1515,6 +1573,9 @@ public final class PostProcessPipeline implements AutoCloseable {
     public void invalidateTemporalHistory(TaaInvalidationReason reason) {
         if (temporal != null) {
             temporal.invalidate(reason);
+        }
+        if (ssgi != null) {
+            ssgi.invalidate();
         }
         if (temporalDenoise != null) {
             temporalDenoise.invalidate();
@@ -1550,6 +1611,12 @@ public final class PostProcessPipeline implements AutoCloseable {
     public void synchronizeTemporalImports(RenderGraph graph) {
         if (temporal != null) {
             temporal.synchronizeImports(graph);
+        }
+        if (ssgi != null && ssgi.temporalActive()) {
+            var target = ssgi.writeFramebuffer();
+            graph.importExternalColor(PostProcessTargets.SSGI_COLOR,
+                    ExternalAttachment.borrowedColor(ssgi.writeColorTexture(),
+                            RenderFormat.RGBA16F, target.width(), target.height()));
         }
         if (temporalDenoise != null) {
             var target = temporalDenoise.writeFramebuffer();
@@ -1589,16 +1656,20 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         TaaHistory.ResizeCandidate taa = temporal == null
                 ? null : temporal.prepareResize(width, height);
+        SsgiPass.ResizeCandidate ssgiCandidate = null;
         TemporalDenoisePass.ResizeCandidate denoiseCandidate = null;
         VariableRateShadingPass.ResizeCandidate shadingCandidate = null;
         try {
+            ssgiCandidate = ssgi == null ? null : ssgi.prepareResize(width, height);
             denoiseCandidate = temporalDenoise == null
                     ? null : temporalDenoise.prepareResize(width, height);
             shadingCandidate = variableRateShading == null
                     ? null : variableRateShading.prepareResize(width, height);
-            return new ResizeCandidate(this, taa, denoiseCandidate, shadingCandidate);
+            return new ResizeCandidate(this, taa, ssgiCandidate, denoiseCandidate,
+                    shadingCandidate);
         } catch (RuntimeException | Error failure) {
             closeAfterFailure(taa, failure);
+            closeAfterFailure(ssgiCandidate, failure);
             closeAfterFailure(denoiseCandidate, failure);
             closeAfterFailure(shadingCandidate, failure);
             throw failure;
@@ -1621,6 +1692,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     public static final class ResizeCandidate implements AutoCloseable {
         private final PostProcessPipeline owner;
         private final TaaHistory.ResizeCandidate taaCandidate;
+        private final SsgiPass.ResizeCandidate ssgiCandidate;
         private final TemporalDenoisePass.ResizeCandidate denoiseCandidate;
         private final VariableRateShadingPass.ResizeCandidate shadingCandidate;
         private boolean committed;
@@ -1628,10 +1700,12 @@ public final class PostProcessPipeline implements AutoCloseable {
 
         private ResizeCandidate(PostProcessPipeline owner,
                                 TaaHistory.ResizeCandidate taaCandidate,
+                                SsgiPass.ResizeCandidate ssgiCandidate,
                                 TemporalDenoisePass.ResizeCandidate denoiseCandidate,
                                 VariableRateShadingPass.ResizeCandidate shadingCandidate) {
             this.owner = owner;
             this.taaCandidate = taaCandidate;
+            this.ssgiCandidate = ssgiCandidate;
             this.denoiseCandidate = denoiseCandidate;
             this.shadingCandidate = shadingCandidate;
         }
@@ -1648,6 +1722,9 @@ public final class PostProcessPipeline implements AutoCloseable {
             validateFor(expectedOwner);
             if (taaCandidate != null) {
                 owner.temporal.commitResize(taaCandidate);
+            }
+            if (ssgiCandidate != null) {
+                owner.ssgi.commitResize(ssgiCandidate);
             }
             if (denoiseCandidate != null) {
                 owner.temporalDenoise.commitResize(denoiseCandidate);
@@ -1668,6 +1745,14 @@ public final class PostProcessPipeline implements AutoCloseable {
                     taaCandidate.close();
                 } catch (RuntimeException closeFailure) {
                     failure = closeFailure;
+                }
+            }
+            if (ssgiCandidate != null) {
+                try {
+                    ssgiCandidate.close();
+                } catch (RuntimeException closeFailure) {
+                    if (failure == null) failure = closeFailure;
+                    else failure.addSuppressed(closeFailure);
                 }
             }
             if (denoiseCandidate != null) {

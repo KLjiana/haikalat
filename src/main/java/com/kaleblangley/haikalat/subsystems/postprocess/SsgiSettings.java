@@ -57,6 +57,33 @@ package com.kaleblangley.haikalat.subsystems.postprocess;
  *       ambient baseline, so the fallback can never create energy from zero.</li>
  * </ul>
  *
+ * <h2>Optional temporal accumulation</h2>
+ *
+ * <p>When {@link #temporalBlend()} is positive the pass also owns a GI-specific
+ * history: the current spatial GI is accumulated in a double-buffered
+ * RGBA16F history, reprojected through the shared single-sample velocity and
+ * rejected per pixel on validity, previous-depth, normal and reprojection
+ * mismatch. The surviving history is clamped to the depth-matched 3x3
+ * current-GI neighbourhood before the exponential blend. The temporal stage is
+ * off by default; {@code temporalBlend == 0} is the exact pre-existing spatial
+ * output with no history texture, shader or pass.</p>
+ *
+ * <ul>
+ *   <li>{@code temporalBlend} is the maximum per-frame history weight in
+ *       {@code [0, 0.95]}. It is zero by default and the exact no-op value.</li>
+ *   <li>{@code historyFrames} bounds the number of retained samples in
+ *       {@code [1, 64]}. The effective weight ramps from 0.5 on the second
+ *       sample towards {@code min(temporalBlend, (historyFrames - 1) /
+ *       historyFrames)}; the retained-sample counter saturates, so the history
+ *       never grows unboundedly.</li>
+ *   <li>{@code temporalDepthRejection} is the relative previous-surround
+ *       depth window in {@code [1e-4, 0.5]} (metres, with a one-metre floor).</li>
+ *   <li>{@code temporalNormalRejection} is the minimum dot product between the
+ *       current and reprojected history normal in {@code [0, 1]}.</li>
+ *   <li>{@code temporalVelocityRejection} is the maximum reprojection distance
+ *       in output pixels in {@code [0, 4096]}.</li>
+ * </ul>
+ *
  * <p>{@link #disabled()} is the exact no-op value: while the request is inactive
  * no pass, shader, attachment or draw is created and the baseline colour chain
  * is byte-for-byte unchanged.</p>
@@ -73,7 +100,12 @@ public record SsgiSettings(
         float edgeFadePixels,
         float ambientFallbackRed,
         float ambientFallbackGreen,
-        float ambientFallbackBlue
+        float ambientFallbackBlue,
+        float temporalBlend,
+        int historyFrames,
+        float temporalDepthRejection,
+        float temporalNormalRejection,
+        float temporalVelocityRejection
 ) {
     /** Largest accepted hemisphere sample budget. Matches the shader's {@code SSGI_MAX_SAMPLES}. */
     public static final int MAXIMUM_SAMPLES = 16;
@@ -101,6 +133,35 @@ public record SsgiSettings(
     public static final float MAXIMUM_OFFSCREEN_FRACTION = 1.0f;
     /** Roughness window over which a hit surface fades into the diffuse gather. */
     public static final float SAMPLE_ROUGHNESS_FADE = 0.2f;
+    /** Smallest accepted maximum history weight; zero is the exact spatial path. */
+    public static final float MINIMUM_TEMPORAL_BLEND = 0.0f;
+    /** Largest accepted per-frame history weight, keeping a non-zero current sample. */
+    public static final float MAXIMUM_TEMPORAL_BLEND = 0.95f;
+    /** Smallest accepted retained-sample horizon. */
+    public static final int MINIMUM_HISTORY_FRAMES = 1;
+    /** Largest accepted retained-sample horizon; matches the shader's bounded history. */
+    public static final int MAXIMUM_HISTORY_FRAMES = 64;
+    /** Smallest accepted relative previous-depth rejection window. */
+    public static final float MINIMUM_TEMPORAL_DEPTH_REJECTION = 1.0e-4f;
+    /** Largest accepted relative previous-depth rejection window. */
+    public static final float MAXIMUM_TEMPORAL_DEPTH_REJECTION = 0.5f;
+    /** Largest accepted reprojection distance in output pixels. */
+    public static final float MAXIMUM_TEMPORAL_REPROJECTION_PIXELS = 4096.0f;
+
+    /**
+     * Source-compatible constructor for callers written before the temporal
+     * fields existed. It selects the exact spatial path.
+     */
+    public SsgiSettings(boolean enabled, int sampleCount, int stepCount,
+                        float maxDistanceMetres, float thicknessMetres, float strength,
+                        float minimumSampleRoughness, float maximumOffscreenFraction,
+                        float edgeFadePixels, float ambientFallbackRed,
+                        float ambientFallbackGreen, float ambientFallbackBlue) {
+        this(enabled, sampleCount, stepCount, maxDistanceMetres, thicknessMetres, strength,
+                minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                0.0f, 8, 0.02f, 0.9f, 64.0f);
+    }
 
     public SsgiSettings {
         if (sampleCount < MINIMUM_SAMPLES || sampleCount > MAXIMUM_SAMPLES) {
@@ -142,15 +203,28 @@ public record SsgiSettings(
                 "ambientFallbackGreen");
         requireFiniteInRange(ambientFallbackBlue, 0.0f, MAXIMUM_AMBIENT_RADIANCE,
                 "ambientFallbackBlue");
+        requireFiniteInRange(temporalBlend, MINIMUM_TEMPORAL_BLEND,
+                MAXIMUM_TEMPORAL_BLEND, "temporalBlend");
+        if (historyFrames < MINIMUM_HISTORY_FRAMES
+                || historyFrames > MAXIMUM_HISTORY_FRAMES) {
+            throw new IllegalArgumentException("historyFrames must be in ["
+                    + MINIMUM_HISTORY_FRAMES + ", " + MAXIMUM_HISTORY_FRAMES + "]");
+        }
+        requireFiniteInRange(temporalDepthRejection, MINIMUM_TEMPORAL_DEPTH_REJECTION,
+                MAXIMUM_TEMPORAL_DEPTH_REJECTION, "temporalDepthRejection");
+        requireFiniteInRange(temporalNormalRejection, 0.0f, 1.0f,
+                "temporalNormalRejection");
+        requireFiniteInRange(temporalVelocityRejection, 0.0f,
+                MAXIMUM_TEMPORAL_REPROJECTION_PIXELS, "temporalVelocityRejection");
     }
 
     /** Exact no-op value used when no screen-space indirect diffuse was requested. */
     public static SsgiSettings disabled() {
         return new SsgiSettings(false, 8, 8, 8.0f, 0.5f, 0.75f, 0.15f, 0.5f, 8.0f,
-                0.08f, 0.08f, 0.08f);
+                0.08f, 0.08f, 0.08f, 0.0f, 8, 0.02f, 0.9f, 64.0f);
     }
 
-    /** Enables the effect with the shared default tuning. */
+    /** Enables the effect with the shared default tuning; temporal accumulation stays off. */
     public static SsgiSettings defaults() {
         return disabled().withEnabled(true);
     }
@@ -158,6 +232,11 @@ public record SsgiSettings(
     /** @return true when the pass, shader and attachments should exist */
     public boolean active() {
         return enabled;
+    }
+
+    /** @return true when the temporal history stage is requested */
+    public boolean temporalActive() {
+        return temporalBlend > 0.0f;
     }
 
     /** @return hard per-pixel ray budget, bounded by the shader compile-time caps */
@@ -181,65 +260,155 @@ public record SsgiSettings(
         return worldStepMetres() <= thicknessMetres;
     }
 
+    /**
+     * History weight for a candidate that would become the
+     * {@code accumulatedSamples}-th retained sample (one-based).
+     *
+     * <p>The first sample is always current-only. Later samples ramp
+     * {@code (n - 1) / n} so a short sequence behaves like a growing mean, then
+     * the ramped value is capped by both {@link #historyFrames()} and
+     * {@link #temporalBlend()}. A zero temporal blend returns zero, preserving
+     * the exact spatial path.</p>
+     *
+     * @param accumulatedSamples one-based number of samples after this candidate
+     * @return the history weight in {@code [0, temporalBlend]}
+     */
+    public float historyWeightFor(int accumulatedSamples) {
+        if (!temporalActive() || accumulatedSamples <= 1) {
+            return 0.0f;
+        }
+        int horizon = Math.min(accumulatedSamples, historyFrames);
+        return Math.min(temporalBlend, (horizon - 1.0f) / horizon);
+    }
+
+    /**
+     * Absolute plus relative previous-view depth acceptance window.
+     *
+     * @param expectedPreviousDepth positive previous-frame view depth in metres
+     * @return maximum accepted depth difference in view-space metres
+     */
+    public float depthTolerance(float expectedPreviousDepth) {
+        return Math.max(MINIMUM_TEMPORAL_DEPTH_REJECTION,
+                temporalDepthRejection * Math.max(Math.abs(expectedPreviousDepth), 1.0f));
+    }
+
     public SsgiSettings withEnabled(boolean value) {
         return new SsgiSettings(value, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
-                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withSampleCount(int value) {
         return new SsgiSettings(enabled, value, stepCount, maxDistanceMetres, thicknessMetres,
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
-                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
+                historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withStepCount(int value) {
         return new SsgiSettings(enabled, sampleCount, value, maxDistanceMetres, thicknessMetres,
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
-                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
+                historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withMaxDistanceMetres(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, value,
                 thicknessClamped(value, thicknessMetres), strength, minimumSampleRoughness,
                 maximumOffscreenFraction, edgeFadePixels, ambientFallbackRed,
-                ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackGreen, ambientFallbackBlue, temporalBlend, historyFrames,
+                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection);
     }
 
     public SsgiSettings withThicknessMetres(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres, value,
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
-                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
+                historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withStrength(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, value, minimumSampleRoughness, maximumOffscreenFraction,
-                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withMinimumSampleRoughness(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, value, maximumOffscreenFraction, edgeFadePixels,
-                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
+                historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withMaximumOffscreenFraction(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, minimumSampleRoughness, value, edgeFadePixels,
-                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
+                historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withEdgeFadePixels(float value) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
-                value, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue);
+                value, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
     }
 
     public SsgiSettings withAmbientFallback(float red, float green, float blue) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
-                edgeFadePixels, red, green, blue);
+                edgeFadePixels, red, green, blue, temporalBlend, historyFrames,
+                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection);
+    }
+
+    public SsgiSettings withTemporalBlend(float value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                value, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
+    }
+
+    public SsgiSettings withHistoryFrames(int value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, value, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection);
+    }
+
+    public SsgiSettings withTemporalDepthRejection(float value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, value, temporalNormalRejection,
+                temporalVelocityRejection);
+    }
+
+    public SsgiSettings withTemporalNormalRejection(float value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, value,
+                temporalVelocityRejection);
+    }
+
+    public SsgiSettings withTemporalVelocityRejection(float value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                value);
     }
 
     public static Builder builder() {
@@ -273,6 +442,11 @@ public record SsgiSettings(
         private float ambientFallbackRed = 0.08f;
         private float ambientFallbackGreen = 0.08f;
         private float ambientFallbackBlue = 0.08f;
+        private float temporalBlend;
+        private int historyFrames = 8;
+        private float temporalDepthRejection = 0.02f;
+        private float temporalNormalRejection = 0.9f;
+        private float temporalVelocityRejection = 64.0f;
 
         private Builder() {
         }
@@ -329,12 +503,39 @@ public record SsgiSettings(
             return this;
         }
 
+        public Builder temporalBlend(float value) {
+            temporalBlend = value;
+            return this;
+        }
+
+        public Builder historyFrames(int value) {
+            historyFrames = value;
+            return this;
+        }
+
+        public Builder temporalDepthRejection(float value) {
+            temporalDepthRejection = value;
+            return this;
+        }
+
+        public Builder temporalNormalRejection(float value) {
+            temporalNormalRejection = value;
+            return this;
+        }
+
+        public Builder temporalVelocityRejection(float value) {
+            temporalVelocityRejection = value;
+            return this;
+        }
+
         public SsgiSettings build() {
             return new SsgiSettings(enabled, sampleCount, stepCount,
                     maxDistanceMetres, thicknessClamped(maxDistanceMetres, thicknessMetres),
                     strength, minimumSampleRoughness, maximumOffscreenFraction,
                     edgeFadePixels, ambientFallbackRed, ambientFallbackGreen,
-                    ambientFallbackBlue);
+                    ambientFallbackBlue, temporalBlend, historyFrames,
+                    temporalDepthRejection, temporalNormalRejection,
+                    temporalVelocityRejection);
         }
     }
 }

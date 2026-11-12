@@ -34,6 +34,117 @@ class SsgiSettingsTest {
         assertTrue(enabled.active());
         assertEquals(disabled.withEnabled(true), enabled,
                 "defaults() must be exactly disabled() with the flag flipped");
+        assertFalse(enabled.temporalActive(),
+                "the shared default tuning must stay on the exact spatial path");
+        assertEquals(0.0f, enabled.temporalBlend());
+    }
+
+    @Test
+    void compatibilityConstructorLeavesTemporalAccumulationDisabled() {
+        SsgiSettings previousCallSite = new SsgiSettings(true, 4, 6, 5.0f, 0.25f, 0.5f,
+                0.2f, 0.25f, 4.0f, 0.1f, 0.2f, 0.3f);
+        assertTrue(previousCallSite.active());
+        assertEquals(0.0f, previousCallSite.temporalBlend(),
+                "the pre-temporal canonical constructor must select the exact spatial path");
+        assertFalse(previousCallSite.temporalActive());
+        assertEquals(8, previousCallSite.historyFrames());
+        assertEquals(0.02f, previousCallSite.temporalDepthRejection());
+        assertEquals(0.9f, previousCallSite.temporalNormalRejection());
+        assertEquals(64.0f, previousCallSite.temporalVelocityRejection());
+        assertEquals(4, previousCallSite.sampleCount());
+    }
+
+    @Test
+    void temporalTimingAndRejectionBoundsAreValidated() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalBlend(-0.01f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalBlend(
+                        SsgiSettings.MAXIMUM_TEMPORAL_BLEND + 0.01f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalBlend(Float.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withHistoryFrames(0));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withHistoryFrames(
+                        SsgiSettings.MAXIMUM_HISTORY_FRAMES + 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalDepthRejection(0.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalDepthRejection(
+                        SsgiSettings.MAXIMUM_TEMPORAL_DEPTH_REJECTION + 0.1f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalNormalRejection(-0.01f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalNormalRejection(1.01f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalVelocityRejection(-1.0f));
+        assertThrows(IllegalArgumentException.class,
+                () -> SsgiSettings.disabled().withTemporalVelocityRejection(
+                        SsgiSettings.MAXIMUM_TEMPORAL_REPROJECTION_PIXELS + 1.0f));
+
+        SsgiSettings temporal = SsgiSettings.disabled()
+                .withTemporalBlend(0.9f)
+                .withHistoryFrames(16)
+                .withTemporalDepthRejection(0.05f)
+                .withTemporalNormalRejection(0.75f)
+                .withTemporalVelocityRejection(24.0f);
+        assertTrue(temporal.temporalActive());
+        assertEquals(0.9f, temporal.temporalBlend());
+        assertEquals(16, temporal.historyFrames());
+        assertEquals(0.05f, temporal.temporalDepthRejection());
+        assertEquals(0.75f, temporal.temporalNormalRejection());
+        assertEquals(24.0f, temporal.temporalVelocityRejection());
+    }
+
+    @Test
+    void historyWeightRampsFromTheFirstSampleAndIsBoundedByTheHorizon() {
+        SsgiSettings temporal = SsgiSettings.disabled()
+                .withTemporalBlend(0.9f).withHistoryFrames(8)
+                .withTemporalDepthRejection(0.05f);
+        assertEquals(0.0f, temporal.historyWeightFor(0), 0.0f,
+                "no retained sample means no history contribution");
+        assertEquals(0.0f, temporal.historyWeightFor(1), 0.0f,
+                "the first sample must be current-only");
+        assertEquals(0.5f, temporal.historyWeightFor(2), 1.0e-6f);
+        assertEquals(2.0f / 3.0f, temporal.historyWeightFor(3), 1.0e-6f);
+        assertEquals(0.875f, temporal.historyWeightFor(8), 1.0e-6f);
+        assertEquals(0.875f, temporal.historyWeightFor(64), 1.0e-6f,
+                "the retained-sample horizon caps the weight");
+        assertEquals(0.0f, SsgiSettings.disabled().historyWeightFor(32), 0.0f,
+                "a zero blend must never contribute history");
+        assertEquals(0.02f, SsgiSettings.disabled().depthTolerance(0.0f), 0.0f,
+                "the default depth window lands on its metre floor");
+        assertEquals(0.05f, temporal.depthTolerance(0.0f), 1.0e-6f);
+        assertEquals(0.1f, temporal.depthTolerance(2.0f), 1.0e-6f);
+    }
+
+    @Test
+    void temporalSettersPreserveTheOtherChannelsAndTheBuilderRoundTrips() {
+        SsgiSettings base = SsgiSettings.builder().enabled(true).sampleCount(4)
+                .stepCount(4).strength(0.6f).temporalBlend(0.8f).historyFrames(12)
+                .temporalDepthRejection(0.04f).temporalNormalRejection(0.85f)
+                .temporalVelocityRejection(48.0f).build();
+        SsgiSettings changed = base.withTemporalBlend(0.5f);
+        assertEquals(4, changed.sampleCount());
+        assertEquals(12, changed.historyFrames());
+        assertEquals(0.04f, changed.temporalDepthRejection());
+        assertEquals(0.85f, changed.temporalNormalRejection());
+        assertEquals(48.0f, changed.temporalVelocityRejection());
+        assertEquals(0.8f, base.temporalBlend(), "withTemporalBlend must not mutate the value");
+        assertEquals(0.5f, changed.temporalBlend());
+
+        SsgiSettings depth = base.withTemporalDepthRejection(0.06f);
+        assertEquals(0.06f, depth.temporalDepthRejection());
+        assertEquals(0.8f, depth.temporalBlend());
+        SsgiSettings normal = base.withTemporalNormalRejection(0.7f);
+        assertEquals(0.7f, normal.temporalNormalRejection());
+        assertEquals(0.04f, normal.temporalDepthRejection());
+        SsgiSettings velocity = base.withTemporalVelocityRejection(16.0f);
+        assertEquals(16.0f, velocity.temporalVelocityRejection());
+        SsgiSettings frames = base.withHistoryFrames(32);
+        assertEquals(32, frames.historyFrames());
+        assertEquals(0.8f, frames.temporalBlend());
     }
 
     @Test

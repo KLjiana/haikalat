@@ -105,12 +105,36 @@ public final class SsgiIndirectReference {
      */
     public static double[] renderPixel(Scene scene, Camera camera, SsgiSettings settings,
                                        Environment environment, int pixelX, int pixelY) {
+        return renderPixel(scene, camera, settings, environment, pixelX, pixelY,
+                settings.sampleCount(), 0.0);
+    }
+
+    /**
+     * Evaluates one pixel with an explicit hemisphere budget and frame rotation.
+     *
+     * <p>{@code sampleCount} may exceed the shader's compile-time cap so tests
+     * can build a converged reference; the temporal pass rotates the fixed
+     * sequence by {@code frameRotation} every successful frame, so averaging
+     * this estimator over rotations is the high-sample reference the temporal
+     * history converges to.</p>
+     *
+     * @return the composited linear RGB
+     */
+    public static double[] renderPixel(Scene scene, Camera camera, SsgiSettings settings,
+                                       Environment environment, int pixelX, int pixelY,
+                                       int sampleCount, double frameRotation) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(camera, "camera");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(environment, "environment");
         if (pixelX < 0 || pixelX >= scene.width() || pixelY < 0 || pixelY >= scene.height()) {
             throw new IllegalArgumentException("pixel outside the fixture");
+        }
+        if (sampleCount < 1) {
+            throw new IllegalArgumentException("sampleCount must be positive");
+        }
+        if (!Double.isFinite(frameRotation)) {
+            throw new IllegalArgumentException("frameRotation must be finite");
         }
         double u = (pixelX + 0.5) / scene.width();
         double v = (pixelY + 0.5) / scene.height();
@@ -150,12 +174,12 @@ public final class SsgiIndirectReference {
                 ambientIrradiance[0] / PI, ambientIrradiance[1] / PI,
                 ambientIrradiance[2] / PI};
 
-        int sampleCount = clamp(settings.sampleCount(), 1, SsgiSettings.MAXIMUM_SAMPLES);
         int stepCount = clamp(settings.stepCount(), 1, SsgiSettings.MAXIMUM_STEPS);
         double maximumDistance = Math.max(settings.maxDistanceMetres(), 1.0e-4);
         double thickness = Math.max(1.0e-4,
                 Math.min(settings.thicknessMetres(), maximumDistance));
-        double rotation = interleavedGradientNoise(pixelX + 0.5, pixelY + 0.5);
+        double rotation = interleavedGradientNoise(pixelX + 0.5, pixelY + 0.5)
+                + frameRotation;
 
         double[] hitRadiance = new double[3];
         int offscreenSamples = 0;

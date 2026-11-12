@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class SsgiShaderTest {
     private static final String SSGI = "/shaders/postprocess/ssgi.frag";
+    private static final String SSGI_TEMPORAL = "/shaders/postprocess/ssgi-temporal.frag";
     private static final String SURFACE = "/shaders/render3d/surface/scene-surface.frag";
     private static final String RESOLVE = "/shaders/postprocess/scene-surface-resolve.frag";
 
@@ -73,7 +74,9 @@ class SsgiShaderTest {
                 "uniform vec3 uAmbientFallback;",
                 "uniform int uEnvironmentAvailable;",
                 "uniform float uEnvironmentIntensity;",
-                "uniform float uEnvironmentRotation;"}) {
+                "uniform float uEnvironmentRotation;",
+                "uniform float uFrameRotation;",
+                "uniform int uTemporalMode;"}) {
             assertTrue(source.contains(uniform), "missing SSGI uniform " + uniform);
         }
         Matcher declaration = Pattern.compile("uniform\\s+\\w+\\s+(u\\w+)").matcher(source);
@@ -91,7 +94,7 @@ class SsgiShaderTest {
                         "uMaxDistance", "uThickness", "uStrength", "uMinimumSampleRoughness",
                         "uMaximumOffscreenFraction", "uEdgeFadePixels", "uAmbientFallback",
                         "uEnvironmentAvailable", "uEnvironmentIntensity",
-                        "uEnvironmentRotation"),
+                        "uEnvironmentRotation", "uFrameRotation", "uTemporalMode"),
                 declared,
                 "the shader uniform set must match the pass upload set");
     }
@@ -112,7 +115,10 @@ class SsgiShaderTest {
         assertTrue(source.contains("float maximumDistance = max(uMaxDistance, 1.0e-4);"));
         assertTrue(source.contains("float thickness = clamp(uThickness, 1.0e-4, maximumDistance);"));
         assertTrue(source.contains("float rotation = interleavedGradientNoise(gl_FragCoord.xy);"),
-                "the fixed sequence must be rotated per pixel without history");
+                "the fixed per-pixel rotation must stay the pre-existing expression");
+        assertTrue(source.contains("if (uTemporalMode != 0) {"));
+        assertTrue(source.contains("rotation += uFrameRotation;"),
+                "the frame rotation must only be applied by the temporal staging mode");
     }
 
     /**
@@ -124,21 +130,23 @@ class SsgiShaderTest {
      */
     @Test
     void reservedGlslKeywordsAreNotUsedAsVariableNames() throws IOException {
-        String source = stripComments(resource(SSGI));
-        String template = "\\b(?:int|uint|float|double|bool|vec[234]|ivec[234]|uvec[234]"
-                + "|bvec[234]|mat[234]|sampler\\w*)\\s+%s\\b";
-        for (String keyword : new String[]{
-                "sample", "step", "distance", "mix", "clamp", "dot", "cross", "normalize",
-                "texture", "length", "reflect", "refract", "smoothstep", "input", "output",
-                "filter", "layout", "uniform", "buffer", "shared", "coherent", "volatile",
-                "restrict", "readonly", "writeonly", "patch", "subroutine", "centroid",
-                "flat", "smooth", "noperspective", "const", "attribute", "varying",
-                "atomic_uint"}) {
-            Pattern declaration = Pattern.compile(String.format(template,
-                    Pattern.quote(keyword)));
-            assertFalse(declaration.matcher(source).find(),
-                    "ssgi.frag declares a variable named '" + keyword
-                            + "', which is a reserved GLSL keyword/qualifier/function in 4.60");
+        for (String path : new String[]{SSGI, SSGI_TEMPORAL}) {
+            String source = stripComments(resource(path));
+            String template = "\\b(?:int|uint|float|double|bool|vec[234]|ivec[234]|uvec[234]"
+                    + "|bvec[234]|mat[234]|sampler\\w*)\\s+%s\\b";
+            for (String keyword : new String[]{
+                    "sample", "step", "distance", "mix", "clamp", "dot", "cross", "normalize",
+                    "texture", "length", "reflect", "refract", "smoothstep", "input", "output",
+                    "filter", "layout", "uniform", "buffer", "shared", "coherent", "volatile",
+                    "restrict", "readonly", "writeonly", "patch", "subroutine", "centroid",
+                    "flat", "smooth", "noperspective", "const", "attribute", "varying",
+                    "atomic_uint"}) {
+                Pattern declaration = Pattern.compile(String.format(template,
+                        Pattern.quote(keyword)));
+                assertFalse(declaration.matcher(source).find(),
+                        path + " declares a variable named '" + keyword
+                                + "', which is a reserved GLSL keyword/qualifier/function in 4.60");
+            }
         }
     }
 
@@ -187,6 +195,70 @@ class SsgiShaderTest {
     }
 
     @Test
+    void temporalShaderReprojectsRejectsClampsAndWritesStateWithinBoundedLoops()
+            throws IOException {
+        String source = resource(SSGI_TEMPORAL);
+        assertTrue(source.contains("#version 460 core"));
+        for (String uniform : new String[]{
+                "uniform sampler2D uSpatialGi;",
+                "uniform sampler2D uColor;",
+                "uniform sampler2D uDepth;",
+                "uniform sampler2D uNormal;",
+                "uniform sampler2D uVelocity;",
+                "uniform sampler2D uPreviousDepth;",
+                "uniform sampler2D uValidity;",
+                "uniform sampler2D uHistoryColor;",
+                "uniform sampler2D uHistoryState;",
+                "uniform vec2 uViewportSize;",
+                "uniform mat4 uInverseProjection;",
+                "uniform int uHistoryValid;",
+                "uniform float uHistoryWeight;",
+                "uniform float uDepthRejection;",
+                "uniform float uNormalRejection;",
+                "uniform float uVelocityRejection;"}) {
+            assertTrue(source.contains(uniform), "missing temporal SSGI uniform " + uniform);
+        }
+        assertTrue(source.contains(
+                        "if (uHistoryValid != 0 && uHistoryWeight > 0.0 && validity >= 0.5) {"),
+                "history must only be read after validity and the first-sample weight accept it");
+        assertTrue(source.contains("vec2 previousUv = uv + velocity;"));
+        assertTrue(source.contains("length((previousUv - uv) * uViewportSize)"));
+        assertTrue(source.contains("<= uVelocityRejection"));
+        assertTrue(source.contains("abs(state.r - expectedPreviousDepth) > tolerance"));
+        assertTrue(source.contains("dot(historyNormal, currentNormal) < uNormalRejection"));
+        assertTrue(source.contains("for (int y = 0; y < 2; y++) {"),
+                "the bilinear history histogram is a fixed 2x2 budget");
+        assertTrue(source.contains("for (int y = -SSGI_TEMPORAL_NEIGHBOURHOOD;"),
+                "the current-GI clamp is a fixed bounded neighbourhood");
+        assertTrue(source.contains("resolvedHistory = clamp(resolvedHistory, low, high);"));
+        assertTrue(source.contains("vec3 added = acceptedHistory"));
+        assertTrue(source.contains("outState = vec4(currentDepth, currentOct.x, currentOct.y, "
+                + "1.0);"));
+        assertTrue(source.contains("outHistoryColor = vec4(max(added, vec3(0.0)), 1.0);"),
+                "the history colour must store only the accumulated bounce");
+        assertTrue(source.contains("outComposite = vec4(base, 1.0);"),
+                "background and numerical fallbacks must keep the exact base colour");
+        assertTrue(source.contains("outComposite = vec4(result, 1.0);"));
+        assertFalse(source.contains("while ("), "temporal SSGI must contain no unbounded loop");
+        Matcher declaration = Pattern.compile("uniform\\s+\\w+\\s+(u\\w+)").matcher(source);
+        Set<String> declared = new LinkedHashSet<>();
+        while (declaration.find()) {
+            String name = declaration.group(1);
+            declared.add(name);
+            assertTrue(countIdentifier(source, name) >= 2,
+                    "uniform " + name + " is declared but never referenced and may be "
+                            + "optimized out");
+        }
+        assertEquals(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal", "uVelocity",
+                        "uPreviousDepth", "uValidity", "uHistoryColor", "uHistoryState",
+                        "uViewportSize", "uInverseProjection", "uHistoryValid",
+                        "uHistoryWeight", "uDepthRejection", "uNormalRejection",
+                        "uVelocityRejection"),
+                declared,
+                "the temporal shader uniform set must match the pass upload set");
+    }
+
+    @Test
     void sharedSurfaceProducesAndResolvesTheAlbedoChannel() throws IOException {
         String surface = resource(SURFACE);
         assertTrue(surface.contains(
@@ -228,8 +300,30 @@ class SsgiShaderTest {
         }
         assertTrue(uploaded.containsAll(Set.of("uColor", "uDepth", "uNormal", "uRoughness",
                 "uAlbedo", "uIrradiance", "uEnvironmentAvailable", "uSampleCount",
-                "uStepCount", "uMaximumOffscreenFraction")),
+                "uStepCount", "uMaximumOffscreenFraction", "uFrameRotation", "uTemporalMode")),
                 "the pass must upload every input the shader consumes: " + uploaded);
+    }
+
+    @Test
+    void temporalPassUniformNamesMatchTheTemporalShaderText() throws IOException {
+        String shader = resource(SSGI_TEMPORAL);
+        Matcher upload = Pattern.compile("setUniform(?:Int|Float|Vec2|Vec3|Mat4)\\("
+                + "temporalProgram, \"(u[A-Za-z0-9_]*)\"").matcher(javaSource());
+        Set<String> uploaded = new LinkedHashSet<>();
+        while (upload.find()) {
+            assertTrue(uploaded.add(upload.group(1)),
+                    "duplicate temporal SSGI upload " + upload.group(1));
+        }
+        for (String name : uploaded) {
+            assertTrue(countIdentifier(shader, name) >= 2,
+                    name + " is uploaded by SsgiPass but is not declared and used by "
+                            + "ssgi-temporal.frag");
+        }
+        assertTrue(uploaded.containsAll(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal",
+                "uVelocity", "uPreviousDepth", "uValidity", "uHistoryColor",
+                "uHistoryState", "uHistoryValid", "uHistoryWeight", "uDepthRejection",
+                "uNormalRejection", "uVelocityRejection")),
+                "the temporal pass must upload every input the shader consumes: " + uploaded);
     }
 
     private static String javaSource() throws IOException {

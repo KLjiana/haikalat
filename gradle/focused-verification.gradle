@@ -117,7 +117,7 @@ def jvmCases = [
         'AdaptiveSamplingSettingsTest', 'AdaptiveSamplingReferenceTest',
         'AdaptiveSamplingShaderContractTest', 'AdaptiveSamplingWiringTest',
         'SsgiSettingsTest', 'SsgiIndirectReferenceTest', 'SsgiShaderTest',
-        'SsgiPipelineCompositionTest',
+        'SsgiPipelineCompositionTest', 'SsgiTemporalReferenceTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest',
         'CausticsPipelineWiringTest'
 ]
@@ -170,6 +170,7 @@ def glCases = [
         'HairStrandGlTest',
         'RenderPipelineWiringB3GlTest',
         'SsgiPassGlTest',
+        'SsgiTemporalGlTest',
         'SsrAdaptiveSamplingGlTest',
         'SmokeSimulationGlTest',
         'VolumetricCloudGlTest',

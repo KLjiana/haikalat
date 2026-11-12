@@ -1,6 +1,7 @@
 #version 460 core
 
-// Bounded screen-space indirect diffuse (SSGI / S5 #39), spatial path only.
+// Bounded screen-space indirect diffuse (SSGI / S5 #39), spatial path plus the
+// optional temporal staging mode.
 //
 // Inputs: resolved linear HDR radiance, single-sample device depth, world-space
 // geometric normal (octahedral encoded, same convention as scene-surface.frag),
@@ -62,6 +63,12 @@ uniform vec3 uAmbientFallback;
 uniform int uEnvironmentAvailable;
 uniform float uEnvironmentIntensity;
 uniform float uEnvironmentRotation;
+// Per-frame sequence rotation used only by the optional temporal accumulation;
+// zero is the exact pre-existing spatial path.
+uniform float uFrameRotation;
+// 0 = composite base + bounce into the graph target (spatial path);
+// 1 = emit the added bounce only into the pass-owned temporal staging target.
+uniform int uTemporalMode;
 
 // Mirrors octDecode() in shaders/postprocess/ssr.frag.
 vec3 octDecode(vec2 oct) {
@@ -136,13 +143,13 @@ void main() {
 
     // Background pixels are not receivers: the pass is an exact no-op there.
     if (depth >= 1.0) {
-        FragColor = vec4(base, 1.0);
+        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, 1.0);
         return;
     }
 
     vec3 albedo = clamp(fetchPixel(uAlbedo, uv).rgb, 0.0, 1.0);
     if (albedo.r + albedo.g + albedo.b <= 0.0) {
-        FragColor = vec4(base, 1.0);
+        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, 1.0);
         return;
     }
     vec3 normal = octDecode(fetchPixel(uNormal, uv).rg);
@@ -162,6 +169,9 @@ void main() {
     vec3 ambientRadiance = ambientIrradiance / SSGI_PI;
 
     float rotation = interleavedGradientNoise(gl_FragCoord.xy);
+    if (uTemporalMode != 0) {
+        rotation += uFrameRotation;
+    }
     int sampleCount = clamp(uSampleCount, 1, SSGI_MAX_SAMPLES);
     int stepCount = clamp(uStepCount, 1, SSGI_MAX_STEPS);
     float maximumDistance = max(uMaxDistance, 1.0e-4);
@@ -223,6 +233,14 @@ void main() {
     gathered += ambientRadiance * offscreenBudget * SSGI_PI;
 
     vec3 added = albedo * max(gathered, vec3(0.0)) * clamp(uStrength, 0.0, 1.0) / SSGI_PI;
+    if (uTemporalMode != 0) {
+        if (any(isnan(added)) || any(isinf(added))) {
+            FragColor = vec4(0.0);
+            return;
+        }
+        FragColor = vec4(added, 1.0);
+        return;
+    }
     vec3 result = base + added;
     if (any(isnan(result)) || any(isinf(result))) {
         FragColor = vec4(base, 1.0);

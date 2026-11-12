@@ -695,9 +695,11 @@ public record PipelineTopology(int width,
                     SceneBufferRequirements.subsurfaceScattering());
         }
         // Screen-space indirect diffuse additionally consumes the hit
-        // roughness and the receiver albedo.
+        // roughness and the receiver albedo; temporal accumulation also needs
+        // the shared velocity/previous-depth/validity pair.
         if (effects.ssgi().active()) {
-            requirements = requirements.mergeView(SceneBufferRequirements.ssgi());
+            requirements = requirements.mergeView(
+                    SceneBufferRequirements.ssgi(effects.ssgi().temporalActive()));
         }
         if (effects.gtao().enabled()) {
             requirements = requirements.mergeView(

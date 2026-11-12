@@ -90,10 +90,25 @@ public final class SceneBufferRequirements {
     /**
      * Screen-space indirect diffuse needs depth and world normals for the
      * hemisphere march, the hit roughness gate and the receiver albedo weight.
+     * The temporal variant additionally reprojects its history through the
+     * shared single-sample velocity and validates disocclusion with the
+     * previous-surface depth and validity channels.
      */
     public static SceneBufferRequirements ssgi() {
-        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
-                SceneBufferChannel.ROUGHNESS, SceneBufferChannel.ALBEDO);
+        return ssgi(false);
+    }
+
+    /** @see #ssgi() */
+    public static SceneBufferRequirements ssgi(boolean temporal) {
+        EnumSet<SceneBufferChannel> set = EnumSet.of(SceneBufferChannel.DEPTH,
+                SceneBufferChannel.NORMAL, SceneBufferChannel.ROUGHNESS,
+                SceneBufferChannel.ALBEDO);
+        if (temporal) {
+            set.add(SceneBufferChannel.VELOCITY);
+            set.add(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH);
+            set.add(SceneBufferChannel.VALIDITY);
+        }
+        return of(set, 1);
     }
 
     /** Native TAA surface data; reactive is requested only when a producer exists. */

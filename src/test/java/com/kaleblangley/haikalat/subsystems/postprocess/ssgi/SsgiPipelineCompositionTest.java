@@ -102,6 +102,35 @@ class SsgiPipelineCompositionTest {
     }
 
     @Test
+    void temporalSsgiAdditionallyRequestsVelocityAndItsValidationCompanions() {
+        SceneBufferRequirements spatial = SceneBufferRequirements.ssgi(false);
+        assertFalse(spatial.requires(SceneBufferChannel.VELOCITY));
+        assertFalse(spatial.requires(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH));
+        assertFalse(spatial.requires(SceneBufferChannel.VALIDITY));
+        assertTrue(spatial.requires(SceneBufferChannel.ALBEDO));
+
+        SceneBufferRequirements temporal = SceneBufferRequirements.ssgi(true);
+        assertTrue(temporal.requires(SceneBufferChannel.VELOCITY));
+        assertTrue(temporal.requires(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH));
+        assertTrue(temporal.requires(SceneBufferChannel.VALIDITY));
+        assertEquals(1, temporal.samples());
+
+        Scene scene = new Scene(new Camera());
+        RenderSettings settings = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.defaults().withSsgi(
+                SsgiSettings.defaults().withTemporalBlend(0.8f));
+        PipelineTopology topology = PipelineTopology.capture(scene, settings, effects,
+                64, 64, false, false, DirectionalCascadeSettings.disabled());
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.VELOCITY),
+                "a temporal SSGI request must make the shared surface produce velocity");
+        assertTrue(topology.sceneSurface().requests()
+                .requires(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH));
+        assertTrue(topology.sceneSurface().requests().requires(SceneBufferChannel.VALIDITY));
+    }
+
+    @Test
     void disabledRequestKeepsTheBaselineColourChainOrder() {
         assertFalse(PostProcessSettings.defaults().ssgi().active());
         for (AntiAliasingMode mode : new AntiAliasingMode[]{
