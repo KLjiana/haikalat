@@ -3921,10 +3921,19 @@ public final class RenderPipeline {
                 throw new IllegalStateException("water surface requires the geometry colour target");
             }
             generation.waterSurfacePass().record(cmd, sceneColor, target,
-                    res.depthAttachment(depth.name()), frame,
+                    res.depthAttachment(depth.name()), planarReflectionTexture(generation), frame,
                     waterSurfaceSettings, pbrEnvironment, iblIntensity, iblRotationRadians,
                     waterTimeSeconds);
         };
+    }
+
+    /**
+     * Colour texture of the planar pass when it has valid content for this
+     * frame; {@code 0} keeps the water shader on its environment/fallback path.
+     */
+    private static int planarReflectionTexture(PipelineGeneration generation) {
+        var planar = generation.planarReflection();
+        return planar != null && planar.hasValidContent() ? planar.colorTexture() : 0;
     }
 
     private PassExecutor hairStrandExecutor(PipelineGeneration generation) {

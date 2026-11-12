@@ -19,6 +19,12 @@ uniform int uHasEnvironment;
 uniform samplerCube uEnvironment;
 uniform float uEnvironmentIntensity;
 uniform float uEnvironmentRotation;
+// Optional planar-reflection colour target. When present it replaces the
+// environment reflection at the current screen position; off-screen lookups
+// fall back to the environment so the surface keeps a stable colour.
+uniform int uHasPlanarReflection;
+uniform sampler2D uPlanarReflection;
+uniform mat4 uViewProjection;
 
 uniform vec3 uWaterColor;
 uniform vec3 uReflectionFallback;
@@ -133,7 +139,19 @@ void main() {
     float nDotV = clamp(dot(normal, -viewDirection), 0.0, 1.0);
     float fresnel = REFLECTION_F0 + (1.0 - REFLECTION_F0) * pow(1.0 - nDotV, 5.0);
     vec3 reflection = uReflectionFallback;
-    if (uHasEnvironment == 1) {
+    bool planarSampled = false;
+    if (uHasPlanarReflection == 1) {
+        vec4 planarClip = uViewProjection * vec4(vWorldPosition, 1.0);
+        if (planarClip.w > 0.0) {
+            vec2 planarUv = planarClip.xy / planarClip.w * 0.5 + 0.5;
+            if (all(greaterThanEqual(planarUv, vec2(0.0)))
+                    && all(lessThanEqual(planarUv, vec2(1.0)))) {
+                reflection = texture(uPlanarReflection, planarUv).rgb;
+                planarSampled = true;
+            }
+        }
+    }
+    if (!planarSampled && uHasEnvironment == 1) {
         reflection = rotateEnvironment(reflect(viewDirection, normal));
         reflection = textureLod(uEnvironment, reflection, 0.0).rgb * uEnvironmentIntensity;
     }

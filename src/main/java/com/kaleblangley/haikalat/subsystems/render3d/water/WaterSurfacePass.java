@@ -68,6 +68,8 @@ public final class WaterSurfacePass implements AutoCloseable {
     public static final int ENVIRONMENT_UNIT = 1;
     /** Fragment texture unit for the single-sample refraction background copy. */
     public static final int REFRACTION_SOURCE_UNIT = 2;
+    /** Fragment texture unit for the optional planar-reflection colour target. */
+    public static final int PLANAR_REFLECTION_UNIT = 3;
     private static final String VERTEX_SHADER = "/shaders/render3d/water/water-surface.vert";
     private static final String FRAGMENT_SHADER = "/shaders/render3d/water/water-surface.frag";
 
@@ -157,9 +159,29 @@ public final class WaterSurfacePass implements AutoCloseable {
                        TemporalFrameState.FrameParameters frame, WaterSurfaceSettings settings,
                        PbrEnvironment environment, float environmentIntensity,
                        float environmentRotationRadians, float timeSeconds) {
-        recordInternal(cmd, sceneColorSource, null, target, sceneDepthTexture, frame,
+        recordInternal(cmd, sceneColorSource, null, target, sceneDepthTexture, 0, frame,
                 settings, WaterRefractionSettings.disabled(), environment, environmentIntensity,
                 environmentRotationRadians, timeSeconds, false);
+    }
+
+    /**
+     * Records the water draw with an optional planar-reflection colour target.
+     *
+     * <p>{@code planarReflectionTexture} is the colour texture owned by the
+     * companion planar pass. The shader samples it in screen space when the id
+     * is positive; zero keeps the environment/fallback reflection path exactly
+     * as before. The caller must make the water pass depend on the planar pass
+     * and pass {@code 0} when the target has no valid content yet.</p>
+     */
+    public void record(CommandBuffer cmd, Framebuffer sceneColorSource, Framebuffer target,
+                       int sceneDepthTexture, int planarReflectionTexture,
+                       TemporalFrameState.FrameParameters frame, WaterSurfaceSettings settings,
+                       PbrEnvironment environment, float environmentIntensity,
+                       float environmentRotationRadians, float timeSeconds) {
+        recordInternal(cmd, sceneColorSource, null, target, sceneDepthTexture,
+                planarReflectionTexture, frame, settings, WaterRefractionSettings.disabled(),
+                environment, environmentIntensity, environmentRotationRadians, timeSeconds,
+                false);
     }
 
     /**
@@ -177,7 +199,7 @@ public final class WaterSurfacePass implements AutoCloseable {
                        WaterRefractionSettings refraction, PbrEnvironment environment,
                        float environmentIntensity, float environmentRotationRadians,
                        float timeSeconds) {
-        recordInternal(cmd, sceneColorSource, backgroundCopy, target, sceneDepthTexture, frame,
+        recordInternal(cmd, sceneColorSource, backgroundCopy, target, sceneDepthTexture, 0, frame,
                 settings, Objects.requireNonNull(refraction, "refraction"), environment,
                 environmentIntensity, environmentRotationRadians, timeSeconds, false);
     }
@@ -191,7 +213,7 @@ public final class WaterSurfacePass implements AutoCloseable {
                                   Framebuffer target, int sceneDepthTexture,
                                   TemporalFrameState.FrameParameters frame,
                                   WaterSurfaceSettings settings, float timeSeconds) {
-        recordInternal(cmd, sceneColorSource, null, target, sceneDepthTexture, frame,
+        recordInternal(cmd, sceneColorSource, null, target, sceneDepthTexture, 0, frame,
                 settings, WaterRefractionSettings.disabled(), null, 0.0f, 0.0f, timeSeconds, true);
     }
 
@@ -227,7 +249,7 @@ public final class WaterSurfacePass implements AutoCloseable {
 
     private void recordInternal(CommandBuffer cmd, Framebuffer sceneColorSource,
                                 Framebuffer backgroundCopy, Framebuffer target,
-                                int sceneDepthTexture,
+                                int sceneDepthTexture, int planarReflectionTexture,
                                 TemporalFrameState.FrameParameters frame,
                                 WaterSurfaceSettings settings, WaterRefractionSettings refraction,
                                 PbrEnvironment environment, float environmentIntensity,
@@ -293,7 +315,16 @@ public final class WaterSurfacePass implements AutoCloseable {
                 .setUniformFloat(activeShader, "uWaveDirection", settings.waveDirectionRadians())
                 .setUniformFloat(activeShader, "uTimeSeconds", timeSeconds)
                 .setUniformInt(activeShader, "uDebugMode", debugNormals ? 1 : 0)
-                .setUniformInt(activeShader, "uSceneDepth", DEPTH_UNIT);
+                .setUniformInt(activeShader, "uSceneDepth", DEPTH_UNIT)
+                .setUniformMat4(activeShader, "uViewProjection",
+                        new Matrix4f(frame.jitteredProjection()).mul(frame.view()))
+                .setUniformInt(activeShader, "uHasPlanarReflection",
+                        planarReflectionTexture > 0 ? 1 : 0);
+
+        if (planarReflectionTexture > 0) {
+            cmd.bindTexture(PLANAR_REFLECTION_UNIT, planarReflectionTexture)
+                    .setUniformInt(activeShader, "uPlanarReflection", PLANAR_REFLECTION_UNIT);
+        }
 
         if (useRefraction) {
             refraction.offscreenFallbackColorTo(refractionFallback);

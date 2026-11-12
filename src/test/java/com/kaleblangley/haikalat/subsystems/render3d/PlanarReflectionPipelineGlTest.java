@@ -122,6 +122,63 @@ class PlanarReflectionPipelineGlTest {
         }
     }
 
+    @Test
+    void waterSurfaceSamplesThePlanarTargetAndFallsBackWhenDisabled() {
+        try (var window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("planar-water"));
+                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                Material material = Material.builder(shader).build();
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 3.0f, 6.0f)));
+                scene.add(new SceneObject(mesh, material, (model, frame) ->
+                        model.identity().translate(0.0f, 1.0f, 0.0f).scale(2.0f)));
+                var water = com.kaleblangley.haikalat.subsystems.render3d.water
+                        .WaterSurfaceSettings.builder().enabled(true).level(0.0f)
+                        .bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                        // Freeze the wave animation so the disabled comparison
+                        // is not confounded by the elapsed-frame phase.
+                        .waveSpeed(0.0f).waveAmplitude(0.0f).build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        hdrSettings()).waterSurface(water);
+                try {
+                    pipeline.build();
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    float[] environmentReflection = pipeline.captureLinearHdrRgbaFloat();
+
+                    pipeline.applyPlanarReflections(PlanarReflectionSettings.builder()
+                            .enabled(true).planeY(0.0f).maxResolution(128).build());
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    float[] planarReflection = pipeline.captureLinearHdrRgbaFloat();
+                    assertTrue(different(environmentReflection, planarReflection),
+                            "the water surface must sample the planar reflection target");
+
+                    pipeline.applyPlanarReflections(PlanarReflectionSettings.disabled());
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertArrayEquals(environmentReflection,
+                            pipeline.captureLinearHdrRgbaFloat(),
+                            "disabling the planar target must restore the environment reflection");
+                } finally {
+                    pipeline.close();
+                    material.close();
+                    shader.close();
+                    mesh.close();
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+            GlDebug.assertNoError("planar reflection water consumption");
+        }
+    }
+
+    private static boolean different(float[] first, float[] second) {
+        if (first.length != second.length) return true;
+        for (int i = 0; i < first.length; i++) {
+            if (Float.floatToIntBits(first[i]) != Float.floatToIntBits(second[i])) return true;
+        }
+        return false;
+    }
+
     private static RenderSettings hdrSettings() {
         return RenderSettings.builder()
                 .antiAliasingMode(AntiAliasingMode.NONE)
