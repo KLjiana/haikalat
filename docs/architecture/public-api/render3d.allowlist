@@ -192,3 +192,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionS
 # v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass
+# v0.28.1 S4 #37 stochastic transparency settings/inputs and pass-owned history.
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs
+internal com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass
