@@ -2357,6 +2357,7 @@ public final class RenderPipeline {
                 .createColor(VCT_COLOR, format)
                 .noClear()
                 .dependsOn(VCT_VOXELIZE_PASS)
+                .dependsOn(VCT_TRACE_PASS)
                 .dependsOn(colorProducer);
         if (!depthProducer.equals(colorProducer)) {
             composite.dependsOn(depthProducer);

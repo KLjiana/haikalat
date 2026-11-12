@@ -209,6 +209,8 @@ class RenderPipelineWiringB3Test {
             assertTrue(composite.directDependencies()
                     .contains(RenderPipeline.VCT_VOXELIZE_PASS));
             assertTrue(composite.directDependencies()
+                    .contains(RenderPipeline.VCT_TRACE_PASS));
+            assertTrue(composite.directDependencies()
                     .contains(PostProcessTargets.GEOMETRY_PASS));
         }
     }
