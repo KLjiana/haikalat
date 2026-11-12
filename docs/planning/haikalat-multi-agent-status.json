@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "4e6fe62"
+    "head": "839b243"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1268,7 +1268,7 @@
       "featureIds": [
         40
       ],
-      "state": "TODO",
+      "state": "PARTIAL",
       "scope": "Volumetric Clouds",
       "dependencies": [
         10,
@@ -1277,16 +1277,28 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "3c0b9b2..5a1c02a",
+      "integrationCommit": "3be4300",
+      "requiredCases": [
+        "VolumetricCloudSettingsTest",
+        "VolumetricCloudReferenceTest",
+        "VolumetricCloudReconstructionTest",
+        "VolumetricCloudHistoryPolicyTest",
+        "VolumetricCloudShaderTest",
+        "VolumetricCloudCameraFixtureTest",
+        "VolumetricCloudGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 6, Reference 8, Reconstruction 5, HistoryPolicy 2, CameraFixture 3, Shader 5",
+        "GL PASS on worker 5e4940f and integration 3be4300: VolumetricCloudGlTest 7/7, 0 skipped, 0 failures, gate green",
+        "GPU rounds caught a non-invertible ortho fixture, a binary32 hash-wrap reference artifact and a history-order bug; all fixed without relaxing physics"
+      ],
+      "review": "PENDING",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review; RenderPipeline/feature-control exposure and demo remain"
     },
     {
       "taskId": "R41",
