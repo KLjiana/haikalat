@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "a8720b89"
+    "head": "cab6c01b"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T02:10:05+08:00",
+  "updatedAt": "2026-11-13T02:17:16+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -52,7 +52,8 @@
       "evidence": [
         "focused verify 49f488fd: 233 tests, 0 skipped/failures",
         "GPU glSmoke B0-M/B0-T targeted PASS",
-        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11 PASS",
+        "final per-feature matrix 20261113-021232: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11 PASS"
       ],
       "review": "APPROVED_SCOPE_REDUCED",
       "functional": "PASS_SCOPE_REDUCED",
@@ -83,7 +84,8 @@
       "evidence": [
         "focused verify 49f488fd: 233 tests, 0 skipped/failures",
         "GPU glSmoke B0-M/B0-T targeted PASS",
-        "per-feature matrix 20261112-165030: #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -116,7 +118,8 @@
       "evidence": [
         "focused verify 49f488fd: 233 tests, 0 skipped/failures",
         "GPU glSmoke B0-M/B0-T targeted PASS",
-        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11; #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11; #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #1 JVM 21/21 + GL 11/11; #2 JVM 9/9 + GL 11/11; #3 JVM 23/23 + GL 11/11; #7 JVM 7/7 + GL 1/1 PASS"
       ],
       "review": "APPROVED_AFTER_FOLLOWUP",
       "functional": "PASS_FOCUSED",
@@ -143,7 +146,8 @@
       "requiredCases": [],
       "evidence": [
         "B0 checkpoint 49f488fd",
-        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #1 JVM 21/21 + GL 11/11 PASS",
+        "final per-feature matrix 20261113-021232: #1 JVM 21/21 + GL 11/11 PASS"
       ],
       "review": "NOT_RUN",
       "functional": "PASS_FOCUSED",
@@ -172,7 +176,8 @@
         "B0 checkpoint 49f488fd",
         "per-feature matrix 20261112-165030: #2 JVM 9/9 + GL 11/11 PASS",
         "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence",
-        "F6 sampler/minification contract frozen at 86484f56: production Texture2D state (SRGB8_ALPHA8/linear R8, LINEAR_MIPMAP_LINEAR min, LINEAR mag, CLAMP_TO_EDGE, mip levels, anisotropy 1, no LOD bias), sRGB decode/bilinear midpoint/clamp/mip averaging/atlas cell references; integration real GL VfxSamplerContractGlTest 5/5 and Vfx suite 23/23 PASS, 0 skipped; JVM VfxSamplerReferenceTest 4/4"
+        "F6 sampler/minification contract frozen at 86484f56: production Texture2D state (SRGB8_ALPHA8/linear R8, LINEAR_MIPMAP_LINEAR min, LINEAR mag, CLAMP_TO_EDGE, mip levels, anisotropy 1, no LOD bias), sRGB decode/bilinear midpoint/clamp/mip averaging/atlas cell references; integration real GL VfxSamplerContractGlTest 5/5 and Vfx suite 23/23 PASS, 0 skipped; JVM VfxSamplerReferenceTest 4/4",
+        "final per-feature matrix 20261113-021232: #2 JVM 9/9 + GL 11/11 PASS"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
@@ -199,7 +204,8 @@
       "requiredCases": [],
       "evidence": [
         "B0 checkpoint 49f488fd",
-        "per-feature matrix 20261112-165030: #3 JVM 23/23 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #3 JVM 23/23 + GL 11/11 PASS",
+        "final per-feature matrix 20261113-021232: #3 JVM 23/23 + GL 11/11 PASS"
       ],
       "review": "NOT_RUN",
       "functional": "PASS_FOCUSED",
@@ -229,7 +235,8 @@
         "glSmoke ScreenDistortionPassGlTest PASS",
         "projector row-axis bug fixed with pitched-camera test",
         "UV edge fallback assertion now discriminates original UV vs half-texel clamp",
-        "per-feature matrix 20261112-165030: #4 JVM 12/13 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #4 JVM 12/13 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #4 JVM 12/13 + GL 1/1 PASS"
       ],
       "review": "APPROVED_AFTER_FIXES",
       "functional": "PASS_FOCUSED",
@@ -259,7 +266,8 @@
         "JVM VertexDisplacementSettingsTest 8/8 PASS",
         "independent re-review APPROVE at 29e15d7",
         "focused verify 8b5c01e6: 340 tests PASS",
-        "per-feature matrix 20261112-165030: #5 JVM 16/18 + GL 2/2 PASS"
+        "per-feature matrix 20261112-165030: #5 JVM 16/18 + GL 2/2 PASS",
+        "final per-feature matrix 20261113-021232: #5 JVM 16/18 + GL 2/2 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -292,7 +300,8 @@
         "root cause is the scene depth pass not writing the receiver center in ProjectedDecalGlTest, not decal contract",
         "focused verification dfb658b6 at HEAD 37ab4f9e: ProjectedDecalGlTest 1/1 real GL PASS, 0 skipped, 0 failures",
         "independent review APPROVE_WITH_SCOPE: projection math/plan/settings sound; far-face culling was inverted (CW kept the near face) and is fixed to CCW with an inside-camera GL case; alpha-mask/back-face coverage, per-baseline probes, colour-only target contract and prepare bounding remain scope notes",
-        "per-feature matrix 20261112-165030: #6 JVM 5/6 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #6 JVM 5/6 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #6 JVM 5/6 + GL 1/1 PASS"
       ],
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
@@ -319,7 +328,8 @@
       "requiredCases": [],
       "evidence": [
         "B0 checkpoint 49f488fd",
-        "per-feature matrix 20261112-165030: #7 JVM 7/7 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #7 JVM 7/7 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #7 JVM 7/7 + GL 1/1 PASS"
       ],
       "review": "NOT_RUN",
       "functional": "PASS_FOCUSED",
@@ -351,7 +361,8 @@
         "integration real GL PASS at a356f41c: ThinTranslucencyGlTest 1/1, 0 skipped, 0 failures",
         "root cause of the earlier zero readback was the fixture: Windows clamps a 32px-wide hidden window to a wider client area (152x32), so the hard-coded (16,16) probe missed the centred quad; fixture now sizes 200x140 and reads window.width()/2, window.height()/2",
         "independent review APPROVE_WITH_SCOPE: ranges/7-arg compatibility/both upload sites/centre probe correct; thickness>0, local lights, back-face view, MASK/shadow and instance-override NaN hardening remain scope notes",
-        "per-feature matrix 20261112-165030: #8 JVM 32/33 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #8 JVM 32/33 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #8 JVM 32/33 + GL 1/1 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -385,7 +396,8 @@
         "per-feature matrix 20261112-165030: #9 JVM 6/7 + GL 1/1 PASS",
         "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
         "screen-space contact-shadow pass implemented at d52df12b (Camera depth consumer, view-space march, off-screen fallback); integration real GL ScreenSpaceContactShadowsGlTest 2/2 + ContactShadowsGlTest 1/1 PASS, JVM gating 3/3; independent review pending",
-        "independent review APPROVE_WITH_SCOPE: depth reconstruction, normal/back-face, march, off-screen fallback, composite and lifecycle verified; the medium double-darkening finding is fixed at 454cbc23 (single consumer)"
+        "independent review APPROVE_WITH_SCOPE: depth reconstruction, normal/back-face, march, off-screen fallback, composite and lifecycle verified; the medium double-darkening finding is fixed at 454cbc23 (single consumer)",
+        "final per-feature matrix 20261113-021232: #9 JVM 9/12 + GL 1/1 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -417,7 +429,8 @@
         "focused verify 65f11451: 267 tests PASS",
         "glSmoke CloudShadowsGlTest PASS after policy commit",
         "releaseVerificationContracts --rerun-tasks PASS with cloud synthetic positive/negative audit",
-        "per-feature matrix 20261112-165030: #10 JVM 11/12 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #10 JVM 11/12 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #10 JVM 11/13 + GL 1/1 PASS"
       ],
       "review": "APPROVED_AFTER_FIXES",
       "functional": "PASS_FOCUSED",
@@ -448,7 +461,8 @@
         "JVM WaterRefraction* 16 tests PASS",
         "focused verify 6bf14b8c: 650 tests PASS, 0 skipped",
         "first GPU fixture depth bug fixed at d03cdf0",
-        "per-feature matrix 20261112-165030: #11 JVM 13/18 + GL 5/5 PASS"
+        "per-feature matrix 20261112-165030: #11 JVM 13/18 + GL 5/5 PASS",
+        "final per-feature matrix 20261113-021232: #11 JVM 13/18 + GL 5/5 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -483,7 +497,8 @@
         "focused verify 8b5c01e6: 340 tests PASS",
         "review findings 1-6 addressed",
         "independent re-review APPROVE at 77f20dc",
-        "per-feature matrix 20261112-165030: #12 JVM 13/14 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #12 JVM 13/14 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #12 JVM 13/14 + GL 1/1 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -513,7 +528,8 @@
         "JVM Refraction*/PipelineFeaturePolicyTest PASS",
         "focused verify 2d94cb41: 456 tests PASS, 0 skipped",
         "independent re-review APPROVE_WITH_SCOPE; pipeline-level rejection and depthFunc restore added",
-        "per-feature matrix 20261112-165030: #13 JVM 31/39 + GL 3/3 PASS"
+        "per-feature matrix 20261112-165030: #13 JVM 31/39 + GL 3/3 PASS",
+        "final per-feature matrix 20261113-021232: #13 JVM 31/39 + GL 3/3 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -543,7 +559,8 @@
         "JVM WaterSurface*/PipelineFeaturePolicyTest PASS",
         "focused verify 2d94cb41: 456 tests PASS, 0 skipped",
         "independent re-review APPROVE_WITH_SCOPE; MSAA resolve dependency and enabled/disabled pixel delta added",
-        "per-feature matrix 20261112-165030: #14 JVM 10/17 + GL 6/6 PASS"
+        "per-feature matrix 20261112-165030: #14 JVM 10/17 + GL 6/6 PASS",
+        "final per-feature matrix 20261113-021232: #14 JVM 10/17 + GL 6/6 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -576,7 +593,8 @@
         "per-feature matrix 20261112-165030: #15 JVM 12/16 + GL 4/4 PASS",
         "independent acceptance F2: GPU particle collision owner has no production VFX consumer",
         "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
-        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13",
+        "final per-feature matrix 20261113-021232: #15 JVM 12/16 + GL 4/4 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -605,7 +623,8 @@
         "glSmoke ClearcoatGlTest 1/1 PASS",
         "JVM ClearcoatSettings/Shader PASS",
         "focused verify 1055f5bf: 430 tests PASS",
-        "per-feature matrix 20261112-165030: #16 JVM 12/13 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #16 JVM 12/13 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #16 JVM 12/13 + GL 1/1 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -635,7 +654,8 @@
         "JVM Anisotropic* 25 tests PASS",
         "full-scan call-site regression fixed; cluster GL 6/6 PASS",
         "focused verify 317cbe60: 560 tests PASS, 0 skipped",
-        "per-feature matrix 20261112-165030: #17 JVM 23/24 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #17 JVM 23/24 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #17 JVM 23/24 + GL 1/1 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -665,7 +685,8 @@
         "JVM ReflectionProbe*/Pbr* 48 tests PASS",
         "focused verify 48e4d6a4: 732 tests PASS, 0 skipped",
         "review mixed-slot NPE and environment-rotation blockers fixed at eef9d6c",
-        "per-feature matrix 20261112-165030: #18 JVM 53/68 + GL 3/3 PASS"
+        "per-feature matrix 20261112-165030: #18 JVM 53/68 + GL 3/3 PASS",
+        "final per-feature matrix 20261113-021232: #18 JVM 53/68 + GL 3/3 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -693,7 +714,8 @@
       "evidence": [
         "fresh real-GL contract PASS in worker worktree",
         "focused verify 7bb1da70: 391 tests PASS",
-        "per-feature matrix 20261112-165030: #19 JVM 16/17 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #19 JVM 16/17 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #19 JVM 16/17 + GL 1/1 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -723,7 +745,8 @@
         "JVM Ssr* and PipelineFeaturePolicyTest PASS",
         "focused verify 043b83ad: 454 tests PASS, 0 skipped",
         "independent review APPROVE_WITH_SCOPE; ibl/water/refraction gating added at c4761fd",
-        "per-feature matrix 20261112-165030: #20 JVM 26/40 + GL 2/2 PASS"
+        "per-feature matrix 20261112-165030: #20 JVM 26/40 + GL 2/2 PASS",
+        "final per-feature matrix 20261113-021232: #20 JVM 26/42 + GL 2/2 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -753,7 +776,8 @@
         "JVM MotionBlurSettings/Math PASS",
         "focused verify 8b5c01e6: 340 tests PASS",
         "independent re-review APPROVE at e672081",
-        "per-feature matrix 20261112-165030: #21 JVM 14/15 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #21 JVM 14/15 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #21 JVM 14/16 + GL 1/1 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -782,7 +806,8 @@
         "glSmoke SmaaPassGlTest 2/2 PASS",
         "JVM Smaa* PASS",
         "focused verify 04cf147e: 407 tests PASS",
-        "per-feature matrix 20261112-165030: #22 JVM 13/15 + GL 2/2 PASS"
+        "per-feature matrix 20261112-165030: #22 JVM 13/15 + GL 2/2 PASS",
+        "final per-feature matrix 20261113-021232: #22 JVM 13/16 + GL 2/2 PASS"
       ],
       "review": "APPROVED",
       "functional": "PASS_FOCUSED",
@@ -810,7 +835,8 @@
       "evidence": [
         "focused verify 48610dbd: 248 tests PASS",
         "glSmoke VignettePassGlTest PASS",
-        "per-feature matrix 20261112-165030: #23 JVM 3/7 + GL 4/4 PASS"
+        "per-feature matrix 20261112-165030: #23 JVM 3/7 + GL 4/4 PASS",
+        "final per-feature matrix 20261113-021232: #23 JVM 3/7 + GL 4/4 PASS"
       ],
       "review": "APPROVED_WITH_SECONDARY",
       "functional": "PASS_FOCUSED",
@@ -838,7 +864,8 @@
       "evidence": [
         "focused verify 48610dbd: 248 tests PASS",
         "glSmoke VignettePassGlTest PASS",
-        "per-feature matrix 20261112-165030: #24 JVM 3/3 + GL 4/4 PASS"
+        "per-feature matrix 20261112-165030: #24 JVM 3/3 + GL 4/4 PASS",
+        "final per-feature matrix 20261113-021232: #24 JVM 3/3 + GL 4/4 PASS"
       ],
       "review": "APPROVED_WITH_SECONDARY",
       "functional": "PASS_FOCUSED",
@@ -866,7 +893,8 @@
       "evidence": [
         "focused verify 48610dbd: 248 tests PASS",
         "glSmoke VignettePassGlTest PASS",
-        "per-feature matrix 20261112-165030: #25 JVM 3/3 + GL 4/4 PASS"
+        "per-feature matrix 20261112-165030: #25 JVM 3/3 + GL 4/4 PASS",
+        "final per-feature matrix 20261113-021232: #25 JVM 3/3 + GL 4/4 PASS"
       ],
       "review": "APPROVED_WITH_SECONDARY",
       "functional": "PASS_FOCUSED",
@@ -899,7 +927,8 @@
         "per-feature matrix 20261112-165030: #26 JVM 22/29 + GL 7/7 PASS",
         "independent acceptance F2: GPU particle sorting owner has no production VFX consumer",
         "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
-        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13",
+        "final per-feature matrix 20261113-021232: #26 JVM 22/29 + GL 7/7 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -932,7 +961,8 @@
         "per-feature matrix 20261112-165030: #27 JVM 53/71 + GL 7/7 PASS",
         "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class",
         "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
-        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13",
+        "final per-feature matrix 20261113-021232: #27 JVM 66/87 + GL 7/7 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -965,7 +995,8 @@
         "B1 production wiring at 1215a7fa: RenderFeatureSettings/PipelineTopology/RenderPipeline/PipelineGeneration wired with declared-set staging and transactional apply",
         "integration real GL PASS: WeightedOitPipelineGlTest 2/2 (declared empty set no-op; OIT/stochastic overlap rejected)",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #28 JVM 13/23 + GL 9/9 PASS"
+        "per-feature matrix 20261112-165030: #28 JVM 13/23 + GL 9/9 PASS",
+        "final per-feature matrix 20261113-021232: #28 JVM 13/23 + GL 9/9 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -995,7 +1026,8 @@
         "JVM Atmosphere* 16 tests PASS",
         "focused verify f36cf5e5: 477 tests PASS, 0 skipped",
         "independent review APPROVE_WITH_SCOPE; cull/sRGB state, sun sync and doc contracts fixed at d57557e",
-        "per-feature matrix 20261112-165030: #29 JVM 16/21 + GL 5/5 PASS"
+        "per-feature matrix 20261112-165030: #29 JVM 16/21 + GL 5/5 PASS",
+        "final per-feature matrix 20261113-021232: #29 JVM 16/22 + GL 5/5 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1033,7 +1065,8 @@
         "independent acceptance F3: planar target is recorded but no surface samples it; water/SSR consumption missing",
         "water shader now samples the planar target at unit 3 (e5cde50f); PlanarReflectionPipelineGlTest 2/2 real GL PASS including water enable/disable pixel change and exact environment restore; update throttling, camera-cut, resize and SSR consumption still pending",
         "resize coverage: PlanarReflectionPipelineGlTest 3/3 real GL PASS (water consumer survives resize and the owner is rebuilt at the settings-derived extent, 879a5d8c)",
-        "F3 closure: water shader samples the planar target (enable/disable pixel change, throttle, camera cut, resize, and the invalid-content fallback gate asserted at 97ccaa2a); PlanarReflectionPipelineGlTest 5/5 real GL PASS. SSR decision: the screen-space reflection keeps its own depth-march and does not consume the planar target; the water surface is the single planar consumer, so no double reflection"
+        "F3 closure: water shader samples the planar target (enable/disable pixel change, throttle, camera cut, resize, and the invalid-content fallback gate asserted at 97ccaa2a); PlanarReflectionPipelineGlTest 5/5 real GL PASS. SSR decision: the screen-space reflection keeps its own depth-march and does not consume the planar target; the water surface is the single planar consumer, so no double reflection",
+        "final per-feature matrix 20261113-021232: #30 JVM 18/33 + GL 15/15 PASS"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
@@ -1063,7 +1096,8 @@
         "JVM Parallax*/PbrFallbackTextures 22 tests PASS",
         "focused verify a3e0451d: 604 tests PASS, 0 skipped",
         "review ALPHA-fallback defect fixed at e5e14ca",
-        "per-feature matrix 20261112-165030: #31 JVM 22/23 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #31 JVM 22/23 + GL 1/1 PASS",
+        "final per-feature matrix 20261113-021232: #31 JVM 22/23 + GL 1/1 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1094,7 +1128,8 @@
         "publicApiGuard, architectureGuard, assetManifestGuard, releaseVerificationContracts PASS",
         "review fix d29cd44: mask accepts [0,4] and clamps coverage; intensity-2.0 real-pipeline GL case discriminates it",
         "4x MSAA SUBSURFACE shared-resolve case PASS (SceneSurfaceResolveGlTest 2/2, af3d57b)",
-        "per-feature matrix 20261112-165030: #32 JVM 20/24 + GL 2/2 PASS"
+        "per-feature matrix 20261112-165030: #32 JVM 20/24 + GL 2/2 PASS",
+        "final per-feature matrix 20261113-021232: #32 JVM 20/24 + GL 2/2 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
@@ -1125,7 +1160,8 @@
         "bounded 131218 policy row render3d/subsurface-forward-cold (max 2) with positive/negative contracts",
         "review fix d29cd44: mask accepts [0,4] and clamps coverage; intensity-2.0 real-pipeline GL case discriminates it",
         "4x MSAA SUBSURFACE shared-resolve case PASS (SceneSurfaceResolveGlTest 2/2, af3d57b)",
-        "per-feature matrix 20261112-165030: #33 JVM 20/24 + GL 2/2 PASS"
+        "per-feature matrix 20261112-165030: #33 JVM 20/24 + GL 2/2 PASS",
+        "final per-feature matrix 20261113-021232: #33 JVM 20/24 + GL 2/2 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
@@ -1155,7 +1191,8 @@
         "GL PASS fresh at a09d934 (--rerun-tasks): TemporalDenoisePassGlTest 10/10, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/temporal-denoise/",
         "velocity case now passes PLANE_VIEW_DEPTH as previousDepth and requires 10-frame noise reduction, so history acceptance is exercised",
         "historySigma/sigma=max(currentSigma, historySigma) shader-contract assertions restored; history-moment shader synced with assets.tsv f46f148d",
-        "per-feature matrix 20261112-165030: #34 JVM 22/32 + GL 10/10 PASS"
+        "per-feature matrix 20261112-165030: #34 JVM 22/32 + GL 10/10 PASS",
+        "final per-feature matrix 20261113-021232: #34 JVM 22/32 + GL 10/10 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1185,7 +1222,8 @@
         "JVM TemporalUpscaling* + composition 32 tests PASS",
         "focused verify 01624360: 793 tests PASS, 0 skipped",
         "review B1 bloom/AUTO external-target gap fixed at 7b14644",
-        "per-feature matrix 20261112-165030: #35 JVM 31/37 + GL 6/6 PASS"
+        "per-feature matrix 20261112-165030: #35 JVM 31/37 + GL 6/6 PASS",
+        "final per-feature matrix 20261113-021232: #35 JVM 31/37 + GL 6/6 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1218,7 +1256,8 @@
         "B1 production wiring at 1215a7fa: caustics composited after geometry/planar and before the water pass; water pass declares the dependency",
         "integration real GL PASS: CausticsPipelineGlTest 1/1 after freezing the fixture water animation for the byte-identical disabled comparison",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #36 JVM 14/21 + GL 7/7 PASS"
+        "per-feature matrix 20261112-165030: #36 JVM 14/21 + GL 7/7 PASS",
+        "final per-feature matrix 20261113-021232: #36 JVM 14/21 + GL 7/7 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1256,7 +1295,8 @@
         "review-found P*V reprojection order and IGN/Bayer instance-correlation fixed and covered by new GL cases",
         "review verdict APPROVE_WITH_SCOPE: P*V and structured decorrelation fixed; 11/11 GL; structured modes documented as biased approximations",
         "RenderPipeline wiring merged at 30c8047; StochasticTransparencyPipelineGlTest 2/2 PASS in integration; XML archived in build/reports/gl/pipeline-wiring/",
-        "per-feature matrix 20261112-165030: #37 JVM 27/40 + GL 13/13 PASS"
+        "per-feature matrix 20261112-165030: #37 JVM 27/40 + GL 13/13 PASS",
+        "final per-feature matrix 20261113-021232: #37 JVM 27/40 + GL 13/13 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
@@ -1295,7 +1335,8 @@
         "manual gate audit archived at build/reports/gl/volumetric-particles/gate-audit.txt (131186 x1/max2, 131218 x1/max4)",
         "JVM PASS provenance: bounded runId ec33c2d0 at 7553c77 (701 tests, 0 skipped) contains the four particle XMLs 5+7+6+4=22; later 09:15 stochastic run overwrote the direct XMLs but the particle blobs are unchanged",
         "RenderPipeline wiring merged at 30c8047; VolumetricParticlePipelineGlTest 2/2 PASS in integration; XML archived in build/reports/gl/pipeline-wiring/",
-        "per-feature matrix 20261112-165030: #38 JVM 22/30 + GL 8/8 PASS"
+        "per-feature matrix 20261112-165030: #38 JVM 22/30 + GL 8/8 PASS",
+        "final per-feature matrix 20261113-021232: #38 JVM 22/30 + GL 8/8 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
@@ -1335,7 +1376,8 @@
         "per-feature matrix 20261112-165030: #39 JVM 32/40 + GL 8/8 PASS",
         "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing",
         "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending",
-        "independent review APPROVE_WITH_SCOPE: reprojection sign, rejection ordering, lifecycle and disabled path verified; the uninitialized-slot commit hazard and the non-finite previous-depth gap are fixed at 2818d312, camera-cut expectation corrected, canonical 12-to-17 reflection break documented"
+        "independent review APPROVE_WITH_SCOPE: reprojection sign, rejection ordering, lifecycle and disabled path verified; the uninitialized-slot commit hazard and the non-finite previous-depth gap are fixed at 2818d312, camera-cut expectation corrected, canonical 12-to-17 reflection break documented",
+        "final per-feature matrix 20261113-021232: #39 JVM 46/62 + GL 8/8 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1378,7 +1420,8 @@
         "real GL at 8e751cd8: VolumetricCloudPipelineGlTest 4/4 PASS (contribution, depth ownership, resize, disabled no-op)",
         "focused verification dfb658b6: PASS",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #40 JVM 38/49 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #40 JVM 38/49 + GL 11/11 PASS",
+        "final per-feature matrix 20261113-021232: #40 JVM 38/49 + GL 11/11 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1421,7 +1464,8 @@
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
         "per-feature matrix 20261112-165030: #41 JVM 22/31 + GL 9/9 PASS",
         "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete",
-        "F7 cost-matched oracle at bfb1475e: exact floor+extra spend (total 78912 on the 96x96 fixture), two-tier and rounded controls match the cost exactly, adaptive error 0.035 vs floor 0.415 / matched 0.293 / uniform 0.085; residual-only fixture keeps the measured tile term uniform (144/144 tiles error 0) while 511 high-residual pixels rise above the floor; integration GL SsrAdaptiveSamplingGlTest 10/10 and SsrPassGlTest 2/2 PASS, 0 skipped"
+        "F7 cost-matched oracle at bfb1475e: exact floor+extra spend (total 78912 on the 96x96 fixture), two-tier and rounded controls match the cost exactly, adaptive error 0.035 vs floor 0.415 / matched 0.293 / uniform 0.085; residual-only fixture keeps the measured tile term uniform (144/144 tiles error 0) while 511 high-residual pixels rise above the floor; integration GL SsrAdaptiveSamplingGlTest 10/10 and SsrPassGlTest 2/2 PASS, 0 skipped",
+        "final per-feature matrix 20261113-021232: #41 JVM 23/33 + GL 10/10 PASS"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
@@ -1460,7 +1504,8 @@
         "real GL at 8e751cd8: VariableRateShadingGlTest 6/6 PASS on the RTX 3050 NV path",
         "focused verification dfb658b6: PASS",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #42 JVM 29/35 + GL 6/6 PASS"
+        "per-feature matrix 20261112-165030: #42 JVM 29/35 + GL 6/6 PASS",
+        "final per-feature matrix 20261113-021232: #42 JVM 29/35 + GL 6/6 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1499,7 +1544,8 @@
         "real GL at 8e751cd8: SmokePipelineGlTest 4/4 PASS (contribution, depth ownership, resize, disabled no-op)",
         "focused verification dfb658b6: PASS",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #43 JVM 41/57 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #43 JVM 41/57 + GL 11/11 PASS",
+        "final per-feature matrix 20261113-021232: #43 JVM 41/57 + GL 11/11 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1537,7 +1583,8 @@
         "B3 production wiring at c1eb08b3: DDGI resolved through RenderFeaturePolicy and wired into RenderPipeline/PipelineGeneration with transactional apply and resize candidates",
         "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #44 JVM 30/37 + GL 7/7 PASS"
+        "per-feature matrix 20261112-165030: #44 JVM 30/37 + GL 7/7 PASS",
+        "final per-feature matrix 20261113-021232: #44 JVM 30/37 + GL 7/7 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1576,7 +1623,8 @@
         "B3 production wiring at c1eb08b3: VCT resolved through RenderFeaturePolicy; composite now declares an explicit dependency on the probe trace pass (8e6a4408)",
         "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #45 JVM 31/39 + GL 8/8 PASS"
+        "per-feature matrix 20261112-165030: #45 JVM 31/39 + GL 8/8 PASS",
+        "final per-feature matrix 20261113-021232: #45 JVM 31/39 + GL 8/8 PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1618,7 +1666,8 @@
         "per-feature matrix 20261112-165030: #46 JVM 21/28 + GL 7/7 PASS",
         "independent acceptance F5 GL regression (2026-11-13): RenderPipelineWiringB3GlTest.movingOnlyTheHairLockInvalidatesTheStaticShadowCacheAndTheShadowFollows executes pre-hair baseline -> first miss -> static reuse -> lock-only move (miss and receiver shadow follows) -> stable reuse -> disabled baseline; 11/11 real GL PASS (RenderPipelineWiringB3GlTest 4/4 + HairStrandGlTest 7/7, 0 skipped, 0 failures, RTX 3050)",
         "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)",
-        "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline"
+        "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline",
+        "final per-feature matrix 20261113-021232: #46 JVM 21/28 + GL 7/7 PASS"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
@@ -1662,7 +1711,8 @@
     "No push, tag or release publication authorized in this run.",
     "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed.",
     "v0.28.1 progress 2026-11-12: 18 features DONE with focused GL evidence (#4/#5/#10/#12/#13/#14/#16/#17/#19/#20/#21/#22/#23/#24/#25/#28/#29/#30); #6/#8 BLOCKED, #9 PARTIAL. Latest focused verify runId 317cbe60: 560 tests, 0 skipped/failures. In flight: #31 POM and #36 caustics GPU fixes; planar re-review sign-check fix. RenderPipeline consumption for #28/#30 remains an explicit gap. No push/tag; source branch untouched.",
-    "v0.28.1 progress 2026-11-12 (later): #32/#33 SSS, #34 denoise, #37 stochastic transparency and #38 volumetric particles are integrated with JVM and serialized GL evidence; JVM verify runId 8919c370 PASS. RenderPipeline consumption for #28 OIT, #30 planar, #36 caustics, #37 stochastic, #38 particles and feature-control exposure for #32/#34/#35 remains an explicit wiring gap. Independent reviews for #32/#33, #34, #37, #38 are in flight."
+    "v0.28.1 progress 2026-11-12 (later): #32/#33 SSS, #34 denoise, #37 stochastic transparency and #38 volumetric particles are integrated with JVM and serialized GL evidence; JVM verify runId 8919c370 PASS. RenderPipeline consumption for #28 OIT, #30 planar, #36 caustics, #37 stochastic, #38 particles and feature-control exposure for #32/#34/#35 remains an explicit wiring gap. Independent reviews for #32/#33, #34, #37, #38 are in flight.",
+    "final candidate: focused verification c80d3ff6 (1331 tests, 0 skipped, 0 failures) and per-feature matrix 20261113-021232 (JVM 962 + GL 243, 0 GL skipped) at HEAD cab6c01b"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
