@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "748e299"
+    "head": "1e19932"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1168,7 +1168,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "80c916f..18b0197",
-      "integrationCommit": "e8f4e55",
+      "integrationCommit": "9a82003",
       "requiredCases": [
         "StochasticTransparencySettingsTest",
         "StochasticTransparencyInputsTest",
@@ -1178,15 +1178,15 @@
       ],
       "evidence": [
         "JVM PASS: Settings 7, Inputs 3, Reference 10, Shader 7",
-        "GL PASS at e8f4e55: StochasticTransparencyPassGlTest 10/10, 0 skipped, 0 failures, gate green",
-        "review-found reprojection order bug fixed (P*V) and covered by a real-GL matrix-order case; 10/10 includes it"
+        "GL PASS at 9a82003: StochasticTransparencyPassGlTest 11/11, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/stochastic-transparency/",
+        "review-found P*V reprojection order and IGN/Bayer instance-correlation fixed and covered by new GL cases"
       ],
       "review": "PENDING",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "final stochastic reviewer verdict (instance-correlation/seed findings pending)"
+      "nextAction": "final stochastic reviewer verdict"
     },
     {
       "taskId": "R38",
