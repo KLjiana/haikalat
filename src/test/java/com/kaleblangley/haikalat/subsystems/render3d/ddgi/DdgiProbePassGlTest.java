@@ -35,6 +35,7 @@ import java.nio.FloatBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -304,9 +305,24 @@ class DdgiProbePassGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             try (Geometry geometry = Geometry.create()) {
+                // Oracle precondition: both volumes must compute the same raw
+                // incident radiance on the second update. The relight adds one
+                // bounce sampled from the previous atlas, and a blended volume
+                // intentionally keeps a half-strength previous atlas, so a
+                // fixture that lets the bounce contribute would compare two
+                // different raw values and misattribute the difference to the
+                // blend. Putting every hit point outside the probe grid makes
+                // the border clamp return exactly zero for the bounce while the
+                // direct and sky terms remain history independent.
                 DdgiSettings blended = probeSettings().toBuilder()
+                        .gridOrigin(0.0f, 1.5f, 0.0f)
+                        .spacingMetres(2.0f)
+                        .maximumRayDistance(6.0f)
                         .hysteresis(0.5f).build();
                 DdgiSettings raw = blended.toBuilder().hysteresis(0.0f).build();
+                assertFalse(blended.contains(1.0f, FLOOR_HEIGHT, 1.0f),
+                        "temporal oracle requires hit points outside the probe grid so the"
+                                + " relight bounce is exactly zero");
                 GlRenderDevice device = new GlRenderDevice();
                 SceneFrame probeFrame = frame(geometry, null, new Matrix4f(), 0);
                 try (DdgiProbeVolume blendedVolume = new DdgiProbeVolume(blended);
@@ -321,6 +337,7 @@ class DdgiProbePassGlTest {
                     float[] rawSecond = readIrradiance(rawVolume);
 
                     int compared = 0;
+                    int changed = 0;
                     for (int index = 0; index < first.length; index += 4) {
                         float expected = (float) DdgiProbeReference.hysteresis(
                                 first[index], rawSecond[index], 0.5, 32.0);
@@ -328,12 +345,18 @@ class DdgiProbePassGlTest {
                                 && Math.abs(first[index]) < 0.02f) {
                             continue;
                         }
+                        if (Math.abs(rawSecond[index] - first[index]) > 0.05f) {
+                            changed++;
+                        }
                         assertEquals(expected, blendedSecond[index], 5.0e-3f,
                                 "temporal blend must match the independent hysteresis formula");
                         compared++;
                     }
                     assertTrue(compared >= 8, "expected several changing irradiance texels, got "
                             + compared);
+                    assertTrue(changed >= 4,
+                            "the blend fixture must contain texels whose raw incident changed; got "
+                                    + changed);
                     assertEquals(GL_NO_ERROR, glGetError());
                 }
             }
