@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "db4bb36"
+    "head": "2be33a9"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T08:20:00+08:00",
+  "updatedAt": "2026-11-12T08:35:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1153,8 +1153,8 @@
       "featureIds": [
         37
       ],
-      "state": "PARTIAL",
-      "scope": "Stochastic Transparency",
+      "state": "DONE",
+      "scope": "Stochastic transparency for a caller-selected surface set: per-sample probability coverage, private nearest-accepted depth, RGBA32F frame sum, temporal reprojection with depth/velocity/coverage rejection and neighbourhood clamp, premultiplied composite",
       "dependencies": [
         26,
         28
@@ -1162,20 +1162,20 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": "80c916f",
-      "integrationCommit": null,
+      "workerCommit": "80c916f..18b0197",
+      "integrationCommit": "2be33a9",
       "requiredCases": [],
       "evidence": [
-        "JVM PASS: 27 new stochastic cases (Settings 7, Reference 10, Inputs 3, Shader 7) plus 12 OIT regressions",
-        "GL 8/9 PASS in worker 80c916f: cameraMotionTracksTheDepthFixtureAndDoesNotLeaveAPermanentGhost failed with stopped-camera channel 0 = 0.40005 vs expected 0.475 (tolerance 0.035); no GL errors",
-        "publicApiGuard, architectureGuard, assetManifestGuard PASS"
+        "JVM PASS: StochasticTransparencySettingsTest 7, InputsTest 3, ReferenceTest 10, ShaderTest 7, plus 12 OIT regressions",
+        "GL PASS in worker d242e4f and integration 2be33a9: StochasticTransparencyPassGlTest 9/9, 0 skipped, 0 failures, gate green",
+        "bounded 131218 policy row render3d/stochastic-transparency-cold (max 8) with positive/negative contracts"
       ],
-      "review": "NOT_STARTED",
-      "functional": "PARTIAL",
+      "review": "PENDING",
+      "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "worker diagnoses temporal-accumulation convergence failure; rerun the 9-case GL queue after the fix"
+      "nextAction": "independent review of #37"
     },
     {
       "taskId": "R38",
