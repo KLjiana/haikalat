@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "7fd336d"
+    "head": "24e4893"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1293,7 +1293,7 @@
       "featureIds": [
         41
       ],
-      "state": "TODO",
+      "state": "DONE",
       "scope": "Adaptive Sampling",
       "dependencies": [
         20,
@@ -1302,16 +1302,26 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "1ac4cbf..3fa6b4c",
+      "integrationCommit": "737b5bc",
+      "requiredCases": [
+        "AdaptiveSamplingSettingsTest",
+        "AdaptiveSamplingReferenceTest",
+        "AdaptiveSamplingShaderContractTest",
+        "AdaptiveSamplingWiringTest",
+        "SsrAdaptiveSamplingGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 7, Reference 5, ShaderContract 4, Wiring 6 (22 total)",
+        "GL PASS worker 3fa6b4c and integration 737b5bc: SsrAdaptiveSamplingGlTest 9/9, 0 skipped, 0 failures, gate green",
+        "cost-matched reference: adaptive model error 5.25 vs fixed 6.14 on the 1408-sample fixture"
+      ],
+      "review": "PENDING",
+      "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review; feature-control/demo exposure remains"
     },
     {
       "taskId": "R42",
