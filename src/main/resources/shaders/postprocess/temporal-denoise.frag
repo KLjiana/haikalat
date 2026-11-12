@@ -205,6 +205,11 @@ void main() {
 
             if (historyWeight > TDN_EPSILON) {
                 vec3 historyRgb = historyAccum / historyWeight;
+                float historyMeanValue = meanAccum / historyWeight;
+                float historyM2Value = m2Accum / historyWeight;
+                float historyVariance = max(
+                        historyM2Value - historyMeanValue * historyMeanValue, 0.0);
+                float historySigma = sqrt(historyVariance) * TDN_MOMENT_SIGMA;
                 float rawHistoryLum = luminance(historyRgb);
                 float currentLum = luminance(current);
                 float shockScale = max(max(abs(currentLum), abs(rawHistoryLum)),
@@ -258,7 +263,16 @@ void main() {
 
                 float mean = sum / count;
                 float variance = max(sumSquares / count - mean * mean, 0.0);
-                float sigma = sqrt(variance) * TDN_MOMENT_SIGMA;
+                // The history moments are the temporal variance estimate.  They
+                // widen the clamp for a spatially flat current neighbourhood and
+                // set the luminance sigma floor; without this use the moments
+                // attachment would be dead data.
+                float currentSigma = sqrt(variance) * TDN_MOMENT_SIGMA;
+                float sigma = max(currentSigma, historySigma);
+                if (all(lessThan(abs(high - low), vec3(TDN_EPSILON)))) {
+                    low = max(low - vec3(historySigma), vec3(0.0));
+                    high = high + vec3(historySigma);
+                }
                 vec3 clamped = clamp(historyRgb, low, high);
                 float clampedLum = luminance(clamped);
                 if (clampedLum > TDN_EPSILON) {
@@ -272,8 +286,8 @@ void main() {
                     float currentWeight = clamp(1.0 - uHistoryBlend, 0.0, 1.0);
                     resolvedHistory = mix(clamped, current, currentWeight);
                     acceptedHistory = true;
-                    historyMean = meanAccum / historyWeight;
-                    historyM2 = m2Accum / historyWeight;
+                    historyMean = historyMeanValue;
+                    historyM2 = historyM2Value;
                 }
             }
         }
