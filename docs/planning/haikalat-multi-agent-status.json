@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "2bdb98e"
+    "head": "30c8047"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T09:00:00+08:00",
+  "updatedAt": "2026-11-12T09:50:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1180,14 +1180,15 @@
         "JVM PASS: Settings 7, Inputs 3, Reference 10, Shader 7",
         "GL PASS at 9a82003: StochasticTransparencyPassGlTest 11/11, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/stochastic-transparency/",
         "review-found P*V reprojection order and IGN/Bayer instance-correlation fixed and covered by new GL cases",
-        "review verdict APPROVE_WITH_SCOPE: P*V and structured decorrelation fixed; 11/11 GL; structured modes documented as biased approximations"
+        "review verdict APPROVE_WITH_SCOPE: P*V and structured decorrelation fixed; 11/11 GL; structured modes documented as biased approximations",
+        "RenderPipeline wiring merged at 30c8047; StochasticTransparencyPipelineGlTest 2/2 PASS in integration; XML archived in build/reports/gl/pipeline-wiring/"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "structured IGN/Bayer modes are decorrelated but biased (HASH remains unbiased); wiring in progress; coverage-moment consistency documented as a limit"
+      "nextAction": "production wiring merged; independent wiring review pending"
     },
     {
       "taskId": "R38",
@@ -1217,14 +1218,15 @@
         "worker abc6002 GL predates the policy commit, so it is content evidence only",
         "public vector accessors made package-private; far-plane truncation documented as a limitation",
         "manual gate audit archived at build/reports/gl/volumetric-particles/gate-audit.txt (131186 x1/max2, 131218 x1/max4)",
-        "JVM PASS provenance: bounded runId ec33c2d0 at 7553c77 (701 tests, 0 skipped) contains the four particle XMLs 5+7+6+4=22; later 09:15 stochastic run overwrote the direct XMLs but the particle blobs are unchanged"
+        "JVM PASS provenance: bounded runId ec33c2d0 at 7553c77 (701 tests, 0 skipped) contains the four particle XMLs 5+7+6+4=22; later 09:15 stochastic run overwrote the direct XMLs but the particle blobs are unchanged",
+        "RenderPipeline wiring merged at 30c8047; VolumetricParticlePipelineGlTest 2/2 PASS in integration; XML archived in build/reports/gl/pipeline-wiring/"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "RenderPipeline wiring delegated to the Integrator wiring task; far-plane clamp is a documented limit"
+      "nextAction": "production wiring merged; independent wiring review pending"
     },
     {
       "taskId": "R39",
