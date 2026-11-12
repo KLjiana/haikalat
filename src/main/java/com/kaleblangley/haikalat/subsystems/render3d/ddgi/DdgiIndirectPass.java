@@ -214,6 +214,8 @@ public final class DdgiIndirectPass implements GlResource {
                 .depthMask(false)
                 .enableCullFace(false)
                 .enableFramebufferSrgb(false)
+                // A caller-left scissor must not clip the full-screen indirect add.
+                .enableScissor(false)
                 .enableBlend(true)
                 .blendEquation(org.lwjgl.opengl.GL14.GL_FUNC_ADD)
                 .blendFunc(org.lwjgl.opengl.GL11.GL_ONE, org.lwjgl.opengl.GL11.GL_ONE)

@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "cca422e"
+    "head": "443ef5a"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1421,12 +1421,12 @@
         "GL PASS on worker 7b7fb08 and integration a2b3f43: DdgiProbePassGlTest 7/7, 0 skipped, 0 failures, gate green",
         "GPU round 1 exposed a hysteresis-oracle fixture defect (probe-bounce history); fixed by moving hit points outside the grid, formula unchanged"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review; RenderPipeline/feature-control wiring and per-pixel material consumption remain"
+      "nextAction": "pass-level 7/7 GL; RenderPipeline/feature-control wiring, multi-probe/face GL coverage, MSAA resolve contract and initial-atlas guard remain"
     },
     {
       "taskId": "R45",
