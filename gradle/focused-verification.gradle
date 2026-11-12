@@ -95,6 +95,8 @@ def jvmCases = [
         'StochasticTransparencySettingsTest', 'StochasticTransparencyInputsTest',
         'StochasticTransparencyReferenceTest', 'StochasticTransparencyShaderTest',
         'HairStrandSettingsTest', 'HairStrandReferenceTest', 'HairStrandShaderTest',
+        'SmokeSimulationSettingsTest', 'SmokeSimulationReferenceTest',
+        'SmokeSimulationShaderTest', 'SmokeCompositionTest',
         'SsgiSettingsTest', 'SsgiIndirectReferenceTest', 'SsgiShaderTest',
         'SsgiPipelineCompositionTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
@@ -139,6 +141,7 @@ def glCases = [
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
         'SsgiPassGlTest',
+        'SmokeSimulationGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "b5d0143"
+    "head": "2bdb98e"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1340,7 +1340,7 @@
       "featureIds": [
         43
       ],
-      "state": "TODO",
+      "state": "DONE",
       "scope": "Volumetric Smoke Simulation",
       "dependencies": [
         null
@@ -1348,16 +1348,26 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "461dae7..c340840",
+      "integrationCommit": "2bdb98e",
+      "requiredCases": [
+        "SmokeSimulationSettingsTest",
+        "SmokeSimulationReferenceTest",
+        "SmokeSimulationShaderTest",
+        "SmokeCompositionTest",
+        "SmokeSimulationGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 7, Reference 8, ShaderContract 7, Composition 8",
+        "GL PASS on worker c340840 and integration 2bdb98e: SmokeSimulationGlTest 7/7, 0 skipped, 0 failures, gate green",
+        "GL round 1 caught a fixture endpoint/half-open-window assumption and an over-broad occlusion assertion; both fixed without relaxing the closed-form contract"
+      ],
+      "review": "PENDING",
+      "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review of #43; RenderPipeline exposure remains"
     },
     {
       "taskId": "R44",
