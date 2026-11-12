@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "24e4893"
+    "head": "4e6fe62"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1352,7 +1352,7 @@
       "featureIds": [
         43
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Volumetric Smoke Simulation",
       "dependencies": [
         null
@@ -1365,7 +1365,7 @@
       "requiredCases": [
         "SmokeSimulationSettingsTest",
         "SmokeSimulationReferenceTest",
-        "SmokeSimulationShaderTest",
+        "SmokeShaderContractTest",
         "SmokeCompositionTest",
         "SmokeSimulationGlTest"
       ],
@@ -1374,12 +1374,12 @@
         "GL PASS on worker c340840 and integration 2bdb98e: SmokeSimulationGlTest 7/7, 0 skipped, 0 failures, gate green",
         "GL round 1 caught a fixture endpoint/half-open-window assumption and an over-broad occlusion assertion; both fixed without relaxing the closed-form contract"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #43; RenderPipeline exposure remains"
+      "nextAction": "pass-level 7/7 GL + 30 JVM PASS; RenderPipeline/feature-control exposure, per-cell density/temperature GL comparison and candidate-failure tests remain"
     },
     {
       "taskId": "R44",

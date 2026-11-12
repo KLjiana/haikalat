@@ -161,11 +161,11 @@ public record SmokeRenderSettings(
         return new Vector3f(lightColor);
     }
 
-    public Vector3f lightDirectionInternal() {
+    Vector3f lightDirectionInternal() {
         return lightDirection;
     }
 
-    public Vector3f lightColorInternal() {
+    Vector3f lightColorInternal() {
         return lightColor;
     }
 
