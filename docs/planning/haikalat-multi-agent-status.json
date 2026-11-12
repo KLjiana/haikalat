@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "30348b5"
+    "head": "d94d8be"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1401,7 +1401,7 @@
       "featureIds": [
         46
       ],
-      "state": "TODO",
+      "state": "DONE",
       "scope": "Hair Strand Rendering",
       "dependencies": [
         null
@@ -1410,15 +1410,24 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "integrationCommit": "d94d8be",
+      "requiredCases": [
+        "HairStrandSettingsTest",
+        "HairStrandReferenceTest",
+        "HairStrandShaderTest",
+        "HairStrandGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 7, Reference 8, Shader 6",
+        "GL PASS worker 1483ffc and integration d94d8be: HairStrandGlTest 7/7, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/hair/",
+        "procedural deterministic strands (no external asset), ribbon width/LOD, Kajiya-Kay, sorted alpha, directional shadow caster/receiver"
+      ],
+      "review": "PENDING",
+      "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review of #46; RenderPipeline wiring is a remaining gap"
     }
   ],
   "notes": [

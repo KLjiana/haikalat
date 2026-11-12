@@ -94,6 +94,7 @@ def jvmCases = [
         'VolumetricParticleProjectionTest', 'VolumetricParticleShaderTest',
         'StochasticTransparencySettingsTest', 'StochasticTransparencyInputsTest',
         'StochasticTransparencyReferenceTest', 'StochasticTransparencyShaderTest',
+        'HairStrandSettingsTest', 'HairStrandReferenceTest', 'HairStrandShaderTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
 ]
 def glCases = [
@@ -134,6 +135,7 @@ def glCases = [
         'VolumetricParticleGlTest',
         'StochasticTransparencyPassGlTest',
         'SceneSurfaceResolveGlTest',
+        'HairStrandGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
