@@ -164,7 +164,7 @@ float tileErrorEstimate() {
     ivec2 origin = ivec2(floor(gl_FragCoord.xy / tileSize) * tileSize);
     int quarter = int(max(tileSize * 0.25, 0.0));
     int threeQuarter = int(max(tileSize * 0.75, 0.0));
-    ivec2 offsets[SSR_TILE_PROBE_COUNT] = ivec2[](
+    ivec2 offsets[SSR_TILE_PROBE_COUNT] = ivec2[SSR_TILE_PROBE_COUNT](
             ivec2(quarter, quarter), ivec2(threeQuarter, quarter),
             ivec2(quarter, threeQuarter), ivec2(threeQuarter, threeQuarter));
 
