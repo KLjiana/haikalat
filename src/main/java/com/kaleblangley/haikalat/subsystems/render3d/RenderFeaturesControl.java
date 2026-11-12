@@ -108,9 +108,21 @@ public final class RenderFeaturesControl {
 
     synchronized void publish(RenderFeatureSettings published, long revision,
                               List<RenderFeatureActivity> resolved) {
-        effective = Objects.requireNonNull(published, "published");
+        publish(published, published, revision, resolved);
+    }
+
+    /**
+     * Publishes a request whose effective snapshot may differ from the
+     * requested one: a post-process feature that is requested but cannot run
+     * in this scene stays in {@code requested} while {@code effective} carries
+     * the safe baseline.
+     */
+    synchronized void publish(RenderFeatureSettings requestedSettings,
+                              RenderFeatureSettings effectiveSettings, long revision,
+                              List<RenderFeatureActivity> resolved) {
+        effective = Objects.requireNonNull(effectiveSettings, "effectiveSettings");
         effectiveRevision = revision;
-        requested = published;
+        requested = Objects.requireNonNull(requestedSettings, "requestedSettings");
         requestedRevision = Math.max(requestedRevision, revision);
         status = RenderFeatureStatus.APPLIED;
         failureReason = "";
@@ -125,15 +137,25 @@ public final class RenderFeaturesControl {
     /** Keeps the observation coherent with configuration changed through a local apply path. */
     synchronized void refresh(RenderFeatureSettings settings,
                               List<RenderFeatureActivity> resolved) {
-        RenderFeatureSettings current = Objects.requireNonNull(settings, "settings");
-        if (!current.equals(effective)) {
+        refresh(settings, settings, resolved);
+    }
+
+    /** Compatibility form that can publish a sanitized effective snapshot. */
+    synchronized void refresh(RenderFeatureSettings requestedSettings,
+                              RenderFeatureSettings effectiveSettings,
+                              List<RenderFeatureActivity> resolved) {
+        RenderFeatureSettings requestedValue =
+                Objects.requireNonNull(requestedSettings, "requestedSettings");
+        RenderFeatureSettings effectiveValue =
+                Objects.requireNonNull(effectiveSettings, "effectiveSettings");
+        if (!requestedValue.equals(requested) || !effectiveValue.equals(effective)) {
             long revision = Math.incrementExact(requestedRevision);
-            requested = current;
+            requested = requestedValue;
             requestedRevision = revision;
             effectiveRevision = revision;
         }
-        effective = current;
-        requested = current;
+        effective = effectiveValue;
+        requested = requestedValue;
         status = RenderFeatureStatus.APPLIED;
         failureReason = "";
         activities = List.copyOf(resolved);

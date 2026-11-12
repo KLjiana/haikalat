@@ -1,5 +1,10 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
@@ -14,6 +19,17 @@ import java.util.Objects;
  * <p>Inputs are only configuration values and immutable scene facts; no GL
  * resource is touched and no topology is allocated here.  Illegal combinations
  * fail the whole request before candidate preparation.</p>
+ *
+ * <p>The three advanced post-process features (SSGI, adaptive sampling and
+ * variable rate shading) are not duplicated in {@link RenderFeatureSettings}:
+ * their request lives in {@link PostProcessSettings} and this policy resolves
+ * the effective participation plus a human-readable reason.  A requested
+ * feature whose static consumer or capability is missing is reported as
+ * {@link RenderFeatureReason#UNAVAILABLE} and removed from
+ * {@link Resolved#effectivePostProcess()}, so the candidate generation can be
+ * built as the safe baseline instead of failing the whole request.  A
+ * configuration conflict (SSGI with temporal upscaling, or an adaptive
+ * ceiling above the SSR hard bound) still fails the request.</p>
  */
 final class RenderFeaturePolicy {
     /** Current scene and external-resource facts used to resolve a request. */
@@ -22,7 +38,8 @@ final class RenderFeaturePolicy {
                  boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
                  boolean hdrVfxFogOptOut, boolean previewSourceSelected,
                  boolean directionalLightDownward, boolean weightedOitSetDeclared,
-                 boolean transparentSetsOverlap, boolean directionalLightPresent) {
+                 boolean transparentSetsOverlap, boolean directionalLightPresent,
+                 boolean variableRateShadingAvailable) {
         /** Source-compatible shape used by pre-S3-single callers/tests. */
         Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
               boolean spotCaster, boolean pbrEnvironmentAvailable,
@@ -30,7 +47,7 @@ final class RenderFeaturePolicy {
               boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
             this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
                     pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
-                    hdrVfxFogOptOut, previewSourceSelected, false, false, false, false);
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false, false, false);
         }
 
         /** Source-compatible shape used by the S3 composition callers/tests. */
@@ -43,10 +60,14 @@ final class RenderFeaturePolicy {
             this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
                     pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
                     hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
-                    weightedOitSetDeclared, transparentSetsOverlap, false);
+                    weightedOitSetDeclared, transparentSetsOverlap, false, false);
         }
 
-        /** Source-compatible shape used by the direct-light (b3) callers/tests. */
+        /**
+         * Source-compatible shape used by the direct-light (b3) callers/tests.
+         * The tenth boolean is {@code directionalLightPresent}; the VRS
+         * capability fact defaults to unavailable.
+         */
         Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
               boolean spotCaster, boolean pbrEnvironmentAvailable,
               boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
@@ -55,7 +76,21 @@ final class RenderFeaturePolicy {
             this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
                     pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
                     hdrVfxFogOptOut, previewSourceSelected, false, false, false,
-                    directionalLightPresent);
+                    directionalLightPresent, false);
+        }
+
+        /** Source-compatible shape used by the pre-VRS (HEAD canonical) callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    false);
         }
     }
 
@@ -72,8 +107,12 @@ final class RenderFeaturePolicy {
                     boolean weightedOit,
                     boolean planarReflections, boolean caustics,
                     boolean ddgi, boolean vct, boolean hairStrands,
+                    boolean ssgi,
+                    boolean adaptiveSampling, boolean variableRateShading,
+                    PostProcessSettings effectivePostProcess,
                     List<RenderFeatureActivity> activities) {
         Resolved {
+            Objects.requireNonNull(effectivePostProcess, "effectivePostProcess");
             activities = List.copyOf(activities);
         }
     }
@@ -158,6 +197,50 @@ final class RenderFeaturePolicy {
         RenderFeatureReason hairReason = hairReason(settings.hairStrands(), settings.render(),
                 facts.directionalLightPresent(), hairEligible);
 
+        PostProcessSettings requestedEffects = settings.postProcess();
+        boolean hdr = settings.render().hdrEnabled();
+        SsgiSettings ssgiRequest = requestedEffects.ssgi();
+        AdaptiveSamplingSettings adaptiveRequest = requestedEffects.adaptiveSampling();
+        VariableRateShadingSettings vrsRequest = requestedEffects.variableRateShading();
+        boolean temporalUpscaling = requestedEffects.temporalUpscaling().active();
+        boolean ssrActive = requestedEffects.ssr().active();
+        boolean subsurfaceActive = requestedEffects.subsurfaceScattering().screenSpaceActive();
+        boolean ssgiEligible = ssgiRequest.active() && hdr && facts.pbrMaterials()
+                && !temporalUpscaling;
+        boolean adaptiveEligible = adaptiveRequest.active() && ssrActive && hdr
+                && adaptiveRequest.maximumSteps() <= requestedEffects.ssr().maxSteps();
+        // The NV path is a fallback decision, not a configuration failure: the
+        // request stays in the effective snapshot so PostProcessPipeline can
+        // report "fallback:" and allocate no VRS resource.
+        boolean vrsEligible = vrsRequest.active() && hdr && subsurfaceActive;
+        boolean vrsActive = vrsEligible && facts.variableRateShadingAvailable();
+        boolean ssgi = master && ssgiEligible;
+        boolean adaptiveSampling = master && adaptiveEligible;
+        boolean variableRateShading = master && vrsActive;
+
+        PostProcessSettings effectiveEffects = requestedEffects;
+        if (master) {
+            if (ssgiRequest.active() && !ssgiEligible) {
+                effectiveEffects = effectiveEffects.withSsgi(ssgiRequest.withEnabled(false));
+            }
+            if (adaptiveRequest.active() && !adaptiveEligible) {
+                effectiveEffects = effectiveEffects.withAdaptiveSampling(
+                        adaptiveRequest.withEnabled(false));
+            }
+            if (vrsRequest.active() && !vrsEligible) {
+                effectiveEffects = effectiveEffects.withVariableRateShading(
+                        vrsRequest.withEnabled(false));
+            }
+        }
+
+        String ssgiDetail = ssgiRequest.active()
+                ? ssgiUnavailableDetail(hdr, facts.pbrMaterials()) : "";
+        String adaptiveDetail = adaptiveRequest.active()
+                ? adaptiveUnavailableDetail(ssrActive, hdr) : "";
+        String vrsDetail = vrsRequest.active()
+                ? vrsUnavailableDetail(hdr, subsurfaceActive,
+                facts.variableRateShadingAvailable()) : "";
+
         List<RenderFeatureActivity> activities = new ArrayList<>();
         activities.add(activity(RenderFeature.MASTER, master,
                 master ? RenderFeatureReason.ACTIVE : RenderFeatureReason.DISABLED));
@@ -211,6 +294,12 @@ final class RenderFeaturePolicy {
         activities.add(child(RenderFeature.DDGI, master, ddgi, ddgiReason));
         activities.add(child(RenderFeature.VOXEL_CONE_TRACING, master, vct, vctReason));
         activities.add(child(RenderFeature.HAIR_STRANDS, master, hairStrands, hairReason));
+        activities.add(unavailableActivity(RenderFeature.SSGI, master, ssgi, ssgiRequest.active(),
+                ssgiDetail));
+        activities.add(unavailableActivity(RenderFeature.ADAPTIVE_SAMPLING, master,
+                adaptiveSampling, adaptiveRequest.active(), adaptiveDetail));
+        activities.add(unavailableActivity(RenderFeature.VARIABLE_RATE_SHADING, master,
+                variableRateShading, vrsRequest.active(), vrsDetail));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -226,6 +315,7 @@ final class RenderFeaturePolicy {
                 effective(master, planarEligible), effective(master, causticsEligible),
                 effective(master, ddgi),
                 effective(master, vct), effective(master, hairStrands),
+                ssgi, adaptiveSampling, variableRateShading, effectiveEffects,
                 List.copyOf(activities));
     }
 
@@ -268,6 +358,30 @@ final class RenderFeaturePolicy {
     private static RenderFeatureActivity activity(RenderFeature feature, boolean active,
                                                   RenderFeatureReason reason) {
         return new RenderFeatureActivity(feature, active, reason);
+    }
+
+    private static RenderFeatureActivity activity(RenderFeature feature, boolean active,
+                                                  RenderFeatureReason reason, String detail) {
+        return new RenderFeatureActivity(feature, active, reason, detail);
+    }
+
+    /**
+     * Post-process features stay requested in the master snapshot; only their
+     * effective participation is downgraded.  A paused pipeline therefore keeps
+     * the complete request for the resume path.
+     */
+    private static RenderFeatureActivity unavailableActivity(RenderFeature feature, boolean master,
+                                                             boolean active, boolean requested,
+                                                             String detail) {
+        if (!master) {
+            return activity(feature, false, RenderFeatureReason.PAUSED_BY_MASTER);
+        }
+        if (!requested) {
+            return activity(feature, false, RenderFeatureReason.DISABLED);
+        }
+        return active
+                ? activity(feature, true, RenderFeatureReason.ACTIVE)
+                : activity(feature, false, RenderFeatureReason.UNAVAILABLE, detail);
     }
 
     private static RenderFeatureReason iblReason(RenderFeatureSettings settings, Facts facts) {
@@ -338,6 +452,33 @@ final class RenderFeaturePolicy {
         return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
     }
 
+    private static String ssgiUnavailableDetail(boolean hdr, boolean pbrMaterials) {
+        if (!hdr) return "requires HDR tone mapping";
+        if (!pbrMaterials) {
+            return "requires at least one metallic-roughness PBR material with ALBEDO/ROUGHNESS";
+        }
+        return "";
+    }
+
+    private static String adaptiveUnavailableDetail(boolean ssrActive, boolean hdr) {
+        if (!ssrActive) return "requires an active screen-space reflection sampler";
+        if (!hdr) return "requires HDR tone mapping";
+        return "";
+    }
+
+    private static String vrsUnavailableDetail(boolean hdr, boolean subsurfaceActive,
+                                               boolean capabilityAvailable) {
+        if (!hdr) return "requires HDR tone mapping";
+        if (!subsurfaceActive) {
+            return "requires the declared screen-space subsurface scattering consumer";
+        }
+        if (!capabilityAvailable) {
+            return "NV_shading_rate_image unavailable; fallback to a full-rate "
+                    + "subsurface scattering consumer";
+        }
+        return "";
+    }
+
     private static void validate(RenderFeatureSettings settings, Facts facts) {
         boolean hdr = settings.render().hdrEnabled();
         if (!hdr && (settings.postProcess().colorGrading().enabled()
@@ -375,6 +516,19 @@ final class RenderFeaturePolicy {
                 throw new IllegalArgumentException(
                         "screen-space reflections require image-based lighting for the fallback contract");
             }
+        }
+        SsgiSettings ssgi = settings.postProcess().ssgi();
+        if (ssgi.active() && settings.postProcess().temporalUpscaling().active()) {
+            throw new IllegalArgumentException(
+                    "screen-space indirect diffuse cannot compose with temporal upscaling; "
+                            + "disable one of them");
+        }
+        AdaptiveSamplingSettings adaptive = settings.postProcess().adaptiveSampling();
+        SsrSettings ssr = settings.postProcess().ssr();
+        if (adaptive.active() && ssr.active() && adaptive.maximumSteps() > ssr.maxSteps()) {
+            throw new IllegalArgumentException(
+                    "adaptive sampling maximumSteps must not exceed the screen-space "
+                            + "reflection maxSteps");
         }
         if (settings.directionalShadowMap().settings().contactShadows().active()) {
             if (!settings.directionalShadows() || !facts.directionalCaster()) {

@@ -33,6 +33,27 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         if (topology.gtaoEnabled() && !topology.pbrMaterials()) {
             throw new IllegalStateException("GTAO requires at least one metallic-roughness PBR material");
         }
+        // ALBEDO is only planned for screen-space indirect diffuse.  Keep the
+        // full channel/PBR/HDR dependency explicit even if the request reaches
+        // the candidate assembly without the unified feature policy.
+        if (topology.sceneBuffers().requires(SceneBufferChannel.ALBEDO)) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "screen-space indirect diffuse requires HDR tone mapping");
+            }
+            if (!topology.pbrMaterials()) {
+                throw new IllegalStateException(
+                        "screen-space indirect diffuse requires at least one "
+                                + "metallic-roughness PBR material (ALBEDO/ROUGHNESS)");
+            }
+            if (!topology.sceneBuffers().requires(SceneBufferChannel.DEPTH)
+                    || !topology.sceneBuffers().requires(SceneBufferChannel.NORMAL)
+                    || !topology.sceneBuffers().requires(SceneBufferChannel.ROUGHNESS)) {
+                throw new IllegalStateException(
+                        "screen-space indirect diffuse requires depth, normal, roughness and "
+                                + "albedo scene surface channels");
+            }
+        }
         if (topology.sceneBuffers().requires(SceneBufferChannel.ROUGHNESS)
                 && !topology.pbrMaterials()) {
             throw new IllegalStateException(

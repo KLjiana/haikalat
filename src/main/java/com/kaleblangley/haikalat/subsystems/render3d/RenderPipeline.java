@@ -94,6 +94,7 @@ import com.kaleblangley.haikalat.backend.state.HostGlState;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
+import com.kaleblangley.haikalat.backend.vrs.VariableRateShadingCapability;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.CullMode;
@@ -124,6 +125,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRendere
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose;
 import org.joml.Matrix4f;
@@ -139,6 +143,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
@@ -304,6 +309,14 @@ public final class RenderPipeline {
     private final Set<RenderDevice> usedDevices = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Map<Material, Boolean> frameStateInvalidationByMaterial = new IdentityHashMap<>();
     private PostProcessSettings postProcessSettings = PostProcessSettings.defaults();
+    /**
+     * Capability query used by feature resolution. Production resolves the
+     * current context; package-level tests can inject the JVM answer without a
+     * GL context. No caller can make this seam report support on a device that
+     * lacks the NV entry points.
+     */
+    private Supplier<VariableRateShadingCapability> variableRateShadingCapabilitySupplier =
+            VariableRateShadingCapability::inspectCurrent;
     private OutdoorEnvironmentSettings outdoorEnvironment = OutdoorEnvironmentSettings.disabled();
     /** {@code null} means the bounded atmosphere background is disabled. */
     private AtmosphereSettings atmosphereSettings;
@@ -1707,6 +1720,35 @@ public final class RenderPipeline {
 
     /** Current advanced GTAO configuration; does not expose private resources. */
     public com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings gtao() { return postProcessSettings.gtao(); }
+
+    /**
+     * Current advanced screen-space indirect diffuse request.  The request is
+     * owned by {@link PostProcessSettings}; the unified feature control only
+     * reports and publishes its effective participation.
+     */
+    public SsgiSettings ssgi() { return postProcessSettings.ssgi(); }
+
+    /** Current advanced adaptive SSR sampling request; does not own the SSR pass. */
+    public AdaptiveSamplingSettings adaptiveSampling() {
+        return postProcessSettings.adaptiveSampling();
+    }
+
+    /** Current advanced variable-rate-shading request; the pass remains post-process owned. */
+    public VariableRateShadingSettings variableRateShading() {
+        return postProcessSettings.variableRateShading();
+    }
+
+    /**
+     * Package-level capability seam for JVM feature-control tests.  Production
+     * always uses {@link VariableRateShadingCapability#inspectCurrent()}; an
+     * injected value can only describe a capability, not create a GL pass.
+     */
+    void variableRateShadingCapabilitySupplier(
+            Supplier<VariableRateShadingCapability> supplier) {
+        variableRateShadingCapabilitySupplier =
+                Objects.requireNonNull(supplier, "supplier");
+    }
+
     /** Updates only GTAO at a synchronous render-owner frame boundary. */
     public void applyGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings replacement) {
         requireGpuOwner();
@@ -2107,16 +2149,18 @@ public final class RenderPipeline {
 
     private void buildInternal() {
         RenderFeatureSettings requestedFeatures = features.pending() ? features.requested() : null;
+        RenderFeatureSettings effectiveFeatures = requestedFeatures;
         long requestedRevision = features.requestedRevision();
         RenderFeaturePolicy.Resolved resolvedFeatures = null;
         if (requestedFeatures != null) {
             try {
                 resolvedFeatures = RenderFeaturePolicy.resolve(requestedFeatures, featureFacts());
+                effectiveFeatures = effectiveFeatureSettings(requestedFeatures, resolvedFeatures);
             } catch (RuntimeException failure) {
                 features.failed(failure.getMessage());
                 throw failure;
             }
-            applyFeatureFields(requestedFeatures);
+            applyFeatureFields(effectiveFeatures);
         }
         int w = Math.max(1, window.width());
         int h = Math.max(1, window.height());
@@ -2135,7 +2179,8 @@ public final class RenderPipeline {
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
         if (requestedFeatures != null) {
-            features.publish(requestedFeatures, requestedRevision, resolvedFeatures.activities());
+            features.publish(requestedFeatures, effectiveFeatures, requestedRevision,
+                    resolvedFeatures.activities());
         } else {
             publishCompatibilityFeatureState();
         }
@@ -3570,7 +3615,7 @@ public final class RenderPipeline {
                 ddgiSettings, vctSettings, hairStrandSettings);
     }
 
-    private RenderFeaturePolicy.Facts featureFacts() {
+    RenderFeaturePolicy.Facts featureFacts() {
         boolean pbr = false;
         for (int index = 0; index < scene.rendererCount(); index++) {
             if (scene.rendererAt(index).material().material().model()
@@ -3601,7 +3646,8 @@ public final class RenderPipeline {
                 pbrEnvironment != null, hdrVfxRecorder != null, fogAwareHdrVfxRecorder != null,
                 hdrVfxFogOptOut, previewController.selected().isPresent(),
                 downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap,
-                directionalLight);
+                directionalLight,
+                variableRateShadingCapabilitySupplier.get().nvImagePathAvailable());
     }
 
     private void publishCompatibilityFeatureState() {
@@ -3614,7 +3660,21 @@ public final class RenderPipeline {
         }
     }
 
-    private void applyFeatureFields(RenderFeatureSettings requested) {
+    /**
+     * The applied snapshot for a submitted request.  A post-process feature
+     * that is requested but unavailable in this scene is disabled only in this
+     * effective copy, so the candidate generation can fall back to the safe
+     * baseline while {@code requested()} still records the caller intent.
+     */
+    private static RenderFeatureSettings effectiveFeatureSettings(
+            RenderFeatureSettings requested, RenderFeaturePolicy.Resolved resolved) {
+        if (resolved.effectivePostProcess().equals(requested.postProcess())) {
+            return requested;
+        }
+        return requested.toBuilder().postProcess(resolved.effectivePostProcess()).build();
+    }
+
+    void applyFeatureFields(RenderFeatureSettings requested) {
         featureMasterEnabled = requested.enabled();
         directLightingEnabled = requested.directLighting();
         imageBasedLightingEnabled = requested.imageBasedLighting();
@@ -3716,13 +3776,14 @@ public final class RenderPipeline {
         try {
             RenderFeaturePolicy.Resolved resolved = RenderFeaturePolicy.resolve(requested,
                     featureFacts());
-            if (sameFeatureIntentExceptMaster(previous, requested)) {
-                applyFeatureFields(requested);
-                features.publish(requested, revision, resolved.activities());
-                if (wasPaused && requested.enabled()) resetTemporalHistory();
+            RenderFeatureSettings effective = effectiveFeatureSettings(requested, resolved);
+            if (sameFeatureIntentExceptMaster(previous, effective)) {
+                applyFeatureFields(effective);
+                features.publish(requested, effective, revision, resolved.activities());
+                if (wasPaused && effective.enabled()) resetTemporalHistory();
                 return;
             }
-            applyFeatureFields(requested);
+            applyFeatureFields(effective);
             PipelineGeneration current = activeGeneration;
             try {
                 PipelineTopology topology = captureTopology(scene,
@@ -3735,9 +3796,9 @@ public final class RenderPipeline {
                 if (activeGeneration != current) {
                     // The candidate became active before retirement failed. The
                     // published generation and the effective configuration must
-                    // not diverge: keep the requested fields and publish them.
-                    features.publish(requested, revision, resolved.activities());
-                    if (wasPaused && requested.enabled()) resetTemporalHistory();
+                    // not diverge: keep the resolved fields and publish them.
+                    features.publish(requested, effective, revision, resolved.activities());
+                    if (wasPaused && effective.enabled()) resetTemporalHistory();
                     return;
                 }
                 applyFeatureFields(previous);
@@ -3745,8 +3806,8 @@ public final class RenderPipeline {
                 lastFailureStage = "feature-request";
                 return;
             }
-            features.publish(requested, revision, resolved.activities());
-            if (wasPaused && requested.enabled()) resetTemporalHistory();
+            features.publish(requested, effective, revision, resolved.activities());
+            if (wasPaused && effective.enabled()) resetTemporalHistory();
         } catch (RuntimeException failure) {
             applyFeatureFields(previous);
             features.failed(failure.getMessage());

@@ -77,6 +77,11 @@ public record VariableRateShadingSettings(
         return enabled;
     }
 
+    /** @return a copy with the request enabled flag replaced and every other value preserved */
+    public VariableRateShadingSettings withEnabled(boolean value) {
+        return new VariableRateShadingSettings(value, fineRate, coarseRate, fineRegionFraction);
+    }
+
     /**
      * Pure capability decision shared by the pipeline and unit tests.
      *

@@ -29,5 +29,8 @@ public enum RenderFeature {
     CAUSTICS,
     DDGI,
     VOXEL_CONE_TRACING,
-    HAIR_STRANDS
+    HAIR_STRANDS,
+    SSGI,
+    ADAPTIVE_SAMPLING,
+    VARIABLE_RATE_SHADING
 }
