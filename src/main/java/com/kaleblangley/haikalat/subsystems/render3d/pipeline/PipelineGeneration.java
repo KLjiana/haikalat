@@ -28,6 +28,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoSurfaceInputs;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
@@ -35,12 +38,16 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
 import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass;
 import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
@@ -104,6 +111,10 @@ public final class PipelineGeneration implements AutoCloseable {
     private SmokeSimulation smokeSimulation;
     private SmokeVolumePass smokeVolume;
     private StochasticTransparencyPass stochasticTransparency;
+    private DdgiProbeVolume ddgiVolume;
+    private DdgiIndirectPass ddgiIndirect;
+    private VctPass vct;
+    private HairStrandPass hairStrands;
     private StochasticTransparencySettings stochasticSettings =
             StochasticTransparencySettings.disabled();
     private WeightedOitPass weightedOit;
@@ -400,6 +411,40 @@ public final class PipelineGeneration implements AutoCloseable {
         causticsSettings = settings;
     }
 
+    /**
+     * Owns the DDGI probe volume and its screen-space indirect pass. Both bake
+     * the settings at construction, so only an equal-settings donor is borrowed.
+     * The volume is camera-independent; the indirect target follows the extent.
+     */
+    public void assembleDdgi(DdgiSettings settings, PipelineGeneration source) {
+        if (!topology.ddgi()) return;
+        boolean reuseVolume = source != null && source.ddgiVolume != null
+                && source.ddgiVolume.settings().equals(settings);
+        ddgiVolume = reuseVolume ? borrow(source.ddgiVolume) : new DdgiProbeVolume(settings);
+        boolean reuseIndirect = reuseVolume && source.ddgiIndirect != null
+                && source.topology.sameManagedExtent(topology);
+        ddgiIndirect = reuseIndirect ? borrow(source.ddgiIndirect)
+                : new DdgiIndirectPass(ddgiVolume, topology.width(), topology.height());
+    }
+
+    /** Owns one bounded VCT runtime; the pass is extent-independent. */
+    public void assembleVct(VctSettings settings, PipelineGeneration source) {
+        if (!topology.voxelConeTracing()) return;
+        boolean reuse = source != null && source.vct != null
+                && source.vct.settings().equals(settings);
+        vct = reuse ? borrow(source.vct) : new VctPass(settings);
+    }
+
+    /** Owns the procedural hair meshes and programs; geometry is baked per settings. */
+    public void assembleHairStrands(HairStrandSettings settings, PipelineGeneration source) {
+        if (!topology.hairStrands()) return;
+        boolean reuse = source != null && source.hairStrands != null
+                && source.topology.sameManagedExtent(topology)
+                && source.hairStrands.settings().equals(settings);
+        hairStrands = reuse ? borrow(source.hairStrands)
+                : new HairStrandPass(settings, topology.width(), topology.height());
+    }
+
     public void assembleGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings settings,
                       PipelineGeneration source, boolean instances, boolean shared) {
         if (!settings.enabled()) return;
@@ -529,6 +574,10 @@ public final class PipelineGeneration implements AutoCloseable {
     public SmokeSimulation smokeSimulation() { return smokeSimulation; }
     public SmokeVolumePass smokeVolume() { return smokeVolume; }
     public StochasticTransparencyPass stochasticTransparency() { return stochasticTransparency; }
+    public DdgiProbeVolume ddgiVolume() { return ddgiVolume; }
+    public DdgiIndirectPass ddgiIndirect() { return ddgiIndirect; }
+    public VctPass vct() { return vct; }
+    public HairStrandPass hairStrands() { return hairStrands; }
     public StochasticTransparencySettings stochasticSettings() { return stochasticSettings; }
     public WeightedOitPass weightedOit() { return weightedOit; }
     public WeightedOitSettings weightedOitSettings() { return weightedOitSettings; }
@@ -656,6 +705,8 @@ public final class PipelineGeneration implements AutoCloseable {
         WeightedOitPass weightedOitCandidate = null;
         PlanarReflectionPass planarCandidate = null;
         CausticsPass causticsCandidate = null;
+        DdgiIndirectPass ddgiCandidate = null;
+        HairStrandPass hairCandidate = null;
         try {
             GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
             var newSurfaceStorage = surfaceStorageAt(width, height);
@@ -682,29 +733,25 @@ public final class PipelineGeneration implements AutoCloseable {
                 stochasticCandidate = new StochasticTransparencyPass(width, height,
                         stochasticSettings);
             }
-            if (volumetricClouds != null) {
-                cloudCandidate = new VolumetricCloudPass(volumetricClouds.settings(), width, height);
-            }
-            if (smokeVolume != null) {
-                smokeVolumeCandidate = new SmokeVolumePass(smokeVolume.settings(), width, height);
-            }
-            if (weightedOit != null) {
-                weightedOitCandidate = new WeightedOitPass(width, height, weightedOitSettings);
-            }
-            if (planarReflection != null) {
-                planarCandidate = new PlanarReflectionPass(planarReflectionSettings, width, height);
-            }
             if (caustics != null) {
                 causticsCandidate = new CausticsPass(causticsSettings, topology.sampleCount(),
                         width, height);
+            }
+            if (ddgiIndirect != null) {
+                ddgiCandidate = new DdgiIndirectPass(ddgiVolume, width, height);
+            }
+            if (hairStrands != null) {
+                hairCandidate = new HairStrandPass(hairStrands.settings(), width, height);
             }
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
                     graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate,
                     gtaoCandidate, particleCandidate, stochasticCandidate,
                     cloudCandidate, smokeVolumeCandidate, weightedOitCandidate,
-                    planarCandidate, causticsCandidate,
+                    planarCandidate, causticsCandidate, ddgiCandidate, hairCandidate,
                     allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
+            closeCandidate(hairCandidate, failure);
+            closeCandidate(ddgiCandidate, failure);
             closeCandidate(causticsCandidate, failure);
             closeCandidate(planarCandidate, failure);
             closeCandidate(weightedOitCandidate, failure);
@@ -755,6 +802,8 @@ public final class PipelineGeneration implements AutoCloseable {
         private WeightedOitPass weightedOitCandidate;
         private PlanarReflectionPass planarCandidate;
         private CausticsPass causticsCandidate;
+        private DdgiIndirectPass ddgiCandidate;
+        private HairStrandPass hairCandidate;
         private final VolumetricAllocationPlan allocation;
         private final GtaoAllocationPlan gtaoPlan;
         private final SceneSurfaceLayout.Storage surfaceStorage;
@@ -775,6 +824,8 @@ public final class PipelineGeneration implements AutoCloseable {
                                 WeightedOitPass weightedOitCandidate,
                                 PlanarReflectionPass planarCandidate,
                                 CausticsPass causticsCandidate,
+                                DdgiIndirectPass ddgiCandidate,
+                                HairStrandPass hairCandidate,
                                 VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
                                 SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
             this.owner = owner;
@@ -793,6 +844,8 @@ public final class PipelineGeneration implements AutoCloseable {
             this.weightedOitCandidate = weightedOitCandidate;
             this.planarCandidate = planarCandidate;
             this.causticsCandidate = causticsCandidate;
+            this.ddgiCandidate = ddgiCandidate;
+            this.hairCandidate = hairCandidate;
             this.allocation = allocation;
             this.gtaoPlan = gtaoPlan;
             this.surfaceStorage = surfaceStorage;
@@ -825,6 +878,8 @@ public final class PipelineGeneration implements AutoCloseable {
             WeightedOitPass previousWeightedOit = owner.weightedOit;
             PlanarReflectionPass previousPlanar = owner.planarReflection;
             CausticsPass previousCaustics = owner.caustics;
+            DdgiIndirectPass previousDdgi = owner.ddgiIndirect;
+            HairStrandPass previousHair = owner.hairStrands;
             owner.volumetricParticles = particleCandidate;
             owner.stochasticTransparency = stochasticCandidate;
             owner.volumetricClouds = cloudCandidate;
@@ -832,6 +887,8 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.weightedOit = weightedOitCandidate;
             owner.planarReflection = planarCandidate;
             owner.caustics = causticsCandidate;
+            owner.ddgiIndirect = ddgiCandidate;
+            owner.hairStrands = hairCandidate;
             particleCandidate = null;
             stochasticCandidate = null;
             cloudCandidate = null;
@@ -839,6 +896,8 @@ public final class PipelineGeneration implements AutoCloseable {
             weightedOitCandidate = null;
             planarCandidate = null;
             causticsCandidate = null;
+            ddgiCandidate = null;
+            hairCandidate = null;
             owner.topology = candidateTopology;
             owner.volumeAllocation = allocation;
             owner.gtaoAllocation = gtaoPlan;
@@ -846,6 +905,8 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.surfacePeakBytes = surfacePeak;
             committed = true;
             RuntimeException failure = null;
+            failure = closeOne(previousHair, failure);
+            failure = closeOne(previousDdgi, failure);
             failure = closeOne(previousCaustics, failure);
             failure = closeOne(previousPlanar, failure);
             failure = closeOne(previousWeightedOit, failure);
@@ -861,6 +922,8 @@ public final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
+            failure = closeOne(hairCandidate, failure);
+            failure = closeOne(ddgiCandidate, failure);
             failure = closeOne(causticsCandidate, failure);
             failure = closeOne(planarCandidate, failure);
             failure = closeOne(weightedOitCandidate, failure);
@@ -909,6 +972,10 @@ public final class PipelineGeneration implements AutoCloseable {
         WeightedOitPass localWeightedOit = weightedOit;
         PlanarReflectionPass localPlanar = planarReflection;
         CausticsPass localCaustics = caustics;
+        DdgiProbeVolume localDdgiVolume = ddgiVolume;
+        DdgiIndirectPass localDdgiIndirect = ddgiIndirect;
+        VctPass localVct = vct;
+        HairStrandPass localHair = hairStrands;
         CameraUniforms localCameraUniforms = cameraUniforms;
         SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
@@ -938,6 +1005,10 @@ public final class PipelineGeneration implements AutoCloseable {
         weightedOit = null;
         planarReflection = null;
         caustics = null;
+        ddgiVolume = null;
+        ddgiIndirect = null;
+        vct = null;
+        hairStrands = null;
         cameraUniforms = null;
         deformationDefaults = null;
         sceneSurfacePass = null;
@@ -969,6 +1040,10 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localWeightedOit, failure);
         failure = closeCollecting(localPlanar, failure);
         failure = closeCollecting(localCaustics, failure);
+        failure = closeCollecting(localDdgiIndirect, failure);
+        failure = closeCollecting(localDdgiVolume, failure);
+        failure = closeCollecting(localVct, failure);
+        failure = closeCollecting(localHair, failure);
         failure = closeCollecting(localCameraUniforms, failure);
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);

@@ -9,6 +9,8 @@ import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
 import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
@@ -16,6 +18,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSetting
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
@@ -441,7 +444,8 @@ class VolumetricCloudSmokeWiringTest {
                 VolumetricParticleSettings.disabled(), StochasticTransparencySettings.disabled(),
                 clouds, simulation, render, directionalCloudShadows,
                 WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
-                CausticsSettings.disabled());
+                CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(), HairStrandSettings.disabled());
     }
 
     private static PipelineTopology copy(PipelineTopology base, boolean clouds, boolean smoke) {

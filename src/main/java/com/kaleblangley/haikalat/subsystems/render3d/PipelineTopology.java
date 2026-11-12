@@ -5,6 +5,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
@@ -68,7 +71,10 @@ public record PipelineTopology(int width,
                         boolean volumetricSmoke,
                         boolean weightedOit,
                         boolean planarReflections,
-                        boolean caustics) {
+                        boolean caustics,
+                        boolean ddgi,
+                        boolean voxelConeTracing,
+                        boolean hairStrands) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -99,8 +105,9 @@ public record PipelineTopology(int width,
     }
 
     /**
-     * Source-compatible constructor for the pre-S3-single wiring shape.  The
-     * three new opt-in composition passes default to their exact no-op state.
+     * Source-compatible constructor for the pre-S3-single wiring shape.  The S3
+     * composition passes and the DDGI/VCT/hair requests default to their exact
+     * no-op state.
      */
     public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
                             int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
@@ -121,7 +128,37 @@ public record PipelineTopology(int width,
                 pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
                 hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
                 sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
-                volumetricParticles, stochasticTransparency, false, false, false, false, false);
+                volumetricParticles, stochasticTransparency, false, false, false, false, false,
+                false, false, false);
+    }
+
+    /**
+     * Source-compatible constructor for the S3 composition shape.  The DDGI,
+     * VCT and hair-strand requests default to their exact no-op state.
+     */
+    public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
+                            int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
+                            boolean automaticExposure, boolean colorGrading, boolean fog,
+                            boolean directionalShadow, boolean pointShadow, boolean spotShadow,
+                            int directionalCascadeCount, int directionalShadowAtlasSize,
+                            int pointShadowCapacity, int pointShadowResolution,
+                            int spotShadowCapacity, int spotShadowResolution,
+                            boolean pbrMaterials, boolean hdrVfx, boolean embedded,
+                            boolean gtaoEnabled, boolean gtaoTemporal, int gtaoHalfWidth,
+                            int gtaoHalfHeight, SceneSurfaceLayout sceneSurface,
+                            boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                            boolean volumetricEmission, boolean waterSurface,
+                            boolean volumetricParticles, boolean stochasticTransparency,
+                            boolean volumetricClouds, boolean volumetricSmoke,
+                            boolean weightedOit, boolean planarReflections, boolean caustics) {
+        this(width, height, antiAliasingMode, sampleCount, hdr, bloom, bloomLevels,
+                automaticExposure, colorGrading, fog, directionalShadow, pointShadow, spotShadow,
+                directionalCascadeCount, directionalShadowAtlasSize, pointShadowCapacity,
+                pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
+                hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
+                sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency, volumetricClouds, volumetricSmoke,
+                weightedOit, planarReflections, caustics, false, false, false);
     }
 
     /** Graph replacement retains compatible targets at the same managed extent. */
@@ -208,7 +245,8 @@ public record PipelineTopology(int width,
                 VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
                 SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
                 WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
-                CausticsSettings.disabled());
+                CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(), HairStrandSettings.disabled());
     }
 
     /**
@@ -233,7 +271,33 @@ public record PipelineTopology(int width,
                 spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
                 VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
                 SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
-                weightedOit, weightedOitSetDeclared, planarReflections, caustics);
+                weightedOit, weightedOitSetDeclared, planarReflections, caustics,
+                DdgiSettings.disabled(), VctSettings.disabled(), HairStrandSettings.disabled());
+    }
+
+    /**
+     * Captures the complete topology key including every opt-in late
+     * composition feature (#37/#38/#44/#45/#46).
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency,
+                                    DdgiSettings ddgiSettings,
+                                    VctSettings vctSettings,
+                                    HairStrandSettings hairStrandSettings) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
+                WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
+                CausticsSettings.disabled(), ddgiSettings, vctSettings, hairStrandSettings);
     }
 
     /**
@@ -262,7 +326,10 @@ public record PipelineTopology(int width,
                                     CloudShadowSettings directionalCloudShadows,
                                     WeightedOitSettings weightedOit, boolean weightedOitSetDeclared,
                                     PlanarReflectionSettings planarReflections,
-                                    CausticsSettings caustics) {
+                                    CausticsSettings caustics,
+                                    DdgiSettings ddgiSettings,
+                                    VctSettings vctSettings,
+                                    HairStrandSettings hairStrandSettings) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -275,6 +342,9 @@ public record PipelineTopology(int width,
         Objects.requireNonNull(weightedOit, "weightedOit");
         Objects.requireNonNull(planarReflections, "planarReflections");
         Objects.requireNonNull(caustics, "caustics");
+        Objects.requireNonNull(ddgiSettings, "ddgi");
+        Objects.requireNonNull(vctSettings, "vct");
+        Objects.requireNonNull(hairStrandSettings, "hairStrands");
         boolean bloom = settings.bloomSettings().enabled();
         int samples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                 ? Math.max(2, settings.msaaSamples()) : 1;
@@ -282,7 +352,9 @@ public record PipelineTopology(int width,
         boolean pointShadow = false;
         boolean spotShadow = false;
         boolean downwardDirectionalLight = false;
+        boolean directionalLight = false;
         for (SceneLight light : scene.lights()) {
+            if (light.type() == LightType.DIRECTIONAL) directionalLight = true;
             if (!light.castShadows()) {
                 if (light.type() == LightType.DIRECTIONAL
                         && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
@@ -321,6 +393,10 @@ public record PipelineTopology(int width,
         boolean planar = planarReflectionCompositionActive(settings, planarReflections);
         boolean causticsActive = causticsCompositionActive(settings, waterSurface, caustics,
                 downwardDirectionalLight);
+        boolean ddgi = ddgiCompositionActive(settings, ddgiSettings, directionalLight);
+        boolean vct = vctCompositionActive(settings, vctSettings);
+        boolean hair = hairStrandCompositionActive(settings, hairStrandSettings,
+                directionalLight);
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -336,10 +412,10 @@ public record PipelineTopology(int width,
                 effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
                 sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled(),
-                        waterSurface.active(), stochastic, clouds, smoke),
+                        waterSurface.active(), stochastic, clouds, smoke, ddgi, vct, hair),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
-                stochastic, clouds, smoke, oit, planar, causticsActive);
+                stochastic, clouds, smoke, oit, planar, causticsActive, ddgi, vct, hair);
     }
 
     /**
@@ -433,6 +509,31 @@ public record PipelineTopology(int width,
                 && settings.antiAliasingMode() != AntiAliasingMode.TAA;
     }
 
+    /**
+     * DDGI needs an HDR linear colour chain, one directional light for the
+     * analytic relight and a single-sample raster so its indirect pass can
+     * consume the resolved depth/normal view. MSAA and TAA are rejected in the
+     * first version: the probe query has no verified jitter/resolve contract.
+     */
+    public static boolean ddgiCompositionActive(RenderSettings settings, DdgiSettings ddgi,
+                                                boolean directionalLightPresent) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(ddgi, "ddgi");
+        return ddgi.active() && settings.hdrEnabled()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && settings.antiAliasingMode() != AntiAliasingMode.TAA
+                && directionalLightPresent;
+    }
+
+    /** VCT composites radiance into a resolved single-sample HDR target before Bloom/TAA. */
+    public static boolean vctCompositionActive(RenderSettings settings, VctSettings vct) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(vct, "vct");
+        return vct.enabled() && settings.hdrEnabled()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && settings.antiAliasingMode() != AntiAliasingMode.TAA;
+    }
+
     /** Planar reflections need HDR and an active, validated single plane. */
     public static boolean planarReflectionCompositionActive(RenderSettings settings,
                                                             PlanarReflectionSettings planar) {
@@ -461,13 +562,24 @@ public record PipelineTopology(int width,
                 && downwardDirectionalLight;
     }
 
+    /** Hair strands are forward-lit into the transparent HDR stage. */
+    public static boolean hairStrandCompositionActive(RenderSettings settings,
+                                                      HairStrandSettings hair,
+                                                      boolean directionalLightPresent) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(hair, "hair");
+        return hair.active() && settings.hdrEnabled() && directionalLightPresent;
+    }
+
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
                                                    PostProcessSettings effects, int samples,
                                                    boolean hdrVfx, boolean volume,
                                                    boolean waterSurface,
                                                    boolean stochasticTransparency,
                                                    boolean volumetricClouds,
-                                                   boolean volumetricSmoke) {
+                                                   boolean volumetricSmoke,
+                                                   boolean ddgi, boolean vct,
+                                                   boolean hairStrands) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
         // Analytic fog and depth of field both consume only the shared single-sample depth.
         if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
@@ -482,6 +594,20 @@ public record PipelineTopology(int width,
         // single-sample opaque depth; requesting it here makes the dependency
         // structural instead of an implicit assumption.
         if (volumetricClouds || volumetricSmoke) {
+            requirements = requirements.mergeView(SceneBufferRequirements.fog());
+        }
+        // DDGI queries trilinearly against the shared single-sample depth and
+        // octahedral world normal; it never writes either channel.
+        if (ddgi) {
+            requirements = requirements.mergeView(SceneBufferRequirements.of(
+                    SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL));
+        }
+        // VCT reconstructs world position from the shared single-sample depth.
+        if (vct) {
+            requirements = requirements.mergeView(SceneBufferRequirements.fog());
+        }
+        // Hair depth-tests against the raster depth of the geometry pass.
+        if (hairStrands) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         // Motion blur consumes the shared single-sample velocity and validity.
@@ -554,6 +680,7 @@ public record PipelineTopology(int width,
                 gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
                 volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
                 volumetricParticles, stochasticTransparency, volumetricClouds,
-                volumetricSmoke, weightedOit, planarReflections, caustics);
+                volumetricSmoke, weightedOit, planarReflections, caustics,
+                ddgi, voxelConeTracing, hairStrands);
     }
 }

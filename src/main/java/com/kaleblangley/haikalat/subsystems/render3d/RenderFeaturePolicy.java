@@ -1,5 +1,9 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -18,7 +22,7 @@ final class RenderFeaturePolicy {
                  boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
                  boolean hdrVfxFogOptOut, boolean previewSourceSelected,
                  boolean directionalLightDownward, boolean weightedOitSetDeclared,
-                 boolean transparentSetsOverlap) {
+                 boolean transparentSetsOverlap, boolean directionalLightPresent) {
         /** Source-compatible shape used by pre-S3-single callers/tests. */
         Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
               boolean spotCaster, boolean pbrEnvironmentAvailable,
@@ -26,7 +30,32 @@ final class RenderFeaturePolicy {
               boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
             this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
                     pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
-                    hdrVfxFogOptOut, previewSourceSelected, false, false, false);
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false, false);
+        }
+
+        /** Source-compatible shape used by the S3 composition callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, false);
+        }
+
+        /** Source-compatible shape used by the direct-light (b3) callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightPresent) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false,
+                    directionalLightPresent);
         }
     }
 
@@ -42,6 +71,7 @@ final class RenderFeaturePolicy {
                     boolean volumetricClouds, boolean volumetricSmoke,
                     boolean weightedOit,
                     boolean planarReflections, boolean caustics,
+                    boolean ddgi, boolean vct, boolean hairStrands,
                     List<RenderFeatureActivity> activities) {
         Resolved {
             activities = List.copyOf(activities);
@@ -90,13 +120,22 @@ final class RenderFeaturePolicy {
         boolean causticsEligible = PipelineTopology.causticsCompositionActive(
                 settings.render(), settings.waterSurface(), settings.caustics(),
                 facts.directionalLightDownward());
-        boolean volumetricParticles = particlesEligible;
-        boolean stochasticTransparency = stochasticEligible;
         boolean cloudsEligible = PipelineTopology.volumetricCloudCompositionActive(
                 settings.render(), settings.volumetricClouds(), cloudShadowsActive(settings, facts),
                 settings.directionalShadowMap().settings().cloudShadows());
         boolean smokeEligible = PipelineTopology.volumetricSmokeCompositionActive(
                 settings.render(), settings.smokeSimulation(), settings.smokeRender());
+        boolean ddgiEligible = PipelineTopology.ddgiCompositionActive(settings.render(),
+                settings.ddgi(), facts.directionalLightPresent());
+        boolean vctEligible = PipelineTopology.vctCompositionActive(settings.render(),
+                settings.vct());
+        boolean hairEligible = PipelineTopology.hairStrandCompositionActive(settings.render(),
+                settings.hairStrands(), facts.directionalLightPresent());
+        boolean volumetricParticles = particlesEligible;
+        boolean stochasticTransparency = stochasticEligible;
+        boolean ddgi = ddgiEligible;
+        boolean vct = vctEligible;
+        boolean hairStrands = hairEligible;
         RenderFeatureReason particleReason = !settings.volumetricParticles().active()
                 ? RenderFeatureReason.DISABLED
                 : !particlesEligible ? RenderFeatureReason.UNAVAILABLE
@@ -113,6 +152,11 @@ final class RenderFeaturePolicy {
                 ? RenderFeatureReason.DISABLED
                 : !smokeEligible ? RenderFeatureReason.UNAVAILABLE
                 : RenderFeatureReason.DISABLED;
+        RenderFeatureReason ddgiReason = ddgiReason(settings.ddgi(), settings.render(),
+                facts.directionalLightPresent(), ddgiEligible);
+        RenderFeatureReason vctReason = vctReason(settings.vct(), settings.render(), vctEligible);
+        RenderFeatureReason hairReason = hairReason(settings.hairStrands(), settings.render(),
+                facts.directionalLightPresent(), hairEligible);
 
         List<RenderFeatureActivity> activities = new ArrayList<>();
         activities.add(activity(RenderFeature.MASTER, master,
@@ -164,6 +208,9 @@ final class RenderFeaturePolicy {
                 planarReason(settings)));
         activities.add(child(RenderFeature.CAUSTICS, master, causticsEligible,
                 causticsReason(settings, facts)));
+        activities.add(child(RenderFeature.DDGI, master, ddgi, ddgiReason));
+        activities.add(child(RenderFeature.VOXEL_CONE_TRACING, master, vct, vctReason));
+        activities.add(child(RenderFeature.HAIR_STRANDS, master, hairStrands, hairReason));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -177,6 +224,8 @@ final class RenderFeaturePolicy {
                 effective(master, smokeEligible),
                 effective(master, weightedOitEligible),
                 effective(master, planarEligible), effective(master, causticsEligible),
+                effective(master, ddgi),
+                effective(master, vct), effective(master, hairStrands),
                 List.copyOf(activities));
     }
 
@@ -259,6 +308,34 @@ final class RenderFeaturePolicy {
         }
         if (!facts.directionalLightDownward()) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
         return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason ddgiReason(DdgiSettings ddgi,
+                                                  com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                  boolean directionalLightPresent,
+                                                  boolean eligible) {
+        if (!ddgi.active()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (!directionalLightPresent) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
+    }
+
+    private static RenderFeatureReason vctReason(VctSettings vct,
+                                                 com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                 boolean eligible) {
+        if (!vct.enabled()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
+    }
+
+    private static RenderFeatureReason hairReason(HairStrandSettings hair,
+                                                  com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                  boolean directionalLightPresent,
+                                                  boolean eligible) {
+        if (!hair.active()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (!directionalLightPresent) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
     }
 
     private static void validate(RenderFeatureSettings settings, Facts facts) {
@@ -379,6 +456,39 @@ final class RenderFeaturePolicy {
             throw new IllegalArgumentException(
                     "weighted OIT and stochastic transparency claim the same transparent "
                             + "surface set; disable one strategy for that set");
+        }
+        if (settings.ddgi().active() && settings.vct().enabled()) {
+            // Both techniques are independent indirect-light owners; running them
+            // together would pay twice and double-count the same diffuse energy.
+            throw new IllegalArgumentException(
+                    "DDGI and voxel cone tracing are mutually exclusive in this version; "
+                            + "select one indirect-light technique");
+        }
+        if (settings.ddgi().active()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "DDGI requires HDR tone mapping for linear indirect compositing");
+            }
+            if (settings.postProcess().ssgi().active()) {
+                throw new IllegalArgumentException(
+                        "DDGI and screen-space indirect diffuse both produce indirect light; "
+                                + "disable one to avoid double counting");
+            }
+        }
+        if (settings.vct().enabled()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "voxel cone tracing requires HDR tone mapping for linear compositing");
+            }
+            if (settings.postProcess().ssgi().active()) {
+                throw new IllegalArgumentException(
+                        "voxel cone tracing and screen-space indirect diffuse both produce "
+                                + "indirect light; disable one to avoid double counting");
+            }
+        }
+        if (settings.hairStrands().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "hair strands require HDR tone mapping for linear strand compositing");
         }
     }
 }

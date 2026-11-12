@@ -26,5 +26,8 @@ public enum RenderFeature {
     VOLUMETRIC_SMOKE,
     WEIGHTED_OIT,
     PLANAR_REFLECTIONS,
-    CAUSTICS
+    CAUSTICS,
+    DDGI,
+    VOXEL_CONE_TRACING,
+    HAIR_STRANDS
 }

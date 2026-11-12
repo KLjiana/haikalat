@@ -120,6 +120,49 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                         "caustics require the shared raster scene depth");
             }
         }
+        if (topology.ddgi()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "DDGI requires HDR tone mapping for linear indirect compositing");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "DDGI requires a single-sample raster; MSAA/TAA are not supported");
+            }
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null
+                    || topology.sceneSurface().single(SceneBufferChannel.NORMAL) == null) {
+                throw new IllegalStateException(
+                        "DDGI requires the shared single-sample depth and world normal");
+            }
+        }
+        if (topology.voxelConeTracing()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "voxel cone tracing requires HDR tone mapping for linear compositing");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "voxel cone tracing requires a resolved single-sample HDR target");
+            }
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "voxel cone tracing requires the shared single-sample scene depth");
+            }
+        }
+        if (topology.ddgi() && topology.voxelConeTracing()) {
+            throw new IllegalStateException(
+                    "DDGI and voxel cone tracing are mutually exclusive in this version");
+        }
+        if (topology.hairStrands()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "hair strands require HDR tone mapping for linear strand compositing");
+            }
+            if (topology.sceneSurface().raw(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "hair strands require the shared raster depth for depth testing");
+            }
+        }
     }
 
     /**

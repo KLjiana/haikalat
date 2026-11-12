@@ -6,6 +6,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
@@ -15,6 +18,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.TemporalJitter;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.ForwardPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.PipelineFeaturePolicy;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
@@ -51,6 +56,11 @@ import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTran
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctBox;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
@@ -117,6 +127,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -140,6 +151,16 @@ public final class RenderPipeline {
     private static final String HOST_COLOR_IMPORT = "HaikalatHostColor";
     private static final String HOST_DEPTH_IMPORT = "HaikalatHostDepth";
     private static final String HOST_STENCIL_IMPORT = "HaikalatHostStencil";
+    /** Graph bridge that copies scene colour + DDGI indirect into the HDR chain input. */
+    static final String DDGI_INDIRECT_COLOR = "ddgiIndirectColor";
+    /** Graph bridge that owns the VCT composite target before the post-process chain. */
+    static final String VCT_COLOR = "vctCompositeColor";
+    /** VCT dirty-region voxelization; runs after the opaque forward pass. */
+    static final String VCT_VOXELIZE_PASS = "VctVoxelizePass";
+    /** VCT explicit probe trace; runs after voxelization and before the composite. */
+    static final String VCT_TRACE_PASS = "VctProbeTracePass";
+    /** VCT screen-space composite that adds the cone-traced radiance. */
+    static final String VCT_COMPOSITE_PASS = "VctCompositePass";
     private static final AtomicLong PREVIEW_GENERATIONS = new AtomicLong();
     
     // O2: Replace 26 string comparisons with O(1) HashSet lookup
@@ -315,6 +336,20 @@ public final class RenderPipeline {
             PlanarReflectionSettings.disabled();
     private CausticsSettings causticsSettings = CausticsSettings.disabled();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
+    private DdgiSettings ddgiSettings = DdgiSettings.disabled();
+    private VctSettings vctSettings = VctSettings.disabled();
+    private HairStrandSettings hairStrandSettings = HairStrandSettings.disabled();
+    /** Caller-converted visible opaque triangles for the next VCT update; never built here. */
+    private VctSceneInput vctSceneInput;
+    /** Dirty world boxes bounding scene changes since the last successful voxel update. */
+    private List<VctBox> vctDirtyBoxes = List.of();
+    /** Optional explicit VCT probe batch recorded after voxelization; no implicit readback. */
+    private VctProbeBatch vctProbeBatch;
+    /** Scene-wide VCT receiver proxies used by the first version's composite. */
+    private float vctSurfaceRoughness = 0.5f;
+    private final Vector3f vctSurfaceAlbedo = new Vector3f(0.8f);
+    /** Placement of the procedural hair lock for the forward and shadow passes. */
+    private final Matrix4f hairStrandModel = new Matrix4f();
     private float waterTimeSeconds;
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
@@ -1316,6 +1351,306 @@ public final class RenderPipeline {
         return false;
     }
 
+    /**
+     * Configures the dynamic DDGI probe grid before build. Disabled is the
+     * exact no-op value: no probe atlas, program or draw exists.
+     */
+    public RenderPipeline ddgi(DdgiSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyDdgi after build");
+        }
+        ddgiSettings = Objects.requireNonNull(value, "ddgi");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current DDGI request; no probe GPU resource is exposed. */
+    public DdgiSettings ddgi() {
+        return ddgiSettings;
+    }
+
+    /**
+     * Publishes a DDGI settings change at a frame boundary. The probe volume and
+     * indirect pass bake their settings at construction, so the complete
+     * candidate generation is rebuilt; a failure keeps the active generation and
+     * the previous settings active.
+     */
+    public void applyDdgi(DdgiSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyDdgiInternal(value);
+            }
+        } else {
+            applyDdgiInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyDdgiInternal(DdgiSettings value) {
+        DdgiSettings replacement = Objects.requireNonNull(value, "ddgi");
+        if (executing) {
+            throw new IllegalStateException("DDGI changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(ddgiSettings)) {
+            return;
+        }
+        if (activeGeneration == null) {
+            ddgi(replacement);
+            return;
+        }
+        DdgiSettings previous = ddgiSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        ddgiSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                ddgiSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Configures bounded voxel cone tracing before build. Disabled is the exact
+     * no-op value: no volume, program or composite pass exists.
+     */
+    public RenderPipeline vct(VctSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyVct after build");
+        }
+        vctSettings = Objects.requireNonNull(value, "vct");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current VCT request; no volume GPU resource is exposed. */
+    public VctSettings vct() {
+        return vctSettings;
+    }
+
+    /**
+     * Publishes a VCT settings change at a frame boundary. The pass rebuilds its
+     * complete runtime as part of a candidate generation; a failure keeps the
+     * active generation, volume and previous settings active.
+     */
+    public void applyVct(VctSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyVctInternal(value);
+            }
+        } else {
+            applyVctInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyVctInternal(VctSettings value) {
+        VctSettings replacement = Objects.requireNonNull(value, "vct");
+        if (executing) {
+            throw new IllegalStateException("VCT changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(vctSettings)) {
+            return;
+        }
+        if (activeGeneration == null) {
+            vct(replacement);
+            return;
+        }
+        VctSettings previous = vctSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        vctSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                vctSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Configures the deterministic hair-strand lock before build. Disabled is
+     * the exact no-op value: no strand mesh, program or draw exists.
+     */
+    public RenderPipeline hairStrands(HairStrandSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyHairStrands after build");
+        }
+        hairStrandSettings = Objects.requireNonNull(value, "hairStrands");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current hair-strand request; no pass GPU resource is exposed. */
+    public HairStrandSettings hairStrands() {
+        return hairStrandSettings;
+    }
+
+    /**
+     * Publishes a hair settings change at a frame boundary. Strand geometry is
+     * baked per pass, so the complete candidate generation is rebuilt; a failure
+     * keeps the active generation and previous settings active.
+     */
+    public void applyHairStrands(HairStrandSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyHairStrandsInternal(value);
+            }
+        } else {
+            applyHairStrandsInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyHairStrandsInternal(HairStrandSettings value) {
+        HairStrandSettings replacement = Objects.requireNonNull(value, "hairStrands");
+        if (executing) {
+            throw new IllegalStateException(
+                    "hair strand changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(hairStrandSettings)) {
+            return;
+        }
+        if (activeGeneration == null) {
+            hairStrands(replacement);
+            return;
+        }
+        HairStrandSettings previous = hairStrandSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        hairStrandSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                hairStrandSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Stages the caller-converted visible opaque triangle snapshot for the next
+     * VCT update. The pipeline does not extract triangles from the scene; pass
+     * {@code null} to record no voxelization update and keep the last volume.
+     */
+    public RenderPipeline vctSceneInput(VctSceneInput value) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException(
+                    "VCT scene input is only allowed at frame boundaries");
+        }
+        vctSceneInput = value;
+        return this;
+    }
+
+    /** Current staged VCT triangle snapshot, or {@code null} when none was supplied. */
+    public VctSceneInput vctSceneInput() {
+        return vctSceneInput;
+    }
+
+    /**
+     * Stages the dirty world boxes that bound every scene change since the last
+     * successful voxel update. An empty list with a new revision is a full update.
+     */
+    public RenderPipeline vctDirtyBoxes(List<VctBox> value) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException(
+                    "VCT dirty regions are only allowed at frame boundaries");
+        }
+        vctDirtyBoxes = List.copyOf(Objects.requireNonNull(value, "dirtyBoxes"));
+        return this;
+    }
+
+    /** Current staged VCT dirty-region list; immutable and empty by default. */
+    public List<VctBox> vctDirtyBoxes() {
+        return vctDirtyBoxes;
+    }
+
+    /** Stages an explicit probe batch for the VCT cone trace, or {@code null} for none. */
+    public RenderPipeline vctProbes(VctProbeBatch value) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException("VCT probe batches are only allowed at frame boundaries");
+        }
+        vctProbeBatch = value;
+        return this;
+    }
+
+    /** Current staged explicit VCT probe batch, or {@code null}. */
+    public VctProbeBatch vctProbes() {
+        return vctProbeBatch;
+    }
+
+    /**
+     * Sets the scene-wide receiver proxies used by the first VCT composite
+     * version. These are scalars, so no generation rebuild is required.
+     */
+    public RenderPipeline vctSurface(float roughness, Vector3f albedo) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException("VCT surface proxies are only allowed at frame boundaries");
+        }
+        if (!Float.isFinite(roughness) || roughness < 0.0f || roughness > 1.0f) {
+            throw new IllegalArgumentException("VCT surface roughness must be in [0, 1]");
+        }
+        Objects.requireNonNull(albedo, "albedo");
+        if (!albedo.isFinite() || albedo.x < 0.0f || albedo.y < 0.0f || albedo.z < 0.0f) {
+            throw new IllegalArgumentException("VCT surface albedo must be finite and non-negative");
+        }
+        vctSurfaceRoughness = roughness;
+        vctSurfaceAlbedo.set(albedo);
+        return this;
+    }
+
+    public float vctSurfaceRoughness() {
+        return vctSurfaceRoughness;
+    }
+
+    /** Defensive copy of the scene-wide VCT receiver albedo. */
+    public Vector3f vctSurfaceAlbedo() {
+        return new Vector3f(vctSurfaceAlbedo);
+    }
+
+    /**
+     * Places the procedural hair lock for the forward and shadow passes. The
+     * model matrix may change per frame without a generation rebuild.
+     */
+    public RenderPipeline hairStrandModel(Matrix4fc value) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException("hair model changes are only allowed at frame boundaries");
+        }
+        Objects.requireNonNull(value, "model");
+        if (!value.isFinite()) {
+            throw new IllegalArgumentException("hair model matrix must be finite");
+        }
+        hairStrandModel.set(value);
+        return this;
+    }
+
+    /** @return a copy of the current hair-lock placement */
+    public Matrix4f hairStrandModel() {
+        return new Matrix4f(hairStrandModel);
+    }
+
     /** Configures the finite water surface before the first generation is built. */
     public RenderPipeline waterSurface(WaterSurfaceSettings value) {
         requireGpuOwner();
@@ -1824,7 +2159,8 @@ public final class RenderPipeline {
                 smokeSimulationSettings, smokeRenderSettings,
                 directionalShadowMap.settings().cloudShadows(),
                 weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
-                causticsSettings);
+                causticsSettings,
+                ddgiSettings, vctSettings, hairStrandSettings);
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -1969,6 +2305,83 @@ public final class RenderPipeline {
         pass.execute(executor);
     }
 
+    /**
+     * Declares the DDGI probe update (after the opaque forward pass) and the
+     * screen-space indirect bridge that copies the current HDR colour and adds
+     * the probe contribution before the post-process chain. The indirect pass
+     * borrows the shared single-sample depth/normal and never writes depth.
+     */
+    static void addDdgiPasses(RenderGraph graph, String colorProducer, String depthProducer,
+                              String normalProducer, RenderFormat format,
+                              PassExecutor probeExecutor, PassExecutor indirectExecutor) {
+        graph.addPass(DdgiProbeVolume.PASS_NAME)
+                .writeToExternalTarget()
+                .noClear()
+                .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                .execute(probeExecutor);
+        var indirect = graph.addPass(DdgiIndirectPass.PASS_NAME)
+                .createColor(DDGI_INDIRECT_COLOR, format)
+                .noClear()
+                .dependsOn(DdgiProbeVolume.PASS_NAME)
+                .dependsOn(colorProducer);
+        if (!depthProducer.equals(colorProducer)
+                && !depthProducer.equals(DdgiProbeVolume.PASS_NAME)) {
+            indirect.dependsOn(depthProducer);
+        }
+        if (!normalProducer.equals(colorProducer)
+                && !normalProducer.equals(depthProducer)
+                && !normalProducer.equals(DdgiProbeVolume.PASS_NAME)) {
+            indirect.dependsOn(normalProducer);
+        }
+        indirect.execute(indirectExecutor);
+    }
+
+    /**
+     * Declares the bounded VCT chain: dirty-region voxelization after the opaque
+     * forward pass, optional explicit probe trace, then the screen-space
+     * composite that copies the current colour and adds cone-traced radiance
+     * before Bloom/TAA. The composite never writes the shared depth.
+     */
+    static void addVctPasses(RenderGraph graph, String colorProducer, String depthProducer,
+                             RenderFormat format, PassExecutor voxelizeExecutor,
+                             PassExecutor traceExecutor, PassExecutor compositeExecutor) {
+        graph.addPass(VCT_VOXELIZE_PASS)
+                .computeOnly()
+                .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                .execute(voxelizeExecutor);
+        graph.addPass(VCT_TRACE_PASS)
+                .computeOnly()
+                .dependsOn(VCT_VOXELIZE_PASS)
+                .execute(traceExecutor);
+        var composite = graph.addPass(VCT_COMPOSITE_PASS)
+                .createColor(VCT_COLOR, format)
+                .noClear()
+                .dependsOn(VCT_VOXELIZE_PASS)
+                .dependsOn(colorProducer);
+        if (!depthProducer.equals(colorProducer)) {
+            composite.dependsOn(depthProducer);
+        }
+        composite.execute(compositeExecutor);
+    }
+
+    /**
+     * Declares the hair forward pass in the transparent HDR stage. It aliases
+     * the geometry colour and raster depth; it never creates a second colour
+     * target and never writes the shared depth beyond normal depth testing
+     * (CUTOUT writes depth exactly like the sorted transparent contract does
+     * not; SORTED_ALPHA keeps depth writes disabled).
+     */
+    static void addHairStrandPass(RenderGraph graph, PipelineTopology topology,
+                                  RenderSettings settings, String depthTexture,
+                                  String depthProducer, PassExecutor executor) {
+        graph.addPass(HairStrandPass.PASS_NAME)
+                .shareColorTextures(List.of(PostProcessTargets.SCENE_COLOR),
+                        List.of(ForwardPassBuilder.sceneColorFormat(settings)),
+                        PostProcessTargets.GEOMETRY_PASS, topology.sampleCount())
+                .shareDepthTexture(depthTexture, depthProducer)
+                .noClear()
+                .execute(executor);
+    }
     private PipelineGeneration createGeneration(Scene generationScene,
                                                 PipelineTopology topology) {
         return createGeneration(generationScene, topology, null);
@@ -2045,6 +2458,9 @@ public final class RenderPipeline {
             candidate.assembleWeightedOit(weightedOitSettings, reusable);
             candidate.assemblePlanarReflection(planarReflectionSettings, reusable);
             candidate.assembleCaustics(causticsSettings, reusable);
+            candidate.assembleDdgi(ddgiSettings, reusable);
+            candidate.assembleVct(vctSettings, reusable);
+            candidate.assembleHairStrands(hairStrandSettings, reusable);
             candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled(),
                     atmosphereSettings);
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
@@ -2069,6 +2485,15 @@ public final class RenderPipeline {
                 // The simulation is a deterministic compute stage: it has no
                 // colour/depth consumer and no dependency on the visible frame.
                 addSmokeSimulationPass(candidate.graph(), smokeSimulationExecutor(candidate));
+            }
+            if (candidate.hairStrands() != null) {
+                var rawDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
+                if (rawDepth == null) {
+                    throw new IllegalStateException(
+                            "hair strands require the shared raster depth for depth testing");
+                }
+                addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
+                        rawDepth.producer(), hairStrandExecutor(candidate));
             }
             String sceneColorTexture = PostProcessTargets.SCENE_COLOR;
             String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
@@ -2233,6 +2658,36 @@ public final class RenderPipeline {
                         SmokeVolumePass.PASS_NAME);
                 sceneColorTexture = SmokeVolumePass.COLOR_TEXTURE;
                 sceneColorProducer = SmokeVolumePass.PASS_NAME;
+            }
+            if (candidate.ddgiIndirect() != null) {
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                var singleNormal = topology.sceneSurface().single(SceneBufferChannel.NORMAL);
+                if (singleDepth == null || singleNormal == null) {
+                    throw new IllegalStateException(
+                            "DDGI requires the shared single-sample depth and world normal");
+                }
+                addDdgiPasses(candidate.graph(), sceneColorProducer, singleDepth.producer(),
+                        singleNormal.producer(), ForwardPassBuilder.sceneColorFormat(settings),
+                        ddgiProbeExecutor(candidate),
+                        ddgiIndirectExecutor(candidate, sceneColorProducer));
+                candidate.postProcess().sceneColorInput(DDGI_INDIRECT_COLOR,
+                        DdgiIndirectPass.PASS_NAME);
+                sceneColorTexture = DDGI_INDIRECT_COLOR;
+                sceneColorProducer = DdgiIndirectPass.PASS_NAME;
+            }
+            if (candidate.vct() != null) {
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                if (singleDepth == null) {
+                    throw new IllegalStateException(
+                            "voxel cone tracing requires the shared single-sample scene depth");
+                }
+                addVctPasses(candidate.graph(), sceneColorProducer, singleDepth.producer(),
+                        ForwardPassBuilder.sceneColorFormat(settings),
+                        vctVoxelizeExecutor(candidate), vctTraceExecutor(candidate),
+                        vctCompositeExecutor(candidate, sceneColorProducer));
+                candidate.postProcess().sceneColorInput(VCT_COLOR, VCT_COMPOSITE_PASS);
+                sceneColorTexture = VCT_COLOR;
+                sceneColorProducer = VCT_COMPOSITE_PASS;
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);
@@ -3110,7 +3565,8 @@ public final class RenderPipeline {
                 directionalCascadeSettings, localShadowSettings, clusteredLightingSettings,
                 waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings,
                 volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings,
-                weightedOitSettings, planarReflectionSettings, causticsSettings);
+                weightedOitSettings, planarReflectionSettings, causticsSettings,
+                ddgiSettings, vctSettings, hairStrandSettings);
     }
 
     private RenderFeaturePolicy.Facts featureFacts() {
@@ -3126,7 +3582,9 @@ public final class RenderPipeline {
         boolean point = false;
         boolean spot = false;
         boolean downwardDirectional = false;
+        boolean directionalLight = false;
         for (SceneLight light : scene.lights()) {
+            if (light.type() == LightType.DIRECTIONAL) directionalLight = true;
             if (light.type() == LightType.DIRECTIONAL
                     && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
                 downwardDirectional = true;
@@ -3141,7 +3599,8 @@ public final class RenderPipeline {
         return new RenderFeaturePolicy.Facts(pbr, directional, point, spot,
                 pbrEnvironment != null, hdrVfxRecorder != null, fogAwareHdrVfxRecorder != null,
                 hdrVfxFogOptOut, previewController.selected().isPresent(),
-                downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap);
+                downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap,
+                directionalLight);
     }
 
     private void publishCompatibilityFeatureState() {
@@ -3196,6 +3655,9 @@ public final class RenderPipeline {
         planarReflectionSettings = requested.planarReflections();
         causticsSettings = requested.caustics();
         recomputeWeightedOitOverlap();
+        ddgiSettings = requested.ddgi();
+        vctSettings = requested.vct();
+        hairStrandSettings = requested.hairStrands();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -3238,7 +3700,10 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.weightedOit(), next.weightedOit())
                 && java.util.Objects.equals(previous.planarReflections(),
                 next.planarReflections())
-                && java.util.Objects.equals(previous.caustics(), next.caustics());
+                && java.util.Objects.equals(previous.caustics(), next.caustics())
+                && java.util.Objects.equals(previous.ddgi(), next.ddgi())
+                && java.util.Objects.equals(previous.vct(), next.vct())
+                && java.util.Objects.equals(previous.hairStrands(), next.hairStrands());
     }
 
     private void applyPendingFeatureRequest() {
@@ -3391,6 +3856,160 @@ public final class RenderPipeline {
                     res.depthAttachment(depth.name()), frame,
                     waterSurfaceSettings, pbrEnvironment, iblIntensity, iblRotationRadians,
                     waterTimeSeconds);
+        };
+    }
+
+    private PassExecutor hairStrandExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            HairStrandPass hair = generation.hairStrands();
+            if (hair == null) {
+                throw new IllegalStateException(
+                        "hair strand pass is absent from the active topology");
+            }
+            if (!hairStrandSettings.active()) {
+                return;
+            }
+            SceneLight light = firstDirectionalLight();
+            if (light == null) {
+                throw new IllegalStateException("hair strands require a directional light");
+            }
+            Vector3f ambient = new Vector3f(light.color()).mul(0.15f);
+            ambient.x = Math.min(ambient.x, HairStrandPass.HairStrandLight.MAXIMUM_COMPONENT);
+            ambient.y = Math.min(ambient.y, HairStrandPass.HairStrandLight.MAXIMUM_COMPONENT);
+            ambient.z = Math.min(ambient.z, HairStrandPass.HairStrandLight.MAXIMUM_COMPONENT);
+            HairStrandPass.HairStrandLight hairLight = new HairStrandPass.HairStrandLight(
+                    light.direction(), light.color(), light.intensity(), ambient);
+            ShadowFramePlan plan = shadowFramePlan();
+            boolean legacyDirectionalShadow = plan.directional().isPresent()
+                    && !directionalCascadeSettings.enabled();
+            int shadowTexture = legacyDirectionalShadow
+                    ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0;
+            float texelSize = 1.0f / Math.max(1, directionalShadowMap.settings().resolution());
+            hair.record(cmd, externalFrameCamera(), hairStrandModel, hairStrandSettings,
+                    hairLight, shadowTexture, lastDirectionalLightSpaceMatrix,
+                    directionalShadowMap.settings().bias(), texelSize);
+        };
+    }
+
+    /** Late directional caster hook: records the hair lock into the current shadow tile. */
+    private void recordHairShadowCaster(CommandBuffer cmd, Matrix4fc lightSpace, int cascade) {
+        PipelineGeneration generation = requireGeneration();
+        HairStrandPass hair = generation.hairStrands();
+        if (hair == null || !hairStrandSettings.active() || !hairStrandSettings.castsShadow()) {
+            return;
+        }
+        SceneLight light = firstDirectionalLight();
+        if (light == null) {
+            return;
+        }
+        hair.recordShadow(cmd, hairStrandModel, lightSpace, hairStrandSettings,
+                light.direction());
+    }
+
+    private PassExecutor ddgiProbeExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            SceneLight light = firstDirectionalLight();
+            if (light == null) {
+                throw new IllegalStateException("DDGI requires a directional light");
+            }
+            Vector3f radiance = new Vector3f(light.color()).mul(light.intensity());
+            if (radiance.x > DdgiSettings.MAXIMUM_LIGHT_RADIANCE_COMPONENT
+                    || radiance.y > DdgiSettings.MAXIMUM_LIGHT_RADIANCE_COMPONENT
+                    || radiance.z > DdgiSettings.MAXIMUM_LIGHT_RADIANCE_COMPONENT) {
+                throw new IllegalStateException(
+                        "DDGI main-light radiance exceeds the bounded probe input");
+            }
+            generation.ddgiVolume().recordUpdate(cmd, sceneFrame(), light.direction(), radiance);
+        };
+    }
+
+    private PassExecutor ddgiIndirectExecutor(PipelineGeneration generation,
+                                              String colorProducer) {
+        return (res, cmd) -> {
+            Framebuffer source = res.framebufferOfPass(colorProducer);
+            if (source == null) {
+                throw new IllegalStateException(
+                        "DDGI indirect pass requires the current scene colour target");
+            }
+            var depth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            var normal = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.NORMAL);
+            if (depth == null || normal == null) {
+                throw new IllegalStateException(
+                        "DDGI indirect pass requires the shared single-sample depth and normal");
+            }
+            int depthTexture = generation.surfaceInputs().frame().require(res, depth);
+            int normalTexture = generation.surfaceInputs().frame().require(res, normal);
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "DDGI indirect pass requires a prepared temporal frame state");
+            }
+            DdgiIndirectPass indirect = generation.ddgiIndirect();
+            indirect.record(cmd, source, depthTexture, normalTexture, frame);
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "DDGI indirect pass requires a managed colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(indirect.colorTarget(), target);
+        };
+    }
+
+    private PassExecutor vctVoxelizeExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            VctSceneInput input = vctSceneInput;
+            if (input == null || generation.vct() == null) {
+                return;
+            }
+            VctPass.UpdateStats stats = generation.vct().recordVoxelize(cmd, input,
+                    vctDirtyBoxes);
+            if (!VctPass.UpdateStats.NONE.equals(stats)) {
+                // Dirty boxes describe work since the last successful update.
+                vctDirtyBoxes = List.of();
+            }
+        };
+    }
+
+    private PassExecutor vctTraceExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            VctProbeBatch batch = vctProbeBatch;
+            VctPass pass = generation.vct();
+            if (batch == null || pass == null || !pass.volumeValid()) {
+                return;
+            }
+            pass.recordProbeTrace(cmd, batch);
+        };
+    }
+
+    private PassExecutor vctCompositeExecutor(PipelineGeneration generation,
+                                              String colorProducer) {
+        return (res, cmd) -> {
+            Framebuffer source = res.framebufferOfPass(colorProducer);
+            Framebuffer target = res.currentTarget();
+            if (source == null || target == null) {
+                throw new IllegalStateException(
+                        "voxel cone tracing requires the current scene colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(source, target);
+            VctPass pass = generation.vct();
+            if (pass == null || !pass.volumeValid()) {
+                return;
+            }
+            var depth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (depth == null) {
+                throw new IllegalStateException(
+                        "voxel cone tracing requires the shared single-sample scene depth");
+            }
+            int depthTexture = generation.surfaceInputs().frame().require(res, depth);
+            pass.recordComposite(cmd, target, depthTexture, externalFrameCamera(),
+                    vctSurfaceRoughness, vctSurfaceAlbedo);
         };
     }
 
@@ -4090,7 +4709,7 @@ public final class RenderPipeline {
             if (plan.directional().isEmpty()) return;
             lastShadowCasterDrawCount = requireGeneration().shadowCasterRecorder()
                     .recordDirectional(cmd, sceneFrame(), plan.directional().orElseThrow(),
-                            currentShadowCasterPlan);
+                            currentShadowCasterPlan, this::recordHairShadowCaster);
         };
     }
 

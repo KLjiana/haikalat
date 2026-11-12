@@ -3,10 +3,13 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
@@ -29,9 +32,11 @@ import java.util.Objects;
  * and {@code caustics}) and the volumetric simulation passes ({@code
  * volumetricClouds}, {@code smokeSimulation}, {@code smokeRender}) are appended
  * components whose defaults are the exact {@code disabled()} value of their
- * settings type.  The 19-component constructor used before the S3 wiring is
- * retained and delegates with those disabled defaults, so existing source does
- * not break.</p>
+ * settings type.  The indirect-light and strand requests ({@code ddgi},
+ * {@code vct}, {@code hairStrands}) are appended after those S3 components with
+ * the same disabled defaults.  The 19-component constructor used before the S3
+ * wiring is retained and delegates with those disabled defaults, so existing
+ * source does not break.</p>
  */
 public record RenderFeatureSettings(
         boolean enabled,
@@ -58,7 +63,10 @@ public record RenderFeatureSettings(
         SmokeRenderSettings smokeRender,
         WeightedOitSettings weightedOit,
         PlanarReflectionSettings planarReflections,
-        CausticsSettings caustics) {
+        CausticsSettings caustics,
+        DdgiSettings ddgi,
+        VctSettings vct,
+        HairStrandSettings hairStrands) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -77,6 +85,9 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(weightedOit, "weightedOit");
         Objects.requireNonNull(planarReflections, "planarReflections");
         Objects.requireNonNull(caustics, "caustics");
+        Objects.requireNonNull(ddgi, "ddgi");
+        Objects.requireNonNull(vct, "vct");
+        Objects.requireNonNull(hairStrands, "hairStrands");
     }
 
     /**
@@ -109,7 +120,9 @@ public record RenderFeatureSettings(
                 clusteredLighting, waterSurface, volumetricParticles, stochasticTransparency,
                 VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
                 SmokeRenderSettings.disabled(), WeightedOitSettings.disabled(),
-                PlanarReflectionSettings.disabled(), CausticsSettings.disabled());
+                PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(),
+                HairStrandSettings.disabled());
     }
 
     public static RenderFeatureSettings defaults() {
@@ -142,7 +155,10 @@ public record RenderFeatureSettings(
                 .smokeRender(smokeRender)
                 .weightedOit(weightedOit)
                 .planarReflections(planarReflections)
-                .caustics(caustics);
+                .caustics(caustics)
+                .ddgi(ddgi)
+                .vct(vct)
+                .hairStrands(hairStrands);
     }
 
     public static Builder builder() {
@@ -178,6 +194,9 @@ public record RenderFeatureSettings(
         private PlanarReflectionSettings planarReflections =
                 PlanarReflectionSettings.disabled();
         private CausticsSettings caustics = CausticsSettings.disabled();
+        private DdgiSettings ddgi = DdgiSettings.disabled();
+        private VctSettings vct = VctSettings.disabled();
+        private HairStrandSettings hairStrands = HairStrandSettings.disabled();
 
         private Builder() {
         }
@@ -307,13 +326,29 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder ddgi(DdgiSettings value) {
+            ddgi = Objects.requireNonNull(value, "ddgi");
+            return this;
+        }
+
+        public Builder vct(VctSettings value) {
+            vct = Objects.requireNonNull(value, "vct");
+            return this;
+        }
+
+        public Builder hairStrands(HairStrandSettings value) {
+            hairStrands = Objects.requireNonNull(value, "hairStrands");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
                     postProcess, volumetricFog, outdoorEnvironment, directionalShadowMap,
                     directionalCascades, localShadows, clusteredLighting, waterSurface,
                     volumetricParticles, stochasticTransparency, volumetricClouds,
-                    smokeSimulation, smokeRender, weightedOit, planarReflections, caustics);
+                    smokeSimulation, smokeRender, weightedOit, planarReflections, caustics,
+                    ddgi, vct, hairStrands);
         }
     }
 }
