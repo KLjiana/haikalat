@@ -483,7 +483,7 @@ class RenderFeatureControlPostProcessTest {
 
     private static RenderFeaturePolicy.Facts facts(boolean pbr, boolean nvAvailable) {
         return new RenderFeaturePolicy.Facts(pbr, true, true, true, pbr,
-                false, false, false, false, nvAvailable);
+                false, false, false, false, false, false, false, false, nvAvailable);
     }
 
     private static RenderFeatureActivity activity(RenderFeaturePolicy.Resolved resolved,
