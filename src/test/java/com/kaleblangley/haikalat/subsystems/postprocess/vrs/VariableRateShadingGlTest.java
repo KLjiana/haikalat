@@ -50,8 +50,10 @@ import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_R8UI;
 import static org.lwjgl.opengl.GL30.GL_RED_INTEGER;
 import static org.lwjgl.opengl.GL30.GL_RGBA32F;
+import static org.lwjgl.opengl.GL30.glIsEnabledi;
 import static org.lwjgl.opengl.GL45.glGetTextureImage;
 import static org.lwjgl.opengl.GL45.glGetTextureLevelParameteri;
+import static org.lwjgl.opengl.NVShadingRateImage.GL_SHADING_RATE_IMAGE_NV;
 
 /**
  * Real-GL acceptance for roadmap feature #42, Variable Rate Shading.
@@ -334,20 +336,25 @@ class VariableRateShadingGlTest {
                 int previousImage = VariableRateShadingState.boundImage();
                 int[] previousPalette = VariableRateShadingState.palette(
                         0, capability.paletteSize());
+                boolean previousEnabled = glIsEnabledi(GL_SHADING_RATE_IMAGE_NV, 0);
                 System.out.println("VRS direct capability=" + capability.summary());
-                System.out.println("VRS direct appliedPalette="
-                        + Arrays.toString(shading.plan().palette())
+                System.out.println("VRS direct enabledBefore=" + previousEnabled
+                        + " appliedPalette=" + Arrays.toString(shading.plan().palette())
                         + " previousPalette=" + Arrays.toString(previousPalette));
                 try (VariableRateShadingState.Snapshot snapshot =
                              VariableRateShadingState.begin(shading.rateImage().id(),
                                      shading.plan().palette())) {
                     assertNoGlError("direct VRS begin");
+                    assertTrue(glIsEnabledi(GL_SHADING_RATE_IMAGE_NV, 0),
+                            "SHADING_RATE_IMAGE_NV must be enabled for viewport 0");
                     assertEquals(shading.rateImage().id(),
                             VariableRateShadingState.boundImage(),
                             "the rate image must be bound for the current draw framebuffer");
                 }
                 assertNoGlError("direct VRS restore");
                 assertEquals(previousImage, VariableRateShadingState.boundImage());
+                assertEquals(previousEnabled, glIsEnabledi(GL_SHADING_RATE_IMAGE_NV, 0),
+                        "the indexed enable state must be restored");
                 assertArrayEquals(previousPalette, VariableRateShadingState.palette(
                                 0, capability.paletteSize()),
                         "the palette must be restored");

@@ -5,7 +5,11 @@ import org.lwjgl.system.MemoryStack;
 import java.nio.IntBuffer;
 
 import static org.lwjgl.opengl.GL11.glGetInteger;
+import static org.lwjgl.opengl.GL30.glEnablei;
+import static org.lwjgl.opengl.GL30.glDisablei;
+import static org.lwjgl.opengl.GL30.glIsEnabledi;
 import static org.lwjgl.opengl.NVShadingRateImage.GL_SHADING_RATE_IMAGE_BINDING_NV;
+import static org.lwjgl.opengl.NVShadingRateImage.GL_SHADING_RATE_IMAGE_NV;
 import static org.lwjgl.opengl.NVShadingRateImage.glBindShadingRateImageNV;
 import static org.lwjgl.opengl.NVShadingRateImage.glGetShadingRateImagePaletteNV;
 import static org.lwjgl.opengl.NVShadingRateImage.glShadingRateImageBarrierNV;
@@ -14,14 +18,16 @@ import static org.lwjgl.opengl.NVShadingRateImage.glShadingRateImagePaletteNV;
 /**
  * Minimal host-state adapter for {@code GL_NV_shading_rate_image}.
  *
- * <p>The adapter owns no texture.  {@link #begin} captures the previously bound
- * shading-rate image and the palette entries it is about to replace, applies
- * the caller's image and palette, and returns a snapshot whose
- * {@link Snapshot#restore()} puts the exact host state back.  Because both the
- * rate image binding and the palette are context (or draw-framebuffer) state
- * that a pass cannot inspect safely at command-record time, the capture must
- * happen while commands execute; {@code CommandBuffer} therefore records a
- * begin/end pair that {@code CommandExecutor} maps onto this adapter.</p>
+ * <p>The adapter owns no texture.  {@link #begin} captures the per-viewport
+ * {@code SHADING_RATE_IMAGE_NV} enable state, the previously bound shading-rate
+ * image and the palette entries it is about to replace, applies the caller's
+ * enable/image/palette state, and returns a snapshot whose
+ * {@link Snapshot#restore()} puts the exact host state back.  The indexed enable
+ * state is required: with {@code SHADING_RATE_IMAGE_NV} disabled the driver uses
+ * 1x1 regardless of any bound image.  Because that state (and the image/palette)
+ * cannot be inspected safely at command-record time, the capture must happen
+ * while commands execute; {@code CommandBuffer} therefore records a begin/end
+ * pair that {@code CommandExecutor} maps onto this adapter.</p>
  *
  * <p>Only viewport 0 is touched.  The sample order is never modified.  After
  * binding the image the adapter calls
@@ -99,17 +105,32 @@ public final class VariableRateShadingState {
                         "unsupported NV shading-rate palette value: " + rate);
             }
         }
-        int previousImage = glGetInteger(GL_SHADING_RATE_IMAGE_BINDING_NV);
-        int[] previousPalette = sanitizePaletteForRestore(readPalette(0, palette.length));
-        glBindShadingRateImageNV(textureId);
-        writePalette(palette);
-        // TexSubImage uploads are already ordered before the draw, but the
-        // shading-rate image is read through a raster path that NV requires
-        // applications to order explicitly. Use the synchronizing form for the
-        // first correctness version; the image is static after creation, so the
-        // wait normally has no outstanding upload to drain.
-        glShadingRateImageBarrierNV(true);
-        return new Snapshot(previousImage, previousPalette);
+        // SHADING_RATE_IMAGE_NV is an indexed enable state, one per viewport,
+        // defaulting to FALSE. Without enabling it the driver keeps the base
+        // shading rate at 1x1 even when an image and palette are bound.
+        boolean previousEnabled = glIsEnabledi(GL_SHADING_RATE_IMAGE_NV, VIEWPORT);
+        if (!previousEnabled) {
+            glEnablei(GL_SHADING_RATE_IMAGE_NV, VIEWPORT);
+        }
+        try {
+            int previousImage = glGetInteger(GL_SHADING_RATE_IMAGE_BINDING_NV);
+            int[] previousPalette = sanitizePaletteForRestore(
+                    readPalette(0, palette.length));
+            glBindShadingRateImageNV(textureId);
+            writePalette(palette);
+            // TexSubImage uploads are already ordered before the draw, but the
+            // shading-rate image is read through a raster path that NV requires
+            // applications to order explicitly. Use the synchronizing form for the
+            // first correctness version; the image is static after creation, so the
+            // wait normally has no outstanding upload to drain.
+            glShadingRateImageBarrierNV(true);
+            return new Snapshot(previousImage, previousPalette, previousEnabled);
+        } catch (RuntimeException | Error failure) {
+            if (!previousEnabled) {
+                glDisablei(GL_SHADING_RATE_IMAGE_NV, VIEWPORT);
+            }
+            throw failure;
+        }
     }
 
     private static void writePalette(int[] palette) {
@@ -185,11 +206,13 @@ public final class VariableRateShadingState {
     public static final class Snapshot implements AutoCloseable {
         private final int previousImage;
         private final int[] previousPalette;
+        private final boolean previousEnabled;
         private boolean restored;
 
-        private Snapshot(int previousImage, int[] previousPalette) {
+        private Snapshot(int previousImage, int[] previousPalette, boolean previousEnabled) {
             this.previousImage = previousImage;
             this.previousPalette = previousPalette;
+            this.previousEnabled = previousEnabled;
         }
 
         /** @return the shading-rate image bound before this scope */
@@ -202,14 +225,24 @@ public final class VariableRateShadingState {
             return previousPalette.clone();
         }
 
+        /** @return whether the viewport shading-rate image was enabled before this scope */
+        public boolean previousEnabled() {
+            return previousEnabled;
+        }
+
         /** @return whether the previous state has been restored */
         public boolean isRestored() {
             return restored;
         }
 
-        /** Restores the exact binding and palette captured by {@link #begin}. */
+        /** Restores the exact binding, palette and indexed enable state. */
         public void restore() {
             if (restored) return;
+            if (previousEnabled) {
+                glEnablei(GL_SHADING_RATE_IMAGE_NV, VIEWPORT);
+            } else {
+                glDisablei(GL_SHADING_RATE_IMAGE_NV, VIEWPORT);
+            }
             glBindShadingRateImageNV(previousImage);
             writePalette(previousPalette);
             restored = true;
