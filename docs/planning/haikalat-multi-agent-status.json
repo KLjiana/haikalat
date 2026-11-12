@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "7e91fb0a"
+    "head": "d52df12b"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T19:26:01+08:00",
+  "updatedAt": "2026-11-12T20:04:20+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -382,14 +382,15 @@
         "focused verification dfb658b6 at HEAD 2fc9502c: ContactShadowsGlTest PASS, 0 skipped",
         "the accepted first version is the bounded shadow-map-space short-range march described by the card; a true screen-space depth-mask variant remains out of scope",
         "per-feature matrix 20261112-165030: #9 JVM 6/7 + GL 1/1 PASS",
-        "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract"
+        "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
+        "screen-space contact-shadow pass implemented at d52df12b (Camera depth consumer, view-space march, off-screen fallback); integration real GL ScreenSpaceContactShadowsGlTest 2/2 + ContactShadowsGlTest 1/1 PASS, JVM gating 3/3; independent review pending"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
+      "nextAction": "independent review of the screen-space pass; then close #9",
       "scopeNote": "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
       "policyCommit": "0c14652",
       "deferred": "screen-space depth-mask variant"
