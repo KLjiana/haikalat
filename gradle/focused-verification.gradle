@@ -96,6 +96,7 @@ def jvmCases = [
         'VolumetricParticleSettingsTest', 'VolumetricParticleReferenceTest',
         'VolumetricParticleProjectionTest', 'VolumetricParticleShaderTest',
         'RenderPipelineWiringTest', 'RenderPipelineWiringB3Test',
+        'RenderFeatureInteractionMatrixTest',
         'StochasticTransparencySettingsTest', 'StochasticTransparencyInputsTest',
         'StochasticTransparencyReferenceTest', 'StochasticTransparencyShaderTest',
         'HairStrandSettingsTest', 'HairStrandReferenceTest', 'HairStrandShaderTest',

@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T15:35:34+08:00",
+  "updatedAt": "2026-11-12T15:45:14+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1551,6 +1551,32 @@
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
       "nextAction": "production wiring verified; performance/human visual not evaluated"
+    },
+    {
+      "taskId": "S6",
+      "featureIds": [],
+      "state": "DONE",
+      "scope": "整体交互矩阵、质量档与最终文档包",
+      "dependencies": [],
+      "owner": "orchestrator",
+      "writePaths": [],
+      "baseCommit": null,
+      "workerCommit": null,
+      "integrationCommit": "799ae350",
+      "requiredCases": [
+        "RenderFeatureInteractionMatrixTest"
+      ],
+      "evidence": [
+        "docs/planning/v0.28.1-s6-interaction-and-quality.md records the seven representative scenario combinations and the bounded Low/Medium/High quality tiers",
+        "RenderFeatureInteractionMatrixTest 6/6 JVM PASS: default no-op, water+planar+caustics, clouds+smoke single-sample/MSAA, hair single-sample/MSAA, OIT+stochastic declarations, LDR soft-unavailable",
+        "per-feature real GL pipeline cases cover the pixel contracts of each combination (see the matrix evidence column)"
+      ],
+      "review": "SELF_CHECKED",
+      "functional": "PASS_FOCUSED",
+      "performance": "NOT_EVALUATED",
+      "humanVisual": "NOT_EVALUATED",
+      "blockedReason": null,
+      "nextAction": "combined-scene GL pixel matrix and performance/human-visual evaluation remain out of scope"
     }
   ],
   "notes": [
