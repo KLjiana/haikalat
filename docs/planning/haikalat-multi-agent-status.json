@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "30c8047"
+    "head": "a87ce2c"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1424,7 +1424,7 @@
       "featureIds": [
         46
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Hair Strand Rendering",
       "dependencies": [
         null
@@ -1447,12 +1447,12 @@
         "GL PASS at ce843a8 with the alpha-coverage guard: 7/7, 0 skipped, gate green; XML archived",
         "alpha-coverage guard corrected (clear alpha 0) and 7/7 rerun at b5d0143"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #46; RenderPipeline wiring is a remaining gap"
+      "nextAction": "pass-level DONE; RenderPipeline/ShadowCasterRecorder wiring, width-clamp boundary tests and model-scale LOD/shadow fix remain"
     }
   ],
   "notes": [
