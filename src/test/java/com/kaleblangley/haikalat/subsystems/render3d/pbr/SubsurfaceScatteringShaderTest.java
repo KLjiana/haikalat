@@ -125,6 +125,11 @@ class SubsurfaceScatteringShaderTest {
         assertTrue(source.contains("exp(-thickness / max(profileScale * penetration,"));
         assertTrue(source.contains("smoothstep(bound * 0.5, bound,"),
                 "the material mask must fade with camera distance");
+        assertTrue(source.contains("uSubsurfaceIntensity <= "
+                        + SubsurfaceScatteringSettings.MAXIMUM_INTENSITY),
+                "the mask must accept every valid material intensity");
+        assertTrue(source.contains("clamp(uSubsurfaceIntensity, 0.0, 1.0)"),
+                "the mask coverage must saturate at 1 instead of rejecting intensity > 1");
         assertTrue(source.contains(
                 "outSubsurface = vec4(coverage, effectiveRadius, thickness,"),
                 "the mask layout is coverage/radius/thickness/participation");

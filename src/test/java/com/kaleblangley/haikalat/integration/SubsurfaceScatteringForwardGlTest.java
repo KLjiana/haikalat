@@ -202,7 +202,10 @@ class SubsurfaceScatteringForwardGlTest {
                         SubsurfaceScatteringSettings.builder()
                                 .profile(SubsurfaceScatteringSettings.Profile.UNIFORM)
                                 .scatterColor(1.0f, 0.2f, 0.1f)
-                                .intensity(1.0f)
+                                // 2.0 is a valid authored intensity above the
+                                // mask's coverage saturation: the mask must
+                                // clamp to 1, not reject the material.
+                                .intensity(2.0f)
                                 .profileScaleMetres(0.5f)
                                 .thicknessSource(
                                         SubsurfaceScatteringSettings.ThicknessSource.CONSTANT)

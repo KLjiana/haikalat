@@ -118,8 +118,11 @@ void main() {
             distanceFade = 1.0 - smoothstep(bound * 0.5, bound,
                     length(uCameraPosition - vWorldPosition));
         }
-        float intensity = uSubsurfaceIntensity >= 0.0 && uSubsurfaceIntensity <= 1.0
-                ? uSubsurfaceIntensity : 0.0;
+        // The material settings allow [0, MAXIMUM_INTENSITY]; the mask coverage
+        // saturates at 1 because the pass weights neighbouring radiance, not
+        // the authored transmission strength.
+        float intensity = uSubsurfaceIntensity >= 0.0 && uSubsurfaceIntensity <= 4.0
+                ? clamp(uSubsurfaceIntensity, 0.0, 1.0) : 0.0;
         float coverage = uSubsurfaceScreenSpace != 0
                 ? intensity * clamp(distanceFade, 0.0, 1.0) : 0.0;
         outSubsurface = vec4(coverage, effectiveRadius, thickness,
