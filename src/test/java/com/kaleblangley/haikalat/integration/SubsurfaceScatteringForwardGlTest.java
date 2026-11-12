@@ -115,9 +115,11 @@ class SubsurfaceScatteringForwardGlTest {
                     } finally {
                         frontPipeline.close();
                     }
+                    int frontCenter = (HEIGHT / 2 * WIDTH + WIDTH / 2) * 4;
+                    int backCenter = frontCenter;
                     assertArrayEquals(frontDisabled, frontEnabled, 0.0f,
                             "a front-facing light must leave the specular image byte-exact");
-                    assertTrue(maxLuminance(frontDisabled) > 0.01f,
+                    assertTrue(pixelLuminance(frontDisabled, frontCenter) > 0.01f,
                             "the front-light fixture must contain a real specular highlight");
 
                     float[] backDisabled;
@@ -139,9 +141,11 @@ class SubsurfaceScatteringForwardGlTest {
                     } finally {
                         backPipeline.close();
                     }
-                    int center = (HEIGHT / 2 * WIDTH + WIDTH / 2) * 4;
-                    assertTrue(maxLuminance(backDisabled) < 1.0e-4f,
-                            "the back-lit disabled fixture must be black");
+                    int center = backCenter;
+                    assertTrue(pixelLuminance(backDisabled, center) < 1.0e-4f,
+                            "the back-lit disabled fixture's surface must stay black; the "
+                                    + "environment background outside the quad is not part of "
+                                    + "this assertion");
                     assertTrue(backThin[center] > 0.1f,
                             "the thin back-lit material must add a positive red scatter term");
                     assertTrue(backThin[center] > backThin[center + 1] * 1.5f,
@@ -278,6 +282,10 @@ class SubsurfaceScatteringForwardGlTest {
         RenderPipeline pipeline = new RenderPipeline(window, scene, null, renderSettings,
                 environment).postProcessSettings(effects);
         RenderFeatureSettings direct = pipeline.features().effective().toBuilder()
+                // features.submit() replaces the pipeline's post-process settings
+                // with this request; carry the screen-space request explicitly or
+                // the real pipeline test silently renders without the SSS pass.
+                .postProcess(effects)
                 .imageBasedLighting(false)
                 .directLighting(true)
                 .directionalShadows(false)
@@ -343,13 +351,8 @@ class SubsurfaceScatteringForwardGlTest {
         return image;
     }
 
-    private static float maxLuminance(float[] image) {
-        float maximum = 0.0f;
-        for (int pixel = 0; pixel < image.length / 4; pixel++) {
-            int offset = pixel * 4;
-            maximum = Math.max(maximum, 0.2126f * image[offset]
-                    + 0.7152f * image[offset + 1] + 0.0722f * image[offset + 2]);
-        }
-        return maximum;
+    private static float pixelLuminance(float[] image, int offset) {
+        return 0.2126f * image[offset] + 0.7152f * image[offset + 1]
+                + 0.0722f * image[offset + 2];
     }
 }
