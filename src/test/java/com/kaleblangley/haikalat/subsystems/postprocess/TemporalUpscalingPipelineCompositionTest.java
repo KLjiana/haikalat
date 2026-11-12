@@ -1,6 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -89,6 +90,10 @@ class TemporalUpscalingPipelineCompositionTest {
                         SOURCE));
         assertThrows(IllegalArgumentException.class,
                 () -> PostProcessPipeline.validateTemporalComposition(
+                        hdr(AntiAliasingMode.NONE), withSubsurfaceScattering(), 64, 64, false,
+                        false, SOURCE));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
                         hdr(AntiAliasingMode.NONE), withScreenDistortion(), 64, 64, false, false,
                         SOURCE));
     }
@@ -170,6 +175,23 @@ class TemporalUpscalingPipelineCompositionTest {
         return PostProcessSettings.builder()
                 .temporalUpscaling(TemporalUpscalingSettings.defaults())
                 .ssr(SsrSettings.defaults())
+                .build();
+    }
+
+    private static PostProcessSettings withSubsurfaceScattering() {
+        return PostProcessSettings.builder()
+                .temporalUpscaling(TemporalUpscalingSettings.defaults())
+                .subsurfaceScattering(SubsurfaceScatteringSettings.builder()
+                        .profile(SubsurfaceScatteringSettings.Profile.UNIFORM)
+                        .scatterColor(1.0f, 0.2f, 0.1f)
+                        .intensity(2.0f)
+                        .profileScaleMetres(0.5f)
+                        .thicknessSource(SubsurfaceScatteringSettings.ThicknessSource.CONSTANT)
+                        .thicknessMetres(0.1f)
+                        .diffusionRadiusMetres(0.5f)
+                        .screenSpaceEnabled(true)
+                        .maxDistanceMetres(5.0f)
+                        .build())
                 .build();
     }
 
