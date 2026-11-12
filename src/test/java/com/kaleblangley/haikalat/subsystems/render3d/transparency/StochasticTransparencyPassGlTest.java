@@ -252,7 +252,23 @@ class StochasticTransparencyPassGlTest {
                     renderFrame(fixture, pass, target, List.of(surface),
                             inputs(viewForCameraX(cameraX), depthTexture), settings);
                 }
-                int centreX = Math.round(32.0f - 0.5f * 19.31f);
+                // Convergence region: must be covered by the world-static quad
+                // for the whole sequence and be at least the clamp radius away
+                // from both moving edges.
+                //   camera 0.0: screen px = 32 + viewX * 19.314, quad half
+                //               width = 0.5 * 19.314 = 9.657 -> x 22.343..41.657
+                //   camera 0.5: view centre = -0.5 -> x 12.686..32.000
+                // x=24..28 is inside both; its 5x5 clamp neighbourhood x=22..30
+                // is also inside (x=22 centre 22.5 > 22.343, x=30 centre 30.5 < 32).
+                // The old x=19..25 region contained columns 19..21 that were
+                // outside for all 20 warm-up frames and only entered during the
+                // move; with w = 16/17 their history cannot converge from zero
+                // in 24 static frames (0.941^24 = 0.232 residual), which is
+                // sweep-in latency, not a permanent ghost.
+                int regionX = 24;
+                int regionY = 29;
+                int regionWidth = 5;
+                int regionHeight = 7;
                 double[] expected = {
                         0.5 * 0.9 + 0.5 * BACKGROUND_RED,
                         0.5 * 0.2 + 0.5 * BACKGROUND_GREEN,
@@ -260,7 +276,8 @@ class StochasticTransparencyPassGlTest {
                 FloatBuffer movedPixels = readColor(fixture, target);
                 for (int channel = 0; channel < 3; channel++) {
                     assertEquals(expected[channel],
-                            regionMean(movedPixels, centreX - 3, 29, 7, 7, channel),
+                            regionMean(movedPixels, regionX, regionY, regionWidth,
+                                    regionHeight, channel),
                             0.06, "tracked interior channel " + channel);
                 }
 
@@ -276,12 +293,35 @@ class StochasticTransparencyPassGlTest {
                             inputs(viewForCameraX(0.5f), depthTexture), settings);
                 }
                 FloatBuffer settledPixels = readColor(fixture, target);
+                FloatBuffer settledCoverage = resolvedCoverage(fixture, pass);
+                FloatBuffer settledState = resolvedState(fixture, pass);
+                FloatBuffer lastFrameHits = readAttachment(fixture,
+                        pass.accumulationFramebufferId(), 4, GL_COLOR_ATTACHMENT0,
+                        pass.width(), pass.height());
+                String diagnostics = " composite="
+                        + regionMean(settledPixels, regionX, regionY, regionWidth,
+                        regionHeight, 0)
+                        + "/" + regionMean(settledPixels, regionX, regionY,
+                        regionWidth, regionHeight, 1)
+                        + "/" + regionMean(settledPixels, regionX, regionY,
+                        regionWidth, regionHeight, 2)
+                        + " resolvedCoverage=" + regionMean(settledCoverage, regionX,
+                        regionY, regionWidth, regionHeight, 3)
+                        + " stateMean=" + regionMean(settledState, regionX, regionY,
+                        regionWidth, regionHeight, 0)
+                        + " stateM2=" + regionMean(settledState, regionX, regionY,
+                        regionWidth, regionHeight, 1)
+                        + " lastFrameCoverage=" + (regionMean(lastFrameHits, regionX,
+                        regionY, regionWidth, regionHeight, 3)
+                        / settings.samplesPerFrame())
+                        + " historyLength=" + pass.historyLength();
                 for (int channel = 0; channel < 3; channel++) {
                     assertEquals(expected[channel],
-                            regionMean(settledPixels, centreX - 3, 29, 7, 7, channel),
-                            0.035, "stopped-camera convergence channel " + channel);
+                            regionMean(settledPixels, regionX, regionY, regionWidth,
+                                    regionHeight, channel),
+                            0.035, "stopped-camera convergence channel " + channel
+                                    + diagnostics);
                 }
-                FloatBuffer settledCoverage = resolvedCoverage(fixture, pass);
                 assertEquals(0.0, regionMean(settledCoverage, 36, 28, 5, 9, 3), 0.01,
                         "no permanent ghost after the camera stops");
                 assertTrue(pass.historyValid());
