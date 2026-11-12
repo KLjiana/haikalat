@@ -91,6 +91,7 @@ def jvmCases = [
         'SubsurfaceScatteringShaderTest',
         'VolumetricParticleSettingsTest', 'VolumetricParticleReferenceTest',
         'VolumetricParticleProjectionTest', 'VolumetricParticleShaderTest',
+        'RenderPipelineWiringTest',
         'StochasticTransparencySettingsTest', 'StochasticTransparencyInputsTest',
         'StochasticTransparencyReferenceTest', 'StochasticTransparencyShaderTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
@@ -131,7 +132,9 @@ def glCases = [
         'TemporalUpscalingPassGlTest',
         'SubsurfaceScatteringForwardGlTest', 'SubsurfaceScatteringPassGlTest',
         'VolumetricParticleGlTest',
+        'VolumetricParticlePipelineGlTest',
         'StochasticTransparencyPassGlTest',
+        'StochasticTransparencyPipelineGlTest',
         'SceneSurfaceResolveGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
