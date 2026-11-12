@@ -186,12 +186,12 @@ class HairStrandGlTest {
                 byte[] negativePixels = render(device, target, negativePass,
                         negativeSettings, camera, centeredModel(negative), light, 0, null, 0.0f);
                 int highlightCount = coveredPixels(highlightPixels, 100);
-                int negativeMaximum = maximumChannel(negativePixels);
+                int negativeMaximum = maximumRgbChannel(negativePixels);
                 assertTrue(highlightCount > 30,
                         "perpendicular tangent must produce a visible highlight, count="
                                 + highlightCount);
                 assertTrue(negativeMaximum < 12,
-                        "parallel tangent must be the geometric negative control, max="
+                        "parallel tangent must be the geometric negative control, max RGB="
                                 + negativeMaximum);
                 assertEquals(GL_NO_ERROR, glGetError());
             }
@@ -562,10 +562,19 @@ class HairStrandGlTest {
         return maximum;
     }
 
-    private static int maximumChannel(byte[] pixels) {
+    /**
+     * Maximum RGB channel over the frame. The alpha channel is the strand
+     * coverage (the cutout profile writes up to 255 even when the shaded colour
+     * is black), so it must not participate in a highlight/negative-control
+     * brightness assertion.
+     */
+    private static int maximumRgbChannel(byte[] pixels) {
         int maximum = 0;
-        for (byte value : pixels) {
-            maximum = Math.max(maximum, value & 0xFF);
+        for (int index = 0; index < WIDTH * HEIGHT; index++) {
+            int offset = index * 4;
+            maximum = Math.max(maximum, unsigned(pixels, offset));
+            maximum = Math.max(maximum, unsigned(pixels, offset + 1));
+            maximum = Math.max(maximum, unsigned(pixels, offset + 2));
         }
         return maximum;
     }
