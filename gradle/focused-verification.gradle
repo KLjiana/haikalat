@@ -132,6 +132,7 @@ def glCases = [
         'SubsurfaceScatteringForwardGlTest', 'SubsurfaceScatteringPassGlTest',
         'VolumetricParticleGlTest',
         'StochasticTransparencyPassGlTest',
+        'SceneSurfaceResolveGlTest',
         'VolumetricCompositeGlTest.taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal',
         'VolumetricGenerationGlTest.visualProfileVolumeCandidateRollsBackAndScalarUpdatePreservesHistoryOwner',
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',

@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "2be33a9"
+    "head": "af3d57b"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T08:35:00+08:00",
+  "updatedAt": "2026-11-12T08:42:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1020,19 +1020,21 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "5d8d1c8..479a8b4",
-      "integrationCommit": "db4bb36",
+      "integrationCommit": "af3d57b",
       "requiredCases": [],
       "evidence": [
         "JVM PASS: SubsurfaceScatteringSettingsTest 7, SubsurfaceScatteringReferenceTest 7, SubsurfaceScatteringShaderTest 6",
         "GL PASS in worker worktree ecba569 and integration db4bb36: SubsurfaceScatteringForwardGlTest 2/2, SubsurfaceScatteringPassGlTest 2/2, 0 skipped, 0 failures, debug-log gate green",
-        "publicApiGuard, architectureGuard, assetManifestGuard, releaseVerificationContracts PASS"
+        "publicApiGuard, architectureGuard, assetManifestGuard, releaseVerificationContracts PASS",
+        "review fix d29cd44: mask accepts [0,4] and clamps coverage; intensity-2.0 real-pipeline GL case discriminates it",
+        "4x MSAA SUBSURFACE shared-resolve case PASS (SceneSurfaceResolveGlTest 2/2, af3d57b)"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #32/#33"
+      "nextAction": "NONE-AA + 4x MSAA verified; POM+SSS, feature-control/demo and raw-Material fallback documented as scope"
     },
     {
       "taskId": "R33",
@@ -1048,19 +1050,21 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "5d8d1c8..479a8b4",
-      "integrationCommit": "db4bb36",
+      "integrationCommit": "af3d57b",
       "requiredCases": [],
       "evidence": [
         "JVM PASS: SubsurfaceScatteringSettingsTest 7, SubsurfaceScatteringReferenceTest 7, SubsurfaceScatteringShaderTest 6",
         "GL PASS in worker worktree ecba569 and integration db4bb36: Forward 2/2, Pass 2/2, 0 skipped, 0 failures, gate green",
-        "bounded 131218 policy row render3d/subsurface-forward-cold (max 2) with positive/negative contracts"
+        "bounded 131218 policy row render3d/subsurface-forward-cold (max 2) with positive/negative contracts",
+        "review fix d29cd44: mask accepts [0,4] and clamps coverage; intensity-2.0 real-pipeline GL case discriminates it",
+        "4x MSAA SUBSURFACE shared-resolve case PASS (SceneSurfaceResolveGlTest 2/2, af3d57b)"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #32/#33"
+      "nextAction": "NONE-AA + 4x MSAA verified; POM+SSS, feature-control/demo and raw-Material fallback documented as scope"
     },
     {
       "taskId": "R34",
