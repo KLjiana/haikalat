@@ -35,3 +35,8 @@ advanced com.kaleblangley.haikalat.backend.vertex.VertexArray
 advanced com.kaleblangley.haikalat.backend.vertex.VertexAttribute
 advanced com.kaleblangley.haikalat.backend.vertex.VertexLayout
 advanced com.kaleblangley.haikalat.backend.vertex.VertexSemantic
+
+# v0.28.1 S4 #42 NV shading-rate capability and host-state adapter.
+advanced com.kaleblangley.haikalat.backend.vrs.VariableRateShadingCapability
+advanced com.kaleblangley.haikalat.backend.vrs.VariableRateShadingRate
+advanced com.kaleblangley.haikalat.backend.vrs.VariableRateShadingState

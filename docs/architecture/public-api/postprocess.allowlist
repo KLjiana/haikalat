@@ -70,3 +70,7 @@ internal com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain
 internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory
 internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain
 internal com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingChain
+
+# v0.28.1 S4 #42 selective shading-rate request and pass-owned rate image.
+advanced com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings
+internal com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingPass

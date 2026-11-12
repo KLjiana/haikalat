@@ -95,6 +95,8 @@ public final class CommandBuffer {
     static final byte SAMPLE_SHADING = 57;
     static final byte BLEND_EQUATION = 58;
     static final byte DRAW_ARRAYS_INDIRECT = 59;
+    static final byte BEGIN_VARIABLE_RATE_SHADING = 60;
+    static final byte END_VARIABLE_RATE_SHADING = 61;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -139,6 +141,54 @@ public final class CommandBuffer {
             throw new IllegalArgumentException("minimum sample shading must be in [0, 1]");
         flushPendingState();
         opcode(SAMPLE_SHADING); integer(enabled ? 1 : 0); integer(floatBits(minimumFraction));
+        return this;
+    }
+
+    /**
+     * Records the beginning of a selective fragment shading-rate scope.
+     *
+     * <p>The execution side captures the currently bound shading-rate image and
+     * the palette entries this scope replaces, applies the supplied image and
+     * palette, and restores the captured host state at the paired
+     * {@link #endVariableRateShading()}.  Capture cannot happen while the
+     * command stream is being recorded because an earlier command may still
+     * change that state before execution, which is why this is a typed
+     * begin/end pair and not an immediate GL call.</p>
+     *
+     * <p>Both calls must be recorded in the same {@link CommandBuffer}.  The
+     * elapsed scope applies to every draw recorded between them, which lets a
+     * pass shade its full-screen consumer at the selected rate without changing
+     * any shader.  Disabled requests must not record either call at all.</p>
+     *
+     * @param rateImage {@code R8UI} palette-index image owned by the caller
+     * @param palette   NV shading-rate values indexed by the image texels
+     * @return this command stream
+     */
+    public CommandBuffer beginVariableRateShading(Texture2D rateImage, int... palette) {
+        Objects.requireNonNull(rateImage, "rateImage");
+        if (rateImage.isClosed()) throw new GlException("shading-rate image is closed");
+        Objects.requireNonNull(palette, "palette");
+        if (palette.length < 2) {
+            throw new IllegalArgumentException(
+                    "a shading-rate palette needs at least a fine and a coarse entry");
+        }
+        flushPendingState();
+        opcode(BEGIN_VARIABLE_RATE_SHADING);
+        object(rateImage);
+        object(palette.clone());
+        return this;
+    }
+
+    /**
+     * Records the end of the shading-rate scope opened by
+     * {@link #beginVariableRateShading(Texture2D, int...)} and restores the
+     * exact image and palette that were active before the scope.
+     *
+     * @return this command stream
+     */
+    public CommandBuffer endVariableRateShading() {
+        flushPendingState();
+        opcode(END_VARIABLE_RATE_SHADING);
         return this;
     }
     /** Applies the same blend equation to RGB and alpha. */
