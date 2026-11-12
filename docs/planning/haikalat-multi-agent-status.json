@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "839b243"
+    "head": "a2b3f43"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1398,7 +1398,7 @@
       "featureIds": [
         44
       ],
-      "state": "TODO",
+      "state": "PARTIAL",
       "scope": "DDGI",
       "dependencies": [
         null
@@ -1406,16 +1406,26 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "b4d37d0..7b7fb08",
+      "integrationCommit": "a2b3f43",
+      "requiredCases": [
+        "DdgiSettingsTest",
+        "DdgiProbeBudgetTest",
+        "DdgiProbeReferenceTest",
+        "DdgiShaderContractTest",
+        "DdgiProbePassGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: Settings 7, Budget 4, Reference 12, ShaderContract 7",
+        "GL PASS on worker 7b7fb08 and integration a2b3f43: DdgiProbePassGlTest 7/7, 0 skipped, 0 failures, gate green",
+        "GPU round 1 exposed a hysteresis-oracle fixture defect (probe-bounce history); fixed by moving hit points outside the grid, formula unchanged"
+      ],
+      "review": "PENDING",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review; RenderPipeline/feature-control wiring and per-pixel material consumption remain"
     },
     {
       "taskId": "R45",
