@@ -146,6 +146,29 @@ class SsgiPipelineCompositionTest {
                 "adding SSGI must not disturb the other effects");
     }
 
+    @Test
+    void ssgiFailsClosedWithTemporalUpscalingBeforeAnyPassIsCreated() {
+        RenderSettings hdr = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES)
+                .vsync(false)
+                .build();
+        PostProcessSettings effects = PostProcessSettings.defaults()
+                .withSsgi(SsgiSettings.defaults())
+                .withTemporalUpscaling(
+                        com.kaleblangley.haikalat.subsystems.postprocess
+                                .TemporalUpscalingSettings.defaults());
+        com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource source =
+                new com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource(
+                        1, 2, 64, 64);
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.create(hdr, effects, 64, 64, null, NO_SURFACE,
+                        null, null, source, null));
+        assertTrue(failure.getMessage().contains("indirect diffuse"),
+                "the full-resolution SSGI surface inputs are mutually exclusive with the "
+                        + "low-resolution temporal upscaler");
+    }
+
     private static final SurfaceInputs NO_SURFACE = new SurfaceInputs() {
         @Override
         public Input single(Channel channel) {

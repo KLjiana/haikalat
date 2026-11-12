@@ -473,11 +473,12 @@ public final class PostProcessPipeline implements AutoCloseable {
                             + "an external-target producer without a managed luminance source");
         }
         if (effects.depthOfField().active() || effects.motionBlur().active()
-                || effects.ssr().active() || effects.temporalDenoise().active()) {
+                || effects.ssr().active() || effects.ssgi().active()
+                || effects.temporalDenoise().active()) {
             throw new IllegalArgumentException(
                     "temporal upscaling cannot consume a full-resolution surface input required by "
-                            + "depth of field, motion blur, screen-space reflections or temporal "
-                            + "denoising");
+                            + "depth of field, motion blur, screen-space reflections, screen-space "
+                            + "indirect diffuse or temporal denoising");
         }
         source.validateAgainst(upscaling, width, height);
     }
