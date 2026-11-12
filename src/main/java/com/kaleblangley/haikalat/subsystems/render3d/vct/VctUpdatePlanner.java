@@ -171,15 +171,16 @@ final class VctUpdatePlanner {
         float highZ = Math.min(box.maximumInternal().z, maximumZ);
         if (lowX > highX || lowY > highY || lowZ > highZ) return null;
         int dilation = settings.thinWallDilation();
-        int x0 = clamp((int) Math.floor((lowX - minimumX) / size) - dilation,
+        // The voxelizer rasterizes a conservative shell: its low edge is
+        // floor(min) - dilation - 1 (the inward shell) and its high edge is
+        // ceil(max) + dilation inclusive. The clear/raster region must cover
+        // every voxel either side can write.
+        int x0 = clamp((int) Math.floor((lowX - minimumX) / size) - dilation - 1,
                 0, resolution - 1);
-        int y0 = clamp((int) Math.floor((lowY - minimumY) / size) - dilation,
+        int y0 = clamp((int) Math.floor((lowY - minimumY) / size) - dilation - 1,
                 0, resolution - 1);
-        int z0 = clamp((int) Math.floor((lowZ - minimumZ) / size) - dilation,
+        int z0 = clamp((int) Math.floor((lowZ - minimumZ) / size) - dilation - 1,
                 0, resolution - 1);
-        // The voxelizer's AABB loop uses an inclusive ceil(max) high edge and
-        // expands by dilation; the region must cover any voxel it can write,
-        // otherwise a partial update would leave one stale/clear shell behind.
         int x1 = clamp((int) Math.ceil((highX - minimumX) / size) + dilation + 1,
                 1, resolution);
         int y1 = clamp((int) Math.ceil((highY - minimumY) / size) + dilation + 1,

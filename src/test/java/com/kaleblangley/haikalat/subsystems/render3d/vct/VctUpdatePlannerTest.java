@@ -56,8 +56,8 @@ class VctUpdatePlannerTest {
 
         VctUpdatePlanner.VoxelRegion edge = VctUpdatePlanner.regionFor(SETTINGS,
                 VctBox.of(15.0f, 15.0f, 15.0f, 16.0f, 16.0f, 16.0f));
-        assertEquals(31, edge.minX());
-        assertEquals(1, edge.sizeX());
+        assertEquals(30, edge.minX());
+        assertEquals(2, edge.sizeX());
 
         assertEquals(null, VctUpdatePlanner.regionFor(SETTINGS,
                 VctBox.of(20.0f, 0.0f, 0.0f, 22.0f, 1.0f, 1.0f)));
@@ -69,12 +69,12 @@ class VctUpdatePlannerTest {
                 .withThinWallDilation(0);
         VctUpdatePlanner.VoxelRegion offsetRegion = VctUpdatePlanner.regionFor(offset,
                 VctBox.of(0.0f, 4.0f, 0.0f, 0.0f, 5.0f, 0.0f));
-        assertEquals(16, offsetRegion.minX());
-        assertEquals(16, offsetRegion.minY());
-        assertEquals(16, offsetRegion.minZ());
-        assertEquals(1, offsetRegion.sizeX());
-        assertEquals(3, offsetRegion.sizeY());
-        assertEquals(1, offsetRegion.sizeZ());
+        assertEquals(15, offsetRegion.minX());
+        assertEquals(15, offsetRegion.minY());
+        assertEquals(15, offsetRegion.minZ());
+        assertEquals(2, offsetRegion.sizeX());
+        assertEquals(4, offsetRegion.sizeY());
+        assertEquals(2, offsetRegion.sizeZ());
     }
 
     @Test
@@ -89,8 +89,8 @@ class VctUpdatePlannerTest {
         assertEquals(2, merged.regions().size());
         assertEquals(0, merged.regions().get(0).minX());
         assertEquals(5, merged.regions().get(0).sizeX());
-        assertEquals(26, merged.regions().get(1).minX());
-        assertEquals(2, merged.regions().get(1).sizeX());
+        assertEquals(25, merged.regions().get(1).minX());
+        assertEquals(3, merged.regions().get(1).sizeX());
 
         VctUpdatePlanner.Plan collapsed = VctUpdatePlanner.plan(
                 SETTINGS.withUpdateBudget(1, 4_000_000L), dirty, false);
@@ -129,13 +129,13 @@ class VctUpdatePlannerTest {
         VctSettings dilated = SETTINGS.withThinWallDilation(2);
         VctUpdatePlanner.VoxelRegion region = VctUpdatePlanner.regionFor(dilated,
                 VctBox.of(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
-        // floor(16) - 2 = 14; ceil(16) + 2 + 1 = 19 -> five voxels per axis.
-        assertEquals(14, region.minX());
-        assertEquals(14, region.minY());
-        assertEquals(14, region.minZ());
-        assertEquals(5, region.sizeX());
-        assertEquals(5, region.sizeY());
-        assertEquals(5, region.sizeZ());
+        // floor(16) - 2 - 1 = 13; ceil(16) + 2 + 1 = 19 -> six voxels per axis.
+        assertEquals(13, region.minX());
+        assertEquals(13, region.minY());
+        assertEquals(13, region.minZ());
+        assertEquals(6, region.sizeX());
+        assertEquals(6, region.sizeY());
+        assertEquals(6, region.sizeZ());
     }
 
     @Test
@@ -146,9 +146,9 @@ class VctUpdatePlannerTest {
                 List.of(before.union(after)), false);
         assertEquals(1, plan.regions().size());
         VctUpdatePlanner.VoxelRegion region = plan.regions().get(0);
-        assertEquals(8, region.minX());
+        assertEquals(7, region.minX());
         assertEquals(22, region.maxX());
-        assertEquals(14, region.sizeX());
+        assertEquals(15, region.sizeX());
         assertTrue(region.voxels() >= 1L);
     }
 }

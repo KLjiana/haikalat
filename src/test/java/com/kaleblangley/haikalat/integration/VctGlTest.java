@@ -367,6 +367,14 @@ class VctGlTest {
             CommandBuffer command = new CommandBuffer();
             pass.recordVoxelize(command, scene, List.of());
             execute(command, "voxelize composite source");
+            assertTrue(countOccupied(readLevel(pass.volumeTexture(), 0)) > 0,
+                    "the composite fixture must have voxel radiance");
+            float receiverIrradiance = diffuseLuminance(trace(pass,
+                    probe(0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
+                            0.0f, 0.0f, 1.0f, 0.5f)));
+            assertTrue(receiverIrradiance > 0.0f,
+                    "a probe on the receiver plane must see the voxel box, got "
+                            + receiverIrradiance);
 
             Camera camera = new Camera(new Vector3f(0.0f, 0.0f, 4.0f),
                     new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
@@ -385,7 +393,7 @@ class VctGlTest {
                 pass.recordComposite(composite, target, depthTexture, external, 0.5f,
                         new Vector3f(1.0f, 1.0f, 1.0f));
                 execute(composite, "indirect composite");
-                float[] lit = clearAndRead(target);
+                float[] lit = readColor(target);
                 float baselineMaximum = maximumChannel(baseline);
                 float litMaximum = maximumChannel(lit);
                 assertTrue(litMaximum > baselineMaximum + 0.01f,
@@ -594,6 +602,14 @@ class VctGlTest {
                 .clearColor(0.05f, 0.05f, 0.05f, 1.0f)
                 .clear(true, false);
         execute(clear, "clear colour target");
+        return readColor(target);
+    }
+
+    /** Reads the currently bound target without clearing it (for post-composite pixels). */
+    private float[] readColor(Framebuffer target) {
+        execute(new CommandBuffer()
+                .bindFramebuffer(target)
+                .viewport(0, 0, target.width(), target.height()), "bind colour target");
         glReadBuffer(GL_COLOR_ATTACHMENT0);
         glPixelStorei(org.lwjgl.opengl.GL11.GL_PACK_ALIGNMENT, 1);
         FloatBuffer pixels = BufferUtils.createFloatBuffer(target.width() * target.height() * 4);

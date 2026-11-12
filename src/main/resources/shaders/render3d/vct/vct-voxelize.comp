@@ -78,7 +78,7 @@ void main() {
     ivec3 regionSize = ivec3(uRegionSize);
     ivec3 volumeHigh = ivec3(uResolution - 1);
     ivec3 low = clamp(ivec3(floor((minimum - uBoundsMinimum) / uVoxelSize))
-            - ivec3(uDilation), ivec3(0), volumeHigh);
+            - ivec3(uDilation) - ivec3(1), ivec3(0), volumeHigh);
     ivec3 high = clamp(ivec3(ceil((maximum - uBoundsMinimum) / uVoxelSize))
             + ivec3(uDilation), ivec3(0), volumeHigh);
     ivec3 regionHigh = regionMinimum + regionSize - ivec3(1);
