@@ -1,0 +1,162 @@
+#version 460 core
+// One deterministic step of the bounded smoke grid.
+//
+// Each dispatch reads the complete old field through an unfiltered sampler3D
+// and writes the complete new field into the other ping-pong image3D. The
+// update is the documented conservative finite-volume scheme:
+//   * cell velocity is uWind + (0, uBuoyancy * temperature, 0);
+//   * an interior face carries the mean of its two cell velocities and every
+//     outer face carries exactly zero normal velocity (closed box, no leak);
+//   * scalar fluxes are first-order upwind;
+//   * density and temperature are updated against the old field (Jacobi form)
+//     and then multiplied by exp(-rate * dt);
+//   * up to four injection sources add rate * dt * (1 - q)^2 with
+//     q = |p - center|^2 / radius^2 while q < 1.
+// There is no time, frame or random input: the output is a pure function of
+// the input field and the uniforms.
+layout (local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout (binding = 0) uniform sampler3D uFieldIn;
+layout (rgba16f, binding = 0) writeonly uniform image3D uFieldOut;
+
+uniform vec3 uGridSize;
+uniform vec3 uGridMin;
+uniform vec3 uCellSize;
+uniform float uTimeStep;
+uniform vec3 uWind;
+uniform float uBuoyancy;
+uniform float uMaximumTemperature;
+uniform float uDensityDissipation;
+uniform float uTemperatureDissipation;
+uniform vec4 uSource0;
+uniform vec4 uSource1;
+uniform vec4 uSource2;
+uniform vec4 uSource3;
+uniform float uDensityRate0;
+uniform float uDensityRate1;
+uniform float uDensityRate2;
+uniform float uDensityRate3;
+uniform float uTemperatureRate0;
+uniform float uTemperatureRate1;
+uniform float uTemperatureRate2;
+uniform float uTemperatureRate3;
+
+ivec3 gridExtent() {
+    return ivec3(uGridSize);
+}
+
+vec4 sampleField(ivec3 cell) {
+    return texelFetch(uFieldIn, clamp(cell, ivec3(0), gridExtent() - 1), 0);
+}
+
+float sourceWeight(vec4 source, vec3 worldPosition) {
+    float radius = source.w;
+    if (!(radius > 0.0)) {
+        return 0.0;
+    }
+    vec3 delta = worldPosition - source.xyz;
+    float q = dot(delta, delta) / (radius * radius);
+    if (!(q < 1.0)) {
+        return 0.0;
+    }
+    float falloff = 1.0 - q;
+    return falloff * falloff;
+}
+
+void main() {
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    ivec3 extent = gridExtent();
+    if (any(greaterThanEqual(cell, extent))) {
+        return;
+    }
+
+    vec4 center = sampleField(cell);
+    float density = center.r;
+    float temperature = clamp(center.g, 0.0, uMaximumTemperature);
+    float velocityY = uWind.y + uBuoyancy * temperature;
+
+    // Six neighbours of the same old field. Missing outer neighbours are never
+    // used because their outer face velocity is exactly zero.
+    vec4 leftX = sampleField(cell - ivec3(1, 0, 0));
+    vec4 rightX = sampleField(cell + ivec3(1, 0, 0));
+    vec4 leftY = sampleField(cell - ivec3(0, 1, 0));
+    vec4 rightY = sampleField(cell + ivec3(0, 1, 0));
+    vec4 leftZ = sampleField(cell - ivec3(0, 0, 1));
+    vec4 rightZ = sampleField(cell + ivec3(0, 0, 1));
+
+    // X faces: the wind is the only x velocity, and the outer faces are closed.
+    float velocityXLeft = cell.x > 0 ? uWind.x : 0.0;
+    float velocityXRight = cell.x + 1 < extent.x ? uWind.x : 0.0;
+    float densityFluxX = (velocityXRight > 0.0 ? velocityXRight * density
+            : velocityXRight * rightX.r)
+            - (velocityXLeft > 0.0 ? velocityXLeft * leftX.r : velocityXLeft * density);
+    float temperatureFluxX = (velocityXRight > 0.0 ? velocityXRight * temperature
+            : velocityXRight * clamp(rightX.g, 0.0, uMaximumTemperature))
+            - (velocityXLeft > 0.0 ? velocityXLeft * clamp(leftX.g, 0.0, uMaximumTemperature)
+            : velocityXLeft * temperature);
+
+    // Y faces: buoyancy makes the face velocity depend on both cell temperatures.
+    float velocityYLeft = 0.0;
+    float velocityYRight = 0.0;
+    if (cell.y > 0) {
+        float neighbour = uWind.y + uBuoyancy
+                * clamp(leftY.g, 0.0, uMaximumTemperature);
+        velocityYLeft = 0.5 * (neighbour + velocityY);
+    }
+    if (cell.y + 1 < extent.y) {
+        float neighbour = uWind.y + uBuoyancy
+                * clamp(rightY.g, 0.0, uMaximumTemperature);
+        velocityYRight = 0.5 * (velocityY + neighbour);
+    }
+    float densityFluxY = (velocityYRight > 0.0 ? velocityYRight * density
+            : velocityYRight * rightY.r)
+            - (velocityYLeft > 0.0 ? velocityYLeft * leftY.r : velocityYLeft * density);
+    float temperatureFluxY = (velocityYRight > 0.0 ? velocityYRight * temperature
+            : velocityYRight * clamp(rightY.g, 0.0, uMaximumTemperature))
+            - (velocityYLeft > 0.0 ? velocityYLeft * clamp(leftY.g, 0.0, uMaximumTemperature)
+            : velocityYLeft * temperature);
+
+    // Z faces: mirror of the x faces.
+    float velocityZLeft = cell.z > 0 ? uWind.z : 0.0;
+    float velocityZRight = cell.z + 1 < extent.z ? uWind.z : 0.0;
+    float densityFluxZ = (velocityZRight > 0.0 ? velocityZRight * density
+            : velocityZRight * rightZ.r)
+            - (velocityZLeft > 0.0 ? velocityZLeft * leftZ.r : velocityZLeft * density);
+    float temperatureFluxZ = (velocityZRight > 0.0 ? velocityZRight * temperature
+            : velocityZRight * clamp(rightZ.g, 0.0, uMaximumTemperature))
+            - (velocityZLeft > 0.0 ? velocityZLeft * clamp(leftZ.g, 0.0, uMaximumTemperature)
+            : velocityZLeft * temperature);
+
+    float divergenceDensity = densityFluxX / uCellSize.x
+            + densityFluxY / uCellSize.y
+            + densityFluxZ / uCellSize.z;
+    float divergenceTemperature = temperatureFluxX / uCellSize.x
+            + temperatureFluxY / uCellSize.y
+            + temperatureFluxZ / uCellSize.z;
+
+    // Exponential decay is exact for a constant rate and never negative.
+    float densityNext = (density - uTimeStep * divergenceDensity)
+            * exp(-uDensityDissipation * uTimeStep);
+    float temperatureNext = (temperature - uTimeStep * divergenceTemperature)
+            * exp(-uTemperatureDissipation * uTimeStep);
+
+    vec3 worldPosition = uGridMin + (vec3(cell) + 0.5) * uCellSize;
+    densityNext += uTimeStep * (sourceWeight(uSource0, worldPosition) * uDensityRate0
+            + sourceWeight(uSource1, worldPosition) * uDensityRate1
+            + sourceWeight(uSource2, worldPosition) * uDensityRate2
+            + sourceWeight(uSource3, worldPosition) * uDensityRate3);
+    temperatureNext += uTimeStep * (sourceWeight(uSource0, worldPosition) * uTemperatureRate0
+            + sourceWeight(uSource1, worldPosition) * uTemperatureRate1
+            + sourceWeight(uSource2, worldPosition) * uTemperatureRate2
+            + sourceWeight(uSource3, worldPosition) * uTemperatureRate3);
+
+    if (isnan(densityNext) || isinf(densityNext) || !(densityNext >= 0.0)) {
+        densityNext = 0.0;
+    }
+    if (isnan(temperatureNext) || isinf(temperatureNext)) {
+        temperatureNext = 0.0;
+    }
+    temperatureNext = clamp(temperatureNext, 0.0, uMaximumTemperature);
+
+    imageStore(uFieldOut, cell, vec4(densityNext, temperatureNext, 0.0, 1.0));
+}

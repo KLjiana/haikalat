@@ -192,3 +192,9 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionS
 # v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass
+
+# v0.28.1 S5 #43 bounded GPU smoke simulation and volume-rendering consumer.
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePass

@@ -1,0 +1,17 @@
+#version 460 core
+// Deterministic zero fill for one ping-pong smoke field. reset() and the
+// candidate-first reconfigure path use this instead of a raw GL clear so the
+// simulation owner keeps its resources behind typed commands.
+layout (local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout (rgba16f, binding = 0) writeonly uniform image3D uFieldOut;
+
+uniform vec3 uGridSize;
+
+void main() {
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(cell, ivec3(uGridSize)))) {
+        return;
+    }
+    imageStore(uFieldOut, cell, vec4(0.0));
+}
