@@ -137,25 +137,15 @@ public final class RenderFeaturesControl {
     /** Keeps the observation coherent with configuration changed through a local apply path. */
     synchronized void refresh(RenderFeatureSettings settings,
                               List<RenderFeatureActivity> resolved) {
-        refresh(settings, settings, resolved);
-    }
-
-    /** Compatibility form that can publish a sanitized effective snapshot. */
-    synchronized void refresh(RenderFeatureSettings requestedSettings,
-                              RenderFeatureSettings effectiveSettings,
-                              List<RenderFeatureActivity> resolved) {
-        RenderFeatureSettings requestedValue =
-                Objects.requireNonNull(requestedSettings, "requestedSettings");
-        RenderFeatureSettings effectiveValue =
-                Objects.requireNonNull(effectiveSettings, "effectiveSettings");
-        if (!requestedValue.equals(requested) || !effectiveValue.equals(effective)) {
+        RenderFeatureSettings current = Objects.requireNonNull(settings, "settings");
+        if (!current.equals(effective)) {
             long revision = Math.incrementExact(requestedRevision);
-            requested = requestedValue;
+            requested = current;
             requestedRevision = revision;
             effectiveRevision = revision;
         }
-        effective = effectiveValue;
-        requested = requestedValue;
+        effective = current;
+        requested = current;
         status = RenderFeatureStatus.APPLIED;
         failureReason = "";
         activities = List.copyOf(resolved);
