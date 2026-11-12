@@ -256,3 +256,20 @@ canonical record 由 9 个组件扩展为 10 个，原 2/3/4/6/7/8/9 参数构�
 PBR 标量粗糙度）。开启要求 HDR tone mapping、PBR 材质与借用环境；关闭时不创建 program、Pass
 或附件，颜色链顺序保持精确基线。技术范围、坐标/深度约定、MSAA 解析和回退策略见
 [SSR 技术卡](../../planning/v0.28.1-s3-ssr.md)，迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S4 #40 / S5 #43 生产接线（`codex/render-wiring-b2`）：advanced `RenderFeatureSettings`
+canonical record 由 19 个组件扩展为 22 个（末尾新增 `volumetricClouds`、`smokeSimulation`、
+`smokeRender`，默认全部 `disabled()`）；builder、`defaults()`、`toBuilder()` 与访问器保持源码
+兼容，直接调用 canonical 构造器的调用方需更新。`RenderFeature` 末尾追加 `VOLUMETRIC_CLOUDS`、
+`VOLUMETRIC_SMOKE`。`RenderPipeline` 新增 `volumetricClouds(...)`/`volumetricClouds()`/
+`applyVolumetricClouds(...)`、`smokeSimulation(...)`/`smokeSimulation()`/
+`applySmokeSimulation(...)`、`smokeRender(...)`/`smokeRender()`/`applySmokeRender(...)`。internal
+`PipelineTopology` 追加 `volumetricClouds`/`volumetricSmoke` 两个组件，并提供保留旧 16 参数
+列表的 `capture(...)` 重载；`volumetricCloudCompositionActive(...)`/`volumetricSmokeCompositionActive(...)`
+报告软不可用条件。云层/烟雾都在最终场景颜色链末端、后处理之前各合成一次；图节点只声明
+RGBA16F 颜色附件，不写共享不透明深度。两者要求 HDR + 单采样栅格；MSAA/TAA 保持
+`UNAVAILABLE`，不改变图。云层在 #10 云影启用时要求 coverage field 与
+`DirectionalShadowMap.settings().cloudShadows()` 一致。internal `VolumetricCloudPass.COLOR_TEXTURE`
+与 `SmokeVolumePass.COLOR_TEXTURE` 是图颜色附件逻辑名。没有新增 public 顶层类型，
+`render3d.allowlist` 无需新增条目；迁移说明见[迁移记录](migrations.md)，接线合同见
+[体积云技术卡](../../planning/v0.28.1-s4-clouds.md)与[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。

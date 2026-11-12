@@ -329,3 +329,21 @@ v0.28.1（候选）S4 #38/#37 生产接线没有删除 stable 类型或修改稳
 [随机透明技术卡](../../planning/v0.28.1-s4-stochastic-transparency.md)。
 
 v0.28.1（候选）S5 #39 与 S4 #41 没有删除 stable 类型或修改稳定签名。advanced `PostProcessSettings` canonical record 扩展为 15 个组件（新增 `ssgi`、`adaptiveSampling`）；原有构造器全部保留，新组件默认 `disabled()`。新增 advanced `postprocess.SsgiSettings`、`postprocess.ssgi.SsgiPass`、`postprocess.AdaptiveSamplingSettings`，以及 `SsrPass` 的自适应重载；共享 surface 新增 `ALBEDO` 通道。SSGI 与 temporal upscaling 在装配期互斥；adaptive sampling 要求 SSR active + HDR 且 ceiling ≤ SSR maxSteps。
+
+v0.28.1（候选）S4 #40 / S5 #43 生产接线没有删除 stable 类型或修改稳定签名。advanced
+`RenderFeatureSettings` canonical record 由 19 个组件扩展为 22 个（末尾新增 `volumetricClouds`、
+`smokeSimulation`、`smokeRender`，默认全部 `disabled()`）；既有 builder、`defaults()`、`toBuilder()`
+与访问器调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加
+`VOLUMETRIC_CLOUDS`、`VOLUMETRIC_SMOKE`。`RenderPipeline` 新增
+`volumetricClouds(...)`/`volumetricClouds()`/`applyVolumetricClouds(...)`、
+`smokeSimulation(...)`/`smokeSimulation()`/`applySmokeSimulation(...)`、
+`smokeRender(...)`/`smokeRender()`/`applySmokeRender(...)`；其余构造器与 `passNamesFor` 入口不变。
+internal `PipelineTopology` 追加 `volumetricClouds`/`volumetricSmoke` 组件，并提供保留旧 16 参数
+列表的 `capture(...)` 重载；新增 `volumetricCloudCompositionActive(...)`（含 #10 coverage 匹配重载）
+与 `volumetricSmokeCompositionActive(...)` 描述软不可用条件。internal `VolumetricCloudPass` /
+`SmokeVolumePass` 各追加 `COLOR_TEXTURE` 图颜色附件逻辑名。云层在最终场景颜色链末端、后处理之前
+从上一颜色生产者复制并合成一次，烟雾在确定性 compute 模拟阶段之后同样合成一次；两者图节点只声明
+RGBA16F 颜色附件、无深度附件，激活要求 HDR、单采样和不透明深度，MSAA/TAA 保持 `UNAVAILABLE` 且
+不改变图。云层在 #10 云影启用时要求同一 coverage field。没有新增 public 顶层类型，
+`docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、限制与接线验证见
+[体积云技术卡](../../planning/v0.28.1-s4-clouds.md)与[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。
