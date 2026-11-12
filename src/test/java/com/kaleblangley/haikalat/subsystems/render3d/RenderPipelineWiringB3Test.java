@@ -111,6 +111,12 @@ class RenderPipelineWiringB3Test {
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH));
         assertTrue(topology.sceneBuffers().requires(
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.NORMAL));
+        assertTrue(topology.sceneSurface().single(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH)
+                != null, "DDGI must expose the shared single-sample depth");
+        assertTrue(topology.sceneSurface().single(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.NORMAL)
+                != null, "DDGI must expose the shared single-sample normal");
 
         try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
             graph.addPass(PostProcessTargets.GEOMETRY_PASS)
@@ -164,6 +170,9 @@ class RenderPipelineWiringB3Test {
         assertTrue(topology.voxelConeTracing());
         assertTrue(topology.sceneBuffers().requires(
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH));
+        assertTrue(topology.sceneSurface().single(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH)
+                != null, "VCT must expose the shared single-sample depth");
 
         try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
             graph.addPass(PostProcessTargets.GEOMETRY_PASS)

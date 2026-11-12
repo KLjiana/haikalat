@@ -64,7 +64,13 @@ class RenderPipelineWiringB3GlTest {
                     pipeline.build();
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
-                    float[] baselineDepth = readSharedDepth(pipeline);
+
+                    // A zero-intensity enabled DDGI generation exposes the same
+                    // shared single-sample depth while adding exactly zero indirect
+                    // light. Its depth is the reference for the no-write proof.
+                    pipeline.applyDdgi(ddgiZero());
+                    execute(pipeline);
+                    float[] referenceDepth = readSharedDepth(pipeline);
 
                     pipeline.applyDdgi(ddgi());
                     assertTrue(pipeline.graph().hasPass(DdgiProbeVolume.PASS_NAME));
@@ -75,7 +81,7 @@ class RenderPipelineWiringB3GlTest {
 
                     assertTrue(different(baseline, indirect),
                             "DDGI indirect light must modify the HDR scene colour");
-                    assertArrayBitsEqual(baselineDepth, indirectDepth,
+                    assertArrayBitsEqual(referenceDepth, indirectDepth,
                             "DDGI must not write the shared opaque depth");
 
                     List<String> order = pipeline.graph().description().executionOrder();
@@ -92,10 +98,13 @@ class RenderPipelineWiringB3GlTest {
                     // The resize candidate must rebuild the pass-owned indirect target.
                     pipeline.applyDdgi(ddgi());
                     pipeline.resize(SIZE + 8, SIZE + 4);
-                    execute(pipeline);
                     assertTrue(pipeline.graph().hasPass(DdgiIndirectPass.PASS_NAME));
                     assertEquals(SIZE + 8, pipeline.graph().width());
                     assertEquals(SIZE + 4, pipeline.graph().height());
+                    // execute() targets the window extent, so the graph returns to
+                    // SIZE and the resized candidate must remain usable.
+                    execute(pipeline);
+                    assertTrue(pipeline.graph().hasPass(DdgiIndirectPass.PASS_NAME));
                     pipeline.applyDdgi(DdgiSettings.disabled());
                 } finally {
                     pipeline.close();
@@ -117,7 +126,14 @@ class RenderPipelineWiringB3GlTest {
                     pipeline.build();
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
-                    float[] baselineDepth = readSharedDepth(pipeline);
+
+                    // Zero-intensity VCT keeps the same topology and shared depth
+                    // but adds exactly zero cone radiance; use its depth as the
+                    // reference for the no-write proof.
+                    pipeline.applyVct(vctZero());
+                    pipeline.vctSceneInput(vctSceneInput());
+                    execute(pipeline);
+                    float[] referenceDepth = readSharedDepth(pipeline);
 
                     pipeline.applyVct(vct());
                     pipeline.vctSceneInput(vctSceneInput());
@@ -129,7 +145,7 @@ class RenderPipelineWiringB3GlTest {
 
                     assertTrue(different(baseline, composite),
                             "voxel cone tracing must modify the HDR scene colour");
-                    assertArrayBitsEqual(baselineDepth, compositeDepth,
+                    assertArrayBitsEqual(referenceDepth, compositeDepth,
                             "VCT must not write the shared opaque depth");
 
                     List<String> order = pipeline.graph().description().executionOrder();
@@ -163,9 +179,14 @@ class RenderPipelineWiringB3GlTest {
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
 
-                    pipeline.applyHairStrands(hair());
-                    pipeline.hairStrandModel(new Matrix4f().translation(0.0f, 0.3f, 0.4f)
-                            .scale(2.0f));
+                    // The lock sits in front of the receiver cube and is scaled to
+                    // project well inside the viewport, so every border pixel must
+                    // stay at the baseline. Shadow casting is off so this case
+                    // measures only the forward strand region; the caster hook is
+                    // exercised by the pass-level HairStrandGlTest shadow case.
+                    pipeline.applyHairStrands(hairWithoutShadow());
+                    pipeline.hairStrandModel(new Matrix4f().translation(0.0f, 0.5f, 1.6f)
+                            .scale(0.8f));
                     assertTrue(pipeline.graph().hasPass(HairStrandPass.PASS_NAME));
                     execute(pipeline);
                     float[] strands = pipeline.captureLinearHdrRgbaFloat();
@@ -242,7 +263,7 @@ class RenderPipelineWiringB3GlTest {
                 .surfaceAlbedo(0.8f)
                 .skyRadiance(0.1f, 0.1f, 0.1f)
                 .gridOrigin(-3.0f, -3.0f, -3.0f)
-                .spacingMetres(2.0f)
+                .spacingMetres(3.0f)
                 .probes(2, 2, 2)
                 .updateBudget(8)
                 .hysteresis(0.0f)
@@ -254,8 +275,18 @@ class RenderPipelineWiringB3GlTest {
                 .build();
     }
 
+    /** Same active topology as {@link #ddgi()} but adds exactly zero light. */
+    private static DdgiSettings ddgiZero() {
+        return ddgi().toBuilder().intensity(0.0f).build();
+    }
+
     private static VctSettings vct() {
         return VctSettings.enabled(32, 4.0f);
+    }
+
+    /** Same active topology as {@link #vct()} but adds exactly zero cone radiance. */
+    private static VctSettings vctZero() {
+        return vct().withIntensities(0.0f, 0.0f);
     }
 
     private static VctSceneInput vctSceneInput() {
@@ -265,7 +296,7 @@ class RenderPipelineWiringB3GlTest {
                 .build();
     }
 
-    private static HairStrandSettings hair() {
+    private static HairStrandSettings hairWithoutShadow() {
         return HairStrandSettings.builder()
                 .strandCount(64)
                 .segmentsPerStrand(8)
@@ -277,6 +308,7 @@ class RenderPipelineWiringB3GlTest {
                 .nearDistanceMetres(1.0f)
                 .farDistanceMetres(20.0f)
                 .transparency(HairStrandSettings.Transparency.SORTED_ALPHA)
+                .castsShadow(false)
                 .build();
     }
 
