@@ -733,6 +733,18 @@ public final class PipelineGeneration implements AutoCloseable {
                 stochasticCandidate = new StochasticTransparencyPass(width, height,
                         stochasticSettings);
             }
+            if (volumetricClouds != null) {
+                cloudCandidate = new VolumetricCloudPass(volumetricClouds.settings(), width, height);
+            }
+            if (smokeVolume != null) {
+                smokeVolumeCandidate = new SmokeVolumePass(smokeVolume.settings(), width, height);
+            }
+            if (weightedOit != null) {
+                weightedOitCandidate = new WeightedOitPass(width, height, weightedOitSettings);
+            }
+            if (planarReflection != null) {
+                planarCandidate = new PlanarReflectionPass(planarReflectionSettings, width, height);
+            }
             if (caustics != null) {
                 causticsCandidate = new CausticsPass(causticsSettings, topology.sampleCount(),
                         width, height);
