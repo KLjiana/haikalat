@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "d52df12b"
+    "head": "454cbc23"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T20:04:20+08:00",
+  "updatedAt": "2026-11-12T20:40:53+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -364,7 +364,7 @@
       "featureIds": [
         9
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Contact Shadows",
       "dependencies": [
         null
@@ -373,7 +373,7 @@
       "writePaths": [],
       "baseCommit": "3cb2990",
       "workerCommit": "a859e0b",
-      "integrationCommit": "f95dedd",
+      "integrationCommit": "d52df12b + 454cbc23",
       "requiredCases": [],
       "evidence": [
         "integration focused verify 59c0372d: 255 tests PASS",
@@ -383,14 +383,15 @@
         "the accepted first version is the bounded shadow-map-space short-range march described by the card; a true screen-space depth-mask variant remains out of scope",
         "per-feature matrix 20261112-165030: #9 JVM 6/7 + GL 1/1 PASS",
         "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
-        "screen-space contact-shadow pass implemented at d52df12b (Camera depth consumer, view-space march, off-screen fallback); integration real GL ScreenSpaceContactShadowsGlTest 2/2 + ContactShadowsGlTest 1/1 PASS, JVM gating 3/3; independent review pending"
+        "screen-space contact-shadow pass implemented at d52df12b (Camera depth consumer, view-space march, off-screen fallback); integration real GL ScreenSpaceContactShadowsGlTest 2/2 + ContactShadowsGlTest 1/1 PASS, JVM gating 3/3; independent review pending",
+        "independent review APPROVE_WITH_SCOPE: depth reconstruction, normal/back-face, march, off-screen fallback, composite and lifecycle verified; the medium double-darkening finding is fixed at 454cbc23 (single consumer)"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of the screen-space pass; then close #9",
+      "nextAction": "verified screen-space consumer; residual scope: TAA/resize/water-refraction-OIT-stochastic combinations are code-inspection only, off-screen fallback is an outcome test, multi-light scenes use the first directional light, derivative-normal silhouettes and no temporal denoise",
       "scopeNote": "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
       "policyCommit": "0c14652",
       "deferred": "screen-space depth-mask variant"
