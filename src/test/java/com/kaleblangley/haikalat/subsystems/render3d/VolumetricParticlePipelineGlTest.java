@@ -9,6 +9,7 @@ import com.kaleblangley.haikalat.core.presentation.OwnedPresentationTarget;
 import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
@@ -21,35 +22,34 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.FloatBuffer;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_2D;
-import static org.lwjgl.opengl.GL11.glBindTexture;
 import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearDepth;
-import static org.lwjgl.opengl.GL11.glGetTexImage;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
 
 /**
  * Real-GL pipeline path for the local volumetric-particle composition.
  *
- * <p>This is not a bathymetry of the pass itself (that class already has its own
- * GL contract); it proves the production {@code RenderPipeline} order: the
- * particle output appears after the fog opaque composite, only inside its
- * projected bounds, and never writes the shared single-sample opaque depth.</p>
+ * <p>Proves the production order: the particle output appears after the fog
+ * opaque composite, only inside its projected bounds, and never writes the
+ * shared single-sample opaque depth. The colour case also separates the three
+ * stages (fog composite, pass-owned target, graph colour) and prints their
+ * values so a failure identifies the broken hand-off instead of guessing.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class VolumetricParticlePipelineGlTest {
     private static final int SIZE = 32;
+    private static final String DIAGNOSTIC = "PARTICLE-PIPELINE-DIAG";
 
     @Test
-    void particleColourIsVisibleInsideTheBodyAndBoundedOutsideIt() {
+    void particleMediumIsVisibleAndBoundedInThePipelineColour() {
         try (var window = window()) {
             window.bindContext();
             GL.createCapabilities();
@@ -57,40 +57,80 @@ class VolumetricParticlePipelineGlTest {
                 RenderPipeline pipeline = pipeline(window);
                 try {
                     pipeline.build();
+                    var generation = pipeline.activeGenerationForTest();
+                    assertNotNull(generation.volumetricParticles());
+
+                    SceneBufferChannel channel = SceneBufferChannel.DEPTH;
+                    var depthAttachment = generation.topology().sceneSurface().single(channel);
+                    assertNotNull(depthAttachment, "the fog composition must expose single depth");
+
+                    // Prove graph execution of the bridge: a dependent probe runs
+                    // immediately after the particle pass and captures the exact
+                    // shared depth texture the executor consumed.
+                    AtomicInteger probeRuns = new AtomicInteger();
+                    int[] depthTexture = new int[1];
+                    pipeline.graph().addPass("ParticleBridgeProbe")
+                            .computeOnly()
+                            .dependsOn(VolumetricParticlePass.PASS_NAME)
+                            .execute((resources, commands) -> {
+                                probeRuns.incrementAndGet();
+                                depthTexture[0] = resources.depthAttachment(
+                                        depthAttachment.name());
+                            });
+
                     // The fixture relies on a cleared (no-occluder) depth; restore
                     // the GL default explicitly so a previously run case cannot
                     // leak a different clear depth into this graph.
                     glClearDepth(1.0f);
                     pipeline.execute(new GlRenderDevice(), 1f / 60f);
-                    var generation = pipeline.activeGenerationForTest();
-                    assertNotNull(generation.volumetricParticles());
+
+                    List<String> order = pipeline.graph().description().executionOrder();
                     assertTrue(pipeline.graph().hasPass(VolumetricParticlePass.PASS_NAME),
                             "the active pipeline must declare the particle graph bridge");
-                    var order = pipeline.graph().description().executionOrder();
                     assertTrue(order.indexOf(VolumetricPassBuilder.COMPOSITE_PASS)
                                     < order.indexOf(VolumetricParticlePass.PASS_NAME),
                             "particles must run after the fog composite: " + order);
                     assertTrue(order.indexOf(VolumetricParticlePass.PASS_NAME)
                                     < order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS),
                             "transparency must consume the particle bridge: " + order);
+                    assertEquals(1, probeRuns.get(),
+                            "the particle bridge was not executed by the graph");
 
                     float[] fog = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricPassBuilder.COMPOSITE_COLOR);
-                    float[] particles = pipeline.graph().readColorAttachmentRgbaFloat(
+                    float[] graphColour = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricParticlePass.COLOR_TEXTURE);
-                    assertEquals(fog.length, particles.length);
-
-                    // Split the diagnosis: the pass-owned target proves the record
-                    // ran; the graph target proves the bridge published it.
                     float[] passTarget = readColorTexture(
                             generation.volumetricParticles().colorTexture());
-                    assertTrue(different(fog, passTarget),
-                            "the particle pass produced no colour contribution in the graph path; "
-                                    + "check the fixture depth/bounds before relaxing this");
-                    assertTrue(different(fog, particles),
-                            "the particle pass produced colour but the graph bridge did not publish it");
+                    float[] depth = readDepth(depthTexture[0]);
+                    assertEquals(fog.length, graphColour.length);
 
-                    int changed = 0;
+                    int changed = countDifferences(fog, graphColour);
+                    int passChanged = countDifferences(fog, passTarget);
+                    int center = (SIZE / 2 * SIZE + SIZE / 2) * 4;
+                    float depthCenter = depth[SIZE / 2 * SIZE + SIZE / 2];
+                    String diagnostic = DIAGNOSTIC
+                            + " executions=" + probeRuns.get()
+                            + " order=" + order
+                            + " depthCenter=" + depthCenter
+                            + " fogCenter=" + value(fog, center)
+                            + " passCenter=" + value(passTarget, center)
+                            + " graphCenter=" + value(graphColour, center)
+                            + " fogVsPassChanged=" + passChanged
+                            + " fogVsGraphChanged=" + changed;
+                    System.out.println(diagnostic);
+
+                    // Precondition: the fixture must actually be unoccluded. A
+                    // leaked clear depth or a depth-writing pass shows up here.
+                    assertTrue(depthCenter >= 1.0f - 1.0e-6f,
+                            "the particle fixture must start from a cleared depth; " + diagnostic);
+                    assertTrue(passChanged > 0,
+                            "the pass-owned particle target is unchanged; "
+                                    + "record/colour source/depth is wrong; " + diagnostic);
+                    assertTrue(changed > 0,
+                            "the particle medium must visibly modify the fog-composited HDR colour; "
+                                    + diagnostic);
+
                     int minX = SIZE;
                     int minY = SIZE;
                     int maxX = -1;
@@ -98,8 +138,7 @@ class VolumetricParticlePipelineGlTest {
                     for (int y = 0; y < SIZE; y++) {
                         for (int x = 0; x < SIZE; x++) {
                             int index = (y * SIZE + x) * 4;
-                            if (!samePixel(fog, particles, index)) {
-                                changed++;
+                            if (!samePixel(fog, graphColour, index)) {
                                 minX = Math.min(minX, x);
                                 minY = Math.min(minY, y);
                                 maxX = Math.max(maxX, x);
@@ -107,12 +146,11 @@ class VolumetricParticlePipelineGlTest {
                             }
                         }
                     }
-                    assertTrue(changed > 0,
-                            "the particle medium must visibly modify the fog-composited HDR colour");
                     assertTrue((maxX - minX + 1) < SIZE * 0.9f
                                     && (maxY - minY + 1) < SIZE * 0.9f,
                             "the changed region must stay inside the projected body bounds: "
-                                    + (maxX - minX + 1) + "x" + (maxY - minY + 1));
+                                    + (maxX - minX + 1) + "x" + (maxY - minY + 1)
+                                    + "; " + diagnostic);
 
                     // The outer two-pixel border is outside the projected body; the
                     // pass copies the source there and must leave it byte-identical.
@@ -122,8 +160,9 @@ class VolumetricParticlePipelineGlTest {
                             int index = (y * SIZE + x) * 4;
                             for (int component = 0; component < 4; component++) {
                                 assertEquals(Float.floatToIntBits(fog[index + component]),
-                                        Float.floatToIntBits(particles[index + component]),
-                                        "border pixel (" + x + "," + y + ") changed");
+                                        Float.floatToIntBits(graphColour[index + component]),
+                                        "border pixel (" + x + "," + y + ") changed; "
+                                                + diagnostic);
                             }
                         }
                     }
@@ -200,7 +239,7 @@ class VolumetricParticlePipelineGlTest {
 
     private static void addDepthProbe(RenderPipeline pipeline, int[] depthTexture) {
         var depth = pipeline.activeGenerationForTest().topology().sceneSurface()
-                .single(com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
+                .single(SceneBufferChannel.DEPTH);
         if (depth == null) throw new IllegalStateException("fixture has no shared depth");
         pipeline.graph().addPass("ParticleDepthProbe")
                 .computeOnly()
@@ -261,17 +300,8 @@ class VolumetricParticlePipelineGlTest {
         }
     }
 
-    private static boolean different(float[] left, float[] right) {
-        if (left.length != right.length) return true;
-        for (int index = 0; index < left.length; index++) {
-            if (Float.floatToIntBits(left[index]) != Float.floatToIntBits(right[index])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static float[] readDepth(int texture) {        int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
+    private static float[] readDepth(int texture) {
+        int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
         FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE);
         try {
             org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
@@ -291,8 +321,17 @@ class VolumetricParticlePipelineGlTest {
         }
     }
 
-    private static void glBindFramebuffer(int target, int framebuffer) {
-        org.lwjgl.opengl.GL30.glBindFramebuffer(target, framebuffer);
+    private static int countDifferences(float[] left, float[] right) {
+        if (left.length != right.length) {
+            throw new IllegalArgumentException("arrays must have the same length");
+        }
+        int changed = 0;
+        for (int index = 0; index < left.length; index += 4) {
+            if (!samePixel(left, right, index)) {
+                changed++;
+            }
+        }
+        return changed;
     }
 
     private static boolean samePixel(float[] left, float[] right, int index) {
@@ -303,5 +342,14 @@ class VolumetricParticlePipelineGlTest {
             }
         }
         return true;
+    }
+
+    private static String value(float[] pixels, int index) {
+        return "(" + pixels[index] + "," + pixels[index + 1] + ","
+                + pixels[index + 2] + "," + pixels[index + 3] + ")";
+    }
+
+    private static void glBindFramebuffer(int target, int framebuffer) {
+        org.lwjgl.opengl.GL30.glBindFramebuffer(target, framebuffer);
     }
 }
