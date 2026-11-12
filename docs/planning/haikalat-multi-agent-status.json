@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "d94d8be"
+    "head": "ce843a8"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1410,7 +1410,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "d94d8be",
+      "integrationCommit": "ce843a8",
       "requiredCases": [
         "HairStrandSettingsTest",
         "HairStrandReferenceTest",
@@ -1420,7 +1420,8 @@
       "evidence": [
         "JVM PASS: Settings 7, Reference 8, Shader 6",
         "GL PASS worker 1483ffc and integration d94d8be: HairStrandGlTest 7/7, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/hair/",
-        "procedural deterministic strands (no external asset), ribbon width/LOD, Kajiya-Kay, sorted alpha, directional shadow caster/receiver"
+        "procedural deterministic strands (no external asset), ribbon width/LOD, Kajiya-Kay, sorted alpha, directional shadow caster/receiver",
+        "GL PASS at ce843a8 with the alpha-coverage guard: 7/7, 0 skipped, gate green; XML archived"
       ],
       "review": "PENDING",
       "functional": "PASS",
