@@ -23,12 +23,15 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
 import java.util.List;
 
 import static com.kaleblangley.haikalat.integration.GlTestSupport.hiddenWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_RGBA8;
@@ -46,8 +49,13 @@ import static org.lwjgl.opengl.GL30.glBindFramebuffer;
  * cover a sloped receiver, a perpendicular wall (facing rejection), a wall
  * behind the configured thickness and a wall in front of the surface offset
  * (depth rejection in both directions), a moving receiver, an exact
- * disabled/no-receiver no-op, and a resize.  Written but not executed in this
- * worker; run with the command recorded in the worker report.</p>
+ * disabled/no-receiver no-op, and a resize.  The receiver pass binds its own
+ * VAO and the decal pass renders into a colour-only view of the same colour
+ * texture, so sampling the borrowed scene depth cannot form a feedback loop.
+ * The sloped case first reads back the receiver depth and requires a real
+ * receiver before the decal draw; that assertion fails if the fixture stops
+ * writing scene depth instead of silently sampling the clear value.  Run with
+ * the command recorded in the worker report.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class ProjectedDecalGlTest {
@@ -100,7 +108,20 @@ class ProjectedDecalGlTest {
                             .scale(1.6f, 1.6f, 1.0f);
                     renderScene(device, target, receiverShader, quad,
                             projectionView(projection, view), slope);
+                    // The receiver pass must actually write depth.  Without the
+                    // explicit VAO bind the draw is invalid and the decal pass
+                    // samples the cleared value (1.0), making every fragment
+                    // discard and turning the pixel assertion below vacuous.
+                    float receiverDepth = readDepth(target, center[0], center[1]);
+                    assertTrue(receiverDepth > 0.0f && receiverDepth < 0.999f,
+                            "the scene pass must write receiver depth at the decal centre, was "
+                                    + receiverDepth);
                     ByteBuffer baseline = read(target, WIDTH, HEIGHT);
+                    // Colour readback discriminates "receiver drawn" from
+                    // "receiver draw invalid but the decal statistics still
+                    // report a draw": the clear colour below is (0.05,0.06,
+                    // 0.08) while the receiver shader writes (0.22,0.24,0.28).
+                    assertReceiverColour(baseline, center, WIDTH);
                     VfxRenderer.ProjectedDecalStatistics stats = renderDecals(
                             device, renderer, target, settings, List.of(decal), projection, view);
                     ByteBuffer sloped = read(target, WIDTH, HEIGHT);
@@ -109,6 +130,11 @@ class ProjectedDecalGlTest {
                     assertTrue(changed(baseline, sloped, center[0], center[1], 4,
                                     WIDTH, HEIGHT) > 0,
                             "sloped receiver inside the volume must receive the decal");
+                    int[] outside = project(new Vector3f(0.75f, 0.0f, 0.0f),
+                            projection, view, WIDTH, HEIGHT);
+                    assertEquals(0, changed(baseline, sloped, outside[0], outside[1], 1,
+                                    WIDTH, HEIGHT),
+                            "the decal must not leak outside its receiver rectangle");
                     assertEquals(GL_NO_ERROR, glGetError());
 
                     // Disabled settings must be an exact image no-op.
@@ -243,7 +269,12 @@ class ProjectedDecalGlTest {
                 .depthMask(true)
                 .clearColor(0.05f, 0.06f, 0.08f, 1.0f)
                 .clear(true, true)
-                .bindShader(shader);
+                .bindShader(shader)
+                // DRAW_MESH executes Mesh.drawBound(), which requires the
+                // mesh's VAO to be current.  Omitting this bind makes the
+                // draw invalid (no depth/colour) while the statistics still
+                // report one recorded draw.
+                .bindMesh(quad);
         commands.setUniformMat4(shader, "uMvp",
                         new Matrix4f(projectionView).mul(receiver))
                 .drawMesh(quad);
@@ -254,14 +285,29 @@ class ProjectedDecalGlTest {
             GlRenderDevice device, VfxRenderer renderer, Framebuffer target,
             ProjectedDecalSettings settings, List<ProjectedDecal> decals,
             Matrix4f projection, Matrix4f view) {
-        CommandBuffer commands = device.createCommandBuffer();
-        commands.bindFramebuffer(target)
-                .viewport(0, 0, target.width(), target.height());
-        VfxRenderer.ProjectedDecalStatistics stats = renderer.recordProjectedDecals(
-                commands, settings, decals, projection, view, target.depthAttachment(),
-                target.width(), target.height());
-        device.execute(commands);
-        return stats;
+        // The renderer samples the borrowed scene depth while it draws.  Bind a
+        // colour-only view of the same colour texture for the decal pass so the
+        // sampled depth texture is not attached to the draw framebuffer.
+        try (Framebuffer decalTarget = Framebuffer.fromDescriptorSharingAttachments(
+                FramebufferDescriptor.colorOnly(target.width(), target.height(), GL_RGBA8),
+                target, null)) {
+            CommandBuffer commands = device.createCommandBuffer();
+            commands.bindFramebuffer(decalTarget)
+                    .viewport(0, 0, target.width(), target.height())
+                    .enableFramebufferSrgb(false);
+            VfxRenderer.ProjectedDecalStatistics stats = renderer.recordProjectedDecals(
+                    commands, settings, decals, projection, view, target.depthAttachment(),
+                    target.width(), target.height());
+            device.execute(commands);
+            return stats;
+        }
+    }
+
+    private static float readDepth(Framebuffer target, int x, int y) {
+        FloatBuffer depth = BufferUtils.createFloatBuffer(1);
+        glBindFramebuffer(GL_FRAMEBUFFER, target.id());
+        glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+        return depth.get(0);
     }
 
     private static ByteBuffer read(Framebuffer target, int width, int height) {
@@ -279,6 +325,15 @@ class ProjectedDecalGlTest {
         int x = Math.round((clip.x * inverseW * 0.5f + 0.5f) * width);
         int y = Math.round((clip.y * inverseW * 0.5f + 0.5f) * height);
         return new int[]{clamp(x, 0, width - 1), clamp(y, 0, height - 1)};
+    }
+
+    private static void assertReceiverColour(ByteBuffer image, int[] center, int width) {
+        int offset = (center[1] * width + center[0]) * 4;
+        String label = "the receiver shader must write (0.22,0.24,0.28) at the decal centre, "
+                + "not the clear colour";
+        assertEquals(56, Byte.toUnsignedInt(image.get(offset)), 2, label);
+        assertEquals(61, Byte.toUnsignedInt(image.get(offset + 1)), 2, label);
+        assertEquals(71, Byte.toUnsignedInt(image.get(offset + 2)), 2, label);
     }
 
     private static int changed(ByteBuffer baseline, ByteBuffer result,
