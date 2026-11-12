@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T16:56:35+08:00",
+  "updatedAt": "2026-11-12T18:00:21+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -157,7 +157,7 @@
       "featureIds": [
         2
       ],
-      "state": "B0_VERIFIED",
+      "state": "PARTIAL",
       "scope": "UV Flow / Distortion",
       "dependencies": [
         null
@@ -170,14 +170,15 @@
       "requiredCases": [],
       "evidence": [
         "B0 checkpoint 49f488fd",
-        "per-feature matrix 20261112-165030: #2 JVM 9/9 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #2 JVM 9/9 + GL 11/11 PASS",
+        "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence"
       ],
       "review": "NOT_RUN",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Track as baseline implementation for later technology tasks"
+      "nextAction": "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence"
     },
     {
       "taskId": "R03",
@@ -363,7 +364,7 @@
       "featureIds": [
         9
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Contact Shadows",
       "dependencies": [
         null
@@ -380,14 +381,15 @@
         "reviewer scope acceptance pending",
         "focused verification dfb658b6 at HEAD 2fc9502c: ContactShadowsGlTest PASS, 0 skipped",
         "the accepted first version is the bounded shadow-map-space short-range march described by the card; a true screen-space depth-mask variant remains out of scope",
-        "per-feature matrix 20261112-165030: #9 JVM 6/7 + GL 1/1 PASS"
+        "per-feature matrix 20261112-165030: #9 JVM 6/7 + GL 1/1 PASS",
+        "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "bounded shadow-map-space refinement accepted; screen-space depth-mask variant deferred",
+      "nextAction": "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
       "scopeNote": "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
       "policyCommit": "0c14652",
       "deferred": "screen-space depth-mask variant"
@@ -552,7 +554,7 @@
       "featureIds": [
         15
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Depth-Based Particle Collision",
       "dependencies": [
         27
@@ -568,14 +570,15 @@
         "JVM GpuParticleCollision* 12 tests PASS",
         "focused verify db0e2716: 725 tests PASS, 0 skipped",
         "bounded 131186 policy row added",
-        "per-feature matrix 20261112-165030: #15 JVM 12/16 + GL 4/4 PASS"
+        "per-feature matrix 20261112-165030: #15 JVM 12/16 + GL 4/4 PASS",
+        "independent acceptance F2: GPU particle collision owner has no production VFX consumer"
       ],
       "review": "PENDING_INDEPENDENT_REVIEW",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Independent reviewer verdict pending; VFX/transparent wiring unwired"
+      "nextAction": "independent acceptance F2: GPU particle collision owner has no production VFX consumer"
     },
     {
       "taskId": "R16",
@@ -872,7 +875,7 @@
       "featureIds": [
         26
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "GPU Particle Sorting",
       "dependencies": [
         27
@@ -888,21 +891,22 @@
         "JVM GpuParticleSort* 22 tests PASS",
         "focused verify 4c675a0d: 680 tests PASS, 0 skipped",
         "first GPU failure was the test distance oracle; fixed at 0d85712",
-        "per-feature matrix 20261112-165030: #26 JVM 22/29 + GL 7/7 PASS"
+        "per-feature matrix 20261112-165030: #26 JVM 22/29 + GL 7/7 PASS",
+        "independent acceptance F2: GPU particle sorting owner has no production VFX consumer"
       ],
       "review": "PENDING_INDEPENDENT_REVIEW",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Independent reviewer verdict pending; pipeline/transparent integration unwired"
+      "nextAction": "independent acceptance F2: GPU particle sorting owner has no production VFX consumer"
     },
     {
       "taskId": "R27",
       "featureIds": [
         27
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "GPU Particle Indirect Rendering",
       "dependencies": [
         null
@@ -918,14 +922,15 @@
         "JVM GpuParticle*/IndirectDrawCommand 19 tests PASS",
         "focused verify 1de94a96: 651 tests PASS, 0 skipped",
         "review wrapped-active-set gap fixed at 9b18c4d; fragment smoothstep/state fixed",
-        "per-feature matrix 20261112-165030: #27 JVM 53/71 + GL 7/7 PASS"
+        "per-feature matrix 20261112-165030: #27 JVM 53/71 + GL 7/7 PASS",
+        "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Bounded GPU particle owner; pipeline/transparent integration unwired; #15/#26/#28 extend this owner"
+      "nextAction": "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class"
     },
     {
       "taskId": "R28",
@@ -995,7 +1000,7 @@
       "featureIds": [
         30
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Planar Reflections",
       "dependencies": [
         null
@@ -1015,14 +1020,15 @@
         "integration real GL PASS: PlanarReflectionPipelineGlTest 1/1 (reflection target content; main view byte-identical)",
         "known gap: water/SSR shaders do not sample the planar target yet; visual reflection remains downstream work",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #30 JVM 18/29 + GL 11/11 PASS"
+        "per-feature matrix 20261112-165030: #30 JVM 18/29 + GL 11/11 PASS",
+        "independent acceptance F3: planar target is recorded but no surface samples it; water/SSR consumption missing"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "reflection target verified; downstream water/SSR sampling remains unwired; performance/human visual not evaluated"
+      "nextAction": "independent acceptance F3: planar target is recorded but no surface samples it; water/SSR consumption missing"
     },
     {
       "taskId": "R31",
@@ -1291,7 +1297,7 @@
       "featureIds": [
         39
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "SSGI",
       "dependencies": [
         20,
@@ -1314,14 +1320,15 @@
         "GL PASS on worker 2df84e4 and integration 896e113: SsgiPassGlTest 8/8, 0 skipped, 0 failures, gate green",
         "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test",
         "B4 feature-control wiring 3527b9cf resolves SSGI eligibility (HDR + PBR ALBEDO/ROUGHNESS) with soft UNAVAILABLE and effective stripping",
-        "per-feature matrix 20261112-165030: #39 JVM 32/40 + GL 8/8 PASS"
+        "per-feature matrix 20261112-165030: #39 JVM 32/40 + GL 8/8 PASS",
+        "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "feature-control wiring verified; performance/human visual not evaluated"
+      "nextAction": "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing"
     },
     {
       "taskId": "R40",
@@ -1371,7 +1378,7 @@
       "featureIds": [
         41
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Adaptive Sampling",
       "dependencies": [
         20,
@@ -1398,14 +1405,15 @@
         "real GL at 8e751cd8: SsrAdaptiveSamplingGlTest 9/9 PASS",
         "focused verification dfb658b6: PASS",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #41 JVM 22/31 + GL 9/9 PASS"
+        "per-feature matrix 20261112-165030: #41 JVM 22/31 + GL 9/9 PASS",
+        "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "feature-control wiring verified; performance/human visual not evaluated"
+      "nextAction": "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete"
     },
     {
       "taskId": "R42",
@@ -1567,7 +1575,7 @@
       "featureIds": [
         46
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Hair Strand Rendering",
       "dependencies": [
         null
@@ -1592,19 +1600,20 @@
         "B3 production wiring at c1eb08b3: hair strands resolved through RenderFeaturePolicy, forward pass wired after the forward passes, directional shadow caster/receiver contract kept",
         "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
-        "per-feature matrix 20261112-165030: #46 JVM 21/28 + GL 7/7 PASS"
+        "per-feature matrix 20261112-165030: #46 JVM 21/28 + GL 7/7 PASS",
+        "independent acceptance F5: moving the hair lock did not invalidate the static shadow cache; invalidateAll fix landed in cbf1ec48, the GL event-sequence regression is still pending"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "production wiring verified; performance/human visual not evaluated"
+      "nextAction": "independent acceptance F5: moving the hair lock did not invalidate the static shadow cache; invalidateAll fix landed in cbf1ec48, the GL event-sequence regression is still pending"
     },
     {
       "taskId": "S6",
       "featureIds": [],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "整体交互矩阵、质量档与最终文档包",
       "dependencies": [],
       "owner": "orchestrator",
@@ -1618,14 +1627,15 @@
       "evidence": [
         "docs/planning/v0.28.1-s6-interaction-and-quality.md records the seven representative scenario combinations and the bounded Low/Medium/High quality tiers",
         "RenderFeatureInteractionMatrixTest 6/6 JVM PASS: default no-op, water+planar+caustics, clouds+smoke single-sample/MSAA, hair single-sample/MSAA, OIT+stochastic declarations, LDR soft-unavailable",
-        "per-feature real GL pipeline cases cover the pixel contracts of each combination (see the matrix evidence column)"
+        "per-feature real GL pipeline cases cover the pixel contracts of each combination (see the matrix evidence column)",
+        "independent acceptance F8: the seven representative combinations were not executed as a real pixel matrix; policy-level tests alone are insufficient"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "combined-scene GL pixel matrix and performance/human-visual evaluation remain out of scope"
+      "nextAction": "execute the seven representative combinations with fixed camera/time/seed/exposure"
     }
   ],
   "notes": [
