@@ -187,9 +187,13 @@ class HairStrandGlTest {
                         negativeSettings, camera, centeredModel(negative), light, 0, null, 0.0f);
                 int highlightCount = coveredPixels(highlightPixels, 100);
                 int negativeMaximum = maximumRgbChannel(negativePixels);
+                int negativeCoverage = alphaCoveredPixels(negativePixels, 1);
                 assertTrue(highlightCount > 30,
                         "perpendicular tangent must produce a visible highlight, count="
                                 + highlightCount);
+                assertTrue(negativeCoverage > 20,
+                        "the negative control must still rasterize strand coverage, count="
+                                + negativeCoverage);
                 assertTrue(negativeMaximum < 12,
                         "parallel tangent must be the geometric negative control, max RGB="
                                 + negativeMaximum);
@@ -560,6 +564,21 @@ class HairStrandGlTest {
             }
         }
         return maximum;
+    }
+
+    /**
+     * Counts pixels with non-zero alpha. The negative-control colour is black,
+     * so coverage proves the fixture actually rasterized a strand instead of
+     * passing because both frames were empty.
+     */
+    private static int alphaCoveredPixels(byte[] pixels, int threshold) {
+        int count = 0;
+        for (int index = 0; index < WIDTH * HEIGHT; index++) {
+            if (unsigned(pixels, index * 4 + 3) > threshold) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
