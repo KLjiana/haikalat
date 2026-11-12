@@ -18,6 +18,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource

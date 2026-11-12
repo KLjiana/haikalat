@@ -279,6 +279,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "screen-space reflections require a bound PBR environment");
             }
+            validateAdaptiveSampling(settings, effects);
             if (effects.temporalDenoise().active() && !effects.ssr().active()) {
                 throw new IllegalArgumentException(
                         "temporal denoising requires an active screen-space reflection signal");
@@ -346,8 +347,10 @@ public final class PostProcessPipeline implements AutoCloseable {
             SsrPass ssr = effects.ssr().active()
                     ? reuseOrCreate(donor != null && donor.ssr != null
                                     && donor.ssr.settings().equals(effects.ssr())
+                                    && donor.ssr.adaptiveSettings()
+                                    .equals(effects.adaptiveSampling())
                                     ? donor.ssr : null,
-                            () -> new SsrPass(effects.ssr()),
+                            () -> new SsrPass(effects.ssr(), effects.adaptiveSampling()),
                             owned, borrowed) : null;
             SsgiPass ssgi = effects.ssgi().active()
                     ? reuseOrCreate(donor != null && donor.ssgi != null
@@ -389,6 +392,36 @@ public final class PostProcessPipeline implements AutoCloseable {
         } catch (RuntimeException | Error failure) {
             for (var resource : owned.reversed()) closeAfterFailure(resource, failure);
             throw failure;
+        }
+    }
+
+    /**
+     * Validates the adaptive-sampling request against its real consumer.
+     *
+     * <p>Adaptive sampling only allocates the step budget of the screen-space
+     * reflection march, so it requires an active {@link SsrSettings}; the
+     * requested ceiling must not exceed the reflection hard bound
+     * ({@link SsrSettings#maxSteps()}) so the configured budget stays the
+     * ceiling, and HDR tone mapping is required for the same reason as SSR.
+     * Disabled is the exact no-op value and passes every check without
+     * allocating or changing anything.</p>
+     */
+    static void validateAdaptiveSampling(RenderSettings settings, PostProcessSettings effects) {
+        AdaptiveSamplingSettings adaptive = effects.adaptiveSampling();
+        if (!adaptive.active()) {
+            return;
+        }
+        if (!effects.ssr().active()) {
+            throw new IllegalArgumentException(
+                    "adaptive sampling requires an active screen-space reflection sampler");
+        }
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException("adaptive sampling requires HDR tone mapping");
+        }
+        if (adaptive.maximumSteps() > effects.ssr().maxSteps()) {
+            throw new IllegalArgumentException(
+                    "adaptive sampling maximumSteps must not exceed the screen-space "
+                            + "reflection maxSteps");
         }
     }
 
