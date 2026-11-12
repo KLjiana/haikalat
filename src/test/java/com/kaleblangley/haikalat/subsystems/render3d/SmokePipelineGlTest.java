@@ -198,11 +198,25 @@ class SmokePipelineGlTest {
                         .smokeRender(renderSettings());
                 try {
                     pipeline.build();
-                    pipeline.execute(new GlRenderDevice(), 1.0f / 60.0f);
                     SmokeSimulation simulation =
                             pipeline.activeGenerationForTest().smokeSimulation();
                     assertNotNull(simulation);
-                    assertTrue(simulation.stepCount() > 0);
+                    // SmokeTimeline.planSteps accumulates whole fixed steps and
+                    // drops the remainder: the fixture's 0.02 s step needs two
+                    // 1/60 s frames before the first commit, so derive the
+                    // precondition from the documented timeStepSeconds instead
+                    // of assuming the first short frame advances.
+                    float fixedStepSeconds = simulation.settings().timeStepSeconds();
+                    float frameDeltaSeconds = 1.0f / 60.0f;
+                    int framesToFirstStep =
+                            (int) Math.ceil(fixedStepSeconds / frameDeltaSeconds) + 1;
+                    for (int frame = 0; frame < framesToFirstStep; frame++) {
+                        pipeline.execute(new GlRenderDevice(), frameDeltaSeconds);
+                    }
+                    assertTrue(simulation.stepCount() > 0,
+                            "a " + fixedStepSeconds + " s fixed step over "
+                                    + framesToFirstStep + " frames of " + frameDeltaSeconds
+                                    + " s must have committed at least one step");
 
                     pipeline.resize(48, 32);
                     var resized = pipeline.activeGenerationForTest();
