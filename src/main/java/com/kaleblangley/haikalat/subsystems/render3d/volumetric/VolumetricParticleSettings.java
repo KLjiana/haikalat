@@ -199,19 +199,19 @@ public record VolumetricParticleSettings(
         return new Vector3f(lightColor);
     }
 
-    public Vector3f boundsCenterInternal() {
+    Vector3f boundsCenterInternal() {
         return boundsCenter;
     }
 
-    public Vector3f boundsHalfExtentInternal() {
+    Vector3f boundsHalfExtentInternal() {
         return boundsHalfExtent;
     }
 
-    public Vector3f lightDirectionInternal() {
+    Vector3f lightDirectionInternal() {
         return lightDirection;
     }
 
-    public Vector3f lightColorInternal() {
+    Vector3f lightColorInternal() {
         return lightColor;
     }
 
