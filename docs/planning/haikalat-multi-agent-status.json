@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "fda3b557"
+    "head": "a8720b89"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T01:38:27+08:00",
+  "updatedAt": "2026-11-13T02:10:05+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1590,7 +1590,7 @@
       "featureIds": [
         46
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Hair Strand Rendering",
       "dependencies": [
         null
@@ -1599,7 +1599,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "c1eb08b3",
+      "integrationCommit": "cbf1ec48 + a8720b89",
       "requiredCases": [
         "HairStrandSettingsTest",
         "HairStrandReferenceTest",
@@ -1617,14 +1617,15 @@
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
         "per-feature matrix 20261112-165030: #46 JVM 21/28 + GL 7/7 PASS",
         "independent acceptance F5 GL regression (2026-11-13): RenderPipelineWiringB3GlTest.movingOnlyTheHairLockInvalidatesTheStaticShadowCacheAndTheShadowFollows executes pre-hair baseline -> first miss -> static reuse -> lock-only move (miss and receiver shadow follows) -> stable reuse -> disabled baseline; 11/11 real GL PASS (RenderPipelineWiringB3GlTest 4/4 + HairStrandGlTest 7/7, 0 skipped, 0 failures, RTX 3050)",
-        "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)"
+        "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)",
+        "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline"
       ],
-      "review": "APPROVE_WITH_SCOPE",
+      "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "F5 GL event sequence closed; independent re-acceptance, performance and human visual still not evaluated"
+      "nextAction": "scope: test-owned shadow-only receiver (not PBR), single directional tile, one shift direction/distance; performance and human visual NOT_EVALUATED"
     },
     {
       "taskId": "S6",
