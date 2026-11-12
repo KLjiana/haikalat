@@ -339,7 +339,7 @@ facingCosine, receiveBackFaces, alphaMask, maximumDecals)`，默认关闭。`Vfx
 single-sample scene depth 与 viewport，不创建 Pass、framebuffer 或 manager；
 `ProjectedDecalPlan` 为包内 internal 排序实现，不构成公共 API。
 v0.28.1（候选）S4 #40 / S5 #43 生产接线没有删除 stable 类型或修改稳定签名。advanced
-`RenderFeatureSettings` canonical record 由 25 个组件扩展为 28 个（末尾新增 `volumetricClouds`、
+`RenderFeatureSettings` canonical record 由 19 个组件扩展为 22 个（末尾新增 `volumetricClouds`、
 `smokeSimulation`、`smokeRender`，默认全部 `disabled()`）；既有 builder、`defaults()`、`toBuilder()`
 与访问器调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加
 `VOLUMETRIC_CLOUDS`、`VOLUMETRIC_SMOKE`。`RenderPipeline` 新增
@@ -396,3 +396,25 @@ shadow map。默认关闭时无 pass/资源/draw，拓扑与基线一致；MSAA/
 没有新增 public 顶层类型，`docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、
 限制与验证见[DDGI 技术卡](../../planning/v0.28.1-s5-ddgi.md)、[VCT 技术卡](../../planning/v0.28.1-s5-vct.md)
 与[发束技术卡](../../planning/v0.28.1-s4-hair.md)。
+
+v0.28.1（候选）S5 #39/S4 #41/#42 的 feature-control 接线（`codex/render-wiring-b4`）没有删除
+stable 类型或修改稳定签名，也没有新增 public 顶层类型。`RenderFeatureSettings` 的 19 个 canonical
+组件保持不变；三个特性继续只由 `RenderFeatureSettings.postProcess` 的
+`PostProcessSettings.ssgi`/`adaptiveSampling`/`variableRateShading` 表达，未新增第二套字段或布尔，
+因此 canonical 构造器、builder、`defaults()` 与 `toBuilder()` 均无需迁移。`RenderFeature` 末尾追加
+`SSGI`、`ADAPTIVE_SAMPLING`、`VARIABLE_RATE_SHADING`（既有常量与序号不变）。advanced
+`RenderFeatureActivity` canonical record 由 3 个组件扩展为 4 个（新增末位 `String detail`）；旧 3 参数
+构造器保留并填入空串，`detail` 为 null 时归一化为空串。`RenderPipeline` 新增只读
+`ssgi()`/`adaptiveSampling()`/`variableRateShading()`；`postProcessSettings(...)` 与
+`features().submit(...)` 继续是有效入口，统一请求在帧边界解析成 effective 快照。
+`VariableRateShadingSettings` 追加 `withEnabled(boolean)`（与其它 settings 的 with 风格一致）。
+`PipelineFeaturePolicy` 对 `ALBEDO`/`ROUGHNESS`/HDR/PBR 的拓扑组合增加显式校验。
+行为变化：请求了但缺少 HDR/PBR/消费者/能力的三个 post-process 特性会报告
+`RenderFeatureReason.UNAVAILABLE` + `RenderFeatureActivity.detail`，并在 `effective` 中降级为 disabled
+（VRS 的 NV 回退例外：请求保留、由 `PostProcessPipeline` 报告 `fallback:` 且不分配资源）；SSGI 与
+temporal upscaling、adaptive `maximumSteps` 超过 SSR 硬上限仍是整份请求拒绝。没有新增
+`docs/architecture/public-api/render3d.allowlist` 条目。JVM 合同见
+`RenderFeatureControlPostProcessTest`（已登记 `gradle/focused-verification.gradle`），技术范围与限制见
+[SSGI 技术卡](../../planning/v0.28.1-s5-ssgi.md)、
+[自适应采样技术卡](../../planning/v0.28.1-s4-adaptive-sampling.md)与
+[VRS 技术卡](../../planning/v0.28.1-s4-vrs.md)。

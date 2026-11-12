@@ -144,7 +144,8 @@ resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享�
 历史约 48 B/px。合同、限制与 GL 参考见[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)，
 迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #32/#33 新增 advanced GL-free `core.material.SubsurfaceScatteringSettings`（散射色/强度、解析 profile、世界单位平均自由程、厚度来源与常量厚度、屏幕空间半径上限与最大距离，构造期校验；默认 `disabled()`）与 `Material` 的 `subsurfaceScattering` 组件；advanced `postprocess.sss.SubsurfaceScatteringPass` 是 `GlResource`（16-tap Poisson 屏幕空间扩散、深度/法线边界拒绝、世界到像素半径、64 px 上限、高光保护、边缘淡出、disabled 精确 no-op）。共享 surface 新增 `SUBSURFACE` mask 通道（由 `SceneSurfacePass` 写入、MSAA resolve 保留）；`PostProcessSettings` 追加 `subsurfaceScattering` 组件并保持旧构造器兼容。合同、限制与 GL 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)，迁移说明见[迁移记录](migrations.md)。
-v0.28.1 S4 #42 新增 advanced GL-free `postprocess.vrs.VariableRateShadingSettings`（启用、tile 尺寸、粗/细 shading rate、fallback 策略，构造期校验；默认 `disabled()`）与 `postprocess.vrs.VariableRateShadingPass`（真实 `GL_NV_shading_rate_image` 路径：R8UI immutable rate image、per-viewport enable、palette 逐项查询、TexSubImage barrier、host state 恢复；FBO-only；EXT_fragment_shading_rate 仅检测未实现）。`PostProcessSettings` 追加 `variableRateShading` 组件；disabled 时零资源/零命令。RenderPipeline/feature-control 接线与 demo 仍为后续项。合同、限制与 GL 证据见[VRS 技术卡](../../planning/v0.28.1-s4-vrs.md)。
+v0.28.1 S4 #42 新增 advanced GL-free `postprocess.vrs.VariableRateShadingSettings`（启用、tile 尺寸、粗/细 shading rate、fallback 策略，构造期校验；默认 `disabled()`）与 `postprocess.vrs.VariableRateShadingPass`（真实 `GL_NV_shading_rate_image` 路径：R8UI immutable rate image、per-viewport enable、palette 逐项查询、TexSubImage barrier、host state 恢复；FBO-only；EXT_fragment_shading_rate 仅检测未实现）。`PostProcessSettings` 追加 `variableRateShading` 组件；disabled 时零资源/零命令。feature-control 接线见下方
+v0.28.1 S5 #39/S4 #41/#42 段落；demo 仍为后续项。合同、限制与 GL 证据见[VRS 技术卡](../../planning/v0.28.1-s4-vrs.md)。
 v0.28.1 S5 #45 新增 advanced GL-free `render3d.vct.VctSettings`（有界体素网格、分辨率 32/64/128、内存预算、cone 数/步数、diffuse/specular aperture、dirty 预算，构造期校验；默认 `disabled()`）与 internal `VctPass`（compute 体素化 + 完整 mip 链 + diffuse/specular cone trace + 深度重建 additive 合成；候选优先重建、事务失败保留旧代、幂等 close）。RenderPipeline 接线与逐像素材质输入仍为后续项。合同、限制与 GL 证据见[体素锥追踪技术卡](../../planning/v0.28.1-s5-vct.md)。
 v0.28.1 S4 #40 新增 advanced GL-free `render3d.volumetric.VolumetricCloudSettings`（云层 base/top、密度/消光、覆盖场复用 #10 `CloudShadowSettings`、renderScale、步数/光步、深度/曝光/历史拒绝阈值，构造期校验；默认 `disabled()`）与 internal `VolumetricCloudPass`（低分辨率 bounded march、深度感知重建、双缓冲历史、候选优先 resize、`S + T*scene` 单次合成）。RenderPipeline 接线与 demo 仍为后续项。合同、限制与 GL 证据见[体积云技术卡](../../planning/v0.28.1-s4-clouds.md)。
 v0.28.1 S5 #43 新增 advanced GL-free `render3d.volumetric.SmokeSimulationSettings`（网格/步长/CFL、注入源、耗散、浮力、边界，构造期校验；默认 `disabled()`）与 `SmokeRenderSettings`（体积渲染步数/步长、消光/散射、光方向/颜色，构造期校验）以及 internal `SmokeSimulation`/`SmokeVolumePass`（双 3D 纹理 ping-pong、确定性 fixed-step、候选优先重建、深度截断单次散射、预乘合成；disabled 精确 no-op）。RenderPipeline 接线与 demo 仍为后续项。合同、限制与 GL 证据见[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。
@@ -195,6 +196,21 @@ stable 类型或修改稳定签名。advanced `RenderFeatureSettings` canonical 
 拓扑 key 与基线逐字节一致；MSAA/TAA 下的 DDGI/VCT 报告 `UNAVAILABLE`，无方向光时报告
 `NO_ELIGIBLE_LIGHT`；DDGI 与 VCT 互斥、与 SSGI 的间接漫反射去重均在请求/装配期 fail-closed。
 迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S5 #39/S4 #41/#42 feature-control 接线（`codex/render-wiring-b4`）：`RenderFeature` 追加
+`SSGI`、`ADAPTIVE_SAMPLING`、`VARIABLE_RATE_SHADING` 三个活动项；`RenderFeatureActivity` 追加
+`detail` 人读原因组件（旧 3 参数构造器保留并返回空串）。三个特性的请求仍只由
+`RenderFeatureSettings.postProcess` 的 `ssgi`/`adaptiveSampling`/`variableRateShading` 表达，不新增
+第二套布尔或设置字段。`RenderFeaturePolicy` 解析 effective 参与：SSGI 需要 HDR、PBR 材质与
+ALBEDO/ROUGHNESS，adaptive 需要 active SSR + HDR 且 ceiling ≤ SSR `maxSteps`，VRS 需要 HDR、
+screen-space SSS 与 `GL_NV_shading_rate_image`；缺失消费者/能力的请求报告
+`RenderFeatureReason.UNAVAILABLE` + `detail`，并从 `effectivePostProcess` 移除（VRS NV 不支持时保留请求，
+由 `PostProcessPipeline` 报告 `fallback:` 且不分配资源），SSGI 与 temporal upscaling、adaptive ceiling
+超过 SSR `maxSteps` 仍整份拒绝。`RenderPipeline` 新增只读 `ssgi()`/`adaptiveSampling()`/
+`variableRateShading()`，`postProcessSettings(...)` 与统一 feature request 都进入同一 effective 快照；
+`PipelineFeaturePolicy` 对 ALBEDO/ROUGHNESS/HDR/PBR 组合做拓扑校验。`VariableRateShadingSettings`
+追加 `withEnabled(boolean)`。disabled/无请求时拓扑、默认值与基线像素路径不变；没有新增顶层 public
+类型。合同、验证范围与限制见三张技术卡，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
 `renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
 quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`
