@@ -304,7 +304,7 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster and particle-indirect policies.
-        assert policies.size() == 55
+        assert policies.size() == 56
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -403,6 +403,16 @@ tasks.register('releaseVerificationContracts') {
                 upscaleDevice + upscaleMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPassGlTest.xml',
                 upscaleDevice + upscaleMessage * 5, policies).violations.isEmpty()
+        def stochasticPolicy = policies.find { it.owner == 'render3d/stochastic-transparency-cold' }
+        assert stochasticPolicy != null && stochasticPolicy.id == 131218
+        assert stochasticPolicy.maximum == 8
+        assert stochasticPolicy.entry == '.*StochasticTransparencyPassGlTest.*'
+        def stochasticEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPassGlTest.xml'
+        def stochasticMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 10 is being recompiled based on GL state.\n'
+        assert auditGlText(stochasticEntry, upscaleDevice + stochasticMessage * 8, policies).violations.isEmpty()
+        assert !auditGlText(stochasticEntry, upscaleDevice + stochasticMessage * 9, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.transparency.OtherGlTest.xml',
+                upscaleDevice + stochasticMessage, policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
