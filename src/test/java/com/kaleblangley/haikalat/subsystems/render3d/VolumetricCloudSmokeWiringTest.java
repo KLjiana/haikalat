@@ -379,6 +379,25 @@ class VolumetricCloudSmokeWiringTest {
         }
     }
 
+    @Test
+    void sameExtentResizeIsANoOpAndGenerationCloseIsIdempotent() throws Exception {
+        Scene scene = new Scene(new Camera());
+        PipelineTopology topology = capture(scene, hdr(AntiAliasingMode.NONE), clouds(),
+                smokeSimulation(), smokeRender(), CloudShadowSettings.disabled());
+        PipelineGeneration generation = new PipelineGeneration(topology);
+        RenderGraph graph = GraphRecordingFixture.graph(64, 48);
+        try {
+            setField(generation, "graph", graph);
+            generation.resize(64, 48);
+            assertFalse(generation.isClosed(), "a same-extent resize keeps the generation");
+            generation.close();
+            generation.close();
+            assertTrue(generation.isClosed(), "close is idempotent with the medium flags set");
+        } finally {
+            graph.close();
+        }
+    }
+
     /** Channel indirection keeps the public imports focused on the production API under test. */
     private static final class SceneBufferChannelHolder {
         private static final com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel
