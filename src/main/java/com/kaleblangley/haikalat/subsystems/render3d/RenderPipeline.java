@@ -654,7 +654,16 @@ public final class RenderPipeline {
         if (activeGeneration != null) {
             throw new IllegalStateException("use applyStochasticTransparency after build");
         }
-        stochasticTransparencySettings = Objects.requireNonNull(value, "stochasticTransparency");
+        StochasticTransparencySettings requested =
+                Objects.requireNonNull(value, "stochasticTransparency");
+        if (requested.active()
+                && stochasticTransparencySurfaces.size() > requested.maximumSurfaces()) {
+            throw new IllegalArgumentException("the staged stochastic surface set ("
+                    + stochasticTransparencySurfaces.size()
+                    + ") exceeds the requested maximumSurfaces "
+                    + requested.maximumSurfaces());
+        }
+        stochasticTransparencySettings = requested;
         topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         return this;
     }
@@ -711,6 +720,9 @@ public final class RenderPipeline {
             activateGeneration(createGeneration(scene, topology, activeGeneration));
             activeGeneration.postProcess().invalidateTemporalHistory(
                     TaaInvalidationReason.STOCHASTIC_TRANSPARENCY_SETTINGS);
+            if (activeGeneration.stochasticTransparency() != null) {
+                activeGeneration.stochasticTransparency().invalidate();
+            }
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) {
@@ -737,7 +749,12 @@ public final class RenderPipeline {
                     + " exceeds the configured maximumSurfaces "
                     + stochasticTransparencySettings.maximumSurfaces());
         }
+        boolean changed = !copy.equals(stochasticTransparencySurfaces);
         stochasticTransparencySurfaces = copy;
+        if (changed && activeGeneration != null
+                && activeGeneration.stochasticTransparency() != null) {
+            activeGeneration.stochasticTransparency().invalidate();
+        }
         return this;
     }
 
@@ -2378,7 +2395,15 @@ public final class RenderPipeline {
         clusteredLightingSettings = requested.clusteredLighting();
         waterSurfaceSettings = requested.waterSurface();
         volumetricParticleSettings = requested.volumetricParticles();
-        stochasticTransparencySettings = requested.stochasticTransparency();
+        StochasticTransparencySettings requestedStochastic = requested.stochasticTransparency();
+        if (requestedStochastic.active()
+                && stochasticTransparencySurfaces.size() > requestedStochastic.maximumSurfaces()) {
+            throw new IllegalArgumentException("the staged stochastic surface set ("
+                    + stochasticTransparencySurfaces.size()
+                    + ") exceeds the requested maximumSurfaces "
+                    + requestedStochastic.maximumSurfaces());
+        }
+        stochasticTransparencySettings = requestedStochastic;
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
