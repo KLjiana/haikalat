@@ -50,7 +50,7 @@ import static org.lwjgl.opengl.GL30.glReadBuffer;
  * Real-GL acceptance for the bounded volumetric-cloud layer and its
  * low-resolution reconstruction.
  *
- * <p>The fixture renders a fixed orthographic top-down sky view (for the
+ * <p>The fixture renders a fixed perspective top-down sky view (for the
  * reference comparison) or a perspective horizon view (for the rejection
  * cases) into an RGBA16F target with a single-sample depth texture. Expected
  * values always come from the independent double reference
@@ -83,13 +83,8 @@ class VolumetricCloudGlTest {
     private static final int SIZE = 64;
     private static final int SMALL_WIDTH = 48;
     private static final int SMALL_HEIGHT = 32;
-    private static final float ORTHO_HALF_EXTENT = 1_000.0f;
-    private static final float ORTHO_CENTER_X = 1_500.0f;
-    private static final float ORTHO_CENTER_Z = 0.0f;
-    private static final float CAMERA_HEIGHT = 5_000.0f;
     private static final float BACKGROUND = 0.0f;
     private static final float[] DARK = {0.02f, 0.03f, 0.05f};
-    private static final float[] BRIGHT = {0.9f, 0.8f, 0.7f};
     private static final float REFERENCE_TOLERANCE = 3.0e-3f;
 
     private static final String QUAD_VERTEX = """
@@ -115,7 +110,7 @@ class VolumetricCloudGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             GlRenderDevice device = new GlRenderDevice();
-            ExternalCamera camera = orthoCamera();
+            ExternalCamera camera = CloudTestCameras.topDown();
             try (Framebuffer scene = sceneTarget()) {
                 VolumetricCloudSettings settings = settings(1.0f, 0.004f, 0.0f);
                 float[][] outputs = renderAgainstBackgrounds(device, settings, camera, scene, 0.0);
@@ -201,7 +196,7 @@ class VolumetricCloudGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             GlRenderDevice device = new GlRenderDevice();
-            ExternalCamera camera = horizonCamera();
+            ExternalCamera camera = CloudTestCameras.horizon();
             try (Framebuffer scene = sceneTarget()) {
                 clear(scene, DARK, 1.0f);
                 FloatBuffer source = readColor(scene);
@@ -256,7 +251,7 @@ class VolumetricCloudGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             GlRenderDevice device = new GlRenderDevice();
-            ExternalCamera camera = orthoCamera();
+            ExternalCamera camera = CloudTestCameras.topDown();
             try (Framebuffer scene = sceneTarget()) {
                 clear(scene, DARK, 1.0f);
                 VolumetricCloudSettings nativeSettings = settings(1.0f, 0.004f, 20.0f);
@@ -319,9 +314,9 @@ class VolumetricCloudGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             GlRenderDevice device = new GlRenderDevice();
-            ExternalCamera camera = orthoCamera();
-            ExternalCamera moved = orthoCamera(ORTHO_CENTER_X + 20.0f, ORTHO_CENTER_Z);
-            ExternalCamera nearby = orthoCamera(ORTHO_CENTER_X + 2.0f, ORTHO_CENTER_Z);
+            ExternalCamera camera = CloudTestCameras.topDown();
+            ExternalCamera moved = CloudTestCameras.topDown(CloudTestCameras.CLOUD_CENTER_X + 20.0f, CloudTestCameras.CLOUD_CENTER_Z);
+            ExternalCamera nearby = CloudTestCameras.topDown(CloudTestCameras.CLOUD_CENTER_X + 2.0f, CloudTestCameras.CLOUD_CENTER_Z);
             VolumetricCloudSettings settings = settings(0.5f, 0.004f, 20.0f, 0.9f);
             try (Framebuffer scene = sceneTarget();
                  VolumetricCloudPass pass = new VolumetricCloudPass(settings, SIZE, SIZE)) {
@@ -360,7 +355,7 @@ class VolumetricCloudGlTest {
         try (GlfwWindow window = hiddenWindow()) {
             bind(window);
             GlRenderDevice device = new GlRenderDevice();
-            ExternalCamera camera = horizonCamera();
+            ExternalCamera camera = CloudTestCameras.horizon();
             VolumetricCloudSettings settings = settings(0.5f, 0.004f, 0.0f, 0.9f);
             try (Framebuffer scene = sceneTarget();
                  VolumetricCloudPass pass = new VolumetricCloudPass(settings, SIZE, SIZE)) {
@@ -432,7 +427,7 @@ class VolumetricCloudGlTest {
             bind(window);
             try (var tracking = GlDebug.acquireResourceTracking()) {
                 GlRenderDevice device = new GlRenderDevice();
-                ExternalCamera camera = orthoCamera();
+                ExternalCamera camera = CloudTestCameras.topDown();
                 try (Framebuffer scene = sceneTarget()) {
                     clear(scene, DARK, 1.0f);
                     float[] baseline = toArray(readColor(scene));
@@ -461,8 +456,8 @@ class VolumetricCloudGlTest {
             bind(window);
             try (var tracking = GlDebug.acquireResourceTracking()) {
                 GlRenderDevice device = new GlRenderDevice();
-                ExternalCamera camera = orthoCamera();
-                ExternalCamera smallCamera = orthoCamera();
+                ExternalCamera camera = CloudTestCameras.topDown();
+                ExternalCamera smallCamera = CloudTestCameras.topDown();
                 VolumetricCloudPass pass = null;
                 try (Framebuffer scene = sceneTarget();
                      Framebuffer small = sceneTarget(SMALL_WIDTH, SMALL_HEIGHT)) {
@@ -542,27 +537,6 @@ class VolumetricCloudGlTest {
                 1_000.0f, 1_400.0f, density, 0.05f, 0.95f,
                 new Vector3f(0.0f, -1.0f, 0.0f), new Vector3f(1.0f), 0.3f,
                 32, 40.0f, 4, 2_000.0f, renderScale, historyBlend, 0.1f, 2.0f, 5.0f, 30.0f);
-    }
-
-    private static ExternalCamera orthoCamera() {
-        return orthoCamera(ORTHO_CENTER_X, ORTHO_CENTER_Z);
-    }
-
-    private static ExternalCamera orthoCamera(float centerX, float centerZ) {
-        Matrix4f projection = new Matrix4f().ortho(-ORTHO_HALF_EXTENT, ORTHO_HALF_EXTENT,
-                -ORTHO_HALF_EXTENT, ORTHO_HALF_EXTENT, 1.0f, 10_000.0f);
-        Matrix4f view = new Matrix4f().lookAt(new Vector3f(centerX, CAMERA_HEIGHT, centerZ),
-                new Vector3f(centerX, 0.0f, centerZ), new Vector3f(0.0f, 0.0f, -1.0f));
-        return ExternalCamera.of(view, projection,
-                new Vector3f(centerX, CAMERA_HEIGHT, centerZ), 0.0f);
-    }
-
-    private static ExternalCamera horizonCamera() {
-        Matrix4f projection = new Matrix4f().perspective((float) Math.toRadians(50.0),
-                1.0f, 0.125f, 5_000.0f);
-        Matrix4f view = new Matrix4f().lookAt(new Vector3f(0.0f, 400.0f, 0.0f),
-                new Vector3f(0.0f, 400.0f, -1.0f), new Vector3f(0.0f, 1.0f, 0.0f));
-        return ExternalCamera.of(view, projection, new Vector3f(0.0f, 400.0f, 0.0f), 0.0f);
     }
 
     private static Framebuffer sceneTarget() {
