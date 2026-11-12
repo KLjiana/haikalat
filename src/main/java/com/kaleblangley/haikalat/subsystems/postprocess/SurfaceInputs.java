@@ -19,6 +19,7 @@ public interface SurfaceInputs {
         DEPTH,
         NORMAL,
         ROUGHNESS,
+        SUBSURFACE,
         VELOCITY,
         PREVIOUS_SURFACE_DEPTH,
         VALIDITY,

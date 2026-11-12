@@ -17,6 +17,7 @@ import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
+import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
 import com.kaleblangley.haikalat.core.material.UniformKey;
 import com.kaleblangley.haikalat.core.material.UniformValue;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -42,6 +43,7 @@ public final class SceneSurfacePass implements AutoCloseable {
     private final ShaderProgram surfaceProgram;
     private final ShaderProgram instancedProgram;
     private final boolean roughnessOutput;
+    private final boolean subsurfaceOutput;
     private GlBuffer previousInstanceBuffer;
     private long previousInstanceBytes;
     private float[] instanceScratch = new float[0];
@@ -63,6 +65,7 @@ public final class SceneSurfacePass implements AutoCloseable {
             this.surfaceProgram = surface;
             this.instancedProgram = instanced;
             this.roughnessOutput = layout.raw(SceneBufferChannel.ROUGHNESS) != null;
+            this.subsurfaceOutput = layout.raw(SceneBufferChannel.SUBSURFACE) != null;
         } catch (RuntimeException failure) {
             if (instanced != null) instanced.close();
             if (surface != null) surface.close();
@@ -139,6 +142,9 @@ public final class SceneSurfacePass implements AutoCloseable {
             }
             if (masked == 1) {
                 bindMaskedMaterial(cmd, surfaceProgram, renderer.material());
+            }
+            if (subsurfaceOutput) {
+                bindSubsurfaceMaterial(cmd, surfaceProgram, renderer.material());
             }
             Matrix4f model = frame.copyModel(entry, modelScratch);
             Matrix4f previousModel = sceneState.previousModel(renderer);
@@ -303,6 +309,102 @@ public final class SceneSurfacePass implements AutoCloseable {
                 .setUniformInt(shader, "uHasVertexColor", vertexColor instanceof UniformValue.IntVal value ? value.value() : 0)
                 .setUniformFloat(shader, "uAlphaCutoff", cutoffValue)
                 .setUniformVec4(shader, "uBaseColorFactor", factorValue);
+    }
+
+    /**
+     * Uploads the per-material subsurface mask inputs. Effective instance
+     * overrides are resolved first so the surface mask and the forward shading
+     * cannot silently disagree. The thickness source falls back to CONSTANT
+     * when the map it would sample has no binding, which keeps a raw
+     * {@code Material.builder(...)} caller on the bounded contract instead of
+     * sampling an unrelated unit-0 texture.
+     */
+    private static void bindSubsurfaceMaterial(CommandBuffer cmd, ShaderProgram shader,
+                                               MaterialInstance instance) {
+        SubsurfaceScatteringSettings settings = instance.material().subsurfaceScattering();
+        int enabled = effectiveInt(instance, "uSubsurfaceEnabled",
+                settings.active() ? 1 : 0);
+        cmd.setUniformInt(shader, "uSubsurfaceEnabled", enabled);
+        if (enabled == 0) return;
+
+        int thicknessSource = effectiveInt(instance, "uSubsurfaceThicknessSource",
+                settings.thicknessSource().shaderIndex());
+        if (thicknessSource == SubsurfaceScatteringSettings.ThicknessSource.OCCLUSION.shaderIndex()
+                && textureBinding(instance, 3) == null) {
+            thicknessSource = SubsurfaceScatteringSettings.ThicknessSource.CONSTANT.shaderIndex();
+        }
+        if (thicknessSource == SubsurfaceScatteringSettings.ThicknessSource.BASE_ALPHA.shaderIndex()
+                && textureBinding(instance, 0) == null) {
+            thicknessSource = SubsurfaceScatteringSettings.ThicknessSource.CONSTANT.shaderIndex();
+        }
+        cmd.setUniformFloat(shader, "uSubsurfaceIntensity",
+                        effectiveFloat(instance, "uSubsurfaceIntensity", settings.intensity()))
+                .setUniformInt(shader, "uSubsurfaceProfile",
+                        effectiveInt(instance, "uSubsurfaceProfile",
+                                settings.profile().shaderIndex()))
+                .setUniformFloat(shader, "uSubsurfaceProfileScale",
+                        effectiveFloat(instance, "uSubsurfaceProfileScale",
+                                settings.profileScaleMetres()))
+                .setUniformInt(shader, "uSubsurfaceThicknessSource", thicknessSource)
+                .setUniformFloat(shader, "uSubsurfaceThickness",
+                        effectiveFloat(instance, "uSubsurfaceThickness",
+                                settings.thicknessMetres()))
+                // These three values are consumed only by the surface mask and
+                // the screen-space pass. The forward shader does not declare
+                // them, so they intentionally come from the material template
+                // and are never resolved from instance overrides (an override
+                // would be uploaded to the forward program and fail).
+                .setUniformFloat(shader, "uSubsurfaceDiffusionRadius",
+                        settings.diffusionRadiusMetres())
+                .setUniformInt(shader, "uSubsurfaceScreenSpace",
+                        settings.screenSpaceEnabled() ? 1 : 0)
+                .setUniformFloat(shader, "uSubsurfaceMaxDistance",
+                        settings.maxDistanceMetres());
+
+        if (thicknessSource == SubsurfaceScatteringSettings.ThicknessSource.OCCLUSION.shaderIndex()) {
+            Material.TextureBinding occlusion = textureBinding(instance, 3);
+            cmd.bindTexture(3, occlusion.texture(), occlusion.sampler())
+                    .setUniformInt(shader, "uOcclusionMap", 3);
+        } else if (thicknessSource
+                == SubsurfaceScatteringSettings.ThicknessSource.BASE_ALPHA.shaderIndex()) {
+            Material.TextureBinding baseColor = textureBinding(instance, 0);
+            cmd.bindTexture(0, baseColor.texture(), baseColor.sampler())
+                    .setUniformInt(shader, "uBaseColorMap", 0)
+                    .setUniformInt(shader, "uHasVertexColor",
+                            effectiveInt(instance, "uHasVertexColor", 0))
+                    .setUniformVec4(shader, "uBaseColorFactor",
+                            effectiveVec4(instance, "uBaseColorFactor",
+                                    new Vector4f(1.0f)));
+        }
+    }
+
+    private static int effectiveInt(MaterialInstance instance, String name, int fallback) {
+        UniformValue value = instance.uniformOverrides().get(UniformKey.int1(name));
+        if (value == null) value = instance.material().defaultUniforms().get(UniformKey.int1(name));
+        return value instanceof UniformValue.IntVal intValue ? intValue.value() : fallback;
+    }
+
+    private static float effectiveFloat(MaterialInstance instance, String name, float fallback) {
+        UniformValue value = instance.uniformOverrides().get(UniformKey.float1(name));
+        if (value == null) value = instance.material().defaultUniforms().get(UniformKey.float1(name));
+        return value instanceof UniformValue.FloatVal floatValue ? floatValue.value() : fallback;
+    }
+
+    private static Vector4f effectiveVec4(MaterialInstance instance, String name,
+                                          Vector4f fallback) {
+        UniformValue value = instance.uniformOverrides().get(UniformKey.vec4(name));
+        if (value == null) value = instance.material().defaultUniforms().get(UniformKey.vec4(name));
+        return value instanceof UniformValue.Vec4Val vec4Value
+                ? new Vector4f(vec4Value.value()) : fallback;
+    }
+
+    private static Material.TextureBinding textureBinding(MaterialInstance instance, int unit) {
+        Material.TextureBinding override = instance.textureOverrides().get(unit);
+        if (override != null) return override;
+        for (Material.TextureBinding binding : instance.material().defaultTextures()) {
+            if (binding.unit() == unit) return binding;
+        }
+        return null;
     }
 
     @Override

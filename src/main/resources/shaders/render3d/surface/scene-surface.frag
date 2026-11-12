@@ -17,6 +17,23 @@ layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
 layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
 uniform float uRoughness;
 #endif
+#ifdef SCENE_SLOT_SUBSURFACE
+layout(location = SCENE_SLOT_SUBSURFACE) out vec4 outSubsurface;
+uniform int uSubsurfaceEnabled;
+uniform float uSubsurfaceIntensity;
+uniform int uSubsurfaceProfile;
+uniform float uSubsurfaceProfileScale;
+uniform int uSubsurfaceThicknessSource;
+uniform float uSubsurfaceThickness;
+uniform float uSubsurfaceDiffusionRadius;
+uniform int uSubsurfaceScreenSpace;
+uniform float uSubsurfaceMaxDistance;
+uniform sampler2D uOcclusionMap;
+#endif
+
+// Fixed red-dominant penetration of the skin profile. The values match
+// SubsurfaceScatteringSettings.SKIN_* and the PBR forward shader.
+const vec3 SUBSURFACE_SKIN_PENETRATION = vec3(1.0, 0.55, 0.30);
 
 uniform int uMasked;
 uniform int uHasVertexColor;
@@ -64,5 +81,49 @@ void main() {
     outValidity = valid ? 1.0 : 0.0;
 #ifdef SCENE_SLOT_ROUGHNESS
     outRoughness = clamp(uRoughness, 0.0, 1.0);
+#endif
+#ifdef SCENE_SLOT_SUBSURFACE
+    outSubsurface = vec4(0.0);
+    if (uSubsurfaceEnabled != 0) {
+        // Same metre-space thickness formula as pbr-forward.frag: a constant
+        // value, or a proxy derived from the existing occlusion/base-alpha
+        // inputs. Every term is bounded by the settings contract. The
+        // comparison-based checks make a NaN/Inf raw override fail closed.
+        float thickness = uSubsurfaceThickness >= 0.0 && uSubsurfaceThickness <= 2.0
+                ? uSubsurfaceThickness : 0.0;
+        if (uSubsurfaceThicknessSource == 1) {
+            float occlusion = clamp(texture(uOcclusionMap, vTexCoord).r, 0.0, 1.0);
+            thickness = clamp((1.0 - occlusion) * thickness, 0.0, 2.0);
+        } else if (uSubsurfaceThicknessSource == 2) {
+            vec4 base = texture(uBaseColorMap, vTexCoord) * uBaseColorFactor;
+            if (uHasVertexColor != 0) base *= vVertexColor;
+            thickness = clamp((1.0 - clamp(base.a, 0.0, 1.0)) * thickness, 0.0, 2.0);
+        }
+        float profileScale = uSubsurfaceProfileScale >= 0.001
+                && uSubsurfaceProfileScale <= 10.0 ? uSubsurfaceProfileScale : 0.001;
+        vec3 penetration = uSubsurfaceProfile == 1
+                ? SUBSURFACE_SKIN_PENETRATION : vec3(1.0);
+        vec3 attenuation = exp(-thickness / max(profileScale * penetration,
+                vec3(0.001)));
+        // Thick regions absorb more, so their screen-space scatter halo is
+        // narrower; the effective radius is the mean channel attenuation times
+        // the authored radius and stays in [0, 2] metres.
+        float authoredRadius = uSubsurfaceDiffusionRadius >= 0.0
+                && uSubsurfaceDiffusionRadius <= 2.0 ? uSubsurfaceDiffusionRadius : 0.0;
+        float effectiveRadius = clamp(authoredRadius
+                * dot(attenuation, vec3(1.0 / 3.0)), 0.0, 2.0);
+        float distanceFade = 1.0;
+        if (uSubsurfaceMaxDistance > 0.0 && uSubsurfaceMaxDistance <= 100.0) {
+            float bound = max(uSubsurfaceMaxDistance, 0.001);
+            distanceFade = 1.0 - smoothstep(bound * 0.5, bound,
+                    length(uCameraPosition - vWorldPosition));
+        }
+        float intensity = uSubsurfaceIntensity >= 0.0 && uSubsurfaceIntensity <= 1.0
+                ? uSubsurfaceIntensity : 0.0;
+        float coverage = uSubsurfaceScreenSpace != 0
+                ? intensity * clamp(distanceFade, 0.0, 1.0) : 0.0;
+        outSubsurface = vec4(coverage, effectiveRadius, thickness,
+                uSubsurfaceScreenSpace != 0 ? 1.0 : 0.0);
+    }
 #endif
 }

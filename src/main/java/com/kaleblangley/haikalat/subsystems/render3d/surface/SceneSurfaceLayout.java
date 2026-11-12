@@ -18,7 +18,7 @@ public record SceneSurfaceLayout(int samples, SceneBufferRequirements requests,
                           List<Attachment> raster, List<Attachment> resolve, Attachment reactive,
                           ReactiveMode reactiveMode, boolean exactDepthOnlyClear) {
     private static final List<SceneBufferChannel> SURFACE_COLORS =
-            List.of(NORMAL, VELOCITY, PREVIOUS_SURFACE_DEPTH, VALIDITY, ROUGHNESS);
+            List.of(NORMAL, VELOCITY, PREVIOUS_SURFACE_DEPTH, VALIDITY, ROUGHNESS, SUBSURFACE);
 
     public enum ReactiveMode { NONE, SCENE, VOLUME_ALIAS }
 
@@ -30,6 +30,7 @@ public record SceneSurfaceLayout(int samples, SceneBufferRequirements requests,
             int bytes = switch (format) {
                 case R8 -> 1;
                 case RG16F, R32F, DEPTH_COMPONENT24 -> 4;
+                case RGBA16F -> 8;
                 default -> throw new IllegalStateException("unexpected surface format " + format);
             };
             return (long) bytes * samples;
@@ -93,12 +94,14 @@ public record SceneSurfaceLayout(int samples, SceneBufferRequirements requests,
                 case PREVIOUS_SURFACE_DEPTH -> samples > 1 ? SCENE_PREVIOUS_DEPTH_MS : SCENE_PREVIOUS_DEPTH;
                 case VALIDITY -> samples > 1 ? SCENE_VALIDITY_MS : SCENE_VALIDITY;
                 case ROUGHNESS -> samples > 1 ? SCENE_ROUGHNESS_MS : SCENE_ROUGHNESS;
+                case SUBSURFACE -> samples > 1 ? SCENE_SUBSURFACE_MS : SCENE_SUBSURFACE;
                 default -> throw new IllegalArgumentException("not a raster color: " + channel);
             };
             RenderFormat format = switch (channel) {
                 case NORMAL, VELOCITY -> RenderFormat.RG16F;
                 case PREVIOUS_SURFACE_DEPTH -> RenderFormat.R32F;
                 case VALIDITY, ROUGHNESS -> RenderFormat.R8;
+                case SUBSURFACE -> RenderFormat.RGBA16F;
                 default -> throw new IllegalArgumentException("not a raster color: " + channel);
             };
             outputs.add(new Attachment(channel, name, producer, format, samples, outputs.size()));

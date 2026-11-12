@@ -1,5 +1,7 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
+import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
+
 import java.util.Objects;
 
 /** Optional subsystem-owned effects layered on the runtime's core HDR/AA settings. */
@@ -12,14 +14,16 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                   MotionBlurSettings motionBlur,
                                   SsrSettings ssr,
                                   TemporalDenoiseSettings temporalDenoise,
-                                  TemporalUpscalingSettings temporalUpscaling) {
+                                  TemporalUpscalingSettings temporalUpscaling,
+                                  SubsurfaceScatteringSettings subsurfaceScattering) {
     /** Source-compatible constructor retained for existing callers. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog) {
         this(colorGrading, fog, GtaoSettings.disabled(), VignetteSettings.disabled(),
                 FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before v0.28.1. */
@@ -29,7 +33,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before grain/aberration. */
@@ -50,7 +55,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before depth of field. */
@@ -88,7 +94,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                MotionBlurSettings motionBlur) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, SsrSettings.disabled(),
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal denoise. */
@@ -102,7 +109,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                SsrSettings ssr) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr,
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal upscaling. */
@@ -117,7 +125,23 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                TemporalDenoiseSettings temporalDenoise) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled());
+    }
+
+    /** Source-compatible constructor retained for callers written before subsurface scattering. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration,
+                               ScreenDistortionSettings screenDistortion,
+                               DepthOfFieldSettings depthOfField,
+                               MotionBlurSettings motionBlur,
+                               SsrSettings ssr,
+                               TemporalDenoiseSettings temporalDenoise,
+                               TemporalUpscalingSettings temporalUpscaling) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
+                temporalUpscaling, SubsurfaceScatteringSettings.disabled());
     }
 
     public PostProcessSettings {
@@ -133,6 +157,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         Objects.requireNonNull(ssr, "ssr");
         Objects.requireNonNull(temporalDenoise, "temporalDenoise");
         Objects.requireNonNull(temporalUpscaling, "temporalUpscaling");
+        Objects.requireNonNull(subsurfaceScattering, "subsurfaceScattering");
     }
 
     public static PostProcessSettings defaults() {
@@ -141,14 +166,16 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 FilmGrainSettings.disabled(), ChromaticAberrationSettings.disabled(),
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
-                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled());
+                TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
+                SubsurfaceScatteringSettings.disabled());
     }
 
     /** Returns a copy with GTAO replaced and every other effect preserved. */
     public PostProcessSettings withGtao(GtaoSettings value) {
         return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
                 vignette, filmGrain, chromaticAberration, screenDistortion, depthOfField,
-                motionBlur, ssr, temporalDenoise, temporalUpscaling);
+                motionBlur, ssr, temporalDenoise, temporalUpscaling,
+                subsurfaceScattering);
     }
 
     /** Returns a copy with depth of field replaced and every other effect preserved. */
@@ -156,7 +183,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion,
                 Objects.requireNonNull(value, "depthOfField"), motionBlur, ssr,
-                temporalDenoise, temporalUpscaling);
+                temporalDenoise, temporalUpscaling, subsurfaceScattering);
     }
 
     /** Returns a copy with motion blur replaced and every other effect preserved. */
@@ -164,28 +191,44 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField,
                 Objects.requireNonNull(value, "motionBlur"), ssr, temporalDenoise,
-                temporalUpscaling);
+                temporalUpscaling, subsurfaceScattering);
     }
 
     /** Returns a copy with screen-space reflections replaced and every other effect preserved. */
     public PostProcessSettings withSsr(SsrSettings value) {
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur,
-                Objects.requireNonNull(value, "ssr"), temporalDenoise, temporalUpscaling);
+                Objects.requireNonNull(value, "ssr"), temporalDenoise, temporalUpscaling,
+                subsurfaceScattering);
     }
 
     /** Returns a copy with temporal denoising replaced and every other effect preserved. */
     public PostProcessSettings withTemporalDenoise(TemporalDenoiseSettings value) {
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
-                Objects.requireNonNull(value, "temporalDenoise"), temporalUpscaling);
+                Objects.requireNonNull(value, "temporalDenoise"), temporalUpscaling,
+                subsurfaceScattering);
     }
 
     /** Returns a copy with temporal upscaling replaced and every other effect preserved. */
     public PostProcessSettings withTemporalUpscaling(TemporalUpscalingSettings value) {
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
-                temporalDenoise, Objects.requireNonNull(value, "temporalUpscaling"));
+                temporalDenoise, Objects.requireNonNull(value, "temporalUpscaling"),
+                subsurfaceScattering);
+    }
+
+    /**
+     * Returns a copy with the screen-space subsurface-scattering request
+     * replaced and every other effect preserved. Only the activation, radius
+     * cap and maximum gather distance are global; per-pixel strength, radius
+     * and thickness come from the shared {@code SUBSURFACE} surface mask.
+     */
+    public PostProcessSettings withSubsurfaceScattering(SubsurfaceScatteringSettings value) {
+        return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
+                chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
+                temporalDenoise, temporalUpscaling,
+                Objects.requireNonNull(value, "subsurfaceScattering"));
     }
 
     public static Builder builder() {
@@ -206,6 +249,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         private SsrSettings ssr = SsrSettings.disabled();
         private TemporalDenoiseSettings temporalDenoise = TemporalDenoiseSettings.disabled();
         private TemporalUpscalingSettings temporalUpscaling = TemporalUpscalingSettings.disabled();
+        private SubsurfaceScatteringSettings subsurfaceScattering =
+                SubsurfaceScatteringSettings.disabled();
 
         private Builder() {
         }
@@ -270,10 +315,15 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
             return this;
         }
 
+        public Builder subsurfaceScattering(SubsurfaceScatteringSettings value) {
+            subsurfaceScattering = Objects.requireNonNull(value, "subsurfaceScattering");
+            return this;
+        }
+
         public PostProcessSettings build() {
             return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                     chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
-                    temporalDenoise, temporalUpscaling);
+                    temporalDenoise, temporalUpscaling, subsurfaceScattering);
         }
     }
 }

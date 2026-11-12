@@ -24,6 +24,7 @@ public final class PostProcessTargets {
     public static final String DEPTH_OF_FIELD_PASS = "DepthOfFieldPass";
     public static final String MOTION_BLUR_PASS = "MotionBlurPass";
     public static final String SSR_PASS = "SsrPass";
+    public static final String SUBSURFACE_SCATTERING_PASS = "SubsurfaceScatteringPass";
     public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
     public static final String TEMPORAL_UPSCALING_PASS = "TemporalUpscalingPass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
@@ -48,6 +49,7 @@ public final class PostProcessTargets {
     public static final String SCENE_DEPTH = "sceneDepth";
     public static final String SCENE_NORMAL = "sceneNormal";
     public static final String SCENE_ROUGHNESS = "sceneRoughness";
+    public static final String SCENE_SUBSURFACE = "sceneSubsurface";
     public static final String SCENE_VELOCITY = "sceneVelocity";
     public static final String SCENE_PREVIOUS_DEPTH = "scenePreviousDepth";
     public static final String SCENE_VALIDITY = "sceneValidity";
@@ -58,6 +60,7 @@ public final class PostProcessTargets {
     public static final String SCENE_DEPTH_MS = "sceneDepthMS";
     public static final String SCENE_NORMAL_MS = "sceneNormalMS";
     public static final String SCENE_ROUGHNESS_MS = "sceneRoughnessMS";
+    public static final String SCENE_SUBSURFACE_MS = "sceneSubsurfaceMS";
     public static final String SCENE_VELOCITY_MS = "sceneVelocityMS";
     public static final String SCENE_PREVIOUS_DEPTH_MS = "scenePreviousDepthMS";
     public static final String SCENE_VALIDITY_MS = "sceneValidityMS";
@@ -79,6 +82,7 @@ public final class PostProcessTargets {
     public static final String DEPTH_OF_FIELD_COLOR = "depthOfFieldColor";
     public static final String MOTION_BLUR_COLOR = "motionBlurColor";
     public static final String SSR_COLOR = "ssrColor";
+    public static final String SUBSURFACE_SCATTERING_COLOR = "subsurfaceScatteringColor";
     public static final String TEMPORAL_DENOISE_COLOR = "temporalDenoiseColor";
     public static final String TEMPORAL_UPSCALING_COLOR = "temporalUpscalingColor";
     public static final String TEMPORAL_UPSCALING_INPUT_COLOR = "temporalUpscalingInputColor";

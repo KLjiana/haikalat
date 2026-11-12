@@ -18,6 +18,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.fog.FogChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain;
 import com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass;
+import com.kaleblangley.haikalat.subsystems.postprocess.sss.SubsurfaceScatteringPass;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidationReason;
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
@@ -70,6 +71,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final DepthOfFieldPass depthOfField;
     private final MotionBlurPass motionBlur;
     private final SsrPass ssr;
+    private final SubsurfaceScatteringPass subsurfaceScattering;
     private final TemporalDenoisePass temporalDenoise;
     private final TemporalUpscalingPass temporalUpscaling;
     private final TemporalUpscalingSource temporalUpscalingSource;
@@ -100,6 +102,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 DepthOfFieldPass depthOfField,
                                 MotionBlurPass motionBlur,
                                 SsrPass ssr,
+                                SubsurfaceScatteringPass subsurfaceScattering,
                                 TemporalDenoisePass temporalDenoise,
                                 TemporalUpscalingPass temporalUpscaling,
                                 TemporalUpscalingSource temporalUpscalingSource,
@@ -125,6 +128,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.depthOfField = depthOfField;
         this.motionBlur = motionBlur;
         this.ssr = ssr;
+        this.subsurfaceScattering = subsurfaceScattering;
         this.temporalDenoise = temporalDenoise;
         this.temporalUpscaling = temporalUpscaling;
         this.temporalUpscalingSource = temporalUpscalingSource;
@@ -257,6 +261,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                 throw new IllegalArgumentException(
                         "temporal denoising requires HDR tone mapping");
             }
+            if (effects.subsurfaceScattering().screenSpaceActive() && !settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "screen-space subsurface scattering requires HDR tone mapping");
+            }
             if ((effects.vignette().active() || effects.filmGrain().active()
                     || effects.chromaticAberration().active()) && !settings.hdrEnabled()) {
                 throw new IllegalArgumentException("screen effects require HDR tone mapping");
@@ -311,6 +319,15 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     ? donor.ssr : null,
                             () -> new SsrPass(effects.ssr()),
                             owned, borrowed) : null;
+            SubsurfaceScatteringPass subsurfaceScattering =
+                    effects.subsurfaceScattering().screenSpaceActive()
+                    ? reuseOrCreate(donor != null && donor.subsurfaceScattering != null
+                                    && donor.subsurfaceScattering.settings()
+                                    .equals(effects.subsurfaceScattering())
+                                    ? donor.subsurfaceScattering : null,
+                            () -> new SubsurfaceScatteringPass(
+                                    effects.subsurfaceScattering()),
+                            owned, borrowed) : null;
             TemporalDenoisePass temporalDenoise = null;
             if (effects.temporalDenoise().active()) {
                 temporalDenoise = new TemporalDenoisePass(effects.temporalDenoise(),
@@ -328,7 +345,8 @@ public final class PostProcessPipeline implements AutoCloseable {
             }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
                     autoExposure, fog, vignette, filmGrain, chromaticAberration, screenDistortion,
-                    depthOfField, motionBlur, ssr, temporalDenoise, temporalUpscaling,
+                    depthOfField, motionBlur, ssr, subsurfaceScattering, temporalDenoise,
+                    temporalUpscaling,
                     effects.temporalUpscaling().active() ? temporalUpscalingSource : null,
                     hdrVfx, surfaceInputs, ssrEnvironment, lateSurface, owned, borrowed, donor);
         } catch (RuntimeException | Error failure) {
@@ -625,6 +643,14 @@ public final class PostProcessPipeline implements AutoCloseable {
             surfaceInputs.validateDependency(PostProcessTargets.SSR_PASS,
                     requireInput(SurfaceInputs.Channel.ROUGHNESS));
         }
+        if (subsurfaceScattering != null) {
+            surfaceInputs.validateDependency(PostProcessTargets.SUBSURFACE_SCATTERING_PASS,
+                    requireInput(SurfaceInputs.Channel.DEPTH));
+            surfaceInputs.validateDependency(PostProcessTargets.SUBSURFACE_SCATTERING_PASS,
+                    requireInput(SurfaceInputs.Channel.NORMAL));
+            surfaceInputs.validateDependency(PostProcessTargets.SUBSURFACE_SCATTERING_PASS,
+                    requireInput(SurfaceInputs.Channel.SUBSURFACE));
+        }
     }
 
     private SurfaceInputs.Input requireInput(SurfaceInputs.Channel channel) {
@@ -880,6 +906,44 @@ public final class PostProcessPipeline implements AutoCloseable {
             addTaaPass(graph, hdrTexture, hdrProducer);
             hdrTexture = PostProcessTargets.TAA_RESOLVED_COLOR;
             hdrProducer = PostProcessTargets.TAA_PASS;
+        }
+
+        if (subsurfaceScattering != null) {
+            final String diffusionInput = hdrTexture;
+            final String diffusionProducer = hdrProducer;
+            SurfaceInputs.Input diffusionDepth = requireInput(SurfaceInputs.Channel.DEPTH);
+            SurfaceInputs.Input diffusionNormal = requireInput(SurfaceInputs.Channel.NORMAL);
+            SurfaceInputs.Input diffusionMask = requireInput(SurfaceInputs.Channel.SUBSURFACE);
+            var diffusionPass = graph.addPass(PostProcessTargets.SUBSURFACE_SCATTERING_PASS)
+                    .createColor(PostProcessTargets.SUBSURFACE_SCATTERING_COLOR,
+                            RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(diffusionProducer);
+            for (String producer : uniqueSurfaceProducers(diffusionProducer,
+                    List.of(diffusionDepth, diffusionNormal, diffusionMask))) {
+                if (!graph.hasPass(producer)) {
+                    throw new IllegalStateException(
+                            "screen-space subsurface scattering requires surface producer "
+                                    + producer);
+                }
+                diffusionPass.dependsOn(producer);
+            }
+            diffusionPass.execute((res, cmd) -> {
+                TemporalFramePose frame = framePose;
+                if (frame == null) {
+                    throw new IllegalStateException(
+                            "screen-space subsurface scattering requires a started frame pose");
+                }
+                subsurfaceScattering.recordIntoCurrentTarget(cmd,
+                        res.colorAttachment(diffusionInput),
+                        surfaceInputs.texture(res, diffusionDepth),
+                        surfaceInputs.texture(res, diffusionNormal),
+                        surfaceInputs.texture(res, diffusionMask),
+                        frame.inverseJitteredProjection(), frame.inverseView(),
+                        graph.width(), graph.height());
+            });
+            hdrTexture = PostProcessTargets.SUBSURFACE_SCATTERING_COLOR;
+            hdrProducer = PostProcessTargets.SUBSURFACE_SCATTERING_PASS;
         }
 
         if (ssr != null) {
