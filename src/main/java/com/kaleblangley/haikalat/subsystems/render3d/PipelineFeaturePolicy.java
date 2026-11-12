@@ -36,7 +36,7 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         if (topology.sceneBuffers().requires(SceneBufferChannel.ROUGHNESS)
                 && !topology.pbrMaterials()) {
             throw new IllegalStateException(
-                    "screen-space reflections require at least one metallic-roughness PBR material");
+                    "screen-space reflections or indirect diffuse require at least one metallic-roughness PBR material");
         }
         if (topology.fog() && topology.antiAliasingMode() == AntiAliasingMode.MSAA) {
             DepthResolveDescriptor.forTopology(topology);
