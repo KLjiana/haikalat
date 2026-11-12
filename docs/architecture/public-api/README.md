@@ -145,6 +145,19 @@ resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享�
 迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #32/#33 新增 advanced GL-free `core.material.SubsurfaceScatteringSettings`（散射色/强度、解析 profile、世界单位平均自由程、厚度来源与常量厚度、屏幕空间半径上限与最大距离，构造期校验；默认 `disabled()`）与 `Material` 的 `subsurfaceScattering` 组件；advanced `postprocess.sss.SubsurfaceScatteringPass` 是 `GlResource`（16-tap Poisson 屏幕空间扩散、深度/法线边界拒绝、世界到像素半径、64 px 上限、高光保护、边缘淡出、disabled 精确 no-op）。共享 surface 新增 `SUBSURFACE` mask 通道（由 `SceneSurfacePass` 写入、MSAA resolve 保留）；`PostProcessSettings` 追加 `subsurfaceScattering` 组件并保持旧构造器兼容。合同、限制与 GL 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #38 新增 advanced GL-free `render3d.volumetric.VolumetricParticleSettings`（椭球包围盒、密度/吸收/散射、最大步数/步长、最大屏幕覆盖率、相位各向异性，构造期校验；默认 `disabled()`）与 `render3d.volumetric.VolumetricParticlePass`（`GlResource`：解析闭式光深、深度截断、单次散射、预乘合成；candidate resize、幂等 close、disabled 精确 no-op）。该 pass 只消费调用方已合成的 HDR 颜色与同帧不透明深度，不重复积分已有体积雾；不包含 #43 烟雾模拟。合同、限制与 GL 证据见[体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #37 新增 advanced GL-free `render3d.transparency.StochasticTransparencySettings`（每帧样本数、jitter、覆盖率映射、时域历史/拒绝、邻域 clamp、容量，构造期校验；默认 `disabled()`）、advanced `StochasticTransparencyInputs`（stable view/projection 及逆矩阵、借用单采样场景深度）与 internal `render3d.transparency.StochasticTransparencyPass`（`GlResource`：私有样本深度、RGBA32F 帧和、双 slot 时域历史、预乘合成；disabled 精确 no-op，不写共享深度）。`OitSurface` 集合表示复用 #28。合同、限制与 GL 证据见[随机透明技术卡](../../planning/v0.28.1-s4-stochastic-transparency.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #38/#37 生产接线（`codex/render-pipeline-wiring`）：`RenderFeatureSettings` 追加
+`volumetricParticles` 与 `stochasticTransparency`（第 18/19 个 canonical 组件，builder/defaults/
+`toBuilder()` 保持源码兼容，直接调用 canonical 构造器的调用方需更新）；`RenderFeature` 追加
+`VOLUMETRIC_PARTICLES`/`STOCHASTIC_TRANSPARENCY` 两个活动项；`RenderPipeline` 新增
+`volumetricParticles(...)`/`applyVolumetricParticles(...)`、
+`stochasticTransparency(...)`/`applyStochasticTransparency(...)` 与
+`stochasticTransparencySurfaces(...)`/`stochasticTransparencySurfaces()`。粒子只在体积雾合成之后、
+透明 replay/HDR VFX 之前消费同一 HDR 颜色与单采样不透明深度；随机透明在最终场景颜色上原位合成，
+位于雾/景深/Bloom/TAA 之前，图节点不声明深度附件。两者默认关闭时拓扑与基线逐字节一致；MSAA
+（粒子/随机透明）与 TAA（随机透明）报告 `UNAVAILABLE` 且不改变图。`TaaInvalidationReason` 末尾追加
+`VOLUMETRIC_PARTICLE_SETTINGS`/`STOCHASTIC_TRANSPARENCY_SETTINGS`（既有常量与序号不变）。本接线没有
+新增 public 顶层类型，`render3d.allowlist` 无需新增条目；迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
 `renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
 quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`
