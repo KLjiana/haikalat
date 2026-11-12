@@ -45,6 +45,7 @@ def jvmCases = [
         'TemporalFrameStateTest', 'TemporalJitterTest', 'PipelineTopologyTest',
         'RenderGraphTest', 'RenderGraphResizeCandidateTest', 'RenderGraphDescriptionTest',
         'RenderGraphCompilerTest', 'RenderFeatureControlTest',
+        'RenderFeatureControlPostProcessTest',
         'VfxMaterialTest', 'MaterialTest', 'EffectInstanceTest', 'VfxRendererMathTest',
         'VfxLightBridgeTest', 'CombatVfxProfileCodecTest', 'CombatVfxControllerTest',
         'VignetteSettingsTest', 'FilmGrainSettingsTest', 'ChromaticAberrationSettingsTest',
