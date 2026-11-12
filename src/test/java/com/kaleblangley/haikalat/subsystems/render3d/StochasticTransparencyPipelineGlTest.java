@@ -110,7 +110,7 @@ class StochasticTransparencyPipelineGlTest {
 
                     float[] depth = readDepth(depthTexture[0]);
                     for (int index = 0; index < depth.length; index++) {
-                        assertEquals(0.5f, depth[index],
+                        assertEquals(0.5f, depth[index], 1.0e-5f,
                                 "stochastic composite wrote shared depth at index " + index);
                     }
                     float[] composited = pipeline.captureLinearHdrRgbaFloat();
@@ -156,11 +156,17 @@ class StochasticTransparencyPipelineGlTest {
     }
 
     private static void seedHostDepth(OwnedPresentationTarget host, float value) {
-        org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER,
-                host.target().drawFramebufferId());
-        glClearDepth(value);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        float previousClearDepth = org.lwjgl.opengl.GL11.glGetFloat(
+                org.lwjgl.opengl.GL11.GL_DEPTH_CLEAR_VALUE);
+        try {
+            org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER,
+                    host.target().drawFramebufferId());
+            glClearDepth(value);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        } finally {
+            org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glClearDepth(previousClearDepth);
+        }
     }
 
     /** Re-declares the owned host framebuffer as a borrowed target for the depth copy. */

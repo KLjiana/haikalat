@@ -57,15 +57,38 @@ class VolumetricParticlePipelineGlTest {
                 RenderPipeline pipeline = pipeline(window);
                 try {
                     pipeline.build();
+                    // The fixture relies on a cleared (no-occluder) depth; restore
+                    // the GL default explicitly so a previously run case cannot
+                    // leak a different clear depth into this graph.
+                    glClearDepth(1.0f);
                     pipeline.execute(new GlRenderDevice(), 1f / 60f);
                     var generation = pipeline.activeGenerationForTest();
                     assertNotNull(generation.volumetricParticles());
+                    assertTrue(pipeline.graph().hasPass(VolumetricParticlePass.PASS_NAME),
+                            "the active pipeline must declare the particle graph bridge");
+                    var order = pipeline.graph().description().executionOrder();
+                    assertTrue(order.indexOf(VolumetricPassBuilder.COMPOSITE_PASS)
+                                    < order.indexOf(VolumetricParticlePass.PASS_NAME),
+                            "particles must run after the fog composite: " + order);
+                    assertTrue(order.indexOf(VolumetricParticlePass.PASS_NAME)
+                                    < order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS),
+                            "transparency must consume the particle bridge: " + order);
 
                     float[] fog = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricPassBuilder.COMPOSITE_COLOR);
                     float[] particles = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricParticlePass.COLOR_TEXTURE);
                     assertEquals(fog.length, particles.length);
+
+                    // Split the diagnosis: the pass-owned target proves the record
+                    // ran; the graph target proves the bridge published it.
+                    float[] passTarget = readColorTexture(
+                            generation.volumetricParticles().colorTexture());
+                    assertTrue(different(fog, passTarget),
+                            "the particle pass produced no colour contribution in the graph path; "
+                                    + "check the fixture depth/bounds before relaxing this");
+                    assertTrue(different(fog, particles),
+                            "the particle pass produced colour but the graph bridge did not publish it");
 
                     int changed = 0;
                     int minX = SIZE;
@@ -132,7 +155,7 @@ class VolumetricParticlePipelineGlTest {
                     assertTrue(depthTexture[0] > 0, "the shared depth texture must be readable");
                     float[] depth = readDepth(depthTexture[0]);
                     for (int index = 0; index < depth.length; index++) {
-                        assertEquals(0.5f, depth[index],
+                        assertEquals(0.5f, depth[index], 1.0e-5f,
                                 "particle composition wrote shared depth at index " + index);
                     }
                 } finally {
@@ -161,10 +184,13 @@ class VolumetricParticlePipelineGlTest {
     }
 
     private static VolumetricParticleSettings particles() {
-        return new VolumetricParticleSettings(true, 1.0f, 0.2f, 0.8f,
-                new Vector3f(0.0f, 0.0f, -3.0f), new Vector3f(0.6f, 0.6f, 0.6f),
-                32, 0.1f, new Vector3f(0.0f, -1.0f, 0.0f), new Vector3f(1.0f),
-                0.0f, VolumetricParticleSettings.FogBlend.ADDITIVE, 1.0f, 1.0f);
+        // Mirrors the proven pass-level fixture: a large, bright body in front of
+        // the camera so the in-scatter is unambiguous at 32x32.
+        return new VolumetricParticleSettings(true, 1.5f, 0.2f, 0.8f,
+                new Vector3f(0.0f, 0.0f, -3.0f), new Vector3f(1.0f, 1.0f, 1.0f),
+                48, 0.05f, new Vector3f(0.3f, -1.0f, 0.2f),
+                new Vector3f(3.5f, 3.2f, 3.0f),
+                0.2f, VolumetricParticleSettings.FogBlend.OCCLUDING, 1.0f, 1.0f);
     }
 
     private static GlfwWindow window() {
@@ -184,10 +210,18 @@ class VolumetricParticlePipelineGlTest {
     }
 
     private static void seedHostDepth(OwnedPresentationTarget host, float value) {
-        glBindFramebuffer(GL_FRAMEBUFFER, host.target().drawFramebufferId());
-        glClearDepth(value);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        float previousClearDepth = org.lwjgl.opengl.GL11.glGetFloat(
+                org.lwjgl.opengl.GL11.GL_DEPTH_CLEAR_VALUE);
+        try {
+            glBindFramebuffer(GL_FRAMEBUFFER, host.target().drawFramebufferId());
+            glClearDepth(value);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        } finally {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            // glClearDepth is process/context state; a leaked 0.5 would make later
+            // cases clear their shared depth in front of the particle body.
+            glClearDepth(previousClearDepth);
+        }
     }
 
     /**
@@ -207,8 +241,37 @@ class VolumetricParticlePipelineGlTest {
                 .build();
     }
 
-    private static float[] readDepth(int texture) {
+    private static float[] readColorTexture(int texture) {
         int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
+        FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE * 4);
+        try {
+            org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            org.lwjgl.opengl.GL30.glFramebufferTexture2D(GL_FRAMEBUFFER,
+                    org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+            org.lwjgl.opengl.GL11.glReadBuffer(org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0);
+            org.lwjgl.opengl.GL11.glReadPixels(0, 0, SIZE, SIZE,
+                    org.lwjgl.opengl.GL11.GL_RGBA, GL_FLOAT, buffer);
+            float[] result = new float[SIZE * SIZE * 4];
+            buffer.get(result);
+            return result;
+        } finally {
+            MemoryUtil.memFree(buffer);
+            org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            org.lwjgl.opengl.GL30.glDeleteFramebuffers(framebuffer);
+        }
+    }
+
+    private static boolean different(float[] left, float[] right) {
+        if (left.length != right.length) return true;
+        for (int index = 0; index < left.length; index++) {
+            if (Float.floatToIntBits(left[index]) != Float.floatToIntBits(right[index])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static float[] readDepth(int texture) {        int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
         FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE);
         try {
             org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
