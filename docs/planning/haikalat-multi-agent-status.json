@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "b89819b"
+    "head": "cca422e"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1290,16 +1290,16 @@
       ],
       "evidence": [
         "JVM PASS: Settings 6, Reference 8, Reconstruction 5, HistoryPolicy 2, CameraFixture 3, Shader 5",
-        "GL PASS on worker 5e4940f and integration 3be4300: VolumetricCloudGlTest 7/7, 0 skipped, 0 failures, gate green",
+        "GL PASS on worker 5e4940f and integration b89819b: VolumetricCloudGlTest 7/7, 0 skipped, 0 failures, gate green",
         "GPU rounds caught a non-invertible ortho fixture, a binary32 hash-wrap reference artifact and a history-order bug; all fixed without relaxing physics",
         "integration GL rerun at b89819b: VolumetricCloudGlTest 7/7 PASS, gate green; XML archived in build/reports/gl/clouds/"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review; RenderPipeline/feature-control exposure and demo remain"
+      "nextAction": "pass-level 7/7 GL at b89819b; RenderPipeline/feature-control exposure, demo, absolute density-scale GL check and roll-only camera cuts remain"
     },
     {
       "taskId": "R41",
