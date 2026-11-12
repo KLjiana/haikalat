@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "ce843a8"
+    "head": "896e113"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1231,7 +1231,7 @@
       "featureIds": [
         39
       ],
-      "state": "TODO",
+      "state": "DONE",
       "scope": "SSGI",
       "dependencies": [
         20,
@@ -1240,16 +1240,26 @@
       "owner": null,
       "writePaths": [],
       "baseCommit": null,
-      "workerCommit": null,
-      "integrationCommit": null,
-      "requiredCases": [],
-      "evidence": [],
-      "review": "NOT_RUN",
-      "functional": "NOT_RUN",
+      "workerCommit": "527479c..2df84e4",
+      "integrationCommit": "896e113",
+      "requiredCases": [
+        "SsgiSettingsTest",
+        "SsgiIndirectReferenceTest",
+        "SsgiShaderTest",
+        "SsgiPipelineCompositionTest",
+        "SsgiPassGlTest"
+      ],
+      "evidence": [
+        "JVM PASS: SsgiSettingsTest 7, SsgiIndirectReferenceTest 7, SsgiShaderTest 9, SsgiPipelineCompositionTest 7",
+        "GL PASS on worker 2df84e4 and integration 896e113: SsgiPassGlTest 8/8, 0 skipped, 0 failures, gate green",
+        "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test"
+      ],
+      "review": "PENDING",
+      "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Preflight, technical card and dependency freeze"
+      "nextAction": "independent review of #39; RenderPipeline/feature-control exposure remains"
     },
     {
       "taskId": "R40",
