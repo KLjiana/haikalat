@@ -204,6 +204,10 @@ class VariableRateShadingGlTest {
                 int previousBinding = VariableRateShadingState.boundImage();
                 int[] previousPalette = VariableRateShadingState.palette(
                         0, capability.paletteSize());
+                System.out.println("VRS block capability=" + capability.summary());
+                System.out.println("VRS block appliedPalette="
+                        + Arrays.toString(shading.plan().palette())
+                        + " previousPalette=" + Arrays.toString(previousPalette));
 
                 byte[] shaded = renderProbe(target, true, shading, false);
                 target.bind();
@@ -307,6 +311,46 @@ class VariableRateShadingGlTest {
                     assertTrue(Float.isFinite(value), "SSS output must stay finite");
                 }
                 assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
+    void stateAdapterAppliesAndRestoresWithoutGlErrors() {
+        try (GlfwWindow window = window("VRS State Adapter");
+             Framebuffer target = Framebuffer.mrt(SIZE, SIZE, GL_RGBA8)) {
+            VariableRateShadingCapability capability =
+                    VariableRateShadingCapability.inspectCurrent();
+            assumeTrue(capability.nvImagePathAvailable(), () ->
+                    "NOT_EVALUATED: GL_NV_shading_rate_image real path unavailable: "
+                            + capability.summary());
+            VariableRateShadingSettings settings = VariableRateShadingSettings.builder()
+                    .coarseRate(VariableRateShadingRate.TWO_BY_TWO).build();
+            try (VariableRateShadingPass shading = new VariableRateShadingPass(settings,
+                    capability, SIZE, SIZE)) {
+                target.bind();
+                glViewport(0, 0, SIZE, SIZE);
+                assertNoGlError("state adapter setup");
+                int previousImage = VariableRateShadingState.boundImage();
+                int[] previousPalette = VariableRateShadingState.palette(
+                        0, capability.paletteSize());
+                System.out.println("VRS direct capability=" + capability.summary());
+                System.out.println("VRS direct appliedPalette="
+                        + Arrays.toString(shading.plan().palette())
+                        + " previousPalette=" + Arrays.toString(previousPalette));
+                try (VariableRateShadingState.Snapshot snapshot =
+                             VariableRateShadingState.begin(shading.rateImage().id(),
+                                     shading.plan().palette())) {
+                    assertNoGlError("direct VRS begin");
+                    assertEquals(shading.rateImage().id(),
+                            VariableRateShadingState.boundImage(),
+                            "the rate image must be bound for the current draw framebuffer");
+                }
+                assertNoGlError("direct VRS restore");
+                assertEquals(previousImage, VariableRateShadingState.boundImage());
+                assertArrayEquals(previousPalette, VariableRateShadingState.palette(
+                                0, capability.paletteSize()),
+                        "the palette must be restored");
             }
         }
     }

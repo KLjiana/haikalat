@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.backend.vrs;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -93,6 +94,18 @@ class VariableRateShadingCapabilityTest {
         assertFalse(empty.contextAvailable());
         assertEquals(VariableRateShadingCapability.Status.UNAVAILABLE, empty.status());
         assertEquals(0, empty.paletteSize());
+    }
+
+    @Test
+    void uninitialisedCapturedPaletteEntriesAreRestoredWithAValidDefault() {
+        int fullRate = VariableRateShadingRate.ONE_BY_ONE.glValue();
+        int coarse = VariableRateShadingRate.TWO_BY_TWO.glValue();
+        assertArrayEquals(new int[]{fullRate, fullRate},
+                VariableRateShadingState.sanitizePaletteForRestore(new int[]{0, 0}),
+                "zero is not a valid shading-rate enumerant and must not be written back");
+        assertArrayEquals(new int[]{fullRate, coarse},
+                VariableRateShadingState.sanitizePaletteForRestore(new int[]{999, coarse}),
+                "already-valid entries must be preserved exactly");
     }
 
     @Test

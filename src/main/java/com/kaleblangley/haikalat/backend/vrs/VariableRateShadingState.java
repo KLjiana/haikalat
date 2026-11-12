@@ -46,6 +46,10 @@ public final class VariableRateShadingState {
     /**
      * Reads one section of the viewport-0 palette.
      *
+     * <p>The NV query takes a single palette entry per call, so reading a range
+     * must issue one call per entry; passing a larger buffer would only fill the
+     * first element and leave the rest uninitialised.</p>
+     *
      * @param first first palette index
      * @param count number of entries to read
      * @return the palette entries
@@ -60,15 +64,16 @@ public final class VariableRateShadingState {
     }
 
     private static int[] readPalette(int first, int count) {
+        int[] result = new int[count];
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer values = stack.mallocInt(count);
-            glGetShadingRateImagePaletteNV(VIEWPORT, first, values);
-            int[] result = new int[count];
+            IntBuffer value = stack.mallocInt(1);
             for (int index = 0; index < count; index++) {
-                result[index] = values.get(index);
+                value.clear();
+                glGetShadingRateImagePaletteNV(VIEWPORT, first + index, value);
+                result[index] = value.get(0);
             }
-            return result;
         }
+        return result;
     }
 
     /**
@@ -95,7 +100,7 @@ public final class VariableRateShadingState {
             }
         }
         int previousImage = glGetInteger(GL_SHADING_RATE_IMAGE_BINDING_NV);
-        int[] previousPalette = readPalette(0, palette.length);
+        int[] previousPalette = sanitizePaletteForRestore(readPalette(0, palette.length));
         glBindShadingRateImageNV(textureId);
         writePalette(palette);
         // TexSubImage uploads are already ordered before the draw, but the
@@ -120,6 +125,31 @@ public final class VariableRateShadingState {
             if (rate.glValue() == value) return true;
         }
         return false;
+    }
+
+    /**
+     * Replaces uninitialised/invalid captured palette entries with the defined
+     * full-rate entry.
+     *
+     * <p>Some drivers return zero for palette entries the application has never
+     * set. Zero is not a valid shading-rate enumerant, so writing it back during
+     * restore generates {@code GL_INVALID_ENUM}. The failure-path and normal-path
+     * restore must never introduce an illegal enum, therefore an unknown entry is
+     * restored to the defined one-invocation-per-pixel default instead of the raw
+     * captured value.</p>
+     *
+     * @param captured palette entries returned by the driver
+     * @return a copy safe to pass to {@code glShadingRateImagePaletteNV}
+     */
+    static int[] sanitizePaletteForRestore(int[] captured) {
+        int[] result = captured.clone();
+        int fullRate = VariableRateShadingRate.ONE_BY_ONE.glValue();
+        for (int index = 0; index < result.length; index++) {
+            if (!knownRate(result[index])) {
+                result[index] = fullRate;
+            }
+        }
+        return result;
     }
 
     /**
