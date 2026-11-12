@@ -15,9 +15,9 @@ package com.kaleblangley.haikalat.subsystems.postprocess.adaptive;
  *   <li>{@code allocate}: the final per-pixel budget is the larger of the
  *       per-tile budget and the per-pixel residual budget, clamped to
  *       {@code [minimumSteps, maximumSteps]}.</li>
- *   <li>{@code fixedBudgetForSameCost}: the fixed-budget control spends the
- *       same total sample count as the adaptive allocation, so the oracle
- *       comparison is cost-matched.</li>
+ *   <li>{@code fixedBudgetForSameCost}: the uniform fixed single-march budget
+ *       whose total sample count equals the exact two-phase adaptive spend, so
+ *       the oracle comparison is cost-matched.</li>
  *   <li>{@code remainingError}: a deterministic convergence model used only by
  *       the fixture test; it is a model of the sampler, not a measured GPU
  *       result.</li>
@@ -69,29 +69,33 @@ final class AdaptiveSamplingReference {
     }
 
     /**
-     * Total per-pixel cost of the two-phase adaptive march: the mandatory floor
-     * plus the allocated final budget.
+     * Exact total per-pixel cost of the two-phase adaptive march. Every pixel
+     * pays the mandatory floor first; a pixel whose final budget exceeds the
+     * floor pays the finer march again, so the exact cost is
+     * {@code minimumSteps + (budget > minimumSteps ? budget : 0)}. A floor-only
+     * pixel therefore pays the floor once, not twice.
      */
     static long totalCost(int[] budgets, int minimumSteps) {
         long total = 0;
         for (int budget : budgets) {
-            total += minimumSteps + budget;
+            total += minimumSteps;
+            if (budget > minimumSteps) total += budget;
         }
         return total;
     }
 
     /**
-     * Cost-matched fixed control: every pixel spends the rounded mean of the
-     * adaptive two-phase cost.  The returned value is the fixed final budget
-     * (the control's single march), so {@code minimumSteps + fixedBudget}
-     * equals the adaptive mean cost per pixel.
+     * Cost-matched fixed control: the uniform single-march budget whose total
+     * spend equals the adaptive total. The fixed shader has no separate floor
+     * phase, so the returned value is the control's {@code uStepCount}, not an
+     * extra budget above a floor.
      */
     static int fixedBudgetForSameCost(int[] budgets, int minimumSteps) {
         if (budgets.length == 0) {
             throw new IllegalArgumentException("fixture must not be empty");
         }
         double meanCost = (double) totalCost(budgets, minimumSteps) / budgets.length;
-        return (int) Math.round(meanCost) - minimumSteps;
+        return (int) Math.round(meanCost);
     }
 
     /** Deterministic convergence model: remaining error after a final budget. */

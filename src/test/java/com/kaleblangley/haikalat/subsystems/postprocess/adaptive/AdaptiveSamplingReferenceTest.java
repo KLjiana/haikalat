@@ -89,10 +89,11 @@ class AdaptiveSamplingReferenceTest {
 
         int fixedBudget = AdaptiveSamplingReference.fixedBudgetForSameCost(budgets,
                 MINIMUM_STEPS);
-        assertEquals(14, fixedBudget,
-                "the fixture is designed so the cost-matched fixed control spends 14 steps");
+        assertEquals(15, fixedBudget,
+                "the exact two-phase spend is 960 samples, so the cost-matched fixed "
+                        + "control spends 15 steps");
         assertEquals(AdaptiveSamplingReference.totalCost(budgets, MINIMUM_STEPS),
-                (long) CELLS * (MINIMUM_STEPS + fixedBudget),
+                (long) CELLS * fixedBudget,
                 "the oracle comparison must be cost-matched");
 
         double adaptiveError = AdaptiveSamplingReference.totalRemainingError(errorAtFloor,
@@ -146,5 +147,17 @@ class AdaptiveSamplingReferenceTest {
         }
         assertEquals(AdaptiveSamplingReference.budgetFor(0.55, MINIMUM_STEPS,
                 MAXIMUM_STEPS, THRESHOLD), budgets[0]);
+    }
+
+    @Test
+    void floorOnlyAllocationPaysTheFloorOnce() {
+        int[] budgets = new int[CELLS];
+        java.util.Arrays.fill(budgets, MINIMUM_STEPS);
+        assertEquals((long) CELLS * MINIMUM_STEPS,
+                AdaptiveSamplingReference.totalCost(budgets, MINIMUM_STEPS),
+                "a floor-only allocation must pay the mandatory floor once, not twice");
+        assertEquals(MINIMUM_STEPS,
+                AdaptiveSamplingReference.fixedBudgetForSameCost(budgets, MINIMUM_STEPS),
+                "the cost-matched fixed control for a floor-only allocation is the floor");
     }
 }
