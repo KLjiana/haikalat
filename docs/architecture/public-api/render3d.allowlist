@@ -209,3 +209,7 @@ internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePas
 # v0.28.1 S4 #40 bounded volumetric-cloud layer, low-resolution reconstruction and history.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudPass
+# v0.28.1 S5 #44 dynamic DDGI probe settings and pass-owned probe/query resources.
+advanced com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass
