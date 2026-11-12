@@ -121,7 +121,7 @@ class SmokeSimulationGlTest {
                 GlRenderDevice device = new GlRenderDevice();
                 SmokeSimulationSettings settings = simulationSettings(GRID,
                         new Vector3f(0.5f, 0.0f, 0.25f), 0.5f, 1.0f,
-                        List.of(burst(0.0f, 0.2f)));
+                        List.of(burst(0.0f, 0.19f)));
                 try (SmokeSimulation simulation = new SmokeSimulation(settings)) {
                     step(device, simulation, 10);
                     double injected = totalDensity(readDensity(simulation));
@@ -160,7 +160,7 @@ class SmokeSimulationGlTest {
             GlRenderDevice device = new GlRenderDevice();
             SmokeSimulationSettings settings = simulationSettings(GRID,
                     new Vector3f(1.0f, 0.0f, 0.0f), 1.0f, 1.0f,
-                    List.of(burst(0.0f, 0.1f)));
+                    List.of(burst(0.0f, 0.09f)));
             try (SmokeSimulation simulation = new SmokeSimulation(settings)) {
                 step(device, simulation, 5);
                 double retained = totalDensity(readDensity(simulation));
@@ -309,8 +309,33 @@ class SmokeSimulationGlTest {
                     drawForegroundDepth(device, scene, camera, 32, 32, FOREGROUND_DISTANCE);
                     FloatBuffer occludedSource = readColor(scene);
                     FloatBuffer occluded = renderVolume(device, pass, scene, camera, simulation);
-                    assertArrayEquals(toArray(occludedSource), toArray(occluded), 0.0f,
-                            "a surface in front of the volume must reject every smoke pixel");
+                    // Only the pixels covered by the occluder are expected to be
+                    // unchanged; the rest of the grid must still render. The
+                    // exact check is restricted to the quad interior (29..35)
+                    // so a real leak over the occluder cannot hide in a
+                    // global tolerance.
+                    for (int y = 29; y <= 35; y++) {
+                        for (int x = 29; x <= 35; x++) {
+                            assertPixelEquals(occludedSource, occluded, x, y, 0.0f,
+                                    "a surface in front of the volume must reject smoke at "
+                                            + x + "," + y);
+                        }
+                    }
+                    int changedOutsideOccluder = 0;
+                    for (int index = 0; index < occluded.capacity(); index += 4) {
+                        float delta = Math.max(
+                                Math.abs(occluded.get(index) - occludedSource.get(index)),
+                                Math.max(Math.abs(occluded.get(index + 1)
+                                                - occludedSource.get(index + 1)),
+                                        Math.abs(occluded.get(index + 2)
+                                                - occludedSource.get(index + 2))));
+                        if (delta > 1.0e-4f) {
+                            changedOutsideOccluder++;
+                        }
+                    }
+                    assertTrue(changedOutsideOccluder > 100,
+                            "negative control: smoke must still render outside the occluder,"
+                                    + " changed pixels=" + changedOutsideOccluder);
 
                     clear(scene, BACKGROUND, deviceDepth(camera, MID_DISTANCE));
                     FloatBuffer midSource = readColor(scene);
@@ -625,6 +650,18 @@ class SmokeSimulationGlTest {
         assertEquals(expected[0], pixels.get(index), tolerance, message + " red");
         assertEquals(expected[1], pixels.get(index + 1), tolerance, message + " green");
         assertEquals(expected[2], pixels.get(index + 2), tolerance, message + " blue");
+    }
+
+    private static void assertPixelEquals(FloatBuffer expected, FloatBuffer actual, int x, int y,
+                                          float tolerance, String message) {
+        int index = (y * SIZE + x) * 4;
+        assertEquals(expected.get(index), actual.get(index), tolerance, message + " red");
+        assertEquals(expected.get(index + 1), actual.get(index + 1), tolerance,
+                message + " green");
+        assertEquals(expected.get(index + 2), actual.get(index + 2), tolerance,
+                message + " blue");
+        assertEquals(expected.get(index + 3), actual.get(index + 3), tolerance,
+                message + " alpha");
     }
 
     private static double[] asDouble(float[] values) {

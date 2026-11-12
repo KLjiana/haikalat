@@ -86,6 +86,29 @@ class SmokeCompositionTest {
     }
 
     @Test
+    void sourceWindowsCompareDoubleStepTimeWithoutAHiddenTolerance() {
+        SmokeSimulationSettings boundary = new SmokeSimulationSettings(true, 8, 8, 8,
+                new Vector3f(), new Vector3f(4.0f), 0.02f, new Vector3f(), 1.0f, 4.0f,
+                0.0f, 0.0f, 4, List.of(new SmokeSimulationSettings.Source(
+                        new Vector3f(), 1.0f, 2.0f, 0.0f, 0.0f, 0.1f)));
+        SmokeTimeline timeline = new SmokeTimeline(boundary);
+        assertEquals(2.0f, timeline.densityRateForStep(0, 4));
+        assertEquals(2.0f, timeline.densityRateForStep(0, 5),
+                "5 * 0.02f is slightly below 0.1f in double, so the half-open window"
+                        + " still contains step 5; the rule is not silently rounded");
+        assertEquals(0.0f, timeline.densityRateForStep(0, 6));
+
+        SmokeSimulationSettings separated = new SmokeSimulationSettings(true, 8, 8, 8,
+                new Vector3f(), new Vector3f(4.0f), 0.02f, new Vector3f(), 1.0f, 4.0f,
+                0.0f, 0.0f, 4, List.of(new SmokeSimulationSettings.Source(
+                        new Vector3f(), 1.0f, 2.0f, 0.0f, 0.0f, 0.09f)));
+        SmokeTimeline separatedTimeline = new SmokeTimeline(separated);
+        assertEquals(2.0f, separatedTimeline.densityRateForStep(0, 4));
+        assertEquals(0.0f, separatedTimeline.densityRateForStep(0, 5),
+                "a distinguishable endpoint must stop injection at the intended step");
+    }
+
+    @Test
     void volumeProjectionCoversTheBoxAndRejectsOffscreenGrids() {
         int width = 64;
         int height = 64;
