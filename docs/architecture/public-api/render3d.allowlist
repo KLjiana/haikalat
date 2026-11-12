@@ -213,3 +213,10 @@ internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricClou
 advanced com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume
 internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass
+# v0.28.1 S5 #45 bounded voxel-cone-tracing settings, scene snapshot, probes, owner and JVM oracle.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctBox
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctVoxelMath

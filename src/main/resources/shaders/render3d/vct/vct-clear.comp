@@ -1,0 +1,19 @@
+#version 460 core
+
+// Bounded clear of one dirty voxel region in the base level. The owner records
+// this before conservative triangle rasterization so stale radiance from a
+// moved object cannot survive in the region.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(rgba16f, binding = 0) writeonly uniform image3D uDestination;
+
+uniform vec3 uRegionMin;
+uniform vec3 uRegionSize;
+
+void main() {
+    ivec3 regionMinimum = ivec3(uRegionMin);
+    ivec3 regionSize = ivec3(uRegionSize);
+    ivec3 local = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(local, regionSize))) return;
+    imageStore(uDestination, regionMinimum + local, vec4(0.0));
+}
