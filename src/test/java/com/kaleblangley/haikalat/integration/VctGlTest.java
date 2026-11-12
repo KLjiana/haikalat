@@ -410,9 +410,15 @@ class VctGlTest {
                         new Vector3f(1.0f, 1.0f, 1.0f));
                 assertEquals(0, disabled.commandCount(),
                         "a disabled pass must record no composite command");
+                execute(new CommandBuffer()
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, target.width(), target.height())
+                        .enableScissor(false)
+                        .clearColor(0.05f, 0.05f, 0.05f, 1.0f)
+                        .clear(true, false), "clear before disabled check");
                 execute(disabled, "disabled composite");
                 assertArrayEquals(baseline, readColor(target), 0.0f,
-                        "disabling must restore the exact baseline colour");
+                        "a disabled pass must not modify the cleared baseline");
             } finally {
                 target.close();
             }
