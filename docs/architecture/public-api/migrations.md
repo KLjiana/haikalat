@@ -298,3 +298,14 @@ temporal upscaling 还拒绝全分辨率 surface consumer、late reactive produc
 这些是首版 fail-closed 限制，不是静默回退。技术范围、限制与 GL 证据见
 [时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)与
 [时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)。
+
+v0.28.1（候选）S4 #32/#33/#38 没有删除 stable 类型或修改稳定签名。advanced `PostProcessSettings` 的
+canonical record 由 12 个组件扩展为 13 个（S4 #32/#33 新增 `subsurfaceScattering`）；原有 2/3/4/6/7/8/9/10/11/12
+参数构造器全部保留，新组件默认 `disabled()`，源码兼容。S4 #32/#33 新增 advanced
+`core.material.SubsurfaceScatteringSettings` 与 `postprocess.sss.SubsurfaceScatteringPass`，`Material` 追加
+`subsurfaceScattering` 组件；共享 surface 追加 `SUBSURFACE` mask 通道，`SceneSurfacePass`/resolve 生产者与
+`SubsurfaceScatteringPass` 消费者成对启用。S4 #38 新增 advanced
+`render3d.volumetric.VolumetricParticleSettings` 与 `render3d.volumetric.VolumetricParticlePass`；pass 只消费
+调用方已合成的 HDR 颜色与同帧不透明深度，不接管体积雾 owner，也不包含 #43 烟雾模拟。技术范围、限制与 GL
+证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)与
+[体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)。

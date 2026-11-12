@@ -136,14 +136,6 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 各向同性，IBL 为有界拉伸近似而非精确预过滤；完全缺失 TANGENT 仍由既有装配期拒绝，退化/镜像帧在 shader
 内回退，非有限 rotation 显式 fail-closed。合同、限制与 GL 参考见
 [各向异性技术卡](../../planning/v0.28.1-s2-anisotropic.md)，迁移说明见[迁移记录](migrations.md)。
-v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（renderScale、history blend、
-sharpness、reactive/曝光/深度拒绝、最大重投影误差、quality 档，构造期校验；默认 `disabled()`）与
-`TemporalUpscalingSource`（借用低分辨率 color/depth/velocity/prevDepth/reactive/UI 源），以及 internal
-`postprocess.upscale.TemporalUpscalingPass`（prev-VP/velocity 重投影、邻域 clamp、bounded sharpen、双 slot
-history、candidate resize）。`PostProcessSettings` 追加 `temporalUpscaling` 组件并保持旧构造器兼容；
-`PostProcessPipeline` 在 HDR 链头部插入 upscale。首版无 ML/DLSS/FSR/帧生成，不重建输出深度，active 时
-拒绝原地 resize 与全分辨率 surface consumer 组合。合同、限制与 GL 参考见
-[时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（启用、历史混合、邻域 clamp
 半径、深度/法线拒绝阈值、reactive/亮度突变阈值、最大重投影距离，构造期校验；默认 `disabled()`），
 `PostProcessSettings` 追加 `temporalDenoise` 组件并保持旧构造器兼容；`PostProcessPipeline` 在 SSR 之后插入
@@ -151,6 +143,8 @@ v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（�
 resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享历史；无逐通道协方差/逐像素方差估计，
 历史约 48 B/px。合同、限制与 GL 参考见[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)，
 迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #32/#33 新增 advanced GL-free `core.material.SubsurfaceScatteringSettings`（散射色/强度、解析 profile、世界单位平均自由程、厚度来源与常量厚度、屏幕空间半径上限与最大距离，构造期校验；默认 `disabled()`）与 `Material` 的 `subsurfaceScattering` 组件；advanced `postprocess.sss.SubsurfaceScatteringPass` 是 `GlResource`（16-tap Poisson 屏幕空间扩散、深度/法线边界拒绝、世界到像素半径、64 px 上限、高光保护、边缘淡出、disabled 精确 no-op）。共享 surface 新增 `SUBSURFACE` mask 通道（由 `SceneSurfacePass` 写入、MSAA resolve 保留）；`PostProcessSettings` 追加 `subsurfaceScattering` 组件并保持旧构造器兼容。合同、限制与 GL 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S4 #38 新增 advanced GL-free `render3d.volumetric.VolumetricParticleSettings`（椭球包围盒、密度/吸收/散射、最大步数/步长、最大屏幕覆盖率、相位各向异性，构造期校验；默认 `disabled()`）与 `render3d.volumetric.VolumetricParticlePass`（`GlResource`：解析闭式光深、深度截断、单次散射、预乘合成；candidate resize、幂等 close、disabled 精确 no-op）。该 pass 只消费调用方已合成的 HDR 颜色与同帧不透明深度，不重复积分已有体积雾；不包含 #43 烟雾模拟。合同、限制与 GL 证据见[体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)，迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
 `renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
 quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`
