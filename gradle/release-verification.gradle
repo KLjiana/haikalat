@@ -304,7 +304,7 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster and particle-indirect policies.
-        assert policies.size() == 58
+        assert policies.size() == 59
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
