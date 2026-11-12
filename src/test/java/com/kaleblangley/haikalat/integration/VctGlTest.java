@@ -607,7 +607,11 @@ class VctGlTest {
 
     private static float maximumChannel(float[] image) {
         float maximum = 0.0f;
-        for (float value : image) maximum = Math.max(maximum, value);
+        for (int pixel = 0; pixel < image.length / 4; pixel++) {
+            int offset = pixel * 4;
+            maximum = Math.max(maximum, Math.max(image[offset],
+                    Math.max(image[offset + 1], image[offset + 2])));
+        }
         return maximum;
     }
 }

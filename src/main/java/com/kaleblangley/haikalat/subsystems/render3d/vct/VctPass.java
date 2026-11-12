@@ -185,6 +185,8 @@ public final class VctPass implements AutoCloseable {
             previous.boundsMinimum = VctVoxelMath.boundsMinimum(next);
             previous.voxelSize = VctVoxelMath.voxelSize(next);
             previous.maxDistance = Math.max(previous.voxelSize, next.halfExtent() * 3.0f);
+            previous.traceMaxMip = traceMaxMip(next, previous.voxelSize,
+                    previous.maxDistance);
             if (boundsChanged || shellChanged) {
                 previous.volumeValid = false;
                 lastUpdateStats = UpdateStats.NONE;
@@ -299,7 +301,7 @@ public final class VctPass implements AutoCloseable {
                 .setUniformVec3(trace, "uBoundsMinimum", active.boundsMinimum)
                 .setUniformFloat(trace, "uHalfExtent", active.settings.halfExtent())
                 .setUniformInt(trace, "uResolution", active.settings.resolution())
-                .setUniformInt(trace, "uMaxMip", active.settings.mipLevels() - 1)
+                .setUniformInt(trace, "uMaxMip", active.traceMaxMip)
                 .setUniformInt(trace, "uDiffuseCones", active.settings.diffuseCones())
                 .setUniformInt(trace, "uSpecularCones", active.settings.specularCones())
                 .setUniformFloat(trace, "uDiffuseAperture", active.settings.diffuseAperture())
@@ -377,7 +379,7 @@ public final class VctPass implements AutoCloseable {
                 .setUniformVec3(composite, "uBoundsMinimum", active.boundsMinimum)
                 .setUniformFloat(composite, "uHalfExtent", active.settings.halfExtent())
                 .setUniformInt(composite, "uResolution", active.settings.resolution())
-                .setUniformInt(composite, "uMaxMip", active.settings.mipLevels() - 1)
+                .setUniformInt(composite, "uMaxMip", active.traceMaxMip)
                 .setUniformInt(composite, "uDiffuseCones", active.settings.diffuseCones())
                 .setUniformFloat(composite, "uDiffuseAperture",
                         active.settings.diffuseAperture())
@@ -500,6 +502,20 @@ public final class VctPass implements AutoCloseable {
         return Math.max(1, (count + workgroup - 1) / workgroup);
     }
 
+    /**
+     * Highest mip a cone can need at the configured maximum distance and the
+     * widest accepted specular aperture. Clamping the shader's {@code uMaxMip}
+     * here keeps sampling inside the chain while the extra level covers the
+     * worst-case footprint interpolation.
+     */
+    private static int traceMaxMip(VctSettings settings, float voxelSize, float maxDistance) {
+        float widestAperture = VctConeMath.apertureForRoughness(1.0f,
+                settings.specularApertureScale());
+        float widestRadius = maxDistance * (float) Math.tan(widestAperture);
+        int needed = (int) Math.ceil(VctConeMath.mipLevelForCone(widestRadius, voxelSize)) + 1;
+        return Math.max(0, Math.min(settings.mipLevels() - 1, needed));
+    }
+
     private void ensureOpen() {
         if (closed) throw new GlException("voxel cone tracing pass is closed");
     }
@@ -539,6 +555,7 @@ public final class VctPass implements AutoCloseable {
         Vector3f boundsMinimum;
         float voxelSize;
         float maxDistance;
+        int traceMaxMip;
         boolean volumeValid;
         long sceneRevision = Long.MIN_VALUE;
 
@@ -578,6 +595,7 @@ public final class VctPass implements AutoCloseable {
                 boundsMinimum = VctVoxelMath.boundsMinimum(settings);
                 voxelSize = VctVoxelMath.voxelSize(settings);
                 maxDistance = Math.max(voxelSize, settings.halfExtent() * 3.0f);
+                traceMaxMip = traceMaxMip(settings, voxelSize, maxDistance);
             } catch (RuntimeException | Error failure) {
                 closeQuietly(createdSampler, failure);
                 closeQuietly(createdScreen, failure);

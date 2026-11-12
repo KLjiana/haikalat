@@ -5,7 +5,12 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,6 +110,55 @@ class VctShaderTest {
         assertTrue(pass.contains("bindImageTexture(IMAGE_UNIT_DESTINATION, active.volume.texture, level"));
         assertFalse(pass.contains(".custom("));
         assertFalse(pass.contains("glDispatchCompute"));
+    }
+
+    @Test
+    void everyUploadedUniformIsDeclaredAndReferencedInItsShader() throws IOException {
+        String pass = Files.readString(PASS_SOURCE);
+        Map<String, String> programs = Map.of(
+                "clear", CLEAR,
+                "voxelize", VOXELIZE,
+                "mip", MIP,
+                "trace", TRACE,
+                "composite", COMPOSITE_FRAGMENT);
+        for (Map.Entry<String, String> program : programs.entrySet()) {
+            String shader = VctPass.shaderSource(program.getValue());
+            Set<String> declared = declaredUniforms(shader);
+            Set<String> uploaded = uploadedUniforms(pass, program.getKey());
+            assertEquals(declared, uploaded, "uploaded uniforms must match the "
+                    + program.getValue() + " declaration set");
+            for (String uniform : declared) {
+                long references = Pattern.compile("\\b" + Pattern.quote(uniform) + "\\b")
+                        .matcher(shader).results().count();
+                assertTrue(references >= 2, uniform + " is declared in " + program.getValue()
+                        + " but never referenced; GLSL would optimize it out and the uniform "
+                        + " upload would fail at runtime");
+            }
+        }
+    }
+
+    private static Set<String> declaredUniforms(String source) {
+        Matcher matcher = Pattern.compile(
+                "(?m)^\\s*(?:layout\\s*\\([^)]*\\)\\s*)?"
+                        + "(?:readonly\\s+|writeonly\\s+|coherent\\s+|volatile\\s+)*"
+                        + "uniform\\s+(\\w+)\\s+(u\\w+)\\s*;")
+                .matcher(source);
+        Set<String> names = new java.util.HashSet<>();
+        while (matcher.find()) {
+            // Image uniforms are bound with image units, not uploaded by name.
+            if (!matcher.group(1).startsWith("image")) names.add(matcher.group(2));
+        }
+        return names;
+    }
+
+    private static Set<String> uploadedUniforms(String passSource, String programVariable) {
+        Matcher matcher = Pattern.compile(
+                "setUniform(?:Int|Float|Vec2|Vec3|Vec4|Mat3|Mat4)\\(\\s*"
+                        + Pattern.quote(programVariable) + "\\s*,\\s*\"(u\\w+)\"")
+                .matcher(passSource);
+        Set<String> names = new java.util.HashSet<>();
+        while (matcher.find()) names.add(matcher.group(1));
+        return names;
     }
 
     @Test
