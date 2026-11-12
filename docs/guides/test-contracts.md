@@ -29,7 +29,7 @@ soak、benchmark、质量矩阵与多硬件仍走各自扩展任务，不进入�
 |---|---|---|---|---|---|---|
 | `FEATURE-JVM` | 统一功能策略、HDR／PBR／雾／VFX 依赖、revision 状态 | JVM | `RenderFeatureControlTest` | 秒级 | 新增模块开关或策略规则 | KEEP |
 | `FEATURE-GL` | pause／resume、批量提交、退役失败一致、失败终结、postprocess／shadow／direct／VFX／preview | GL | `RenderFeatureControlGlTest` | 秒级 | 控制入口、owner 或事务变更 | KEEP |
-| `COMBAT-VFX` | 轮廓／UV Flow／溶解组合、效果灯身份与门控、作者 schema、资源准备 | JVM＋GL＋Showcase | `VfxMaterialTest`、`EffectInstanceTest`、`VfxRendererMathTest`、`VfxLightBridgeTest`、`CombatVfxProfileCodecTest`、`VfxRendererGlTest`、`VfxTextureCacheGlTest`、`VfxLightingGlTest`、`runShowcaseIntegration` | 秒级至分钟 | VFX 材质、灯桥接、Showcase 配置或 shader 变化 | KEEP（0.28 新增） |
+| `COMBAT-VFX` | 轮廓／UV Flow／溶解组合、sprite sampler 与 mip 缩小、效果灯身份与门控、作者 schema、资源准备 | JVM＋GL＋Showcase | `VfxMaterialTest`、`EffectInstanceTest`、`VfxRendererMathTest`、`VfxLightBridgeTest`、`CombatVfxProfileCodecTest`、`VfxRendererGlTest`、`VfxTextureCacheGlTest`、`VfxLightingGlTest`、`VfxSamplerReferenceTest`、`VfxSamplerContractGlTest`、`runShowcaseIntegration` | 秒级至分钟 | VFX 材质、采样器、灯桥接、Showcase 配置或 shader 变化 | KEEP（0.28 新增） |
 | `FOCUSED-JVM` | Render3D 领域数学、拓扑、设置、报告合同 | JVM | `verify.ps1 -Mode Jvm`／`focusedRender3dJvmTest` | 约 116 tests | 领域合同或 guard 变化 | KEEP |
 | `FOCUSED-GL` | Render3D 代表像素、资源与生命周期 | GL | `verify.ps1`／`focusedRender3dGlTest` | 约 50 tests | 渲染路径、shader、共享表面变化 | KEEP |
 | `GTAO` | 解析参考、时域相位、共享 depth、history 失效 | JVM＋GL | `GtaoModularityGlTest`、`GtaoShaderGlTest`、`GtaoHistoryResizeGlTest` | 秒级 | GTAO 设置、历史、表面需求变化 | KEEP |

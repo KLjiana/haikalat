@@ -303,8 +303,9 @@ tasks.register('releaseVerificationContracts') {
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
-        // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster and particle-indirect policies.
-        assert policies.size() == 63
+        // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
+        // particle-indirect and VFX sampler policies.
+        assert policies.size() == 64
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -367,6 +368,17 @@ tasks.register('releaseVerificationContracts') {
                 clusterDevice + clusterMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.ClusterLightingGlTest.xml',
                 clusterDevice + clusterMessage * 5, policies).violations.isEmpty()
+        def vfxSamplerPolicy = policies.find { it.owner == 'render3d/vfx-sampler' }
+        assert vfxSamplerPolicy != null && vfxSamplerPolicy.id == 131218
+        assert vfxSamplerPolicy.maximum == 2
+        assert vfxSamplerPolicy.entry == '.*VfxSamplerContractGlTest.*'
+        def vfxSamplerEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxSamplerContractGlTest.xml'
+        assert auditGlText(vfxSamplerEntry,
+                clusterDevice + clusterMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(vfxSamplerEntry,
+                clusterDevice + clusterMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.OtherGlTest.xml',
+                clusterDevice + clusterMessage, policies).violations.isEmpty()
         def particleIndirectPolicy = policies.find { it.owner == 'render3d/particle-indirect' }
         assert particleIndirectPolicy != null && particleIndirectPolicy.id == 131186
         assert particleIndirectPolicy.maximum == 40
