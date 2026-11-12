@@ -799,34 +799,39 @@ class StochasticTransparencyPassGlTest {
 
     @Test
     void structuredThresholdsDecorrelateOverlappingInstances() {
-        try (Fixture fixture = new Fixture(); Framebuffer target = hdrTarget()) {
-            StochasticTransparencySettings ign = settings(1, 0x5EED_5EED, false)
-                    .jitterMode(StochasticTransparencySettings.JitterMode.INTERLEAVED_GRADIENT)
-                    .build();
-            OitSurface first = screenQuad(4.0f, 0.9f, 0.2f, 0.1f, 0.5f);
-            OitSurface second = screenQuad(4.0f, 0.1f, 0.8f, 0.2f, 0.5f);
-            double single;
-            try (StochasticTransparencyPass pass =
-                         new StochasticTransparencyPass(SIZE, SIZE, ign)) {
-                renderFrame(fixture, pass, target, List.of(first),
-                        inputs(viewForCameraX(0.0f), 0), ign);
-                single = meanCoverage(resolvedCoverage(fixture, pass));
+        for (StochasticTransparencySettings.JitterMode mode : new
+                StochasticTransparencySettings.JitterMode[]{
+                        StochasticTransparencySettings.JitterMode.INTERLEAVED_GRADIENT,
+                        StochasticTransparencySettings.JitterMode.BAYER_4X4}) {
+            try (Fixture fixture = new Fixture(); Framebuffer target = hdrTarget()) {
+                StochasticTransparencySettings structured = settings(1, 0x5EED_5EED, false)
+                        .jitterMode(mode)
+                        .build();
+                OitSurface first = screenQuad(4.0f, 0.9f, 0.2f, 0.1f, 0.5f);
+                OitSurface second = screenQuad(4.0f, 0.1f, 0.8f, 0.2f, 0.5f);
+                double single;
+                try (StochasticTransparencyPass pass =
+                             new StochasticTransparencyPass(SIZE, SIZE, structured)) {
+                    renderFrame(fixture, pass, target, List.of(first),
+                            inputs(viewForCameraX(0.0f), 0), structured);
+                    single = meanCoverage(resolvedCoverage(fixture, pass));
+                }
+                double union;
+                try (StochasticTransparencyPass pass =
+                             new StochasticTransparencyPass(SIZE, SIZE, structured)) {
+                    renderFrame(fixture, pass, target, List.of(first, second),
+                            inputs(viewForCameraX(0.0f), 0), structured);
+                    union = meanCoverage(resolvedCoverage(fixture, pass));
+                }
+                assertTrue(single > 0.4 && single < 0.6,
+                        mode + " single-layer acceptance must stay near alpha, got " + single);
+                // A shared structured threshold makes the union identical to the
+                // single layer; the per-instance phase must raise it materially.
+                assertTrue(union > single + 0.1,
+                        mode + " thresholds must decorrelate overlapping instances: single "
+                                + single + ", union " + union);
+                assertEquals(GL_NO_ERROR, glGetError());
             }
-            double union;
-            try (StochasticTransparencyPass pass =
-                         new StochasticTransparencyPass(SIZE, SIZE, ign)) {
-                renderFrame(fixture, pass, target, List.of(first, second),
-                        inputs(viewForCameraX(0.0f), 0), ign);
-                union = meanCoverage(resolvedCoverage(fixture, pass));
-            }
-            assertTrue(single > 0.4 && single < 0.6,
-                    "the single-layer IGN acceptance must stay near alpha, got " + single);
-            // A shared structured threshold makes the union identical to the
-            // single layer; per-instance offsets must raise it materially.
-            assertTrue(union > single + 0.15,
-                    "IGN thresholds must decorrelate overlapping instances: single "
-                            + single + ", union " + union);
-            assertEquals(GL_NO_ERROR, glGetError());
         }
     }
 

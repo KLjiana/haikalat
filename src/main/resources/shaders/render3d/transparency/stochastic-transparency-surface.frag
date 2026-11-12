@@ -49,6 +49,17 @@ float stUnitHash(ivec2 pixel) {
     return float(stHash32(key) >> 8) * (1.0 / 16777216.0);
 }
 
+// Per-instance, per-seed continuous phase.  Structured thresholds need this
+// because the discrete 4x4 pattern and the IGN lattice would otherwise repeat
+// for overlapping layers (and for more than four instances).  Two independent
+// hashes give a full-lattice shift, not a small modulo-4 rotation.
+vec2 stInstancePhase() {
+    uint key = vInstanceId * 0x9E3779B9U ^ uint(uSeed) * 0x85EBCA6BU;
+    uint other = key ^ 0x68E31DA4U;
+    return vec2(float(stHash32(key) >> 8), float(stHash32(other) >> 8))
+            * (1.0 / 16777216.0) * 1024.0;
+}
+
 // Interleaved-gradient dither; per-sample, per-frame, per-instance and
 // per-seed offsets decorrelate the structured pattern so overlapping layers
 // do not accept in lockstep.
@@ -56,25 +67,24 @@ float stInterleavedGradient(ivec2 pixel) {
     vec2 p = vec2(pixel)
             + vec2(0.7548776662, 0.5698402910) * float(uSampleIndex)
             + vec2(0.131719, 0.927663) * float(uFrameIndex & 1023)
-            + vec2(0.6180339887, 0.4142135624) * float(vInstanceId)
-            + vec2(0.2360679775, 0.7320508076) * float(uSeed & 255);
+            + stInstancePhase();
     return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
-// Ordered 4x4 Bayer dither.  Offsets rotate the pattern between samples,
-// frames, instances and seeds so temporal accumulation cannot get stuck on one
-// ordered pattern phase and overlapping layers do not share a threshold.
+// Ordered 4x4 Bayer dither.  A continuous per-instance/seed phase keeps the
+// 16-level pattern unbiased over pixels while decorrelating overlapping
+// layers; the integer rotation still varies with sample and frame.
 float stBayer4(ivec2 pixel) {
     const float pattern[16] = float[16](
         0.0 / 16.0,  8.0 / 16.0,  2.0 / 16.0, 10.0 / 16.0,
         12.0 / 16.0, 4.0 / 16.0, 14.0 / 16.0,  6.0 / 16.0,
         3.0 / 16.0, 11.0 / 16.0,  1.0 / 16.0,  9.0 / 16.0,
         15.0 / 16.0, 7.0 / 16.0, 13.0 / 16.0,  5.0 / 16.0);
-    int x = (pixel.x + uSampleIndex * 3 + uFrameIndex * 5
-            + int(vInstanceId) * 7 + (uSeed & 3)) & 3;
-    int y = (pixel.y + uSampleIndex * 5 + uFrameIndex * 3
-            + int(vInstanceId) * 11 + ((uSeed >> 2) & 3)) & 3;
-    return pattern[y * ST_BAYER_SIZE + x];
+    int x = (pixel.x + uSampleIndex * 3 + uFrameIndex * 5) & 3;
+    int y = (pixel.y + uSampleIndex * 5 + uFrameIndex * 3) & 3;
+    vec2 phase = stInstancePhase();
+    return fract(pattern[y * ST_BAYER_SIZE + x]
+            + fract(phase.x * 0.6180339887 + phase.y * 0.3819660113));
 }
 
 float stThreshold() {
