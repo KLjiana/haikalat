@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "cab6c01b"
+    "head": "1f90ea72"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T02:17:16+08:00",
+  "updatedAt": "2026-11-13T02:39:38+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -179,7 +179,7 @@
         "F6 sampler/minification contract frozen at 86484f56: production Texture2D state (SRGB8_ALPHA8/linear R8, LINEAR_MIPMAP_LINEAR min, LINEAR mag, CLAMP_TO_EDGE, mip levels, anisotropy 1, no LOD bias), sRGB decode/bilinear midpoint/clamp/mip averaging/atlas cell references; integration real GL VfxSamplerContractGlTest 5/5 and Vfx suite 23/23 PASS, 0 skipped; JVM VfxSamplerReferenceTest 4/4",
         "final per-feature matrix 20261113-021232: #2 JVM 9/9 + GL 11/11 PASS"
       ],
-      "review": "SELF_CHECKED",
+      "review": "APPROVE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
@@ -1066,9 +1066,10 @@
         "water shader now samples the planar target at unit 3 (e5cde50f); PlanarReflectionPipelineGlTest 2/2 real GL PASS including water enable/disable pixel change and exact environment restore; update throttling, camera-cut, resize and SSR consumption still pending",
         "resize coverage: PlanarReflectionPipelineGlTest 3/3 real GL PASS (water consumer survives resize and the owner is rebuilt at the settings-derived extent, 879a5d8c)",
         "F3 closure: water shader samples the planar target (enable/disable pixel change, throttle, camera cut, resize, and the invalid-content fallback gate asserted at 97ccaa2a); PlanarReflectionPipelineGlTest 5/5 real GL PASS. SSR decision: the screen-space reflection keeps its own depth-march and does not consume the planar target; the water surface is the single planar consumer, so no double reflection",
-        "final per-feature matrix 20261113-021232: #30 JVM 18/33 + GL 15/15 PASS"
+        "final per-feature matrix 20261113-021232: #30 JVM 18/33 + GL 15/15 PASS",
+        "independent review APPROVE_WITH_SCOPE: production sampling/fallback coherent; docs corrected; residual scope: fallback tested as invalid gate not rendered fallback, no UV-alignment oracle, TAA/MSAA untested"
       ],
-      "review": "SELF_CHECKED",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
@@ -1467,7 +1468,7 @@
         "F7 cost-matched oracle at bfb1475e: exact floor+extra spend (total 78912 on the 96x96 fixture), two-tier and rounded controls match the cost exactly, adaptive error 0.035 vs floor 0.415 / matched 0.293 / uniform 0.085; residual-only fixture keeps the measured tile term uniform (144/144 tiles error 0) while 511 high-residual pixels rise above the floor; integration GL SsrAdaptiveSamplingGlTest 10/10 and SsrPassGlTest 2/2 PASS, 0 skipped",
         "final per-feature matrix 20261113-021232: #41 JVM 23/33 + GL 10/10 PASS"
       ],
-      "review": "SELF_CHECKED",
+      "review": "APPROVE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
@@ -1669,7 +1670,7 @@
         "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline",
         "final per-feature matrix 20261113-021232: #46 JVM 21/28 + GL 7/7 PASS"
       ],
-      "review": "SELF_CHECKED",
+      "review": "APPROVE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
@@ -1695,9 +1696,10 @@
         "RenderFeatureInteractionMatrixTest 6/6 JVM PASS: default no-op, water+planar+caustics, clouds+smoke single-sample/MSAA, hair single-sample/MSAA, OIT+stochastic declarations, LDR soft-unavailable",
         "per-feature real GL pipeline cases cover the pixel contracts of each combination (see the matrix evidence column)",
         "independent acceptance F8: the seven representative combinations were not executed as a real pixel matrix; policy-level tests alone are insufficient",
-        "F8 real-GL matrix executed at fda3b557: 7 representative groups (battle, material/shadow, water/glass, particles/volumetrics, camera/reconstruction, sky/indirect, character) with fixed camera/time/seed/exposure; every case asserts expected passes, finite non-uniform pixels and feature-off pixel change/restore; unsupported SSR+water and SSGI+DDGI/VCT combinations assert the production rejection. S6InteractionMatrixGlTest 7/7 PASS, 0 skipped"
+        "F8 real-GL matrix executed at fda3b557: 7 representative groups (battle, material/shadow, water/glass, particles/volumetrics, camera/reconstruction, sky/indirect, character) with fixed camera/time/seed/exposure; every case asserts expected passes, finite non-uniform pixels and feature-off pixel change/restore; unsupported SSR+water and SSGI+DDGI/VCT combinations assert the production rejection. S6InteractionMatrixGlTest 7/7 PASS, 0 skipped",
+        "independent review APPROVE_WITH_SCOPE: 7 sub-combinations only; the particle/OIT order assertion is tautological, not every disabled readback is finite-checked, material/DOF sub-features are configured but not independently toggled"
       ],
-      "review": "SELF_CHECKED",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
