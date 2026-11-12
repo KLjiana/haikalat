@@ -69,7 +69,11 @@ class CausticsPipelineGlTest {
                         model.identity().translate(0.0f, -2.0f, 0.0f)
                                 .rotateX((float) -Math.PI * 0.5f).scale(8.0f)));
                 WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true)
-                        .level(0.0f).bounds(-20.0f, -20.0f, 20.0f, 20.0f).build();
+                        .level(0.0f).bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                        // Freeze the wave animation: the byte-identical disabled
+                        // comparison renders a later frame, so an animated surface
+                        // would legitimately change between the two readbacks.
+                        .waveSpeed(0.0f).waveAmplitude(0.0f).build();
                 RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                         hdrSettings()).waterSurface(water);
                 try {
