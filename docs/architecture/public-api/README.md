@@ -139,7 +139,7 @@ v0.28.1 S2 #17 新增 advanced GL-free `core.material.AnisotropicSettings(streng
 v0.28.1 S4 #34 新增 advanced GL-free `postprocess.TemporalDenoiseSettings`（启用、历史混合、邻域 clamp
 半径、深度/法线拒绝阈值、reactive/亮度突变阈值、最大重投影距离，构造期校验；默认 `disabled()`），
 `PostProcessSettings` 追加 `temporalDenoise` 组件并保持旧构造器兼容；`PostProcessPipeline` 在 SSR 之后插入
-`TemporalDenoisePass`（prev-VP/velocity 重投影、邻域 clamp、disocclusion/亮度突变 reset、双 slot 历史、
+`postprocess.denoise.TemporalDenoiseInputs`（借用颜色/depth/normal/velocity/previous-depth/矩/稳定 VP 的输入合同）与 `TemporalDenoisePass`（prev-VP/velocity 重投影、邻域 clamp、disocclusion/亮度突变 reset、双 slot 历史、
 resize candidate 事务）。首版只绑定 SSR 信号，不同信号不共享历史；无逐通道协方差/逐像素方差估计，
 历史约 48 B/px。合同、限制与 GL 参考见[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)，
 迁移说明见[迁移记录](migrations.md)。

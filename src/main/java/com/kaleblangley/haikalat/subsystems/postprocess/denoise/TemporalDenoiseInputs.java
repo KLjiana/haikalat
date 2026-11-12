@@ -13,9 +13,10 @@ import java.util.Objects;
  * <ul>
  *   <li><b>Velocity mode</b>: {@code velocityTexture} and
  *       {@code previousDepthTexture} are non-zero.  The history UV is
- *       {@code currentUv + velocity} and the expected previous view depth is
- *       sampled from {@code previousDepthTexture}.  This mode follows camera
- *       and rigid-object motion and matches the frozen TAA surface contract.</li>
+ *       {@code currentUv + velocity - currentJitter + previousJitter} and the
+ *       expected previous view depth is sampled from
+ *       {@code previousDepthTexture}.  This mode follows camera and
+ *       rigid-object motion and matches the frozen TAA surface contract.</li>
  *   <li><b>Previous-view-projection mode</b>: both textures are zero.  The
  *       current surface is reconstructed in world space and projected with the
  *       previous successful stable view-projection held by the pass.  This

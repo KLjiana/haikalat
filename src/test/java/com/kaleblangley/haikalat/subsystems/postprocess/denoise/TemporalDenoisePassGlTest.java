@@ -313,7 +313,11 @@ class TemporalDenoisePassGlTest {
                  Texture2D normal = floatTexture(4, SIZE, constantNormal(SIZE, new Vector3f(0, 0, 1)));
                  Texture2D velocity = floatTexture(2, SIZE, constantVelocity(SIZE, -1.0f / SIZE));
                  Texture2D previousDepth = floatTexture(1, SIZE,
-                         constantDepth(SIZE, PLANE_DEVICE_DEPTH));
+                         // The velocity contract stores positive view depth, not
+                         // the raster device depth; the device-depth fixture made
+                         // every history tap fail the 0.02 m window and silently
+                         // measured the current noisy frame.
+                         constantDepth(SIZE, PLANE_VIEW_DEPTH));
                  TemporalDenoisePass tracking = new TemporalDenoisePass(
                          CONVERGENCE_SETTINGS, SIZE, SIZE);
                  TemporalDenoisePass sameUv = new TemporalDenoisePass(
@@ -345,8 +349,9 @@ class TemporalDenoisePassGlTest {
                                 truth, SIZE * SIZE);
                     }
                 }
-                assertTrue(trackedFinal < 0.12,
-                        "velocity history must follow the rigid object: " + trackedFinal);
+                assertTrue(trackedFinal < 0.05,
+                        "velocity history must average the 0.15-amplitude noise down to a "
+                                + "10-frame estimate: " + trackedFinal);
                 assertTrue(trackedFinal < sameUvFinal * 0.75,
                         "velocity reprojection must beat the same-UV control: "
                                 + trackedFinal + " vs " + sameUvFinal);

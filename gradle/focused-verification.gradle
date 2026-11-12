@@ -85,6 +85,7 @@ def jvmCases = [
         'GpuParticleCollisionShaderTest',
         'TemporalDenoiseSettingsTest', 'TemporalDenoiseReferenceTest',
         'TemporalDenoiseContractTest', 'TemporalDenoisePipelineDependencyTest',
+        'TemporalDenoiseCompositionTest',
         'TemporalUpscalingSettingsTest', 'TemporalUpscalingReferenceTest',
         'TemporalUpscalingContractTest', 'TemporalUpscalingPipelineCompositionTest',
         'SubsurfaceScatteringSettingsTest', 'SubsurfaceScatteringReferenceTest',

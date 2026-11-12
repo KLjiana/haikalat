@@ -103,6 +103,9 @@ class TemporalDenoiseContractTest {
         assertTrue(source.contains("uReactiveThreshold"));
         assertTrue(source.contains("uMaxReprojectionPixels"));
         assertTrue(source.contains("uHistoryMoments"));
+        assertTrue(source.contains("historySigma"),
+                "history moments must feed the clamp sigma, not only the write-back");
+        assertTrue(source.contains("sigma = max(currentSigma, historySigma)"));
         assertTrue(source.contains("uPreviousViewProjection"));
         assertTrue(source.contains("uUseVelocity"));
         assertTrue(source.contains("uCurrentJitter"));
