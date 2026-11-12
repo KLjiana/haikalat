@@ -1193,6 +1193,8 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         // above is untouched, including a front-facing specular highlight.
         base += subsurfaceTransmission(n, l, radiance);
     }
+    // Thin-surface backlight transmission is an additive artistic term next to
+    // the unchanged reflection lobe. Zero controls return exactly zero.
     base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
     return visibility * base;
 }
