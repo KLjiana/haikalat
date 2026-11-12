@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "1f90ea72"
+    "head": "ecedac8a"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T02:39:38+08:00",
+  "updatedAt": "2026-11-13T02:41:58+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1714,7 +1714,8 @@
     "Baseline re-verified on new-engine at b9911ae: 229 focused tests PASS, 0 skipped/failures. B0 workers started in isolated worktrees; GPU queue remains idle until their test diffs are reviewed.",
     "v0.28.1 progress 2026-11-12: 18 features DONE with focused GL evidence (#4/#5/#10/#12/#13/#14/#16/#17/#19/#20/#21/#22/#23/#24/#25/#28/#29/#30); #6/#8 BLOCKED, #9 PARTIAL. Latest focused verify runId 317cbe60: 560 tests, 0 skipped/failures. In flight: #31 POM and #36 caustics GPU fixes; planar re-review sign-check fix. RenderPipeline consumption for #28/#30 remains an explicit gap. No push/tag; source branch untouched.",
     "v0.28.1 progress 2026-11-12 (later): #32/#33 SSS, #34 denoise, #37 stochastic transparency and #38 volumetric particles are integrated with JVM and serialized GL evidence; JVM verify runId 8919c370 PASS. RenderPipeline consumption for #28 OIT, #30 planar, #36 caustics, #37 stochastic, #38 particles and feature-control exposure for #32/#34/#35 remains an explicit wiring gap. Independent reviews for #32/#33, #34, #37, #38 are in flight.",
-    "final candidate: focused verification c80d3ff6 (1331 tests, 0 skipped, 0 failures) and per-feature matrix 20261113-021232 (JVM 962 + GL 243, 0 GL skipped) at HEAD cab6c01b"
+    "final candidate: focused verification c80d3ff6 (1331 tests, 0 skipped, 0 failures) and per-feature matrix 20261113-021232 (JVM 962 + GL 243, 0 GL skipped) at HEAD cab6c01b",
+    "closing evidence: focused verification 398d45bf (1331 tests, 0 skipped, 0 failures) at HEAD ecedac8a"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
