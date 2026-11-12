@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "1e19932"
+    "head": "32411a5"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1214,7 +1214,9 @@
         "JVM PASS: VolumetricParticleSettingsTest 5, ReferenceTest 7, ProjectionTest 6, ShaderTest 4",
         "GL PASS fresh at f7b8e1e (--rerun-tasks): VolumetricParticleGlTest 6/6, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/volumetric-particles/",
         "worker abc6002 GL predates the policy commit, so it is content evidence only",
-        "public vector accessors made package-private; far-plane truncation documented as a limitation"
+        "public vector accessors made package-private; far-plane truncation documented as a limitation",
+        "fresh JVM rerun at f7b8e1e/1e19932: 22 PASS, GL class 6 skipped (not PASS)",
+        "manual gate audit archived at build/reports/gl/volumetric-particles/gate-audit.txt (131186 x1/max2, 131218 x1/max4)"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
