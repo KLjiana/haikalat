@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "c952af1a"
+    "head": "7e91fb0a"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T19:18:10+08:00",
+  "updatedAt": "2026-11-12T19:18:42+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
