@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "bfb1475e"
+    "head": "fda3b557"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T00:44:34+08:00",
+  "updatedAt": "2026-11-13T01:38:27+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1628,14 +1628,14 @@
     {
       "taskId": "S6",
       "featureIds": [],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "整体交互矩阵、质量档与最终文档包",
       "dependencies": [],
       "owner": "orchestrator",
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "799ae350",
+      "integrationCommit": "fda3b557",
       "requiredCases": [
         "RenderFeatureInteractionMatrixTest"
       ],
@@ -1643,14 +1643,15 @@
         "docs/planning/v0.28.1-s6-interaction-and-quality.md records the seven representative scenario combinations and the bounded Low/Medium/High quality tiers",
         "RenderFeatureInteractionMatrixTest 6/6 JVM PASS: default no-op, water+planar+caustics, clouds+smoke single-sample/MSAA, hair single-sample/MSAA, OIT+stochastic declarations, LDR soft-unavailable",
         "per-feature real GL pipeline cases cover the pixel contracts of each combination (see the matrix evidence column)",
-        "independent acceptance F8: the seven representative combinations were not executed as a real pixel matrix; policy-level tests alone are insufficient"
+        "independent acceptance F8: the seven representative combinations were not executed as a real pixel matrix; policy-level tests alone are insufficient",
+        "F8 real-GL matrix executed at fda3b557: 7 representative groups (battle, material/shadow, water/glass, particles/volumetrics, camera/reconstruction, sky/indirect, character) with fixed camera/time/seed/exposure; every case asserts expected passes, finite non-uniform pixels and feature-off pixel change/restore; unsupported SSR+water and SSGI+DDGI/VCT combinations assert the production rejection. S6InteractionMatrixGlTest 7/7 PASS, 0 skipped"
       ],
       "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "execute the seven representative combinations with fixed camera/time/seed/exposure"
+      "nextAction": "scope: 96x96 representative sub-combinations only; human visual, performance, memory, multi-hardware and larger scenes NOT_EVALUATED; particle/cloud combos assert re-publication rather than byte-exact restore"
     }
   ],
   "notes": [
