@@ -192,3 +192,10 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionS
 # v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
 advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass
+# v0.28.1 S5 #45 bounded voxel-cone-tracing settings, scene snapshot, probes, owner and JVM oracle.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctBox
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctVoxelMath

@@ -268,7 +268,8 @@ public final class CommandBuffer {
         Objects.requireNonNull(texture, "texture").ensureOpen();
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(format, "format");
-        if (unit < 0 || mipLevel != 0 || layer < 0 || layer >= texture.depth()) {
+        if (unit < 0 || mipLevel < 0 || mipLevel >= texture.mipLevels()
+                || layer < 0 || layer >= texture.levelDepth(mipLevel)) {
             throw new IllegalArgumentException("invalid 3D image unit/level/layer");
         }
         if (texture.format() != format) throw new IllegalArgumentException("3D image format must match storage format");

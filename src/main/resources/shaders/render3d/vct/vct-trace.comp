@@ -1,0 +1,116 @@
+#version 460 core
+
+// Bounded GPU cone trace over the voxel mip chain for an explicit probe batch.
+//
+// Each probe traces uDiffuseCones cosine-distributed diffuse cones and
+// uSpecularCones jittered reflection cones. One cone step reads
+// textureLod at the mip whose footprint matches the cone diameter,
+// lod = log2(2 * distance * tan(aperture) / voxelSize), and composites
+// front-to-back with radiance * coverage and transmittance *= 1 - coverage.
+// The loop is bounded by uMaxSteps, uMaxDistance and a 1% transmittance cut.
+// No hardware ray tracing or vendor ray-tracing extension is used.
+
+layout(local_size_x = 8) in;
+layout(binding = 0) uniform sampler3D uVoxels;
+layout(std430, binding = 0) readonly buffer ProbeData {
+    vec4 uProbes[];
+};
+layout(std430, binding = 1) writeonly buffer ProbeResults {
+    vec4 uResults[];
+};
+
+uniform int uProbeCount;
+uniform vec3 uBoundsMinimum;
+uniform float uHalfExtent;
+uniform int uResolution;
+uniform int uMaxMip;
+uniform int uDiffuseCones;
+uniform int uSpecularCones;
+uniform float uDiffuseAperture;
+uniform float uSpecularApertureScale;
+uniform float uMaxDistance;
+uniform int uMaxSteps;
+uniform float uOpacityThreshold;
+uniform float uNormalBiasVoxels;
+
+const float PI = 3.14159265359;
+
+vec3 traceCone(vec3 origin, vec3 direction, float aperture, out float transmittance) {
+    float voxelSize = (2.0 * uHalfExtent) / float(uResolution);
+    float travel = voxelSize * (0.75 + uNormalBiasVoxels);
+    transmittance = 1.0;
+    vec3 radiance = vec3(0.0);
+    for (int step = 0; step < uMaxSteps; ++step) {
+        if (travel >= uMaxDistance || transmittance <= 0.01) break;
+        float radius = travel * tan(aperture);
+        float lod = clamp(log2(max(2.0 * radius / voxelSize, 1.0)), 0.0, float(uMaxMip));
+        vec3 position = origin + direction * travel;
+        vec3 uvw = (position - uBoundsMinimum) / (2.0 * uHalfExtent);
+        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) break;
+        vec4 value = textureLod(uVoxels, uvw, lod);
+        float coverage = clamp((value.a - uOpacityThreshold)
+                / max(1.0 - uOpacityThreshold, 1e-3), 0.0, 1.0);
+        if (coverage > 0.0) {
+            radiance += transmittance * coverage * value.rgb;
+            transmittance *= 1.0 - coverage;
+        }
+        travel += max(voxelSize, radius * 0.75);
+    }
+    return radiance;
+}
+
+void main() {
+    int probe = int(gl_GlobalInvocationID.x);
+    if (probe >= uProbeCount) return;
+    vec3 position = uProbes[probe * 3 + 0].xyz;
+    vec3 normal = normalize(uProbes[probe * 3 + 1].xyz);
+    float roughness = uProbes[probe * 3 + 1].w;
+    vec3 view = normalize(uProbes[probe * 3 + 2].xyz);
+
+    vec3 tangent = normalize(abs(normal.y) < 0.99
+            ? cross(normal, vec3(0.0, 1.0, 0.0)) : cross(normal, vec3(1.0, 0.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    vec3 origin = position + normal * (uNormalBiasVoxels
+            * (2.0 * uHalfExtent) / float(uResolution));
+
+    vec3 diffuse = vec3(0.0);
+    float diffuseTransmittance = 0.0;
+    for (int cone = 0; cone < uDiffuseCones; ++cone) {
+        float fraction = (float(cone) + 0.5) / float(uDiffuseCones);
+        float cosTheta = sqrt(fraction);
+        float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+        float phi = 2.0 * PI * fraction;
+        vec3 direction = normalize(tangent * cos(phi) * sinTheta
+                + bitangent * sin(phi) * sinTheta + normal * cosTheta);
+        float transmittance;
+        diffuse += traceCone(origin, direction, uDiffuseAperture, transmittance);
+        diffuseTransmittance += transmittance;
+    }
+    diffuse /= float(uDiffuseCones);
+    diffuseTransmittance /= float(uDiffuseCones);
+
+    vec3 reflection = reflect(-view, normal);
+    vec3 reflectionTangent = normalize(abs(reflection.y) < 0.99
+            ? cross(reflection, vec3(0.0, 1.0, 0.0))
+            : cross(reflection, vec3(1.0, 0.0, 0.0)));
+    vec3 reflectionBitangent = cross(reflection, reflectionTangent);
+    float aperture = clamp(roughness * roughness * uSpecularApertureScale, 0.02, 1.2);
+    vec3 specular = vec3(0.0);
+    float specularTransmittance = 0.0;
+    for (int cone = 0; cone < uSpecularCones; ++cone) {
+        float fraction = (float(cone) + 0.5) / float(uSpecularCones);
+        float spread = aperture * 0.5 * sqrt(fraction);
+        float phi = 2.0 * PI * fraction;
+        vec3 direction = normalize(reflection
+                + reflectionTangent * cos(phi) * spread
+                + reflectionBitangent * sin(phi) * spread);
+        float transmittance;
+        specular += traceCone(origin, direction, aperture, transmittance);
+        specularTransmittance += transmittance;
+    }
+    specular /= float(uSpecularCones);
+    specularTransmittance /= float(uSpecularCones);
+
+    uResults[probe * 2 + 0] = vec4(diffuse, diffuseTransmittance);
+    uResults[probe * 2 + 1] = vec4(specular, specularTransmittance);
+}

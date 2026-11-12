@@ -1,0 +1,112 @@
+#version 460 core
+
+// Conservative triangle voxelizer.
+//
+// One invocation owns one world-space triangle (from the bounded SSBO). It
+// iterates only that triangle's clamped world AABB, accepts a voxel when the
+// voxel center is within 0.75 voxel of the triangle plane and within one
+// half-voxel of the projected 2D triangle, then stores radiance RGBA16F with
+// coverage in alpha. This is a shell (not solid) voxelization: thin walls stay
+// one voxel thick and the optional dilation controls the leak trade-off.
+//
+// No hardware ray tracing is used. The explicit triangle loop is bounded by
+// uTriangleCount <= 4096 and every coordinate is clamped to the dirty region
+// and the volume.
+
+layout(local_size_x = 64) in;
+layout(rgba16f, binding = 0) writeonly uniform image3D uDestination;
+layout(std430, binding = 0) readonly buffer TriangleData {
+    vec4 uTriangles[];
+};
+
+uniform int uTriangleCount;
+uniform int uResolution;
+uniform vec3 uBoundsMinimum;
+uniform float uVoxelSize;
+uniform vec3 uRegionMin;
+uniform vec3 uRegionSize;
+uniform int uDilation;
+uniform float uOccupancy;
+
+vec2 project(vec3 point, int axis) {
+    if (axis == 0) return point.yz;
+    if (axis == 1) return point.xz;
+    return point.xy;
+}
+
+float cross2(vec2 a, vec2 b) {
+    return a.x * b.y - a.y * b.x;
+}
+
+float distanceToSegment(vec2 point, vec2 a, vec2 b) {
+    vec2 edge = b - a;
+    float lengthSquared = dot(edge, edge);
+    float t = lengthSquared > 1e-12 ? clamp(dot(point - a, edge) / lengthSquared, 0.0, 1.0) : 0.0;
+    return length(point - (a + t * edge));
+}
+
+bool insideConservative(vec2 point, vec2 a, vec2 b, vec2 c, float expansion) {
+    float area = cross2(b - a, c - a);
+    if (abs(area) > 1e-12) {
+        float u = cross2(b - a, point - a) / area;
+        float v = cross2(c - b, point - b) / area;
+        float w = cross2(a - c, point - c) / area;
+        if (u >= 0.0 && v >= 0.0 && w >= 0.0) return true;
+    }
+    float nearest = min(min(distanceToSegment(point, a, b), distanceToSegment(point, b, c)),
+                        distanceToSegment(point, c, a));
+    return nearest <= expansion;
+}
+
+void main() {
+    int triangle = int(gl_GlobalInvocationID.x);
+    if (triangle >= uTriangleCount) return;
+    int base = triangle * 5;
+    vec3 p0 = uTriangles[base + 0].xyz;
+    vec3 p1 = uTriangles[base + 1].xyz;
+    vec3 p2 = uTriangles[base + 2].xyz;
+    vec4 normalOccupancy = uTriangles[base + 3];
+    vec3 radiance = uTriangles[base + 4].xyz;
+    vec3 normal = normalOccupancy.xyz;
+    float normalLength = length(normal);
+    if (normalLength <= 1e-6) return;
+    normal /= normalLength;
+
+    vec3 minimum = min(p0, min(p1, p2));
+    vec3 maximum = max(p0, max(p1, p2));
+    ivec3 regionMinimum = ivec3(uRegionMin);
+    ivec3 regionSize = ivec3(uRegionSize);
+    ivec3 low = ivec3(floor((minimum - uBoundsMinimum) / uVoxelSize)) - ivec3(uDilation);
+    ivec3 high = ivec3(ceil((maximum - uBoundsMinimum) / uVoxelSize)) + ivec3(uDilation);
+    ivec3 regionHigh = regionMinimum + regionSize - ivec3(1);
+    ivec3 from = max(low, regionMinimum);
+    ivec3 to = min(high, regionHigh);
+    if (any(greaterThan(from, to))) return;
+
+    vec3 absoluteNormal = abs(normal);
+    int axis;
+    if (absoluteNormal.x >= absoluteNormal.y && absoluteNormal.x >= absoluteNormal.z) {
+        axis = 0;
+    } else if (absoluteNormal.y >= absoluteNormal.z) {
+        axis = 1;
+    } else {
+        axis = 2;
+    }
+    vec2 a = project(p0, axis);
+    vec2 b = project(p1, axis);
+    vec2 c = project(p2, axis);
+    float expansion = uVoxelSize * 0.75;
+    float planeTolerance = uVoxelSize * (0.75 + float(uDilation));
+
+    for (int z = from.z; z <= to.z; ++z) {
+        for (int y = from.y; y <= to.y; ++y) {
+            for (int x = from.x; x <= to.x; ++x) {
+                vec3 center = uBoundsMinimum + (vec3(x, y, z) + 0.5) * uVoxelSize;
+                if (abs(dot(normal, center - p0)) > planeTolerance) continue;
+                if (!insideConservative(project(center, axis), a, b, c, expansion)) continue;
+                imageStore(uDestination, ivec3(x, y, z),
+                        vec4(radiance, uOccupancy * normalOccupancy.w));
+            }
+        }
+    }
+}
