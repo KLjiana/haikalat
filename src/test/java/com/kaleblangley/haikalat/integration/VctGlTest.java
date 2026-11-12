@@ -107,7 +107,7 @@ class VctGlTest {
 
     @Test
     void voxelScaleBoundsAndShellCoverageMatchFixedExpectations() {
-        try (VctPass pass = new VctPass(SETTINGS)) {
+        try (VctPass pass = new VctPass(SETTINGS.withThinWallDilation(0))) {
             VctSceneInput scene = VctSceneInput.builder(1L)
                     .addBox(new Vector3f(-2.0f, -2.0f, -2.0f), new Vector3f(0.0f, 0.0f, 0.0f),
                             1.0f, 0.0f, 0.0f)
@@ -330,7 +330,7 @@ class VctGlTest {
 
     @Test
     void specularConeRespondsToRoughness() {
-        try (VctPass pass = new VctPass(SETTINGS)) {
+        try (VctPass pass = new VctPass(SETTINGS.withThinWallDilation(0))) {
             VctSceneInput brightCube = VctSceneInput.builder(1L)
                     .addBox(new Vector3f(1.7f, -0.3f, -0.3f), new Vector3f(2.3f, 0.3f, 0.3f),
                             4.0f, 4.0f, 4.0f)
