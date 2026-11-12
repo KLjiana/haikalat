@@ -1656,6 +1656,12 @@ public final class RenderPipeline {
             throw new IllegalArgumentException("hair model matrix must be finite");
         }
         hairStrandModel.set(value);
+        // The hair lock is a dynamic shadow caster that is not part of the
+        // scene/light/planner cache key. Moving it must invalidate the static
+        // tiles, otherwise the previous placement's shadow survives.
+        if (activeGeneration != null && hairStrandSettings.active()) {
+            activeGeneration.shadowCache().invalidateAll();
+        }
         return this;
     }
 

@@ -68,6 +68,32 @@ class ShadowCacheStateTest {
         assertEquals(0.016f, prepared.frameTiming().deltaSeconds(), 0.0f);
     }
 
+    @Test
+    void invalidateAllForcesEveryCachedDirectionalViewDirty() {
+        Scene scene = new Scene(new Camera()).addLight(SceneLight.shadowedDirectional(
+                new Vector3f(-1.0f, -1.0f, -1.0f), new Vector3f(1.0f), 1.0f));
+        RenderFrameContext context = RenderFrameContext.capture(scene, scene.camera(),
+                320, 180, 0.0f, 0, 0, 0L, null);
+        ShadowCacheState cache = new ShadowCacheState();
+        LocalShadowPipelineSettings settings = LocalShadowPipelineSettings.balanced();
+        DirectionalCascadeSettings cascades = new DirectionalCascadeSettings(
+                2, 256, 0.5f, 0.0f, Float.MAX_VALUE);
+        ShadowFramePlan plan = plan(scene, new Matrix4f().identity(), new Matrix4f().identity());
+
+        cache.prepare(plan, context, scene, settings, cascades);
+        cache.frameSucceeded();
+        ShadowFramePlan cached = cache.prepare(plan, context, scene, settings, cascades);
+        assertFalse(cached.directional().orElseThrow().dirtyTiles().stream()
+                .anyMatch(Boolean::booleanValue), "an unchanged static scene must reuse every tile");
+        cache.frameSucceeded();
+
+        cache.invalidateAll();
+        ShadowFramePlan forced = cache.prepare(plan, context, scene, settings, cascades);
+        assertTrue(forced.directional().orElseThrow().dirtyTiles().stream()
+                        .allMatch(Boolean::booleanValue),
+                "invalidateAll must force a redraw of every cached directional view");
+    }
+
     private static ShadowFramePlan plan(Scene scene, Matrix4f first, Matrix4f second) {
         SceneLightEntry entry = scene.lightEntries().getFirst();
         List<Matrix4f> matrices = List.of(new Matrix4f(first), new Matrix4f(second));

@@ -178,6 +178,24 @@ public final class ShadowCacheState {
         return source.withCache(directionalPlan, points, spots);
     }
 
+    /**
+     * Forces the next cached prepare to redraw every shadow view.
+     *
+     * <p>The cache key is derived from scene/light/planner revisions and the
+     * camera/settings hash. Dynamic casters that are not part of that key (for
+     * example the procedurally placed hair lock) call this when their placement
+     * changes, so a static tile cannot keep a stale depth image.</p>
+     */
+    public void invalidateAll() {
+        Arrays.fill(directional, null);
+        for (ShadowCacheKey[] faces : points) {
+            Arrays.fill(faces, null);
+        }
+        Arrays.fill(spots, null);
+        pending = null;
+        uncachedPending = false;
+    }
+
     public void frameSucceeded() {
         if (uncachedPending) {
             uncachedPending = false;
