@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "49c7d04a"
+    "head": "c952af1a"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1359,16 +1359,16 @@
         "VariableRateShadingGlTest"
       ],
       "evidence": [
-        "JVM PASS: capability 3, plan 6, settings 5, shader contract 6 (29 total with the GL-guarded class skipped)",
+        "JVM PASS: capability 10, plan 7, settings 5, shader contract 7 (29 executed; GL class 6 skipped under JVM)",
         "GL PASS on worker 3ea3e2a9 and integration 49c7d04a: VariableRateShadingGlTest 6/6, 0 skipped, 0 failures, gate green",
         "GPU rounds caught the dead probe uniform, missing TexSubImage barrier, single-entry palette query and indexed per-viewport enable; all fixed against NV_shading_rate_image rev.3"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review; feature-control/demo exposure and EXT_fragment_shading_rate path remain"
+      "nextAction": "pipeline end-to-end/fallback/disabled-resource/resize/failure-cleanup tests, feature-control/demo wiring, EXT path remain"
     },
     {
       "taskId": "R43",

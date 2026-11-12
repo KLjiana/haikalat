@@ -431,6 +431,14 @@ tasks.register('releaseVerificationContracts') {
         def vctMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_SHADER_STORAGE_BUFFER, and GL_SHADER_STORAGE_BUFFER (1), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
         assert auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 8, policies).violations.isEmpty()
         assert !auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 9, policies).violations.isEmpty()
+        def vrsColdPolicy = policies.find { it.owner == 'render3d/vrs-cold' }
+        assert vrsColdPolicy != null && vrsColdPolicy.id == 131218
+        assert vrsColdPolicy.maximum == 4
+        assert vrsColdPolicy.entry == '.*VariableRateShadingGlTest.*'
+        def vrsEntry = 'TEST-com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingGlTest.xml'
+        def vrsMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText(vrsEntry, volumetricParticleDevice + vrsMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText(vrsEntry, volumetricParticleDevice + vrsMessage * 5, policies).violations.isEmpty()
         def subsurfaceForwardPolicy = policies.find { it.owner == 'render3d/subsurface-forward-cold' }
         assert subsurfaceForwardPolicy != null && subsurfaceForwardPolicy.id == 131218
         assert subsurfaceForwardPolicy.maximum == 2
