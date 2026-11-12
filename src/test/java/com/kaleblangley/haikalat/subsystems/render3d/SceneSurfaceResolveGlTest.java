@@ -79,6 +79,84 @@ class SceneSurfaceResolveGlTest {
         assertEquals(edge, pixels[8], tolerance, channel + " nearest covered sample");
     }
 
+    @Test
+    void subsurfaceMaskResolvesAcrossMsaaSamples() {
+        int width = 33, height = 17;
+        var layout = SceneSurfaceLayout.plan(4, SceneBufferRequirements.none(),
+                SceneBufferRequirements.subsurfaceScattering(),
+                SceneSurfaceLayout.ReactiveMode.NONE);
+        try (var window = GtaoModularityGlTest.window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var producer = ShaderProgram.builder()
+                         .resource(SceneSurfaceResolveGlTest.class, ShaderStage.VERTEX,
+                                 "/shaders/postprocess/screen-quad.vert")
+                         .stage(ShaderStage.FRAGMENT, SUBSURFACE_SAMPLE_PATTERN).link();
+                 var quad = new ScreenQuad();
+                 var resolve = new SceneSurfaceResolvePass(layout);
+                 var graph = new RenderGraph(width, height)) {
+                var inputs = new SceneSurfaceInputs(1, graph, layout);
+                var raw = graph.addPass(layout.raw(DEPTH).producer());
+                layout.configureRaster(raw);
+                raw.execute((res, cmd) -> {
+                    cmd.enableBlend(false).enableCullFace(false).enableDepthTest(true).depthMask(true)
+                            .bindShader(producer).bindVertexArray(quad.id()).drawArrays(GL_TRIANGLES, 0, 6);
+                    inputs.frame().rasterProduced(res);
+                });
+                var pass = graph.addPass(layout.single(DEPTH).producer());
+                layout.configureResolve(pass);
+                pass.execute((res, cmd) -> {
+                    resolve.record(cmd, res, inputs);
+                    inputs.frame().resolveProduced(res);
+                });
+                graph.compile();
+                inputs.validate();
+                Scene scene = new Scene(new Camera());
+                inputs.beginFrame(RenderFrameContext.capture(scene, scene.camera(), width, height,
+                        0, 0, 0, 0, null));
+                try {
+                    graph.execute(new GlRenderDevice());
+                } finally {
+                    inputs.endFrame();
+                }
+                float[] pixels = graph.readColorAttachmentRgbaFloat(
+                        layout.single(SUBSURFACE).name());
+                // Uncovered: the resolve must not invent a mask.
+                assertEquals(0f, pixels[0], 1e-4f, "uncovered coverage");
+                assertEquals(0f, pixels[1], 1e-4f, "uncovered radius");
+                assertEquals(0f, pixels[2], 1e-4f, "uncovered thickness");
+                // Depth tie: sample 1 (0.2) is the lowest tied sample.
+                assertEquals(0.1f, pixels[4], 1e-3f, "tied coverage");
+                assertEquals(0.6f, pixels[5], 1e-3f, "tied radius");
+                assertEquals(0.3f, pixels[6], 1e-3f, "tied thickness");
+                assertEquals(1f, pixels[7], 1e-3f, "tied participation");
+                // Edge: sample 2 (0.1) is the nearest covered sample.
+                assertEquals(0.2f, pixels[8], 1e-3f, "edge coverage");
+                assertEquals(0.7f, pixels[9], 1e-3f, "edge radius");
+                assertEquals(0.35f, pixels[10], 1e-3f, "edge thickness");
+                assertEquals(1f, pixels[11], 1e-3f, "edge participation");
+                GlDebug.assertNoError("subsurface mask MSAA resolve");
+            }
+        }
+    }
+
+    private static final String SUBSURFACE_SAMPLE_PATTERN = """
+            #version 460 core
+            layout(location=0) out vec4 normal;
+            layout(location=1) out vec4 subsurface;
+            void main() {
+                int kind = int(gl_FragCoord.x) % 3;
+                int s = gl_SampleID;
+                if (kind == 0 || (kind == 2 && s == 0)) discard;
+                const float tied[4] = float[4](0.6, 0.2, 0.2, 0.7);
+                const float edge[4] = float[4](1.0, 0.7, 0.1, 0.8);
+                gl_FragDepth = kind == 1 ? tied[s] : edge[s];
+                normal = vec4(float(s) * 0.25, 0.0, 0.0, 1.0);
+                subsurface = vec4(float(s) * 0.1, 0.5 + float(s) * 0.1,
+                        0.25 + float(s) * 0.05, 1.0);
+            }
+            """;
+
     private static final String SAMPLE_PATTERN = """
             #version 460 core
             layout(location=0) out vec4 normal;
