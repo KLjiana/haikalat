@@ -141,6 +141,21 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                         "caustics require the shared raster scene depth");
             }
         }
+        if (topology.screenSpaceContactShadows()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require HDR tone mapping");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require a single-sample scene colour target "
+                                + "in this version");
+            }
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require the shared single-sample scene depth");
+            }
+        }
         if (topology.ddgi()) {
             if (!topology.hdr()) {
                 throw new IllegalStateException(

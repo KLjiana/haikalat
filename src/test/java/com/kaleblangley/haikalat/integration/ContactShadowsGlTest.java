@@ -93,7 +93,12 @@ class ContactShadowsGlTest {
                     scene.addLight(SceneLight.shadowedDirectional(
                             new Vector3f(0.6f, -1.0f, 0.4f), new Vector3f(4.0f), 5.0f));
                     RenderSettings settings = RenderSettings.builder()
-                            .antiAliasingMode(com.kaleblangley.haikalat.core.AntiAliasingMode.NONE)
+                            // Isolate the material-level forward term from the #9
+                            // screen-space pass (which requires a single-sample
+                            // target): the composite has its own real-GL acceptance.
+                            .antiAliasingMode(
+                                    com.kaleblangley.haikalat.core.AntiAliasingMode.MSAA)
+                            .msaaSamples(4)
                             .toneMappingMode(ToneMappingMode.ACES)
                             .vsync(false)
                             .build();

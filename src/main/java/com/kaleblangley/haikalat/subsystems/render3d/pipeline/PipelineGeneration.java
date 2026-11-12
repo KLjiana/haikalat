@@ -17,7 +17,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ScreenSpaceContactShadowPass;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowPrograms;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 
@@ -121,6 +123,9 @@ public final class PipelineGeneration implements AutoCloseable {
     private PlanarReflectionSettings planarReflectionSettings = PlanarReflectionSettings.disabled();
     private CausticsPass caustics;
     private CausticsSettings causticsSettings = CausticsSettings.disabled();
+    private ScreenSpaceContactShadowPass screenSpaceContactShadows;
+    private ContactShadowSettings screenSpaceContactShadowSettings =
+            ContactShadowSettings.disabled();
     private ShadowPrograms shadowPrograms;
     private GtaoPasses gtao;
     private GtaoSurfaceInputs gtaoInputs;
@@ -410,6 +415,25 @@ public final class PipelineGeneration implements AutoCloseable {
     }
 
     /**
+     * Owns the optional screen-space contact-shadow colour target. The pass
+     * bakes its single-sample/configuration state, so only an exact match at
+     * the same managed extent is borrowed; closing the generation retires the
+     * target, shader and mesh.
+     */
+    public void assembleScreenSpaceContactShadows(ContactShadowSettings settings,
+                                                  PipelineGeneration source) {
+        if (!topology.screenSpaceContactShadows()) return;
+        boolean reuse = source != null && source.screenSpaceContactShadows != null
+                && source.topology.sameManagedExtent(topology)
+                && source.screenSpaceContactShadows.samples() == topology.sampleCount()
+                && source.screenSpaceContactShadows.settings().equals(settings);
+        screenSpaceContactShadows = reuse ? borrow(source.screenSpaceContactShadows)
+                : new ScreenSpaceContactShadowPass(settings, topology.sampleCount(),
+                topology.width(), topology.height());
+        screenSpaceContactShadowSettings = settings;
+    }
+
+    /**
      * Owns the DDGI probe volume and its screen-space indirect pass. Both bake
      * the settings at construction, so only an equal-settings donor is borrowed.
      * The volume is camera-independent; the indirect target follows the extent.
@@ -583,6 +607,12 @@ public final class PipelineGeneration implements AutoCloseable {
     public PlanarReflectionSettings planarReflectionSettings() { return planarReflectionSettings; }
     public CausticsPass caustics() { return caustics; }
     public CausticsSettings causticsSettings() { return causticsSettings; }
+    public ScreenSpaceContactShadowPass screenSpaceContactShadows() {
+        return screenSpaceContactShadows;
+    }
+    public ContactShadowSettings screenSpaceContactShadowSettings() {
+        return screenSpaceContactShadowSettings;
+    }
     public ShadowPrograms shadowPrograms() { return shadowPrograms; }
     public GtaoPasses gtao() { return gtao; }
     public GtaoSurfaceInputs gtaoInputs() { return gtaoInputs; }
@@ -703,6 +733,7 @@ public final class PipelineGeneration implements AutoCloseable {
         WeightedOitPass weightedOitCandidate = null;
         PlanarReflectionPass planarCandidate = null;
         CausticsPass causticsCandidate = null;
+        ScreenSpaceContactShadowPass contactShadowCandidate = null;
         DdgiIndirectPass ddgiCandidate = null;
         HairStrandPass hairCandidate = null;
         try {
@@ -747,6 +778,10 @@ public final class PipelineGeneration implements AutoCloseable {
                 causticsCandidate = new CausticsPass(causticsSettings, topology.sampleCount(),
                         width, height);
             }
+            if (screenSpaceContactShadows != null) {
+                contactShadowCandidate = new ScreenSpaceContactShadowPass(
+                        screenSpaceContactShadowSettings, topology.sampleCount(), width, height);
+            }
             if (ddgiIndirect != null) {
                 ddgiCandidate = new DdgiIndirectPass(ddgiVolume, width, height);
             }
@@ -757,11 +792,12 @@ public final class PipelineGeneration implements AutoCloseable {
                     graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate,
                     gtaoCandidate, particleCandidate, stochasticCandidate,
                     cloudCandidate, smokeVolumeCandidate, weightedOitCandidate,
-                    planarCandidate, causticsCandidate, ddgiCandidate, hairCandidate,
-                    allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
+                    planarCandidate, causticsCandidate, contactShadowCandidate, ddgiCandidate,
+                    hairCandidate, allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
             closeCandidate(hairCandidate, failure);
             closeCandidate(ddgiCandidate, failure);
+            closeCandidate(contactShadowCandidate, failure);
             closeCandidate(causticsCandidate, failure);
             closeCandidate(planarCandidate, failure);
             closeCandidate(weightedOitCandidate, failure);
@@ -812,6 +848,7 @@ public final class PipelineGeneration implements AutoCloseable {
         private WeightedOitPass weightedOitCandidate;
         private PlanarReflectionPass planarCandidate;
         private CausticsPass causticsCandidate;
+        private ScreenSpaceContactShadowPass contactShadowCandidate;
         private DdgiIndirectPass ddgiCandidate;
         private HairStrandPass hairCandidate;
         private final VolumetricAllocationPlan allocation;
@@ -834,6 +871,7 @@ public final class PipelineGeneration implements AutoCloseable {
                                 WeightedOitPass weightedOitCandidate,
                                 PlanarReflectionPass planarCandidate,
                                 CausticsPass causticsCandidate,
+                                ScreenSpaceContactShadowPass contactShadowCandidate,
                                 DdgiIndirectPass ddgiCandidate,
                                 HairStrandPass hairCandidate,
                                 VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
@@ -854,6 +892,7 @@ public final class PipelineGeneration implements AutoCloseable {
             this.weightedOitCandidate = weightedOitCandidate;
             this.planarCandidate = planarCandidate;
             this.causticsCandidate = causticsCandidate;
+            this.contactShadowCandidate = contactShadowCandidate;
             this.ddgiCandidate = ddgiCandidate;
             this.hairCandidate = hairCandidate;
             this.allocation = allocation;
@@ -888,6 +927,8 @@ public final class PipelineGeneration implements AutoCloseable {
             WeightedOitPass previousWeightedOit = owner.weightedOit;
             PlanarReflectionPass previousPlanar = owner.planarReflection;
             CausticsPass previousCaustics = owner.caustics;
+            ScreenSpaceContactShadowPass previousContactShadow =
+                    owner.screenSpaceContactShadows;
             DdgiIndirectPass previousDdgi = owner.ddgiIndirect;
             HairStrandPass previousHair = owner.hairStrands;
             owner.volumetricParticles = particleCandidate;
@@ -897,6 +938,7 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.weightedOit = weightedOitCandidate;
             owner.planarReflection = planarCandidate;
             owner.caustics = causticsCandidate;
+            owner.screenSpaceContactShadows = contactShadowCandidate;
             owner.ddgiIndirect = ddgiCandidate;
             owner.hairStrands = hairCandidate;
             particleCandidate = null;
@@ -906,6 +948,7 @@ public final class PipelineGeneration implements AutoCloseable {
             weightedOitCandidate = null;
             planarCandidate = null;
             causticsCandidate = null;
+            contactShadowCandidate = null;
             ddgiCandidate = null;
             hairCandidate = null;
             owner.topology = candidateTopology;
@@ -917,6 +960,7 @@ public final class PipelineGeneration implements AutoCloseable {
             RuntimeException failure = null;
             failure = closeOne(previousHair, failure);
             failure = closeOne(previousDdgi, failure);
+            failure = closeOne(previousContactShadow, failure);
             failure = closeOne(previousCaustics, failure);
             failure = closeOne(previousPlanar, failure);
             failure = closeOne(previousWeightedOit, failure);
@@ -934,6 +978,7 @@ public final class PipelineGeneration implements AutoCloseable {
             RuntimeException failure = null;
             failure = closeOne(hairCandidate, failure);
             failure = closeOne(ddgiCandidate, failure);
+            failure = closeOne(contactShadowCandidate, failure);
             failure = closeOne(causticsCandidate, failure);
             failure = closeOne(planarCandidate, failure);
             failure = closeOne(weightedOitCandidate, failure);
@@ -982,6 +1027,7 @@ public final class PipelineGeneration implements AutoCloseable {
         WeightedOitPass localWeightedOit = weightedOit;
         PlanarReflectionPass localPlanar = planarReflection;
         CausticsPass localCaustics = caustics;
+        ScreenSpaceContactShadowPass localContactShadow = screenSpaceContactShadows;
         DdgiProbeVolume localDdgiVolume = ddgiVolume;
         DdgiIndirectPass localDdgiIndirect = ddgiIndirect;
         VctPass localVct = vct;
@@ -1015,6 +1061,7 @@ public final class PipelineGeneration implements AutoCloseable {
         weightedOit = null;
         planarReflection = null;
         caustics = null;
+        screenSpaceContactShadows = null;
         ddgiVolume = null;
         ddgiIndirect = null;
         vct = null;
@@ -1050,6 +1097,7 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localWeightedOit, failure);
         failure = closeCollecting(localPlanar, failure);
         failure = closeCollecting(localCaustics, failure);
+        failure = closeCollecting(localContactShadow, failure);
         failure = closeCollecting(localDdgiIndirect, failure);
         failure = closeCollecting(localDdgiVolume, failure);
         failure = closeCollecting(localVct, failure);

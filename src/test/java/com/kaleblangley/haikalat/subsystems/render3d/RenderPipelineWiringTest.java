@@ -848,7 +848,7 @@ class RenderPipelineWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(), surface,
                 volumetricFog, base.volumetricQuality(), base.volumetricEmission(),
                 base.waterSurface(), particles, stochastic, clouds, smoke,
-                false, false, false, false, false, false);
+                false, false, false, false, false, false, base.screenSpaceContactShadows());
     }
 
     private static RenderWindow window() {

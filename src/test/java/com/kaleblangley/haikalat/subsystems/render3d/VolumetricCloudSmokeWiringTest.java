@@ -460,7 +460,8 @@ class VolumetricCloudSmokeWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(),
                 base.sceneSurface(), base.volumetricFog(), base.volumetricQuality(),
                 base.volumetricEmission(), base.waterSurface(), base.volumetricParticles(),
-                base.stochasticTransparency(), clouds, smoke, false, false, false);
+                base.stochasticTransparency(), clouds, smoke, false, false, false,
+                false, false, false, base.screenSpaceContactShadows());
     }
 
     private static PipelineTopology copyWithMode(PipelineTopology base, AntiAliasingMode mode,
@@ -476,7 +477,8 @@ class VolumetricCloudSmokeWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(),
                 base.sceneSurface(), base.volumetricFog(), base.volumetricQuality(),
                 base.volumetricEmission(), base.waterSurface(), base.volumetricParticles(),
-                base.stochasticTransparency(), clouds, smoke, false, false, false);
+                base.stochasticTransparency(), clouds, smoke, false, false, false,
+                false, false, false, base.screenSpaceContactShadows());
     }
 
     private static RenderFeatureSettings.Builder baseBuilder() {

@@ -118,7 +118,8 @@ class CausticsPipelineWiringTest {
                 base.volumetricFog(), base.volumetricQuality(), base.volumetricEmission(),
                 water, base.volumetricParticles(), base.stochasticTransparency(),
                 base.volumetricClouds(), base.volumetricSmoke(),
-                base.weightedOit(), base.planarReflections(), caustics);
+                base.weightedOit(), base.planarReflections(), caustics,
+                false, false, false, base.screenSpaceContactShadows());
     }
 
     private static Scene sceneWithLight(boolean downward) {

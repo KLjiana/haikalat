@@ -84,6 +84,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowDecision;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowTileRect;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ScreenSpaceContactShadowPass;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowSlotPlan;
 
@@ -2211,7 +2212,8 @@ public final class RenderPipeline {
                 directionalShadowMap.settings().cloudShadows(),
                 weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
                 causticsSettings,
-                ddgiSettings, vctSettings, hairStrandSettings);
+                ddgiSettings, vctSettings, hairStrandSettings,
+                directionalShadowMap.settings().contactShadows());
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -2349,6 +2351,24 @@ public final class RenderPipeline {
                                 RenderFormat format, int sampleCount, String depthTexture,
                                 String depthProducer, PassExecutor executor) {
         var pass = graph.addPass(CausticsPass.PASS_NAME)
+                .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
+                        sampleCount)
+                .noClear();
+        if (!depthProducer.equals(colorProducer)) pass.dependsOn(depthProducer);
+        pass.execute(executor);
+    }
+
+    /**
+     * Declares the screen-space contact-shadow darkening as an in-place scene
+     * colour writer after the opaque/transparent producer and before the water
+     * consumer. The pass owns its colour target, samples the shared
+     * single-sample raster depth and never writes that depth.
+     */
+    static void addScreenSpaceContactShadowPass(RenderGraph graph, String colorTexture,
+                                                String colorProducer, RenderFormat format,
+                                                int sampleCount, String depthTexture,
+                                                String depthProducer, PassExecutor executor) {
+        var pass = graph.addPass(ScreenSpaceContactShadowPass.PASS_NAME)
                 .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
                         sampleCount)
                 .noClear();
@@ -2510,6 +2530,8 @@ public final class RenderPipeline {
             candidate.assembleWeightedOit(weightedOitSettings, reusable);
             candidate.assemblePlanarReflection(planarReflectionSettings, reusable);
             candidate.assembleCaustics(causticsSettings, reusable);
+            candidate.assembleScreenSpaceContactShadows(
+                    directionalShadowMap.settings().contactShadows(), reusable);
             candidate.assembleDdgi(ddgiSettings, reusable);
             candidate.assembleVct(vctSettings, reusable);
             candidate.assembleHairStrands(hairStrandSettings, reusable);
@@ -2607,6 +2629,22 @@ public final class RenderPipeline {
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(CausticsPass.PASS_NAME);
                 }
+            }
+            if (candidate.screenSpaceContactShadows() != null) {
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                if (singleDepth == null) {
+                    throw new IllegalStateException(
+                            "screen-space contact shadows require the shared single-sample scene depth");
+                }
+                // The pass darkens the opaque/transparent colour before water and
+                // further transparent consumers; it never attaches or writes depth.
+                addScreenSpaceContactShadowPass(candidate.graph(), sceneColorTexture,
+                        sceneColorProducer, ForwardPassBuilder.sceneColorFormat(settings),
+                        topology.sampleCount(), singleDepth.name(), singleDepth.producer(),
+                        screenSpaceContactShadowExecutor(candidate, sceneColorProducer));
+                waterDependencies.add(ScreenSpaceContactShadowPass.PASS_NAME);
+                candidate.postProcess().sceneColorInput(sceneColorTexture,
+                        ScreenSpaceContactShadowPass.PASS_NAME);
             }
             if (candidate.topology().waterSurface()) {
                 candidate.assembleWaterSurface(waterExecutor(candidate, sceneColorProducer),
@@ -4655,6 +4693,45 @@ public final class RenderPipeline {
             cmd.bindFramebuffer(target)
                     .viewport(0, 0, target.width(), target.height())
                     .blitColor(caustics.colorTarget(), target);
+        };
+    }
+
+    private PassExecutor screenSpaceContactShadowExecutor(PipelineGeneration generation,
+                                                          String colorSourcePass) {
+        return (res, cmd) -> {
+            var contactShadow = generation.screenSpaceContactShadows();
+            if (contactShadow == null) {
+                throw new IllegalStateException(
+                        "screen-space contact-shadow pass is absent from the active topology");
+            }
+            var singleDepth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (singleDepth == null) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require the shared single-sample scene depth");
+            }
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require a prepared temporal frame state");
+            }
+            SceneLight light = firstDirectionalLight();
+            if (light == null) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require a directional light");
+            }
+            Framebuffer source = res.framebufferOfPass(colorSourcePass);
+            Framebuffer target = res.currentTarget();
+            if (source == null || target == null) {
+                throw new IllegalStateException(
+                        "screen-space contact shadows require the scene colour target to copy");
+            }
+            contactShadow.record(cmd, source, contactShadow.colorTarget(),
+                    res.depthAttachment(singleDepth.name()), frame,
+                    directionalShadowMap.settings().contactShadows(), light.direction());
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(contactShadow.colorTarget(), target);
         };
     }
 

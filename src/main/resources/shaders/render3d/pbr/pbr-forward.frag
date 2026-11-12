@@ -939,6 +939,11 @@ float directionalShadowFactor(vec3 n, vec3 l) {
  * view-projection; edge/off-screen receivers fall back to the cascaded result.
  * The caller scales the result by the cascade's unshadowed visibility so a
  * surface already darkened by the cascade is never darkened twice.
+ *
+ * Material-level option only: the production #9 screen-space consumer is
+ * ScreenSpaceContactShadowPass, which marches the camera scene depth after the
+ * opaque pass.  This shadow-map-space refinement remains available to forward
+ * materials that opt in through ContactShadowSettings.
  */
 float directionalContactShadow(vec3 n, vec3 l) {
     if (uContactShadowEnabled == 0 || uHasDirectionalShadow == 0
