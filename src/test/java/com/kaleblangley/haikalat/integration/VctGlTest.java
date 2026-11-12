@@ -411,7 +411,7 @@ class VctGlTest {
                 assertEquals(0, disabled.commandCount(),
                         "a disabled pass must record no composite command");
                 execute(disabled, "disabled composite");
-                assertArrayEquals(baseline, clearAndRead(target), 0.0f,
+                assertArrayEquals(baseline, readColor(target), 0.0f,
                         "disabling must restore the exact baseline colour");
             } finally {
                 target.close();

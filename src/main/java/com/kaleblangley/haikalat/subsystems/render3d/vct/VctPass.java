@@ -509,8 +509,11 @@ public final class VctPass implements AutoCloseable {
      * worst-case footprint interpolation.
      */
     private static int traceMaxMip(VctSettings settings, float voxelSize, float maxDistance) {
-        float widestAperture = VctConeMath.apertureForRoughness(1.0f,
+        float widestSpecular = VctConeMath.apertureForRoughness(1.0f,
                 settings.specularApertureScale());
+        // The diffuse cone aperture is independent of roughness and can be
+        // wider than the roughest specular cone; both need their mip level.
+        float widestAperture = Math.max(settings.diffuseAperture(), widestSpecular);
         float widestRadius = maxDistance * (float) Math.tan(widestAperture);
         int needed = (int) Math.ceil(VctConeMath.mipLevelForCone(widestRadius, voxelSize)) + 1;
         return Math.max(0, Math.min(settings.mipLevels() - 1, needed));

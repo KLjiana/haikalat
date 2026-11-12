@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "443ef5a"
+    "head": "733d33ed"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -1456,12 +1456,12 @@
         "GL PASS on worker aefca87 and integration b89819b: VctGlTest 8/8, 0 skipped, 0 failures, gate green",
         "GPU rounds caught a dead uniform, four wrong box-face normals, probe view signs and a one-sided shell AABB; all fixed without relaxing assertions"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review; RenderPipeline/feature-control wiring, per-pixel material roughness/normal remain"
+      "nextAction": "pass-level 8/8 GL; RenderPipeline/feature-control wiring, per-pixel roughness/normal, budget accounting and diffuse/specular max-mip contract remain"
     },
     {
       "taskId": "R46",
