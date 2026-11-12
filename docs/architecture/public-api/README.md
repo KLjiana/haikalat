@@ -165,7 +165,7 @@ v0.28.1 S4 #38/#37 生产接线（`codex/render-pipeline-wiring`）：`RenderFea
 `VOLUMETRIC_PARTICLE_SETTINGS`/`STOCHASTIC_TRANSPARENCY_SETTINGS`（既有常量与序号不变）。本接线没有
 新增 public 顶层类型，`render3d.allowlist` 无需新增条目；迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S3 #28/#30/#36 生产接线（`codex/render-wiring-b1`）：`RenderFeatureSettings` 追加
-`weightedOit`、`planarReflections`、`caustics`（第 20/21/22 个 canonical 组件，默认各自 `disabled()`；
+`weightedOit`、`planarReflections`、`caustics`（第 23/24/25 个 canonical 组件，默认各自 `disabled()`；
 旧 19 参数构造器保留，源码兼容）；`RenderFeature` 末尾追加 `WEIGHTED_OIT`、`PLANAR_REFLECTIONS`、
 `CAUSTICS`；`RenderFeatureReason` 追加 `NO_TRANSPARENT_SET`、`NO_WATER`、`NO_PLANE`。`RenderPipeline`
 新增 `weightedOit(...)`/`weightedOit()`/`applyWeightedOit(...)`/
@@ -181,6 +181,20 @@ Stochastic → PostProcess`；OIT 与随机透明是同一透明集合的互斥�
 向下方向光且首版不接 MSAA。关闭时拓扑与基线逐字节一致。焦散采用“水面之前”的安全顺序而非
 “水面/折射之后”，理由与剩余下游缺口见三张技术卡。没有新增 public 顶层类型，`render3d.allowlist`
 无需新增条目；迁移说明见[迁移记录](migrations.md)。
+
+v0.28.1 S5 #44/#45 与 S4 #46 生产接线（`codex/render-wiring-b3`）没有新增 public 顶层类型，也没有删除
+stable 类型或修改稳定签名。advanced `RenderFeatureSettings` canonical record 由 25 个组件扩展为 28 个
+（末尾追加 `ddgi`/`vct`/`hairStrands`，默认 `disabled()`）；builder、`defaults()`、`toBuilder()` 与访问器
+保持源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加 `DDGI`、
+`VOXEL_CONE_TRACING`、`HAIR_STRANDS`；`PipelineTopology` 追加 internal `ddgi`/`voxelConeTracing`/
+`hairStrands` 组件并保留旧参数列表的 `capture(...)` 重载。`RenderPipeline` 新增
+`ddgi(...)`/`ddgi()`/`applyDdgi(...)`、`vct(...)`/`vct()`/`applyVct(...)`、
+`hairStrands(...)`/`hairStrands()`/`applyHairStrands(...)`，以及 VCT 的
+`vctSceneInput(...)`/`vctDirtyBoxes(...)`/`vctProbes(...)`/`vctSurface(...)` 暂存入口与
+`hairStrandModel(...)` 放置入口。DDGI/VCT/hair 默认关闭时不创建 pass、target、program 或 draw，
+拓扑 key 与基线逐字节一致；MSAA/TAA 下的 DDGI/VCT 报告 `UNAVAILABLE`，无方向光时报告
+`NO_ELIGIBLE_LIGHT`；DDGI 与 VCT 互斥、与 SSGI 的间接漫反射去重均在请求/装配期 fail-closed。
+迁移说明见[迁移记录](migrations.md)。
 v0.28.1 S4 #35 新增 advanced GL-free `postprocess.TemporalUpscalingSettings`（启用、输入/输出
 `renderScale`、history blend、bounded sharpness、reactive/曝光阈值、最大重投影误差、LOW/MEDIUM/HIGH
 quality，构造期校验；`disabled()` 是精确 no-op）、advanced `postprocess.TemporalUpscalingSource`

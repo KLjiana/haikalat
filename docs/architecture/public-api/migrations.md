@@ -339,7 +339,7 @@ facingCosine, receiveBackFaces, alphaMask, maximumDecals)`，默认关闭。`Vfx
 single-sample scene depth 与 viewport，不创建 Pass、framebuffer 或 manager；
 `ProjectedDecalPlan` 为包内 internal 排序实现，不构成公共 API。
 v0.28.1（候选）S4 #40 / S5 #43 生产接线没有删除 stable 类型或修改稳定签名。advanced
-`RenderFeatureSettings` canonical record 由 19 个组件扩展为 22 个（末尾新增 `volumetricClouds`、
+`RenderFeatureSettings` canonical record 由 25 个组件扩展为 28 个（末尾新增 `volumetricClouds`、
 `smokeSimulation`、`smokeRender`，默认全部 `disabled()`）；既有 builder、`defaults()`、`toBuilder()`
 与访问器调用保持源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加
 `VOLUMETRIC_CLOUDS`、`VOLUMETRIC_SMOKE`。`RenderPipeline` 新增
@@ -377,3 +377,22 @@ canonical 构造器并填充新增组件的 disabled 默认值，因此直接构
 [加权 OIT 技术卡](../../planning/v0.28.1-s3-oit.md)、
 [平面反射技术卡](../../planning/v0.28.1-s3-planar-reflections.md)与
 [焦散技术卡](../../planning/v0.28.1-s3-caustics.md)。
+
+v0.28.1（候选）S5 #44/#45 与 S4 #46 生产接线没有删除 stable 类型或修改稳定签名。advanced
+`RenderFeatureSettings` canonical record 由 25 个组件扩展为 28 个（末尾新增 `ddgi`、`vct`、
+`hairStrands`，均默认 `disabled()`）；既有 builder、`defaults()`、`toBuilder()` 与访问器调用保持
+源码兼容，直接调用 canonical 构造器的调用方需要更新。`RenderFeature` 末尾追加 `DDGI`、
+`VOXEL_CONE_TRACING`、`HAIR_STRANDS`；`PipelineTopology` 追加 internal `ddgi`/`voxelConeTracing`/
+`hairStrands`，旧参数列表的 `capture(...)` 重载保留并默认 disabled。`RenderPipeline` 新增
+`ddgi(...)`/`ddgi()`/`applyDdgi(...)`、`vct(...)`/`vct()`/`applyVct(...)`、
+`hairStrands(...)`/`hairStrands()`/`applyHairStrands(...)`、VCT 的
+`vctSceneInput(...)`/`vctDirtyBoxes(...)`/`vctProbes(...)`/`vctSurface(...)` 暂存入口，以及
+`hairStrandModel(...)`；其余构造器与 `passNamesFor` 入口不变。DDGI 探针更新在 opaque forward 之后，
+间接桥接在共享单采样 depth/normal 之后、TAA/后处理之前；VCT 体素化/可选 probe trace 在合成之前，
+合成在直接光/IBL 之后、Bloom/TAA 之前；hair 前向绘制在透明 HDR 阶段（几何颜色 + 光栅深度别名），
+`recordShadow` 通过 `ShadowCasterRecorder.DirectionalTileHook` 进入既有方向光 dirty tile，不创建第二套
+shadow map。默认关闭时无 pass/资源/draw，拓扑与基线一致；MSAA/TAA 下 DDGI/VCT 为 `UNAVAILABLE`，
+无方向光时 DDGI/hair 为 `NO_ELIGIBLE_LIGHT`；DDGI+VCT 和 DDGI/VCT+SSGI 在请求与装配期 fail-closed。
+没有新增 public 顶层类型，`docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、
+限制与验证见[DDGI 技术卡](../../planning/v0.28.1-s5-ddgi.md)、[VCT 技术卡](../../planning/v0.28.1-s5-vct.md)
+与[发束技术卡](../../planning/v0.28.1-s4-hair.md)。
