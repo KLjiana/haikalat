@@ -1168,7 +1168,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "80c916f..18b0197",
-      "integrationCommit": "9a82003",
+      "integrationCommit": "32411a5",
       "requiredCases": [
         "StochasticTransparencySettingsTest",
         "StochasticTransparencyInputsTest",
@@ -1179,14 +1179,15 @@
       "evidence": [
         "JVM PASS: Settings 7, Inputs 3, Reference 10, Shader 7",
         "GL PASS at 9a82003: StochasticTransparencyPassGlTest 11/11, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/stochastic-transparency/",
-        "review-found P*V reprojection order and IGN/Bayer instance-correlation fixed and covered by new GL cases"
+        "review-found P*V reprojection order and IGN/Bayer instance-correlation fixed and covered by new GL cases",
+        "review verdict APPROVE_WITH_SCOPE: P*V and structured decorrelation fixed; 11/11 GL; structured modes documented as biased approximations"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "final stochastic reviewer verdict"
+      "nextAction": "structured IGN/Bayer modes are decorrelated but biased (HASH remains unbiased); wiring in progress; coverage-moment consistency documented as a limit"
     },
     {
       "taskId": "R38",
