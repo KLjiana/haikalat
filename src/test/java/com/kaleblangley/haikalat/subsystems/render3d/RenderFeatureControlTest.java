@@ -245,7 +245,7 @@ class RenderFeatureControlTest {
                                                    boolean vfxRecorder, boolean fogAware,
                                                    boolean fogOptOut, boolean previewSelected) {
         return new RenderFeaturePolicy.Facts(pbr, directional, point, spot, env, vfxRecorder,
-                fogAware, fogOptOut, previewSelected);
+                fogAware, fogOptOut, previewSelected, directional);
     }
 
     private static RenderFeatureSettings.Builder hdrBuilder() {

@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RenderPipelineWiringTest {
     private static final RenderFeaturePolicy.Facts NO_PBR = new RenderFeaturePolicy.Facts(
-            false, true, true, true, false, false, false, false, false);
+            false, true, true, true, false, false, false, false, false, true);
 
     @Test
     void disabledSettingsLeaveTheTopologyAndCompositionUnchanged() {
@@ -848,7 +848,7 @@ class RenderPipelineWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(), surface,
                 volumetricFog, base.volumetricQuality(), base.volumetricEmission(),
                 base.waterSurface(), particles, stochastic, clouds, smoke,
-                false, false, false);
+                false, false, false, false, false, false);
     }
 
     private static RenderWindow window() {
