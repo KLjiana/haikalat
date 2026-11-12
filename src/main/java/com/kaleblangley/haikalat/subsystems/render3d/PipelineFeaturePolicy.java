@@ -83,6 +83,43 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
         if (topology.volumetricSmoke()) {
             requireSingleSampleHdrDepth("smoke volume rendering");
         }
+        if (topology.weightedOit()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "weighted OIT requires HDR tone mapping for linear compositing");
+            }
+            if (topology.sampleCount() != 1
+                    || topology.antiAliasingMode() == AntiAliasingMode.TAA) {
+                throw new IllegalStateException(
+                        "weighted OIT requires a stable non-jittered single-sample HDR target");
+            }
+            // The collector never binds or writes the shared opaque depth; a
+            // missing depth surface is therefore not an error here.
+        }
+        if (topology.planarReflections()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "planar reflections require HDR tone mapping");
+            }
+        }
+        if (topology.caustics()) {
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "caustics require HDR tone mapping for additive linear composition");
+            }
+            if (!topology.waterSurface()) {
+                throw new IllegalStateException(
+                        "caustics require an active finite water surface");
+            }
+            if (topology.sampleCount() != 1) {
+                throw new IllegalStateException(
+                        "caustics require a single-sample scene colour target in this version");
+            }
+            if (topology.sceneSurface().raw(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "caustics require the shared raster scene depth");
+            }
+        }
     }
 
     /**

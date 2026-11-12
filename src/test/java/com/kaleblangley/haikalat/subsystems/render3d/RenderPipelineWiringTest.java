@@ -8,12 +8,19 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
@@ -24,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -359,6 +367,372 @@ class RenderPipelineWiringTest {
     }
 
     @Test
+    void s3CompositionsAreDisabledByDefaultAndKeepTheTopologyUnchanged() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings hdr = hdr(AntiAliasingMode.NONE);
+        PipelineTopology baseline = PipelineTopology.capture(scene, hdr,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled());
+        PipelineTopology disabled = PipelineTopology.capture(scene, hdr,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
+                true, true, true, WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
+                CausticsSettings.disabled());
+
+        assertEquals(baseline, disabled,
+                "disabled OIT/planar/caustics settings must not change the topology key");
+        assertFalse(disabled.weightedOit());
+        assertFalse(disabled.planarReflections());
+        assertFalse(disabled.caustics());
+
+        RenderFeatureSettings legacy = new RenderFeatureSettings(true, true, true, true, true,
+                true, true, true, hdr, PostProcessSettings.defaults(),
+                VolumetricFogSettings.disabled(), OutdoorEnvironmentSettings.disabled(),
+                DirectionalShadowMap.defaults(), DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(), ClusteredLightingSettings.defaults(),
+                WaterSurfaceSettings.disabled(), VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled());
+        assertEquals(WeightedOitSettings.disabled(), legacy.weightedOit());
+        assertEquals(PlanarReflectionSettings.disabled(), legacy.planarReflections());
+        assertEquals(CausticsSettings.disabled(), legacy.caustics());
+        assertEquals(legacy, legacy.toBuilder().build(),
+                "the retained 19-component constructor must round-trip through the builder");
+    }
+
+    @Test
+    void oitReportsMissingSetAndRejectsHdrOrAaCombinationsAsUnavailable() {
+        RenderSettings hdrNoAa = hdr(AntiAliasingMode.NONE);
+        RenderFeatureSettings requested = hdrBuilder()
+                .weightedOit(WeightedOitSettings.defaults()).build();
+
+        var undeclared = RenderFeaturePolicy.resolve(requested,
+                oitFacts(false, false, hdrNoAa));
+        assertFalse(undeclared.weightedOit());
+        assertEquals(RenderFeatureReason.NO_TRANSPARENT_SET,
+                activity(undeclared, RenderFeature.WEIGHTED_OIT).reason());
+
+        var active = RenderFeaturePolicy.resolve(requested,
+                oitFacts(true, false, hdrNoAa));
+        assertTrue(active.weightedOit());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(active, RenderFeature.WEIGHTED_OIT).reason());
+
+        var taa = RenderFeaturePolicy.resolve(hdrBuilder()
+                .render(hdr(AntiAliasingMode.TAA))
+                .weightedOit(WeightedOitSettings.defaults()).build(),
+                oitFacts(true, false, hdr(AntiAliasingMode.TAA)));
+        assertFalse(taa.weightedOit());
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(taa, RenderFeature.WEIGHTED_OIT).reason());
+
+        var msaa = RenderFeaturePolicy.resolve(hdrBuilder()
+                .render(hdr(AntiAliasingMode.MSAA))
+                .weightedOit(WeightedOitSettings.defaults()).build(),
+                oitFacts(true, false, hdr(AntiAliasingMode.MSAA)));
+        assertFalse(msaa.weightedOit());
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(msaa, RenderFeature.WEIGHTED_OIT).reason());
+
+        IllegalArgumentException ldr = assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(hdrBuilder()
+                        .render(RenderSettings.builder().build())
+                        .weightedOit(WeightedOitSettings.defaults()).build(),
+                        oitFacts(true, false, RenderSettings.builder().build())));
+        assertTrue(ldr.getMessage().contains("weighted OIT requires HDR"));
+
+        var paused = RenderFeaturePolicy.resolve(hdrBuilder().enabled(false)
+                .weightedOit(WeightedOitSettings.defaults()).build(),
+                oitFacts(true, false, hdrNoAa));
+        assertFalse(paused.weightedOit());
+        assertEquals(RenderFeatureReason.PAUSED_BY_MASTER,
+                activity(paused, RenderFeature.WEIGHTED_OIT).reason());
+    }
+
+    @Test
+    void oitAndStochasticRejectTheSameTransparentSet() {
+        RenderSettings hdr = hdr(AntiAliasingMode.NONE);
+        RenderFeatureSettings sameSet = hdrBuilder()
+                .weightedOit(WeightedOitSettings.defaults())
+                .stochasticTransparency(StochasticTransparencySettings.defaults())
+                .build();
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(sameSet, oitFacts(true, true, hdr)));
+        assertTrue(failure.getMessage().contains("same transparent surface set"));
+
+        // Disjoint claims are the supported way to run both strategies.
+        assertDoesNotThrow(() -> RenderFeaturePolicy.resolve(sameSet,
+                oitFacts(true, false, hdr)));
+    }
+
+    @Test
+    void planarReflectionsRequireHdrAndAValidatedPlane() {
+        var active = RenderFeaturePolicy.resolve(hdrBuilder()
+                .planarReflections(PlanarReflectionSettings.builder().enabled(true)
+                        .planeY(0.0f).build()).build(), NO_PBR);
+        assertTrue(active.planarReflections());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(active, RenderFeature.PLANAR_REFLECTIONS).reason());
+
+        IllegalArgumentException ldr = assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(RenderFeatureSettings.builder()
+                        .render(RenderSettings.builder().build())
+                        .planarReflections(PlanarReflectionSettings.builder().enabled(true)
+                                .planeY(0.0f).build()).build(), NO_PBR));
+        assertTrue(ldr.getMessage().contains("planar reflections require HDR"));
+
+        // "Missing plane" is rejected by the settings value before wiring: the
+        // canonical constructor refuses a degenerate normal.
+        assertThrows(IllegalArgumentException.class,
+                () -> PlanarReflectionSettings.builder().enabled(true)
+                        .plane(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f).build());
+    }
+
+    @Test
+    void causticsRequireWaterADownwardDirectionalLightAndHdr() {
+        WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true).build();
+        CausticsSettings caustics = CausticsSettings.builder().enabled(true)
+                .waterPlane(0.0f).build();
+
+        IllegalArgumentException noWater = assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(hdrBuilder().caustics(caustics).build(),
+                        NO_PBR));
+        assertTrue(noWater.getMessage().contains("active finite water surface"));
+
+        var active = RenderFeaturePolicy.resolve(hdrBuilder().waterSurface(water)
+                .caustics(caustics).build(), factsDownward(true));
+        assertTrue(active.caustics());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(active, RenderFeature.CAUSTICS).reason());
+
+        var noLight = RenderFeaturePolicy.resolve(hdrBuilder().waterSurface(water)
+                .caustics(caustics).build(), factsDownward(false));
+        assertFalse(noLight.caustics());
+        assertEquals(RenderFeatureReason.NO_ELIGIBLE_LIGHT,
+                activity(noLight, RenderFeature.CAUSTICS).reason());
+
+        var msaa = RenderFeaturePolicy.resolve(hdrBuilder()
+                .render(hdr(AntiAliasingMode.MSAA))
+                .waterSurface(water).caustics(caustics).build(), factsDownward(true));
+        assertFalse(msaa.caustics(),
+                "the single-sample caustics composite is unsupported on an MSAA target");
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(msaa, RenderFeature.CAUSTICS).reason());
+    }
+
+    @Test
+    void compositionOrderingPutsReflectionsAndCausticsBeforeWaterAndOitBeforePostProcess() {
+        RenderSettings hdr = hdr(AntiAliasingMode.NONE);
+        Scene scene = new Scene(new Camera());
+        scene.addLight(SceneLight.directional(new Vector3f(0.0f, -1.0f, -0.2f),
+                new Vector3f(1.0f), 1.0f));
+        WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true).build();
+        PipelineTopology topology = PipelineTopology.capture(scene, hdr,
+                PostProcessSettings.defaults(), 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
+                true, true, true, water, VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                WeightedOitSettings.defaults(), true,
+                PlanarReflectionSettings.builder().enabled(true).planeY(0.0f).build(),
+                CausticsSettings.builder().enabled(true).waterPlane(0.0f).build());
+        assertTrue(topology.weightedOit());
+        assertTrue(topology.planarReflections());
+        assertTrue(topology.caustics());
+
+        try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
+            graph.addPass(PostProcessTargets.GEOMETRY_PASS)
+                    .createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F)
+                    .createDepthTexture("scene.depth")
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addPlanarReflectionPass(graph, PostProcessTargets.SCENE_COLOR,
+                    PostProcessTargets.GEOMETRY_PASS, RenderFormat.RGBA16F, 1,
+                    (res, cmd) -> { });
+            RenderPipeline.addCausticsPass(graph, PostProcessTargets.SCENE_COLOR,
+                    PostProcessTargets.GEOMETRY_PASS, RenderFormat.RGBA16F, 1,
+                    "scene.depth", PostProcessTargets.GEOMETRY_PASS, (res, cmd) -> { });
+            graph.addPass("WaterSurface")
+                    .createColor("water.color", RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                    .dependsOn(PlanarReflectionPass.PASS_NAME)
+                    .dependsOn(CausticsPass.PASS_NAME)
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addWeightedOitPass(graph, "water.color", "WaterSurface",
+                    RenderFormat.RGBA16F, 1, (res, cmd) -> { });
+            graph.addPass(PostProcessTargets.TONE_MAPPING_PASS)
+                    .computeOnly()
+                    .dependsOn(WeightedOitPass.PASS_NAME)
+                    .execute((res, cmd) -> { });
+            graph.compile();
+
+            List<String> order = graph.description().executionOrder();
+            assertTrue(order.indexOf(PostProcessTargets.GEOMETRY_PASS)
+                    < order.indexOf(PlanarReflectionPass.PASS_NAME), order.toString());
+            assertTrue(order.indexOf(PlanarReflectionPass.PASS_NAME)
+                    < order.indexOf("WaterSurface"),
+                    "planar reflections must record before their water consumer: " + order);
+            assertTrue(order.indexOf(CausticsPass.PASS_NAME)
+                    < order.indexOf("WaterSurface"),
+                    "caustics add light to the opaque scene before water consumes it: " + order);
+            assertTrue(order.indexOf("WaterSurface") < order.indexOf(WeightedOitPass.PASS_NAME),
+                    "OIT resolves over the final transparent/water colour: " + order);
+            assertTrue(order.indexOf(WeightedOitPass.PASS_NAME)
+                    < order.indexOf(PostProcessTargets.TONE_MAPPING_PASS), order.toString());
+
+            assertNull(pass(graph, PlanarReflectionPass.PASS_NAME).depthAttachment(),
+                    "the planar reflection pass must not attach or write the shared depth");
+            assertNull(pass(graph, CausticsPass.PASS_NAME).depthAttachment(),
+                    "the caustics pass must not attach or write the shared depth");
+            assertNull(pass(graph, WeightedOitPass.PASS_NAME).depthAttachment(),
+                    "the OIT resolve must not attach or write the shared depth");
+            assertEquals(PostProcessTargets.SCENE_COLOR,
+                    pass(graph, PlanarReflectionPass.PASS_NAME).colorAttachments()
+                            .getFirst().logicalName());
+            assertEquals(PostProcessTargets.SCENE_COLOR,
+                    pass(graph, CausticsPass.PASS_NAME).colorAttachments()
+                            .getFirst().logicalName());
+            assertTrue(graph.matchesColorStorage(WeightedOitPass.PASS_NAME, "WaterSurface",
+                    List.of(0)));
+        }
+    }
+
+    @Test
+    void builderTimeCompositionValidationFailsClosedBeforeBuild() {
+        Scene scene = new Scene(new Camera());
+        RenderPipeline pipeline = new RenderPipeline(window(), scene, null,
+                hdr(AntiAliasingMode.NONE));
+        try {
+            // The builder accepts the value so call order does not matter; the
+            // missing water dependency fails closed before any generation exists.
+            pipeline.caustics(CausticsSettings.builder().enabled(true).build());
+            IllegalArgumentException missingWater = assertThrows(
+                    IllegalArgumentException.class, pipeline::build);
+            assertTrue(missingWater.getMessage().contains("active finite water surface"));
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> new RenderPipeline(window(), new Scene(new Camera()), null,
+                            RenderSettings.builder().build())
+                            .planarReflections(PlanarReflectionSettings.builder()
+                                    .enabled(true).planeY(0.0f).build()),
+                    "planar reflections require HDR");
+            assertThrows(IllegalArgumentException.class,
+                    () -> new RenderPipeline(window(), new Scene(new Camera()), null,
+                            RenderSettings.builder().build())
+                            .weightedOit(WeightedOitSettings.defaults()),
+                    "weighted OIT requires HDR");
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    @Test
+    void transparentStrategyStagingRejectsAnOverlappingSurface() {
+        RenderPipeline pipeline = new RenderPipeline(window(), new Scene(new Camera()), null,
+                hdr(AntiAliasingMode.NONE))
+                .weightedOit(WeightedOitSettings.defaults())
+                .stochasticTransparency(StochasticTransparencySettings.defaults());
+        try {
+            OitSurface surface = OitSurface.of(new Vector3f(0.0f, 0.0f, -2.0f),
+                    new Vector3f(0.5f, 0.0f, 0.0f), new Vector3f(0.0f, 0.5f, 0.0f),
+                    new Vector3f(1.0f, 0.2f, 0.1f), 1.0f);
+            pipeline.weightedOitSurfaces(List.of(surface));
+            assertEquals(List.of(surface), pipeline.weightedOitSurfaces());
+            assertTrue(pipeline.weightedOitSetDeclared());
+            assertThrows(IllegalArgumentException.class,
+                    () -> pipeline.stochasticTransparencySurfaces(List.of(surface)),
+                    "the same surface cannot be claimed by both strategies");
+            assertEquals(List.of(), pipeline.stochasticTransparencySurfaces());
+            // The overlap is a staging conflict, not a settings-shape conflict:
+            // the stochastic set is still empty, so a scalar settings change is
+            // allowed and simply leaves that strategy with no recorded draw.
+            assertDoesNotThrow(() -> pipeline.applyStochasticTransparency(
+                    StochasticTransparencySettings.defaults().withSamplesPerFrame(2)));
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    @Test
+    void s3SettingsRollBackWhenCandidateGenerationCannotBeBuilt() throws Exception {
+        Scene scene = new Scene(new Camera());
+        WaterSurfaceSettings water = WaterSurfaceSettings.builder().enabled(true).build();
+        RenderPipeline pipeline = new RenderPipeline(window(), scene, null,
+                hdr(AntiAliasingMode.NONE))
+                .waterSurface(water);
+        PipelineTopology topology = PipelineTopology.capture(scene,
+                hdr(AntiAliasingMode.NONE), PostProcessSettings.defaults(), 64, 48, false,
+                false, DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(),
+                volumetric(), true, true, true, water,
+                particles(), StochasticTransparencySettings.defaults());
+        PipelineGeneration injected = new PipelineGeneration(topology);
+        RenderGraph graph = GraphRecordingFixture.graph(64, 48);
+        try {
+            setField(injected, "graph", graph);
+            setField(pipeline, "activeGeneration", injected);
+            assertThrows(IllegalStateException.class,
+                    () -> pipeline.applyWeightedOit(WeightedOitSettings.defaults()));
+            assertEquals(WeightedOitSettings.disabled(), pipeline.weightedOit());
+            assertSame(injected, pipeline.activeGenerationForTest());
+
+            assertThrows(IllegalStateException.class,
+                    () -> pipeline.applyPlanarReflections(PlanarReflectionSettings.builder()
+                            .enabled(true).planeY(0.0f).build()));
+            assertEquals(PlanarReflectionSettings.disabled(), pipeline.planarReflections());
+            assertSame(injected, pipeline.activeGenerationForTest());
+
+            assertThrows(IllegalStateException.class,
+                    () -> pipeline.applyCaustics(CausticsSettings.builder().enabled(true)
+                            .waterPlane(0.0f).build()));
+            assertEquals(CausticsSettings.disabled(), pipeline.caustics());
+            assertSame(injected, pipeline.activeGenerationForTest());
+        } finally {
+            setField(pipeline, "activeGeneration", null);
+            pipeline.close();
+            graph.close();
+            injected.close();
+        }
+    }
+
+    @Test
+    void firstOitSetDeclarationPublishesACandidateOrRollsBack() throws Exception {
+        Scene scene = new Scene(new Camera());
+        RenderPipeline pipeline = new RenderPipeline(window(), scene, null,
+                hdr(AntiAliasingMode.NONE))
+                .weightedOit(WeightedOitSettings.defaults());
+        PipelineTopology topology = captureTopology(scene, DirectionalCascadeSettings.disabled(),
+                WeightedOitSettings.disabled());
+        assertFalse(topology.weightedOit(),
+                "the injected generation predates the OIT set declaration");
+        PipelineGeneration injected = new PipelineGeneration(topology);
+        RenderGraph graph = GraphRecordingFixture.graph(64, 48);
+        try {
+            setField(injected, "graph", graph);
+            setField(pipeline, "activeGeneration", injected);
+            OitSurface surface = OitSurface.of(new Vector3f(0.0f, 0.0f, -2.0f),
+                    new Vector3f(0.5f, 0.0f, 0.0f), new Vector3f(0.0f, 0.5f, 0.0f),
+                    new Vector3f(1.0f, 0.2f, 0.1f), 1.0f);
+            // No GL context: the first declaration must try to publish the pass
+            // and then restore the undeclared state when the candidate fails.
+            assertThrows(IllegalStateException.class,
+                    () -> pipeline.weightedOitSurfaces(List.of(surface)));
+            assertFalse(pipeline.weightedOitSetDeclared(),
+                    "a failed first declaration must roll back");
+            assertEquals(List.of(), pipeline.weightedOitSurfaces());
+            assertSame(injected, pipeline.activeGenerationForTest());
+        } finally {
+            setField(pipeline, "activeGeneration", null);
+            pipeline.close();
+            graph.close();
+            injected.close();
+        }
+    }
+
+    @Test
     void settingsRollBackWhenCandidateGenerationCannotBeBuilt() throws Exception {
         Scene scene = new Scene(new Camera());
         RenderPipeline pipeline = new RenderPipeline(window(), scene, null,
@@ -403,8 +777,31 @@ class RenderPipelineWiringTest {
         field.set(target, value);
     }
 
+    private static PipelineTopology captureTopology(Scene scene,
+                                                    DirectionalCascadeSettings cascades,
+                                                    WeightedOitSettings oit) {
+        return PipelineTopology.capture(scene, hdr(AntiAliasingMode.NONE),
+                PostProcessSettings.defaults(), 64, 48, false, false, cascades,
+                LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
+                true, true, true, WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(), StochasticTransparencySettings.disabled(),
+                oit, false, PlanarReflectionSettings.disabled(), CausticsSettings.disabled());
+    }
+
     private static RenderFeatureSettings.Builder hdrBuilder() {
         return RenderFeatureSettings.builder().render(hdr(AntiAliasingMode.NONE));
+    }
+
+    private static RenderFeaturePolicy.Facts oitFacts(boolean setDeclared,
+                                                      boolean overlappingSet,
+                                                      RenderSettings render) {
+        return new RenderFeaturePolicy.Facts(false, true, true, true, false,
+                false, false, false, false, true, setDeclared, overlappingSet);
+    }
+
+    private static RenderFeaturePolicy.Facts factsDownward(boolean downward) {
+        return new RenderFeaturePolicy.Facts(false, true, true, true, false,
+                false, false, false, false, downward, false, false);
     }
 
     private static RenderSettings hdr(AntiAliasingMode mode) {
@@ -450,7 +847,8 @@ class RenderPipelineWiringTest {
                 base.pbrMaterials(), base.hdrVfx(), base.embedded(), base.gtaoEnabled(),
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(), surface,
                 volumetricFog, base.volumetricQuality(), base.volumetricEmission(),
-                base.waterSurface(), particles, stochastic, clouds, smoke);
+                base.waterSurface(), particles, stochastic, clouds, smoke,
+                false, false, false);
     }
 
     private static RenderWindow window() {

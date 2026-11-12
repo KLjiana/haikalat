@@ -61,7 +61,8 @@ public final class CausticsPass implements GlResource {
     /** Largest accepted colour target edge in pixels. */
     public static final int MAXIMUM_EXTENT = 16384;
     /** Smallest accepted absolute light direction Y against the receiver. */
-    public static final float MINIMUM_LIGHT_DOWNWARD_Y = 1.0e-3f;
+    public static final float MINIMUM_LIGHT_DOWNWARD_Y =
+            CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y;
 
     private final CausticsSettings settings;
     private final int samples;

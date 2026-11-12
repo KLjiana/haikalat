@@ -4,6 +4,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
 
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
@@ -17,6 +19,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.pipeline.ForwardPassBuilder
 import com.kaleblangley.haikalat.subsystems.render3d.PipelineFeaturePolicy;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
 import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.FrameInvalidation;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
@@ -45,6 +49,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
@@ -294,6 +300,20 @@ public final class RenderPipeline {
     private boolean smokeSimulationAdvanced;
     /** Caller-selected stochastic surface set for subsequent frames; empty means no draw. */
     private List<OitSurface> stochasticTransparencySurfaces = List.of();
+    /** Weighted blended OIT is the alternative transparent-collection strategy. */
+    private WeightedOitSettings weightedOitSettings = WeightedOitSettings.disabled();
+    /**
+     * Caller-selected OIT surface set for subsequent frames.  {@code
+     * weightedOitSetDeclared} distinguishes "never declared" from an explicit
+     * empty set that declares the strategy without drawing.
+     */
+    private List<OitSurface> weightedOitSurfaces = List.of();
+    private boolean weightedOitSetDeclared;
+    /** Cached intersection result; recomputed only when either staged set changes. */
+    private boolean weightedOitStochasticOverlap;
+    private PlanarReflectionSettings planarReflectionSettings =
+            PlanarReflectionSettings.disabled();
+    private CausticsSettings causticsSettings = CausticsSettings.disabled();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
     private float waterTimeSeconds;
     private PassExecutor hdrVfxRecorder;
@@ -530,7 +550,8 @@ public final class RenderPipeline {
                 return;
             }
             PipelineTopology topology = captureTopology(scene,
-                    activeGeneration.graph().width(), activeGeneration.graph().height());
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    volumetricParticleSettings, stochasticTransparencySettings);
             activateGeneration(createGeneration(scene, topology, activeGeneration));
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
@@ -578,7 +599,8 @@ public final class RenderPipeline {
         volumetricFogSettings = replacement;
         try {
             PipelineTopology topology = captureTopology(scene,
-                    activeGeneration.graph().width(), activeGeneration.graph().height());
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    volumetricParticleSettings, stochasticTransparencySettings);
             if (!topology.equals(activeGeneration.topology()))
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             else activeGeneration.postProcess().invalidateTemporalHistory(TaaInvalidationReason.VOLUMETRIC_SETTINGS);
@@ -824,7 +846,9 @@ public final class RenderPipeline {
                     + ") exceeds the requested maximumSurfaces "
                     + requested.maximumSurfaces());
         }
+        validateTransparentSetClaims(weightedOitSettings, requested);
         stochasticTransparencySettings = requested;
+        recomputeWeightedOitOverlap();
         topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         return this;
     }
@@ -868,6 +892,7 @@ public final class RenderPipeline {
                     + ") exceeds the requested maximumSurfaces "
                     + replacement.maximumSurfaces());
         }
+        validateTransparentSetClaims(weightedOitSettings, replacement);
         if (activeGeneration == null) {
             stochasticTransparency(replacement);
             return;
@@ -875,6 +900,7 @@ public final class RenderPipeline {
         StochasticTransparencySettings previous = stochasticTransparencySettings;
         PipelineGeneration previousGeneration = activeGeneration;
         stochasticTransparencySettings = replacement;
+        recomputeWeightedOitOverlap();
         try {
             PipelineTopology topology = captureTopology(activeGeneration,
                     volumetricParticleSettings, replacement);
@@ -888,6 +914,7 @@ public final class RenderPipeline {
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) {
                 stochasticTransparencySettings = previous;
+                recomputeWeightedOitOverlap();
             }
             throw failure;
         }
@@ -910,8 +937,15 @@ public final class RenderPipeline {
                     + " exceeds the configured maximumSurfaces "
                     + stochasticTransparencySettings.maximumSurfaces());
         }
+        if (weightedOitSettings.active()
+                && transparentSetsIntersect(weightedOitSurfaces, copy)) {
+            throw new IllegalArgumentException(
+                    "a surface cannot be claimed by weighted OIT and stochastic transparency "
+                            + "in the same frame");
+        }
         boolean changed = !copy.equals(stochasticTransparencySurfaces);
         stochasticTransparencySurfaces = copy;
+        recomputeWeightedOitOverlap();
         if (changed && activeGeneration != null
                 && activeGeneration.stochasticTransparency() != null) {
             activeGeneration.stochasticTransparency().invalidate();
@@ -922,6 +956,364 @@ public final class RenderPipeline {
     /** Current caller-selected stochastic surface set; immutable and empty by default. */
     public List<OitSurface> stochasticTransparencySurfaces() {
         return stochasticTransparencySurfaces;
+    }
+
+    /**
+     * Configures weighted blended OIT before the first generation is built.
+     *
+     * <p>OIT is an alternative transparent-collection strategy: it consumes the
+     * caller-selected {@link #weightedOitSurfaces(List)} set instead of the
+     * sorted alpha queue, and it is mutually exclusive with stochastic
+     * transparency for the same surface.  An enabled request needs HDR; MSAA and
+     * TAA have no compatible single-sample target and keep the request
+     * {@code UNAVAILABLE} without changing the graph.</p>
+     */
+    public RenderPipeline weightedOit(WeightedOitSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) throw new IllegalStateException("use applyWeightedOit after build");
+        WeightedOitSettings requested = Objects.requireNonNull(value, "weightedOit");
+        validateWeightedOitAdmission(requested);
+        weightedOitSettings = requested;
+        recomputeWeightedOitOverlap();
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current weighted-OIT configuration; no GPU resource is exposed. */
+    public WeightedOitSettings weightedOit() {
+        return weightedOitSettings;
+    }
+
+    /**
+     * Publishes a weighted-OIT settings change at a frame boundary. A capacity
+     * change allocates a new quad owner; a failure keeps the active generation,
+     * pass and previous settings.
+     */
+    public void applyWeightedOit(WeightedOitSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyWeightedOitInternal(value);
+            }
+        } else {
+            applyWeightedOitInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyWeightedOitInternal(WeightedOitSettings value) {
+        WeightedOitSettings replacement = Objects.requireNonNull(value, "weightedOit");
+        if (executing) {
+            throw new IllegalStateException("weighted OIT changes are only allowed at frame boundaries");
+        }
+        validateWeightedOitAdmission(replacement);
+        validateTransparentSetClaims(replacement, stochasticTransparencySettings);
+        if (replacement.equals(weightedOitSettings)) return;
+        if (activeGeneration == null) {
+            weightedOit(replacement);
+            return;
+        }
+        WeightedOitSettings previous = weightedOitSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        weightedOitSettings = replacement;
+        recomputeWeightedOitOverlap();
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.WEIGHTED_OIT_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                weightedOitSettings = previous;
+                recomputeWeightedOitOverlap();
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Stages the caller-selected OIT surface set for the next and subsequent
+     * frames.  Calling this method with an empty list still declares the OIT
+     * strategy (a valid no-op collection); never calling it leaves the request
+     * {@code NO_TRANSPARENT_SET}.  The list is copied and surfaces are never
+     * retained by the pass.
+     */
+    public RenderPipeline weightedOitSurfaces(List<OitSurface> surfaces) {
+        requireGpuOwner();
+        if (executing) {
+            throw new IllegalStateException(
+                    "weighted OIT surfaces are only allowed at frame boundaries");
+        }
+        List<OitSurface> copy = List.copyOf(Objects.requireNonNull(surfaces, "surfaces"));
+        if (weightedOitSettings.active() && copy.size() > weightedOitSettings.maximumSurfaces()) {
+            throw new IllegalArgumentException("surface count " + copy.size()
+                    + " exceeds the configured maximumSurfaces "
+                    + weightedOitSettings.maximumSurfaces());
+        }
+        if (stochasticTransparencySettings.active()
+                && transparentSetsIntersect(copy, stochasticTransparencySurfaces)) {
+            throw new IllegalArgumentException(
+                    "a surface cannot be claimed by weighted OIT and stochastic transparency "
+                            + "in the same frame");
+        }
+        List<OitSurface> previousSurfaces = weightedOitSurfaces;
+        boolean declarationChanged = !weightedOitSetDeclared;
+        weightedOitSurfaces = copy;
+        weightedOitSetDeclared = true;
+        recomputeWeightedOitOverlap();
+        if (declarationChanged && weightedOitSettings.active() && activeGeneration != null) {
+            // Declaring the set is what adds the pass to the topology key, so the
+            // first declaration after build publishes a candidate generation.
+            PipelineGeneration previousGeneration = activeGeneration;
+            try {
+                PipelineTopology topology = captureTopology(activeGeneration,
+                        volumetricParticleSettings, stochasticTransparencySettings);
+                if (!topology.equals(activeGeneration.topology())) {
+                    activateGeneration(createGeneration(scene, topology, activeGeneration));
+                }
+            } catch (RuntimeException | Error failure) {
+                if (activeGeneration == previousGeneration) {
+                    weightedOitSurfaces = previousSurfaces;
+                    weightedOitSetDeclared = false;
+                    recomputeWeightedOitOverlap();
+                }
+                throw failure;
+            }
+        }
+        return this;
+    }
+
+    /** Current caller-selected OIT surface set; immutable and empty by default. */
+    public List<OitSurface> weightedOitSurfaces() {
+        return weightedOitSurfaces;
+    }
+
+    /** @return true once the caller declared the OIT strategy (even with an empty set) */
+    public boolean weightedOitSetDeclared() {
+        return weightedOitSetDeclared;
+    }
+
+    /** Configures the single-plane reflection view before the first generation is built. */
+    public RenderPipeline planarReflections(PlanarReflectionSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyPlanarReflections after build");
+        }
+        PlanarReflectionSettings requested = Objects.requireNonNull(value, "planarReflections");
+        validatePlanarReflectionAdmission(requested);
+        planarReflectionSettings = requested;
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current planar-reflection configuration; no GPU resource is exposed. */
+    public PlanarReflectionSettings planarReflections() {
+        return planarReflectionSettings;
+    }
+
+    /**
+     * Publishes a planar-reflection settings change at a frame boundary.  The
+     * pass bakes the plane/resolution/interval, so the complete candidate
+     * generation is rebuilt; a failure keeps the previous generation and value.
+     */
+    public void applyPlanarReflections(PlanarReflectionSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyPlanarReflectionsInternal(value);
+            }
+        } else {
+            applyPlanarReflectionsInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyPlanarReflectionsInternal(PlanarReflectionSettings value) {
+        PlanarReflectionSettings replacement =
+                Objects.requireNonNull(value, "planarReflections");
+        if (executing) {
+            throw new IllegalStateException(
+                    "planar reflection changes are only allowed at frame boundaries");
+        }
+        validatePlanarReflectionAdmission(replacement);
+        if (replacement.equals(planarReflectionSettings)) return;
+        if (activeGeneration == null) {
+            planarReflections(replacement);
+            return;
+        }
+        PlanarReflectionSettings previous = planarReflectionSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        planarReflectionSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.PLANAR_REFLECTION_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                planarReflectionSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /** Configures the bounded water-caustics contribution before the first build. */
+    public RenderPipeline caustics(CausticsSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) throw new IllegalStateException("use applyCaustics after build");
+        CausticsSettings requested = Objects.requireNonNull(value, "caustics");
+        validateCausticsAdmission(requested);
+        causticsSettings = requested;
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current caustics configuration; no GPU resource is exposed. */
+    public CausticsSettings caustics() {
+        return causticsSettings;
+    }
+
+    /**
+     * Publishes a caustics settings change at a frame boundary.  The pass bakes
+     * its pattern texture and sample count, so a change rebuilds the candidate
+     * generation; a failure keeps the previous generation and value.
+     */
+    public void applyCaustics(CausticsSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyCausticsInternal(value);
+            }
+        } else {
+            applyCausticsInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyCausticsInternal(CausticsSettings value) {
+        CausticsSettings replacement = Objects.requireNonNull(value, "caustics");
+        if (executing) {
+            throw new IllegalStateException("caustics changes are only allowed at frame boundaries");
+        }
+        validateCausticsAdmission(replacement);
+        if (replacement.active() && !waterSurfaceSettings.active()) {
+            throw new IllegalArgumentException(
+                    "caustics require an active finite water surface");
+        }
+        if (replacement.equals(causticsSettings)) return;
+        if (activeGeneration == null) {
+            caustics(replacement);
+            return;
+        }
+        CausticsSettings previous = causticsSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        causticsSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.CAUSTICS_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                causticsSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    private void validateWeightedOitAdmission(WeightedOitSettings value) {
+        validateTransparentSetClaims(value, stochasticTransparencySettings);
+        if (!value.active()) return;
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "weighted OIT requires HDR tone mapping for linear compositing");
+        }
+        if (weightedOitSetDeclared
+                && weightedOitSurfaces.size() > value.maximumSurfaces()) {
+            throw new IllegalArgumentException("the staged OIT surface set ("
+                    + weightedOitSurfaces.size() + ") exceeds the requested maximumSurfaces "
+                    + value.maximumSurfaces());
+        }
+    }
+
+    private void validatePlanarReflectionAdmission(PlanarReflectionSettings value) {
+        if (!value.active()) return;
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException("planar reflections require HDR tone mapping");
+        }
+        if (!value.hasPlane()) {
+            throw new IllegalArgumentException(
+                    "planar reflections require a finite non-degenerate plane");
+        }
+    }
+
+    private void validateCausticsAdmission(CausticsSettings value) {
+        if (!value.active()) return;
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "caustics require HDR tone mapping for additive linear composition");
+        }
+    }
+
+    /**
+     * Fail-closed dependency check for the three S3 composition features after
+     * all configuration fields are set.  The build/visual/water apply paths call
+     * this before any candidate generation is prepared.
+     */
+    private void validateCompositionDependencies() {
+        if (weightedOitSettings.active() && !settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "weighted OIT requires HDR tone mapping for linear compositing");
+        }
+        if (planarReflectionSettings.active() && !settings.hdrEnabled()) {
+            throw new IllegalArgumentException("planar reflections require HDR tone mapping");
+        }
+        if (causticsSettings.active()) {
+            if (!settings.hdrEnabled()) {
+                throw new IllegalArgumentException(
+                        "caustics require HDR tone mapping for additive linear composition");
+            }
+            if (!waterSurfaceSettings.active()) {
+                throw new IllegalArgumentException(
+                        "caustics require an active finite water surface");
+            }
+        }
+    }
+
+    private void validateTransparentSetClaims(WeightedOitSettings oit,
+                                              StochasticTransparencySettings stochastic) {
+        if (!oit.active() || !stochastic.active()) return;
+        if (transparentSetsIntersect(weightedOitSurfaces, stochasticTransparencySurfaces)) {
+            throw new IllegalArgumentException(
+                    "a surface cannot be claimed by weighted OIT and stochastic transparency "
+                            + "in the same frame");
+        }
+    }
+
+    private void recomputeWeightedOitOverlap() {
+        weightedOitStochasticOverlap = weightedOitSettings.active()
+                && stochasticTransparencySettings.active()
+                && weightedOitSetDeclared
+                && transparentSetsIntersect(weightedOitSurfaces,
+                stochasticTransparencySurfaces);
+    }
+
+    private static boolean transparentSetsIntersect(List<OitSurface> first,
+                                                     List<OitSurface> second) {
+        if (first.isEmpty() || second.isEmpty()) return false;
+        List<OitSurface> smaller = first.size() <= second.size() ? first : second;
+        List<OitSurface> larger = smaller == first ? second : first;
+        Set<OitSurface> lookup = new java.util.HashSet<>(smaller);
+        for (OitSurface surface : larger) {
+            if (lookup.contains(surface)) return true;
+        }
+        return false;
     }
 
     /** Configures the finite water surface before the first generation is built. */
@@ -956,13 +1348,18 @@ public final class RenderPipeline {
         WaterSurfaceSettings replacement = Objects.requireNonNull(value, "waterSurface");
         if (executing) throw new IllegalStateException("water surface changes are only allowed at frame boundaries");
         if (replacement.equals(waterSurfaceSettings)) return;
+        if (!replacement.active() && causticsSettings.active()) {
+            throw new IllegalArgumentException(
+                    "caustics require an active finite water surface");
+        }
         if (activeGeneration == null) { waterSurface(replacement); return; }
         WaterSurfaceSettings previous = waterSurfaceSettings;
         PipelineGeneration previousGeneration = activeGeneration;
         waterSurfaceSettings = replacement;
         try {
             PipelineTopology topology = captureTopology(scene,
-                    activeGeneration.graph().width(), activeGeneration.graph().height());
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    volumetricParticleSettings, stochasticTransparencySettings);
             if (!topology.equals(activeGeneration.topology())) {
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             }
@@ -993,8 +1390,9 @@ public final class RenderPipeline {
         postProcessSettings = previous.withGtao(replacement);
         try {
             if (before != null) {
-                var topology = captureTopology(scene,
-                        before.graph().width(), before.graph().height());
+                var topology = captureTopology(scene, before.graph().width(),
+                        before.graph().height(), volumetricParticleSettings,
+                        stochasticTransparencySettings);
                 if (!topology.equals(before.topology())) activateGeneration(createGeneration(scene, topology, before));
                 else {
                     if (before.gtao() != null) {
@@ -1096,12 +1494,15 @@ public final class RenderPipeline {
         iblRotationRadians = replacement.iblRotationRadians();
         try {
             if (activeGeneration == null) {
+                validateCompositionDependencies();
                 applyProfileDirectionalLight(replacement);
                 visualSettingsRevision = Math.incrementExact(visualSettingsRevision);
                 return;
             }
+            validateCompositionDependencies();
             PipelineTopology candidateTopology = captureTopology(scene,
-                    activeGeneration.graph().width(), activeGeneration.graph().height());
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    volumetricParticleSettings, stochasticTransparencySettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration,
                     outdoorEnvironment);
             if (!activeGeneration.topology().equals(candidateTopology) || outdoorPassShapeChanged
@@ -1191,7 +1592,8 @@ public final class RenderPipeline {
         outdoorEnvironment = replacement;
         try {
             PipelineTopology candidateTopology = captureTopology(scene,
-                    activeGeneration.graph().width(), activeGeneration.graph().height());
+                    activeGeneration.graph().width(), activeGeneration.graph().height(),
+                    volumetricParticleSettings, stochasticTransparencySettings);
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration, replacement);
             if (!replaceEnvironment && activeGeneration.topology().equals(candidateTopology) && !outdoorPassShapeChanged) {
                 // The active sky reads the immutable appearance at frame boundaries.
@@ -1391,7 +1793,9 @@ public final class RenderPipeline {
                     + Math.max(2, settings.msaaSamples())
                     + "; provide a matching resolvable host depth target");
         }
-        PipelineTopology candidateTopology = captureTopology(scene, w, h);
+        PipelineTopology candidateTopology = captureTopology(scene, w, h,
+                volumetricParticleSettings, stochasticTransparencySettings);
+        validateCompositionDependencies();
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -1418,7 +1822,9 @@ public final class RenderPipeline {
                 directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
                 waterSurfaceSettings, particles, stochastic, volumetricCloudSettings,
                 smokeSimulationSettings, smokeRenderSettings,
-                directionalShadowMap.settings().cloudShadows());
+                directionalShadowMap.settings().cloudShadows(),
+                weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
+                causticsSettings);
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -1514,6 +1920,55 @@ public final class RenderPipeline {
                 .execute(executor);
     }
 
+    /**
+     * Declares the in-place weighted-OIT resolve over the current scene colour.
+     * The pass owns its two accumulation attachments; the graph pass borrows
+     * only colour storage and has no depth attachment, so the shared opaque
+     * depth is never written.
+     */
+    static void addWeightedOitPass(RenderGraph graph, String colorTexture,
+                                   String colorProducer, RenderFormat format, int sampleCount,
+                                   PassExecutor executor) {
+        graph.addPass(WeightedOitPass.PASS_NAME)
+                .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
+                        sampleCount)
+                .noClear()
+                .execute(executor);
+    }
+
+    /**
+     * Declares the independent planar-reflection subview between the scene
+     * colour producer and its reflection consumers.  The pass owns its
+     * RGBA16F+depth target; the graph pass borrows the scene colour storage
+     * only so the executor can restore that framebuffer after recording.
+     */
+    static void addPlanarReflectionPass(RenderGraph graph, String colorTexture,
+                                        String colorProducer, RenderFormat format, int sampleCount,
+                                        PassExecutor executor) {
+        graph.addPass(PlanarReflectionPass.PASS_NAME)
+                .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
+                        sampleCount)
+                .noClear()
+                .execute(executor);
+    }
+
+    /**
+     * Declares the water-caustics contribution as an in-place scene-colour
+     * writer after the opaque/transparent producer and before the water
+     * consumer.  The pass owns its colour target, samples the shared raster
+     * depth and never writes that depth.
+     */
+    static void addCausticsPass(RenderGraph graph, String colorTexture, String colorProducer,
+                                RenderFormat format, int sampleCount, String depthTexture,
+                                String depthProducer, PassExecutor executor) {
+        var pass = graph.addPass(CausticsPass.PASS_NAME)
+                .shareColorTextures(List.of(colorTexture), List.of(format), colorProducer,
+                        sampleCount)
+                .noClear();
+        if (!depthProducer.equals(colorProducer)) pass.dependsOn(depthProducer);
+        pass.execute(executor);
+    }
+
     private PipelineGeneration createGeneration(Scene generationScene,
                                                 PipelineTopology topology) {
         return createGeneration(generationScene, topology, null);
@@ -1587,6 +2042,9 @@ public final class RenderPipeline {
             candidate.assembleVolumetricClouds(volumetricCloudSettings);
             candidate.assembleSmoke(smokeSimulationSettings, smokeRenderSettings, reusable);
             candidate.assembleStochasticTransparency(stochasticTransparencySettings, reusable);
+            candidate.assembleWeightedOit(weightedOitSettings, reusable);
+            candidate.assemblePlanarReflection(planarReflectionSettings, reusable);
+            candidate.assembleCaustics(causticsSettings, reusable);
             candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled(),
                     atmosphereSettings);
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
@@ -1641,8 +2099,41 @@ public final class RenderPipeline {
                 candidate.postProcess().sceneColorInput(VolumetricPassBuilder.SCENE_COLOR, VolumetricPassBuilder.TRANSPARENT_PASS);
                 sceneColorProducer = VolumetricPassBuilder.TRANSPARENT_PASS;
             }
+            java.util.List<String> waterDependencies = new java.util.ArrayList<>();
+            if (candidate.planarReflection() != null) {
+                // The reflection is an independent single-sample subview. It is
+                // recorded after the opaque scene producer and before the water
+                // reflection consumer, and never samples its own target.
+                addPlanarReflectionPass(candidate.graph(), sceneColorTexture,
+                        sceneColorProducer, ForwardPassBuilder.sceneColorFormat(settings),
+                        topology.sampleCount(), planarReflectionExecutor(candidate,
+                                sceneColorProducer));
+                waterDependencies.add(PlanarReflectionPass.PASS_NAME);
+            }
+            if (candidate.caustics() != null) {
+                var rasterDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
+                if (rasterDepth == null) {
+                    throw new IllegalStateException(
+                            "caustics require the shared raster scene depth");
+                }
+                // The pass adds linear light to the opaque scene colour before the
+                // water pass consumes it; the first version has no water mask, so
+                // compositing after the water pass would incorrectly light the
+                // water surface itself.
+                addCausticsPass(candidate.graph(), sceneColorTexture, sceneColorProducer,
+                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
+                        rasterDepth.name(), rasterDepth.producer(),
+                        causticsExecutor(candidate, sceneColorProducer));
+                waterDependencies.add(CausticsPass.PASS_NAME);
+                candidate.postProcess().sceneColorInput(sceneColorTexture,
+                        CausticsPass.PASS_NAME);
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(CausticsPass.PASS_NAME);
+                }
+            }
             if (candidate.topology().waterSurface()) {
-                candidate.assembleWaterSurface(waterExecutor(candidate));
+                candidate.assembleWaterSurface(waterExecutor(candidate, sceneColorProducer),
+                        waterDependencies);
                 candidate.postProcess().sceneColorInput(WaterSurfacePass.COLOR,
                         WaterSurfacePass.PASS_NAME);
                 sceneColorTexture = WaterSurfacePass.COLOR;
@@ -1671,6 +2162,21 @@ public final class RenderPipeline {
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
                 }
+            }
+            if (candidate.weightedOit() != null) {
+                // OIT is an alternative transparent-collection strategy: it resolves
+                // over the final scene colour in place, after the main transparent
+                // queue/water/refraction and before every post-process consumer. The
+                // shared colour target has no depth attachment.
+                addWeightedOitPass(candidate.graph(), sceneColorTexture, sceneColorProducer,
+                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
+                        weightedOitExecutor(candidate));
+                candidate.postProcess().sceneColorInput(sceneColorTexture,
+                        WeightedOitPass.PASS_NAME);
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(WeightedOitPass.PASS_NAME);
+                }
+                sceneColorProducer = WeightedOitPass.PASS_NAME;
             }
             if (candidate.stochasticTransparency() != null) {
                 // The collection composites over the final scene colour in place and
@@ -1864,7 +2370,8 @@ public final class RenderPipeline {
             return;
         }
         PipelineTopology candidateTopology = captureTopology(candidateScene,
-                generation.graph().width(), generation.graph().height());
+                generation.graph().width(), generation.graph().height(),
+                volumetricParticleSettings, stochasticTransparencySettings);
         if (generation.topology().equals(candidateTopology)) {
             synchronizeOutdoorSun(candidateScene);
             scene = candidateScene;
@@ -2602,7 +3109,8 @@ public final class RenderPipeline {
                 volumetricFogSettings, outdoorEnvironment, directionalShadowMap,
                 directionalCascadeSettings, localShadowSettings, clusteredLightingSettings,
                 waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings,
-                volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings);
+                volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings,
+                weightedOitSettings, planarReflectionSettings, causticsSettings);
     }
 
     private RenderFeaturePolicy.Facts featureFacts() {
@@ -2617,7 +3125,12 @@ public final class RenderPipeline {
         boolean directional = false;
         boolean point = false;
         boolean spot = false;
+        boolean downwardDirectional = false;
         for (SceneLight light : scene.lights()) {
+            if (light.type() == LightType.DIRECTIONAL
+                    && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
+                downwardDirectional = true;
+            }
             if (!light.castShadows()) continue;
             switch (light.type()) {
                 case DIRECTIONAL -> directional = true;
@@ -2627,7 +3140,8 @@ public final class RenderPipeline {
         }
         return new RenderFeaturePolicy.Facts(pbr, directional, point, spot,
                 pbrEnvironment != null, hdrVfxRecorder != null, fogAwareHdrVfxRecorder != null,
-                hdrVfxFogOptOut, previewController.selected().isPresent());
+                hdrVfxFogOptOut, previewController.selected().isPresent(),
+                downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap);
     }
 
     private void publishCompatibilityFeatureState() {
@@ -2671,6 +3185,17 @@ public final class RenderPipeline {
                     + requestedStochastic.maximumSurfaces());
         }
         stochasticTransparencySettings = requestedStochastic;
+        WeightedOitSettings requestedOit = requested.weightedOit();
+        if (requestedOit.active()
+                && weightedOitSurfaces.size() > requestedOit.maximumSurfaces()) {
+            throw new IllegalArgumentException("the staged OIT surface set ("
+                    + weightedOitSurfaces.size() + ") exceeds the requested maximumSurfaces "
+                    + requestedOit.maximumSurfaces());
+        }
+        weightedOitSettings = requestedOit;
+        planarReflectionSettings = requested.planarReflections();
+        causticsSettings = requested.caustics();
+        recomputeWeightedOitOverlap();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -2709,7 +3234,11 @@ public final class RenderPipeline {
                 next.volumetricClouds())
                 && java.util.Objects.equals(previous.smokeSimulation(),
                 next.smokeSimulation())
-                && java.util.Objects.equals(previous.smokeRender(), next.smokeRender());
+                && java.util.Objects.equals(previous.smokeRender(), next.smokeRender())
+                && java.util.Objects.equals(previous.weightedOit(), next.weightedOit())
+                && java.util.Objects.equals(previous.planarReflections(),
+                next.planarReflections())
+                && java.util.Objects.equals(previous.caustics(), next.caustics());
     }
 
     private void applyPendingFeatureRequest() {
@@ -2731,7 +3260,8 @@ public final class RenderPipeline {
             PipelineGeneration current = activeGeneration;
             try {
                 PipelineTopology topology = captureTopology(scene,
-                        current.graph().width(), current.graph().height());
+                        current.graph().width(), current.graph().height(),
+                        volumetricParticleSettings, stochasticTransparencySettings);
                 PipelineGeneration candidate = createGeneration(scene, topology, current);
                 synchronizeOutdoorSun(scene);
                 activateGeneration(candidate);
@@ -2840,7 +3370,7 @@ public final class RenderPipeline {
         };
     }
 
-    private PassExecutor waterExecutor(PipelineGeneration generation) {
+    private PassExecutor waterExecutor(PipelineGeneration generation, String sceneColorSource) {
         return (res, cmd) -> {
             var layout = generation.topology().sceneSurface();
             var depth = layout.raw(SceneBufferChannel.DEPTH);
@@ -2852,7 +3382,7 @@ public final class RenderPipeline {
                 throw new IllegalStateException(
                         "water surface requires a prepared temporal frame state");
             }
-            Framebuffer sceneColor = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+            Framebuffer sceneColor = res.framebufferOfPass(sceneColorSource);
             Framebuffer target = res.currentTarget();
             if (sceneColor == null || target == null) {
                 throw new IllegalStateException("water surface requires the geometry colour target");
@@ -3205,6 +3735,230 @@ public final class RenderPipeline {
             cmd.bindFramebuffer(target)
                     .viewport(0, 0, target.width(), target.height());
             stochastic.resolve(cmd, stochasticTransparencySettings);
+        };
+    }
+
+    private PassExecutor weightedOitExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            var oit = generation.weightedOit();
+            if (oit == null) {
+                throw new IllegalStateException(
+                        "weighted OIT pass is absent from the active topology");
+            }
+            List<OitSurface> surfaces = weightedOitSurfaces;
+            if (surfaces.isEmpty()) {
+                // A declared empty collection records no draw and leaves the
+                // caller's HDR target untouched.
+                return;
+            }
+            ExternalCamera camera = externalFrameCamera();
+            oit.record(cmd, surfaces, camera.view(), camera.projection(), weightedOitSettings);
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "weighted OIT requires the shared scene colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height());
+            oit.resolve(cmd, weightedOitSettings);
+        };
+    }
+
+    private PassExecutor planarReflectionExecutor(PipelineGeneration generation,
+                                                  String restoreTargetPass) {
+        return (res, cmd) -> {
+            var planar = generation.planarReflection();
+            if (planar == null) {
+                throw new IllegalStateException(
+                        "planar reflection pass is absent from the active topology");
+            }
+            Framebuffer restore = res.framebufferOfPass(restoreTargetPass);
+            if (restore == null) {
+                throw new IllegalStateException(
+                        "planar reflection requires the " + restoreTargetPass
+                                + " colour target to restore");
+            }
+            ShadowFramePlan plan = shadowFramePlan();
+            int shadowTexture = plan.directional().isPresent()
+                    ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0;
+            int pointShadowTexture = plan.points().isEmpty()
+                    ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME);
+            int spotShadowTexture = plan.spots().isEmpty()
+                    ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME);
+            planar.record(cmd, frameCamera(), frameWidth(), frameHeight(), restore,
+                    (recordingCmd, frame) -> recordMirrorScene(recordingCmd, generation,
+                            frame, shadowTexture, pointShadowTexture, spotShadowTexture));
+            // The reflection recorder uploaded its own camera block. Restore the
+            // main scene block so later passes that bind CameraUniforms still see
+            // the primary camera, not the mirrored one.
+            generation.cameraUniforms().update(cmd, frameCamera(), frameWidth(), frameHeight(),
+                    settings.antiAliasingMode(), activeFrameIndex);
+        };
+    }
+
+    /**
+     * Draws the opaque/forward scene into the reflection target with the
+     * mirrored camera and the pass's oblique projection.  The reflection view is
+     * deliberately independent: it uploads its own camera block (no TAA jitter),
+     * never samples the reflection target while writing it, and does not rerun
+     * shadow/GTAO/IBL production.
+     */
+    private void recordMirrorScene(CommandBuffer cmd, PipelineGeneration generation,
+                                   PlanarReflectionPass.Frame frame, int shadowTexture,
+                                   int pointShadowTexture, int spotShadowTexture) {
+        ExternalCamera camera = new ExternalCamera(frame.view(), frame.projection(),
+                frame.viewProjection(), frame.position(), 0.0f,
+                CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE, 0L);
+        SceneRenderer renderer = new SceneRenderer(new ReflectionDrawHost(generation, camera,
+                frame.width(), frame.height()));
+        renderer.render(cmd, shadowTexture, pointShadowTexture, spotShadowTexture, 0, 0);
+    }
+
+    /** SceneRenderer host that swaps only the camera-facing facts of a generation. */
+    private final class ReflectionDrawHost implements SceneRenderer.Host {
+        private final PipelineGeneration generation;
+        private final ExternalCamera camera;
+        private final int width;
+        private final int height;
+
+        private ReflectionDrawHost(PipelineGeneration generation, ExternalCamera camera,
+                                   int width, int height) {
+            this.generation = generation;
+            this.camera = camera;
+            this.width = width;
+            this.height = height;
+        }
+
+        @Override
+        public SceneFrame frame() {
+            return sceneFrame();
+        }
+
+        @Override
+        public Camera camera() {
+            return camera;
+        }
+
+        @Override
+        public int width() {
+            return width;
+        }
+
+        @Override
+        public int height() {
+            return height;
+        }
+
+        @Override
+        public int frameIndex() {
+            return activeFrameIndex;
+        }
+
+        @Override
+        public boolean gtaoEnabled() {
+            return false;
+        }
+
+        @Override
+        public boolean sharedDepth() {
+            return false;
+        }
+
+        @Override
+        public InstancedRenderer instanced() {
+            return instanced;
+        }
+
+        @Override
+        public SceneDeformationDefaults deformationDefaults() {
+            return generation.deformationDefaults();
+        }
+
+        @Override
+        public void updateCameraUniforms(CommandBuffer cmd) {
+            // The oblique reflection projection cannot accept a second TAA jitter.
+            generation.cameraUniforms().update(cmd, camera, width, height,
+                    AntiAliasingMode.NONE, activeFrameIndex);
+        }
+
+        @Override
+        public void renderBackground(CommandBuffer cmd, Camera camera, int width, int height,
+                                     int segment) {
+            if (generation.atmosphereSky() != null) {
+                generation.atmosphereSky().record(cmd, camera, width, height,
+                        Math.max(0.0f, camera.position().y), atmosphereSettings);
+            } else if (generation.stylizedSky() != null) {
+                generation.stylizedSky().render(cmd, camera, width, height,
+                        outdoorEnvironment.sky());
+            } else if (generation.environmentBackground() != null) {
+                generation.environmentBackground().render(cmd, camera, width, height);
+            }
+        }
+
+        @Override
+        public ShaderProgram transparentShader(Material template, ShaderProgram fallback) {
+            // The reflection records the forward segment only.
+            return fallback;
+        }
+
+        @Override
+        public void bindVolumeQuery(CommandBuffer cmd, ShaderProgram shader) {
+        }
+
+        @Override
+        public void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
+                                   int pointShadowTexture, int spotShadowTexture,
+                                   int gtaoTexture) {
+            RenderPipeline.this.bindFrameState(shader, cmd, camera, shadowTexture,
+                    pointShadowTexture, spotShadowTexture, gtaoTexture);
+        }
+
+        @Override
+        public boolean invalidatesFrameState(MaterialInstance material) {
+            return RenderPipeline.this.invalidatesFrameState(material);
+        }
+
+        @Override
+        public void bindPbrMaterial(ShaderProgram shader, CommandBuffer cmd) {
+            if (generation.pbrMaterialBinder() != null) {
+                generation.pbrMaterialBinder().bind(shader, cmd);
+            }
+        }
+    }
+
+    private PassExecutor causticsExecutor(PipelineGeneration generation,
+                                          String colorSourcePass) {
+        return (res, cmd) -> {
+            var caustics = generation.caustics();
+            if (caustics == null) {
+                throw new IllegalStateException(
+                        "caustics pass is absent from the active topology");
+            }
+            var rasterDepth = generation.topology().sceneSurface()
+                    .raw(SceneBufferChannel.DEPTH);
+            if (rasterDepth == null) {
+                throw new IllegalStateException("caustics require the shared raster scene depth");
+            }
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "caustics require a prepared temporal frame state");
+            }
+            SceneLight light = firstDirectionalLight();
+            if (light == null) {
+                throw new IllegalStateException("caustics require a directional light");
+            }
+            Framebuffer source = res.framebufferOfPass(colorSourcePass);
+            Framebuffer target = res.currentTarget();
+            if (source == null || target == null) {
+                throw new IllegalStateException(
+                        "caustics require the scene colour target to copy");
+            }
+            caustics.record(cmd, source, res.depthAttachment(rasterDepth.name()), frame,
+                    light.direction(), waterTimeSeconds);
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(caustics.colorTarget(), target);
         };
     }
 
@@ -3631,7 +4385,14 @@ public final class RenderPipeline {
     private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, int shadowTexture,
                                 int pointShadowTexture, int spotShadowTexture,
                                 int gtaoTexture) {
-        requireGeneration().frameLightBinder().bind(shader, cmd, requireFrameContext().camera(),
+        bindFrameState(shader, cmd, frameCamera(), shadowTexture, pointShadowTexture,
+                spotShadowTexture, gtaoTexture);
+    }
+
+    private void bindFrameState(ShaderProgram shader, CommandBuffer cmd, Camera camera,
+                                int shadowTexture, int pointShadowTexture,
+                                int spotShadowTexture, int gtaoTexture) {
+        requireGeneration().frameLightBinder().bind(shader, cmd, camera,
                 shadowFramePlan(), lastDirectionalLightSpaceMatrix, lastDirectionalCascadeMatrices,
                 lastDirectionalCascadeSplits, clusterDebugMode, shadowTexture, pointShadowTexture,
                 spotShadowTexture, gtaoTexture);

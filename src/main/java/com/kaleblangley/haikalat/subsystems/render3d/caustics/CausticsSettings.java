@@ -85,6 +85,12 @@ public record CausticsSettings(
     public static final float MAXIMUM_RECEIVER_SLOPE_DEGREES = 89.0f;
     /** Largest accepted classpath pattern texture path length. */
     public static final int MAXIMUM_PATTERN_TEXTURE_PATH = 256;
+    /**
+     * Smallest accepted absolute downward Y of the main light direction.  The
+     * caustics projection is only defined for light travelling downward; the
+     * pass and the pipeline dependency policy share this bound.
+     */
+    public static final float MINIMUM_LIGHT_DOWNWARD_Y = 1.0e-3f;
 
     private static final CausticsSettings DISABLED = new CausticsSettings(
             false,

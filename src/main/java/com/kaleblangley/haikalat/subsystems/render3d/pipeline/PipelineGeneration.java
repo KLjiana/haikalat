@@ -26,11 +26,15 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.SpotShadowAtlas;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoPasses;
 import com.kaleblangley.haikalat.subsystems.render3d.ao.GtaoSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.environment.StylizedSkyRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDeformationDefaults;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
@@ -51,6 +55,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBu
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricResources;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
 
@@ -100,6 +106,12 @@ public final class PipelineGeneration implements AutoCloseable {
     private StochasticTransparencyPass stochasticTransparency;
     private StochasticTransparencySettings stochasticSettings =
             StochasticTransparencySettings.disabled();
+    private WeightedOitPass weightedOit;
+    private WeightedOitSettings weightedOitSettings = WeightedOitSettings.disabled();
+    private PlanarReflectionPass planarReflection;
+    private PlanarReflectionSettings planarReflectionSettings = PlanarReflectionSettings.disabled();
+    private CausticsPass caustics;
+    private CausticsSettings causticsSettings = CausticsSettings.disabled();
     private ShadowPrograms shadowPrograms;
     private GtaoPasses gtao;
     private GtaoSurfaceInputs gtaoInputs;
@@ -339,6 +351,55 @@ public final class PipelineGeneration implements AutoCloseable {
         stochasticSettings = settings;
     }
 
+    /**
+     * Owns the optional weighted-OIT collection.  The pass bakes its quad
+     * capacity at construction and receives the per-frame settings/scalars as
+     * record/resolve arguments, so only a compatible capacity/extent donor is
+     * borrowed.
+     */
+    public void assembleWeightedOit(WeightedOitSettings settings, PipelineGeneration source) {
+        if (!topology.weightedOit()) return;
+        boolean reuse = source != null && source.weightedOit != null
+                && source.topology.sameManagedExtent(topology)
+                && source.weightedOit.maximumSurfaces() == settings.maximumSurfaces();
+        weightedOit = reuse ? borrow(source.weightedOit)
+                : new WeightedOitPass(topology.width(), topology.height(), settings);
+        weightedOitSettings = settings;
+    }
+
+    /**
+     * Owns the optional single-plane reflection view.  The pass and its
+     * attachments bake the plane/resolution/interval settings, so an exact
+     * settings match at the same managed extent is the only reusable donor.
+     */
+    public void assemblePlanarReflection(PlanarReflectionSettings settings,
+                                         PipelineGeneration source) {
+        if (!topology.planarReflections()) return;
+        boolean reuse = source != null && source.planarReflection != null
+                && source.topology.sameManagedExtent(topology)
+                && source.planarReflection.settings().equals(settings);
+        planarReflection = reuse ? borrow(source.planarReflection)
+                : new PlanarReflectionPass(settings, topology.width(), topology.height());
+        planarReflectionSettings = settings;
+    }
+
+    /**
+     * Owns the optional water-caustics colour target.  The pass bakes its
+     * sample count and settings, so only an exact match at the same managed
+     * extent is borrowed; closing the generation retires the target.
+     */
+    public void assembleCaustics(CausticsSettings settings, PipelineGeneration source) {
+        if (!topology.caustics()) return;
+        boolean reuse = source != null && source.caustics != null
+                && source.topology.sameManagedExtent(topology)
+                && source.caustics.samples() == topology.sampleCount()
+                && source.caustics.settings().equals(settings);
+        caustics = reuse ? borrow(source.caustics)
+                : new CausticsPass(settings, topology.sampleCount(), topology.width(),
+                topology.height());
+        causticsSettings = settings;
+    }
+
     public void assembleGtao(com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings settings,
                       PipelineGeneration source, boolean instances, boolean shared) {
         if (!settings.enabled()) return;
@@ -374,6 +435,16 @@ public final class PipelineGeneration implements AutoCloseable {
      * are borrowed per frame, so a compatible donor can be reused.
      */
     public void assembleWaterSurface(RenderGraph.PassExecutor executor) {
+        assembleWaterSurface(executor, java.util.List.of());
+    }
+
+    /**
+     * Declares the finite water colour pass with extra producer dependencies.
+     * Caustics and planar reflections record before the water consumer, so the
+     * graph must order them first even though they do not own the water target.
+     */
+    public void assembleWaterSurface(RenderGraph.PassExecutor executor,
+                                     java.util.List<String> extraDependencies) {
         var source = reuseSource;
         var depth = topology.sceneSurface().raw(
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
@@ -387,6 +458,9 @@ public final class PipelineGeneration implements AutoCloseable {
                 .noClear()
                 .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS)
                 .dependsOn(depth.producer());
+        for (String dependency : extraDependencies) {
+            if (!dependency.equals(WaterSurfacePass.PASS_NAME)) pass.dependsOn(dependency);
+        }
         if (topology.sampleCount() > 1) {
             pass.createColorMS(WaterSurfacePass.COLOR, RenderFormat.RGBA16F,
                     topology.sampleCount());
@@ -456,6 +530,12 @@ public final class PipelineGeneration implements AutoCloseable {
     public SmokeVolumePass smokeVolume() { return smokeVolume; }
     public StochasticTransparencyPass stochasticTransparency() { return stochasticTransparency; }
     public StochasticTransparencySettings stochasticSettings() { return stochasticSettings; }
+    public WeightedOitPass weightedOit() { return weightedOit; }
+    public WeightedOitSettings weightedOitSettings() { return weightedOitSettings; }
+    public PlanarReflectionPass planarReflection() { return planarReflection; }
+    public PlanarReflectionSettings planarReflectionSettings() { return planarReflectionSettings; }
+    public CausticsPass caustics() { return caustics; }
+    public CausticsSettings causticsSettings() { return causticsSettings; }
     public ShadowPrograms shadowPrograms() { return shadowPrograms; }
     public GtaoPasses gtao() { return gtao; }
     public GtaoSurfaceInputs gtaoInputs() { return gtaoInputs; }
@@ -573,6 +653,9 @@ public final class PipelineGeneration implements AutoCloseable {
         StochasticTransparencyPass stochasticCandidate = null;
         VolumetricCloudPass cloudCandidate = null;
         SmokeVolumePass smokeVolumeCandidate = null;
+        WeightedOitPass weightedOitCandidate = null;
+        PlanarReflectionPass planarCandidate = null;
+        CausticsPass causticsCandidate = null;
         try {
             GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
             var newSurfaceStorage = surfaceStorageAt(width, height);
@@ -605,12 +688,26 @@ public final class PipelineGeneration implements AutoCloseable {
             if (smokeVolume != null) {
                 smokeVolumeCandidate = new SmokeVolumePass(smokeVolume.settings(), width, height);
             }
+            if (weightedOit != null) {
+                weightedOitCandidate = new WeightedOitPass(width, height, weightedOitSettings);
+            }
+            if (planarReflection != null) {
+                planarCandidate = new PlanarReflectionPass(planarReflectionSettings, width, height);
+            }
+            if (caustics != null) {
+                causticsCandidate = new CausticsPass(causticsSettings, topology.sampleCount(),
+                        width, height);
+            }
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
                     graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate,
-                    gtaoCandidate, particleCandidate, stochasticCandidate, cloudCandidate,
-                    smokeVolumeCandidate,
+                    gtaoCandidate, particleCandidate, stochasticCandidate,
+                    cloudCandidate, smokeVolumeCandidate, weightedOitCandidate,
+                    planarCandidate, causticsCandidate,
                     allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
+            closeCandidate(causticsCandidate, failure);
+            closeCandidate(planarCandidate, failure);
+            closeCandidate(weightedOitCandidate, failure);
             closeCandidate(smokeVolumeCandidate, failure);
             closeCandidate(cloudCandidate, failure);
             closeCandidate(stochasticCandidate, failure);
@@ -655,6 +752,9 @@ public final class PipelineGeneration implements AutoCloseable {
         private StochasticTransparencyPass stochasticCandidate;
         private VolumetricCloudPass cloudCandidate;
         private SmokeVolumePass smokeVolumeCandidate;
+        private WeightedOitPass weightedOitCandidate;
+        private PlanarReflectionPass planarCandidate;
+        private CausticsPass causticsCandidate;
         private final VolumetricAllocationPlan allocation;
         private final GtaoAllocationPlan gtaoPlan;
         private final SceneSurfaceLayout.Storage surfaceStorage;
@@ -672,6 +772,9 @@ public final class PipelineGeneration implements AutoCloseable {
                                 StochasticTransparencyPass stochasticCandidate,
                                 VolumetricCloudPass cloudCandidate,
                                 SmokeVolumePass smokeVolumeCandidate,
+                                WeightedOitPass weightedOitCandidate,
+                                PlanarReflectionPass planarCandidate,
+                                CausticsPass causticsCandidate,
                                 VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
                                 SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
             this.owner = owner;
@@ -687,6 +790,9 @@ public final class PipelineGeneration implements AutoCloseable {
             this.stochasticCandidate = stochasticCandidate;
             this.cloudCandidate = cloudCandidate;
             this.smokeVolumeCandidate = smokeVolumeCandidate;
+            this.weightedOitCandidate = weightedOitCandidate;
+            this.planarCandidate = planarCandidate;
+            this.causticsCandidate = causticsCandidate;
             this.allocation = allocation;
             this.gtaoPlan = gtaoPlan;
             this.surfaceStorage = surfaceStorage;
@@ -716,14 +822,23 @@ public final class PipelineGeneration implements AutoCloseable {
             StochasticTransparencyPass previousStochastic = owner.stochasticTransparency;
             VolumetricCloudPass previousCloud = owner.volumetricClouds;
             SmokeVolumePass previousSmoke = owner.smokeVolume;
+            WeightedOitPass previousWeightedOit = owner.weightedOit;
+            PlanarReflectionPass previousPlanar = owner.planarReflection;
+            CausticsPass previousCaustics = owner.caustics;
             owner.volumetricParticles = particleCandidate;
             owner.stochasticTransparency = stochasticCandidate;
             owner.volumetricClouds = cloudCandidate;
             owner.smokeVolume = smokeVolumeCandidate;
+            owner.weightedOit = weightedOitCandidate;
+            owner.planarReflection = planarCandidate;
+            owner.caustics = causticsCandidate;
             particleCandidate = null;
             stochasticCandidate = null;
             cloudCandidate = null;
             smokeVolumeCandidate = null;
+            weightedOitCandidate = null;
+            planarCandidate = null;
+            causticsCandidate = null;
             owner.topology = candidateTopology;
             owner.volumeAllocation = allocation;
             owner.gtaoAllocation = gtaoPlan;
@@ -731,6 +846,9 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.surfacePeakBytes = surfacePeak;
             committed = true;
             RuntimeException failure = null;
+            failure = closeOne(previousCaustics, failure);
+            failure = closeOne(previousPlanar, failure);
+            failure = closeOne(previousWeightedOit, failure);
             failure = closeOne(previousSmoke, failure);
             failure = closeOne(previousCloud, failure);
             failure = closeOne(previousStochastic, failure);
@@ -743,6 +861,9 @@ public final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
+            failure = closeOne(causticsCandidate, failure);
+            failure = closeOne(planarCandidate, failure);
+            failure = closeOne(weightedOitCandidate, failure);
             failure = closeOne(smokeVolumeCandidate, failure);
             failure = closeOne(cloudCandidate, failure);
             failure = closeOne(stochasticCandidate, failure);
@@ -785,6 +906,9 @@ public final class PipelineGeneration implements AutoCloseable {
         SmokeSimulation localSmokeSimulation = smokeSimulation;
         SmokeVolumePass localSmokeVolume = smokeVolume;
         StochasticTransparencyPass localStochastic = stochasticTransparency;
+        WeightedOitPass localWeightedOit = weightedOit;
+        PlanarReflectionPass localPlanar = planarReflection;
+        CausticsPass localCaustics = caustics;
         CameraUniforms localCameraUniforms = cameraUniforms;
         SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
         SceneSurfacePass localSceneSurface = sceneSurfacePass;
@@ -811,6 +935,9 @@ public final class PipelineGeneration implements AutoCloseable {
         smokeSimulation = null;
         smokeVolume = null;
         stochasticTransparency = null;
+        weightedOit = null;
+        planarReflection = null;
+        caustics = null;
         cameraUniforms = null;
         deformationDefaults = null;
         sceneSurfacePass = null;
@@ -839,6 +966,9 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localSmokeSimulation, failure);
         failure = closeCollecting(localClouds, failure);
         failure = closeCollecting(localStochastic, failure);
+        failure = closeCollecting(localWeightedOit, failure);
+        failure = closeCollecting(localPlanar, failure);
+        failure = closeCollecting(localCaustics, failure);
         failure = closeCollecting(localCameraUniforms, failure);
         failure = closeCollecting(localSceneSurface, failure);
         failure = closeCollecting(localSceneSurfaceResolve, failure);

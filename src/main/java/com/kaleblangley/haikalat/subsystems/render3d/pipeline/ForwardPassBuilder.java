@@ -91,10 +91,10 @@ public final class ForwardPassBuilder {
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
         RenderFormat sceneFormat = sceneColorFormat(settings);
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
-            if (topology.volumetricFog() || refraction) {
-                // Refraction and volume transparency need a shareable colour
-                // attachment; renderbuffer MSAA storage cannot be borrowed by a
-                // second pass.
+            if (topology.volumetricFog() || refraction || topology.planarReflections()) {
+                // Refraction, volume transparency and the planar-reflection view
+                // need a shareable colour attachment; renderbuffer MSAA storage
+                // cannot be borrowed by a second pass.
                 geometry.createColorsMS(java.util.List.of(PostProcessTargets.SCENE_COLOR),
                         java.util.List.of(sceneFormat), Math.max(2, settings.msaaSamples()));
             } else {

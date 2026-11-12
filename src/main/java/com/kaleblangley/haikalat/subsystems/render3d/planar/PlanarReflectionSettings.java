@@ -103,6 +103,16 @@ public record PlanarReflectionSettings(
         return enabled;
     }
 
+    /**
+     * @return true when the canonical constructor accepted a finite, non-zero
+     *         plane normal.  The constructor rejects degenerate planes, so an
+     *         active value always has a usable plane; this predicate is the
+     *         explicit policy hook used by pipeline wiring.
+     */
+    public boolean hasPlane() {
+        return planeNormal.lengthSquared() > 0.0f;
+    }
+
     /** @return a defensive copy of the world-space plane point */
     @Override
     public Vector3f planePoint() {

@@ -113,6 +113,11 @@ public record WeightedOitSettings(
                 DEFAULT_ALPHA_THRESHOLD, DEFAULT_MAXIMUM_SURFACES);
     }
 
+    /** Conservative active defaults: depth weighting, full default capacity, no discard. */
+    public static WeightedOitSettings defaults() {
+        return disabled().withEnabled(true);
+    }
+
     /** @return true when the pass, attachments and draws should exist */
     public boolean active() {
         return enabled;

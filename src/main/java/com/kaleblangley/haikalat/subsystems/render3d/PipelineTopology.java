@@ -6,7 +6,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
 import com.kaleblangley.haikalat.subsystems.render3d.VolumetricFogSettings;
 
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderQueueClass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
@@ -15,6 +17,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
@@ -62,7 +65,10 @@ public record PipelineTopology(int width,
                         boolean volumetricParticles,
                         boolean stochasticTransparency,
                         boolean volumetricClouds,
-                        boolean volumetricSmoke) {
+                        boolean volumetricSmoke,
+                        boolean weightedOit,
+                        boolean planarReflections,
+                        boolean caustics) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -90,6 +96,32 @@ public record PipelineTopology(int width,
         if (gtaoHalfWidth <= 0 || gtaoHalfHeight <= 0) {
             throw new IllegalArgumentException("invalid GTAO half-resolution extent");
         }
+    }
+
+    /**
+     * Source-compatible constructor for the pre-S3-single wiring shape.  The
+     * three new opt-in composition passes default to their exact no-op state.
+     */
+    public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
+                            int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
+                            boolean automaticExposure, boolean colorGrading, boolean fog,
+                            boolean directionalShadow, boolean pointShadow, boolean spotShadow,
+                            int directionalCascadeCount, int directionalShadowAtlasSize,
+                            int pointShadowCapacity, int pointShadowResolution,
+                            int spotShadowCapacity, int spotShadowResolution,
+                            boolean pbrMaterials, boolean hdrVfx, boolean embedded,
+                            boolean gtaoEnabled, boolean gtaoTemporal, int gtaoHalfWidth,
+                            int gtaoHalfHeight, SceneSurfaceLayout sceneSurface,
+                            boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                            boolean volumetricEmission, boolean waterSurface,
+                            boolean volumetricParticles, boolean stochasticTransparency) {
+        this(width, height, antiAliasingMode, sampleCount, hdr, bloom, bloomLevels,
+                automaticExposure, colorGrading, fog, directionalShadow, pointShadow, spotShadow,
+                directionalCascadeCount, directionalShadowAtlasSize, pointShadowCapacity,
+                pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
+                hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
+                sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency, false, false, false, false, false);
     }
 
     /** Graph replacement retains compatible targets at the same managed extent. */
@@ -156,8 +188,10 @@ public record PipelineTopology(int width,
 
     /**
      * Captures the complete topology key including the opt-in composition
-     * features (particles, stochastic transparency). Kept as a source-compatible
-     * overload; cloud and smoke requests default to disabled.
+     * features. An active request only changes the key when its required
+     * composition inputs exist, so an unavailable request stays a soft
+     * effective-state observation instead of silently altering the graph.
+     * Cloud and smoke requests default to disabled.
      */
     public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
@@ -172,7 +206,34 @@ public record PipelineTopology(int width,
                 localShadows, volume, directionalShadowRequested, pointShadowRequested,
                 spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
                 VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
-                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled());
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
+                WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
+                CausticsSettings.disabled());
+    }
+
+    /**
+     * Captures the composition requests without the volumetric media. Cloud,
+     * smoke and the cloud-shadow field default to disabled; the opt-in
+     * composition requests are taken from the caller.
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency,
+                                    WeightedOitSettings weightedOit, boolean weightedOitSetDeclared,
+                                    PlanarReflectionSettings planarReflections,
+                                    CausticsSettings caustics) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
+                weightedOit, weightedOitSetDeclared, planarReflections, caustics);
     }
 
     /**
@@ -181,6 +242,10 @@ public record PipelineTopology(int width,
      * shared #10 coverage field: while directional cloud shadows are enabled the
      * layer must reuse the same authored field, otherwise the request stays an
      * unavailable effective observation and does not change the graph.
+     *
+     * <p>{@code weightedOitSetDeclared} is part of the key: an enabled OIT
+     * request without a caller-selected set (or an explicit empty-set
+     * declaration) has no compatible composition and must not add the pass.</p>
      */
     public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
@@ -194,7 +259,10 @@ public record PipelineTopology(int width,
                                     VolumetricCloudSettings volumetricClouds,
                                     SmokeSimulationSettings smokeSimulation,
                                     SmokeRenderSettings smokeRender,
-                                    CloudShadowSettings directionalCloudShadows) {
+                                    CloudShadowSettings directionalCloudShadows,
+                                    WeightedOitSettings weightedOit, boolean weightedOitSetDeclared,
+                                    PlanarReflectionSettings planarReflections,
+                                    CausticsSettings caustics) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
@@ -204,16 +272,31 @@ public record PipelineTopology(int width,
         Objects.requireNonNull(volumetricClouds, "volumetricClouds");
         Objects.requireNonNull(smokeSimulation, "smokeSimulation");
         Objects.requireNonNull(smokeRender, "smokeRender");
+        Objects.requireNonNull(weightedOit, "weightedOit");
+        Objects.requireNonNull(planarReflections, "planarReflections");
+        Objects.requireNonNull(caustics, "caustics");
         boolean bloom = settings.bloomSettings().enabled();
         int samples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                 ? Math.max(2, settings.msaaSamples()) : 1;
         boolean directionalShadow = false;
         boolean pointShadow = false;
         boolean spotShadow = false;
+        boolean downwardDirectionalLight = false;
         for (SceneLight light : scene.lights()) {
-            if (!light.castShadows()) continue;
+            if (!light.castShadows()) {
+                if (light.type() == LightType.DIRECTIONAL
+                        && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
+                    downwardDirectionalLight = true;
+                }
+                continue;
+            }
             switch (light.type()) {
-                case DIRECTIONAL -> directionalShadow = true;
+                case DIRECTIONAL -> {
+                    directionalShadow = true;
+                    if (light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
+                        downwardDirectionalLight = true;
+                    }
+                }
                 case POINT -> pointShadow = true;
                 case SPOT -> spotShadow = true;
             }
@@ -233,6 +316,11 @@ public record PipelineTopology(int width,
         boolean clouds = volumetricCloudCompositionActive(settings, volumetricClouds,
                 directionalShadowRequested && directionalShadow, directionalCloudShadows);
         boolean smoke = volumetricSmokeCompositionActive(settings, smokeSimulation, smokeRender);
+        boolean oit = weightedOitCompositionActive(settings, weightedOit,
+                weightedOitSetDeclared);
+        boolean planar = planarReflectionCompositionActive(settings, planarReflections);
+        boolean causticsActive = causticsCompositionActive(settings, waterSurface, caustics,
+                downwardDirectionalLight);
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -251,7 +339,7 @@ public record PipelineTopology(int width,
                         waterSurface.active(), stochastic, clouds, smoke),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
-                stochastic, clouds, smoke);
+                stochastic, clouds, smoke, oit, planar, causticsActive);
     }
 
     /**
@@ -326,6 +414,51 @@ public record PipelineTopology(int width,
     private static boolean stableSingleSample(RenderSettings settings) {
         return settings.antiAliasingMode() != AntiAliasingMode.MSAA
                 && settings.antiAliasingMode() != AntiAliasingMode.TAA;
+    }
+
+    /**
+     * Weighted OIT is an alternative transparent-collection strategy for a
+     * caller-selected set.  It needs HDR, a stable non-MSAA/non-TAA
+     * single-sample target, and a declared set (an explicit empty set is a
+     * legal no-op declaration).  The stochastic collector remains a separate
+     * strategy and the two may only claim disjoint sets.
+     */
+    public static boolean weightedOitCompositionActive(RenderSettings settings,
+                                                       WeightedOitSettings weightedOit,
+                                                       boolean setDeclared) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(weightedOit, "weightedOit");
+        return weightedOit.active() && settings.hdrEnabled() && setDeclared
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && settings.antiAliasingMode() != AntiAliasingMode.TAA;
+    }
+
+    /** Planar reflections need HDR and an active, validated single plane. */
+    public static boolean planarReflectionCompositionActive(RenderSettings settings,
+                                                            PlanarReflectionSettings planar) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(planar, "planar");
+        return planar.active() && settings.hdrEnabled() && planar.hasPlane();
+    }
+
+    /**
+     * Water caustics need HDR, the finite water surface whose colour they are
+     * composited under, and a downward main directional light.  The first
+     * composition version writes its single-sample contribution back into the
+     * shared scene colour, so MSAA's multisampled target is unsupported even
+     * though the pass itself can sample an MSAA depth texture.  The pass only
+     * adds linear light and never writes the shared depth.
+     */
+    public static boolean causticsCompositionActive(RenderSettings settings,
+                                                    WaterSurfaceSettings water,
+                                                    CausticsSettings caustics,
+                                                    boolean downwardDirectionalLight) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(water, "water");
+        Objects.requireNonNull(caustics, "caustics");
+        return caustics.active() && settings.hdrEnabled() && water.active()
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && downwardDirectionalLight;
     }
 
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
@@ -421,6 +554,6 @@ public record PipelineTopology(int width,
                 gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
                 volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
                 volumetricParticles, stochasticTransparency, volumetricClouds,
-                volumetricSmoke);
+                volumetricSmoke, weightedOit, planarReflections, caustics);
     }
 }

@@ -8,11 +8,14 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
@@ -436,7 +439,9 @@ class VolumetricCloudSmokeWiringTest {
                 LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
                 true, true, true, WaterSurfaceSettings.disabled(),
                 VolumetricParticleSettings.disabled(), StochasticTransparencySettings.disabled(),
-                clouds, simulation, render, directionalCloudShadows);
+                clouds, simulation, render, directionalCloudShadows,
+                WeightedOitSettings.disabled(), false, PlanarReflectionSettings.disabled(),
+                CausticsSettings.disabled());
     }
 
     private static PipelineTopology copy(PipelineTopology base, boolean clouds, boolean smoke) {
@@ -451,7 +456,7 @@ class VolumetricCloudSmokeWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(),
                 base.sceneSurface(), base.volumetricFog(), base.volumetricQuality(),
                 base.volumetricEmission(), base.waterSurface(), base.volumetricParticles(),
-                base.stochasticTransparency(), clouds, smoke);
+                base.stochasticTransparency(), clouds, smoke, false, false, false);
     }
 
     private static PipelineTopology copyWithMode(PipelineTopology base, AntiAliasingMode mode,
@@ -467,7 +472,7 @@ class VolumetricCloudSmokeWiringTest {
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(),
                 base.sceneSurface(), base.volumetricFog(), base.volumetricQuality(),
                 base.volumetricEmission(), base.waterSurface(), base.volumetricParticles(),
-                base.stochasticTransparency(), clouds, smoke);
+                base.stochasticTransparency(), clouds, smoke, false, false, false);
     }
 
     private static RenderFeatureSettings.Builder baseBuilder() {

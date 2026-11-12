@@ -16,7 +16,18 @@ final class RenderFeaturePolicy {
     record Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
                  boolean spotCaster, boolean pbrEnvironmentAvailable,
                  boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
-                 boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
+                 boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+                 boolean directionalLightDownward, boolean weightedOitSetDeclared,
+                 boolean transparentSetsOverlap) {
+        /** Source-compatible shape used by pre-S3-single callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false);
+        }
     }
 
     /** Effective switches and their observed participation. */
@@ -29,6 +40,8 @@ final class RenderFeaturePolicy {
                     boolean waterSurface, boolean volumetricParticles,
                     boolean stochasticTransparency,
                     boolean volumetricClouds, boolean volumetricSmoke,
+                    boolean weightedOit,
+                    boolean planarReflections, boolean caustics,
                     List<RenderFeatureActivity> activities) {
         Resolved {
             activities = List.copyOf(activities);
@@ -70,6 +83,13 @@ final class RenderFeaturePolicy {
                 settings.render(), settings.volumetricFog(), settings.volumetricParticles());
         boolean stochasticEligible = PipelineTopology.stochasticTransparencyCompositionActive(
                 settings.render(), settings.stochasticTransparency());
+        boolean weightedOitEligible = PipelineTopology.weightedOitCompositionActive(
+                settings.render(), settings.weightedOit(), facts.weightedOitSetDeclared());
+        boolean planarEligible = PipelineTopology.planarReflectionCompositionActive(
+                settings.render(), settings.planarReflections());
+        boolean causticsEligible = PipelineTopology.causticsCompositionActive(
+                settings.render(), settings.waterSurface(), settings.caustics(),
+                facts.directionalLightDownward());
         boolean volumetricParticles = particlesEligible;
         boolean stochasticTransparency = stochasticEligible;
         boolean cloudsEligible = PipelineTopology.volumetricCloudCompositionActive(
@@ -138,6 +158,12 @@ final class RenderFeaturePolicy {
                 cloudReason));
         activities.add(child(RenderFeature.VOLUMETRIC_SMOKE, master, smokeEligible,
                 smokeReason));
+        activities.add(child(RenderFeature.WEIGHTED_OIT, master, weightedOitEligible,
+                oitReason(settings, facts)));
+        activities.add(child(RenderFeature.PLANAR_REFLECTIONS, master, planarEligible,
+                planarReason(settings)));
+        activities.add(child(RenderFeature.CAUSTICS, master, causticsEligible,
+                causticsReason(settings, facts)));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -149,6 +175,8 @@ final class RenderFeaturePolicy {
                 effective(master, waterSurface), effective(master, volumetricParticles),
                 effective(master, stochasticTransparency), effective(master, cloudsEligible),
                 effective(master, smokeEligible),
+                effective(master, weightedOitEligible),
+                effective(master, planarEligible), effective(master, causticsEligible),
                 List.copyOf(activities));
     }
 
@@ -197,6 +225,39 @@ final class RenderFeaturePolicy {
         if (!settings.imageBasedLighting()) return RenderFeatureReason.DISABLED;
         if (!facts.pbrMaterials()) return RenderFeatureReason.NO_PBR_MATERIAL;
         if (!facts.pbrEnvironmentAvailable()) return RenderFeatureReason.NO_ENVIRONMENT;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason oitReason(RenderFeatureSettings settings, Facts facts) {
+        if (!settings.weightedOit().active()) return RenderFeatureReason.DISABLED;
+        com.kaleblangley.haikalat.core.AntiAliasingMode aa =
+                settings.render().antiAliasingMode();
+        if (!settings.render().hdrEnabled()
+                || aa == com.kaleblangley.haikalat.core.AntiAliasingMode.MSAA
+                || aa == com.kaleblangley.haikalat.core.AntiAliasingMode.TAA) {
+            return RenderFeatureReason.UNAVAILABLE;
+        }
+        if (!facts.weightedOitSetDeclared()) return RenderFeatureReason.NO_TRANSPARENT_SET;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason planarReason(RenderFeatureSettings settings) {
+        if (!settings.planarReflections().active()) return RenderFeatureReason.DISABLED;
+        if (!settings.planarReflections().hasPlane()) return RenderFeatureReason.NO_PLANE;
+        if (!settings.render().hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason causticsReason(RenderFeatureSettings settings,
+                                                      Facts facts) {
+        if (!settings.caustics().active()) return RenderFeatureReason.DISABLED;
+        if (!settings.waterSurface().active()) return RenderFeatureReason.NO_WATER;
+        if (!settings.render().hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (settings.render().antiAliasingMode()
+                == com.kaleblangley.haikalat.core.AntiAliasingMode.MSAA) {
+            return RenderFeatureReason.UNAVAILABLE;
+        }
+        if (!facts.directionalLightDownward()) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
         return RenderFeatureReason.DISABLED;
     }
 
@@ -294,6 +355,30 @@ final class RenderFeaturePolicy {
         if (settings.stochasticTransparency().active() && !hdr) {
             throw new IllegalArgumentException(
                     "stochastic transparency requires HDR tone mapping for linear compositing");
+        }
+        if (settings.weightedOit().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "weighted OIT requires HDR tone mapping for linear compositing");
+        }
+        if (settings.planarReflections().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "planar reflections require HDR tone mapping");
+        }
+        if (settings.caustics().active()) {
+            if (!settings.waterSurface().active()) {
+                throw new IllegalArgumentException(
+                        "caustics require an active finite water surface");
+            }
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "caustics require HDR tone mapping for additive linear composition");
+            }
+        }
+        if (settings.weightedOit().active() && settings.stochasticTransparency().active()
+                && facts.transparentSetsOverlap()) {
+            throw new IllegalArgumentException(
+                    "weighted OIT and stochastic transparency claim the same transparent "
+                            + "surface set; disable one strategy for that set");
         }
     }
 }

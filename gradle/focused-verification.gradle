@@ -68,7 +68,9 @@ def jvmCases = [
         'AnisotropicSettingsTest', 'AnisotropicReferenceMathTest', 'AnisotropicShaderTest',
         'AnisotropicEnvironmentFixtureTest',
         'PlanarReflectionSettingsTest', 'PlanarReflectionMathTest',
+        'PlanarReflectionPipelineWiringTest',
         'WeightedOitSettingsTest', 'WeightedOitShaderTest', 'OitSurfaceTest',
+        'WeightedOitPipelineWiringTest',
         'PendingPipelineStateTest',
         'ParallaxOcclusionSettingsTest', 'ParallaxReferenceMathTest', 'ParallaxShaderTest',
         'PbrFallbackTexturesTest',
@@ -112,7 +114,8 @@ def jvmCases = [
         'AdaptiveSamplingShaderContractTest', 'AdaptiveSamplingWiringTest',
         'SsgiSettingsTest', 'SsgiIndirectReferenceTest', 'SsgiShaderTest',
         'SsgiPipelineCompositionTest',
-        'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
+        'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest',
+        'CausticsPipelineWiringTest'
 ]
 def glCases = [
         'GtaoShaderGlTest', 'GtaoReconstructionGlTest', 'GtaoHistoryResizeGlTest',
@@ -137,10 +140,13 @@ def glCases = [
         'AtmospherePipelineGlTest',
         'AnisotropicGlTest',
         'PlanarReflectionPassGlTest',
+        'PlanarReflectionPipelineGlTest',
         'ClusterLightingGlTest', 'ClusterRotatedViewAuditGlTest',
         'WeightedOitPassGlTest',
+        'WeightedOitPipelineGlTest',
         'ParallaxGlTest',
         'CausticsPassGlTest',
+        'CausticsPipelineGlTest',
         'WaterRefractionGlTest',
         'GpuParticleSystemGlTest',
         'GpuParticleSortingGlTest',
