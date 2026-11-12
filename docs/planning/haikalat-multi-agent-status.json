@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "85f44b2d"
+    "head": "d413e9d2"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T21:57:28+08:00",
+  "updatedAt": "2026-11-12T22:58:43+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1317,7 +1317,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "527479c..2df84e4",
-      "integrationCommit": "896e113",
+      "integrationCommit": "d413e9d2",
       "requiredCases": [
         "SsgiSettingsTest",
         "SsgiIndirectReferenceTest",
@@ -1331,14 +1331,15 @@
         "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test",
         "B4 feature-control wiring 3527b9cf resolves SSGI eligibility (HDR + PBR ALBEDO/ROUGHNESS) with soft UNAVAILABLE and effective stripping",
         "per-feature matrix 20261112-165030: #39 JVM 32/40 + GL 8/8 PASS",
-        "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing"
+        "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing",
+        "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing"
+      "nextAction": "independent review of the temporal adaptation; then close #39"
     },
     {
       "taskId": "R40",
