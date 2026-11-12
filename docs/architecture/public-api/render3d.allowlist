@@ -196,3 +196,7 @@ internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPart
 advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs
 internal com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass
+
+# v0.28.1 S4 #46 deterministic hair-strand settings and pass-owned resources.
+advanced com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass
