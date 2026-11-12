@@ -49,25 +49,31 @@ float stUnitHash(ivec2 pixel) {
     return float(stHash32(key) >> 8) * (1.0 / 16777216.0);
 }
 
-// Interleaved-gradient dither; per-sample and per-frame R2 offsets decorrelate
-// the structured pattern without a noise texture.
+// Interleaved-gradient dither; per-sample, per-frame, per-instance and
+// per-seed offsets decorrelate the structured pattern so overlapping layers
+// do not accept in lockstep.
 float stInterleavedGradient(ivec2 pixel) {
     vec2 p = vec2(pixel)
             + vec2(0.7548776662, 0.5698402910) * float(uSampleIndex)
-            + vec2(0.131719, 0.927663) * float(uFrameIndex & 1023);
+            + vec2(0.131719, 0.927663) * float(uFrameIndex & 1023)
+            + vec2(0.6180339887, 0.4142135624) * float(vInstanceId)
+            + vec2(0.2360679775, 0.7320508076) * float(uSeed & 255);
     return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
-// Ordered 4x4 Bayer dither.  Offsets rotate the pattern between samples/frames
-// so temporal accumulation cannot get stuck on one ordered pattern phase.
+// Ordered 4x4 Bayer dither.  Offsets rotate the pattern between samples,
+// frames, instances and seeds so temporal accumulation cannot get stuck on one
+// ordered pattern phase and overlapping layers do not share a threshold.
 float stBayer4(ivec2 pixel) {
     const float pattern[16] = float[16](
         0.0 / 16.0,  8.0 / 16.0,  2.0 / 16.0, 10.0 / 16.0,
         12.0 / 16.0, 4.0 / 16.0, 14.0 / 16.0,  6.0 / 16.0,
         3.0 / 16.0, 11.0 / 16.0,  1.0 / 16.0,  9.0 / 16.0,
         15.0 / 16.0, 7.0 / 16.0, 13.0 / 16.0,  5.0 / 16.0);
-    int x = (pixel.x + uSampleIndex * 3 + uFrameIndex * 5) & 3;
-    int y = (pixel.y + uSampleIndex * 5 + uFrameIndex * 3) & 3;
+    int x = (pixel.x + uSampleIndex * 3 + uFrameIndex * 5
+            + int(vInstanceId) * 7 + (uSeed & 3)) & 3;
+    int y = (pixel.y + uSampleIndex * 5 + uFrameIndex * 3
+            + int(vInstanceId) * 11 + ((uSeed >> 2) & 3)) & 3;
     return pattern[y * ST_BAYER_SIZE + x];
 }
 

@@ -797,6 +797,47 @@ class StochasticTransparencyPassGlTest {
         }
     }
 
+    @Test
+    void structuredThresholdsDecorrelateOverlappingInstances() {
+        try (Fixture fixture = new Fixture(); Framebuffer target = hdrTarget()) {
+            StochasticTransparencySettings ign = settings(1, 0x5EED_5EED, false)
+                    .jitterMode(StochasticTransparencySettings.JitterMode.INTERLEAVED_GRADIENT)
+                    .build();
+            OitSurface first = screenQuad(4.0f, 0.9f, 0.2f, 0.1f, 0.5f);
+            OitSurface second = screenQuad(4.0f, 0.1f, 0.8f, 0.2f, 0.5f);
+            double single;
+            try (StochasticTransparencyPass pass =
+                         new StochasticTransparencyPass(SIZE, SIZE, ign)) {
+                renderFrame(fixture, pass, target, List.of(first),
+                        inputs(viewForCameraX(0.0f), 0), ign);
+                single = meanCoverage(resolvedCoverage(fixture, pass));
+            }
+            double union;
+            try (StochasticTransparencyPass pass =
+                         new StochasticTransparencyPass(SIZE, SIZE, ign)) {
+                renderFrame(fixture, pass, target, List.of(first, second),
+                        inputs(viewForCameraX(0.0f), 0), ign);
+                union = meanCoverage(resolvedCoverage(fixture, pass));
+            }
+            assertTrue(single > 0.4 && single < 0.6,
+                    "the single-layer IGN acceptance must stay near alpha, got " + single);
+            // A shared structured threshold makes the union identical to the
+            // single layer; per-instance offsets must raise it materially.
+            assertTrue(union > single + 0.15,
+                    "IGN thresholds must decorrelate overlapping instances: single "
+                            + single + ", union " + union);
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    private static double meanCoverage(FloatBuffer coverage) {
+        double sum = 0.0;
+        for (int pixel = 0; pixel < SIZE * SIZE; pixel++) {
+            sum += coverage.get(pixel * 4 + 3);
+        }
+        return sum / (SIZE * SIZE);
+    }
+
     private static void renderFrame(Fixture fixture, StochasticTransparencyPass pass,
                                     Framebuffer target, List<OitSurface> surfaces,
                                     StochasticTransparencyInputs inputs,
