@@ -34,7 +34,6 @@ import org.lwjgl.opengl.GL;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-import static com.kaleblangley.haikalat.integration.GlTestSupport.hiddenWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
@@ -53,7 +52,11 @@ class ThinTranslucencyGlTest {
 
     @Test
     void backlitThinSurfaceContrastsWithFrontLightAndZeroControlsStayBaseline() {
-        try (GlfwWindow window = hiddenWindow()) {
+        try (GlfwWindow window = new GlfwWindow.Builder()
+                .dimensions(200, 140)
+                .title("GL Smoke Test")
+                .visible(false)
+                .build()) {
             window.bindContext();
             GL.createCapabilities();
             GlDebug.enableDebugCallback();
@@ -111,7 +114,8 @@ class ThinTranslucencyGlTest {
             pipeline.build();
             pipeline.execute(device);
             ByteBuffer pixel = BufferUtils.createByteBuffer(4);
-            glReadPixels(16, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            glReadPixels(window.width() / 2, window.height() / 2, 1, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, pixel);
             return Byte.toUnsignedInt(pixel.get(0))
                     + Byte.toUnsignedInt(pixel.get(1))
                     + Byte.toUnsignedInt(pixel.get(2));
