@@ -96,7 +96,7 @@ def jvmCases = [
         'StochasticTransparencyReferenceTest', 'StochasticTransparencyShaderTest',
         'HairStrandSettingsTest', 'HairStrandReferenceTest', 'HairStrandShaderTest',
         'SmokeSimulationSettingsTest', 'SmokeSimulationReferenceTest',
-        'SmokeSimulationShaderTest', 'SmokeCompositionTest',
+        'SmokeShaderContractTest', 'SmokeCompositionTest',
         'SsgiSettingsTest', 'SsgiIndirectReferenceTest', 'SsgiShaderTest',
         'SsgiPipelineCompositionTest',
         'CausticsSettingsTest', 'CausticsReferenceTest', 'CausticsShaderSourceTest'
