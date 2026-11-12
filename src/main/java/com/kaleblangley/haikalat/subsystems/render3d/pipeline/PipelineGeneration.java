@@ -39,6 +39,12 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudPass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
@@ -88,6 +94,9 @@ public final class PipelineGeneration implements AutoCloseable {
     private com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer sceneRenderer;
     private VolumetricPassBuilder volumetric;
     private VolumetricParticlePass volumetricParticles;
+    private VolumetricCloudPass volumetricClouds;
+    private SmokeSimulation smokeSimulation;
+    private SmokeVolumePass smokeVolume;
     private StochasticTransparencyPass stochasticTransparency;
     private StochasticTransparencySettings stochasticSettings =
             StochasticTransparencySettings.disabled();
@@ -109,6 +118,8 @@ public final class PipelineGeneration implements AutoCloseable {
     private boolean closed;
     private boolean retired;
     private boolean submitted;
+    private long cloudFrameSequence = Long.MIN_VALUE;
+    private double cloudTimeSeconds;
 
     public void retire() {
         retired = true;
@@ -282,6 +293,37 @@ public final class PipelineGeneration implements AutoCloseable {
     }
 
     /**
+     * Owns the optional visible cloud layer. The pass bakes its settings and
+     * holds the temporal history, so a candidate generation always allocates a
+     * fresh owner; a resize candidate replaces the pass together with the rest
+     * of the generation.
+     */
+    public void assembleVolumetricClouds(VolumetricCloudSettings settings) {
+        if (!topology.volumetricClouds()) return;
+        volumetricClouds = new VolumetricCloudPass(settings, topology.width(), topology.height());
+    }
+
+    /**
+     * Owns the optional fixed-step smoke simulation and its volume pass. The
+     * simulation is stateful, so a donor with identical settings is borrowed to
+     * preserve the deterministic step sequence; the volume pass is borrowed only
+     * when both its settings and the managed extent are unchanged.
+     */
+    public void assembleSmoke(SmokeSimulationSettings simulationSettings,
+                              SmokeRenderSettings renderSettings, PipelineGeneration source) {
+        if (!topology.volumetricSmoke()) return;
+        boolean reuseSimulation = source != null && source.smokeSimulation != null
+                && source.smokeSimulation.settings().equals(simulationSettings);
+        smokeSimulation = reuseSimulation ? borrow(source.smokeSimulation)
+                : new SmokeSimulation(simulationSettings);
+        boolean reuseVolume = source != null && source.smokeVolume != null
+                && source.topology.sameManagedExtent(topology)
+                && source.smokeVolume.settings().equals(renderSettings);
+        smokeVolume = reuseVolume ? borrow(source.smokeVolume)
+                : new SmokeVolumePass(renderSettings, topology.width(), topology.height());
+    }
+
+    /**
      * Owns the optional stochastic-transparency collection. The pass allocates
      * its quad capacity at construction, so only an equal capacity donor is
      * borrowed; per-frame scalars remain arguments of record/resolve.
@@ -409,6 +451,9 @@ public final class PipelineGeneration implements AutoCloseable {
     public SceneRenderer sceneRenderer() { return sceneRenderer; }
     public VolumetricPassBuilder volumetric() { return volumetric; }
     public VolumetricParticlePass volumetricParticles() { return volumetricParticles; }
+    public VolumetricCloudPass volumetricClouds() { return volumetricClouds; }
+    public SmokeSimulation smokeSimulation() { return smokeSimulation; }
+    public SmokeVolumePass smokeVolume() { return smokeVolume; }
     public StochasticTransparencyPass stochasticTransparency() { return stochasticTransparency; }
     public StochasticTransparencySettings stochasticSettings() { return stochasticSettings; }
     public ShadowPrograms shadowPrograms() { return shadowPrograms; }
@@ -436,6 +481,39 @@ public final class PipelineGeneration implements AutoCloseable {
     public boolean reusesSceneState() { return reuseSource != null && sameScene; }
 
     public void markSubmitted() { submitted = true; }
+
+    /**
+     * Advances the cloud-wind clock once per distinct frame sequence. The rule
+     * matches the #10 cloud-shadow clock: the first observed sequence reports
+     * zero and a delta is capped at 0.1 s. The clock lives with the generation
+     * (and therefore with the cloud pass history).
+     *
+     * @param frameSequence the frame's monotonic sequence
+     * @param deltaSeconds  the frame delta, clamped to a bounded effect time
+     * @return the accumulated cloud time in seconds
+     */
+    public double advanceCloudTime(long frameSequence, float deltaSeconds) {
+        if (cloudFrameSequence == Long.MIN_VALUE) {
+            cloudFrameSequence = frameSequence;
+            return cloudTimeSeconds;
+        }
+        if (frameSequence < cloudFrameSequence) {
+            cloudFrameSequence = frameSequence;
+            cloudTimeSeconds = 0.0;
+            return 0.0;
+        }
+        if (frameSequence == cloudFrameSequence) {
+            return cloudTimeSeconds;
+        }
+        cloudFrameSequence = frameSequence;
+        if (Float.isFinite(deltaSeconds) && deltaSeconds > 0.0f) {
+            cloudTimeSeconds += Math.min(deltaSeconds, 0.1f);
+            if (!Double.isFinite(cloudTimeSeconds)) cloudTimeSeconds = 0.0;
+        }
+        return cloudTimeSeconds;
+    }
+
+    public double cloudTimeSeconds() { return cloudTimeSeconds; }
 
     private SceneSurfaceLayout.Storage surfaceStorageAt(int width, int height) {
         return topology.sceneSurface().storage(width, height);
@@ -493,6 +571,8 @@ public final class PipelineGeneration implements AutoCloseable {
         GtaoPasses.ResizeCandidate gtaoCandidate = null;
         VolumetricParticlePass particleCandidate = null;
         StochasticTransparencyPass stochasticCandidate = null;
+        VolumetricCloudPass cloudCandidate = null;
+        SmokeVolumePass smokeVolumeCandidate = null;
         try {
             GtaoAllocationPlan.validateDeviceExtent(width, height, maximumTextureDimension);
             var newSurfaceStorage = surfaceStorageAt(width, height);
@@ -519,11 +599,20 @@ public final class PipelineGeneration implements AutoCloseable {
                 stochasticCandidate = new StochasticTransparencyPass(width, height,
                         stochasticSettings);
             }
+            if (volumetricClouds != null) {
+                cloudCandidate = new VolumetricCloudPass(volumetricClouds.settings(), width, height);
+            }
+            if (smokeVolume != null) {
+                smokeVolumeCandidate = new SmokeVolumePass(smokeVolume.settings(), width, height);
+            }
             return new ResizeCandidate(this, width, height, topology.withExtent(width, height),
                     graphCandidate, postProcessCandidate, clusteredCandidate, volumeCandidate,
-                    gtaoCandidate, particleCandidate, stochasticCandidate,
+                    gtaoCandidate, particleCandidate, stochasticCandidate, cloudCandidate,
+                    smokeVolumeCandidate,
                     allocation, gtaoPlan, newSurfaceStorage, newSurfacePeak);
         } catch (RuntimeException | Error failure) {
+            closeCandidate(smokeVolumeCandidate, failure);
+            closeCandidate(cloudCandidate, failure);
             closeCandidate(stochasticCandidate, failure);
             closeCandidate(particleCandidate, failure);
             closeCandidate(gtaoCandidate, failure);
@@ -564,6 +653,8 @@ public final class PipelineGeneration implements AutoCloseable {
         private final GtaoPasses.ResizeCandidate gtaoCandidate;
         private VolumetricParticlePass particleCandidate;
         private StochasticTransparencyPass stochasticCandidate;
+        private VolumetricCloudPass cloudCandidate;
+        private SmokeVolumePass smokeVolumeCandidate;
         private final VolumetricAllocationPlan allocation;
         private final GtaoAllocationPlan gtaoPlan;
         private final SceneSurfaceLayout.Storage surfaceStorage;
@@ -579,6 +670,8 @@ public final class PipelineGeneration implements AutoCloseable {
                                 VolumetricResources.ResizeCandidate volumeCandidate, GtaoPasses.ResizeCandidate gtaoCandidate,
                                 VolumetricParticlePass particleCandidate,
                                 StochasticTransparencyPass stochasticCandidate,
+                                VolumetricCloudPass cloudCandidate,
+                                SmokeVolumePass smokeVolumeCandidate,
                                 VolumetricAllocationPlan allocation, GtaoAllocationPlan gtaoPlan,
                                 SceneSurfaceLayout.Storage surfaceStorage, long surfacePeak) {
             this.owner = owner;
@@ -592,6 +685,8 @@ public final class PipelineGeneration implements AutoCloseable {
             this.gtaoCandidate = gtaoCandidate;
             this.particleCandidate = particleCandidate;
             this.stochasticCandidate = stochasticCandidate;
+            this.cloudCandidate = cloudCandidate;
+            this.smokeVolumeCandidate = smokeVolumeCandidate;
             this.allocation = allocation;
             this.gtaoPlan = gtaoPlan;
             this.surfaceStorage = surfaceStorage;
@@ -619,10 +714,16 @@ public final class PipelineGeneration implements AutoCloseable {
             if (gtaoCandidate != null) owner.gtao.commitResize(gtaoCandidate);
             VolumetricParticlePass previousParticle = owner.volumetricParticles;
             StochasticTransparencyPass previousStochastic = owner.stochasticTransparency;
+            VolumetricCloudPass previousCloud = owner.volumetricClouds;
+            SmokeVolumePass previousSmoke = owner.smokeVolume;
             owner.volumetricParticles = particleCandidate;
             owner.stochasticTransparency = stochasticCandidate;
+            owner.volumetricClouds = cloudCandidate;
+            owner.smokeVolume = smokeVolumeCandidate;
             particleCandidate = null;
             stochasticCandidate = null;
+            cloudCandidate = null;
+            smokeVolumeCandidate = null;
             owner.topology = candidateTopology;
             owner.volumeAllocation = allocation;
             owner.gtaoAllocation = gtaoPlan;
@@ -630,6 +731,8 @@ public final class PipelineGeneration implements AutoCloseable {
             owner.surfacePeakBytes = surfacePeak;
             committed = true;
             RuntimeException failure = null;
+            failure = closeOne(previousSmoke, failure);
+            failure = closeOne(previousCloud, failure);
             failure = closeOne(previousStochastic, failure);
             failure = closeOne(previousParticle, failure);
             if (failure != null) throw failure;
@@ -640,6 +743,8 @@ public final class PipelineGeneration implements AutoCloseable {
             if (closed) return;
             closed = true;
             RuntimeException failure = null;
+            failure = closeOne(smokeVolumeCandidate, failure);
+            failure = closeOne(cloudCandidate, failure);
             failure = closeOne(stochasticCandidate, failure);
             failure = closeOne(particleCandidate, failure);
             failure = closeOne(gtaoCandidate, failure);
@@ -676,6 +781,9 @@ public final class PipelineGeneration implements AutoCloseable {
         PostProcessPipeline localPostProcess = postProcess;
         VolumetricPassBuilder localVolume = volumetric;
         VolumetricParticlePass localParticles = volumetricParticles;
+        VolumetricCloudPass localClouds = volumetricClouds;
+        SmokeSimulation localSmokeSimulation = smokeSimulation;
+        SmokeVolumePass localSmokeVolume = smokeVolume;
         StochasticTransparencyPass localStochastic = stochasticTransparency;
         CameraUniforms localCameraUniforms = cameraUniforms;
         SceneDeformationDefaults localDeformationDefaults = deformationDefaults;
@@ -699,6 +807,9 @@ public final class PipelineGeneration implements AutoCloseable {
         postProcess = null;
         volumetric = null;
         volumetricParticles = null;
+        volumetricClouds = null;
+        smokeSimulation = null;
+        smokeVolume = null;
         stochasticTransparency = null;
         cameraUniforms = null;
         deformationDefaults = null;
@@ -723,6 +834,10 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localPostProcess, failure);
         failure = closeCollecting(localVolume, failure);
         failure = closeCollecting(localParticles, failure);
+        failure = closeCollecting(localSmokeVolume, failure);
+        // The volume pass borrows the field; close the consumer before the owner.
+        failure = closeCollecting(localSmokeSimulation, failure);
+        failure = closeCollecting(localClouds, failure);
         failure = closeCollecting(localStochastic, failure);
         failure = closeCollecting(localCameraUniforms, failure);
         failure = closeCollecting(localSceneSurface, failure);

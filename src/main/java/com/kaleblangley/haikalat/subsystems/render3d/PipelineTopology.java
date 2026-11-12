@@ -14,6 +14,10 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
@@ -56,7 +60,9 @@ public record PipelineTopology(int width,
                         boolean volumetricEmission,
                         boolean waterSurface,
                         boolean volumetricParticles,
-                        boolean stochasticTransparency) {
+                        boolean stochasticTransparency,
+                        boolean volumetricClouds,
+                        boolean volumetricSmoke) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -149,10 +155,9 @@ public record PipelineTopology(int width,
     }
 
     /**
-     * Captures the complete topology key including the two opt-in composition
-     * features. An active request only changes the key when its required
-     * composition inputs exist, so an unavailable request stays a soft
-     * effective-state observation instead of silently altering the graph.
+     * Captures the complete topology key including the opt-in composition
+     * features (particles, stochastic transparency). Kept as a source-compatible
+     * overload; cloud and smoke requests default to disabled.
      */
     public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
@@ -163,12 +168,42 @@ public record PipelineTopology(int width,
                                     WaterSurfaceSettings waterSurface,
                                     VolumetricParticleSettings volumetricParticles,
                                     StochasticTransparencySettings stochasticTransparency) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled());
+    }
+
+    /**
+     * Captures the complete topology key including the two volumetric media that
+     * composite over the final scene colour. Clouds additionally consult the
+     * shared #10 coverage field: while directional cloud shadows are enabled the
+     * layer must reuse the same authored field, otherwise the request stays an
+     * unavailable effective observation and does not change the graph.
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency,
+                                    VolumetricCloudSettings volumetricClouds,
+                                    SmokeSimulationSettings smokeSimulation,
+                                    SmokeRenderSettings smokeRender,
+                                    CloudShadowSettings directionalCloudShadows) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(waterSurface, "waterSurface");
         Objects.requireNonNull(volumetricParticles, "volumetricParticles");
         Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
+        Objects.requireNonNull(volumetricClouds, "volumetricClouds");
+        Objects.requireNonNull(smokeSimulation, "smokeSimulation");
+        Objects.requireNonNull(smokeRender, "smokeRender");
         boolean bloom = settings.bloomSettings().enabled();
         int samples = settings.antiAliasingMode() == AntiAliasingMode.MSAA
                 ? Math.max(2, settings.msaaSamples()) : 1;
@@ -195,6 +230,9 @@ public record PipelineTopology(int width,
                 volumetricParticles);
         boolean stochastic = stochasticTransparencyCompositionActive(settings,
                 stochasticTransparency);
+        boolean clouds = volumetricCloudCompositionActive(settings, volumetricClouds,
+                directionalShadowRequested && directionalShadow, directionalCloudShadows);
+        boolean smoke = volumetricSmokeCompositionActive(settings, smokeSimulation, smokeRender);
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -210,10 +248,10 @@ public record PipelineTopology(int width,
                 effects.gtao().enabled(), effects.gtao().enabled() && effects.gtao().temporal(), (Math.max(1, width) + 1) / 2,
                 (Math.max(1, height) + 1) / 2,
                 sceneSurface(scene, settings, effects, samples, hdrVfx, volume.enabled(),
-                        waterSurface.active(), stochastic),
+                        waterSurface.active(), stochastic, clouds, smoke),
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
-                stochastic);
+                stochastic, clouds, smoke);
     }
 
     /**
@@ -243,11 +281,60 @@ public record PipelineTopology(int width,
                 && settings.antiAliasingMode() != AntiAliasingMode.TAA;
     }
 
+    /**
+     * A cloud request participates only on a stable single-sample HDR raster;
+     * MSAA raw attachments and TAA jitter have no compatible same-frame colour
+     * and depth pair in this version.
+     */
+    public static boolean volumetricCloudCompositionActive(RenderSettings settings,
+                                                           VolumetricCloudSettings clouds) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(clouds, "clouds");
+        return clouds.active() && settings.hdrEnabled() && stableSingleSample(settings);
+    }
+
+    /**
+     * Adds the shared-#10 coupling: while a directional cloud shadow is
+     * requested, the visible layer must reuse the same authored coverage field.
+     */
+    public static boolean volumetricCloudCompositionActive(RenderSettings settings,
+                                                           VolumetricCloudSettings clouds,
+                                                           boolean directionalShadowsActive,
+                                                           CloudShadowSettings directionalCloudShadows) {
+        if (!volumetricCloudCompositionActive(settings, clouds)) return false;
+        if (!directionalShadowsActive || directionalCloudShadows == null
+                || !directionalCloudShadows.active()) {
+            return true;
+        }
+        return clouds.coverageField().equals(directionalCloudShadows);
+    }
+
+    /**
+     * Smoke needs both owners: the volume pass has no field without the
+     * simulation, and a simulation without a consumer is not a rendered medium.
+     */
+    public static boolean volumetricSmokeCompositionActive(RenderSettings settings,
+                                                           SmokeSimulationSettings simulation,
+                                                           SmokeRenderSettings render) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(simulation, "simulation");
+        Objects.requireNonNull(render, "render");
+        return simulation.active() && render.active() && settings.hdrEnabled()
+                && stableSingleSample(settings);
+    }
+
+    private static boolean stableSingleSample(RenderSettings settings) {
+        return settings.antiAliasingMode() != AntiAliasingMode.MSAA
+                && settings.antiAliasingMode() != AntiAliasingMode.TAA;
+    }
+
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,
                                                    PostProcessSettings effects, int samples,
                                                    boolean hdrVfx, boolean volume,
                                                    boolean waterSurface,
-                                                   boolean stochasticTransparency) {
+                                                   boolean stochasticTransparency,
+                                                   boolean volumetricClouds,
+                                                   boolean volumetricSmoke) {
         SceneBufferRequirements requirements = SceneBufferRequirements.none();
         // Analytic fog and depth of field both consume only the shared single-sample depth.
         if (effects.fog().enabled() || volume || effects.depthOfField().active()) {
@@ -256,6 +343,12 @@ public record PipelineTopology(int width,
         // The stochastic collection reprojects against the shared opaque depth; it
         // never writes that depth.
         if (stochasticTransparency) {
+            requirements = requirements.mergeView(SceneBufferRequirements.fog());
+        }
+        // The cloud layer and the smoke volume both march against the same-frame
+        // single-sample opaque depth; requesting it here makes the dependency
+        // structural instead of an implicit assumption.
+        if (volumetricClouds || volumetricSmoke) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         // Motion blur consumes the shared single-sample velocity and validity.
@@ -327,6 +420,7 @@ public record PipelineTopology(int width,
                 spotShadowCapacity, spotShadowResolution, pbrMaterials, hdrVfx, embedded,
                 gtaoEnabled, gtaoTemporal, (width + 1) / 2, (height + 1) / 2, sceneSurface,
                 volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
-                volumetricParticles, stochasticTransparency);
+                volumetricParticles, stochasticTransparency, volumetricClouds,
+                volumetricSmoke);
     }
 }

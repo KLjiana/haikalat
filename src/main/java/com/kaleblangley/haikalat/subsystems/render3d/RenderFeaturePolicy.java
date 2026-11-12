@@ -28,6 +28,7 @@ final class RenderFeaturePolicy {
                     boolean colorGrading, boolean hdrVfx, boolean preview,
                     boolean waterSurface, boolean volumetricParticles,
                     boolean stochasticTransparency,
+                    boolean volumetricClouds, boolean volumetricSmoke,
                     List<RenderFeatureActivity> activities) {
         Resolved {
             activities = List.copyOf(activities);
@@ -71,6 +72,11 @@ final class RenderFeaturePolicy {
                 settings.render(), settings.stochasticTransparency());
         boolean volumetricParticles = particlesEligible;
         boolean stochasticTransparency = stochasticEligible;
+        boolean cloudsEligible = PipelineTopology.volumetricCloudCompositionActive(
+                settings.render(), settings.volumetricClouds(), cloudShadowsActive(settings, facts),
+                settings.directionalShadowMap().settings().cloudShadows());
+        boolean smokeEligible = PipelineTopology.volumetricSmokeCompositionActive(
+                settings.render(), settings.smokeSimulation(), settings.smokeRender());
         RenderFeatureReason particleReason = !settings.volumetricParticles().active()
                 ? RenderFeatureReason.DISABLED
                 : !particlesEligible ? RenderFeatureReason.UNAVAILABLE
@@ -78,6 +84,14 @@ final class RenderFeaturePolicy {
         RenderFeatureReason stochasticReason = !settings.stochasticTransparency().active()
                 ? RenderFeatureReason.DISABLED
                 : !stochasticEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason cloudReason = !settings.volumetricClouds().active()
+                ? RenderFeatureReason.DISABLED
+                : !cloudsEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason smokeReason = !settings.smokeRender().active()
+                ? RenderFeatureReason.DISABLED
+                : !smokeEligible ? RenderFeatureReason.UNAVAILABLE
                 : RenderFeatureReason.DISABLED;
 
         List<RenderFeatureActivity> activities = new ArrayList<>();
@@ -120,6 +134,10 @@ final class RenderFeaturePolicy {
                 particleReason));
         activities.add(child(RenderFeature.STOCHASTIC_TRANSPARENCY, master,
                 stochasticTransparency, stochasticReason));
+        activities.add(child(RenderFeature.VOLUMETRIC_CLOUDS, master, cloudsEligible,
+                cloudReason));
+        activities.add(child(RenderFeature.VOLUMETRIC_SMOKE, master, smokeEligible,
+                smokeReason));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -129,8 +147,18 @@ final class RenderFeaturePolicy {
                 effective(master, toneMapping), effective(master, colorGrading),
                 effective(master, hdrVfx), effective(master, preview),
                 effective(master, waterSurface), effective(master, volumetricParticles),
-                effective(master, stochasticTransparency),
+                effective(master, stochasticTransparency), effective(master, cloudsEligible),
+                effective(master, smokeEligible),
                 List.copyOf(activities));
+    }
+
+    /**
+     * The #10 cloud shadow is one authored field. While it is enabled on the
+     * selected directional caster, the visible layer must use the same value
+     * instead of silently creating a second cloud field.
+     */
+    private static boolean cloudShadowsActive(RenderFeatureSettings settings, Facts facts) {
+        return settings.directionalShadows() && facts.directionalCaster();
     }
 
     private static boolean effective(boolean master, boolean requested) {

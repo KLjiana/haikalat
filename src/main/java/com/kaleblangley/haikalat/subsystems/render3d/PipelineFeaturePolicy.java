@@ -77,6 +77,37 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                         "stochastic transparency requires the shared single-sample scene depth");
             }
         }
+        if (topology.volumetricClouds()) {
+            requireSingleSampleHdrDepth("volumetric clouds");
+        }
+        if (topology.volumetricSmoke()) {
+            requireSingleSampleHdrDepth("smoke volume rendering");
+        }
+    }
+
+    /**
+     * The two opt-in volumetric media consume the resolved HDR colour and the
+     * same-frame single-sample opaque depth. This is the assembly-time defence
+     * for hand-built topologies; the settings capture already keeps unsupported
+     * AA modes out of the key.
+     */
+    private void requireSingleSampleHdrDepth(String feature) {
+        if (!topology.hdr()) {
+            throw new IllegalStateException(
+                    feature + " requires HDR tone mapping for linear composition");
+        }
+        if (topology.sampleCount() != 1) {
+            throw new IllegalStateException(
+                    feature + " requires a resolved single-sample colour source");
+        }
+        if (topology.antiAliasingMode() == AntiAliasingMode.TAA) {
+            throw new IllegalStateException(
+                    feature + " requires a stable single-sample raster; TAA is unavailable");
+        }
+        if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+            throw new IllegalStateException(
+                    feature + " requires the shared single-sample opaque depth");
+        }
     }
 
     /**
