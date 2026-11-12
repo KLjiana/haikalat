@@ -244,7 +244,7 @@ class RenderPipelineWiringTest {
                 DirectionalCascadeSettings.disabled());
 
         PipelineTopology particleWithoutFog = copy(base, base.sampleCount(), true,
-                base.sceneSurface(), false, true, false);
+                base.sceneSurface(), false, true, false, false, false);
         IllegalStateException fogFailure = assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(particleWithoutFog, false).validate());
         assertTrue(fogFailure.getMessage().contains("volumetric fog colour composition"));
@@ -253,7 +253,7 @@ class RenderPipelineWiringTest {
                 ? base : copy(base, 1, true,
                 SceneSurfaceLayout.plan(1, SceneBufferRequirements.none(),
                         SceneBufferRequirements.none(), SceneSurfaceLayout.ReactiveMode.NONE),
-                false, false, true);
+                false, false, true, false, false);
         IllegalStateException depthFailure = assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(noDepthSurface, false).validate());
         assertTrue(depthFailure.getMessage().contains("shared single-sample scene depth"));
@@ -261,12 +261,13 @@ class RenderPipelineWiringTest {
         PipelineTopology msaa = copy(base, 4, true,
                 SceneSurfaceLayout.plan(4, SceneBufferRequirements.none(),
                         SceneBufferRequirements.none(), SceneSurfaceLayout.ReactiveMode.NONE),
-                false, false, true);
+                false, false, true, false, false);
         IllegalStateException samplesFailure = assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(msaa, false).validate());
         assertTrue(samplesFailure.getMessage().contains("stable single-sample HDR target"));
 
-        PipelineTopology ldr = copy(base, 1, false, base.sceneSurface(), false, false, true);
+        PipelineTopology ldr = copy(base, 1, false, base.sceneSurface(), false, false, true,
+                false, false);
         IllegalStateException ldrFailure = assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(ldr, false).validate());
         assertTrue(ldrFailure.getMessage().contains("HDR tone mapping"));
@@ -437,7 +438,8 @@ class RenderPipelineWiringTest {
 
     private static PipelineTopology copy(PipelineTopology base, int sampleCount, boolean hdr,
                                          SceneSurfaceLayout surface, boolean volumetricFog,
-                                         boolean particles, boolean stochastic) {
+                                         boolean particles, boolean stochastic,
+                                         boolean clouds, boolean smoke) {
         return new PipelineTopology(base.width(), base.height(), base.antiAliasingMode(),
                 sampleCount, hdr, base.bloom(), base.bloomLevels(),
                 base.automaticExposure(), base.colorGrading(), base.fog(),
@@ -448,7 +450,7 @@ class RenderPipelineWiringTest {
                 base.pbrMaterials(), base.hdrVfx(), base.embedded(), base.gtaoEnabled(),
                 base.gtaoTemporal(), base.gtaoHalfWidth(), base.gtaoHalfHeight(), surface,
                 volumetricFog, base.volumetricQuality(), base.volumetricEmission(),
-                base.waterSurface(), particles, stochastic);
+                base.waterSurface(), particles, stochastic, clouds, smoke);
     }
 
     private static RenderWindow window() {

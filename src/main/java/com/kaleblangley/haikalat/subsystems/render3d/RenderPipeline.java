@@ -30,6 +30,12 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAlloca
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogDiagnostics;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudPass;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
@@ -279,6 +285,13 @@ public final class RenderPipeline {
             VolumetricParticleSettings.disabled();
     private StochasticTransparencySettings stochasticTransparencySettings =
             StochasticTransparencySettings.disabled();
+    private VolumetricCloudSettings volumetricCloudSettings = VolumetricCloudSettings.disabled();
+    private SmokeSimulationSettings smokeSimulationSettings = SmokeSimulationSettings.disabled();
+    private SmokeRenderSettings smokeRenderSettings = SmokeRenderSettings.disabled();
+    /** Set when a failed frame may have advanced the smoke simulation on the GPU. */
+    private boolean smokeSimulationResetPending;
+    /** True once the current frame recorded its smoke simulation pass. */
+    private boolean smokeSimulationAdvanced;
     /** Caller-selected stochastic surface set for subsequent frames; empty means no draw. */
     private List<OitSurface> stochasticTransparencySurfaces = List.of();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
@@ -516,12 +529,8 @@ public final class RenderPipeline {
                 topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
                 return;
             }
-            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
-                    activeGeneration.graph().width(), activeGeneration.graph().height(),
-                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                    directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+            PipelineTopology topology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
             activateGeneration(createGeneration(scene, topology, activeGeneration));
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
@@ -568,11 +577,8 @@ public final class RenderPipeline {
         PipelineGeneration previousGeneration = activeGeneration;
         volumetricFogSettings = replacement;
         try {
-            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
-                    activeGeneration.graph().width(), activeGeneration.graph().height(),
-                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, replacement, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+            PipelineTopology topology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
             if (!topology.equals(activeGeneration.topology()))
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             else activeGeneration.postProcess().invalidateTemporalHistory(TaaInvalidationReason.VOLUMETRIC_SETTINGS);
@@ -643,6 +649,161 @@ public final class RenderPipeline {
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) {
                 volumetricParticleSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /** Configures the bounded visible cloud layer before build. */
+    public RenderPipeline volumetricClouds(VolumetricCloudSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyVolumetricClouds after build");
+        }
+        volumetricCloudSettings = Objects.requireNonNull(value, "volumetricClouds");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current visible cloud-layer configuration; no GPU resource is exposed. */
+    public VolumetricCloudSettings volumetricClouds() {
+        return volumetricCloudSettings;
+    }
+
+    /**
+     * Publishes a cloud-layer settings change at a frame boundary. The pass bakes
+     * its settings and owns the temporal history, so the complete candidate
+     * generation is rebuilt; a failure keeps the active generation and the
+     * previous settings.
+     */
+    public void applyVolumetricClouds(VolumetricCloudSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyVolumetricCloudsInternal(value);
+            }
+        } else {
+            applyVolumetricCloudsInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyVolumetricCloudsInternal(VolumetricCloudSettings value) {
+        VolumetricCloudSettings replacement = Objects.requireNonNull(value, "volumetricClouds");
+        if (executing) {
+            throw new IllegalStateException(
+                    "volumetric cloud changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(volumetricCloudSettings)) return;
+        if (activeGeneration == null) {
+            volumetricClouds(replacement);
+            return;
+        }
+        VolumetricCloudSettings previous = volumetricCloudSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        volumetricCloudSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                volumetricCloudSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /** Configures the fixed-step smoke simulation owner before build. */
+    public RenderPipeline smokeSimulation(SmokeSimulationSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applySmokeSimulation after build");
+        }
+        smokeSimulationSettings = Objects.requireNonNull(value, "smokeSimulation");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current smoke-simulation configuration; no GPU resource is exposed. */
+    public SmokeSimulationSettings smokeSimulation() {
+        return smokeSimulationSettings;
+    }
+
+    /** Configures the smoke volume-rendering consumer before build. */
+    public RenderPipeline smokeRender(SmokeRenderSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applySmokeRender after build");
+        }
+        smokeRenderSettings = Objects.requireNonNull(value, "smokeRender");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current smoke volume-rendering configuration; no GPU resource is exposed. */
+    public SmokeRenderSettings smokeRender() {
+        return smokeRenderSettings;
+    }
+
+    /**
+     * Publishes a smoke-simulation change at a frame boundary. A grid or source
+     * change replaces the owner, so the complete candidate generation is rebuilt;
+     * a failure keeps the active generation, simulation and settings.
+     */
+    public void applySmokeSimulation(SmokeSimulationSettings value) {
+        applySmokeTransactionally(Objects.requireNonNull(value, "smokeSimulation"),
+                smokeRenderSettings);
+    }
+
+    /** Publishes a smoke render-settings change at a frame boundary. */
+    public void applySmokeRender(SmokeRenderSettings value) {
+        applySmokeTransactionally(smokeSimulationSettings,
+                Objects.requireNonNull(value, "smokeRender"));
+    }
+
+    private void applySmokeTransactionally(SmokeSimulationSettings simulation,
+                                           SmokeRenderSettings render) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applySmokeInternal(simulation, render);
+            }
+        } else {
+            applySmokeInternal(simulation, render);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applySmokeInternal(SmokeSimulationSettings simulation,
+                                    SmokeRenderSettings render) {
+        if (executing) {
+            throw new IllegalStateException("smoke changes are only allowed at frame boundaries");
+        }
+        if (simulation.equals(smokeSimulationSettings) && render.equals(smokeRenderSettings)) {
+            return;
+        }
+        if (activeGeneration == null) {
+            smokeSimulationSettings = simulation;
+            smokeRenderSettings = render;
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+            return;
+        }
+        SmokeSimulationSettings previousSimulation = smokeSimulationSettings;
+        SmokeRenderSettings previousRender = smokeRenderSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        smokeSimulationSettings = simulation;
+        smokeRenderSettings = render;
+        try {
+            PipelineTopology topology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                smokeSimulationSettings = previousSimulation;
+                smokeRenderSettings = previousRender;
             }
             throw failure;
         }
@@ -800,12 +961,8 @@ public final class RenderPipeline {
         PipelineGeneration previousGeneration = activeGeneration;
         waterSurfaceSettings = replacement;
         try {
-            PipelineTopology topology = PipelineTopology.capture(scene, settings, postProcessSettings,
-                    activeGeneration.graph().width(), activeGeneration.graph().height(),
-                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                    directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    replacement, volumetricParticleSettings, stochasticTransparencySettings);
+            PipelineTopology topology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
             if (!topology.equals(activeGeneration.topology())) {
                 activateGeneration(createGeneration(scene, topology, activeGeneration));
             }
@@ -836,10 +993,8 @@ public final class RenderPipeline {
         postProcessSettings = previous.withGtao(replacement);
         try {
             if (before != null) {
-                var topology = PipelineTopology.capture(scene, settings, postProcessSettings,
-                        before.graph().width(), before.graph().height(), hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                        directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                        waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+                var topology = captureTopology(scene,
+                        before.graph().width(), before.graph().height());
                 if (!topology.equals(before.topology())) activateGeneration(createGeneration(scene, topology, before));
                 else {
                     if (before.gtao() != null) {
@@ -945,11 +1100,8 @@ public final class RenderPipeline {
                 visualSettingsRevision = Math.incrementExact(visualSettingsRevision);
                 return;
             }
-            PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
-                    postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
-                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+            PipelineTopology candidateTopology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration,
                     outdoorEnvironment);
             if (!activeGeneration.topology().equals(candidateTopology) || outdoorPassShapeChanged
@@ -1038,11 +1190,8 @@ public final class RenderPipeline {
         PipelineGeneration previousGeneration = activeGeneration;
         outdoorEnvironment = replacement;
         try {
-            PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
-                    postProcessSettings, activeGeneration.graph().width(), activeGeneration.graph().height(),
-                    hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                    directionalCascadeSettings, localShadowSettings, volumetricFogSettings, directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                    waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+            PipelineTopology candidateTopology = captureTopology(scene,
+                    activeGeneration.graph().width(), activeGeneration.graph().height());
             boolean outdoorPassShapeChanged = outdoorPassShapeChanged(activeGeneration, replacement);
             if (!replaceEnvironment && activeGeneration.topology().equals(candidateTopology) && !outdoorPassShapeChanged) {
                 // The active sky reads the immutable appearance at frame boundaries.
@@ -1242,11 +1391,7 @@ public final class RenderPipeline {
                     + Math.max(2, settings.msaaSamples())
                     + "; provide a matching resolvable host depth target");
         }
-        PipelineTopology candidateTopology = PipelineTopology.capture(scene, settings,
-                postProcessSettings, w, h, hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+        PipelineTopology candidateTopology = captureTopology(scene, w, h);
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -1271,7 +1416,15 @@ public final class RenderPipeline {
                 width, height, hdrVfxEnabled && hdrVfxRecorder != null, embedded,
                 directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
                 directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                waterSurfaceSettings, particles, stochastic);
+                waterSurfaceSettings, particles, stochastic, volumetricCloudSettings,
+                smokeSimulationSettings, smokeRenderSettings,
+                directionalShadowMap.settings().cloudShadows());
+    }
+
+    /** Captures the topology from the pipeline's current immutable settings. */
+    private PipelineTopology captureTopology(Scene captureScene, int width, int height) {
+        return captureTopology(captureScene, width, height, volumetricParticleSettings,
+                stochasticTransparencySettings);
     }
 
     /**
@@ -1317,6 +1470,48 @@ public final class RenderPipeline {
             pass.dependsOn(depthProducer);
         }
         pass.execute(executor);
+    }
+
+    /**
+     * Declares the cloud-layer colour bridge after every scene-colour composite.
+     * The graph pass owns its RGBA16F target, has no depth attachment, and lets
+     * the next colour consumer read the pass-owned composited image.
+     */
+    static void addVolumetricCloudPass(RenderGraph graph, String colorSourcePass,
+                                       String depthProducer, PassExecutor executor) {
+        var pass = graph.addPass(VolumetricCloudPass.PASS_NAME)
+                .createColor(VolumetricCloudPass.COLOR_TEXTURE, RenderFormat.RGBA16F)
+                .noClear()
+                .dependsOn(colorSourcePass);
+        if (!depthProducer.equals(colorSourcePass)) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.execute(executor);
+    }
+
+    /**
+     * Declares the smoke volume colour bridge after the fog/particle/cloud
+     * composite. The pass has no depth attachment and never writes the shared
+     * opaque depth.
+     */
+    static void addSmokeVolumePass(RenderGraph graph, String colorSourcePass,
+                                   String depthProducer, PassExecutor executor) {
+        var pass = graph.addPass(SmokeVolumePass.PASS_NAME)
+                .createColor(SmokeVolumePass.COLOR_TEXTURE, RenderFormat.RGBA16F)
+                .noClear()
+                .dependsOn(SmokeSimulation.PASS_NAME)
+                .dependsOn(colorSourcePass);
+        if (!depthProducer.equals(colorSourcePass)) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.execute(executor);
+    }
+
+    /** Declares the deterministic fixed-step smoke simulation compute stage. */
+    static void addSmokeSimulationPass(RenderGraph graph, PassExecutor executor) {
+        graph.addPass(SmokeSimulation.PASS_NAME)
+                .computeOnly()
+                .execute(executor);
     }
 
     private PipelineGeneration createGeneration(Scene generationScene,
@@ -1376,10 +1571,21 @@ public final class RenderPipeline {
             if (topology.volumetricParticles()) {
                 volumetricParticleSettings.validateFogComposition(volumetricFogSettings);
             }
+            if (topology.volumetricClouds() && topology.directionalShadow()) {
+                var shadowClouds = directionalShadowMap.settings().cloudShadows();
+                if (directionalShadowsEnabled && shadowClouds.active()
+                        && !volumetricCloudSettings.coverageField().equals(shadowClouds)) {
+                    throw new IllegalStateException(
+                            "the visible cloud layer requires the same CloudShadowSettings coverage "
+                                    + "field as the enabled directional cloud shadow");
+                }
+            }
             candidate.assembleGraph(clusteredLightingSettings, Boolean.getBoolean(FULL_SCAN_BENCHMARK_PROPERTY));
             candidate.assembleVolumetric(volumetricFogSettings, generationScene, reusable,
                     (res, cmd, shader) -> recordVolumeShadowInputs(requireGeneration(), res, cmd, shader));
             candidate.assembleVolumetricParticles(volumetricParticleSettings, reusable);
+            candidate.assembleVolumetricClouds(volumetricCloudSettings);
+            candidate.assembleSmoke(smokeSimulationSettings, smokeRenderSettings, reusable);
             candidate.assembleStochasticTransparency(stochasticTransparencySettings, reusable);
             candidate.assembleEnvironment(pbrEnvironment, outdoorEnvironment.enabled(),
                     atmosphereSettings);
@@ -1401,6 +1607,11 @@ public final class RenderPipeline {
                     shadowExecutor(), pointShadowExecutor(), spotShadowExecutor(),
                     surfaceExecutor(candidate), surfaceResolveExecutor(candidate), geometryExecutor(),
                     refraction);
+            if (candidate.smokeSimulation() != null) {
+                // The simulation is a deterministic compute stage: it has no
+                // colour/depth consumer and no dependency on the visible frame.
+                addSmokeSimulationPass(candidate.graph(), smokeSimulationExecutor(candidate));
+            }
             String sceneColorTexture = PostProcessTargets.SCENE_COLOR;
             String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
             VolumetricSurfaceInputs volumeInputs = null;
@@ -1480,6 +1691,42 @@ public final class RenderPipeline {
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(StochasticTransparencyPass.PASS_NAME);
                 }
+            }
+            if (candidate.volumetricClouds() != null) {
+                // Clouds integrate their own medium once, after every colour
+                // composite (atmosphere/fog/particles/transparency/water/glass)
+                // and after the stochastic collection, but before the
+                // post-process HDR chain. The pass-owned target is handed back
+                // to the graph colour chain with one full-screen copy.
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                if (singleDepth == null) {
+                    throw new IllegalStateException(
+                            "volumetric clouds require the shared single-sample opaque depth");
+                }
+                addVolumetricCloudPass(candidate.graph(), sceneColorProducer,
+                        singleDepth.producer(), volumetricCloudExecutor(candidate, sceneColorProducer));
+                candidate.postProcess().sceneColorInput(VolumetricCloudPass.COLOR_TEXTURE,
+                        VolumetricCloudPass.PASS_NAME);
+                sceneColorTexture = VolumetricCloudPass.COLOR_TEXTURE;
+                sceneColorProducer = VolumetricCloudPass.PASS_NAME;
+            }
+            if (candidate.smokeVolume() != null) {
+                // Smoke consumes the field advanced by the simulation compute
+                // stage and composites after the fog/particle/cloud colour chain,
+                // before the post-process HDR chain. Its own shader declares only
+                // the density field and the opaque depth, so every medium is
+                // integrated exactly once.
+                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+                if (singleDepth == null) {
+                    throw new IllegalStateException(
+                            "smoke volume rendering requires the shared single-sample opaque depth");
+                }
+                addSmokeVolumePass(candidate.graph(), sceneColorProducer,
+                        singleDepth.producer(), smokeVolumeExecutor(candidate, sceneColorProducer));
+                candidate.postProcess().sceneColorInput(SmokeVolumePass.COLOR_TEXTURE,
+                        SmokeVolumePass.PASS_NAME);
+                sceneColorTexture = SmokeVolumePass.COLOR_TEXTURE;
+                sceneColorProducer = SmokeVolumePass.PASS_NAME;
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
                     PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);
@@ -1616,13 +1863,8 @@ public final class RenderPipeline {
             scene = candidateScene;
             return;
         }
-        PipelineTopology candidateTopology = PipelineTopology.capture(candidateScene, settings,
-                postProcessSettings, generation.graph().width(), generation.graph().height(),
-                hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                directionalCascadeSettings,
-                localShadowSettings, volumetricFogSettings,
-                directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+        PipelineTopology candidateTopology = captureTopology(candidateScene,
+                generation.graph().width(), generation.graph().height());
         if (generation.topology().equals(candidateTopology)) {
             synchronizeOutdoorSun(candidateScene);
             scene = candidateScene;
@@ -1987,6 +2229,7 @@ public final class RenderPipeline {
                 deltaSeconds, activeFrameIndex, previewFrameSequence,
                 topologySettingsRevision, lastFrameContext, mergedLights.extraEntries());
         executing = true;
+        smokeSimulationAdvanced = false;
         boolean postProcessFrameStarted = false;
         String frameStage = "frame-setup";
         try {
@@ -2038,6 +2281,12 @@ public final class RenderPipeline {
             long preparationTotalNanos = benchmarkCpuTimingEnabled
                     ? System.nanoTime() - preparationStart : 0L;
             frameStage = "pass-callback";
+            if (generation.volumetricClouds() != null) {
+                // Marks the history candidate before any graph callback records
+                // the layer; only frameSucceeded() publishes it.
+                generation.volumetricClouds().beginFrame();
+                generation.advanceCloudTime(activeFrameContext.frameSequence(), deltaSeconds);
+            }
             generation.markSubmitted();
             PresentationResult result = generation.graph().execute(device, target);
             if (benchmarkCpuTimingEnabled) {
@@ -2082,6 +2331,9 @@ public final class RenderPipeline {
             }
             if (generation.gtao() != null) generation.gtao().frameSucceeded();
             if (generation.volumetric() != null) generation.volumetric().frameSucceeded();
+            if (generation.volumetricClouds() != null) {
+                generation.volumetricClouds().frameSucceeded();
+            }
             if (temporalActive) {
                 temporalFrameState.commitSuccessfulFrame();
             }
@@ -2136,6 +2388,14 @@ public final class RenderPipeline {
             }
             if (generation.gtao() != null) generation.gtao().frameFailed();
             if (generation.volumetric() != null) generation.volumetric().frameFailed();
+            if (generation.volumetricClouds() != null) {
+                generation.volumetricClouds().frameFailed();
+            }
+            if (smokeSimulationAdvanced) {
+                // The GPU may have executed a partial simulation; replay from a
+                // known zero field instead of continuing an unknown step count.
+                smokeSimulationResetPending = true;
+            }
             temporalFrameState.discardFrame();
             if (generation.sceneSurfacePass() != null) {
                 temporalSceneState.discardFrame();
@@ -2264,6 +2524,9 @@ public final class RenderPipeline {
             candidate.postProcess().invalidateTemporalHistory();
             if (candidate.gtao() != null) candidate.gtao().invalidateHistory(GtaoPasses.InvalidationReason.WORLD);
             if (candidate.volumetric() != null) candidate.volumetric().invalidateHistory();
+            if (candidate.volumetricClouds() != null) {
+                candidate.volumetricClouds().invalidateHistory();
+            }
             if (candidate.stochasticTransparency() != null) {
                 candidate.stochasticTransparency().invalidate();
             }
@@ -2338,7 +2601,8 @@ public final class RenderPipeline {
                 spotShadowsEnabled, hdrVfxEnabled, previewEnabled, settings, postProcessSettings,
                 volumetricFogSettings, outdoorEnvironment, directionalShadowMap,
                 directionalCascadeSettings, localShadowSettings, clusteredLightingSettings,
-                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+                waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings,
+                volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings);
     }
 
     private RenderFeaturePolicy.Facts featureFacts() {
@@ -2395,6 +2659,9 @@ public final class RenderPipeline {
         clusteredLightingSettings = requested.clusteredLighting();
         waterSurfaceSettings = requested.waterSurface();
         volumetricParticleSettings = requested.volumetricParticles();
+        volumetricCloudSettings = requested.volumetricClouds();
+        smokeSimulationSettings = requested.smokeSimulation();
+        smokeRenderSettings = requested.smokeRender();
         StochasticTransparencySettings requestedStochastic = requested.stochasticTransparency();
         if (requestedStochastic.active()
                 && stochasticTransparencySurfaces.size() > requestedStochastic.maximumSurfaces()) {
@@ -2437,7 +2704,12 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.volumetricParticles(),
                 next.volumetricParticles())
                 && java.util.Objects.equals(previous.stochasticTransparency(),
-                next.stochasticTransparency());
+                next.stochasticTransparency())
+                && java.util.Objects.equals(previous.volumetricClouds(),
+                next.volumetricClouds())
+                && java.util.Objects.equals(previous.smokeSimulation(),
+                next.smokeSimulation())
+                && java.util.Objects.equals(previous.smokeRender(), next.smokeRender());
     }
 
     private void applyPendingFeatureRequest() {
@@ -2458,12 +2730,8 @@ public final class RenderPipeline {
             applyFeatureFields(requested);
             PipelineGeneration current = activeGeneration;
             try {
-                PipelineTopology topology = PipelineTopology.capture(scene, settings,
-                        postProcessSettings, current.graph().width(), current.graph().height(),
-                        hdrVfxEnabled && hdrVfxRecorder != null, embedded,
-                        directionalCascadeSettings, localShadowSettings, volumetricFogSettings,
-                        directionalShadowsEnabled, pointShadowsEnabled, spotShadowsEnabled,
-                        waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings);
+                PipelineTopology topology = captureTopology(scene,
+                        current.graph().width(), current.graph().height());
                 PipelineGeneration candidate = createGeneration(scene, topology, current);
                 synchronizeOutdoorSun(scene);
                 activateGeneration(candidate);
@@ -2689,6 +2957,9 @@ public final class RenderPipeline {
             activeGeneration.postProcess().invalidateTemporalHistory();
             if (activeGeneration.gtao() != null) activeGeneration.gtao().invalidateHistory();
             if (activeGeneration.volumetric() != null) activeGeneration.volumetric().invalidateHistory();
+            if (activeGeneration.volumetricClouds() != null) {
+                activeGeneration.volumetricClouds().invalidateHistory();
+            }
             if (activeGeneration.stochasticTransparency() != null) {
                 activeGeneration.stochasticTransparency().invalidate();
             }
@@ -2810,6 +3081,95 @@ public final class RenderPipeline {
             cmd.bindFramebuffer(target)
                     .viewport(0, 0, target.width(), target.height())
                     .blitColor(particles.colorTarget(), target);
+        };
+    }
+
+    /**
+     * Advances the smoke owner at the deterministic simulation stage. A failed
+     * frame may have submitted a partial simulation, so the next frame clears
+     * the field before advancing instead of continuing from an unknown state.
+     */
+    private PassExecutor smokeSimulationExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            var simulation = generation.smokeSimulation();
+            if (simulation == null) {
+                throw new IllegalStateException(
+                        "smoke simulation pass is absent from the active topology");
+            }
+            if (smokeSimulationResetPending) {
+                simulation.reset(cmd);
+                smokeSimulationResetPending = false;
+            }
+            smokeSimulationAdvanced = true;
+            simulation.advance(cmd, requireFrameContext().deltaSeconds());
+        };
+    }
+
+    private PassExecutor volumetricCloudExecutor(PipelineGeneration generation,
+                                                 String colorSourcePass) {
+        return (res, cmd) -> {
+            var clouds = generation.volumetricClouds();
+            if (clouds == null) {
+                throw new IllegalStateException(
+                        "volumetric cloud pass is absent from the active topology");
+            }
+            Framebuffer source = res.framebufferOfPass(colorSourcePass);
+            if (source == null) {
+                throw new IllegalStateException(
+                        "volumetric clouds require the preceding scene-colour producer "
+                                + colorSourcePass);
+            }
+            var singleDepth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (singleDepth == null) {
+                throw new IllegalStateException(
+                        "volumetric clouds require the shared single-sample opaque depth");
+            }
+            int depth = generation.surfaceInputs().frame().require(res, singleDepth);
+            clouds.record(cmd, source, depth, externalFrameCamera(),
+                    generation.cloudTimeSeconds(), settings.exposure());
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "volumetric clouds require a managed colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(clouds.colorTarget(), target);
+        };
+    }
+
+    private PassExecutor smokeVolumeExecutor(PipelineGeneration generation,
+                                             String colorSourcePass) {
+        return (res, cmd) -> {
+            var smoke = generation.smokeVolume();
+            var simulation = generation.smokeSimulation();
+            if (smoke == null || simulation == null) {
+                throw new IllegalStateException(
+                        "smoke volume rendering requires the simulation owner");
+            }
+            Framebuffer source = res.framebufferOfPass(colorSourcePass);
+            if (source == null) {
+                throw new IllegalStateException(
+                        "smoke volume rendering requires the preceding scene-colour producer "
+                                + colorSourcePass);
+            }
+            var singleDepth = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.DEPTH);
+            if (singleDepth == null) {
+                throw new IllegalStateException(
+                        "smoke volume rendering requires the shared single-sample opaque depth");
+            }
+            int depth = generation.surfaceInputs().frame().require(res, singleDepth);
+            smoke.record(cmd, source, depth, externalFrameCamera(), simulation);
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException(
+                        "smoke volume rendering requires a managed colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(smoke.colorTarget(), target);
         };
     }
 

@@ -67,6 +67,12 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 public final class SmokeVolumePass implements GlResource {
     /** RenderGraph pass name reserved for integration. */
     public static final String PASS_NAME = "SmokeVolumePass";
+    /**
+     * Graph colour attachment declared by the pipeline bridge. The pass-owned
+     * framebuffer is copied into this target; downstream consumers read it
+     * through the {@link #PASS_NAME} producer.
+     */
+    public static final String COLOR_TEXTURE = "volume.smokeColor";
     /** Texture unit of the borrowed smoke 3D field. */
     public static final int FIELD_UNIT = 0;
     /** Fragment texture unit of the borrowed resolved opaque scene depth. */

@@ -65,6 +65,12 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 public final class VolumetricCloudPass implements GlResource {
     /** RenderGraph pass name reserved for integration. */
     public static final String PASS_NAME = "VolumetricCloudPass";
+    /**
+     * Graph colour attachment declared by the pipeline bridge. The pass-owned
+     * framebuffer is copied into this target; downstream consumers read it
+     * through the {@link #PASS_NAME} producer.
+     */
+    public static final String COLOR_TEXTURE = "volume.cloudColor";
     /** Fragment texture unit of the borrowed single-sample scene depth. */
     public static final int DEPTH_UNIT = 0;
     /** Fragment texture unit of the low-resolution cloud signal. */

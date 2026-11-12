@@ -4,6 +4,9 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
@@ -37,7 +40,10 @@ public record RenderFeatureSettings(
         ClusteredLightingSettings clusteredLighting,
         WaterSurfaceSettings waterSurface,
         VolumetricParticleSettings volumetricParticles,
-        StochasticTransparencySettings stochasticTransparency) {
+        StochasticTransparencySettings stochasticTransparency,
+        VolumetricCloudSettings volumetricClouds,
+        SmokeSimulationSettings smokeSimulation,
+        SmokeRenderSettings smokeRender) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -50,6 +56,9 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(waterSurface, "waterSurface");
         Objects.requireNonNull(volumetricParticles, "volumetricParticles");
         Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
+        Objects.requireNonNull(volumetricClouds, "volumetricClouds");
+        Objects.requireNonNull(smokeSimulation, "smokeSimulation");
+        Objects.requireNonNull(smokeRender, "smokeRender");
     }
 
     public static RenderFeatureSettings defaults() {
@@ -76,7 +85,10 @@ public record RenderFeatureSettings(
                 .clusteredLighting(clusteredLighting)
                 .waterSurface(waterSurface)
                 .volumetricParticles(volumetricParticles)
-                .stochasticTransparency(stochasticTransparency);
+                .stochasticTransparency(stochasticTransparency)
+                .volumetricClouds(volumetricClouds)
+                .smokeSimulation(smokeSimulation)
+                .smokeRender(smokeRender);
     }
 
     public static Builder builder() {
@@ -105,6 +117,9 @@ public record RenderFeatureSettings(
                 VolumetricParticleSettings.disabled();
         private StochasticTransparencySettings stochasticTransparency =
                 StochasticTransparencySettings.disabled();
+        private VolumetricCloudSettings volumetricClouds = VolumetricCloudSettings.disabled();
+        private SmokeSimulationSettings smokeSimulation = SmokeSimulationSettings.disabled();
+        private SmokeRenderSettings smokeRender = SmokeRenderSettings.disabled();
 
         private Builder() {
         }
@@ -204,12 +219,28 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder volumetricClouds(VolumetricCloudSettings value) {
+            volumetricClouds = Objects.requireNonNull(value, "volumetricClouds");
+            return this;
+        }
+
+        public Builder smokeSimulation(SmokeSimulationSettings value) {
+            smokeSimulation = Objects.requireNonNull(value, "smokeSimulation");
+            return this;
+        }
+
+        public Builder smokeRender(SmokeRenderSettings value) {
+            smokeRender = Objects.requireNonNull(value, "smokeRender");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
                     postProcess, volumetricFog, outdoorEnvironment, directionalShadowMap,
                     directionalCascades, localShadows, clusteredLighting, waterSurface,
-                    volumetricParticles, stochasticTransparency);
+                    volumetricParticles, stochasticTransparency, volumetricClouds,
+                    smokeSimulation, smokeRender);
         }
     }
 }
