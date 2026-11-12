@@ -83,6 +83,7 @@ public final class SsgiPass implements GlResource {
     private Matrix4f previousInverseView;
     private Matrix4f previousInverseProjection;
     private Matrix4f pendingInverseView;
+    private boolean temporalRecorded;
     private Matrix4f pendingInverseProjection;
     private int rotationIndex;
     private boolean closed;
@@ -196,6 +197,7 @@ public final class SsgiPass implements GlResource {
         ensureOpen();
         if (temporalStorage == null) return;
         temporalStorage.prepareFrame();
+        temporalRecorded = false;
         pendingInverseView = null;
         pendingInverseProjection = null;
     }
@@ -289,12 +291,22 @@ public final class SsgiPass implements GlResource {
 
         pendingInverseView = inverseView;
         pendingInverseProjection = new Matrix4f(inputs.inverseProjection());
+        temporalRecorded = true;
         return cmd;
     }
 
     /** Commits this frame's history write slot and stores its camera pose. */
     public void frameSucceeded() {
         if (temporalStorage == null) return;
+        if (!temporalRecorded) {
+            // beginFrame() without recordTemporal() must not publish an
+            // unwritten write slot as valid history.
+            pendingInverseView = null;
+            pendingInverseProjection = null;
+            temporalStorage.discardFrame();
+            return;
+        }
+        temporalRecorded = false;
         temporalStorage.commitSuccessfulFrame();
         if (pendingInverseView != null && pendingInverseProjection != null) {
             previousInverseView = pendingInverseView;
@@ -308,6 +320,7 @@ public final class SsgiPass implements GlResource {
     /** Discards the frame candidate; the previous read slot remains active. */
     public void frameFailed() {
         if (temporalStorage == null) return;
+        temporalRecorded = false;
         pendingInverseView = null;
         pendingInverseProjection = null;
         temporalStorage.discardFrame();

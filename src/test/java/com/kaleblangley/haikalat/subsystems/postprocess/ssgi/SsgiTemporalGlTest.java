@@ -275,7 +275,7 @@ class SsgiTemporalGlTest {
                         "a camera cut must discard the retained-sample count");
                 double[] spatial = SsgiTemporalReference.spatialAdded(dark.scene(), CAMERA,
                         TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y, TEMPORAL.sampleCount(),
-                        SsgiTemporalReference.rotationForFrame(8));
+                        SsgiTemporalReference.rotationForFrame(0));
                 assertMatches(afterCut, PROBE_X, PROBE_Y,
                         SsgiTemporalReference.composite(asDouble(dark.base(PROBE_X, PROBE_Y)),
                                 spatial),

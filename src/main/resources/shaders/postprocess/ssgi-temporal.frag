@@ -122,7 +122,8 @@ void main() {
         float expectedPreviousDepth = texelFetch(uPreviousDepth, pixel, 0).r;
         bool velocityFinite = finite2(velocity)
                 && all(lessThan(abs(velocity), vec2(SSGI_TEMPORAL_MAX_VELOCITY)));
-        if (velocityFinite && expectedPreviousDepth > 0.0) {
+        if (velocityFinite && expectedPreviousDepth > 0.0
+                && expectedPreviousDepth < 1.0e12) {
             vec2 previousUv = uv + velocity;
             bool insideRaster = all(greaterThanEqual(previousUv, vec2(0.0)))
                     && all(lessThanEqual(previousUv, vec2(1.0)));

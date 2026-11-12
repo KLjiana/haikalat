@@ -58,7 +58,7 @@ public final class SsgiTemporalReference {
         if (validity < 0.5) return false;
         if (!Double.isFinite(velocityU) || !Double.isFinite(velocityV)) return false;
         if (Math.abs(velocityU) >= 4.0 || Math.abs(velocityV) >= 4.0) return false;
-        if (!(expectedPreviousDepth > 0.0)) return false;
+        if (!(expectedPreviousDepth > 0.0) || expectedPreviousDepth >= 1.0e12) return false;
         double[] previous = previousUv(u, v, velocityU, velocityV);
         if (previous[0] < 0.0 || previous[0] > 1.0
                 || previous[1] < 0.0 || previous[1] > 1.0) {
