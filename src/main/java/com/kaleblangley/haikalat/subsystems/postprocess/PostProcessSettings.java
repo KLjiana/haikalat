@@ -153,6 +153,43 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 AdaptiveSamplingSettings.disabled());
     }
 
+    /** Source-compatible constructor retained for callers written before SSGI. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration,
+                               ScreenDistortionSettings screenDistortion,
+                               DepthOfFieldSettings depthOfField,
+                               MotionBlurSettings motionBlur,
+                               SsrSettings ssr,
+                               TemporalDenoiseSettings temporalDenoise,
+                               TemporalUpscalingSettings temporalUpscaling,
+                               SubsurfaceScatteringSettings subsurfaceScattering) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
+                temporalUpscaling, subsurfaceScattering, SsgiSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
+    }
+
+    /** Source-compatible constructor retained for callers written before adaptive sampling. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration,
+                               ScreenDistortionSettings screenDistortion,
+                               DepthOfFieldSettings depthOfField,
+                               MotionBlurSettings motionBlur,
+                               SsrSettings ssr,
+                               TemporalDenoiseSettings temporalDenoise,
+                               TemporalUpscalingSettings temporalUpscaling,
+                               SubsurfaceScatteringSettings subsurfaceScattering,
+                               SsgiSettings ssgi) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
+                temporalUpscaling, subsurfaceScattering, ssgi,
+                AdaptiveSamplingSettings.disabled());
+    }
+
     public PostProcessSettings {
         Objects.requireNonNull(colorGrading, "colorGrading");
         Objects.requireNonNull(fog, "fog");

@@ -1305,7 +1305,7 @@
       "featureIds": [
         41
       ],
-      "state": "DONE",
+      "state": "PARTIAL",
       "scope": "Adaptive Sampling",
       "dependencies": [
         20,
@@ -1328,12 +1328,12 @@
         "GL PASS worker 3fa6b4c and integration 737b5bc: SsrAdaptiveSamplingGlTest 9/9, 0 skipped, 0 failures, gate green",
         "cost-matched reference: adaptive model error 5.25 vs fixed 6.14 on the 1408-sample fixture"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review; feature-control/demo exposure remains"
+      "nextAction": "cost-matched GL oracle, residual-only fixture, per-case GL error/debug checks, SsrPass ceiling validation and feature-control/demo exposure remain"
     },
     {
       "taskId": "R42",
