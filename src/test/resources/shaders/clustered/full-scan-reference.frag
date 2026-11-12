@@ -1223,7 +1223,6 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
                 : spotShadowFactor(slot, n, l));
     }
     vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
-    vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.a * attenuation * cone;
     vec3 base = anisotropicStrength > 0.0
             ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
                     anisotropicTangent, anisotropicBitangent, anisotropicStrength)
