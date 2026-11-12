@@ -59,8 +59,8 @@ class RenderPipelineWiringB3GlTest {
             window.bindContext();
             GL.createCapabilities();
             try (var tracking = GlDebug.acquireResourceTracking()) {
-                RenderPipeline pipeline = pipeline(window, "ddgi-wiring");
-                try {
+                try (var fixture = pipeline(window, "ddgi-wiring")) {
+                    RenderPipeline pipeline = fixture.pipeline();
                     pipeline.build();
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
@@ -106,8 +106,6 @@ class RenderPipelineWiringB3GlTest {
                     execute(pipeline);
                     assertTrue(pipeline.graph().hasPass(DdgiIndirectPass.PASS_NAME));
                     pipeline.applyDdgi(DdgiSettings.disabled());
-                } finally {
-                    pipeline.close();
                 }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -121,8 +119,8 @@ class RenderPipelineWiringB3GlTest {
             window.bindContext();
             GL.createCapabilities();
             try (var tracking = GlDebug.acquireResourceTracking()) {
-                RenderPipeline pipeline = pipeline(window, "vct-wiring");
-                try {
+                try (var fixture = pipeline(window, "vct-wiring")) {
+                    RenderPipeline pipeline = fixture.pipeline();
                     pipeline.build();
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
@@ -158,8 +156,6 @@ class RenderPipelineWiringB3GlTest {
                     float[] restored = pipeline.captureLinearHdrRgbaFloat();
                     assertArrayBitsEqual(baseline, restored,
                             "disabling VCT must restore the byte-identical baseline");
-                } finally {
-                    pipeline.close();
                 }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -173,8 +169,8 @@ class RenderPipelineWiringB3GlTest {
             window.bindContext();
             GL.createCapabilities();
             try (var tracking = GlDebug.acquireResourceTracking()) {
-                RenderPipeline pipeline = pipeline(window, "hair-wiring");
-                try {
+                try (var fixture = pipeline(window, "hair-wiring")) {
+                    RenderPipeline pipeline = fixture.pipeline();
                     pipeline.build();
                     execute(pipeline);
                     float[] baseline = pipeline.captureLinearHdrRgbaFloat();
@@ -211,8 +207,6 @@ class RenderPipelineWiringB3GlTest {
                     float[] restored = pipeline.captureLinearHdrRgbaFloat();
                     assertArrayBitsEqual(baseline, restored,
                             "disabling hair strands must restore the byte-identical baseline");
-                } finally {
-                    pipeline.close();
                 }
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
@@ -220,7 +214,7 @@ class RenderPipelineWiringB3GlTest {
         }
     }
 
-    private static RenderPipeline pipeline(GlfwWindow window, String name) {
+    private static Fixture pipeline(GlfwWindow window, String name) {
         MeshData data = BuiltinMeshData.coloredCube(name);
         ShaderProgram shader = ShaderProgram.fromSources(VERTEX_SOURCE, FRAGMENT_SOURCE);
         Mesh mesh = Mesh.from(data);
@@ -229,11 +223,44 @@ class RenderPipelineWiringB3GlTest {
         scene.add(SceneObject.fixed(mesh, material, new Matrix4f().scale(2.0f), true));
         scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.3f, -1.0f, -0.4f),
                 new Vector3f(1.0f), 1.0f));
-        return new RenderPipeline(window, scene, null, RenderSettings.builder()
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null, RenderSettings.builder()
                 .antiAliasingMode(AntiAliasingMode.NONE)
                 .toneMappingMode(ToneMappingMode.ACES)
                 .vsync(false)
                 .build());
+        return new Fixture(pipeline, material, shader, mesh);
+    }
+
+    /** Owns the GL resources used by the scene so resource tracking returns to zero. */
+    private record Fixture(RenderPipeline pipeline, Material material, ShaderProgram shader,
+                           Mesh mesh) implements AutoCloseable {
+        @Override
+        public void close() {
+            RuntimeException failure = null;
+            try {
+                pipeline.close();
+            } catch (RuntimeException closeFailure) {
+                failure = closeFailure;
+            }
+            failure = closeOne(material, failure);
+            failure = closeOne(shader, failure);
+            failure = closeOne(mesh, failure);
+            if (failure != null) throw failure;
+        }
+
+        private static RuntimeException closeOne(AutoCloseable resource,
+                                                 RuntimeException failure) {
+            try {
+                resource.close();
+            } catch (Exception closeFailure) {
+                RuntimeException runtime = closeFailure instanceof RuntimeException existing
+                        ? existing
+                        : new IllegalStateException("failed to close B3 GL fixture", closeFailure);
+                if (failure == null) return runtime;
+                failure.addSuppressed(runtime);
+            }
+            return failure;
+        }
     }
 
     private static void execute(RenderPipeline pipeline) {
