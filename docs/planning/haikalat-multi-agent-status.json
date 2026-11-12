@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "a09d934"
+    "head": "748e299"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T08:52:00+08:00",
+  "updatedAt": "2026-11-12T09:00:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1088,12 +1088,12 @@
         "velocity case now passes PLANE_VIEW_DEPTH as previousDepth and requires 10-frame noise reduction, so history acceptance is exercised",
         "historySigma/sigma=max(currentSigma, historySigma) shader-contract assertions restored; history-moment shader synced with assets.tsv f46f148d"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "final reviewer verdict after the evidence/velocity/guard fixes"
+      "nextAction": "camera-only default-off integration approved; clamp numerical coverage and performance remain follow-ups"
     },
     {
       "taskId": "R35",
@@ -1168,19 +1168,25 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "80c916f..18b0197",
-      "integrationCommit": "2be33a9",
-      "requiredCases": [],
+      "integrationCommit": "e8f4e55",
+      "requiredCases": [
+        "StochasticTransparencySettingsTest",
+        "StochasticTransparencyInputsTest",
+        "StochasticTransparencyReferenceTest",
+        "StochasticTransparencyShaderTest",
+        "StochasticTransparencyPassGlTest"
+      ],
       "evidence": [
-        "JVM PASS: StochasticTransparencySettingsTest 7, InputsTest 3, ReferenceTest 10, ShaderTest 7, plus 12 OIT regressions",
-        "GL PASS in worker d242e4f and integration 2be33a9: StochasticTransparencyPassGlTest 9/9, 0 skipped, 0 failures, gate green",
-        "bounded 131218 policy row render3d/stochastic-transparency-cold (max 8) with positive/negative contracts"
+        "JVM PASS: Settings 7, Inputs 3, Reference 10, Shader 7",
+        "GL PASS at e8f4e55: StochasticTransparencyPassGlTest 10/10, 0 skipped, 0 failures, gate green",
+        "review-found reprojection order bug fixed (P*V) and covered by a real-GL matrix-order case; 10/10 includes it"
       ],
       "review": "PENDING",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #37"
+      "nextAction": "final stochastic reviewer verdict (instance-correlation/seed findings pending)"
     },
     {
       "taskId": "R38",
@@ -1196,19 +1202,26 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "2c149d4..8afa85d",
-      "integrationCommit": "4864f45",
-      "requiredCases": [],
+      "integrationCommit": "f7b8e1e",
+      "requiredCases": [
+        "VolumetricParticleSettingsTest",
+        "VolumetricParticleReferenceTest",
+        "VolumetricParticleProjectionTest",
+        "VolumetricParticleShaderTest",
+        "VolumetricParticleGlTest"
+      ],
       "evidence": [
         "JVM PASS: VolumetricParticleSettingsTest 5, ReferenceTest 7, ProjectionTest 6, ShaderTest 4",
-        "GL PASS in worker abc6002 and integration 4864f45: VolumetricParticleGlTest 6/6, 0 skipped, 0 failures, gate green",
-        "bounded 131186/131218 policy rows render3d/volumetric-particle-readback (max 2) and -cold (max 4)"
+        "GL PASS fresh at f7b8e1e (--rerun-tasks): VolumetricParticleGlTest 6/6, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/volumetric-particles/",
+        "worker abc6002 GL predates the policy commit, so it is content evidence only",
+        "public vector accessors made package-private; far-plane truncation documented as a limitation"
       ],
-      "review": "PENDING",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of #38"
+      "nextAction": "RenderPipeline wiring delegated to the Integrator wiring task; far-plane clamp is a documented limit"
     },
     {
       "taskId": "R39",
