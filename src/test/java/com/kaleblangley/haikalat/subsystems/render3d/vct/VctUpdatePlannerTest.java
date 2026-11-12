@@ -16,7 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code [-16,16]} so every expected index is hand-checkable.
  */
 class VctUpdatePlannerTest {
-    private static final VctSettings SETTINGS = VctSettings.enabled(32, 16.0f);
+    private static final VctSettings SETTINGS = VctSettings.enabled(32, 16.0f)
+            .withThinWallDilation(0);
 
     @Test
     void emptyDirtyListAndForcedFullPlanHaveDistinctWork() {
@@ -42,16 +43,16 @@ class VctUpdatePlannerTest {
         assertEquals(0, region.minX());
         assertEquals(0, region.minY());
         assertEquals(0, region.minZ());
-        assertEquals(2, region.sizeX());
-        assertEquals(2, region.sizeY());
-        assertEquals(2, region.sizeZ());
+        assertEquals(3, region.sizeX());
+        assertEquals(3, region.sizeY());
+        assertEquals(3, region.sizeZ());
 
         VctUpdatePlanner.VoxelRegion clamped = VctUpdatePlanner.regionFor(SETTINGS,
                 VctBox.of(-20.0f, -20.0f, -20.0f, -15.5f, -15.5f, -15.5f));
         assertEquals(0, clamped.minX());
-        assertEquals(1, clamped.sizeX());
+        assertEquals(2, clamped.sizeX());
         assertEquals(0, clamped.minY());
-        assertEquals(1, clamped.sizeY());
+        assertEquals(2, clamped.sizeY());
 
         VctUpdatePlanner.VoxelRegion edge = VctUpdatePlanner.regionFor(SETTINGS,
                 VctBox.of(15.0f, 15.0f, 15.0f, 16.0f, 16.0f, 16.0f));
@@ -64,13 +65,16 @@ class VctUpdatePlannerTest {
                 VctBox.of(20.0f, 0.0f, 0.0f, 22.0f, 1.0f, 1.0f)), false).empty());
 
         // Non-zero centre: each axis must use its own bounds, not the X centre.
-        VctSettings offset = VctSettings.enabled(32, new Vector3f(0.0f, 4.0f, 0.0f), 8.0f);
+        VctSettings offset = VctSettings.enabled(32, new Vector3f(0.0f, 4.0f, 0.0f), 8.0f)
+                .withThinWallDilation(0);
         VctUpdatePlanner.VoxelRegion offsetRegion = VctUpdatePlanner.regionFor(offset,
                 VctBox.of(0.0f, 4.0f, 0.0f, 0.0f, 5.0f, 0.0f));
         assertEquals(16, offsetRegion.minX());
         assertEquals(16, offsetRegion.minY());
         assertEquals(16, offsetRegion.minZ());
-        assertEquals(2, offsetRegion.sizeY());
+        assertEquals(1, offsetRegion.sizeX());
+        assertEquals(3, offsetRegion.sizeY());
+        assertEquals(1, offsetRegion.sizeZ());
     }
 
     @Test
@@ -84,15 +88,15 @@ class VctUpdatePlannerTest {
                 SETTINGS.withUpdateBudget(8, 4_000_000L), dirty, false);
         assertEquals(2, merged.regions().size());
         assertEquals(0, merged.regions().get(0).minX());
-        assertEquals(4, merged.regions().get(0).sizeX());
+        assertEquals(5, merged.regions().get(0).sizeX());
         assertEquals(26, merged.regions().get(1).minX());
-        assertEquals(1, merged.regions().get(1).sizeX());
+        assertEquals(2, merged.regions().get(1).sizeX());
 
         VctUpdatePlanner.Plan collapsed = VctUpdatePlanner.plan(
                 SETTINGS.withUpdateBudget(1, 4_000_000L), dirty, false);
         assertEquals(1, collapsed.regions().size());
         assertEquals(0, collapsed.regions().get(0).minX());
-        assertEquals(27, collapsed.regions().get(0).sizeX());
+        assertEquals(28, collapsed.regions().get(0).sizeX());
     }
 
     @Test
@@ -109,15 +113,29 @@ class VctUpdatePlannerTest {
     void everyAffectedMipLevelIsChargedAndBudgetOverrunFailsClosed() {
         VctBox single = VctBox.of(-16.0f, -16.0f, -16.0f, -15.0f, -15.0f, -15.0f);
         VctUpdatePlanner.Plan plan = VctUpdatePlanner.plan(SETTINGS, List.of(single), false);
-        assertEquals(1L, plan.baseVoxels());
+        assertEquals(8L, plan.baseVoxels());
         assertEquals(5L, plan.mipVoxels()); // levels 16,8,4,2,1
-        assertEquals(6L, plan.totalVoxels());
+        assertEquals(13L, plan.totalVoxels());
 
         VctSettings tight = SETTINGS.withUpdateBudget(8, 5L);
         assertThrows(IllegalArgumentException.class,
                 () -> VctUpdatePlanner.plan(tight, List.of(single), false));
         assertThrows(IllegalArgumentException.class,
                 () -> VctUpdatePlanner.plan(tight, List.of(), true));
+    }
+
+    @Test
+    void dilationExpandsRegionByThePotentialShellWidth() {
+        VctSettings dilated = SETTINGS.withThinWallDilation(2);
+        VctUpdatePlanner.VoxelRegion region = VctUpdatePlanner.regionFor(dilated,
+                VctBox.of(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+        // floor(16) - 2 = 14; ceil(16) + 2 + 1 = 19 -> five voxels per axis.
+        assertEquals(14, region.minX());
+        assertEquals(14, region.minY());
+        assertEquals(14, region.minZ());
+        assertEquals(5, region.sizeX());
+        assertEquals(5, region.sizeY());
+        assertEquals(5, region.sizeZ());
     }
 
     @Test
@@ -129,8 +147,8 @@ class VctUpdatePlannerTest {
         assertEquals(1, plan.regions().size());
         VctUpdatePlanner.VoxelRegion region = plan.regions().get(0);
         assertEquals(8, region.minX());
-        assertEquals(21, region.maxX());
-        assertEquals(13, region.sizeX());
+        assertEquals(22, region.maxX());
+        assertEquals(14, region.sizeX());
         assertTrue(region.voxels() >= 1L);
     }
 }

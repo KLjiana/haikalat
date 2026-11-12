@@ -196,7 +196,7 @@ class VctGlTest {
                 CommandBuffer single = new CommandBuffer();
                 wallPass.recordVoxelize(single, oneWall, List.of());
                 execute(single, "voxelize one wall");
-                VctProbeBatch probe = probe(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, -1.0f, 0.1f);
+                VctProbeBatch probe = probe(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.1f);
                 float singleTransmittance = specularTransmittance(wallPass, probe);
 
                 VctSceneInput doubleWall = planes(2L, 0.3f, 1.0f, 2.0f);
@@ -340,9 +340,9 @@ class VctGlTest {
             execute(command, "voxelize specular target");
             VctProbeBatch probes = VctProbeBatch.builder()
                     .addProbe(new Vector3f(-2.0f, 0.0f, 0.0f), new Vector3f(1.0f, 0.0f, 0.0f),
-                            new Vector3f(-1.0f, 0.0f, 0.0f), 0.1f)
+                            new Vector3f(1.0f, 0.0f, 0.0f), 0.1f)
                     .addProbe(new Vector3f(-2.0f, 0.0f, 0.0f), new Vector3f(1.0f, 0.0f, 0.0f),
-                            new Vector3f(-1.0f, 0.0f, 0.0f), 0.9f)
+                            new Vector3f(1.0f, 0.0f, 0.0f), 0.9f)
                     .build();
             float[] result = trace(pass, probes);
             float sharp = luminance(result, 4);   // specular row of probe 0

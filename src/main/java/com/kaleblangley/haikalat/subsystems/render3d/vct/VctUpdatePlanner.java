@@ -170,12 +170,22 @@ final class VctUpdatePlanner {
         float highY = Math.min(box.maximumInternal().y, maximumY);
         float highZ = Math.min(box.maximumInternal().z, maximumZ);
         if (lowX > highX || lowY > highY || lowZ > highZ) return null;
-        int x0 = clamp((int) Math.floor((lowX - minimumX) / size), 0, resolution - 1);
-        int y0 = clamp((int) Math.floor((lowY - minimumY) / size), 0, resolution - 1);
-        int z0 = clamp((int) Math.floor((lowZ - minimumZ) / size), 0, resolution - 1);
-        int x1 = clamp((int) Math.ceil((highX - minimumX) / size), 1, resolution);
-        int y1 = clamp((int) Math.ceil((highY - minimumY) / size), 1, resolution);
-        int z1 = clamp((int) Math.ceil((highZ - minimumZ) / size), 1, resolution);
+        int dilation = settings.thinWallDilation();
+        int x0 = clamp((int) Math.floor((lowX - minimumX) / size) - dilation,
+                0, resolution - 1);
+        int y0 = clamp((int) Math.floor((lowY - minimumY) / size) - dilation,
+                0, resolution - 1);
+        int z0 = clamp((int) Math.floor((lowZ - minimumZ) / size) - dilation,
+                0, resolution - 1);
+        // The voxelizer's AABB loop uses an inclusive ceil(max) high edge and
+        // expands by dilation; the region must cover any voxel it can write,
+        // otherwise a partial update would leave one stale/clear shell behind.
+        int x1 = clamp((int) Math.ceil((highX - minimumX) / size) + dilation + 1,
+                1, resolution);
+        int y1 = clamp((int) Math.ceil((highY - minimumY) / size) + dilation + 1,
+                1, resolution);
+        int z1 = clamp((int) Math.ceil((highZ - minimumZ) / size) + dilation + 1,
+                1, resolution);
         if (x1 <= x0) x1 = Math.min(resolution, x0 + 1);
         if (y1 <= y0) y1 = Math.min(resolution, y0 + 1);
         if (z1 <= z0) z1 = Math.min(resolution, z0 + 1);

@@ -182,12 +182,12 @@ public final class VctSceneInput {
             Vector3f p101 = new Vector3f(x1, y0, z1);
             Vector3f p111 = new Vector3f(x1, y1, z1);
             Vector3f p011 = new Vector3f(x0, y1, z1);
-            addQuad(p000, p001, p011, p010, new Vector3f(0.0f, 0.0f, -1.0f), red, green, blue);
-            addQuad(p100, p110, p111, p101, new Vector3f(0.0f, 0.0f, 1.0f), red, green, blue);
+            addQuad(p000, p001, p011, p010, new Vector3f(-1.0f, 0.0f, 0.0f), red, green, blue);
+            addQuad(p100, p110, p111, p101, new Vector3f(1.0f, 0.0f, 0.0f), red, green, blue);
             addQuad(p000, p100, p101, p001, new Vector3f(0.0f, -1.0f, 0.0f), red, green, blue);
             addQuad(p010, p011, p111, p110, new Vector3f(0.0f, 1.0f, 0.0f), red, green, blue);
-            addQuad(p000, p010, p110, p100, new Vector3f(-1.0f, 0.0f, 0.0f), red, green, blue);
-            addQuad(p001, p101, p111, p011, new Vector3f(1.0f, 0.0f, 0.0f), red, green, blue);
+            addQuad(p000, p010, p110, p100, new Vector3f(0.0f, 0.0f, -1.0f), red, green, blue);
+            addQuad(p001, p101, p111, p011, new Vector3f(0.0f, 0.0f, 1.0f), red, green, blue);
             return this;
         }
 
