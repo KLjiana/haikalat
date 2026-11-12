@@ -21,6 +21,7 @@ import org.lwjgl.system.MemoryUtil;
 import java.nio.FloatBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -168,6 +169,54 @@ class PlanarReflectionPipelineGlTest {
                 assertTrue(GlDebug.resources().liveResources().isEmpty());
             }
             GlDebug.assertNoError("planar reflection water consumption");
+        }
+    }
+
+    @Test
+    void planarWaterConsumerSurvivesResize() {
+        try (var window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("planar-water-resize"));
+                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                Material material = Material.builder(shader).build();
+                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 3.0f, 6.0f)));
+                scene.add(new SceneObject(mesh, material, (model, frame) ->
+                        model.identity().translate(0.0f, 1.0f, 0.0f).scale(2.0f)));
+                var water = com.kaleblangley.haikalat.subsystems.render3d.water
+                        .WaterSurfaceSettings.builder().enabled(true).level(0.0f)
+                        .bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                        .waveSpeed(0.0f).waveAmplitude(0.0f).build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        hdrSettings()).waterSurface(water);
+                try {
+                    PlanarReflectionSettings planar = PlanarReflectionSettings.builder()
+                            .enabled(true).planeY(0.0f).maxResolution(128).build();
+                    pipeline.build();
+                    pipeline.applyPlanarReflections(planar);
+                    pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertTrue(pipeline.activeGenerationForTest().planarReflection()
+                            .hasValidContent());
+
+                    // Resize is applied at the frame boundary; executing again
+                    // would resize back to the 64x64 window, so inspect the
+                    // resized generation directly.
+                    pipeline.resize(48, 36);
+                    PlanarReflectionPass resized = pipeline.activeGenerationForTest()
+                            .planarReflection();
+                    assertNotNull(resized, "resize must keep the planar owner");
+                    assertEquals(planar.renderWidth(48, 36), resized.width());
+                    assertEquals(planar.renderHeight(48, 36), resized.height());
+                } finally {
+                    pipeline.close();
+                    material.close();
+                    shader.close();
+                    mesh.close();
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty());
+            }
+            GlDebug.assertNoError("planar reflection water resize");
         }
     }
 
