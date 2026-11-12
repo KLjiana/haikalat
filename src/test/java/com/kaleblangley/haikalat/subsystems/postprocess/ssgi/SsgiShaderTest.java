@@ -100,11 +100,11 @@ class SsgiShaderTest {
     void theMarchIsHardBoundedByBothBudgets() throws IOException {
         String source = resource(SSGI);
         assertTrue(source.contains(
-                "for (int sample = 0; sample < SSGI_MAX_SAMPLES; sample++) {"));
-        assertTrue(source.contains("if (sample >= sampleCount) break;"));
+                "for (int sampleIndex = 0; sampleIndex < SSGI_MAX_SAMPLES; sampleIndex++) {"));
+        assertTrue(source.contains("if (sampleIndex >= sampleCount) break;"));
         assertTrue(source.contains(
-                "for (int step = 0; step < SSGI_MAX_STEPS; step++) {"));
-        assertTrue(source.contains("if (step >= stepCount) break;"));
+                "for (int stepIndex = 0; stepIndex < SSGI_MAX_STEPS; stepIndex++) {"));
+        assertTrue(source.contains("if (stepIndex >= stepCount) break;"));
         assertFalse(source.contains("while ("),
                 "the march must not contain an unbounded loop");
         assertTrue(source.contains("int sampleCount = clamp(uSampleCount, 1, SSGI_MAX_SAMPLES);"));
@@ -113,6 +113,33 @@ class SsgiShaderTest {
         assertTrue(source.contains("float thickness = clamp(uThickness, 1.0e-4, maximumDistance);"));
         assertTrue(source.contains("float rotation = interleavedGradientNoise(gl_FragCoord.xy);"),
                 "the fixed sequence must be rotated per pixel without history");
+    }
+
+    /**
+     * GLSL 4.60 reserves {@code sample} as an interpolation qualifier keyword and
+     * several other names as qualifiers/functions. A local variable with one of
+     * those names fails real shader compilation even though the JVM source test
+     * cannot see it (the GPU round found {@code int sample = 0} in #39 round 1).
+     * This guard rejects a declaration-shaped use of the reserved subset.
+     */
+    @Test
+    void reservedGlslKeywordsAreNotUsedAsVariableNames() throws IOException {
+        String source = stripComments(resource(SSGI));
+        String template = "\\b(?:int|uint|float|double|bool|vec[234]|ivec[234]|uvec[234]"
+                + "|bvec[234]|mat[234]|sampler\\w*)\\s+%s\\b";
+        for (String keyword : new String[]{
+                "sample", "step", "distance", "mix", "clamp", "dot", "cross", "normalize",
+                "texture", "length", "reflect", "refract", "smoothstep", "input", "output",
+                "filter", "layout", "uniform", "buffer", "shared", "coherent", "volatile",
+                "restrict", "readonly", "writeonly", "patch", "subroutine", "centroid",
+                "flat", "smooth", "noperspective", "const", "attribute", "varying",
+                "atomic_uint"}) {
+            Pattern declaration = Pattern.compile(String.format(template,
+                    Pattern.quote(keyword)));
+            assertFalse(declaration.matcher(source).find(),
+                    "ssgi.frag declares a variable named '" + keyword
+                            + "', which is a reserved GLSL keyword/qualifier/function in 4.60");
+        }
     }
 
     @Test
@@ -129,7 +156,7 @@ class SsgiShaderTest {
         assertTrue(source.contains("float edge = borderFade(sampleUv);"));
         assertTrue(source.contains("if (samplePixel == centerPixel) continue;"),
                 "the receiver's own pixel must never be sampled as a neighbour");
-        assertTrue(source.contains("if (distance < SSGI_MIN_HIT_DISTANCE_METRES) continue;"),
+        assertTrue(source.contains("if (marchDistance < SSGI_MIN_HIT_DISTANCE_METRES) continue;"),
                 "a too-close self-hit must be skipped, not accepted");
     }
 
@@ -228,6 +255,10 @@ class SsgiShaderTest {
             index += needle.length();
         }
         return count;
+    }
+
+    private static String stripComments(String source) {
+        return source.replaceAll("//[^\\n]*", "");
     }
 
     private static String resource(String path) throws IOException {

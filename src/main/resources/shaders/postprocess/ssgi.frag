@@ -171,16 +171,16 @@ void main() {
     vec3 hitRadiance = vec3(0.0);
     int offscreenSamples = 0;
 
-    for (int sample = 0; sample < SSGI_MAX_SAMPLES; sample++) {
-        if (sample >= sampleCount) break;
-        vec3 worldDirection = cosineHemisphere(normal, sample, sampleCount, rotation);
+    for (int sampleIndex = 0; sampleIndex < SSGI_MAX_SAMPLES; sampleIndex++) {
+        if (sampleIndex >= sampleCount) break;
+        vec3 worldDirection = cosineHemisphere(normal, sampleIndex, sampleCount, rotation);
         vec3 viewDirection = normalize(mat3(uView) * worldDirection);
         bool offscreen = false;
 
-        for (int step = 0; step < SSGI_MAX_STEPS; step++) {
-            if (step >= stepCount) break;
-            float distance = maximumDistance * (float(step) + 0.5) / float(stepCount);
-            vec3 samplePosition = viewPosition + viewDirection * distance;
+        for (int stepIndex = 0; stepIndex < SSGI_MAX_STEPS; stepIndex++) {
+            if (stepIndex >= stepCount) break;
+            float marchDistance = maximumDistance * (float(stepIndex) + 0.5) / float(stepCount);
+            vec3 samplePosition = viewPosition + viewDirection * marchDistance;
             vec4 clip = uProjection * vec4(samplePosition, 1.0);
             if (clip.w <= 0.0) {
                 offscreen = true;
@@ -202,7 +202,7 @@ void main() {
             float bias = max(SSGI_DEPTH_BIAS, 0.002 * sceneViewDepth);
             if (separation <= bias) continue;
             if (separation > thickness) break;
-            if (distance < SSGI_MIN_HIT_DISTANCE_METRES) continue;
+            if (marchDistance < SSGI_MIN_HIT_DISTANCE_METRES) continue;
             vec3 hitNormal = octDecode(fetchPixel(uNormal, sampleUv).rg);
             float facing = clamp(-dot(hitNormal, worldDirection), 0.0, 1.0);
             if (facing <= SSGI_BACKFACE_EPSILON) break;
