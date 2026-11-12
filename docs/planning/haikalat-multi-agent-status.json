@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "2818d312"
+    "head": "86484f56"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T23:30:35+08:00",
+  "updatedAt": "2026-11-13T00:02:01+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -157,7 +157,7 @@
       "featureIds": [
         2
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "UV Flow / Distortion",
       "dependencies": [
         null
@@ -166,19 +166,20 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "687639f",
+      "integrationCommit": "86484f56",
       "requiredCases": [],
       "evidence": [
         "B0 checkpoint 49f488fd",
         "per-feature matrix 20261112-165030: #2 JVM 9/9 + GL 11/11 PASS",
-        "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence"
+        "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence",
+        "F6 sampler/minification contract frozen at 86484f56: production Texture2D state (SRGB8_ALPHA8/linear R8, LINEAR_MIPMAP_LINEAR min, LINEAR mag, CLAMP_TO_EDGE, mip levels, anisotropy 1, no LOD bias), sRGB decode/bilinear midpoint/clamp/mip averaging/atlas cell references; integration real GL VfxSamplerContractGlTest 5/5 and Vfx suite 23/23 PASS, 0 skipped; JVM VfxSamplerReferenceTest 4/4"
       ],
-      "review": "NOT_RUN",
+      "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F6: filtered/minified sampler contract incomplete; atlas LOD0 policy is not the full filtered/minified evidence"
+      "nextAction": "scope: flipbook is LOD0-only (no mip filtering on minified flipbook); non-flipbook sub-region UVs can average across the sub-region boundary at coarse mips; no NEAREST/REPEAT/aniso/LOD-bias contract; performance/visual NOT_EVALUATED"
     },
     {
       "taskId": "R03",
