@@ -261,6 +261,135 @@ final class VolumetricCloudReference {
         return opticalDepth;
     }
 
+    /** Exact integral of the vertical profile over the ray's visible layer interval. */
+    static double visibleProfileIntegral(VolumetricCloudSettings settings, Ray ray) {
+        double[] interval = visibleInterval(settings, ray);
+        if (interval == null) {
+            return 0.0;
+        }
+        double entryY = ray.originY() + ray.directionY() * interval[0];
+        double exitY = ray.originY() + ray.directionY() * interval[1];
+        return profileIntegral(settings, Math.min(entryY, exitY), Math.max(entryY, exitY));
+    }
+
+    /**
+     * The profile-weighted mean mask along the ray: the single mask value that
+     * produces the same optical depth as the sampled field,
+     * {@code (integral mask*profile dt) / (integral profile dt)}. A per-pixel
+     * effective mask fitted from a measured transmittance can be compared with
+     * this value without depending on the shader's binary32 hash bits.
+     */
+    static double effectiveMask(VolumetricCloudSettings settings, Ray ray, double time) {
+        double[] interval = visibleInterval(settings, ray);
+        if (interval == null) {
+            return 0.0;
+        }
+        double start = interval[0];
+        double end = interval[1];
+        double span = end - start;
+        double stepLength = Math.max(span / settings.maximumSteps(), settings.stepSizeMetres());
+        int steps = (int) Math.max(1.0, Math.min(settings.maximumSteps(),
+                Math.ceil(span / stepLength)));
+        double delta = span / steps;
+        double weighted = 0.0;
+        double weightSum = 0.0;
+        for (int step = 0; step < steps; step++) {
+            double distance = start + (step + 0.5) * delta;
+            double x = ray.originX() + ray.directionX() * distance;
+            double y = ray.originY() + ray.directionY() * distance;
+            double z = ray.originZ() + ray.directionZ() * distance;
+            double weight = profile(settings, y) * delta;
+            weighted += mask(settings, x, z, time) * weight;
+            weightSum += weight;
+        }
+        return weightSum > 0.0 ? weighted / weightSum : 0.0;
+    }
+
+    /**
+     * The same single-scatter model with one uniform mask value (no hash
+     * evaluation). Used to predict the measured in-scatter from an effective
+     * mask fitted out of the measured transmittance.
+     */
+    static Contribution marchWithUniformMask(VolumetricCloudSettings settings, Ray ray,
+                                             double time, double maskValue) {
+        double[] interval = visibleInterval(settings, ray);
+        if (interval == null || !(maskValue > 0.0)) {
+            return new Contribution(0.0, 0.0, 0.0, 1.0);
+        }
+        double start = interval[0];
+        double end = interval[1];
+        double span = end - start;
+        double stepLength = Math.max(span / settings.maximumSteps(), settings.stepSizeMetres());
+        int steps = (int) Math.max(1.0, Math.min(settings.maximumSteps(),
+                Math.ceil(span / stepLength)));
+        double delta = span / steps;
+        double extinction = settings.extinction();
+        double albedo = settings.scatteringAlbedo();
+        double toLightX = -settings.lightDirectionInternal().x;
+        double toLightY = -settings.lightDirectionInternal().y;
+        double toLightZ = -settings.lightDirectionInternal().z;
+        double cosine = clamp(settings.lightDirectionInternal().x * -ray.directionX()
+                + settings.lightDirectionInternal().y * -ray.directionY()
+                + settings.lightDirectionInternal().z * -ray.directionZ(), -1.0, 1.0);
+        double phase = phase(settings.anisotropy(), cosine);
+        double scatter = 0.0;
+        double transmittance = 1.0;
+        for (int step = 0; step < steps; step++) {
+            double distance = start + (step + 0.5) * delta;
+            double x = ray.originX() + ray.directionX() * distance;
+            double y = ray.originY() + ray.directionY() * distance;
+            double z = ray.originZ() + ray.directionZ() * distance;
+            double sigma = extinction * maskValue * profile(settings, y);
+            if (!(sigma > 0.0)) {
+                continue;
+            }
+            double lightTau = lightTauUniform(settings, y, maskValue, toLightY);
+            double slabTransmittance = Math.exp(-Math.min(sigma * delta, MAXIMUM_OPTICAL_DEPTH));
+            double weight = phase * albedo
+                    * Math.exp(-Math.min(lightTau, MAXIMUM_OPTICAL_DEPTH))
+                    * (1.0 - slabTransmittance);
+            scatter += transmittance * weight;
+            transmittance *= slabTransmittance;
+        }
+        return new Contribution(scatter * settings.lightColorInternal().x,
+                scatter * settings.lightColorInternal().y,
+                scatter * settings.lightColorInternal().z,
+                clamp(transmittance, 0.0, 1.0));
+    }
+
+    /** Bounded uniform-mask light march (the light direction is vertical in the tests). */
+    private static double lightTauUniform(VolumetricCloudSettings settings, double y,
+                                          double maskValue, double lightY) {
+        if (!(lightY > 1.0e-4)) {
+            return MAXIMUM_OPTICAL_DEPTH;
+        }
+        double span = (settings.topAltitudeMetres() - y) / lightY;
+        span = clamp(span, 0.0, settings.maximumLightDistanceMetres());
+        if (!(span > 0.0)) {
+            return 0.0;
+        }
+        double delta = span / settings.lightSteps();
+        double opticalDepth = 0.0;
+        for (int step = 0; step < settings.lightSteps(); step++) {
+            double along = (step + 0.5) * delta;
+            opticalDepth += settings.extinction() * maskValue
+                    * profile(settings, y + lightY * along) * delta;
+        }
+        return opticalDepth;
+    }
+
+    /** Effective-mask fit from a measured transmittance: {@code -ln(T) / (extinction * I)}. */
+    static double fittedMask(VolumetricCloudSettings settings, Ray ray,
+                             double measuredTransmittance) {
+        double integral = visibleProfileIntegral(settings, ray);
+        double transmittance = clamp(measuredTransmittance, 1.0e-6, 1.0);
+        if (!(integral > 0.0) || !(settings.extinction() > 0.0)) {
+            return 0.0;
+        }
+        return clamp(-Math.log(transmittance) / (settings.extinction() * integral),
+                0.0, 1.0);
+    }
+
     /** Normalized Henyey-Greenstein phase with the shader's {@code 0.01} denominator floor. */
     static double phase(double anisotropy, double cosine) {
         double denominator = Math.max(0.01, 1.0 + anisotropy * anisotropy

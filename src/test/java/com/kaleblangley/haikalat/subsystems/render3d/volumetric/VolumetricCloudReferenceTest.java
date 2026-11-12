@@ -200,6 +200,41 @@ class VolumetricCloudReferenceTest {
     }
 
     @Test
+    void uniformMaskHelpersMatchTheClosedFormAndTheSampledField() {
+        VolumetricCloudSettings settings = settings();
+        VolumetricCloudReference.Ray ray = verticalRay();
+        double maskValue = VolumetricCloudReference.mask(settings, 1500.5, 0.5, 0.0);
+        assertEquals(300.0, VolumetricCloudReference.visibleProfileIntegral(settings, ray),
+                EPSILON, "the visible profile integral is the full-slab closed form");
+        assertEquals(maskValue, VolumetricCloudReference.effectiveMask(settings, ray, 0.0),
+                EPSILON, "a vertical ray sees one constant mask value");
+
+        VolumetricCloudReference.Contribution sampled = VolumetricCloudReference.march(
+                settings, ray, 0.0);
+        VolumetricCloudReference.Contribution uniform = VolumetricCloudReference
+                .marchWithUniformMask(settings, ray, 0.0, maskValue);
+        assertEquals(sampled.red(), uniform.red(), 1.0e-9,
+                "the uniform-mask march must match the sampled march for a constant mask");
+        assertEquals(sampled.transmittance(), uniform.transmittance(), 1.0e-9);
+        assertEquals(maskValue, VolumetricCloudReference.fittedMask(settings, ray,
+                Math.exp(-settings.extinction() * maskValue
+                        * VolumetricCloudReference.visibleProfileIntegral(settings, ray))),
+                EPSILON, "the effective-mask fit inverts the closed-form optical depth");
+        assertEquals(maskValue, VolumetricCloudReference.fittedMask(settings, ray,
+                sampled.transmittance()), 1.0e-3,
+                "the fitted mask stays within the midpoint quadrature error");
+
+        VolumetricCloudReference.Ray missing = new VolumetricCloudReference.Ray(
+                1500.5, 500.0, 0.5, 0.0, -1.0, 0.0, VolumetricCloudReference.NO_SURFACE);
+        assertEquals(0.0, VolumetricCloudReference.visibleProfileIntegral(settings, missing), 0.0);
+        assertEquals(0.0, VolumetricCloudReference.fittedMask(settings, missing, 1.0), 0.0);
+        VolumetricCloudReference.Contribution empty = VolumetricCloudReference
+                .marchWithUniformMask(settings, missing, 0.0, maskValue);
+        assertEquals(0.0, empty.red(), 0.0);
+        assertEquals(1.0, empty.transmittance(), 0.0);
+    }
+
+    @Test
     void cameraCutAndExposureRulesUseTheDocumentedThresholds() {
         assertFalse(VolumetricCloudReference.cameraCut(0.0, 0.0, 0.0, 0.0, 0.0, 4.9, 0.0, 0.0,
                 -1.0, 0.0, 0.0, -1.0, 5.0, 30.0),
