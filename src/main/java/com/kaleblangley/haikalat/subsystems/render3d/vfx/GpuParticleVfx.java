@@ -70,6 +70,8 @@ public final class GpuParticleVfx {
     private Settings settings;
     private State state = State.RUNNING;
     private Target boundTarget;
+    private Target expectedReplacement;
+    private boolean resetOnBind;
     private long steps;
     private long framesRecorded;
     private Statistics statistics = new Statistics(0, 0, 0, SortingMode.NONE,
@@ -181,6 +183,9 @@ public final class GpuParticleVfx {
         state = State.CANCELLED;
         if (boundTarget != null) {
             boundTarget.reset();
+        } else {
+            // No owner is bound yet; apply the reset when the first record binds.
+            resetOnBind = true;
         }
         statistics = new Statistics(settings.emissionPerStep(), 0,
                 settings.emissionPerStep(), currentSortingMode(), steps, framesRecorded, state);
@@ -197,6 +202,8 @@ public final class GpuParticleVfx {
     public void replay() {
         if (boundTarget != null) {
             boundTarget.reset();
+        } else {
+            resetOnBind = true;
         }
         state = State.RUNNING;
         steps = 0L;
@@ -327,8 +334,25 @@ public final class GpuParticleVfx {
                     + " plus the configured emissionPerStep " + settings.emissionPerStep()
                     + " exceeds the GPU particle capacity " + target.capacity());
         }
+        if (state != State.RUNNING && pending > 0) {
+            // Pause/cancel promise no stepping and no emission. An owner queued
+            // externally would still spawn on the zero-delta draw, so reject it
+            // instead of silently drawing particles the statistics call culled.
+            throw new IllegalStateException(
+                    "paused or cancelled GPU particles cannot consume externally queued emission");
+        }
         if (boundTarget != target) {
+            if (boundTarget != null && target != expectedReplacement) {
+                throw new IllegalStateException(
+                        "GpuParticleVfx is bound to another owner; publish the candidate "
+                                + "returned by resize(...) or create a new consumer");
+            }
             bind(target);
+            expectedReplacement = null;
+            if (resetOnBind) {
+                target.reset();
+                resetOnBind = false;
+            }
         }
         target.updateSettings(particleSettings);
         viewProjectionScratch.set(projection).mul(viewScratch.set(view));
@@ -337,8 +361,16 @@ public final class GpuParticleVfx {
         int drawn = 0;
         if (state == State.RUNNING) {
             target.emit(settings.emissionPerStep());
-            target.record(commands, settings.fixedTimeStepSeconds(), viewProjectionScratch,
-                    viewScratch, aspect, sceneDepthTexture, viewportWidth, viewportHeight);
+            try {
+                target.record(commands, settings.fixedTimeStepSeconds(), viewProjectionScratch,
+                        viewScratch, aspect, sceneDepthTexture, viewportWidth, viewportHeight);
+            } catch (RuntimeException | Error failure) {
+                // The owner validates collision inputs after the emission was
+                // queued. Clear the queue so a retry cannot double-spend the
+                // budget or wedge the capacity check.
+                target.reset();
+                throw failure;
+            }
             drawn = submitted;
             steps = Math.incrementExact(steps);
         } else {

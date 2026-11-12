@@ -324,6 +324,80 @@ class GpuParticleVfxContractTest {
         return List.copyOf(target.trace());
     }
 
+    @Test
+    void pausedAndCancelledRecordsRejectExternallyQueuedEmission() {
+        GpuParticleVfx vfx = new GpuParticleVfx(new GpuParticleVfx.Settings(
+                0.05f, 8, GpuParticleVfx.SortingMode.NONE));
+        FakeTarget target = new FakeTarget(CAPACITY, GpuParticleSortingSettings.disabled());
+        CommandBuffer commands = new CommandBuffer();
+        record(vfx, target, commands);
+
+        vfx.pause();
+        target.pendingEmission = 3;
+        assertThrows(IllegalStateException.class, () -> record(vfx, target, commands),
+                "a paused draw must not silently spawn externally queued emission");
+
+        target.pendingEmission = 0;
+        vfx.cancel();
+        target.pendingEmission = 2;
+        assertThrows(IllegalStateException.class, () -> record(vfx, target, commands),
+                "a cancelled draw must not silently spawn externally queued emission");
+    }
+
+    @Test
+    void recordFailureClearsQueuedEmissionBeforeRetry() {
+        GpuParticleVfx vfx = new GpuParticleVfx(new GpuParticleVfx.Settings(
+                0.05f, 8, GpuParticleVfx.SortingMode.NONE));
+        FakeTarget target = new FakeTarget(CAPACITY, GpuParticleSortingSettings.disabled());
+        CommandBuffer commands = new CommandBuffer();
+        record(vfx, target, commands);
+        assertEquals(1L, vfx.statistics().steps());
+
+        target.failRecord = true;
+        assertThrows(IllegalStateException.class, () -> record(vfx, target, commands));
+        assertEquals(0, target.pendingEmission,
+                "a failed owner record must not leave the queued emission behind");
+        assertEquals(1, target.resetCalls);
+        assertEquals(1L, vfx.statistics().steps(),
+                "a failed record must not advance the fixed step");
+
+        target.failRecord = false;
+        record(vfx, target, commands);
+        assertEquals(2L, vfx.statistics().steps());
+        assertEquals(0, target.pendingEmission,
+                "the retry must not double-spend the emission budget");
+    }
+
+    @Test
+    void cancelBeforeFirstBindResetsTheOwnerOnTheFirstRecord() {
+        GpuParticleVfx vfx = new GpuParticleVfx(new GpuParticleVfx.Settings(
+                0.05f, 8, GpuParticleVfx.SortingMode.NONE));
+        FakeTarget target = new FakeTarget(CAPACITY, GpuParticleSortingSettings.disabled());
+        CommandBuffer commands = new CommandBuffer();
+
+        vfx.cancel();
+        record(vfx, target, commands);
+        assertEquals(1, target.resetCalls,
+                "a cancel issued before the first bind must still reset the owner");
+        assertEquals(GpuParticleVfx.State.CANCELLED, vfx.state());
+        assertEquals(0, vfx.statistics().drawn());
+    }
+
+    @Test
+    void unexpectedOwnerSwapFailsClosed() {
+        GpuParticleVfx vfx = new GpuParticleVfx(new GpuParticleVfx.Settings(
+                0.05f, 8, GpuParticleVfx.SortingMode.NONE));
+        FakeTarget first = new FakeTarget(CAPACITY, GpuParticleSortingSettings.disabled());
+        FakeTarget second = new FakeTarget(CAPACITY, GpuParticleSortingSettings.disabled());
+        CommandBuffer commands = new CommandBuffer();
+        record(vfx, first, commands);
+
+        assertThrows(IllegalStateException.class, () -> record(vfx, second, commands),
+                "a silent owner swap would abandon the live set; it must fail closed");
+        assertEquals(0, second.recordCalls);
+        assertSame(first, vfx.boundTarget());
+    }
+
     private static void record(GpuParticleVfx vfx, FakeTarget target, CommandBuffer commands) {
         vfx.record(target, commands, settings(target.capacity()), PROJECTION, VIEW,
                 0, 32, 32, GpuParticleVfx.Boundary.BEFORE_TRANSPARENT_COLLECTORS);
@@ -347,6 +421,7 @@ class GpuParticleVfxContractTest {
         private int resetCalls;
         private int updateSettingsCalls;
         private boolean failResize;
+        private boolean failRecord;
         private boolean closed;
 
         private FakeTarget(int capacity, GpuParticleSortingSettings sorting) {
@@ -392,6 +467,7 @@ class GpuParticleVfxContractTest {
                            Matrix4fc view, float viewportAspect, int sceneDepthTexture,
                            int sceneWidth, int sceneHeight) {
             if (closed) throw new IllegalStateException("fake target is closed");
+            if (failRecord) throw new IllegalStateException("injected record failure");
             recordCalls++;
             deltas.add(deltaSeconds);
             trace.add(deltaSeconds + "/" + pendingEmission);
