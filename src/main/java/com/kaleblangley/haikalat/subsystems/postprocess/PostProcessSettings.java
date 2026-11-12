@@ -15,7 +15,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                   SsrSettings ssr,
                                   TemporalDenoiseSettings temporalDenoise,
                                   TemporalUpscalingSettings temporalUpscaling,
-                                  SubsurfaceScatteringSettings subsurfaceScattering) {
+                                  SubsurfaceScatteringSettings subsurfaceScattering,
+                                  AdaptiveSamplingSettings adaptiveSampling) {
     /** Source-compatible constructor retained for existing callers. */
     public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog) {
         this(colorGrading, fog, GtaoSettings.disabled(), VignetteSettings.disabled(),
@@ -23,7 +24,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before v0.28.1. */
@@ -34,7 +35,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before grain/aberration. */
@@ -44,7 +45,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ChromaticAberrationSettings.disabled(), ScreenDistortionSettings.disabled(),
                 DepthOfFieldSettings.disabled(), MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before screen distortion. */
@@ -56,7 +58,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before depth of field. */
@@ -68,7 +70,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, DepthOfFieldSettings.disabled(), MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before motion blur. */
@@ -81,7 +84,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, MotionBlurSettings.disabled(),
                 SsrSettings.disabled(), TemporalDenoiseSettings.disabled(),
-                TemporalUpscalingSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before screen-space reflections. */
@@ -95,7 +99,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal denoise. */
@@ -110,7 +114,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr,
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before temporal upscaling. */
@@ -125,7 +129,8 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                TemporalDenoiseSettings temporalDenoise) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
-                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled());
+                TemporalUpscalingSettings.disabled(), SubsurfaceScatteringSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
     }
 
     /** Source-compatible constructor retained for callers written before subsurface scattering. */
@@ -141,7 +146,25 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                                TemporalUpscalingSettings temporalUpscaling) {
         this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
                 screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
-                temporalUpscaling, SubsurfaceScatteringSettings.disabled());
+                temporalUpscaling, SubsurfaceScatteringSettings.disabled(),
+                AdaptiveSamplingSettings.disabled());
+    }
+
+    /** Source-compatible constructor retained for callers written before adaptive sampling. */
+    public PostProcessSettings(ColorGradingSettings colorGrading, FogSettings fog,
+                               GtaoSettings gtao, VignetteSettings vignette,
+                               FilmGrainSettings filmGrain,
+                               ChromaticAberrationSettings chromaticAberration,
+                               ScreenDistortionSettings screenDistortion,
+                               DepthOfFieldSettings depthOfField,
+                               MotionBlurSettings motionBlur,
+                               SsrSettings ssr,
+                               TemporalDenoiseSettings temporalDenoise,
+                               TemporalUpscalingSettings temporalUpscaling,
+                               SubsurfaceScatteringSettings subsurfaceScattering) {
+        this(colorGrading, fog, gtao, vignette, filmGrain, chromaticAberration,
+                screenDistortion, depthOfField, motionBlur, ssr, temporalDenoise,
+                temporalUpscaling, subsurfaceScattering, AdaptiveSamplingSettings.disabled());
     }
 
     public PostProcessSettings {
@@ -158,6 +181,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         Objects.requireNonNull(temporalDenoise, "temporalDenoise");
         Objects.requireNonNull(temporalUpscaling, "temporalUpscaling");
         Objects.requireNonNull(subsurfaceScattering, "subsurfaceScattering");
+        Objects.requireNonNull(adaptiveSampling, "adaptiveSampling");
     }
 
     public static PostProcessSettings defaults() {
@@ -167,7 +191,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
                 ScreenDistortionSettings.disabled(), DepthOfFieldSettings.disabled(),
                 MotionBlurSettings.disabled(), SsrSettings.disabled(),
                 TemporalDenoiseSettings.disabled(), TemporalUpscalingSettings.disabled(),
-                SubsurfaceScatteringSettings.disabled());
+                SubsurfaceScatteringSettings.disabled(), AdaptiveSamplingSettings.disabled());
     }
 
     /** Returns a copy with GTAO replaced and every other effect preserved. */
@@ -175,7 +199,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, Objects.requireNonNull(value, "gtao"),
                 vignette, filmGrain, chromaticAberration, screenDistortion, depthOfField,
                 motionBlur, ssr, temporalDenoise, temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, adaptiveSampling);
     }
 
     /** Returns a copy with depth of field replaced and every other effect preserved. */
@@ -183,7 +207,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion,
                 Objects.requireNonNull(value, "depthOfField"), motionBlur, ssr,
-                temporalDenoise, temporalUpscaling, subsurfaceScattering);
+                temporalDenoise, temporalUpscaling, subsurfaceScattering, adaptiveSampling);
     }
 
     /** Returns a copy with motion blur replaced and every other effect preserved. */
@@ -191,7 +215,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField,
                 Objects.requireNonNull(value, "motionBlur"), ssr, temporalDenoise,
-                temporalUpscaling, subsurfaceScattering);
+                temporalUpscaling, subsurfaceScattering, adaptiveSampling);
     }
 
     /** Returns a copy with screen-space reflections replaced and every other effect preserved. */
@@ -199,7 +223,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur,
                 Objects.requireNonNull(value, "ssr"), temporalDenoise, temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, adaptiveSampling);
     }
 
     /** Returns a copy with temporal denoising replaced and every other effect preserved. */
@@ -207,7 +231,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 Objects.requireNonNull(value, "temporalDenoise"), temporalUpscaling,
-                subsurfaceScattering);
+                subsurfaceScattering, adaptiveSampling);
     }
 
     /** Returns a copy with temporal upscaling replaced and every other effect preserved. */
@@ -215,7 +239,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 temporalDenoise, Objects.requireNonNull(value, "temporalUpscaling"),
-                subsurfaceScattering);
+                subsurfaceScattering, adaptiveSampling);
     }
 
     /**
@@ -228,7 +252,21 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                 chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
                 temporalDenoise, temporalUpscaling,
-                Objects.requireNonNull(value, "subsurfaceScattering"));
+                Objects.requireNonNull(value, "subsurfaceScattering"), adaptiveSampling);
+    }
+
+    /**
+     * Returns a copy with the adaptive-sampling request replaced and every
+     * other effect preserved.  The request is validated by
+     * {@link PostProcessPipeline}: it requires an active {@link SsrSettings}
+     * and a {@code maximumSteps} no larger than the configured reflection hard
+     * bound.
+     */
+    public PostProcessSettings withAdaptiveSampling(AdaptiveSamplingSettings value) {
+        return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
+                chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
+                temporalDenoise, temporalUpscaling, subsurfaceScattering,
+                Objects.requireNonNull(value, "adaptiveSampling"));
     }
 
     public static Builder builder() {
@@ -251,6 +289,7 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
         private TemporalUpscalingSettings temporalUpscaling = TemporalUpscalingSettings.disabled();
         private SubsurfaceScatteringSettings subsurfaceScattering =
                 SubsurfaceScatteringSettings.disabled();
+        private AdaptiveSamplingSettings adaptiveSampling = AdaptiveSamplingSettings.disabled();
 
         private Builder() {
         }
@@ -320,10 +359,15 @@ public record PostProcessSettings(ColorGradingSettings colorGrading, FogSettings
             return this;
         }
 
+        public Builder adaptiveSampling(AdaptiveSamplingSettings value) {
+            adaptiveSampling = Objects.requireNonNull(value, "adaptiveSampling");
+            return this;
+        }
+
         public PostProcessSettings build() {
             return new PostProcessSettings(colorGrading, fog, gtao, vignette, filmGrain,
                     chromaticAberration, screenDistortion, depthOfField, motionBlur, ssr,
-                    temporalDenoise, temporalUpscaling, subsurfaceScattering);
+                    temporalDenoise, temporalUpscaling, subsurfaceScattering, adaptiveSampling);
         }
     }
 }

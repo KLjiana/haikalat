@@ -16,6 +16,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSettin
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource
