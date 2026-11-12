@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "454cbc23"
+    "head": "cc9a9f7d"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T20:40:53+08:00",
+  "updatedAt": "2026-11-12T21:25:09+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -573,14 +573,15 @@
         "focused verify db0e2716: 725 tests PASS, 0 skipped",
         "bounded 131186 policy row added",
         "per-feature matrix 20261112-165030: #15 JVM 12/16 + GL 4/4 PASS",
-        "independent acceptance F2: GPU particle collision owner has no production VFX consumer"
+        "independent acceptance F2: GPU particle collision owner has no production VFX consumer",
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
       ],
       "review": "PENDING_INDEPENDENT_REVIEW",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F2: GPU particle collision owner has no production VFX consumer"
+      "nextAction": "independent review of the production consumer; then close the wiring gap"
     },
     {
       "taskId": "R16",
@@ -894,14 +895,15 @@
         "focused verify 4c675a0d: 680 tests PASS, 0 skipped",
         "first GPU failure was the test distance oracle; fixed at 0d85712",
         "per-feature matrix 20261112-165030: #26 JVM 22/29 + GL 7/7 PASS",
-        "independent acceptance F2: GPU particle sorting owner has no production VFX consumer"
+        "independent acceptance F2: GPU particle sorting owner has no production VFX consumer",
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
       ],
       "review": "PENDING_INDEPENDENT_REVIEW",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F2: GPU particle sorting owner has no production VFX consumer"
+      "nextAction": "independent review of the production consumer; then close the wiring gap"
     },
     {
       "taskId": "R27",
@@ -925,14 +927,15 @@
         "focused verify 1de94a96: 651 tests PASS, 0 skipped",
         "review wrapped-active-set gap fixed at 9b18c4d; fragment smoothstep/state fixed",
         "per-feature matrix 20261112-165030: #27 JVM 53/71 + GL 7/7 PASS",
-        "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class"
+        "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class",
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class"
+      "nextAction": "independent review of the production consumer; then close the wiring gap"
     },
     {
       "taskId": "R28",
