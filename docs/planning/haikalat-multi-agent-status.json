@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "cc9a9f7d"
+    "head": "85f44b2d"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T21:25:09+08:00",
+  "updatedAt": "2026-11-12T21:57:28+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -556,7 +556,7 @@
       "featureIds": [
         15
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Depth-Based Particle Collision",
       "dependencies": [
         27
@@ -565,7 +565,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "f846f03",
+      "integrationCommit": "cc9a9f7d + 85f44b2d",
       "requiredCases": [],
       "evidence": [
         "focused GL GpuParticleCollisionGlTest 4/4 PASS",
@@ -574,14 +574,15 @@
         "bounded 131186 policy row added",
         "per-feature matrix 20261112-165030: #15 JVM 12/16 + GL 4/4 PASS",
         "independent acceptance F2: GPU particle collision owner has no production VFX consumer",
-        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
       ],
-      "review": "PENDING_INDEPENDENT_REVIEW",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of the production consumer; then close the wiring gap"
+      "nextAction": "scope: caller-wired advanced API (not a RenderFeatureSettings/RenderPipeline feature); hdrVfx runs after OIT/stochastic so the boundary is a caller claim; fixed step is per-record (frame-rate dependent); collision-enabled consumer and pause/cancel pixel cases are untested; resize is capacity-only; legacy GpuParticleExperiment remains"
     },
     {
       "taskId": "R16",
@@ -878,7 +879,7 @@
       "featureIds": [
         26
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "GPU Particle Sorting",
       "dependencies": [
         27
@@ -887,7 +888,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "afb781a",
+      "integrationCommit": "cc9a9f7d + 85f44b2d",
       "requiredCases": [],
       "evidence": [
         "focused GL GpuParticleSortingGlTest 7/7 PASS",
@@ -896,21 +897,22 @@
         "first GPU failure was the test distance oracle; fixed at 0d85712",
         "per-feature matrix 20261112-165030: #26 JVM 22/29 + GL 7/7 PASS",
         "independent acceptance F2: GPU particle sorting owner has no production VFX consumer",
-        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
       ],
-      "review": "PENDING_INDEPENDENT_REVIEW",
+      "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of the production consumer; then close the wiring gap"
+      "nextAction": "scope: caller-wired advanced API (not a RenderFeatureSettings/RenderPipeline feature); hdrVfx runs after OIT/stochastic so the boundary is a caller claim; fixed step is per-record (frame-rate dependent); collision-enabled consumer and pause/cancel pixel cases are untested; resize is capacity-only; legacy GpuParticleExperiment remains"
     },
     {
       "taskId": "R27",
       "featureIds": [
         27
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "GPU Particle Indirect Rendering",
       "dependencies": [
         null
@@ -919,7 +921,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "f4f422c",
+      "integrationCommit": "cc9a9f7d + 85f44b2d",
       "requiredCases": [],
       "evidence": [
         "focused GL GpuParticleSystemGlTest 7/7 PASS",
@@ -928,14 +930,15 @@
         "review wrapped-active-set gap fixed at 9b18c4d; fragment smoothstep/state fixed",
         "per-feature matrix 20261112-165030: #27 JVM 53/71 + GL 7/7 PASS",
         "independent acceptance F2: indirect particle path has no production VFX consumer; Showcase still uses the old experiment class",
-        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending"
+        "production VFX consumer implemented at cc9a9f7d (GpuParticleVfx + VfxRenderer.recordGpuParticles, fixed-step/pause/cancel/replay/resize/sorting, OIT/stochastic boundary, Showcase caller); integration real GL GpuParticleVfxGlTest 3/3 and VfxRendererGlTest 11/11 PASS, 0 skipped; JVM contract 9/9; independent review pending",
+        "independent review APPROVE_WITH_SCOPE: main consumer path sound; edge findings (paused/cancelled pending emission, emit-before-validate, pre-bind/rebind reset) fixed at 85f44b2d with contract tests 13/13"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of the production consumer; then close the wiring gap"
+      "nextAction": "scope: caller-wired advanced API (not a RenderFeatureSettings/RenderPipeline feature); hdrVfx runs after OIT/stochastic so the boundary is a caller claim; fixed step is per-record (frame-rate dependent); collision-enabled consumer and pause/cancel pixel cases are untested; resize is capacity-only; legacy GpuParticleExperiment remains"
     },
     {
       "taskId": "R28",
