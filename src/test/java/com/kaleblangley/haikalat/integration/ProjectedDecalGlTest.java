@@ -232,6 +232,36 @@ class ProjectedDecalGlTest {
                             "the decal must keep its world placement after resize");
                     assertEquals(GL_NO_ERROR, glGetError());
                 }
+
+                // Camera inside the decal volume: the near face is behind the
+                // camera and only the far/exit face can cover the receiver.
+                // A near-face culling convention drops the decal here.
+                Vector3f insideEye = new Vector3f(0.0f, 0.0f, 0.01f);
+                Matrix4f insideView = new Matrix4f().lookAt(insideEye,
+                        new Vector3f(0.0f, 0.0f, -1.0f), new Vector3f(0.0f, 1.0f, 0.0f));
+                try (Framebuffer inside = target(WIDTH, HEIGHT)) {
+                    Matrix4f insideReceiver = new Matrix4f().translate(0.0f, 0.0f, -0.5f)
+                            .scale(1.6f, 1.6f, 1.0f);
+                    renderScene(device, inside, receiverShader, quad,
+                            projectionView(projection, insideView), insideReceiver);
+                    int[] insideCenter = project(new Vector3f(0.0f, 0.0f, -0.5f),
+                            projection, insideView, WIDTH, HEIGHT);
+                    float insideDepth = readDepth(inside, insideCenter[0], insideCenter[1]);
+                    assertTrue(insideDepth > 0.0f && insideDepth < 0.999f,
+                            "the inside-camera scene pass must write receiver depth, was "
+                                    + insideDepth);
+                    ByteBuffer insideBaseline = read(inside, WIDTH, HEIGHT);
+                    VfxRenderer.ProjectedDecalStatistics insideStats = renderDecals(
+                            device, renderer, inside, settings, List.of(decal),
+                            projection, insideView);
+                    ByteBuffer insideResult = read(inside, WIDTH, HEIGHT);
+                    assertEquals(1, insideStats.drawn());
+                    assertTrue(changed(insideBaseline, insideResult,
+                                    insideCenter[0], insideCenter[1], 4, WIDTH, HEIGHT) > 0,
+                            "a camera inside the decal volume must still receive the decal "
+                                    + "through the far/exit face");
+                    assertEquals(GL_NO_ERROR, glGetError());
+                }
             }
         }
     }

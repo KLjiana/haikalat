@@ -308,8 +308,9 @@ public record PipelineTopology(int width,
      * unavailable effective observation and does not change the graph.
      *
      * <p>{@code weightedOitSetDeclared} is part of the key: an enabled OIT
-     * request without a caller-selected set (or an explicit empty-set
-     * declaration) has no compatible composition and must not add the pass.</p>
+     * request without a caller-selected set has no compatible composition and
+     * must not add the pass. An explicit empty-set declaration is legal and
+     * still adds the resolve pass, which composites nothing.</p>
      */
     public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
@@ -354,21 +355,19 @@ public record PipelineTopology(int width,
         boolean downwardDirectionalLight = false;
         boolean directionalLight = false;
         for (SceneLight light : scene.lights()) {
-            if (light.type() == LightType.DIRECTIONAL) directionalLight = true;
+            if (light.type() == LightType.DIRECTIONAL && !directionalLight) {
+                // The caustics executor consumes the first directional light;
+                // eligibility must be computed from that same light, not from
+                // any later downward light in the scene.
+                directionalLight = true;
+                downwardDirectionalLight =
+                        light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y;
+            }
             if (!light.castShadows()) {
-                if (light.type() == LightType.DIRECTIONAL
-                        && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
-                    downwardDirectionalLight = true;
-                }
                 continue;
             }
             switch (light.type()) {
-                case DIRECTIONAL -> {
-                    directionalShadow = true;
-                    if (light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
-                        downwardDirectionalLight = true;
-                    }
-                }
+                case DIRECTIONAL -> directionalShadow = true;
                 case POINT -> pointShadow = true;
                 case SPOT -> spotShadow = true;
             }
@@ -568,7 +567,12 @@ public record PipelineTopology(int width,
                                                       boolean directionalLightPresent) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(hair, "hair");
-        return hair.active() && settings.hdrEnabled() && directionalLightPresent;
+        return hair.active() && settings.hdrEnabled() && directionalLightPresent
+                // The hair pass shares the MSAA scene colour as a texture; a
+                // multisampled renderbuffer cannot back that share, so an MSAA
+                // request is reported unavailable instead of failing in graph
+                // allocation.
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA;
     }
 
     private static SceneSurfaceLayout sceneSurface(Scene scene, RenderSettings settings,

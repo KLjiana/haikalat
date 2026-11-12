@@ -214,7 +214,12 @@ public final class VfxRenderer implements AutoCloseable {
                 .materialState(BlendMode.ALPHA, false)
                 .blendEquation(org.lwjgl.opengl.GL14.GL_FUNC_ADD)
                 .enableCullFace(true)
-                .frontFace(FrontFace.CW)
+                // The decal model basis has a negative determinant, so the
+                // far/exit faces of the volume are CCW after the model
+                // transform. Keeping CCW faces (and culling the near ones)
+                // is what lets the receiver be reconstructed when the camera
+                // is inside the volume or the near face is clipped.
+                .frontFace(FrontFace.CCW)
                 .bindTexture(1, sceneDepthTexture)
                 .setUniformInt(shader, "uSceneDepth", 1)
                 .setUniformInt(shader, "uTexture", 0)

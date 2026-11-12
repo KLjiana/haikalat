@@ -121,8 +121,11 @@ class ThinTranslucencyShaderTest {
             int transmission = evaluator.indexOf(
                     "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);");
             assertTrue(transmission > 0, "missing additive thin term");
-            assertTrue(transmission > evaluator.indexOf(
-                            "base += subsurfaceTransmission(n, l, radiance);"),
+            int subsurface = evaluator.indexOf(
+                    "base += subsurfaceTransmission(n, l, radiance);");
+            assertTrue(subsurface > 0,
+                    "missing subsurface transmission term; the ordering check would be vacuous");
+            assertTrue(transmission > subsurface,
                     "the thin term must stay additive next to the unchanged reflection terms");
             assertTrue(evaluator.indexOf("return visibility * base;") > transmission,
                     "visibility must scale the whole additive result");

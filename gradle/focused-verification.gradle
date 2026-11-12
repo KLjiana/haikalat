@@ -160,6 +160,7 @@ def glCases = [
         'VolumetricParticlePipelineGlTest',
         'StochasticTransparencyPassGlTest',
         'StochasticTransparencyPipelineGlTest',
+        'ProjectedDecalGlTest', 'ThinTranslucencyGlTest',
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
         'RenderPipelineWiringB3GlTest',

@@ -174,6 +174,19 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
             throw new IllegalStateException(
                     "DDGI and voxel cone tracing are mutually exclusive in this version");
         }
+        if ((topology.ddgi() || topology.voxelConeTracing())
+                && topology.antiAliasingMode() == AntiAliasingMode.TAA) {
+            throw new IllegalStateException(
+                    "DDGI/VCT require a stable non-jittered raster; TAA is not supported");
+        }
+        // SSGI and DDGI/VCT both add indirect diffuse. The unified feature
+        // control rejects the combination, and this assembly-time check keeps
+        // hand-built topologies from double-counting it.
+        if ((topology.ddgi() || topology.voxelConeTracing())
+                && topology.sceneBuffers().requires(SceneBufferChannel.ALBEDO)) {
+            throw new IllegalStateException(
+                    "DDGI/VCT and SSGI both consume indirect diffuse; enable only one");
+        }
         if (topology.hairStrands()) {
             if (!topology.hdr()) {
                 throw new IllegalStateException(

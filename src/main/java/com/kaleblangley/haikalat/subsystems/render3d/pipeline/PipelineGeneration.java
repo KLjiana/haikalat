@@ -14,8 +14,6 @@ import com.kaleblangley.haikalat.subsystems.render3d.ClusteredLightingSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.InstancedRenderer;
-import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
-import com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewController;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;

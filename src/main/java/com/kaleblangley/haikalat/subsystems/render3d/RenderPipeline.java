@@ -3630,10 +3630,10 @@ public final class RenderPipeline {
         boolean downwardDirectional = false;
         boolean directionalLight = false;
         for (SceneLight light : scene.lights()) {
-            if (light.type() == LightType.DIRECTIONAL) directionalLight = true;
-            if (light.type() == LightType.DIRECTIONAL
-                    && light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y) {
-                downwardDirectional = true;
+            if (light.type() == LightType.DIRECTIONAL && !directionalLight) {
+                directionalLight = true;
+                downwardDirectional =
+                        light.direction().y < -CausticsSettings.MINIMUM_LIGHT_DOWNWARD_Y;
             }
             if (!light.castShadows()) continue;
             switch (light.type()) {
