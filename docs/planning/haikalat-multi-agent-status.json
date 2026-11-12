@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "5845c027"
+    "head": "bfb1475e"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T00:31:03+08:00",
+  "updatedAt": "2026-11-13T00:44:34+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1009,7 +1009,7 @@
       "featureIds": [
         30
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Planar Reflections",
       "dependencies": [
         null
@@ -1018,7 +1018,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "1215a7fa",
+      "integrationCommit": "e5cde50f + 97ccaa2a",
       "requiredCases": [],
       "evidence": [
         "glSmoke PlanarReflectionPassGlTest 10/10 PASS",
@@ -1032,14 +1032,15 @@
         "per-feature matrix 20261112-165030: #30 JVM 18/29 + GL 11/11 PASS",
         "independent acceptance F3: planar target is recorded but no surface samples it; water/SSR consumption missing",
         "water shader now samples the planar target at unit 3 (e5cde50f); PlanarReflectionPipelineGlTest 2/2 real GL PASS including water enable/disable pixel change and exact environment restore; update throttling, camera-cut, resize and SSR consumption still pending",
-        "resize coverage: PlanarReflectionPipelineGlTest 3/3 real GL PASS (water consumer survives resize and the owner is rebuilt at the settings-derived extent, 879a5d8c)"
+        "resize coverage: PlanarReflectionPipelineGlTest 3/3 real GL PASS (water consumer survives resize and the owner is rebuilt at the settings-derived extent, 879a5d8c)",
+        "F3 closure: water shader samples the planar target (enable/disable pixel change, throttle, camera cut, resize, and the invalid-content fallback gate asserted at 97ccaa2a); PlanarReflectionPipelineGlTest 5/5 real GL PASS. SSR decision: the screen-space reflection keeps its own depth-march and does not consume the planar target; the water surface is the single planar consumer, so no double reflection"
       ],
-      "review": "APPROVE_WITH_SCOPE",
+      "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "water consumer landed; remaining: throttle/camera-cut/resize coverage, SSR consumption decision, and failure/no-content fallback evidence"
+      "nextAction": "scope: throttle/cut/resize covered on the water consumer only; SSR deliberately does not sample the planar target; planar downstream still has no other surface consumer"
     },
     {
       "taskId": "R31",
@@ -1391,7 +1392,7 @@
       "featureIds": [
         41
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Adaptive Sampling",
       "dependencies": [
         20,
@@ -1401,7 +1402,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "1ac4cbf..3fa6b4c",
-      "integrationCommit": "737b5bc",
+      "integrationCommit": "bfb1475e",
       "requiredCases": [
         "AdaptiveSamplingSettingsTest",
         "AdaptiveSamplingReferenceTest",
@@ -1419,14 +1420,15 @@
         "focused verification dfb658b6: PASS",
         "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS",
         "per-feature matrix 20261112-165030: #41 JVM 22/31 + GL 9/9 PASS",
-        "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete"
+        "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete",
+        "F7 cost-matched oracle at bfb1475e: exact floor+extra spend (total 78912 on the 96x96 fixture), two-tier and rounded controls match the cost exactly, adaptive error 0.035 vs floor 0.415 / matched 0.293 / uniform 0.085; residual-only fixture keeps the measured tile term uniform (144/144 tiles error 0) while 511 high-residual pixels rise above the floor; integration GL SsrAdaptiveSamplingGlTest 10/10 and SsrPassGlTest 2/2 PASS, 0 skipped"
       ],
-      "review": "APPROVE_WITH_SCOPE",
+      "review": "SELF_CHECKED",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent acceptance F7: fixed-budget oracle and residual-only discrimination are incomplete"
+      "nextAction": "scope: single GPU/driver; refine taps excluded symmetrically; two-tier control is a blend of two real fixed passes; residual fixture uses a controlled depth-only billboard; performance NOT_EVALUATED"
     },
     {
       "taskId": "R42",
