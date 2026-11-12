@@ -472,7 +472,7 @@ class HairStrandGlTest {
                                  int shadowTexture, Matrix4f lightSpace, float shadowBias) {
         CommandBuffer commands = device.createCommandBuffer();
         commands.bindFramebuffer(target).viewport(0, 0, WIDTH, HEIGHT)
-                .clearColor(0.0f, 0.0f, 0.0f, 1.0f).clear(true, false);
+                .clearColor(0.0f, 0.0f, 0.0f, 0.0f).clear(true, false);
         pass.record(commands, camera, model, settings, light, shadowTexture, lightSpace,
                 shadowBias);
         device.execute(commands);
@@ -487,7 +487,7 @@ class HairStrandGlTest {
                                     ExternalCamera camera, HairStrandLight light) {
         CommandBuffer commands = device.createCommandBuffer();
         commands.bindFramebuffer(target).viewport(0, 0, WIDTH, HEIGHT)
-                .clearColor(0.0f, 0.0f, 0.0f, 1.0f).clear(true, false);
+                .clearColor(0.0f, 0.0f, 0.0f, 0.0f).clear(true, false);
         firstPass.record(commands, camera, firstModel, firstSettings, light, 0, null, 0.0f);
         secondPass.record(commands, camera, secondModel, secondSettings, light, 0, null, 0.0f);
         device.execute(commands);
