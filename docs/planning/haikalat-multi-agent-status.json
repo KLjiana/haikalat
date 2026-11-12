@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T09:50:00+08:00",
+  "updatedAt": "2026-11-12T15:35:34+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -263,7 +263,7 @@
       "featureIds": [
         6
       ],
-      "state": "BLOCKED",
+      "state": "DONE",
       "scope": "Projected Decals",
       "dependencies": [
         null
@@ -272,21 +272,23 @@
       "writePaths": [],
       "baseCommit": "db36fa8",
       "workerCommit": "e26eb8d",
-      "integrationCommit": null,
+      "integrationCommit": "2f4c2e2b + 7e5c4372",
       "requiredCases": [],
       "evidence": [
         "worker JVM ProjectedDecalTest 5/5 PASS + 69 regression PASS",
         "glSmoke ProjectedDecalGlTest FAIL: drawn=1/drawCalls=1 but no pixel change",
         "debug-safe red output proves decal geometry covers pixels",
         "depth-stage debug discards all (sceneDepth>=1); direct glReadPixels depth probe at receiver center also reads 1.0",
-        "root cause is the scene depth pass not writing the receiver center in ProjectedDecalGlTest, not decal contract"
+        "root cause is the scene depth pass not writing the receiver center in ProjectedDecalGlTest, not decal contract",
+        "focused verification dfb658b6 at HEAD 37ab4f9e: ProjectedDecalGlTest 1/1 real GL PASS, 0 skipped, 0 failures",
+        "independent review APPROVE_WITH_SCOPE: projection math/plan/settings sound; far-face culling was inverted (CW kept the near face) and is fixed to CCW with an inside-camera GL case; alpha-mask/back-face coverage, per-baseline probes, colour-only target contract and prepare bounding remain scope notes"
       ],
-      "functional": "JVM_PASS_GL_FAIL",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Fix test scene depth coverage/FBO depth write first, then retest decal contract",
-      "review": "PENDING"
+      "nextAction": "bounded decal plan; performance/human visual not evaluated",
+      "review": "APPROVE_WITH_SCOPE"
     },
     {
       "taskId": "R07",
@@ -319,7 +321,7 @@
       "featureIds": [
         8
       ],
-      "state": "BLOCKED",
+      "state": "DONE",
       "scope": "Thin Translucency",
       "dependencies": [
         null
@@ -328,26 +330,29 @@
       "writePaths": [],
       "baseCommit": "d9a3c0b",
       "workerCommit": "399e021",
-      "integrationCommit": null,
+      "integrationCommit": "a356f41c",
       "requiredCases": [],
       "evidence": [
         "worker JVM AssetPipelineTest 28 tests PASS",
         "glSmoke ThinTranslucencyGlTest FAIL: direct-light center energy 0 with ambient disabled or equal to ambient baseline; tried quad/triangle/sphere, point/directional, create/createWithBindings, default/zero env, HDR/default readback",
-        "pointSelected diagnostic >0, so light selection itself succeeds"
+        "pointSelected diagnostic >0, so light selection itself succeeds",
+        "integration real GL PASS at a356f41c: ThinTranslucencyGlTest 1/1, 0 skipped, 0 failures",
+        "root cause of the earlier zero readback was the fixture: Windows clamps a 32px-wide hidden window to a wider client area (152x32), so the hard-coded (16,16) probe missed the centred quad; fixture now sizes 200x140 and reads window.width()/2, window.height()/2",
+        "independent review APPROVE_WITH_SCOPE: ranges/7-arg compatibility/both upload sites/centre probe correct; thickness>0, local lights, back-face view, MASK/shadow and instance-override NaN hardening remain scope notes"
       ],
-      "review": "PENDING",
-      "functional": "JVM_PASS_GL_FAIL",
+      "review": "APPROVE_WITH_SCOPE",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Isolate PBR light-buffer upload or reuse an existing pixel-reading PBR GL fixture known to show direct light; do not integrate until GL PASS"
+      "nextAction": "bounded artistic thin transmission; performance/human visual not evaluated"
     },
     {
       "taskId": "R09",
       "featureIds": [
         9
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Contact Shadows",
       "dependencies": [
         null
@@ -361,14 +366,16 @@
       "evidence": [
         "integration focused verify 59c0372d: 255 tests PASS",
         "glSmoke ContactShadowsGlTest PASS",
-        "reviewer scope acceptance pending"
+        "reviewer scope acceptance pending",
+        "focused verification dfb658b6 at HEAD 2fc9502c: ContactShadowsGlTest PASS, 0 skipped",
+        "the accepted first version is the bounded shadow-map-space short-range march described by the card; a true screen-space depth-mask variant remains out of scope"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Deferred: true screen-space depth-mask contact shadows; current bounded shadow-map-space refinement accepted as scope-reduced",
+      "nextAction": "bounded shadow-map-space refinement accepted; screen-space depth-mask variant deferred",
       "scopeNote": "shadow-map-space refinement, not true screen-space depth ray march; needs reviewer acceptance",
       "policyCommit": "0c14652",
       "deferred": "screen-space depth-mask variant"
@@ -904,20 +911,23 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "901b9b2",
+      "integrationCommit": "1215a7fa",
       "requiredCases": [],
       "evidence": [
         "glSmoke WeightedOitPassGlTest 7/7 PASS",
         "JVM WeightedOit*/OitSurface/PendingPipelineState 25 tests PASS",
         "focused verify 76286663: 603 tests PASS, 0 skipped",
-        "review float16 overflow finding fixed at 300f5df; extreme GL cases added"
+        "review float16 overflow finding fixed at 300f5df; extreme GL cases added",
+        "B1 production wiring at 1215a7fa: RenderFeatureSettings/PipelineTopology/RenderPipeline/PipelineGeneration wired with declared-set staging and transactional apply",
+        "integration real GL PASS: WeightedOitPipelineGlTest 2/2 (declared empty set no-op; OIT/stochastic overlap rejected)",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Bounded pass-level OIT; RenderPipeline/particle consumer and arbitrary HDR overlap remain out of scope"
+      "nextAction": "bounded production wiring; performance/human visual not evaluated"
     },
     {
       "taskId": "R29",
@@ -962,20 +972,24 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "4e3dae0",
+      "integrationCommit": "1215a7fa",
       "requiredCases": [],
       "evidence": [
         "glSmoke PlanarReflectionPassGlTest 10/10 PASS",
         "JVM PlanarReflection* 15 tests PASS",
         "focused verify 7c08146d: 584 tests PASS, 0 skipped",
-        "re-review blockers fixed; sign checks added at 1646b96"
+        "re-review blockers fixed; sign checks added at 1646b96",
+        "B1 production wiring at 1215a7fa: planar pass inserted after the scene colour producer and before the water pass; reflection target exposed through PipelineGeneration",
+        "integration real GL PASS: PlanarReflectionPipelineGlTest 1/1 (reflection target content; main view byte-identical)",
+        "known gap: water/SSR shaders do not sample the planar target yet; visual reflection remains downstream work",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Bounded single-plane pass; RenderPipeline/water consumption and production SceneRecorder adapter remain unwired"
+      "nextAction": "reflection target verified; downstream water/SSR sampling remains unwired; performance/human visual not evaluated"
     },
     {
       "taskId": "R31",
@@ -1138,20 +1152,23 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "db27afb",
+      "integrationCommit": "1215a7fa",
       "requiredCases": [],
       "evidence": [
         "glSmoke CausticsPassGlTest 6/6 PASS",
         "JVM Caustics* 9 tests PASS",
         "focused verify a3e0451d: 604 tests PASS, 0 skipped",
-        "independent review APPROVE_WITH_SCOPE; docs status aligned"
+        "independent review APPROVE_WITH_SCOPE; docs status aligned",
+        "B1 production wiring at 1215a7fa: caustics composited after geometry/planar and before the water pass; water pass declares the dependency",
+        "integration real GL PASS: CausticsPipelineGlTest 1/1 after freezing the fixture water animation for the byte-identical disabled comparison",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "Bounded artistic caustics pass; RenderPipeline/water consumer unwired"
+      "nextAction": "bounded single-sample composite; MSAA unsupported in this wiring; performance/human visual not evaluated"
     },
     {
       "taskId": "R37",
@@ -1254,21 +1271,22 @@
       "evidence": [
         "JVM PASS: SsgiSettingsTest 7, SsgiIndirectReferenceTest 7, SsgiShaderTest 9, SsgiPipelineCompositionTest 7",
         "GL PASS on worker 2df84e4 and integration 896e113: SsgiPassGlTest 8/8, 0 skipped, 0 failures, gate green",
-        "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test"
+        "GPU round 1 caught the reserved GLSL 'sample' identifier; fixed and guarded by a JVM reserved-keyword test",
+        "B4 feature-control wiring 3527b9cf resolves SSGI eligibility (HDR + PBR ALBEDO/ROUGHNESS) with soft UNAVAILABLE and effective stripping"
       ],
       "review": "APPROVE_WITH_SCOPE",
-      "functional": "PASS",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "SSGI needs RenderFeature/policy exposure and an ALBEDO MSAA resolve GL case; the non-PBR policy error now names SSR and SSGI"
+      "nextAction": "feature-control wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R40",
       "featureIds": [
         40
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Volumetric Clouds",
       "dependencies": [
         10,
@@ -1278,7 +1296,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "3c0b9b2..5a1c02a",
-      "integrationCommit": "3be4300",
+      "integrationCommit": "79ff9ae6",
       "requiredCases": [
         "VolumetricCloudSettingsTest",
         "VolumetricCloudReferenceTest",
@@ -1292,21 +1310,25 @@
         "JVM PASS: Settings 6, Reference 8, Reconstruction 5, HistoryPolicy 2, CameraFixture 3, Shader 5",
         "GL PASS on worker 5e4940f and integration b89819b: VolumetricCloudGlTest 7/7, 0 skipped, 0 failures, gate green",
         "GPU rounds caught a non-invertible ortho fixture, a binary32 hash-wrap reference artifact and a history-order bug; all fixed without relaxing physics",
-        "integration GL rerun at b89819b: VolumetricCloudGlTest 7/7 PASS, gate green; XML archived in build/reports/gl/clouds/"
+        "integration GL rerun at b89819b: VolumetricCloudGlTest 7/7 PASS, gate green; XML archived in build/reports/gl/clouds/",
+        "production wiring 79ff9ae6: RenderFeatureSettings/PipelineTopology/RenderFeaturePolicy/RenderPipeline/PipelineGeneration own the cloud layer transactionally",
+        "real GL at 8e751cd8: VolumetricCloudPipelineGlTest 4/4 PASS (contribution, depth ownership, resize, disabled no-op)",
+        "focused verification dfb658b6: PASS",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pass-level 7/7 GL at b89819b; RenderPipeline/feature-control exposure, demo, absolute density-scale GL check and roll-only camera cuts remain"
+      "nextAction": "production wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R41",
       "featureIds": [
         41
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Adaptive Sampling",
       "dependencies": [
         20,
@@ -1327,21 +1349,26 @@
       "evidence": [
         "JVM PASS: Settings 7, Reference 5, ShaderContract 4, Wiring 6 (22 total)",
         "GL PASS worker 3fa6b4c and integration 737b5bc: SsrAdaptiveSamplingGlTest 9/9, 0 skipped, 0 failures, gate green",
-        "cost-matched reference: adaptive model error 5.25 vs fixed 6.14 on the 1408-sample fixture"
+        "cost-matched reference: adaptive model error 5.25 vs fixed 6.14 on the 1408-sample fixture",
+        "B4 feature-control wiring 3527b9cf + tests cdfc3d59 + docs 2c027b30: adaptive sampling resolves through RenderFeaturePolicy with requested-vs-effective publication",
+        "RenderFeatureControlPostProcessTest 17/17 JVM PASS",
+        "real GL at 8e751cd8: SsrAdaptiveSamplingGlTest 9/9 PASS",
+        "focused verification dfb658b6: PASS",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
-      "functional": "PASS",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "cost-matched GL oracle, residual-only fixture, per-case GL error/debug checks, SsrPass ceiling validation and feature-control/demo exposure remain"
+      "nextAction": "feature-control wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R42",
       "featureIds": [
         42
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Variable Rate Shading",
       "dependencies": [
         null
@@ -1361,21 +1388,25 @@
       "evidence": [
         "JVM PASS: capability 10, plan 7, settings 5, shader contract 7 (29 executed; GL class 6 skipped under JVM)",
         "GL PASS on worker 3ea3e2a9 and integration 49c7d04a: VariableRateShadingGlTest 6/6, 0 skipped, 0 failures, gate green",
-        "GPU rounds caught the dead probe uniform, missing TexSubImage barrier, single-entry palette query and indexed per-viewport enable; all fixed against NV_shading_rate_image rev.3"
+        "GPU rounds caught the dead probe uniform, missing TexSubImage barrier, single-entry palette query and indexed per-viewport enable; all fixed against NV_shading_rate_image rev.3",
+        "B4 feature-control wiring 3527b9cf: VRS capability seam, requested-vs-effective fallback and NV-unavailable detail path",
+        "real GL at 8e751cd8: VariableRateShadingGlTest 6/6 PASS on the RTX 3050 NV path",
+        "focused verification dfb658b6: PASS",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pipeline end-to-end/fallback/disabled-resource/resize/failure-cleanup tests, feature-control/demo wiring, EXT path remain"
+      "nextAction": "feature-control wiring verified; EXT_fragment_shading_rate detection only; performance/human visual not evaluated"
     },
     {
       "taskId": "R43",
       "featureIds": [
         43
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Volumetric Smoke Simulation",
       "dependencies": [
         null
@@ -1384,7 +1415,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "461dae7..c340840",
-      "integrationCommit": "2bdb98e",
+      "integrationCommit": "79ff9ae6",
       "requiredCases": [
         "SmokeSimulationSettingsTest",
         "SmokeSimulationReferenceTest",
@@ -1395,21 +1426,25 @@
       "evidence": [
         "JVM PASS: Settings 7, Reference 8, ShaderContract 7, Composition 8",
         "GL PASS on worker c340840 and integration 2bdb98e: SmokeSimulationGlTest 7/7, 0 skipped, 0 failures, gate green",
-        "GL round 1 caught a fixture endpoint/half-open-window assumption and an over-broad occlusion assertion; both fixed without relaxing the closed-form contract"
+        "GL round 1 caught a fixture endpoint/half-open-window assumption and an over-broad occlusion assertion; both fixed without relaxing the closed-form contract",
+        "production wiring 79ff9ae6: smoke simulation and volume owners are resolved through the feature control and generation transaction",
+        "real GL at 8e751cd8: SmokePipelineGlTest 4/4 PASS (contribution, depth ownership, resize, disabled no-op)",
+        "focused verification dfb658b6: PASS",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
-      "functional": "PASS",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pass-level 7/7 GL + 30 JVM PASS; RenderPipeline/feature-control exposure, per-cell density/temperature GL comparison and candidate-failure tests remain"
+      "nextAction": "production wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R44",
       "featureIds": [
         44
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "DDGI",
       "dependencies": [
         null
@@ -1418,7 +1453,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "b4d37d0..7b7fb08",
-      "integrationCommit": "a2b3f43",
+      "integrationCommit": "c1eb08b3",
       "requiredCases": [
         "DdgiSettingsTest",
         "DdgiProbeBudgetTest",
@@ -1429,21 +1464,24 @@
       "evidence": [
         "JVM PASS: Settings 7, Budget 4, Reference 12, ShaderContract 7",
         "GL PASS on worker 7b7fb08 and integration a2b3f43: DdgiProbePassGlTest 7/7, 0 skipped, 0 failures, gate green",
-        "GPU round 1 exposed a hysteresis-oracle fixture defect (probe-bounce history); fixed by moving hit points outside the grid, formula unchanged"
+        "GPU round 1 exposed a hysteresis-oracle fixture defect (probe-bounce history); fixed by moving hit points outside the grid, formula unchanged",
+        "B3 production wiring at c1eb08b3: DDGI resolved through RenderFeaturePolicy and wired into RenderPipeline/PipelineGeneration with transactional apply and resize candidates",
+        "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pass-level 7/7 GL; RenderPipeline/feature-control wiring, multi-probe/face GL coverage, MSAA resolve contract and initial-atlas guard remain"
+      "nextAction": "production wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R45",
       "featureIds": [
         45
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Voxel Cone Tracing",
       "dependencies": [
         null
@@ -1452,7 +1490,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "dcccfb8..08bd4c4",
-      "integrationCommit": "b89819b",
+      "integrationCommit": "c1eb08b3",
       "requiredCases": [
         "VctSettingsTest",
         "VctReferenceTest",
@@ -1464,21 +1502,24 @@
       "evidence": [
         "JVM PASS: Settings 5, Reference 5, UpdatePlanner 7, Shader 7, Pass 6",
         "GL PASS on worker aefca87 and integration b89819b: VctGlTest 8/8, 0 skipped, 0 failures, gate green",
-        "GPU rounds caught a dead uniform, four wrong box-face normals, probe view signs and a one-sided shell AABB; all fixed without relaxing assertions"
+        "GPU rounds caught a dead uniform, four wrong box-face normals, probe view signs and a one-sided shell AABB; all fixed without relaxing assertions",
+        "B3 production wiring at c1eb08b3: VCT resolved through RenderFeaturePolicy; composite now declares an explicit dependency on the probe trace pass (8e6a4408)",
+        "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pass-level 8/8 GL; RenderPipeline/feature-control wiring, per-pixel roughness/normal, budget accounting and diffuse/specular max-mip contract remain"
+      "nextAction": "production wiring verified; performance/human visual not evaluated"
     },
     {
       "taskId": "R46",
       "featureIds": [
         46
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "Hair Strand Rendering",
       "dependencies": [
         null
@@ -1487,7 +1528,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": null,
-      "integrationCommit": "b5d0143",
+      "integrationCommit": "c1eb08b3",
       "requiredCases": [
         "HairStrandSettingsTest",
         "HairStrandReferenceTest",
@@ -1499,14 +1540,17 @@
         "GL PASS worker 1483ffc and integration d94d8be: HairStrandGlTest 7/7, 0 skipped, 0 failures, gate green; XML archived in build/reports/gl/hair/",
         "procedural deterministic strands (no external asset), ribbon width/LOD, Kajiya-Kay, sorted alpha, directional shadow caster/receiver",
         "GL PASS at ce843a8 with the alpha-coverage guard: 7/7, 0 skipped, gate green; XML archived",
-        "alpha-coverage guard corrected (clear alpha 0) and 7/7 rerun at b5d0143"
+        "alpha-coverage guard corrected (clear alpha 0) and 7/7 rerun at b5d0143",
+        "B3 production wiring at c1eb08b3: hair strands resolved through RenderFeaturePolicy, forward pass wired after the forward passes, directional shadow caster/receiver contract kept",
+        "JVM PASS: RenderPipelineWiringB3Test 10/10; integration real GL PASS: RenderPipelineWiringB3GlTest 3/3, 0 skipped, 0 failures",
+        "focused verification dfb658b6 (HEAD 37ab4f9e, 1259 tests, 0 skipped): PASS"
       ],
       "review": "APPROVE_WITH_SCOPE",
-      "functional": "PASS",
+      "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "pass-level DONE; RenderPipeline/ShadowCasterRecorder wiring, width-clamp boundary tests and model-scale LOD/shadow fix remain"
+      "nextAction": "production wiring verified; performance/human visual not evaluated"
     }
   ],
   "notes": [
