@@ -84,6 +84,23 @@ public final class Texture3D implements GlResource {
         }
     }
 
+    /** Zero-fills every texel; the storage format chooses the compatible clear format. */
+    public void clear() {
+        ensureOpen();
+        GlCapabilityContract.requireCurrent();
+        int clearFormat;
+        int clearType;
+        if (format == RenderFormat.R8) {
+            clearFormat = GL_RED;
+            clearType = GL_UNSIGNED_BYTE;
+        } else {
+            clearFormat = GL_RGBA;
+            clearType = GL_FLOAT;
+        }
+        glClearTexImage(id, 0, clearFormat, clearType, (java.nio.FloatBuffer) null);
+        GlDebug.assertNoError("Texture3D clear");
+    }
+
     public int width() { return width; }
     public int height() { return height; }
     public int depth() { return depth; }

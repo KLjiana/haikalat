@@ -200,3 +200,9 @@ internal com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTr
 # v0.28.1 S4 #46 deterministic hair-strand settings and pass-owned resources.
 advanced com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings
 internal com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass
+
+# v0.28.1 S5 #43 bounded GPU smoke simulation and volume-rendering consumer.
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePass
