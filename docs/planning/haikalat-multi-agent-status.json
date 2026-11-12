@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "d413e9d2"
+    "head": "2818d312"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-12T22:58:43+08:00",
+  "updatedAt": "2026-11-12T23:30:35+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1307,7 +1307,7 @@
       "featureIds": [
         39
       ],
-      "state": "PARTIAL",
+      "state": "DONE",
       "scope": "SSGI",
       "dependencies": [
         20,
@@ -1317,7 +1317,7 @@
       "writePaths": [],
       "baseCommit": null,
       "workerCommit": "527479c..2df84e4",
-      "integrationCommit": "d413e9d2",
+      "integrationCommit": "d413e9d2 + 2818d312",
       "requiredCases": [
         "SsgiSettingsTest",
         "SsgiIndirectReferenceTest",
@@ -1332,14 +1332,15 @@
         "B4 feature-control wiring 3527b9cf resolves SSGI eligibility (HDR + PBR ALBEDO/ROUGHNESS) with soft UNAVAILABLE and effective stripping",
         "per-feature matrix 20261112-165030: #39 JVM 32/40 + GL 8/8 PASS",
         "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing",
-        "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending"
+        "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending",
+        "independent review APPROVE_WITH_SCOPE: reprojection sign, rejection ordering, lifecycle and disabled path verified; the uninitialized-slot commit hazard and the non-finite previous-depth gap are fixed at 2818d312, camera-cut expectation corrected, canonical 12-to-17 reflection break documented"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "independent review of the temporal adaptation; then close #39"
+      "nextAction": "scope: advanced/default-off, no demo enablement or end-to-end RenderPipeline GL frame; nonzero-velocity reprojection and validity/raster/budget rejection are reference+text only; empty-neighbourhood clamp skip can retain stale history on thin receivers; albedo-zero parity not preserved; performance/memory NOT_EVALUATED"
     },
     {
       "taskId": "R40",
