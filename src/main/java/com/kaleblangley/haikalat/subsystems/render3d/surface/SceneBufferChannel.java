@@ -24,6 +24,15 @@ public enum SceneBufferChannel {
      */
     ROUGHNESS,
     /**
+     * Linear material albedo (RGB) used as the screen-space indirect-diffuse
+     * receiver weight.
+     *
+     * <p>The first version carries the scalar base-colour factor; a per-texel
+     * base-colour map is not sampled in the surface pass, matching the existing
+     * roughness-factor approximation. Legacy materials report white.</p>
+     */
+    ALBEDO,
+    /**
      * Subsurface-scattering material mask written by the surface pass.
      *
      * <p>{@code rgba}: red is the screen-space coverage in {@code [0,1]}

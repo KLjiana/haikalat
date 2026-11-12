@@ -55,6 +55,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
@@ -198,11 +199,13 @@ public final class PipelineGeneration implements AutoCloseable {
         var inputs = new SceneSurfacePostProcessAdapter(surfaceInputs, reactive);
         SsrEnvironmentSource ssrEnvironment = pbrMaterialBinder == null
                 ? null : new PbrSsrEnvironment(pbrMaterialBinder);
+        SsgiEnvironmentSource ssgiEnvironment = pbrMaterialBinder == null
+                ? null : new PbrSsgiEnvironment(pbrMaterialBinder);
         postProcess = reuseSource == null
                 ? PostProcessPipeline.create(settings, effects, topology.width(), topology.height(), vfx, inputs, inputs,
-                        ssrEnvironment)
+                        ssrEnvironment, null, ssgiEnvironment)
                 : reuseSource.postProcess.replacementAssembly(settings, effects, topology.width(), topology.height(),
-                        inputs, vfx, inputs, ssrEnvironment);
+                        inputs, vfx, inputs, ssrEnvironment, null, ssgiEnvironment);
     }
 
     public void assembleDrawing(SceneRenderer.Host host, DirectionalShadowMap directionalShadowMap,

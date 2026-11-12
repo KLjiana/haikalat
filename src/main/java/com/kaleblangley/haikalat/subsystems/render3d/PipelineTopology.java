@@ -208,6 +208,11 @@ public record PipelineTopology(int width,
             requirements = requirements.mergeView(
                     SceneBufferRequirements.subsurfaceScattering());
         }
+        // Screen-space indirect diffuse additionally consumes the hit
+        // roughness and the receiver albedo.
+        if (effects.ssgi().active()) {
+            requirements = requirements.mergeView(SceneBufferRequirements.ssgi());
+        }
         if (effects.gtao().enabled()) {
             requirements = requirements.mergeView(
                     SceneBufferRequirements.gtao(effects.gtao().temporal()));

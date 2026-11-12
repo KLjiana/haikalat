@@ -43,6 +43,7 @@ public final class SceneSurfacePass implements AutoCloseable {
     private final ShaderProgram surfaceProgram;
     private final ShaderProgram instancedProgram;
     private final boolean roughnessOutput;
+    private final boolean albedoOutput;
     private final boolean subsurfaceOutput;
     private GlBuffer previousInstanceBuffer;
     private long previousInstanceBytes;
@@ -65,6 +66,7 @@ public final class SceneSurfacePass implements AutoCloseable {
             this.surfaceProgram = surface;
             this.instancedProgram = instanced;
             this.roughnessOutput = layout.raw(SceneBufferChannel.ROUGHNESS) != null;
+            this.albedoOutput = layout.raw(SceneBufferChannel.ALBEDO) != null;
             this.subsurfaceOutput = layout.raw(SceneBufferChannel.SUBSURFACE) != null;
         } catch (RuntimeException failure) {
             if (instanced != null) instanced.close();
@@ -111,6 +113,7 @@ public final class SceneSurfacePass implements AutoCloseable {
         int boundMasked = -1;
         int boundPreviousValid = -1;
         float boundRoughness = Float.NaN;
+        Vector4f boundAlbedo = null;
         for (int queueIndex = 0; queueIndex < frame.forwardCount(); queueIndex++) {
             int entry = frame.forwardEntry(queueIndex);
             if (!frame.castsOpaqueShadow(entry)) continue;
@@ -133,6 +136,13 @@ public final class SceneSurfacePass implements AutoCloseable {
                 if (roughness != boundRoughness) {
                     cmd.setUniformFloat(surfaceProgram, "uRoughness", roughness);
                     boundRoughness = roughness;
+                }
+            }
+            if (albedoOutput) {
+                Vector4f albedo = materialAlbedo(renderer.material());
+                if (!albedo.equals(boundAlbedo)) {
+                    cmd.setUniformVec4(surfaceProgram, "uAlbedoFactor", albedo);
+                    boundAlbedo = albedo;
                 }
             }
             int masked = frame.masked(entry) ? 1 : 0;
@@ -204,6 +214,9 @@ public final class SceneSurfacePass implements AutoCloseable {
             // version; report fully rough so they never act as reflectors.
             cmd.setUniformFloat(instancedProgram, "uRoughness", 1.0f);
         }
+        if (albedoOutput) {
+            cmd.setUniformVec4(instancedProgram, "uAlbedoFactor", new Vector4f(1.0f));
+        }
         bindCameraUniforms(cmd, instancedProgram, cameraUniforms, current, previous);
         int count = instanced.instanceCount();
         boolean previousValid = instanced.previousFrameValid();
@@ -264,6 +277,28 @@ public final class SceneSurfacePass implements AutoCloseable {
         }
         return value instanceof UniformValue.FloatVal roughness
                 ? Math.min(Math.max(roughness.value(), 0.0f), 1.0f) : 1.0f;
+    }
+
+    /**
+     * Material albedo written to the shared surface channel. The first version
+     * carries the scalar linear base-colour factor (the same term the forward
+     * shader multiplies with the base-colour map); a per-texel albedo map is not
+     * sampled here and legacy materials report white.
+     */
+    private static Vector4f materialAlbedo(MaterialInstance instance) {
+        UniformValue value = instance.uniformOverrides().get(UniformKey.vec4("uBaseColorFactor"));
+        if (value == null) {
+            value = instance.material().defaultUniforms()
+                    .get(UniformKey.vec4("uBaseColorFactor"));
+        }
+        if (value instanceof UniformValue.Vec4Val factor) {
+            Vector4f colour = new Vector4f(factor.value());
+            colour.x = Math.min(Math.max(colour.x, 0.0f), 1.0f);
+            colour.y = Math.min(Math.max(colour.y, 0.0f), 1.0f);
+            colour.z = Math.min(Math.max(colour.z, 0.0f), 1.0f);
+            return colour;
+        }
+        return new Vector4f(1.0f);
     }
 
     private static void bindCameraUniforms(CommandBuffer cmd, ShaderProgram shader,

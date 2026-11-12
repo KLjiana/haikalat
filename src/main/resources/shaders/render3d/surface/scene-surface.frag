@@ -17,6 +17,10 @@ layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
 layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
 uniform float uRoughness;
 #endif
+#ifdef SCENE_SLOT_ALBEDO
+layout(location = SCENE_SLOT_ALBEDO) out vec4 outAlbedo;
+uniform vec4 uAlbedoFactor;
+#endif
 #ifdef SCENE_SLOT_SUBSURFACE
 layout(location = SCENE_SLOT_SUBSURFACE) out vec4 outSubsurface;
 uniform int uSubsurfaceEnabled;
@@ -81,6 +85,11 @@ void main() {
     outValidity = valid ? 1.0 : 0.0;
 #ifdef SCENE_SLOT_ROUGHNESS
     outRoughness = clamp(uRoughness, 0.0, 1.0);
+#endif
+#ifdef SCENE_SLOT_ALBEDO
+    // Linear base-colour factor only; a per-texel base-colour map is not
+    // sampled by the surface pass in this version.
+    outAlbedo = vec4(clamp(uAlbedoFactor.rgb, 0.0, 1.0), 1.0);
 #endif
 #ifdef SCENE_SLOT_SUBSURFACE
     outSubsurface = vec4(0.0);

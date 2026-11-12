@@ -16,6 +16,8 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSettin
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource
@@ -52,6 +54,7 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFi
 advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ssgi.SsgiPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.sss.SubsurfaceScatteringPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseInputs
 advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass
