@@ -68,7 +68,9 @@ class StochasticTransparencyPipelineGlTest {
                     assertTrue(pipeline.graph().hasPass(StochasticTransparencyPass.PASS_NAME));
                     pipeline.execute(new GlRenderDevice(), 1f / 60f);
                     float[] composited = pipeline.captureLinearHdrRgbaFloat();
-                    int centre = (SIZE / 2 * SIZE + SIZE / 2) * 4;
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    int centre = ((height / 2) * width + width / 2) * 4;
                     assertEquals(1.0f, composited[centre], 0.02f);
                     assertEquals(0.2f, composited[centre + 1], 0.02f);
                     assertEquals(0.1f, composited[centre + 2], 0.02f);
@@ -108,13 +110,15 @@ class StochasticTransparencyPipelineGlTest {
                     pipeline.execute(new GlRenderDevice(), camera(), borrowedTarget(host),
                             1f / 60f);
 
-                    float[] depth = readDepth(depthTexture[0]);
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    float[] depth = readDepth(depthTexture[0], width, height);
                     for (int index = 0; index < depth.length; index++) {
                         assertEquals(0.5f, depth[index], 1.0e-5f,
                                 "stochastic composite wrote shared depth at index " + index);
                     }
                     float[] composited = pipeline.captureLinearHdrRgbaFloat();
-                    int centre = (SIZE / 2 * SIZE + SIZE / 2) * 4;
+                    int centre = ((height / 2) * width + width / 2) * 4;
                     assertEquals(1.0f, composited[centre], 0.02f,
                             "the selected set must still composite over the scene colour");
                 } finally {
@@ -183,18 +187,18 @@ class StochasticTransparencyPipelineGlTest {
                 .build();
     }
 
-    private static float[] readDepth(int texture) {
+    private static float[] readDepth(int texture, int width, int height) {
         int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
-        FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE);
+        FloatBuffer buffer = MemoryUtil.memAllocFloat(width * height);
         try {
             org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
             org.lwjgl.opengl.GL30.glFramebufferTexture2D(GL_FRAMEBUFFER,
                     org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texture, 0);
             org.lwjgl.opengl.GL11.glDrawBuffer(org.lwjgl.opengl.GL11.GL_NONE);
             org.lwjgl.opengl.GL11.glReadBuffer(org.lwjgl.opengl.GL11.GL_NONE);
-            org.lwjgl.opengl.GL11.glReadPixels(0, 0, SIZE, SIZE,
+            org.lwjgl.opengl.GL11.glReadPixels(0, 0, width, height,
                     org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT, GL_FLOAT, buffer);
-            float[] result = new float[SIZE * SIZE];
+            float[] result = new float[width * height];
             buffer.get(result);
             return result;
         } finally {

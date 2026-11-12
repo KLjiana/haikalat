@@ -96,22 +96,33 @@ class VolumetricParticlePipelineGlTest {
                     assertEquals(1, probeRuns.get(),
                             "the particle bridge was not executed by the graph");
 
+                    // The window framebuffer is content-scaled on HiDPI hosts, so the
+                    // graph extent is authoritative for every readback and loop.
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
                     float[] fog = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricPassBuilder.COMPOSITE_COLOR);
                     float[] graphColour = pipeline.graph().readColorAttachmentRgbaFloat(
                             VolumetricParticlePass.COLOR_TEXTURE);
                     float[] passTarget = readColorTexture(
-                            generation.volumetricParticles().colorTexture());
-                    float[] depth = readDepth(depthTexture[0]);
+                            generation.volumetricParticles().colorTexture(), width, height);
+                    float[] depth = readDepth(depthTexture[0], width, height);
+                    assertEquals(width * height * 4, fog.length,
+                            "the fog composite readback must cover the graph extent");
                     assertEquals(fog.length, graphColour.length);
+                    assertEquals(fog.length, passTarget.length,
+                            "the pass target must cover the same graph extent");
 
                     int changed = countDifferences(fog, graphColour);
                     int passChanged = countDifferences(fog, passTarget);
-                    int center = (SIZE / 2 * SIZE + SIZE / 2) * 4;
-                    float depthCenter = depth[SIZE / 2 * SIZE + SIZE / 2];
+                    int center = ((height / 2) * width + width / 2) * 4;
+                    float depthCenter = depth[(height / 2) * width + width / 2];
                     String diagnostic = DIAGNOSTIC
+                            + " extent=" + width + "x" + height
                             + " executions=" + probeRuns.get()
                             + " order=" + order
+                            + " lens=[fog:" + fog.length + ",pass:" + passTarget.length
+                            + ",graph:" + graphColour.length + "]"
                             + " depthCenter=" + depthCenter
                             + " fogCenter=" + value(fog, center)
                             + " passCenter=" + value(passTarget, center)
@@ -131,13 +142,13 @@ class VolumetricParticlePipelineGlTest {
                             "the particle medium must visibly modify the fog-composited HDR colour; "
                                     + diagnostic);
 
-                    int minX = SIZE;
-                    int minY = SIZE;
+                    int minX = width;
+                    int minY = height;
                     int maxX = -1;
                     int maxY = -1;
-                    for (int y = 0; y < SIZE; y++) {
-                        for (int x = 0; x < SIZE; x++) {
-                            int index = (y * SIZE + x) * 4;
+                    for (int y = 0; y < height; y++) {
+                        for (int x = 0; x < width; x++) {
+                            int index = (y * width + x) * 4;
                             if (!samePixel(fog, graphColour, index)) {
                                 minX = Math.min(minX, x);
                                 minY = Math.min(minY, y);
@@ -146,18 +157,18 @@ class VolumetricParticlePipelineGlTest {
                             }
                         }
                     }
-                    assertTrue((maxX - minX + 1) < SIZE * 0.9f
-                                    && (maxY - minY + 1) < SIZE * 0.9f,
+                    assertTrue((maxX - minX + 1) < width * 0.9f
+                                    && (maxY - minY + 1) < height * 0.9f,
                             "the changed region must stay inside the projected body bounds: "
                                     + (maxX - minX + 1) + "x" + (maxY - minY + 1)
                                     + "; " + diagnostic);
 
                     // The outer two-pixel border is outside the projected body; the
                     // pass copies the source there and must leave it byte-identical.
-                    for (int y = 0; y < SIZE; y++) {
-                        for (int x = 0; x < SIZE; x++) {
-                            if (x >= 2 && x < SIZE - 2 && y >= 2 && y < SIZE - 2) continue;
-                            int index = (y * SIZE + x) * 4;
+                    for (int y = 0; y < height; y++) {
+                        for (int x = 0; x < width; x++) {
+                            if (x >= 2 && x < width - 2 && y >= 2 && y < height - 2) continue;
+                            int index = (y * width + x) * 4;
                             for (int component = 0; component < 4; component++) {
                                 assertEquals(Float.floatToIntBits(fog[index + component]),
                                         Float.floatToIntBits(graphColour[index + component]),
@@ -192,7 +203,9 @@ class VolumetricParticlePipelineGlTest {
                             1f / 60f);
 
                     assertTrue(depthTexture[0] > 0, "the shared depth texture must be readable");
-                    float[] depth = readDepth(depthTexture[0]);
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    float[] depth = readDepth(depthTexture[0], width, height);
                     for (int index = 0; index < depth.length; index++) {
                         assertEquals(0.5f, depth[index], 1.0e-5f,
                                 "particle composition wrote shared depth at index " + index);
@@ -280,17 +293,17 @@ class VolumetricParticlePipelineGlTest {
                 .build();
     }
 
-    private static float[] readColorTexture(int texture) {
+    private static float[] readColorTexture(int texture, int width, int height) {
         int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
-        FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE * 4);
+        FloatBuffer buffer = MemoryUtil.memAllocFloat(width * height * 4);
         try {
             org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
             org.lwjgl.opengl.GL30.glFramebufferTexture2D(GL_FRAMEBUFFER,
                     org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
             org.lwjgl.opengl.GL11.glReadBuffer(org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0);
-            org.lwjgl.opengl.GL11.glReadPixels(0, 0, SIZE, SIZE,
+            org.lwjgl.opengl.GL11.glReadPixels(0, 0, width, height,
                     org.lwjgl.opengl.GL11.GL_RGBA, GL_FLOAT, buffer);
-            float[] result = new float[SIZE * SIZE * 4];
+            float[] result = new float[width * height * 4];
             buffer.get(result);
             return result;
         } finally {
@@ -300,18 +313,18 @@ class VolumetricParticlePipelineGlTest {
         }
     }
 
-    private static float[] readDepth(int texture) {
+    private static float[] readDepth(int texture, int width, int height) {
         int framebuffer = org.lwjgl.opengl.GL30.glGenFramebuffers();
-        FloatBuffer buffer = MemoryUtil.memAllocFloat(SIZE * SIZE);
+        FloatBuffer buffer = MemoryUtil.memAllocFloat(width * height);
         try {
             org.lwjgl.opengl.GL30.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
             org.lwjgl.opengl.GL30.glFramebufferTexture2D(GL_FRAMEBUFFER,
                     org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texture, 0);
             org.lwjgl.opengl.GL11.glDrawBuffer(org.lwjgl.opengl.GL11.GL_NONE);
             org.lwjgl.opengl.GL11.glReadBuffer(org.lwjgl.opengl.GL11.GL_NONE);
-            org.lwjgl.opengl.GL11.glReadPixels(0, 0, SIZE, SIZE,
+            org.lwjgl.opengl.GL11.glReadPixels(0, 0, width, height,
                     org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT, GL_FLOAT, buffer);
-            float[] result = new float[SIZE * SIZE];
+            float[] result = new float[width * height];
             buffer.get(result);
             return result;
         } finally {
