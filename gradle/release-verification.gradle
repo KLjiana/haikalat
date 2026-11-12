@@ -304,8 +304,9 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
-        // particle-indirect and VFX sampler policies.
-        assert policies.size() == 64
+        // particle-indirect and VFX sampler policies, and the S6 interaction-matrix
+        // cold-link policy.
+        assert policies.size() == 65
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -707,6 +708,25 @@ tasks.register('releaseVerificationContracts') {
         assert gtaoPixelPolicy.maximum == 12
         assert !policies.any { it.owner == 'render3d/outdoor' }
         assert gtaoPixelPolicy.expiry == LocalDate.of(2027, 2, 20)
+        def s6InteractionMatrixPolicy = policies.find {
+            it.owner == 'render3d/s6-interaction-matrix'
+        }
+        assert s6InteractionMatrixPolicy != null
+        assert s6InteractionMatrixPolicy.id == 131218
+        assert s6InteractionMatrixPolicy.severity == 'MEDIUM'
+        assert s6InteractionMatrixPolicy.source == 'API'
+        assert s6InteractionMatrixPolicy.type == 'PERFORMANCE'
+        assert s6InteractionMatrixPolicy.maximum == 4
+        assert s6InteractionMatrixPolicy.entry == '.*S6InteractionMatrixGlTest.*'
+        assert s6InteractionMatrixPolicy.expiry == LocalDate.of(2027, 5, 13)
+        def s6MatrixDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def s6MatrixMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 21 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage, policies).violations.isEmpty()
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
                 'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
                         + 'OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive', policies)

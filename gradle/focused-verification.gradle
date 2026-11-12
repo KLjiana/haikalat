@@ -186,6 +186,7 @@ def glCases = [
         'VolumetricCompositeGlTest.transparencyBorrowsOnlyColorPrefixAndLeavesOpaqueMaskOwnedByCompositor',
         'VolumetricTemporalGlTest.actualPartialHistoryWriteNeverPublishesOrConsumesSuccessfulJitterAndCamera',
         'RenderFeatureControlGlTest',
+        'S6InteractionMatrixGlTest',
         'GtaoModularityGlTest.failedFeatureRequestIsNotRetriedUntilANewSubmission'
 ]
 def guards = ['assetManifestGuard', 'dependencyLockGuard', 'publicApiGuard',
