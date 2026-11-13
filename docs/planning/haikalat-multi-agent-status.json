@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "79890835"
+    "head": "c4a1b451"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T10:33:54+08:00",
+  "updatedAt": "2026-11-13T11:46:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1731,7 +1731,8 @@
     "closing evidence: focused verification 398d45bf (1331 tests, 0 skipped, 0 failures) at HEAD ecedac8a",
     "second acceptance: focused verification 1a78b471 (1332 tests, 0 skipped, 0 failures) at e7a02dc9; remaining: S6/#6/#8 boundary evidence and the GL jittered SSGI counterexample",
     "second acceptance boundary evidence at ccfa06c0 (based on 4b1f3e62): SsgiTemporalGlTest 9/9, ProjectedDecalGlTest 4/4, ThinTranslucencyGlTest 4/4 real GL PASS, 0 skipped, 0 failures; JVM SsgiTemporalReferenceTest 9/9 plus ProjectedDecalTest 5/5 and ThinTranslucencyShaderTest 4/4; all five guards PASS. GL classes stayed within existing glCases; the only policy change is the ThinTranslucencyGlTest NVIDIA 131218 bound 2 -> 4. Remaining limits: SSGI jitter counterexample uses fixed two-frame jitter and zero velocity; decal alpha-mask/global ordering/MSAA/TAA; thin translucency has no transmission shadow pass and still lacks thickness maps/local-light combinations; performance/human visual NOT_EVALUATED",
-    "second acceptance boundaries: focused verification a524d782 (1342 tests, 0 skipped, 0 failures) at 79890835; S6 remains 7 representative sub-combinations with documented choices"
+    "second acceptance boundaries: focused verification a524d782 (1342 tests, 0 skipped, 0 failures) at 79890835; S6 remains 7 representative sub-combinations with documented choices",
+    "structure review defects: PBR direct/IBL switch fix (GL regression), DDGI/VCT failed-submission invalidation, SSR jittered projection fix; focused verification b5f11ac5 PASS. Remaining structural: water refraction and temporal upscaling not wired into the main path, SSS signal separation, denoise whole-colour signal"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
