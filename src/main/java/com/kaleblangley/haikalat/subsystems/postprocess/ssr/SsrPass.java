@@ -37,8 +37,9 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * of the raster projection (jitter included when TAA is active, because depth
  * was produced with it), {@code inverseView} the inverse view, {@code view} the
  * view matrix used for ray-depth comparisons and {@code viewProjection} the
- * stable (jitter-free) view-projection used to project march samples.  The
- * colour chain never reads a mutable camera.</p>
+ * view-projection consistent with the depth raster (jittered while TAA is
+ * active) used to project march samples.  The colour chain never reads a
+ * mutable camera.</p>
  */
 public final class SsrPass implements GlResource {
     /** Environment cubemap texture unit. */
@@ -106,7 +107,8 @@ public final class SsrPass implements GlResource {
      * @param inverseProjection inverse of the projection the depth was rasterised with
      * @param inverseView      inverse view matrix (view space to world space)
      * @param view             view matrix (world space to view space)
-     * @param viewProjection   stable view-projection used to project march samples
+     * @param viewProjection   view-projection consistent with the raster projection
+     *                         that produced the depth (jittered while TAA is active)
      * @param environment      borrowed environment/IBL reflection source
      */
     public CommandBuffer recordIntoCurrentTarget(CommandBuffer cmd, int colorTexture,

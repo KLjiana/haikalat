@@ -61,6 +61,11 @@ GL 类可以在 integration 包，也可以因包内状态访问需求与生产�
 
 需要像素证据的任务必须确认 readback 实际开启并有断言，不能只检查窗口成功创建。保留独立数值参考、候选事务、历史失效、resize、关闭、宿主借用和已修复故障的必要覆盖；不要复制生产 helper 来计算唯一期望值。
 
+故障注入默认关闭且只能由测试显式设置。真实 GL 提交失败恢复用例使用一次性
+`haikalat.test.failSubmissionAfterPass=<passName>`：`RenderGraph` 在全部 pass 回调录制完成、
+`device.execute` 之前抛出，属性触发后立即清除，因此 GPU 不会看到该帧的任何命令，生产路径
+从不设置。测试必须在 `finally` 恢复原值，并断言失败帧确实没有执行录制命令。
+
 ## 失败与证据
 
 - 限时脚本报告：`build/reports/bounded-verification/<runId>/result.json`，以及该次 stdout/stderr。

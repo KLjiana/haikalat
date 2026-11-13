@@ -1219,16 +1219,20 @@ public final class PostProcessPipeline implements AutoCloseable {
                             "screen-space reflections require a started frame pose");
                 }
                 Matrix4f view = new Matrix4f(frame.inverseView()).invert();
+                // Depth is reconstructed from the jittered raster, so the ray/sample
+                // projection must be the inverse of that same inverse projection
+                // composed with the view. Using the inverse projection alone would
+                // treat world positions as view positions; the stable VP would shift
+                // every projected tap by the jitter.
+                Matrix4f jitteredViewProjection =
+                        new Matrix4f(frame.inverseJitteredProjection()).invert().mul(view);
                 ssr.recordIntoCurrentTarget(cmd,
                         res.colorAttachment(reflectionInput),
                         surfaceInputs.texture(res, ssrDepth),
                         surfaceInputs.texture(res, ssrNormal),
                         surfaceInputs.texture(res, ssrRoughness),
                         frame.inverseJitteredProjection(), frame.inverseView(), view,
-                        // Depth is reconstructed from the jittered raster, so the
-                        // ray projection must use the same jittered matrix; the
-                        // stable VP would shift every projected tap by the jitter.
-                        new Matrix4f(frame.inverseJitteredProjection()).invert(),
+                        jitteredViewProjection,
                         ssrEnvironment,
                         graph.width(), graph.height());
             });

@@ -47,6 +47,15 @@ import static org.lwjgl.opengl.GL45.glGetTextureLevelParameteri;
 public final class RenderGraph implements AutoCloseable {
     private static final GpuTimer.Sample PENDING_GPU_SAMPLE =
             new GpuTimer.Sample(GpuTimer.Status.PENDING, 0L, -1L, 0L, 0L);
+    /**
+     * Test-only, one-shot submission fault. The value names a pass; when the
+     * next graph records that pass, execution throws after every pass callback
+     * has returned but before {@code device.execute}, so the tentative state
+     * published while recording reached no GPU command. The property is
+     * cleared when it fires, and production code never sets it.
+     */
+    private static final String TEST_SUBMISSION_FAILURE_PROPERTY =
+            "haikalat.test.failSubmissionAfterPass";
     private final List<Pass> passes = new ArrayList<>();
     private final Map<String, Pass> passByName = new HashMap<>();
     // Logical diagnostics/dependencies only. The graph never owns or closes this storage.
@@ -580,6 +589,13 @@ public final class RenderGraph implements AutoCloseable {
             lastRecordedObjectPayloads = cmd.recordedObjectPayloadCount();
             lastGraphRecordNanos = System.nanoTime() - graphRecordStart;
             graphRecordCompleted = true;
+            String failAfterPass = System.getProperty(TEST_SUBMISSION_FAILURE_PROPERTY);
+            if (failAfterPass != null && sortedPasses.stream()
+                    .anyMatch(pass -> pass.name.equals(failAfterPass))) {
+                System.clearProperty(TEST_SUBMISSION_FAILURE_PROPERTY);
+                throw new IllegalStateException(
+                        "injected graph submission failure after recording " + failAfterPass);
+            }
             long deviceSubmitStart = System.nanoTime();
             deviceSubmitStarted = true;
             try {
