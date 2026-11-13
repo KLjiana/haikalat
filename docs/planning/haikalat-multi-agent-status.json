@@ -301,13 +301,15 @@
         "focused verification dfb658b6 at HEAD 37ab4f9e: ProjectedDecalGlTest 1/1 real GL PASS, 0 skipped, 0 failures",
         "independent review APPROVE_WITH_SCOPE: projection math/plan/settings sound; far-face culling was inverted (CW kept the near face) and is fixed to CCW with an inside-camera GL case; alpha-mask/back-face coverage, per-baseline probes, colour-only target contract and prepare bounding remain scope notes",
         "per-feature matrix 20261112-165030: #6 JVM 5/6 + GL 1/1 PASS",
-        "final per-feature matrix 20261113-021232: #6 JVM 5/6 + GL 1/1 PASS"
+        "final per-feature matrix 20261113-021232: #6 JVM 5/6 + GL 1/1 PASS",
+        "second acceptance ccfa06c0 (based on 4b1f3e62): ProjectedDecalGlTest 4/4 real GL PASS, 0 skipped, 0 failures - thin-wall back face rejects byte-exactly with receiveBackFaces=false and accepts with true; moving/resize baselines probe receiver depth+colour and background depth=1/clear colour; transparent-queue overlay composites over the decal with an independent 0.5/0.5 blend check and both passes leave scene depth bit-identical",
+        "second acceptance guards: publicApiGuard architectureGuard assetManifestGuard releaseVerificationContracts focusedVerificationContracts BUILD SUCCESSFUL; no new GL class and no production shader change"
       ],
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "bounded decal plan; performance/human visual not evaluated",
+      "nextAction": "bounded decal plan; alpha-mask pixel coverage, global transparent ordering, MSAA/TAA, shadow rejection and performance/human visual remain unsupported or NOT_EVALUATED",
       "review": "APPROVE_WITH_SCOPE"
     },
     {
@@ -362,14 +364,17 @@
         "root cause of the earlier zero readback was the fixture: Windows clamps a 32px-wide hidden window to a wider client area (152x32), so the hard-coded (16,16) probe missed the centred quad; fixture now sizes 200x140 and reads window.width()/2, window.height()/2",
         "independent review APPROVE_WITH_SCOPE: ranges/7-arg compatibility/both upload sites/centre probe correct; thickness>0, local lights, back-face view, MASK/shadow and instance-override NaN hardening remain scope notes",
         "per-feature matrix 20261112-165030: #8 JVM 32/33 + GL 1/1 PASS",
-        "final per-feature matrix 20261113-021232: #8 JVM 32/33 + GL 1/1 PASS"
+        "final per-feature matrix 20261113-021232: #8 JVM 32/33 + GL 1/1 PASS",
+        "second acceptance ccfa06c0 (based on 4b1f3e62): ThinTranslucencyGlTest 4/4 real GL PASS, 0 skipped, 0 failures - MASK alpha-cutout discards below-cutoff texels to background and keeps thin transmission on opaque texels; back-face camera still transmits; front-lit result unchanged within 2/255; side-lit back<=0 returns exactly zero; thickness 1 vs 0 absorption ratio <0.5 and the oblique ratio is <0.9x the on-axis ratio; cascade shadow attenuates the thin receiver by the same single visibility factor measured by a mirrored direct-light setup (|thinRatio-visibility|<=0.1)",
+        "second acceptance policy: config/gl-debug-policy.tsv ThinTranslucencyGlTest NVIDIA 131218 row bound 2 -> 4 because four GL cases cold-link a pipeline each; only the performance warning is exempted, correctness/pixel/GL-error assertions stay active",
+        "second acceptance guards: publicApiGuard architectureGuard assetManifestGuard releaseVerificationContracts focusedVerificationContracts BUILD SUCCESSFUL; no new GL class and no production shader change"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "bounded artistic thin transmission; performance/human visual not evaluated"
+      "nextAction": "bounded artistic thin transmission; no transmission shadow pass (self-shadow limitation stands); thickness maps, screen-space refraction, glTF KHR transmission import, local-light/MASK combinations and performance/human visual remain unsupported or NOT_EVALUATED"
     },
     {
       "taskId": "R09",
@@ -1380,14 +1385,16 @@
         "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending",
         "independent review APPROVE_WITH_SCOPE: reprojection sign, rejection ordering, lifecycle and disabled path verified; the uninitialized-slot commit hazard and the non-finite previous-depth gap are fixed at 2818d312, camera-cut expectation corrected, canonical 12-to-17 reflection break documented",
         "final per-feature matrix 20261113-021232: #39 JVM 46/62 + GL 8/8 PASS",
-        "second acceptance fix 043e36bb: SSGI temporal reprojection removes current TAA jitter and re-applies previous jitter (TemporalInputs carries jitter); JVM shader contract updated; GL jittered counterexample still pending"
+        "second acceptance fix 043e36bb: SSGI temporal reprojection removes current TAA jitter and re-applies previous jitter (TemporalInputs carries jitter); JVM shader contract updated; GL jittered counterexample still pending",
+        "second acceptance ccfa06c0 (based on 4b1f3e62): GL jittered counterexample implemented - SsgiTemporalGlTest 9/9 real GL PASS, 0 skipped, 0 failures (7 previous + 2 new); SsgiTemporalReferenceTest 9/9 JVM PASS. Patterned receiver albedo reads x+/-1 under +0.5/-0.5 alternating jitter; frames 1/2/5/7 match the independent jitter-aware recurrence (tol 0.02) and the final frame differs from the missing-jitter and flipped-sign predictions by >0.03. JVM 3-period signal gives contract 0.8333 vs missing 1.0 vs flipped 0.6667 at frame 2. Jittered reveal rejects the stale 6 m history (>0.1 from ghost), nonzero-jitter camera cut resets acceptedFrames to 1, zero-blend output stays byte-identical, and a 64-frame smooth control converges within 0.02 (last-8 vs previous-8) and within 0.1 of the zero-jitter run",
+        "second acceptance guards: publicApiGuard architectureGuard assetManifestGuard releaseVerificationContracts focusedVerificationContracts BUILD SUCCESSFUL; no new GL class and no production shader change"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "scope: advanced/default-off, no demo enablement or end-to-end RenderPipeline GL frame; nonzero-velocity reprojection and validity/raster/budget rejection are reference+text only; empty-neighbourhood clamp skip can retain stale history on thin receivers; albedo-zero parity not preserved; performance/memory NOT_EVALUATED"
+      "nextAction": "scope: advanced/default-off, no demo enablement or end-to-end RenderPipeline GL frame; the jitter counterexample uses a fixed two-frame alternating jitter and zero velocity (nonzero velocity + jitter is not jointly pixel-tested); missing/flipped variants are test-side predictions rather than shader rollbacks; validity/raster/budget rejection is reference+text; empty-neighbourhood clamp skip can retain stale history on thin receivers; albedo-zero parity not preserved; performance/memory NOT_EVALUATED"
     },
     {
       "taskId": "R40",
@@ -1719,7 +1726,8 @@
     "v0.28.1 progress 2026-11-12 (later): #32/#33 SSS, #34 denoise, #37 stochastic transparency and #38 volumetric particles are integrated with JVM and serialized GL evidence; JVM verify runId 8919c370 PASS. RenderPipeline consumption for #28 OIT, #30 planar, #36 caustics, #37 stochastic, #38 particles and feature-control exposure for #32/#34/#35 remains an explicit wiring gap. Independent reviews for #32/#33, #34, #37, #38 are in flight.",
     "final candidate: focused verification c80d3ff6 (1331 tests, 0 skipped, 0 failures) and per-feature matrix 20261113-021232 (JVM 962 + GL 243, 0 GL skipped) at HEAD cab6c01b",
     "closing evidence: focused verification 398d45bf (1331 tests, 0 skipped, 0 failures) at HEAD ecedac8a",
-    "second acceptance: focused verification 1a78b471 (1332 tests, 0 skipped, 0 failures) at e7a02dc9; remaining: S6/#6/#8 boundary evidence and the GL jittered SSGI counterexample"
+    "second acceptance: focused verification 1a78b471 (1332 tests, 0 skipped, 0 failures) at e7a02dc9; remaining: S6/#6/#8 boundary evidence and the GL jittered SSGI counterexample",
+    "second acceptance boundary evidence at ccfa06c0 (based on 4b1f3e62): SsgiTemporalGlTest 9/9, ProjectedDecalGlTest 4/4, ThinTranslucencyGlTest 4/4 real GL PASS, 0 skipped, 0 failures; JVM SsgiTemporalReferenceTest 9/9 plus ProjectedDecalTest 5/5 and ThinTranslucencyShaderTest 4/4; all five guards PASS. GL classes stayed within existing glCases; the only policy change is the ThinTranslucencyGlTest NVIDIA 131218 bound 2 -> 4. Remaining limits: SSGI jitter counterexample uses fixed two-frame jitter and zero velocity; decal alpha-mask/global ordering/MSAA/TAA; thin translucency has no transmission shadow pass and still lacks thickness maps/local-light combinations; performance/human visual NOT_EVALUATED"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
