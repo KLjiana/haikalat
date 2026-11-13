@@ -215,7 +215,20 @@ class ScreenSpaceContactShadowsGlTest {
                         assertEquals(0, brighter,
                                 "the contact-shadow composite may only attenuate colour");
 
-                        submit(pipeline, disabled);
+                        submit(pipeline, disabled, false);
+                        pipeline.execute(device, 1.0f / 60.0f);
+                        float[] unlitBaseline = pipeline.captureLinearHdrRgbaFloat();
+                        submit(pipeline, enabled, false);
+                        pipeline.execute(device, 1.0f / 60.0f);
+                        assertFalse(pipeline.graph().hasPass(
+                                        ScreenSpaceContactShadowPass.PASS_NAME),
+                                "contact shadows attenuate direct light, so the pass must be "
+                                        + "absent while direct lighting is disabled");
+                        assertArrayEquals(unlitBaseline,
+                                pipeline.captureLinearHdrRgbaFloat(), 0.0f,
+                                "an unlit receiver must not be darkened by contact shadows");
+
+                        submit(pipeline, disabled, true);
                         pipeline.execute(device, 1.0f / 60.0f);
                         assertFalse(pipeline.graph().hasPass(
                                         ScreenSpaceContactShadowPass.PASS_NAME),
@@ -260,8 +273,14 @@ class ScreenSpaceContactShadowsGlTest {
     }
 
     private static void submit(RenderPipeline pipeline, ShadowSettings settings) {
+        submit(pipeline, settings, true);
+    }
+
+    private static void submit(RenderPipeline pipeline, ShadowSettings settings,
+                               boolean directLighting) {
         pipeline.features().submit(pipeline.features().effective().toBuilder()
                 .directionalShadowMap(new DirectionalShadowMap(settings))
+                .directLighting(directLighting)
                 .build());
     }
 

@@ -406,6 +406,40 @@ class RenderPipelineWiringB3GlTest {
         }
     }
 
+    @Test
+    void featureRequestEnablingHairInvalidatesTheStaticShadowCache() {
+        try (var window = window(SHADOW_WIDTH, SHADOW_HEIGHT)) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (var fixture = shadowFixture(window)) {
+                    RenderPipeline pipeline = fixture.pipeline();
+                    pipeline.build();
+                    execute(pipeline);
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    assertEquals(0, countShadowPixels(pipeline.captureLinearHdrRgbaFloat(),
+                                    width, height),
+                            "the receiver must be fully lit before the hair request");
+
+                    pipeline.hairStrandModel(hairModel(0.0f));
+                    pipeline.features().submit(pipeline.features().effective().toBuilder()
+                            .hairStrands(hairWithShadow()).build());
+                    execute(pipeline);
+                    Render3dDiagnostics.ShadowSummary first =
+                            pipeline.lastRender3dDiagnostics().shadows();
+                    assertEquals(1, first.tilesRendered(),
+                            "a hair enable through features().submit must invalidate the "
+                                    + "borrowed static shadow cache");
+                    assertTrue(countShadowPixels(pipeline.captureLinearHdrRgbaFloat(), width, height)
+                                    >= MINIMUM_SHADOW_PIXELS,
+                            "the requested hair lock must darken receiver pixels");
+                }
+            }
+            GlDebug.assertNoError("feature-request hair shadow invalidation");
+        }
+    }
+
     private static void execute(RenderPipeline pipeline) {
         pipeline.execute(new GlRenderDevice(), 1.0f / 60.0f);
         GlDebug.assertNoError("pipeline feature frame");

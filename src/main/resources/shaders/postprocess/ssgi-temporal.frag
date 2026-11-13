@@ -51,6 +51,8 @@ uniform vec2 uViewportSize;
 uniform mat4 uInverseProjection;
 uniform int uHistoryValid;
 uniform float uHistoryWeight;
+uniform vec2 uCurrentJitter;
+uniform vec2 uPreviousJitter;
 uniform float uDepthRejection;
 uniform float uNormalRejection;
 uniform float uVelocityRejection;
@@ -124,7 +126,7 @@ void main() {
                 && all(lessThan(abs(velocity), vec2(SSGI_TEMPORAL_MAX_VELOCITY)));
         if (velocityFinite && expectedPreviousDepth > 0.0
                 && expectedPreviousDepth < 1.0e12) {
-            vec2 previousUv = uv + velocity;
+            vec2 previousUv = uv + velocity - uCurrentJitter + uPreviousJitter;
             bool insideRaster = all(greaterThanEqual(previousUv, vec2(0.0)))
                     && all(lessThanEqual(previousUv, vec2(1.0)));
             float reprojectionPixels = length((previousUv - uv) * uViewportSize);

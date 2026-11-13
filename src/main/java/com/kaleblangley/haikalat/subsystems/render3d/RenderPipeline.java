@@ -74,6 +74,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingD
 import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingPassBuilder;
 import com.kaleblangley.haikalat.subsystems.render3d.lighting.ClusteredLightingResources;
 import com.kaleblangley.haikalat.subsystems.render3d.FrameLightTable;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalCascadePlan;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas;
@@ -2225,7 +2226,7 @@ public final class RenderPipeline {
                 weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
                 causticsSettings,
                 ddgiSettings, vctSettings, hairStrandSettings,
-                directionalShadowMap.settings().contactShadows());
+                effectiveContactShadowSettings());
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -2543,7 +2544,7 @@ public final class RenderPipeline {
             candidate.assemblePlanarReflection(planarReflectionSettings, reusable);
             candidate.assembleCaustics(causticsSettings, reusable);
             candidate.assembleScreenSpaceContactShadows(
-                    directionalShadowMap.settings().contactShadows(), reusable);
+                    effectiveContactShadowSettings(), reusable);
             candidate.assembleDdgi(ddgiSettings, reusable);
             candidate.assembleVct(vctSettings, reusable);
             candidate.assembleHairStrands(hairStrandSettings, reusable);
@@ -3828,6 +3829,22 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.hairStrands(), next.hairStrands());
     }
 
+    /**
+     * Contact shadows attenuate direct light, so the screen-space pass must be
+     * absent whenever direct lighting (or the feature master) is disabled.
+     * Otherwise it would darken unlit receivers and change the unlit baseline.
+     */
+    private ContactShadowSettings effectiveContactShadowSettings() {
+        return featureMasterEnabled && directLightingEnabled
+                ? directionalShadowMap.settings().contactShadows()
+                : ContactShadowSettings.disabled();
+    }
+
+    private static boolean hairShadowParticipation(RenderFeatureSettings settings) {
+        HairStrandSettings hair = settings.hairStrands();
+        return hair.active() && hair.castsShadow();
+    }
+
     private void applyPendingFeatureRequest() {
         RenderFeatureSettings requested = features.requested();
         long revision = features.requestedRevision();
@@ -3853,6 +3870,12 @@ public final class RenderPipeline {
                 PipelineGeneration candidate = createGeneration(scene, topology, current);
                 synchronizeOutdoorSun(scene);
                 activateGeneration(candidate);
+                // The feature-request path rebuilds the generation and may
+                // borrow the previous static shadow cache; a changed hair
+                // caster must not keep the old shadow tiles.
+                if (hairShadowParticipation(previous) != hairShadowParticipation(effective)) {
+                    candidate.shadowCache().invalidateAll();
+                }
             } catch (RuntimeException failure) {
                 if (activeGeneration != current) {
                     // The candidate became active before retirement failed. The

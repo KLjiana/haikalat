@@ -213,6 +213,8 @@ class SsgiShaderTest {
                 "uniform mat4 uInverseProjection;",
                 "uniform int uHistoryValid;",
                 "uniform float uHistoryWeight;",
+                "uniform vec2 uCurrentJitter;",
+                "uniform vec2 uPreviousJitter;",
                 "uniform float uDepthRejection;",
                 "uniform float uNormalRejection;",
                 "uniform float uVelocityRejection;"}) {
@@ -221,7 +223,9 @@ class SsgiShaderTest {
         assertTrue(source.contains(
                         "if (uHistoryValid != 0 && uHistoryWeight > 0.0 && validity >= 0.5) {"),
                 "history must only be read after validity and the first-sample weight accept it");
-        assertTrue(source.contains("vec2 previousUv = uv + velocity;"));
+        assertTrue(source.contains(
+                        "vec2 previousUv = uv + velocity - uCurrentJitter + uPreviousJitter;"),
+                "TAA jitter must be removed from the current raster and re-applied to the previous one");
         assertTrue(source.contains("length((previousUv - uv) * uViewportSize)"));
         assertTrue(source.contains("<= uVelocityRejection"));
         assertTrue(source.contains("abs(state.r - expectedPreviousDepth) > tolerance"));
@@ -252,8 +256,8 @@ class SsgiShaderTest {
         assertEquals(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal", "uVelocity",
                         "uPreviousDepth", "uValidity", "uHistoryColor", "uHistoryState",
                         "uViewportSize", "uInverseProjection", "uHistoryValid",
-                        "uHistoryWeight", "uDepthRejection", "uNormalRejection",
-                        "uVelocityRejection"),
+                        "uHistoryWeight", "uCurrentJitter", "uPreviousJitter", "uDepthRejection",
+                        "uNormalRejection", "uVelocityRejection"),
                 declared,
                 "the temporal shader uniform set must match the pass upload set");
     }

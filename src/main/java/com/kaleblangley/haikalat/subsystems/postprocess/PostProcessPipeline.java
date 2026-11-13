@@ -1125,7 +1125,9 @@ public final class PostProcessPipeline implements AutoCloseable {
                             surfaceInputs.texture(res, giPreviousDepth),
                             surfaceInputs.texture(res, giValidity),
                             frame.inverseJitteredProjection(), projection, view,
-                            ssgiEnvironment, graph.width(), graph.height()));
+                            ssgiEnvironment, graph.width(), graph.height(),
+                            frame.jitterUvX(),
+                            frame.jitterUvY()));
                 } else {
                     ssgi.recordIntoCurrentTarget(cmd,
                             res.colorAttachment(indirectInput),

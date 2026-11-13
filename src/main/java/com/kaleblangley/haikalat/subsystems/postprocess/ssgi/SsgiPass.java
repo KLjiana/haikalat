@@ -84,6 +84,10 @@ public final class SsgiPass implements GlResource {
     private Matrix4f previousInverseProjection;
     private Matrix4f pendingInverseView;
     private boolean temporalRecorded;
+    private float pendingJitterU;
+    private float pendingJitterV;
+    private float previousJitterU;
+    private float previousJitterV;
     private Matrix4f pendingInverseProjection;
     private int rotationIndex;
     private boolean closed;
@@ -279,6 +283,11 @@ public final class SsgiPass implements GlResource {
                         inputs.inverseProjection())
                 .setUniformInt(temporalProgram, "uHistoryValid", historyValid)
                 .setUniformFloat(temporalProgram, "uHistoryWeight", historyWeight)
+                .setUniformVec2(temporalProgram, "uCurrentJitter",
+                        inputs.jitterUvX(), inputs.jitterUvY())
+                .setUniformVec2(temporalProgram, "uPreviousJitter",
+                        historyValid != 0 ? previousJitterU : inputs.jitterUvX(),
+                        historyValid != 0 ? previousJitterV : inputs.jitterUvY())
                 .setUniformFloat(temporalProgram, "uDepthRejection",
                         settings.temporalDepthRejection())
                 .setUniformFloat(temporalProgram, "uNormalRejection",
@@ -291,6 +300,8 @@ public final class SsgiPass implements GlResource {
 
         pendingInverseView = inverseView;
         pendingInverseProjection = new Matrix4f(inputs.inverseProjection());
+        pendingJitterU = inputs.jitterUvX();
+        pendingJitterV = inputs.jitterUvY();
         temporalRecorded = true;
         return cmd;
     }
@@ -311,6 +322,8 @@ public final class SsgiPass implements GlResource {
         if (pendingInverseView != null && pendingInverseProjection != null) {
             previousInverseView = pendingInverseView;
             previousInverseProjection = pendingInverseProjection;
+            previousJitterU = pendingJitterU;
+            previousJitterV = pendingJitterV;
         }
         pendingInverseView = null;
         pendingInverseProjection = null;
@@ -685,8 +698,20 @@ public final class SsgiPass implements GlResource {
             Matrix4f view,
             SsgiEnvironmentSource environment,
             int width,
-            int height
+            int height,
+            float jitterUvX,
+            float jitterUvY
     ) {
+        /** Source-compatible constructor for callers without TAA jitter. */
+        public TemporalInputs(
+                int colorTexture, int depthTexture, int normalTexture, int roughnessTexture,
+                int albedoTexture, int velocityTexture, int previousDepthTexture,
+                int validityTexture, Matrix4f inverseProjection, Matrix4f projection,
+                Matrix4f view, SsgiEnvironmentSource environment, int width, int height) {
+            this(colorTexture, depthTexture, normalTexture, roughnessTexture, albedoTexture,
+                    velocityTexture, previousDepthTexture, validityTexture, inverseProjection,
+                    projection, view, environment, width, height, 0.0f, 0.0f);
+        }
         public TemporalInputs {
             if (colorTexture <= 0 || depthTexture <= 0 || normalTexture <= 0
                     || roughnessTexture <= 0 || albedoTexture <= 0) {
