@@ -14,6 +14,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSetti
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import java.util.Objects;
@@ -66,7 +67,8 @@ public record RenderFeatureSettings(
         CausticsSettings caustics,
         DdgiSettings ddgi,
         VctSettings vct,
-        HairStrandSettings hairStrands) {
+        HairStrandSettings hairStrands,
+        WaterRefractionSettings waterRefraction) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -88,6 +90,7 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(ddgi, "ddgi");
         Objects.requireNonNull(vct, "vct");
         Objects.requireNonNull(hairStrands, "hairStrands");
+        Objects.requireNonNull(waterRefraction, "waterRefraction");
     }
 
     /**
@@ -122,7 +125,7 @@ public record RenderFeatureSettings(
                 SmokeRenderSettings.disabled(), WeightedOitSettings.disabled(),
                 PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
                 DdgiSettings.disabled(), VctSettings.disabled(),
-                HairStrandSettings.disabled());
+                HairStrandSettings.disabled(), WaterRefractionSettings.disabled());
     }
 
     public static RenderFeatureSettings defaults() {
@@ -158,7 +161,8 @@ public record RenderFeatureSettings(
                 .caustics(caustics)
                 .ddgi(ddgi)
                 .vct(vct)
-                .hairStrands(hairStrands);
+                .hairStrands(hairStrands)
+                .waterRefraction(waterRefraction);
     }
 
     public static Builder builder() {
@@ -197,6 +201,8 @@ public record RenderFeatureSettings(
         private DdgiSettings ddgi = DdgiSettings.disabled();
         private VctSettings vct = VctSettings.disabled();
         private HairStrandSettings hairStrands = HairStrandSettings.disabled();
+        private WaterRefractionSettings waterRefraction =
+                WaterRefractionSettings.disabled();
 
         private Builder() {
         }
@@ -341,6 +347,11 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder waterRefraction(WaterRefractionSettings value) {
+            waterRefraction = Objects.requireNonNull(value, "waterRefraction");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
@@ -348,7 +359,7 @@ public record RenderFeatureSettings(
                     directionalCascades, localShadows, clusteredLighting, waterSurface,
                     volumetricParticles, stochasticTransparency, volumetricClouds,
                     smokeSimulation, smokeRender, weightedOit, planarReflections, caustics,
-                    ddgi, vct, hairStrands);
+                    ddgi, vct, hairStrands, waterRefraction);
         }
     }
 }

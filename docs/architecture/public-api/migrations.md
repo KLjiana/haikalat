@@ -281,8 +281,13 @@ v0.28.1（候选）S3 #11 屏幕空间水面折射没有删除 stable 类型，�
 `recordBackgroundCopy(...)`，以及 `WaterSurfacePass.REFRACTION_BACKGROUND_PASS` 提供的受控背景颜色拷贝。
 `WaterSurfaceSettings` 与旧 `record`/构造函数保持不变；`enabled=false` 时水面 shader 源与 #14 基线逐字节一致，
 GL baseline 用例逐分量对照。首版是屏幕空间近似：无真实水下体积/色散/多层水体/焦散，前景拒绝仅用共享不透明深度，
-折射位移不受 shore alpha 门控；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。RenderPipeline 的
-`WaterRefractionSettings` 字段与 companion pass 接线由 Integrator 完成。算法、限制与验证状态见
+折射位移不受 shore alpha 门控；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。本分支补齐 RenderPipeline
+生产接线：`RenderPipeline` 新增 `waterRefraction(...)`/`waterRefraction()`/`applyWaterRefraction(...)`，
+`PipelineTopology` 末尾追加 internal `waterRefraction` 组件并保留旧参数列表的 `capture(...)`/构造器，
+`RenderFeatureSettings` 末尾追加 `waterRefraction`（默认 `disabled()`，builder/`toBuilder()`/访问器源码兼容），
+`RenderFeature` 追加 `WATER_REFRACTION`。启用时图顺序为
+`scene colour producer → WaterSurfaceRefractionCopy → WaterSurfacePass → HDR 链`；关闭时无 companion pass、
+无额外附件/绘制，主视图与 #11 前逐字节一致。算法、限制与验证状态见
 [技术卡](../../planning/v0.28.1-s3-water-refraction.md)。
 
 v0.28.1（候选）S4 #34/#35 没有删除 stable 类型或修改稳定签名。advanced `PostProcessSettings` 的
@@ -295,7 +300,13 @@ canonical record 由 10 个组件扩展为 11 个（S4 #34 新增 `temporalDenoi
 pass-owned external target 发布颜色：`PostProcessPipeline` 在装配期拒绝 `Bloom` 与
 `ExposureMode.AUTO`（external-target producer 没有 managed colour/luminance source），
 temporal upscaling 还拒绝全分辨率 surface consumer、late reactive producer、非 HDR 和 TAA/MSAA。
-这些是首版 fail-closed 限制，不是静默回退。技术范围、限制与 GL 证据见
+这些是首版 fail-closed 限制，不是静默回退。本分支补齐主 RenderPipeline 入口：新增
+`RenderPipeline.temporalUpscalingSource(...)`/`temporalUpscalingSource()`、
+`applyTemporalUpscalingSource(...)` 与 `clearTemporalUpscalingSource()`；source 是 generation-stable 的借用
+描述，启用时初始/替换代均传给 `PipelineGeneration.assemblePostProcess`/`PostProcessPipeline`，原地 resize
+改为构建替换代并重新绑定同一 source。缺少 source 时统一特性控制把 `TEMPORAL_UPSCALING` 报为
+`UNAVAILABLE` 并从 effective 快照移除（不产生裸抛），直接 `postProcessSettings(...)` 兼容路径在候选准备前
+以明确消息拒绝。技术范围、限制与 GL 证据见
 [时域放大技术卡](../../planning/v0.28.1-s4-temporal-upscaling.md)与
 [时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)。
 

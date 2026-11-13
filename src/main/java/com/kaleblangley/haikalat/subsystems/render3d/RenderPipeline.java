@@ -61,6 +61,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
@@ -127,6 +128,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRendere
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource;
 import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
@@ -354,6 +356,9 @@ public final class RenderPipeline {
             PlanarReflectionSettings.disabled();
     private CausticsSettings causticsSettings = CausticsSettings.disabled();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
+    private WaterRefractionSettings waterRefractionSettings = WaterRefractionSettings.disabled();
+    /** Borrowed low-resolution colour/depth source bound to the assembled colour chain. */
+    private TemporalUpscalingSource temporalUpscalingSource;
     private DdgiSettings ddgiSettings = DdgiSettings.disabled();
     private VctSettings vctSettings = VctSettings.disabled();
     private HairStrandSettings hairStrandSettings = HairStrandSettings.disabled();
@@ -521,6 +526,100 @@ public final class RenderPipeline {
         }
         postProcessSettings = Objects.requireNonNull(value, "postProcessSettings");
         return this;
+    }
+
+    /**
+     * Stages the borrowed low-resolution colour/depth source used by temporal
+     * upscaling before the first generation is built.
+     *
+     * <p>The source is generation-stable: its texture names and low-resolution
+     * extent are imported once per assembled colour chain.  A reallocated
+     * source must therefore be applied at a frame boundary with
+     * {@link #applyTemporalUpscalingSource(TemporalUpscalingSource)}, which
+     * builds a replacement generation.  The host keeps ownership of every
+     * texture; this pipeline only samples them.</p>
+     */
+    public RenderPipeline temporalUpscalingSource(TemporalUpscalingSource value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyTemporalUpscalingSource after build");
+        }
+        temporalUpscalingSource = value;
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current staged temporal-upscaling source, or {@code null} when absent. */
+    public TemporalUpscalingSource temporalUpscalingSource() {
+        return temporalUpscalingSource;
+    }
+
+    /**
+     * Rebinds the temporal-upscaling source at a synchronous render-owner frame
+     * boundary.
+     *
+     * <p>A source may only be cleared while temporal upscaling is inactive;
+     * clearing it while active would leave the colour chain without its
+     * required reduced-resolution input.  A non-null source while the feature
+     * is inactive is staged but not imported, so enabling the feature later can
+     * use it without rebuilding twice.</p>
+     */
+    public void applyTemporalUpscalingSource(TemporalUpscalingSource value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyTemporalUpscalingSourceInternal(value);
+            }
+        } else {
+            applyTemporalUpscalingSourceInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    /** Clears the staged temporal-upscaling source at a frame boundary. */
+    public void clearTemporalUpscalingSource() {
+        applyTemporalUpscalingSource(null);
+    }
+
+    private void applyTemporalUpscalingSourceInternal(TemporalUpscalingSource value) {
+        if (executing) {
+            throw new IllegalStateException(
+                    "temporal upscaling source changes are only allowed at frame boundaries");
+        }
+        boolean active = postProcessSettings.temporalUpscaling().active();
+        if (value == null && active) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires a low-resolution colour/depth source; "
+                            + "disable temporal upscaling before clearing its source");
+        }
+        if (Objects.equals(value, temporalUpscalingSource)) return;
+        if (active && value != null) {
+            value.validateAgainst(postProcessSettings.temporalUpscaling(),
+                    activeGeneration == null ? Integer.MAX_VALUE : activeGeneration.graph().width(),
+                    activeGeneration == null ? Integer.MAX_VALUE : activeGeneration.graph().height());
+        }
+        if (activeGeneration == null) {
+            temporalUpscalingSource = value;
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+            return;
+        }
+        TemporalUpscalingSource previous = temporalUpscalingSource;
+        PipelineGeneration previousGeneration = activeGeneration;
+        temporalUpscalingSource = value;
+        try {
+            if (active) {
+                PipelineTopology topology = captureTopology(scene,
+                        activeGeneration.graph().width(), activeGeneration.graph().height(),
+                        volumetricParticleSettings, stochasticTransparencySettings);
+                activateGeneration(createGeneration(scene, topology, activeGeneration));
+            }
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                temporalUpscalingSource = previous;
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -1337,6 +1436,16 @@ public final class RenderPipeline {
                         "caustics require an active finite water surface");
             }
         }
+        if (waterRefractionSettings.active()) {
+            validateWaterRefractionComposition(scene, waterRefractionSettings);
+        }
+        if (postProcessSettings.temporalUpscaling().active()
+                && temporalUpscalingSource == null) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires a low-resolution colour/depth source; "
+                            + "call temporalUpscalingSource(...) before build or enable the "
+                            + "feature through the unified feature request");
+        }
     }
 
     private void validateTransparentSetClaims(WeightedOitSettings oit,
@@ -1723,6 +1832,10 @@ public final class RenderPipeline {
             throw new IllegalArgumentException(
                     "caustics require an active finite water surface");
         }
+        if (!replacement.active() && waterRefractionSettings.active()) {
+            throw new IllegalArgumentException(
+                    "water refraction requires an active finite water surface");
+        }
         if (activeGeneration == null) { waterSurface(replacement); return; }
         WaterSurfaceSettings previous = waterSurfaceSettings;
         PipelineGeneration previousGeneration = activeGeneration;
@@ -1738,6 +1851,118 @@ public final class RenderPipeline {
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) waterSurfaceSettings = previous;
             throw failure;
+        }
+    }
+
+    /**
+     * Configures the bounded screen-space water refraction before the first
+     * generation is built.
+     *
+     * <p>{@link WaterRefractionSettings#disabled()} is the exact
+     * pre-refraction path: no companion copy pass, no extra attachment and no
+     * extra water draw.  An active request requires the finite water surface and
+     * HDR tone mapping; the dependency is re-checked before every candidate
+     * preparation so an invalid combination never allocates a generation.</p>
+     */
+    public RenderPipeline waterRefraction(WaterRefractionSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyWaterRefraction after build");
+        }
+        WaterRefractionSettings replacement =
+                Objects.requireNonNull(value, "waterRefraction");
+        if (replacement.active() && !settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "water refraction requires HDR tone mapping");
+        }
+        if (waterRefractionSettings.active() != replacement.active()) {
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        }
+        waterRefractionSettings = replacement;
+        return this;
+    }
+
+    /** Current finite-water refraction configuration; does not expose GPU resources. */
+    public WaterRefractionSettings waterRefraction() {
+        return waterRefractionSettings;
+    }
+
+    /**
+     * Publishes a water-refraction change at a synchronous render-owner frame
+     * boundary.
+     *
+     * <p>Scalar changes are read by the water executor every frame and only
+     * update the value.  Enabling or disabling refraction changes the graph
+     * (companion copy pass and the water shader variant), so a complete
+     * candidate generation replaces the active one; a failure keeps both the
+     * previous generation and settings.</p>
+     */
+    public void applyWaterRefraction(WaterRefractionSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyWaterRefractionInternal(value);
+            }
+        } else {
+            applyWaterRefractionInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyWaterRefractionInternal(WaterRefractionSettings value) {
+        WaterRefractionSettings replacement =
+                Objects.requireNonNull(value, "waterRefraction");
+        if (executing) {
+            throw new IllegalStateException(
+                    "water refraction changes are only allowed at frame boundaries");
+        }
+        validateWaterRefractionComposition(scene, replacement);
+        if (replacement.equals(waterRefractionSettings)) return;
+        if (activeGeneration == null) {
+            waterRefraction(replacement);
+            return;
+        }
+        boolean supportChanged = waterRefractionSettings.active() != replacement.active();
+        WaterRefractionSettings previous = waterRefractionSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        waterRefractionSettings = replacement;
+        try {
+            if (supportChanged) {
+                PipelineTopology topology = captureTopology(scene,
+                        activeGeneration.graph().width(), activeGeneration.graph().height(),
+                        volumetricParticleSettings, stochasticTransparencySettings);
+                activateGeneration(createGeneration(scene, topology, activeGeneration));
+            }
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                waterRefractionSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Fails closed for a water-refraction request before any candidate
+     * generation is prepared.  The glass path owns the same scene-colour
+     * producer, so combining it with the finite water surface is rejected
+     * rather than silently dropping one of them.
+     */
+    private void validateWaterRefractionComposition(Scene candidateScene,
+                                                    WaterRefractionSettings value) {
+        if (!value.active()) return;
+        if (!waterSurfaceSettings.active()) {
+            throw new IllegalArgumentException(
+                    "water refraction requires an active finite water surface");
+        }
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "water refraction requires HDR tone mapping");
+        }
+        if (RefractionPass.presentIn(candidateScene)) {
+            throw new IllegalArgumentException(
+                    "single-layer refraction and finite water surface are mutually exclusive "
+                            + "in this version; disable one of them");
         }
     }
 
@@ -2229,7 +2454,7 @@ public final class RenderPipeline {
                 weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
                 causticsSettings,
                 ddgiSettings, vctSettings, hairStrandSettings,
-                effectiveContactShadowSettings());
+                effectiveContactShadowSettings(), waterRefractionSettings);
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -2487,10 +2712,17 @@ public final class RenderPipeline {
             maximumTextureDimension = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MAX_TEXTURE_SIZE);
         }
         if (reusable != null && !topology.sameManagedExtent(reusable.topology())) reusable = null;
+        boolean refraction = RefractionPass.presentIn(generationScene);
+        validateWaterRefractionComposition(generationScene, waterRefractionSettings);
+        if (postProcessSettings.temporalUpscaling().active()
+                && temporalUpscalingSource == null) {
+            throw new IllegalArgumentException(
+                    "temporal upscaling requires a low-resolution colour/depth source; "
+                            + "call temporalUpscalingSource(...) before build");
+        }
         PipelineGeneration candidate = new PipelineGeneration(topology, reusable, generationScene == scene, maximumTextureDimension,
                 volumetricFogSettings);
         lastCandidateGenerationId = candidate.id();
-        boolean refraction = RefractionPass.presentIn(generationScene);
         if (atmosphereSettings != null && outdoorEnvironment.enabled()) {
             throw new IllegalStateException(
                     "atmosphere sky and stylized outdoor sky are mutually exclusive");
@@ -2556,7 +2788,9 @@ public final class RenderPipeline {
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
             PassExecutor postVfx = topology.volumetricFog() || !hdrVfxEnabled
                     ? null : hdrVfxRecorder;
-            candidate.assemblePostProcess(settings, postProcessSettings, postVfx, reactiveExecutor());
+            candidate.assemblePostProcess(settings, postProcessSettings, postVfx, reactiveExecutor(),
+                    postProcessSettings.temporalUpscaling().active()
+                            ? temporalUpscalingSource : null);
             candidate.assembleGtao(postProcessSettings.gtao(), reusable, instanced != null, sharedGtao);
             candidate.assembleSurfacePasses(reusable);
             candidate.assembleDrawing(new GenerationDrawHost(candidate), directionalShadowMap,
@@ -2664,7 +2898,8 @@ public final class RenderPipeline {
             }
             if (candidate.topology().waterSurface()) {
                 candidate.assembleWaterSurface(waterExecutor(candidate, sceneColorProducer),
-                        waterDependencies);
+                        waterDependencies, candidate.topology().waterRefraction(),
+                        sceneColorProducer);
                 candidate.postProcess().sceneColorInput(WaterSurfacePass.COLOR,
                         WaterSurfacePass.PASS_NAME);
                 sceneColorTexture = WaterSurfacePass.COLOR;
@@ -3510,8 +3745,18 @@ public final class RenderPipeline {
         if (w <= 0 || h <= 0) return;
         PipelineGeneration current = activeGeneration;
         if (current == null || current.graph().width() == w && current.graph().height() == h) return;
-        current.resize(w, h);
-        lastVolumeCandidatePeakBytes = current.volumeAllocation().peakBytes();
+        if (postProcessSettings.temporalUpscaling().active()) {
+            // The low-resolution source is generation-stable and the colour
+            // chain rejects an in-place resize while the upscaler is active.
+            // Build a complete replacement generation at the new output extent
+            // and rebind the same borrowed source.
+            PipelineGeneration candidate = createGeneration(scene,
+                    current.topology().withExtent(w, h), current);
+            activateGeneration(candidate);
+        } else {
+            current.resize(w, h);
+        }
+        lastVolumeCandidatePeakBytes = requireGeneration().volumeAllocation().peakBytes();
         currentSceneFrame = null;
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
@@ -3687,7 +3932,7 @@ public final class RenderPipeline {
                 waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings,
                 volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings,
                 weightedOitSettings, planarReflectionSettings, causticsSettings,
-                ddgiSettings, vctSettings, hairStrandSettings);
+                ddgiSettings, vctSettings, hairStrandSettings, waterRefractionSettings);
     }
 
     RenderFeaturePolicy.Facts featureFacts() {
@@ -3722,7 +3967,8 @@ public final class RenderPipeline {
                 hdrVfxFogOptOut, previewController.selected().isPresent(),
                 downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap,
                 directionalLight,
-                variableRateShadingCapabilitySupplier.get().nvImagePathAvailable());
+                variableRateShadingCapabilitySupplier.get().nvImagePathAvailable(),
+                temporalUpscalingSource != null);
     }
 
     private void publishCompatibilityFeatureState() {
@@ -3794,6 +4040,7 @@ public final class RenderPipeline {
         ddgiSettings = requested.ddgi();
         vctSettings = requested.vct();
         hairStrandSettings = requested.hairStrands();
+        waterRefractionSettings = requested.waterRefraction();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -3839,7 +4086,9 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.caustics(), next.caustics())
                 && java.util.Objects.equals(previous.ddgi(), next.ddgi())
                 && java.util.Objects.equals(previous.vct(), next.vct())
-                && java.util.Objects.equals(previous.hairStrands(), next.hairStrands());
+                && java.util.Objects.equals(previous.hairStrands(), next.hairStrands())
+                && java.util.Objects.equals(previous.waterRefraction(),
+                next.waterRefraction());
     }
 
     /**
@@ -4011,10 +4260,24 @@ public final class RenderPipeline {
             if (sceneColor == null || target == null) {
                 throw new IllegalStateException("water surface requires the geometry colour target");
             }
-            generation.waterSurfacePass().record(cmd, sceneColor, target,
-                    res.depthAttachment(depth.name()), planarReflectionTexture(generation), frame,
-                    waterSurfaceSettings, pbrEnvironment, iblIntensity, iblRotationRadians,
-                    waterTimeSeconds);
+            int planarReflection = planarReflectionTexture(generation);
+            if (generation.waterRefraction()) {
+                Framebuffer backgroundCopy = res.framebufferOfPass(
+                        WaterSurfacePass.REFRACTION_BACKGROUND_PASS);
+                if (backgroundCopy == null) {
+                    throw new IllegalStateException(
+                            "water refraction requires the companion background copy pass");
+                }
+                generation.waterSurfacePass().record(cmd, sceneColor, backgroundCopy, target,
+                        res.depthAttachment(depth.name()), planarReflection, frame,
+                        waterSurfaceSettings, waterRefractionSettings, pbrEnvironment,
+                        iblIntensity, iblRotationRadians, waterTimeSeconds);
+            } else {
+                generation.waterSurfacePass().record(cmd, sceneColor, target,
+                        res.depthAttachment(depth.name()), planarReflection, frame,
+                        waterSurfaceSettings, pbrEnvironment, iblIntensity,
+                        iblRotationRadians, waterTimeSeconds);
+            }
         };
     }
 

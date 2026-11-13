@@ -17,6 +17,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
@@ -76,7 +77,8 @@ public record PipelineTopology(int width,
                         boolean ddgi,
                         boolean voxelConeTracing,
                         boolean hairStrands,
-                        boolean screenSpaceContactShadows) {
+                        boolean screenSpaceContactShadows,
+                        boolean waterRefraction) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -104,6 +106,38 @@ public record PipelineTopology(int width,
         if (gtaoHalfWidth <= 0 || gtaoHalfHeight <= 0) {
             throw new IllegalArgumentException("invalid GTAO half-resolution extent");
         }
+    }
+
+    /**
+     * Source-compatible constructor for the pre-#11 shape.  The bounded water
+     * refraction companion pass defaults to disabled.
+     */
+    public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
+                            int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
+                            boolean automaticExposure, boolean colorGrading, boolean fog,
+                            boolean directionalShadow, boolean pointShadow, boolean spotShadow,
+                            int directionalCascadeCount, int directionalShadowAtlasSize,
+                            int pointShadowCapacity, int pointShadowResolution,
+                            int spotShadowCapacity, int spotShadowResolution,
+                            boolean pbrMaterials, boolean hdrVfx, boolean embedded,
+                            boolean gtaoEnabled, boolean gtaoTemporal, int gtaoHalfWidth,
+                            int gtaoHalfHeight, SceneSurfaceLayout sceneSurface,
+                            boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                            boolean volumetricEmission, boolean waterSurface,
+                            boolean volumetricParticles, boolean stochasticTransparency,
+                            boolean volumetricClouds, boolean volumetricSmoke,
+                            boolean weightedOit, boolean planarReflections, boolean caustics,
+                            boolean ddgi, boolean voxelConeTracing, boolean hairStrands,
+                            boolean screenSpaceContactShadows) {
+        this(width, height, antiAliasingMode, sampleCount, hdr, bloom, bloomLevels,
+                automaticExposure, colorGrading, fog, directionalShadow, pointShadow, spotShadow,
+                directionalCascadeCount, directionalShadowAtlasSize, pointShadowCapacity,
+                pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
+                hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
+                sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency, volumetricClouds, volumetricSmoke,
+                weightedOit, planarReflections, caustics, ddgi, voxelConeTracing, hairStrands,
+                screenSpaceContactShadows, false);
     }
 
     /**
@@ -368,10 +402,47 @@ public record PipelineTopology(int width,
                                     VctSettings vctSettings,
                                     HairStrandSettings hairStrandSettings,
                                     ContactShadowSettings contactShadows) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
+                volumetricClouds, smokeSimulation, smokeRender, directionalCloudShadows,
+                weightedOit, weightedOitSetDeclared, planarReflections, caustics, ddgiSettings,
+                vctSettings, hairStrandSettings, contactShadows,
+                WaterRefractionSettings.disabled());
+    }
+
+    /**
+     * Complete capture including the bounded #11 screen-space water refraction
+     * request.  Refraction adds a companion background-copy pass and requires
+     * the finite water surface, so the topology flag is only set when both are
+     * active.  The disabled value leaves the pre-refraction topology identical.
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency,
+                                    VolumetricCloudSettings volumetricClouds,
+                                    SmokeSimulationSettings smokeSimulation,
+                                    SmokeRenderSettings smokeRender,
+                                    CloudShadowSettings directionalCloudShadows,
+                                    WeightedOitSettings weightedOit, boolean weightedOitSetDeclared,
+                                    PlanarReflectionSettings planarReflections,
+                                    CausticsSettings caustics,
+                                    DdgiSettings ddgiSettings,
+                                    VctSettings vctSettings,
+                                    HairStrandSettings hairStrandSettings,
+                                    ContactShadowSettings contactShadows,
+                                    WaterRefractionSettings waterRefraction) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(waterSurface, "waterSurface");
+        Objects.requireNonNull(waterRefraction, "waterRefraction");
         Objects.requireNonNull(volumetricParticles, "volumetricParticles");
         Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
         Objects.requireNonNull(volumetricClouds, "volumetricClouds");
@@ -436,6 +507,7 @@ public record PipelineTopology(int width,
                 directionalLight);
         boolean contactShadow = screenSpaceContactShadowCompositionActive(settings,
                 contactShadows, directionalLight);
+        boolean waterRefractionActive = waterRefraction.active() && waterSurface.active();
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -456,7 +528,7 @@ public record PipelineTopology(int width,
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
                 stochastic, clouds, smoke, oit, planar, causticsActive, ddgi, vct, hair,
-                contactShadow);
+                contactShadow, waterRefractionActive);
     }
 
     /**
@@ -752,6 +824,7 @@ public record PipelineTopology(int width,
                 volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
                 volumetricParticles, stochasticTransparency, volumetricClouds,
                 volumetricSmoke, weightedOit, planarReflections, caustics,
-                ddgi, voxelConeTracing, hairStrands, screenSpaceContactShadows);
+                ddgi, voxelConeTracing, hairStrands, screenSpaceContactShadows,
+                waterRefraction);
     }
 }

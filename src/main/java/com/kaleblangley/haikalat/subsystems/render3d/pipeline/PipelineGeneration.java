@@ -134,6 +134,7 @@ public final class PipelineGeneration implements AutoCloseable {
     private SceneSurfaceResolvePass sceneSurfaceResolvePass;
     private SceneReactivePass sceneReactivePass;
     private WaterSurfacePass waterSurfacePass;
+    private boolean waterRefraction;
     private String finalPassName;
     private PbrMaterialBinder pbrMaterialBinder;
     private EnvironmentBackgroundRenderer environmentBackground;
@@ -240,7 +241,9 @@ public final class PipelineGeneration implements AutoCloseable {
     }
 
     public void assemblePostProcess(RenderSettings settings, PostProcessSettings effects,
-                                    RenderGraph.PassExecutor vfx, RenderGraph.PassExecutor reactive) {
+                                    RenderGraph.PassExecutor vfx, RenderGraph.PassExecutor reactive,
+                                    com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource
+                                            temporalUpscalingSource) {
         var inputs = new SceneSurfacePostProcessAdapter(surfaceInputs, reactive);
         SsrEnvironmentSource ssrEnvironment = pbrMaterialBinder == null
                 ? null : new PbrSsrEnvironment(pbrMaterialBinder);
@@ -248,9 +251,9 @@ public final class PipelineGeneration implements AutoCloseable {
                 ? null : new PbrSsgiEnvironment(pbrMaterialBinder);
         postProcess = reuseSource == null
                 ? PostProcessPipeline.create(settings, effects, topology.width(), topology.height(), vfx, inputs, inputs,
-                        ssrEnvironment, null, ssgiEnvironment)
+                        ssrEnvironment, temporalUpscalingSource, ssgiEnvironment)
                 : reuseSource.postProcess.replacementAssembly(settings, effects, topology.width(), topology.height(),
-                        inputs, vfx, inputs, ssrEnvironment, null, ssgiEnvironment);
+                        inputs, vfx, inputs, ssrEnvironment, temporalUpscalingSource, ssgiEnvironment);
     }
 
     public void assembleDrawing(SceneRenderer.Host host, DirectionalShadowMap directionalShadowMap,
@@ -512,6 +515,26 @@ public final class PipelineGeneration implements AutoCloseable {
      */
     public void assembleWaterSurface(RenderGraph.PassExecutor executor,
                                      java.util.List<String> extraDependencies) {
+        assembleWaterSurface(executor, extraDependencies, topology.waterRefraction(),
+                com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS);
+    }
+
+    /**
+     * Declares the finite water colour pass and, when refraction is active, the
+     * companion single-sample background copy that the refraction shader samples.
+     *
+     * <p>Order is {@code scene colour producer -> WaterSurfaceRefractionCopy ->
+     * WaterSurfacePass}.  The copy pass owns {@link WaterSurfacePass#REFRACTION_BACKGROUND}
+     * and is a dependency of the water pass; the water pass itself still owns its
+     * colour target and never samples the attachment it writes.</p>
+     *
+     * @param refractionSupport   whether the water pass compiles the refraction variant
+     * @param sceneColorProducer  last graph producer of the colour the water sees through
+     */
+    public void assembleWaterSurface(RenderGraph.PassExecutor executor,
+                                     java.util.List<String> extraDependencies,
+                                     boolean refractionSupport,
+                                     String sceneColorProducer) {
         var source = reuseSource;
         var depth = topology.sceneSurface().raw(
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
@@ -520,11 +543,23 @@ public final class PipelineGeneration implements AutoCloseable {
         }
         waterSurfacePass = source != null && source.waterSurfacePass != null
                 && source.waterSurfacePass.samples() == topology.sampleCount()
-                ? borrow(source.waterSurfacePass) : new WaterSurfacePass(topology.sampleCount());
+                && source.waterSurfacePass.refractionSupported() == refractionSupport
+                ? borrow(source.waterSurfacePass) : new WaterSurfacePass(topology.sampleCount(),
+                refractionSupport);
+        waterRefraction = refractionSupport;
         RenderGraph.PassBuilder pass = graph.addPass(WaterSurfacePass.PASS_NAME)
                 .noClear()
                 .dependsOn(com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets.GEOMETRY_PASS)
                 .dependsOn(depth.producer());
+        if (refractionSupport) {
+            graph.addPass(WaterSurfacePass.REFRACTION_BACKGROUND_PASS)
+                    .createColor(WaterSurfacePass.REFRACTION_BACKGROUND, RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(sceneColorProducer)
+                    .execute((res, cmd) -> WaterSurfacePass.recordBackgroundCopy(cmd,
+                            res.framebufferOfPass(sceneColorProducer), res.currentTarget()));
+            pass.dependsOn(WaterSurfacePass.REFRACTION_BACKGROUND_PASS);
+        }
         for (String dependency : extraDependencies) {
             if (!dependency.equals(WaterSurfacePass.PASS_NAME)) pass.dependsOn(dependency);
         }
@@ -535,6 +570,11 @@ public final class PipelineGeneration implements AutoCloseable {
             pass.createColor(WaterSurfacePass.COLOR, RenderFormat.RGBA16F);
         }
         pass.execute(executor);
+    }
+
+    /** @return true when this generation declares the water refraction companion pass */
+    public boolean waterRefraction() {
+        return waterRefraction;
     }
 
 

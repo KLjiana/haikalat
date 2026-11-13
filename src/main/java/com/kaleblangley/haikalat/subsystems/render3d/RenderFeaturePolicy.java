@@ -39,7 +39,23 @@ final class RenderFeaturePolicy {
                  boolean hdrVfxFogOptOut, boolean previewSourceSelected,
                  boolean directionalLightDownward, boolean weightedOitSetDeclared,
                  boolean transparentSetsOverlap, boolean directionalLightPresent,
-                 boolean variableRateShadingAvailable) {
+                 boolean variableRateShadingAvailable,
+                 boolean temporalUpscalingSourceAvailable) {
+        /** Source-compatible shape used by pre-#35 callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent,
+              boolean variableRateShadingAvailable) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    variableRateShadingAvailable, false);
+        }
+
         /** Source-compatible shape used by pre-S3-single callers/tests. */
         Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
               boolean spotCaster, boolean pbrEnvironmentAvailable,
@@ -107,8 +123,10 @@ final class RenderFeaturePolicy {
                     boolean weightedOit,
                     boolean planarReflections, boolean caustics,
                     boolean ddgi, boolean vct, boolean hairStrands,
+                    boolean waterRefraction,
                     boolean ssgi,
                     boolean adaptiveSampling, boolean variableRateShading,
+                    boolean temporalUpscaling,
                     PostProcessSettings effectivePostProcess,
                     List<RenderFeatureActivity> activities) {
         Resolved {
@@ -148,6 +166,7 @@ final class RenderFeaturePolicy {
         boolean hdrVfx = settings.hdrVfx() && facts.hdrVfxRecorderPresent();
         boolean preview = settings.preview() && facts.previewSourceSelected();
         boolean waterSurface = settings.waterSurface().active();
+        boolean waterRefractionEligible = settings.waterRefraction().active() && waterSurface;
         boolean particlesEligible = PipelineTopology.volumetricParticleCompositionActive(
                 settings.render(), settings.volumetricFog(), settings.volumetricParticles());
         boolean stochasticEligible = PipelineTopology.stochasticTransparencyCompositionActive(
@@ -202,11 +221,11 @@ final class RenderFeaturePolicy {
         SsgiSettings ssgiRequest = requestedEffects.ssgi();
         AdaptiveSamplingSettings adaptiveRequest = requestedEffects.adaptiveSampling();
         VariableRateShadingSettings vrsRequest = requestedEffects.variableRateShading();
-        boolean temporalUpscaling = requestedEffects.temporalUpscaling().active();
+        boolean temporalUpscalingActive = requestedEffects.temporalUpscaling().active();
         boolean ssrActive = requestedEffects.ssr().active();
         boolean subsurfaceActive = requestedEffects.subsurfaceScattering().screenSpaceActive();
         boolean ssgiEligible = ssgiRequest.active() && hdr && facts.pbrMaterials()
-                && !temporalUpscaling;
+                && !temporalUpscalingActive;
         boolean adaptiveEligible = adaptiveRequest.active() && ssrActive && hdr
                 && adaptiveRequest.maximumSteps() <= requestedEffects.ssr().maxSteps();
         // The NV path is a fallback decision, not a configuration failure: the
@@ -217,6 +236,10 @@ final class RenderFeaturePolicy {
         boolean ssgi = master && ssgiEligible;
         boolean adaptiveSampling = master && adaptiveEligible;
         boolean variableRateShading = master && vrsActive;
+        boolean temporalUpscalingEligible = temporalUpscalingActive
+                && facts.temporalUpscalingSourceAvailable();
+        boolean temporalUpscaling = master && temporalUpscalingEligible;
+        boolean waterRefraction = master && waterRefractionEligible;
 
         PostProcessSettings effectiveEffects = requestedEffects;
         if (master) {
@@ -230,6 +253,10 @@ final class RenderFeaturePolicy {
             if (vrsRequest.active() && !vrsEligible) {
                 effectiveEffects = effectiveEffects.withVariableRateShading(
                         vrsRequest.withEnabled(false));
+            }
+            if (temporalUpscalingActive && !temporalUpscalingEligible) {
+                effectiveEffects = effectiveEffects.withTemporalUpscaling(
+                        requestedEffects.temporalUpscaling().withEnabled(false));
             }
         }
 
@@ -277,6 +304,8 @@ final class RenderFeaturePolicy {
                         ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE));
         activities.add(child(RenderFeature.WATER_SURFACE, master, waterSurface,
                 RenderFeatureReason.DISABLED));
+        activities.add(child(RenderFeature.WATER_REFRACTION, master, waterRefraction,
+                RenderFeatureReason.DISABLED));
         activities.add(child(RenderFeature.VOLUMETRIC_PARTICLES, master, volumetricParticles,
                 particleReason));
         activities.add(child(RenderFeature.STOCHASTIC_TRANSPARENCY, master,
@@ -300,6 +329,10 @@ final class RenderFeaturePolicy {
                 adaptiveSampling, adaptiveRequest.active(), adaptiveDetail));
         activities.add(unavailableActivity(RenderFeature.VARIABLE_RATE_SHADING, master,
                 variableRateShading, vrsRequest.active(), vrsDetail));
+        activities.add(unavailableActivity(RenderFeature.TEMPORAL_UPSCALING, master,
+                temporalUpscaling, temporalUpscalingActive,
+                temporalUpscalingUnavailableDetail(
+                        facts.temporalUpscalingSourceAvailable())));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -315,7 +348,9 @@ final class RenderFeaturePolicy {
                 effective(master, planarEligible), effective(master, causticsEligible),
                 effective(master, ddgi),
                 effective(master, vct), effective(master, hairStrands),
-                ssgi, adaptiveSampling, variableRateShading, effectiveEffects,
+                effective(master, waterRefractionEligible),
+                ssgi, adaptiveSampling, variableRateShading, temporalUpscaling,
+                effectiveEffects,
                 List.copyOf(activities));
     }
 
@@ -479,6 +514,13 @@ final class RenderFeaturePolicy {
         return "";
     }
 
+    private static String temporalUpscalingUnavailableDetail(boolean sourceAvailable) {
+        if (!sourceAvailable) {
+            return "requires a low-resolution colour/depth source (TemporalUpscalingSource)";
+        }
+        return "";
+    }
+
     private static void validate(RenderFeatureSettings settings, Facts facts) {
         boolean hdr = settings.render().hdrEnabled();
         if (!hdr && (settings.postProcess().colorGrading().enabled()
@@ -571,6 +613,16 @@ final class RenderFeaturePolicy {
         if (settings.waterSurface().active() && settings.volumetricFog().enabled()) {
             throw new IllegalArgumentException(
                     "water surface does not compose with volumetric fog in this version");
+        }
+        if (settings.waterRefraction().active()) {
+            if (!settings.waterSurface().active()) {
+                throw new IllegalArgumentException(
+                        "water refraction requires an active finite water surface");
+            }
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "water refraction requires HDR tone mapping");
+            }
         }
         if (settings.volumetricFog().enabled() && settings.hdrVfx()
                 && facts.hdrVfxRecorderPresent() && !facts.hdrVfxFogAware()

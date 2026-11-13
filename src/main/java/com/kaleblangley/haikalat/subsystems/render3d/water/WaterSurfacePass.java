@@ -205,6 +205,28 @@ public final class WaterSurfacePass implements AutoCloseable {
     }
 
     /**
+     * Records the water draw with both opt-in screen-space refraction and an
+     * optional planar-reflection colour target.
+     *
+     * <p>The two inputs are independent: refraction replaces the background
+     * lookup while planar reflection replaces the environment reflection.  A
+     * positive {@code planarReflectionTexture} keeps the planar path active in
+     * the refraction shader variant; {@code 0} keeps the environment/fallback
+     * reflection exactly as the non-planar refraction overload.</p>
+     */
+    public void record(CommandBuffer cmd, Framebuffer sceneColorSource, Framebuffer backgroundCopy,
+                       Framebuffer target, int sceneDepthTexture, int planarReflectionTexture,
+                       TemporalFrameState.FrameParameters frame, WaterSurfaceSettings settings,
+                       WaterRefractionSettings refraction, PbrEnvironment environment,
+                       float environmentIntensity, float environmentRotationRadians,
+                       float timeSeconds) {
+        recordInternal(cmd, sceneColorSource, backgroundCopy, target, sceneDepthTexture,
+                planarReflectionTexture, frame, settings,
+                Objects.requireNonNull(refraction, "refraction"), environment,
+                environmentIntensity, environmentRotationRadians, timeSeconds, false);
+    }
+
+    /**
      * Diagnostic seam for the real-GL shader contract: writes {@code N * 0.5 + 0.5}
      * instead of shaded water so the analytic normals can be compared with an
      * independent CPU reference.  Production recording never calls it.

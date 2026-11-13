@@ -70,6 +70,20 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
             throw new IllegalStateException(
                     "water surface does not compose with volumetric fog in this version");
         }
+        if (topology.waterRefraction()) {
+            if (!topology.waterSurface()) {
+                throw new IllegalStateException(
+                        "water refraction requires an active finite water surface");
+            }
+            if (!topology.hdr()) {
+                throw new IllegalStateException(
+                        "water refraction requires HDR tone mapping");
+            }
+            if (topology.sceneSurface().raw(SceneBufferChannel.DEPTH) == null) {
+                throw new IllegalStateException(
+                        "water refraction requires the shared raster scene depth");
+            }
+        }
         if (topology.volumetricParticles()) {
             if (!topology.volumetricFog()) {
                 throw new IllegalStateException(
