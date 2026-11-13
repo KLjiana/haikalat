@@ -1225,7 +1225,11 @@ public final class PostProcessPipeline implements AutoCloseable {
                         surfaceInputs.texture(res, ssrNormal),
                         surfaceInputs.texture(res, ssrRoughness),
                         frame.inverseJitteredProjection(), frame.inverseView(), view,
-                        frame.stableViewProjection(), ssrEnvironment,
+                        // Depth is reconstructed from the jittered raster, so the
+                        // ray projection must use the same jittered matrix; the
+                        // stable VP would shift every projected tap by the jitter.
+                        new Matrix4f(frame.inverseJitteredProjection()).invert(),
+                        ssrEnvironment,
                         graph.width(), graph.height());
             });
             hdrTexture = PostProcessTargets.SSR_COLOR;

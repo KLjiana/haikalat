@@ -126,6 +126,17 @@ public final class VctPass implements AutoCloseable {
         return lastUpdateStats;
     }
 
+    /**
+     * Discards the tentative volume-valid state recorded by the last update
+     * when its GPU submission failed. The next update therefore forces a full
+     * rebuild instead of treating the unexecuted writes as published.
+     */
+    public void invalidatePendingUpdate() {
+        if (runtime == null) return;
+        runtime.volumeValid = false;
+        lastUpdateStats = UpdateStats.NONE;
+    }
+
     /** @return the owned base-level volume texture, or {@code null} while disabled/closed */
     public Texture3D volumeTexture() {
         return closed || runtime == null ? null : runtime.volume.texture;

@@ -140,7 +140,7 @@ def glCases = [
         'MotionBlurPassGlTest',
         'WaterSurfacePassGlTest', 'WaterSurfacePipelineGlTest',
         'RefractionGlTest',
-        'ClearcoatGlTest',
+        'ClearcoatGlTest', 'PbrLightingSwitchGlTest',
         'SmaaPassGlTest',
         'SsrPassGlTest',
         'AtmosphereSkyPassGlTest',

@@ -194,6 +194,17 @@ public final class DdgiProbeVolume implements GlResource {
         return settings;
     }
 
+    /**
+     * Discards the tentative state recorded by the last {@link #recordUpdate}
+     * when its GPU submission failed. The next update must re-run the full
+     * first-use atlas clear instead of trusting the unexecuted commands.
+     */
+    public void invalidatePendingUpdate() {
+        ensureOpen();
+        initialized = false;
+        updatedCount = 0;
+    }
+
     /** @return total probe count in the grid */
     public int probeCount() {
         return probeCount;

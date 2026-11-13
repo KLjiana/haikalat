@@ -192,7 +192,10 @@ public final class RenderPipeline {
         "uPrefilterMaxLod",
         "uGtaoEnabled",
         "uGtaoMap",
-        "uClusterDebugMode"
+        "uClusterDebugMode",
+        "uEnableDirect",
+        "uEnableDiffuseIbl",
+        "uEnableSpecularIbl"
     );
     private static final Set<String> FRAME_OWNED_UNIFORM_PREFIXES = Set.of(
         "uDirectionalCascadeMatrices[",
@@ -3455,6 +3458,16 @@ public final class RenderPipeline {
             if (generation.volumetric() != null) generation.volumetric().frameFailed();
             if (generation.volumetricClouds() != null) {
                 generation.volumetricClouds().frameFailed();
+            }
+            // DDGI and VCT publish their pending atlas/volume state while
+            // recording; a failed submission must invalidate that tentative
+            // state so the recovery frame initializes/rebuilds instead of
+            // trusting commands the GPU never executed.
+            if (generation.ddgiVolume() != null) {
+                generation.ddgiVolume().invalidatePendingUpdate();
+            }
+            if (generation.vct() != null) {
+                generation.vct().invalidatePendingUpdate();
             }
             if (smokeSimulationAdvanced) {
                 // The GPU may have executed a partial simulation; replay from a
