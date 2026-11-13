@@ -32,6 +32,52 @@ public final class SsgiTemporalReference {
         return new double[]{u + velocityU, v + velocityV};
     }
 
+    /**
+     * Reprojected previous raster UV when both frames carry TAA sub-pixel
+     * jitter.
+     *
+     * <p>{@code u}/{@code v} are the current jittered-raster UV, so the current
+     * jitter is already encoded in them. The stable-raster velocity already
+     * points at the previous sample, but that frame's history texels were
+     * produced under its own jitter. The contract is therefore
+     * {@code uv + velocity - currentJitter + previousJitter}; all four inputs
+     * are normalized UV, and a positive jitter shifts the raster by that many
+     * UV units. Removing the current jitter without re-applying the previous
+     * one (or applying it with the wrong sign) mis-addresses the history by
+     * {@code currentJitter - previousJitter} in opposite directions.</p>
+     */
+    public static double[] previousUv(double u, double v, double velocityU, double velocityV,
+                                      double currentJitterU, double currentJitterV,
+                                      double previousJitterU, double previousJitterV) {
+        return new double[]{
+                u + velocityU - currentJitterU + previousJitterU,
+                v + velocityV - currentJitterV + previousJitterV};
+    }
+
+    /**
+     * Previous-raster UV of a reprojection that omits the TAA jitter correction
+     * from the documented contract. Test-only counterfactual.
+     */
+    public static double[] previousUvWithoutJitter(double u, double v, double velocityU,
+                                                   double velocityV) {
+        return new double[]{u + velocityU, v + velocityV};
+    }
+
+    /**
+     * Previous-raster UV of a reprojection with the jitter sign reversed. The
+     * history is then mis-addressed by twice the jitter delta in the opposite
+     * direction. Test-only counterfactual.
+     */
+    public static double[] previousUvWithFlippedJitter(double u, double v, double velocityU,
+                                                       double velocityV,
+                                                       double currentJitterU,
+                                                       double currentJitterV,
+                                                       double previousJitterU,
+                                                       double previousJitterV) {
+        return new double[]{u + velocityU + currentJitterU - previousJitterU,
+                v + velocityV + currentJitterV - previousJitterV};
+    }
+
     /** Reprojection distance in output pixels. */
     public static double reprojectionPixels(double u, double v, double previousU,
                                             double previousV, int width, int height) {

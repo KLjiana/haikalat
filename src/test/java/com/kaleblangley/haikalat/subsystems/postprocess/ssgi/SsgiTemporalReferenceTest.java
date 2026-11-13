@@ -52,6 +52,75 @@ class SsgiTemporalReferenceTest {
     }
 
     @Test
+    void taaJitterMovesTheHistoryAddressByTheJitterDelta() {
+        double halfPixel = 0.5 / SIZE;
+        // Current raster +0.5 px, previous raster -0.5 px: the same surface was
+        // one full pixel left in the previous raster, so the raw velocity
+        // address (0 here) must move left by one pixel.
+        double[] corrected = SsgiTemporalReference.previousUv(
+                0.5, 0.5, 0.0, 0.0, halfPixel, 0.0, -halfPixel, 0.0);
+        assertArrayEquals(new double[]{0.5 - 1.0 / SIZE, 0.5}, corrected, 1.0e-12);
+        double[] missing = SsgiTemporalReference.previousUvWithoutJitter(
+                0.5, 0.5, 0.0, 0.0);
+        assertArrayEquals(new double[]{0.5, 0.5}, missing, 1.0e-12);
+        double[] flipped = SsgiTemporalReference.previousUvWithFlippedJitter(
+                0.5, 0.5, 0.0, 0.0, halfPixel, 0.0, -halfPixel, 0.0);
+        assertArrayEquals(new double[]{0.5 + 1.0 / SIZE, 0.5}, flipped, 1.0e-12);
+        assertEquals(1.0, SsgiTemporalReference.reprojectionPixels(
+                0.5, 0.5, corrected[0], corrected[1], SIZE, SIZE), 1.0e-12);
+        assertEquals(1.0, SsgiTemporalReference.reprojectionPixels(
+                0.5, 0.5, flipped[0], flipped[1], SIZE, SIZE), 1.0e-12);
+        // A vertical jitter follows the same contract independently.
+        double[] vertical = SsgiTemporalReference.previousUv(
+                0.25, 0.75, 0.0, 0.0, 0.0, -halfPixel, 0.0, halfPixel);
+        assertArrayEquals(new double[]{0.25, 0.75 + 1.0 / SIZE}, vertical, 1.0e-12);
+    }
+
+    @Test
+    void jitteredRecurrenceSeparatesTheContractFromMissingOrFlippedJitter() {
+        // Frame 0 is spatial-only. With +0.5/-0.5 px alternating jitter and a
+        // static signal S(x), frame 1 reads the neighbour under the contract:
+        //   H1(x) = 0.5 S0(x + 1) + 0.5 S1(x)
+        // and frame 2 reads the other neighbour:
+        //   H2(x) = (2/3) H1(x - 1) + (1/3) S2(x).
+        // The missing-jitter and flipped variants read x and x + 1 at frame 2,
+        // so a three-period signal S = {1.0, 0.0, 0.5} separates all three.
+        double[] signal = {1.0, 0.0, 0.5}; // x mod 3
+        double[] contract = recurrenceAtFrameTwo(signal, false, false);
+        double[] missing = recurrenceAtFrameTwo(signal, true, false);
+        double[] flipped = recurrenceAtFrameTwo(signal, false, true);
+        // Frame 2 contract at x mod 3 == 0: neighbours are x-1 (index 2) and x.
+        assertEquals((2.0 / 3.0) * (0.5 * signal[0] + 0.5 * signal[2])
+                + (1.0 / 3.0) * signal[0], contract[0], 1.0e-12);
+        assertEquals((2.0 / 3.0) * (0.5 * signal[0] + 0.5 * signal[1])
+                + (1.0 / 3.0) * signal[0], flipped[0], 1.0e-12);
+        assertEquals((2.0 / 3.0) * (0.5 * signal[0] + 0.5 * signal[0])
+                + (1.0 / 3.0) * signal[0], missing[0], 1.0e-12);
+        assertTrue(Math.abs(contract[0] - missing[0]) > 0.1,
+                "dropping the jitter correction must change the accumulated history");
+        assertTrue(Math.abs(contract[0] - flipped[0]) > 0.1,
+                "flipping the jitter sign must change the accumulated history");
+        assertTrue(Math.abs(missing[0] - flipped[0]) > 0.1,
+                "the two wrong variants must also differ from each other");
+    }
+
+    private static double[] recurrenceAtFrameTwo(double[] signal, boolean missingJitter,
+                                                 boolean flippedJitter) {
+        double[] frameOne = new double[3];
+        for (int x = 0; x < 3; x++) {
+            int offset = missingJitter ? 0 : flippedJitter ? -1 : 1;
+            frameOne[x] = 0.5 * signal[Math.floorMod(x + offset, 3)] + 0.5 * signal[x];
+        }
+        double[] frameTwo = new double[3];
+        for (int x = 0; x < 3; x++) {
+            int offset = missingJitter ? 0 : flippedJitter ? 1 : -1;
+            frameTwo[x] = (2.0 / 3.0) * frameOne[Math.floorMod(x + offset, 3)]
+                    + (1.0 / 3.0) * signal[x];
+        }
+        return frameTwo;
+    }
+
+    @Test
     void depthRejectionUsesTheRelativeWindowWithAMetreFloor() {
         assertEquals(0.02, SsgiTemporalReference.depthTolerance(0.02, 0.0), 1.0e-12);
         assertEquals(0.02, SsgiTemporalReference.depthTolerance(0.02, 0.5), 1.0e-12);

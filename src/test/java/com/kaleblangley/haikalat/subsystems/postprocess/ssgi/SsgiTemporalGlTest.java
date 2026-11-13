@@ -77,6 +77,15 @@ class SsgiTemporalGlTest {
     private static final SsgiIndirectReference.Environment NO_ENVIRONMENT =
             SsgiIndirectReference.Environment.unavailable();
     private static final float TOLERANCE = 0.02f;
+    /** First receiver-plane column for the jitter counterexample. */
+    private static final int RECEIVER_START = 23;
+    /** Half-width of the six-metre receiver row used by the convergence case. */
+    private static final int RECEIVER_WINDOW_HALF = 1;
+    /** Alternating TAA sub-pixel jitter magnitude in output pixels. */
+    private static final float JITTER_PIXELS = 0.5f;
+    private static final float JITTER_UV = JITTER_PIXELS / SIZE;
+    /** Three-period receiver albedo pattern: a 3x3 window spans the full range. */
+    private static final float[] ALBEDO_PATTERN = {0.95f, 0.10f, 0.55f};
 
     private static final SsgiSettings TEMPORAL = SsgiSettings.builder()
             .enabled(true).sampleCount(1).stepCount(8).maxDistanceMetres(8.0f)
@@ -84,6 +93,14 @@ class SsgiTemporalGlTest {
             .edgeFadePixels(0.0f).ambientFallback(0.0f, 0.0f, 0.0f)
             .temporalBlend(0.9f).historyFrames(64).temporalDepthRejection(0.02f)
             .temporalNormalRejection(0.9f).temporalVelocityRejection(64.0f).build();
+    /**
+     * Four-sample convergence fixture settings: the extra hemisphere samples
+     * reduce the per-frame rotation variance so the jittered and unjittered
+     * recurrences can be compared without their independent residuals
+     * dominating the difference.
+     */
+    private static final SsgiSettings TEMPORAL_SMOOTH = TEMPORAL.withSampleCount(4)
+            .withTemporalBlend(0.95f);
 
     @Test
     void temporalAccumulationConvergesTowardTheHighSampleReference() {
@@ -121,6 +138,169 @@ class SsgiTemporalGlTest {
                                 + lastError + " vs " + firstError);
                 assertTrue(lastError < 0.05,
                         "the converged residual must stay bounded: " + lastError);
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void nonzeroJitterReprojectsToTheStableNeighbourAndRejectsTheCounterfactuals() {
+        try (GlfwWindow window = window("SSGI nonzero jitter reprojection")) {
+            GlRenderDevice device = new GlRenderDevice();
+            Fixture fixture = Fixture.patternedReceiver(2.0f);
+            try (Textures textures = new Textures(fixture);
+                 SsgiPass pass = new SsgiPass(TEMPORAL, SIZE, SIZE)) {
+                int frames = 8;
+                float[][] actual = new float[frames][];
+                for (int frame = 0; frame < frames; frame++) {
+                    device.invalidateState();
+                    actual[frame] = runFrame(pass, device, textures, identityView(),
+                            jitterUvX(frame), 0.0f);
+                }
+                assertEquals(frames, pass.historyAcceptedFrames(),
+                        "alternating sub-pixel jitter must not look like a camera cut");
+                assertTrue(pass.historyValid());
+
+                double[][] contract = jitteredPrediction(fixture, frames,
+                        Reprojection.CONTRACT, TEMPORAL);
+                double[][] missing = jitteredPrediction(fixture, frames,
+                        Reprojection.MISSING_JITTER, TEMPORAL);
+                double[][] flipped = jitteredPrediction(fixture, frames,
+                        Reprojection.FLIPPED_JITTER, TEMPORAL);
+
+                // Frame 1 reads x+1, frame 2 x-1: the contract recurrence is
+                // exact, and both wrong formulas address the history at the
+                // current pixel or the mirrored neighbour instead.
+                for (int frame : new int[]{1, 2, 5, 7}) {
+                    assertMatches(actual[frame], PROBE_X, PROBE_Y, contract[frame],
+                            "frame " + frame + " must follow the jitter-corrected recurrence");
+                }
+                assertDiffers(actual[frames - 1], PROBE_X, PROBE_Y,
+                        missing[frames - 1], 0.03,
+                        "the jitter-omitting history address must not reproduce the contract");
+                assertDiffers(actual[frames - 1], PROBE_X, PROBE_Y,
+                        flipped[frames - 1], 0.03,
+                        "a reversed jitter sign must not reproduce the contract");
+                assertTrue(distance(contract[frames - 1], missing[frames - 1]) > 0.03,
+                        "the counterfactuals must be distinguishable from the contract");
+                assertTrue(distance(contract[frames - 1], flipped[frames - 1]) > 0.03,
+                        "the two counterfactuals must be distinguishable from each other");
+
+                // Reveal a nearer surface at the probe while the jitter keeps
+                // alternating. The jitter-corrected history tap is a six-metre
+                // receiver pixel, but the previous-depth channel now expects
+                // three metres, so the stale history must be rejected rather
+                // than blended through the new jitter address.
+                Fixture reveal = fixture.withReceiverDepth(3.0f);
+                textures.upload(reveal);
+                device.invalidateState();
+                float[] afterReveal = runFrame(pass, device, textures, identityView(),
+                        jitterUvX(frames), 0.0f);
+                double[] revealSpatial = SsgiTemporalReference.spatialAdded(
+                        reveal.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y,
+                        TEMPORAL.sampleCount(),
+                        SsgiTemporalReference.rotationForFrame(frames));
+                double[] revealExpected = SsgiTemporalReference.composite(
+                        asDouble(reveal.base(PROBE_X, PROBE_Y)), revealSpatial);
+                assertMatches(afterReveal, PROBE_X, PROBE_Y, revealExpected,
+                        "a depth reveal under nonzero jitter must fall back to the spatial sample");
+                double ghostWeight = SsgiTemporalReference.historyWeight(
+                        TEMPORAL.temporalBlend(), TEMPORAL.historyFrames(), frames + 1);
+                double[] ghost = SsgiTemporalReference.composite(
+                        asDouble(reveal.base(PROBE_X, PROBE_Y)),
+                        SsgiTemporalReference.blend(
+                                contract[frames - 1], revealSpatial, ghostWeight));
+                assertTrue(distance(asDouble(pixel(afterReveal, PROBE_X, PROBE_Y)), ghost) > 0.1,
+                        "the jittered reveal must not blend the stale six-metre history");
+                assertEquals(frames + 1, pass.historyAcceptedFrames(),
+                        "the reveal frame is still committed with one retained sample");
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void nonzeroJitterConvergesLikeTheUnjitteredReferenceAndCutStillResets() {
+        try (GlfwWindow window = window("SSGI nonzero jitter convergence")) {
+            GlRenderDevice device = new GlRenderDevice();
+            Fixture fixture = Fixture.windowPlate(2.0f);
+            try (Textures textures = new Textures(fixture);
+                 SsgiPass pass = new SsgiPass(TEMPORAL_SMOOTH, SIZE, SIZE)) {
+                float[][] outputs = new float[64][];
+                for (int frame = 0; frame < outputs.length; frame++) {
+                    device.invalidateState();
+                    outputs[frame] = runFrame(pass, device, textures, identityView(),
+                            jitterUvX(frame), 0.0f);
+                }
+                assertTrue(pass.historyValid());
+                assertEquals(64, pass.historyAcceptedFrames(),
+                        "alternating jitter must keep committing history");
+                double[] jitteredAverage = averagePixels(outputs, 56, 64, PROBE_X, PROBE_Y);
+                assertTrue(distance(jitteredAverage,
+                                averagePixels(outputs, 48, 56, PROBE_X, PROBE_Y)) < 0.02,
+                        "the jittered history must be settled after the retained-sample ramp");
+                assertTrue(distance(asDouble(pixel(outputs[0], PROBE_X, PROBE_Y)),
+                                jitteredAverage) > 1.0e-3,
+                        "the first jittered frame must carry the one-sample rotation variance");
+
+                // Zero-jitter control on the same smooth fixture: the
+                // jitter-corrected accumulation must settle to the same value.
+                // The fixture intentionally gives the +/-1 pixel jitter taps
+                // nearly identical spatial GI, so the comparison is about the
+                // accumulation contract, not a different scene.
+                float[][] zeroOutputs = new float[64][];
+                try (SsgiPass unjittered = new SsgiPass(TEMPORAL_SMOOTH, SIZE, SIZE)) {
+                    for (int frame = 0; frame < zeroOutputs.length; frame++) {
+                        device.invalidateState();
+                        zeroOutputs[frame] = runFrame(unjittered, device, textures,
+                                identityView());
+                    }
+                    assertEquals(64, unjittered.historyAcceptedFrames());
+                }
+                double[] zeroGpuAverage = averagePixels(zeroOutputs, 56, 64, PROBE_X, PROBE_Y);
+                assertTrue(distance(zeroGpuAverage,
+                                averagePixels(zeroOutputs, 48, 56, PROBE_X, PROBE_Y)) < 0.02,
+                        "the zero-jitter control must be settled after the retained-sample ramp");
+                assertTrue(distance(jitteredAverage, zeroGpuAverage) < 0.1,
+                        "a smooth receiver must converge to the same value with or without "
+                                + "nonzero jitter: " + distance(jitteredAverage, zeroGpuAverage));
+
+                // A camera cut with nonzero jitter must still discard the whole
+                // history and restart from the spatial sample.
+                Fixture dark = Fixture.uniform(0.05f);
+                textures.upload(dark);
+                Matrix4f view = new Matrix4f().translate(-6.0f, 0.0f, 0.0f);
+                Matrix4f inverseView = new Matrix4f().translate(6.0f, 0.0f, 0.0f);
+                device.invalidateState();
+                float[] afterCut = runFrame(pass, device, textures,
+                        new View(view, inverseView), jitterUvX(64), -JITTER_UV * 0.5f);
+                assertEquals(1, pass.historyAcceptedFrames(),
+                        "a nonzero-jitter camera cut must reset the retained-sample count");
+                double[] cutSpatial = SsgiTemporalReference.spatialAdded(dark.scene(), CAMERA,
+                        TEMPORAL_SMOOTH, NO_ENVIRONMENT, PROBE_X, PROBE_Y,
+                        TEMPORAL_SMOOTH.sampleCount(),
+                        SsgiTemporalReference.rotationForFrame(0));
+                assertMatches(afterCut, PROBE_X, PROBE_Y,
+                        SsgiTemporalReference.composite(
+                                asDouble(dark.base(PROBE_X, PROBE_Y)), cutSpatial),
+                        "the first cut frame must be spatial even with nonzero jitter");
+            }
+
+            // The disabled temporal path stays byte-identical to the pre-temporal
+            // spatial output even when the caller has nonzero jitter available.
+            SsgiSettings spatial = SsgiSettings.defaults();
+            SsgiSettings zeroBlend = SsgiSettings.defaults().withTemporalBlend(0.0f)
+                    .withHistoryFrames(32).withTemporalDepthRejection(0.05f);
+            try (Textures textures = new Textures(Fixture.patternedReceiver(2.0f));
+                 SsgiPass baseline = new SsgiPass(spatial);
+                 SsgiPass disabledTemporal = new SsgiPass(zeroBlend, SIZE, SIZE);
+                 Framebuffer target = Framebuffer.mrt(SIZE, SIZE, GL_RGBA32F)) {
+                assertFalse(disabledTemporal.temporalActive(),
+                        "a zero blend must not allocate a jitter-consuming temporal stage");
+                float[] reference = renderSpatial(device, baseline, textures, target);
+                float[] zero = renderSpatial(device, disabledTemporal, textures, target);
+                assertArrayEquals(reference, zero, 0.0f,
+                        "disabling temporal must keep the exact spatial output");
             }
             assertEquals(GL_NO_ERROR, glGetError());
         }
@@ -446,16 +626,162 @@ class SsgiTemporalGlTest {
 
     private static float[] runFrame(SsgiPass pass, GlRenderDevice device, Textures textures,
                                     View view) {
+        return runFrame(pass, device, textures, view, 0.0f, 0.0f);
+    }
+
+    private static float[] runFrame(SsgiPass pass, GlRenderDevice device, Textures textures,
+                                    View view, float jitterUvX, float jitterUvY) {
         pass.beginFrame();
         CommandBuffer commands = device.createCommandBuffer();
         pass.recordTemporal(commands, new SsgiPass.TemporalInputs(
                 textures.colour.id(), textures.depth.id(), textures.normal.id(),
                 textures.roughness.id(), textures.albedo.id(), textures.velocity.id(),
                 textures.previousDepth.id(), textures.validity.id(),
-                INVERSE_PROJECTION, PROJECTION, view.view(), null, SIZE, SIZE));
+                INVERSE_PROJECTION, PROJECTION, view.view(), null, SIZE, SIZE,
+                jitterUvX, jitterUvY));
         device.execute(commands);
         pass.frameSucceeded();
         return readAttachment(pass.readFramebuffer(), 2);
+    }
+
+    /** Alternating TAA-style horizontal jitter for a zero-based frame index. */
+    private static float jitterUvX(int frame) {
+        return (frame & 1) == 0 ? JITTER_UV : -JITTER_UV;
+    }
+
+    /** Which reprojection formula a counterfactual prediction applies. */
+    private enum Reprojection {
+        /** Documented contract: {@code uv + velocity - currentJitter + previousJitter}. */
+        CONTRACT,
+        /** The pre-fix formula that ignored TAA jitter. */
+        MISSING_JITTER,
+        /** The contract with the jitter sign reversed. */
+        FLIPPED_JITTER
+    }
+
+    /** Horizontal history offset in pixels for one frame and formula. */
+    private static int jitterOffsetPixels(int frame, Reprojection reprojection) {
+        int sign = (frame & 1) == 0 ? 1 : -1;
+        int previousSign = ((frame - 1) & 1) == 0 ? 1 : -1;
+        return switch (reprojection) {
+            case CONTRACT -> (previousSign - sign) / 2;
+            case MISSING_JITTER -> 0;
+            case FLIPPED_JITTER -> (sign - previousSign) / 2;
+        };
+    }
+
+    /**
+     * Independent frame-by-frame composite recurrence for the static
+     * receiver-plane fixture.
+     *
+     * <p>The probe row keeps the accepted history of every column. At frame
+     * {@code f} the contract history tap is at
+     * {@code x + velocity - jitter(f) + jitter(f-1)}; the two counterfactuals
+     * omit the jitter term or flip its sign. The expected spatial GI at each
+     * pixel comes from {@link SsgiTemporalReference#spatialAdded}, the blend
+     * weights from {@link SsgiTemporalReference#historyWeight} and the accepted
+     * history is clamped to the depth-matched current 3x3 range exactly like
+     * the shader. Nothing is read back from the GPU.</p>
+     */
+    private static double[][] jitteredPrediction(Fixture fixture, int frames,
+                                                 Reprojection reprojection,
+                                                 SsgiSettings settings) {
+        double[][][][] spatial = new double[frames][3][SIZE][3];
+        for (int frame = 0; frame < frames; frame++) {
+            double rotation = SsgiTemporalReference.rotationForFrame(frame);
+            for (int row = 0; row < 3; row++) {
+                int y = PROBE_Y - 1 + row;
+                for (int x = 0; x < SIZE; x++) {
+                    spatial[frame][row][x] = SsgiTemporalReference.spatialAdded(
+                            fixture.scene(), CAMERA, settings, NO_ENVIRONMENT, x, y,
+                            settings.sampleCount(), rotation);
+                }
+            }
+        }
+        double[][] history = new double[SIZE][3];
+        double[][] composite = new double[frames][];
+        for (int frame = 0; frame < frames; frame++) {
+            double[][] next = new double[SIZE][3];
+            double weight = SsgiTemporalReference.historyWeight(settings.temporalBlend(),
+                    settings.historyFrames(), frame + 1);
+            for (int x = 0; x < SIZE; x++) {
+                double[] center = spatial[frame][1][x];
+                if (frame == 0) {
+                    next[x] = center.clone();
+                    continue;
+                }
+                int q = x + jitterOffsetPixels(frame, reprojection);
+                if (!fixture.isReceiver(q, PROBE_Y) || q < 0 || q >= SIZE) {
+                    // The tap lands outside the six-metre receiver surface (or
+                    // the raster) and would be rejected as a depth mismatch.
+                    next[x] = center.clone();
+                    continue;
+                }
+                double[] resolved = SsgiTemporalReference.blend(history[q], center, weight);
+                // The shader clamps accepted history to the depth-matched
+                // current 3x3 range; a column left of RECEIVER_START is the
+                // closer layer and has no matching depth.
+                double[] low = center.clone();
+                double[] high = center.clone();
+                boolean hasNeighbour = false;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) {
+                            continue;
+                        }
+                        int neighbourX = x + dx;
+                        int neighbourY = PROBE_Y + dy;
+                        if (neighbourX < 0 || neighbourX >= SIZE
+                                || !fixture.isReceiver(neighbourX, neighbourY)) {
+                            continue;
+                        }
+                        double[] neighbour = spatial[frame][1 + dy][neighbourX];
+                        for (int channel = 0; channel < 3; channel++) {
+                            low[channel] = Math.min(low[channel], neighbour[channel]);
+                            high[channel] = Math.max(high[channel], neighbour[channel]);
+                        }
+                        hasNeighbour = true;
+                    }
+                }
+                if (hasNeighbour) {
+                    resolved = SsgiTemporalReference.clampNeighbourhood(resolved, low, high);
+                }
+                next[x] = resolved;
+            }
+            history = next;
+            composite[frame] = SsgiTemporalReference.composite(
+                    asDouble(fixture.base(PROBE_X, PROBE_Y)), history[PROBE_X]);
+        }
+        return composite;
+    }
+
+    private static double distance(float[] image, int x, int y, double[] expected) {
+        float[] actual = pixel(image, x, y);
+        double dx = actual[0] - expected[0];
+        double dy = actual[1] - expected[1];
+        double dz = actual[2] - expected[2];
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private static double distance(double[] first, double[] second) {
+        double dx = first[0] - second[0];
+        double dy = first[1] - second[1];
+        double dz = first[2] - second[2];
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private static double distance(float[] first, float[] second) {
+        double dx = first[0] - second[0];
+        double dy = first[1] - second[1];
+        double dz = first[2] - second[2];
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private static void assertDiffers(float[] output, int x, int y, double[] counterfactual,
+                                      double minimum, String label) {
+        double distance = distance(output, x, y, counterfactual);
+        assertTrue(distance > minimum, label + ": distance " + distance
+                + " must exceed " + minimum);
     }
 
     private static float[] renderSpatial(GlRenderDevice device, SsgiPass pass,
@@ -518,6 +844,19 @@ class SsgiTemporalGlTest {
         }
     }
 
+    /** Average composite RGB of one probe pixel over frames {@code [from, to)}. */
+    private static double[] averagePixels(float[][] frames, int from, int to, int x, int y) {
+        double[] sum = new double[3];
+        for (int frame = from; frame < to; frame++) {
+            float[] value = pixel(frames[frame], x, y);
+            sum[0] += value[0];
+            sum[1] += value[1];
+            sum[2] += value[2];
+        }
+        int count = to - from;
+        return new double[]{sum[0] / count, sum[1] / count, sum[2] / count};
+    }
+
     private static double error(float[] output, int x, int y, double[] expectedAdded,
                                 double[] base) {
         float[] actual = pixel(output, x, y);
@@ -558,6 +897,11 @@ class SsgiTemporalGlTest {
         private float[] receiverBase = {0.02f, 0.02f, 0.02f};
 
         private Fixture() {
+        }
+
+        /** True when the pixel is on the six-metre receiver surface. */
+        boolean isReceiver(int x, int y) {
+            return Math.abs(viewDepth[y * SIZE + x] - 6.0f) < 1.0e-4f;
         }
 
         static Fixture directional(float bright) {
@@ -625,6 +969,86 @@ class SsgiTemporalGlTest {
             }
             fixture.syncPreviousDepth();
             return fixture;
+        }
+
+        /**
+         * A three-pixel six-metre receiver row surrounded by a closer uniform
+         * bright layer. The probe and both {@code x +/- 1} jitter taps are on
+         * the receiver, so their history states match, while nearly every
+         * hemisphere ray leaves the one-pixel-tall row and hits the uniform
+         * layer. The spatial GI is therefore strong and almost independent of
+         * the per-pixel rotation sequence, letting the convergence case compare
+         * the jittered and unjittered accumulations directly.
+         */
+        static Fixture windowPlate(float layerBrightness) {
+            Fixture fixture = new Fixture();
+            for (int y = 0; y < SIZE; y++) {
+                for (int x = 0; x < SIZE; x++) {
+                    int pixel = y * SIZE + x;
+                    boolean receiver = Math.abs(x - PROBE_X) <= RECEIVER_WINDOW_HALF
+                            && y == PROBE_Y;
+                    if (receiver) {
+                        fixture.fillReceiverPlane(pixel, -6.0f, 0.5f);
+                    } else {
+                        fixture.fillSurround(pixel, layerBrightness, -5.0f);
+                    }
+                }
+            }
+            fixture.syncPreviousDepth();
+            return fixture;
+        }
+
+        /**
+         * Same receiver geometry as {@link #windowPlate(float)} but with a
+         * three-period albedo pattern on the receiver plane. The spatial GI at
+         * the probe therefore alternates strongly with the pixel column, so a
+         * history tap at the stable neighbour (contract) produces a different
+         * accumulation from a tap at the current pixel (missing jitter) or at
+         * the mirrored neighbour (flipped jitter sign).
+         */
+        static Fixture patternedReceiver(float layerBrightness) {
+            return plateWithAlbedo(RECEIVER_START, layerBrightness, true);
+        }
+
+        private static Fixture plateWithAlbedo(int receiverStart, float layerBrightness,
+                                               boolean pattern) {
+            Fixture fixture = new Fixture();
+            for (int y = 0; y < SIZE; y++) {
+                for (int x = 0; x < SIZE; x++) {
+                    int pixel = y * SIZE + x;
+                    if (x < receiverStart) {
+                        fixture.fillSurround(pixel, layerBrightness, -5.0f);
+                    } else {
+                        float albedo = pattern
+                                ? ALBEDO_PATTERN[x % ALBEDO_PATTERN.length] : 0.5f;
+                        fixture.fillReceiverPlane(pixel, -6.0f, albedo);
+                    }
+                }
+            }
+            // The probe pixel is part of the receiver plane above and already
+            // carries the patterned albedo; do not overwrite it with the
+            // uniform probe fill.
+            fixture.syncPreviousDepth();
+            return fixture;
+        }
+
+        private void fillReceiverPlane(int pixel, float viewZ, float albedoValue) {
+            viewDepth[pixel] = -viewZ;
+            depth[pixel] = deviceDepth(viewZ);
+            colour[pixel * 4] = receiverBase[0];
+            colour[pixel * 4 + 1] = receiverBase[1];
+            colour[pixel * 4 + 2] = receiverBase[2];
+            colour[pixel * 4 + 3] = 1.0f;
+            normal[pixel * 4] = 0.0f;
+            normal[pixel * 4 + 1] = 0.0f;
+            normal[pixel * 4 + 2] = 0.0f;
+            normal[pixel * 4 + 3] = 1.0f;
+            roughness[pixel] = 1.0f;
+            albedo[pixel * 4] = albedoValue;
+            albedo[pixel * 4 + 1] = albedoValue;
+            albedo[pixel * 4 + 2] = albedoValue;
+            albedo[pixel * 4 + 3] = 1.0f;
+            validity[pixel] = 1.0f;
         }
 
         Fixture withReceiverDepth(float viewZ) {
