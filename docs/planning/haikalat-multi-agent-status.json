@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "8094654d"
+    "head": "5e979691"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T13:04:11+08:00",
+  "updatedAt": "2026-11-13T14:04:51+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1734,7 +1734,8 @@
     "second acceptance boundaries: focused verification a524d782 (1342 tests, 0 skipped, 0 failures) at 79890835; S6 remains 7 representative sub-combinations with documented choices",
     "structure review defects: PBR direct/IBL switch fix (GL regression), DDGI/VCT failed-submission invalidation, SSR jittered projection fix; focused verification b5f11ac5 PASS. Remaining structural: water refraction and temporal upscaling not wired into the main path, SSS signal separation, denoise whole-colour signal",
     "structure review regression follow-up (codex/render-recovery-tests, based on integration 39776120): added the missing real-GL counterexamples for the DDGI/VCT failed-submission invalidation and SSR jitter fix via the one-shot test-only haikalat.test.failSubmissionAfterPass=<passName> graph hook (fires after all pass recording and before device.execute, clears itself, never set by production). New DdgiRecoveryGlTest, VctRecoveryGlTest and SsrJitterGlTest are registered in focused-verification glCases; glSmoke *Ddgi*GlTest/*Vct*GlTest/*Ssr*GlTest = 30 tests, 0 skipped, 0 failures; DDGI recovery proves an unscheduled probe depth returns to 1.0 after re-initialization, VCT recovery proves full=true/dispatches>0 instead of noOp, and the SSR case predicts 609 jitter-sensitive pixels (607 brighter on the wrong stable path; 774 pixels changed overall). The SSR counterexample exposed that c4a1b451 passed inverse(inverseJitteredProjection) without the view; this branch corrects it to inverse(inverseJitteredProjection) x view. No policy-row or release-verification changes. Remaining limits: partial mid-submission execution, repeated failures, resize/close combinations, full RenderPipeline TAA+SSR and MSAA roughness resolve; performance/human visual NOT_EVALUATED",
-    "structure-review regressions: test-only failSubmissionAfterPass injection; DDGI first-submit recovery reinitializes the sentinel atlas, VCT recovery full rebuild, SSR jitter reference exposes and fixes the view-composition bug; focused verification 39dc5b56 (1346 tests, 0 skipped, 0 failures)"
+    "structure-review regressions: test-only failSubmissionAfterPass injection; DDGI first-submit recovery reinitializes the sentinel atlas, VCT recovery full rebuild, SSR jitter reference exposes and fixes the view-composition bug; focused verification 39dc5b56 (1346 tests, 0 skipped, 0 failures)",
+    "S4/S5 wiring: water refraction main path (copy pass + combined water record, fail-closed combos) and temporal upscaling source lifecycle (initial/replacement/resize, unavailable without source); focused verification cfa3fd6e PASS"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
