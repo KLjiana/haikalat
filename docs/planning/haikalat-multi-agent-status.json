@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "ecedac8a"
+    "head": "e7a02dc9"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-13T02:41:58+08:00",
+  "updatedAt": "2026-11-13T08:06:26+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -397,7 +397,8 @@
         "independent acceptance F1: implementation is shadow-map-space refinement, not the required screen-space contact-shadow contract",
         "screen-space contact-shadow pass implemented at d52df12b (Camera depth consumer, view-space march, off-screen fallback); integration real GL ScreenSpaceContactShadowsGlTest 2/2 + ContactShadowsGlTest 1/1 PASS, JVM gating 3/3; independent review pending",
         "independent review APPROVE_WITH_SCOPE: depth reconstruction, normal/back-face, march, off-screen fallback, composite and lifecycle verified; the medium double-darkening finding is fixed at 454cbc23 (single consumer)",
-        "final per-feature matrix 20261113-021232: #9 JVM 9/12 + GL 1/1 PASS"
+        "final per-feature matrix 20261113-021232: #9 JVM 9/12 + GL 1/1 PASS",
+        "second acceptance fix 043e36bb: the screen-space pass is gated off while direct lighting or the feature master is disabled; GL counterexample asserts unlit receivers stay byte-identical"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1378,7 +1379,8 @@
         "independent acceptance F4: spatial SSGI exists but the GI-signal temporal adaptation is missing",
         "GI temporal adaptation implemented at d413e9d2 (SsgiSettings temporal fields, ssgi-temporal.frag reprojection/rejection, double-buffered history, camera-cut/resize/invalidate lifecycle); integration real GL SsgiTemporalGlTest 7/7 + SsgiPassGlTest 8/8 PASS, JVM SsgiTemporalReferenceTest 7/7; independent review pending",
         "independent review APPROVE_WITH_SCOPE: reprojection sign, rejection ordering, lifecycle and disabled path verified; the uninitialized-slot commit hazard and the non-finite previous-depth gap are fixed at 2818d312, camera-cut expectation corrected, canonical 12-to-17 reflection break documented",
-        "final per-feature matrix 20261113-021232: #39 JVM 46/62 + GL 8/8 PASS"
+        "final per-feature matrix 20261113-021232: #39 JVM 46/62 + GL 8/8 PASS",
+        "second acceptance fix 043e36bb: SSGI temporal reprojection removes current TAA jitter and re-applies previous jitter (TemporalInputs carries jitter); JVM shader contract updated; GL jittered counterexample still pending"
       ],
       "review": "APPROVE_WITH_SCOPE",
       "functional": "PASS_FOCUSED",
@@ -1668,7 +1670,8 @@
         "independent acceptance F5 GL regression (2026-11-13): RenderPipelineWiringB3GlTest.movingOnlyTheHairLockInvalidatesTheStaticShadowCacheAndTheShadowFollows executes pre-hair baseline -> first miss -> static reuse -> lock-only move (miss and receiver shadow follows) -> stable reuse -> disabled baseline; 11/11 real GL PASS (RenderPipelineWiringB3GlTest 4/4 + HairStrandGlTest 7/7, 0 skipped, 0 failures, RTX 3050)",
         "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)",
         "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline",
-        "final per-feature matrix 20261113-021232: #46 JVM 21/28 + GL 7/7 PASS"
+        "final per-feature matrix 20261113-021232: #46 JVM 21/28 + GL 7/7 PASS",
+        "second acceptance fix 043e36bb: hair enable through features().submit() now invalidates the borrowed static shadow cache; GL feature-path regression added"
       ],
       "review": "APPROVE",
       "functional": "PASS_FOCUSED",
@@ -1715,7 +1718,8 @@
     "v0.28.1 progress 2026-11-12: 18 features DONE with focused GL evidence (#4/#5/#10/#12/#13/#14/#16/#17/#19/#20/#21/#22/#23/#24/#25/#28/#29/#30); #6/#8 BLOCKED, #9 PARTIAL. Latest focused verify runId 317cbe60: 560 tests, 0 skipped/failures. In flight: #31 POM and #36 caustics GPU fixes; planar re-review sign-check fix. RenderPipeline consumption for #28/#30 remains an explicit gap. No push/tag; source branch untouched.",
     "v0.28.1 progress 2026-11-12 (later): #32/#33 SSS, #34 denoise, #37 stochastic transparency and #38 volumetric particles are integrated with JVM and serialized GL evidence; JVM verify runId 8919c370 PASS. RenderPipeline consumption for #28 OIT, #30 planar, #36 caustics, #37 stochastic, #38 particles and feature-control exposure for #32/#34/#35 remains an explicit wiring gap. Independent reviews for #32/#33, #34, #37, #38 are in flight.",
     "final candidate: focused verification c80d3ff6 (1331 tests, 0 skipped, 0 failures) and per-feature matrix 20261113-021232 (JVM 962 + GL 243, 0 GL skipped) at HEAD cab6c01b",
-    "closing evidence: focused verification 398d45bf (1331 tests, 0 skipped, 0 failures) at HEAD ecedac8a"
+    "closing evidence: focused verification 398d45bf (1331 tests, 0 skipped, 0 failures) at HEAD ecedac8a",
+    "second acceptance: focused verification 1a78b471 (1332 tests, 0 skipped, 0 failures) at e7a02dc9; remaining: S6/#6/#8 boundary evidence and the GL jittered SSGI counterexample"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
