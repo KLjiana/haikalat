@@ -1671,6 +1671,15 @@ public final class RenderPipeline {
             if (castsShadow(previous) || castsShadow(replacement)) {
                 candidate.shadowCache().invalidateAll();
             }
+            // The lock writes no velocity and (SORTED_ALPHA) no depth into the
+            // shared surface, so the temporal resolve would keep the previous
+            // strand image as accepted history.  Enabling, disabling or
+            // rebuilding the lock therefore invalidates the post-process
+            // history; a failed candidate keeps the previous history untouched.
+            if (previous.active() || replacement.active()) {
+                candidate.postProcess().invalidateTemporalHistory(
+                        TaaInvalidationReason.HAIR_STRANDS_SETTINGS);
+            }
             topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
         } catch (RuntimeException | Error failure) {
             if (activeGeneration == previousGeneration) {
@@ -1781,12 +1790,24 @@ public final class RenderPipeline {
         if (!value.isFinite()) {
             throw new IllegalArgumentException("hair model matrix must be finite");
         }
+        if (hairStrandModel.equals(value, 0.0f)) {
+            // A stable placement must not reset the shadow cache or the
+            // temporal history on every frame.
+            return this;
+        }
         hairStrandModel.set(value);
         // The hair lock is a dynamic shadow caster that is not part of the
         // scene/light/planner cache key. Moving it must invalidate the static
         // tiles, otherwise the previous placement's shadow survives.
         if (activeGeneration != null && hairStrandSettings.active()) {
             activeGeneration.shadowCache().invalidateAll();
+            // The lock is also outside the shared surface inputs (no velocity,
+            // and SORTED_ALPHA writes no depth), so a temporal resolve would
+            // keep the previous placement as accepted history. Invalidate the
+            // post-process history exactly on the change; a repeated identical
+            // matrix is a no-op above.
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.HAIR_STRAND_MODEL);
         }
         return this;
     }
@@ -4123,6 +4144,13 @@ public final class RenderPipeline {
                 if (wasPaused && effective.enabled()) resetTemporalHistory();
                 return;
             }
+            // The strand request reaches the generation through
+            // applyFeatureFields, so it does not pass through the local apply
+            // path that normally invalidates the temporal history.  Enabling,
+            // disabling or re-baking the lock changes forward strand pixels
+            // that never enter the shared velocity/depth surface.
+            boolean hairSettingsChanged = !previous.hairStrands().equals(effective.hairStrands())
+                    && (previous.hairStrands().active() || effective.hairStrands().active());
             applyFeatureFields(effective);
             PipelineGeneration current = activeGeneration;
             try {
@@ -4138,11 +4166,19 @@ public final class RenderPipeline {
                 if (hairShadowParticipation(previous) != hairShadowParticipation(effective)) {
                     candidate.shadowCache().invalidateAll();
                 }
+                if (hairSettingsChanged) {
+                    candidate.postProcess().invalidateTemporalHistory(
+                            TaaInvalidationReason.HAIR_STRANDS_SETTINGS);
+                }
             } catch (RuntimeException failure) {
                 if (activeGeneration != current) {
                     // The candidate became active before retirement failed. The
                     // published generation and the effective configuration must
                     // not diverge: keep the resolved fields and publish them.
+                    if (hairSettingsChanged) {
+                        activeGeneration.postProcess().invalidateTemporalHistory(
+                                TaaInvalidationReason.HAIR_STRANDS_SETTINGS);
+                    }
                     features.publish(requested, effective, revision, resolved.activities());
                     if (wasPaused && effective.enabled()) resetTemporalHistory();
                     return;
