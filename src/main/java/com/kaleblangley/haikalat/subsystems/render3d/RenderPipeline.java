@@ -62,6 +62,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
@@ -394,6 +395,9 @@ public final class RenderPipeline {
     private boolean hdrVfxEnabled = true;
     private boolean previewEnabled = true;
     private boolean featureMasterEnabled = true;
+    /** Last recorded decal batch; zero until an eligible stage records a frame. */
+    private VfxRenderer.ProjectedDecalStatistics lastProjectedDecalStatistics =
+            new VfxRenderer.ProjectedDecalStatistics(0, 0, 0, 0);
     private List<VfxLight> pendingVfxLights = List.of();
     private long vfxLightInputRevision;
     private int maxVfxLights = 4;
@@ -2368,6 +2372,106 @@ public final class RenderPipeline {
     }
 
     /**
+     * Registers the caller-owned projected-decal renderer and per-frame source.
+     *
+     * <p>The batch is recorded exactly once per frame after the opaque geometry
+     * pass and before the transparent collectors (weighted OIT, stochastic
+     * transparency, water and glass), so the decals are part of the scene
+     * colour those passes and the temporal resolve consume. The source is
+     * queried during graph recording on the GPU owner thread; the returned
+     * list is bounded by {@link ProjectedDecalSettings#maximumDecals()} and is
+     * not retained across frames. Registration must happen before {@link
+     * #build()}; an enabled batch still fails closed without HDR, a registered
+     * source or a single-sample depth.</p>
+     *
+     * @param renderer caller-owned projected-decal renderer; never closed here
+     * @param source   per-frame author list, queried once on the owner thread
+     * @return this pipeline
+     */
+    public RenderPipeline decals(VfxRenderer renderer, Supplier<List<ProjectedDecal>> source) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("projected decals must be configured before build");
+        }
+        if (projectedDecalRenderer != null || projectedDecalSource != null) {
+            throw new IllegalStateException(
+                    "a projected-decal renderer/source is already configured");
+        }
+        projectedDecalRenderer = Objects.requireNonNull(renderer, "renderer");
+        projectedDecalSource = Objects.requireNonNull(source, "source");
+        topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        return this;
+    }
+
+    /** Current projected-decal batch settings; {@code disabled()} by default. */
+    public ProjectedDecalSettings projectedDecals() {
+        return projectedDecalSettings;
+    }
+
+    /** True when the caller registered both the decal renderer and its source. */
+    public boolean hasProjectedDecalRecorder() {
+        return projectedDecalRecorderPresent();
+    }
+
+    /**
+     * Publishes a projected-decal batch change at a frame boundary.
+     *
+     * <p>Enabling or retuning the batch rebuilds the candidate generation (the
+     * stage is a topology component) and invalidates temporal history. A
+     * failure keeps the previously published generation and settings. An
+     * unavailable request stays sanitized by the feature policy and creates no
+     * pass.</p>
+     *
+     * @param value replacement batch settings
+     */
+    public void applyProjectedDecals(ProjectedDecalSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyProjectedDecalsInternal(value);
+            }
+        } else {
+            applyProjectedDecalsInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyProjectedDecalsInternal(ProjectedDecalSettings value) {
+        ProjectedDecalSettings replacement = Objects.requireNonNull(value, "projectedDecals");
+        if (executing) {
+            throw new IllegalStateException(
+                    "projected-decal changes are only allowed at frame boundaries");
+        }
+        if (replacement.equals(projectedDecalSettings)) return;
+        if (activeGeneration == null) {
+            projectedDecalSettings = replacement;
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+            return;
+        }
+        ProjectedDecalSettings previous = projectedDecalSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        projectedDecalSettings = replacement;
+        try {
+            PipelineTopology topology = captureTopology(activeGeneration,
+                    volumetricParticleSettings, stochasticTransparencySettings);
+            activateGeneration(createGeneration(scene, topology, activeGeneration));
+            activeGeneration.postProcess().invalidateTemporalHistory(
+                    TaaInvalidationReason.PROJECTED_DECAL_SETTINGS);
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                projectedDecalSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /** Last recorded projected-decal batch outcome; zero when the stage is disabled. */
+    public VfxRenderer.ProjectedDecalStatistics projectedDecalStatistics() {
+        return lastProjectedDecalStatistics;
+    }
+
+    /**
      * Publishes one complete immutable effect-light input for the next frame.
      *
      * <p>Values are merged with the ordinary Scene lights before the frame
@@ -2892,6 +2996,27 @@ public final class RenderPipeline {
                 sceneColorProducer = VolumetricPassBuilder.TRANSPARENT_PASS;
             }
             java.util.List<String> waterDependencies = new java.util.ArrayList<>();
+            if (topology.projectedDecals()) {
+                // The batch is recorded exactly once, after the opaque geometry
+                // pass and before planar/caustics/contact-shadow/water/glass and
+                // the transparent collectors. The pass owns its colour copy and
+                // resolves the geometry depth into a single-sample texture, so
+                // MSAA never samples a multisampled depth attachment.
+                addProjectedDecalPass(candidate.graph(), sceneColorProducer,
+                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
+                        projectedDecalDepthResolveExecutor(),
+                        projectedDecalExecutor(sceneColorProducer));
+                sceneColorTexture = ProjectedDecalPass.COLOR_TEXTURE;
+                sceneColorProducer = ProjectedDecalPass.PASS_NAME;
+                candidate.postProcess().sceneColorInput(sceneColorTexture, sceneColorProducer);
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(sceneColorProducer);
+                }
+                // The water pass reads the current scene colour without
+                // borrowing it, so this explicit edge is what keeps the decal
+                // batch before the water consumer.
+                waterDependencies.add(ProjectedDecalPass.PASS_NAME);
+            }
             if (candidate.planarReflection() != null) {
                 // The reflection is an independent single-sample subview. It is
                 // recorded after the opaque scene producer and before the water
@@ -3585,6 +3710,10 @@ public final class RenderPipeline {
                 topologySettingsRevision, lastFrameContext, mergedLights.extraEntries());
         executing = true;
         smokeSimulationAdvanced = false;
+        if (!generation.topology().projectedDecals()) {
+            lastProjectedDecalStatistics =
+                    new VfxRenderer.ProjectedDecalStatistics(0, 0, 0, 0);
+        }
         boolean postProcessFrameStarted = false;
         String frameStage = "frame-setup";
         try {
@@ -4096,6 +4225,7 @@ public final class RenderPipeline {
         vctSettings = requested.vct();
         hairStrandSettings = requested.hairStrands();
         waterRefractionSettings = requested.waterRefraction();
+        projectedDecalSettings = requested.projectedDecals();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
                 : new PointShadowAtlas(localShadowSettings.point(),
                 localShadowSettings.maxPointLights());
@@ -4143,7 +4273,9 @@ public final class RenderPipeline {
                 && java.util.Objects.equals(previous.vct(), next.vct())
                 && java.util.Objects.equals(previous.hairStrands(), next.hairStrands())
                 && java.util.Objects.equals(previous.waterRefraction(),
-                next.waterRefraction());
+                next.waterRefraction())
+                && java.util.Objects.equals(previous.projectedDecals(),
+                next.projectedDecals());
     }
 
     /**
@@ -5130,6 +5262,76 @@ public final class RenderPipeline {
                     plan.points().isEmpty() ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME),
                     plan.spots().isEmpty() ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME),0,3);
             generation.volumetric().recordReactiveVfx(cmd);
+        };
+    }
+
+    /**
+     * Declares the two projected-decal passes: the single-sample depth resolve
+     * and the pass-owned colour target that records the caller's batch. The
+     * target keeps the topology sample count so later transparent consumers
+     * keep their existing MSAA contract; the decal shader only samples the
+     * resolved single-sample depth, never the multisampled scene depth.
+     */
+    static void addProjectedDecalPass(RenderGraph graph, String colorSourcePass,
+                                      RenderFormat format, int sampleCount,
+                                      PassExecutor depthResolveExecutor,
+                                      PassExecutor decalExecutor) {
+        ProjectedDecalPass.addDepthResolve(graph, PostProcessTargets.GEOMETRY_PASS)
+                .execute(depthResolveExecutor);
+        ProjectedDecalPass.addColorPass(graph, colorSourcePass, format, sampleCount)
+                .execute(decalExecutor);
+    }
+
+    private PassExecutor projectedDecalDepthResolveExecutor() {
+        return (res, cmd) -> {
+            Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+            Framebuffer target = res.currentTarget();
+            if (geometry == null || target == null) {
+                throw new IllegalStateException(
+                        "projected decals require the opaque geometry depth target");
+            }
+            ProjectedDecalPass.recordDepthResolve(cmd, geometry, target);
+        };
+    }
+
+    private PassExecutor projectedDecalExecutor(String colorSourcePass) {
+        return (res, cmd) -> {
+            VfxRenderer renderer = projectedDecalRenderer;
+            Supplier<List<ProjectedDecal>> source = projectedDecalSource;
+            if (renderer == null || source == null) {
+                throw new IllegalStateException(
+                        "projected decals require a registered renderer/source");
+            }
+            Framebuffer colorSource = res.framebufferOfPass(colorSourcePass);
+            Framebuffer target = res.currentTarget();
+            if (colorSource == null || target == null) {
+                throw new IllegalStateException(
+                        "projected decals require the scene colour target to copy");
+            }
+            int depthTexture = res.depthAttachment(ProjectedDecalPass.DEPTH_TEXTURE);
+            if (depthTexture <= 0) {
+                throw new IllegalStateException(
+                        "projected decals require the resolved single-sample depth texture");
+            }
+            cmd.blitColor(colorSource, target)
+                    .bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height());
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            Matrix4f projection;
+            Matrix4f view;
+            if (frame != null) {
+                // The scene depth was rasterized with the jittered projection;
+                // the decal pass must reconstruct with the same camera.
+                projection = new Matrix4f(frame.jitteredProjection());
+                view = new Matrix4f(frame.view());
+            } else {
+                ExternalCamera camera = externalFrameCamera();
+                projection = new Matrix4f(camera.projection());
+                view = new Matrix4f(camera.view());
+            }
+            lastProjectedDecalStatistics = renderer.recordProjectedDecals(cmd,
+                    projectedDecalSettings, source.get(), projection, view, depthTexture,
+                    target.width(), target.height());
         };
     }
 

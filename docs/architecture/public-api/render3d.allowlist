@@ -47,6 +47,7 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxDistortionProjecto
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder
 internal com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewAspect

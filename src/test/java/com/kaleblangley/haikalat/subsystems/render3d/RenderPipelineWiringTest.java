@@ -24,6 +24,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSet
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricPassBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.RenderWindow;
 import org.joml.Vector3f;
@@ -849,6 +850,67 @@ class RenderPipelineWiringTest {
                 volumetricFog, base.volumetricQuality(), base.volumetricEmission(),
                 base.waterSurface(), particles, stochastic, clouds, smoke,
                 false, false, false, false, false, false, base.screenSpaceContactShadows());
+    }
+
+    @Test
+    void projectedDecalPassDeclaresAResolvedDepthCopyAndKeepsTheSceneColourChain() {
+        try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
+            graph.addPass(PostProcessTargets.GEOMETRY_PASS)
+                    .createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F)
+                    .createDepthTexture("scene.depth")
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addProjectedDecalPass(graph, PostProcessTargets.GEOMETRY_PASS,
+                    RenderFormat.RGBA16F, 1, (res, cmd) -> { }, (res, cmd) -> { });
+            graph.compile();
+            var description = graph.description();
+            var decal = description.passes().stream()
+                    .filter(candidate -> candidate.name().equals(ProjectedDecalPass.PASS_NAME))
+                    .findFirst().orElseThrow();
+            var resolve = description.passes().stream()
+                    .filter(candidate -> candidate.name()
+                            .equals(ProjectedDecalPass.DEPTH_RESOLVE_PASS))
+                    .findFirst().orElseThrow();
+            assertNull(decal.depthAttachment(),
+                    "the decal draw must not attach or write the shared scene depth");
+            assertEquals(1, decal.samples());
+            assertEquals(1, resolve.samples(),
+                    "the decal shader samples a single-sample depth texture");
+            assertTrue(decal.directDependencies().contains(
+                            ProjectedDecalPass.DEPTH_RESOLVE_PASS));
+            assertTrue(decal.directDependencies()
+                    .contains(PostProcessTargets.GEOMETRY_PASS));
+            assertTrue(resolve.directDependencies()
+                    .contains(PostProcessTargets.GEOMETRY_PASS));
+            assertTrue(description.passes().stream().anyMatch(candidate ->
+                    candidate.name().equals(ProjectedDecalPass.PASS_NAME)
+                            && candidate.colorAttachments().stream().anyMatch(attachment ->
+                            attachment.logicalName().equals(ProjectedDecalPass.COLOR_TEXTURE))),
+                    "the stage owns the colour target that continues the chain");
+        }
+
+        // MSAA: the colour target keeps the topology sample count while the
+        // sampled depth copy stays single-sample.
+        try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
+            graph.addPass(PostProcessTargets.GEOMETRY_PASS)
+                    .createColorMS(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F, 4)
+                    .createDepth()
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addProjectedDecalPass(graph, PostProcessTargets.GEOMETRY_PASS,
+                    RenderFormat.RGBA16F, 4, (res, cmd) -> { }, (res, cmd) -> { });
+            graph.compile();
+            var description = graph.description();
+            var decal = description.passes().stream()
+                    .filter(candidate -> candidate.name().equals(ProjectedDecalPass.PASS_NAME))
+                    .findFirst().orElseThrow();
+            var resolve = description.passes().stream()
+                    .filter(candidate -> candidate.name()
+                            .equals(ProjectedDecalPass.DEPTH_RESOLVE_PASS))
+                    .findFirst().orElseThrow();
+            assertEquals(4, decal.samples());
+            assertNull(decal.depthAttachment(),
+                    "an MSAA decal target must not attach a multisampled depth texture");
+            assertEquals(1, resolve.samples());
+        }
     }
 
     private static RenderWindow window() {
