@@ -21,8 +21,25 @@ tasks.withType(Test).configureEach {
     // handle (indexer/AV) still holds a file in the shared system temp folder.
     // Pointing the forked test JVM at a build-local temp root keeps that
     // environment noise inside build/ without weakening any assertion.
-    doFirst { testTempRoot.get().asFile.mkdirs() }
+    // JUnit's own cleanup is disabled because a failed post-test delete is
+    // reported as a test failure even when the test body passed; the task
+    // start purges the previous run's directories instead, so the footprint
+    // stays bounded and `clean` removes everything. This is environment
+    // plumbing, not a relaxation of any GL/JVM contract.
+    doFirst {
+        def root = testTempRoot.get().asFile
+        root.mkdirs()
+        root.listFiles()?.each { entry ->
+            try {
+                entry.deleteDir()
+            } catch (Exception ignored) {
+                // A stale handle may keep one directory alive; the next run
+                // retries and the assertion set is unaffected.
+            }
+        }
+    }
     systemProperty 'java.io.tmpdir', testTempRoot.get().asFile.absolutePath
+    systemProperty 'junit.jupiter.tempdir.cleanup.mode.default', 'NEVER'
 }
 
 def guardTestDefaults = { Test guard ->

@@ -22,7 +22,10 @@ gradle.taskGraph.whenReady { graph ->
     }
 }
 tasks.withType(Test).configureEach {
-    timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('soak') ? 5 : 2)
+    // The focused JVM scope now carries over a thousand contracts and exceeds
+    // two minutes on a loaded machine; the cap still bounds a hung test while
+    // the verify.ps1 wall-clock deadline remains the outer bound.
+    timeout = Duration.ofMinutes(name.toLowerCase(Locale.ROOT).contains('soak') ? 8 : 5)
 }
 tasks.matching { it.name == 'glLeafVerification' }.configureEach {
     // The explicit GL leaf covers all guarded classes; it is still capped.

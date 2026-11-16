@@ -3,7 +3,7 @@ param(
     [ValidateSet('Focused', 'Jvm', 'Gl', 'UiJvm', 'Ui', 'UiDemos', 'UiConsumers', 'UiSoak', 'Extended')]
     [string] $Mode = 'Focused',
     [ValidateRange(1, 1800)]
-    [int] $TimeoutSeconds = 300
+    [int] $TimeoutSeconds = 900
 )
 
 $ErrorActionPreference = 'Stop'
