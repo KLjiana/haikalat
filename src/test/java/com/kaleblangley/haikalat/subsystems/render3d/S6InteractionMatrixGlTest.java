@@ -28,6 +28,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
@@ -55,7 +56,11 @@ import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTran
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleVfx;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
@@ -89,7 +94,9 @@ import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -2004,6 +2011,852 @@ class S6InteractionMatrixGlTest {
         }
     }
 
+    // 8 ------------------------------------------------------------------
+    /**
+     * Material/decals/contact/TAA: a PBR floor plus a PBR occluder, the
+     * production projected-decal stage and the screen-space contact-shadow
+     * stage combined with temporal anti-aliasing.
+     *
+     * <p>All variants are independently built pipelines with the same fixed
+     * camera, time step and manual exposure. That keeps the TAA jitter/history
+     * sequence identical between the baseline, the single-feature-off variants
+     * and the rebuilt enabled variant, so the pixel comparisons are attributable
+     * to the toggled pass instead of history order. The decal probe is the
+     * world-space decal centre and the contact probe is a floor point in front
+     * of the occluder; both are projected with the stable (un-jittered) camera.
+     * Contact shadows attenuate direct light only, so the contact-area probe must
+     * darken when the pass is enabled while the decal probe stays decal-driven.</p>
+     */
+    @Test
+    void materialGroupCombinesDecalsContactShadowsAndTaa() {
+        try (GlfwWindow window = S6InteractionMatrixGlFixture.window(
+                "S6 decal/contact/TAA matrix")) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking();
+                 ShaderProgram shader = ShaderProgram.fromResource(getClass(),
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 Mesh quad = Mesh.from(TangentGenerator.generate(
+                         BuiltinMeshData.texturedQuad("s6-decal-contact-quad")).mesh());
+                 PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                         "/environments/pbr/studio-small.hdr",
+                         PbrEnvironmentSettings.testQuality());
+                 VfxRenderer decalRenderer = new VfxRenderer()) {
+                Material material = PbrMaterials.create(shader,
+                        new PbrMaterialProperties(new Vector4f(0.66f, 0.60f, 0.52f, 1.0f),
+                                0.0f, 0.78f, 1.0f, 1.0f, new Vector3f(), Map.of()),
+                        Map.of(), fallbacks);
+                try {
+                    Scene scene = decalAndContactScene(quad, material);
+                    Camera camera = scene.camera();
+                    int width = window.width();
+                    int height = window.height();
+                    DecalContactVariant baseline = runDecalContactVariant(window, device,
+                            scene, environment, decalRenderer,
+                            ProjectedDecalSettings.disabled(), false,
+                            "material decal/contact baseline");
+                    DecalContactVariant noDecals = runDecalContactVariant(window, device,
+                            scene, environment, decalRenderer,
+                            ProjectedDecalSettings.disabled(), true,
+                            "material decal disabled");
+                    DecalContactVariant noContact = runDecalContactVariant(window, device,
+                            scene, environment, decalRenderer,
+                            MATERIAL_DECAL_SETTINGS, false,
+                            "material contact disabled");
+                    DecalContactVariant all = runDecalContactVariant(window, device,
+                            scene, environment, decalRenderer,
+                            MATERIAL_DECAL_SETTINGS, true,
+                            "material decal/contact/TAA enabled");
+                    DecalContactVariant allAgain = runDecalContactVariant(window, device,
+                            scene, environment, decalRenderer,
+                            MATERIAL_DECAL_SETTINGS, true,
+                            "material decal/contact/TAA rebuilt");
+
+                    assertTrue(all.decalPass(), "the enabled composition must declare the "
+                            + "production projected-decal pass");
+                    assertTrue(all.contactPass(), "the enabled composition must declare the "
+                            + "screen-space contact-shadow pass");
+                    assertTrue(all.taaPass(), "the enabled composition must declare TAA");
+                    assertFalse(baseline.decalPass(),
+                            "the baseline must not declare the projected-decal pass");
+                    assertFalse(baseline.contactPass(),
+                            "the baseline must not declare the contact-shadow pass");
+                    assertEquals(0, baseline.decalDraws(),
+                            "a disabled decal batch must record no draw");
+                    assertFalse(noDecals.decalPass(),
+                            "the decal-off variant must not declare the projected-decal pass");
+                    assertEquals(0, noDecals.decalDraws(),
+                            "the decal-off variant must record no draw");
+                    assertTrue(noDecals.contactPass() && noDecals.taaPass(),
+                            "contact shadows and TAA must survive decals being off");
+                    assertTrue(noContact.decalPass(),
+                            "the contact-off variant must keep the projected-decal pass");
+                    assertFalse(noContact.contactPass(),
+                            "the contact-off variant must not declare the contact pass");
+                    assertTrue(noContact.decalDraws() > 0,
+                            "the contact-off variant must still record the decal batch");
+                    assertTrue(all.decalDraws() > 0,
+                            "the enabled composition must record the decal batch");
+
+                    List<String> order = all.passOrder();
+                    int decalIndex = order.indexOf(ProjectedDecalPass.PASS_NAME);
+                    int contactIndex = order.indexOf(
+                            ScreenSpaceContactShadowPass.PASS_NAME);
+                    int taaIndex = order.indexOf(PostProcessTargets.TAA_PASS);
+                    assertTrue(decalIndex >= 0 && contactIndex >= 0 && taaIndex >= 0,
+                            "the combined chain must contain decal, contact and TAA: " + order);
+                    assertTrue(decalIndex < contactIndex,
+                            "the decal batch must record before the contact-shadow composite: "
+                                    + order);
+                    assertTrue(contactIndex < taaIndex,
+                            "TAA must resolve after the decal/contact stages: " + order);
+
+                    int[] decalPixel = projectedPixel(camera,
+                            MATERIAL_DECAL.center(), width, height,
+                            "material decal centre");
+                    int[] contactPixel = projectedPixel(camera,
+                            MATERIAL_CONTACT_PROBE, width, height,
+                            "material contact probe");
+
+                    float decalBaseline = meanLuminance(baseline.pixels(), decalPixel, 1,
+                            width, height);
+                    float decalEnabled = meanLuminance(all.pixels(), decalPixel, 1,
+                            width, height);
+                    float decalDisabled = meanLuminance(noDecals.pixels(), decalPixel, 1,
+                            width, height);
+                    assertTrue(decalEnabled > decalBaseline + 0.05f,
+                            "the decal must land at its projected pixel and brighten it: "
+                                    + "baseline=" + decalBaseline
+                                    + " enabled=" + decalEnabled);
+                    assertEquals(decalBaseline, decalDisabled, 2.0e-3f,
+                            "disabling decals must restore the baseline decal pixel: "
+                                    + "baseline=" + decalBaseline
+                                    + " disabled=" + decalDisabled);
+
+                    float contactBaseline = meanLuminance(noContact.pixels(),
+                            contactPixel, 1, width, height);
+                    float contactEnabled = meanLuminance(all.pixels(), contactPixel, 1,
+                            width, height);
+                    float contactDisabled = meanLuminance(baseline.pixels(),
+                            contactPixel, 1, width, height);
+                    assertTrue(contactEnabled < contactBaseline - 1.0e-3f,
+                            "the contact area must darken: contactOff=" + contactBaseline
+                                    + " enabled=" + contactEnabled);
+                    assertEquals(contactBaseline, contactDisabled, 2.0e-3f,
+                            "disabling contact shadows must restore the baseline contact "
+                                    + "pixel: contactOff=" + contactBaseline
+                                    + " disabled=" + contactDisabled);
+
+                    int decalChanged = S6InteractionMatrixGlFixture.requireDifferentImage(
+                            all.pixels(), noDecals.pixels(),
+                            "disabling decals must change the composed pixels");
+                    int contactChanged = S6InteractionMatrixGlFixture.requireDifferentImage(
+                            all.pixels(), noContact.pixels(),
+                            "disabling contact shadows must change the composed pixels");
+                    S6InteractionMatrixGlFixture.report("material",
+                            "decalContactDecalDisabledChangedPixels", decalChanged);
+                    S6InteractionMatrixGlFixture.report("material",
+                            "decalContactContactDisabledChangedPixels", contactChanged);
+                    S6InteractionMatrixGlFixture.report("material", "decalProbe",
+                            String.format(Locale.ROOT,
+                                    "pixel=%d,%d baseline=%.6f enabled=%.6f disabled=%.6f",
+                                    decalPixel[0], decalPixel[1], decalBaseline,
+                                    decalEnabled, decalDisabled));
+                    S6InteractionMatrixGlFixture.report("material", "contactProbe",
+                            String.format(Locale.ROOT,
+                                    "pixel=%d,%d contactOff=%.6f enabled=%.6f disabled=%.6f",
+                                    contactPixel[0], contactPixel[1], contactBaseline,
+                                    contactEnabled, contactDisabled));
+                    S6InteractionMatrixGlFixture.requireSameImage(all.pixels(),
+                            allAgain.pixels(),
+                            "rebuilding the fixed decal/contact/TAA composition must restore "
+                                    + "the exact image");
+                    S6InteractionMatrixGlFixture.report("material",
+                            "decalContactRebuildDifferingPixels",
+                            S6InteractionMatrixGlFixture.differingPixels(all.pixels(),
+                                    allAgain.pixels()));
+                    GlDebug.assertNoError("S6 decal/contact/TAA matrix");
+                } finally {
+                    material.close();
+                }
+            }
+            S6InteractionMatrixGlFixture.requireNoLiveResources(
+                    "decal/contact/TAA matrix");
+        }
+    }
+
+    // 9 ------------------------------------------------------------------
+    /**
+     * Water/decals/planar/refraction: a projected decal on the dry part of a
+     * sloped solid floor that crosses the frozen water line. The production
+     * decal stage records into the scene colour before the water refraction
+     * background copy and the water pass, so the water pixel blends over the
+     * decal while the dry part of the same decal is visible directly.
+     *
+     * <p>Frozen waves/refraction and a static camera make every on/off/restore
+     * capture deterministic without TAA or another temporal consumer. The
+     * water-off variant is built by the production apply path on the same
+     * pipeline, so the probe distinguishes the direct decal from the
+     * water-composited decal without changing scene/camera/exposure.</p>
+     */
+    @Test
+    void waterGroupOrdersDecalsPlanarReflectionAndRefraction() {
+        try (GlfwWindow window = S6InteractionMatrixGlFixture.window(
+                "S6 water decal/refraction matrix")) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking();
+                 SceneResources ground = SceneResources.unlit(0.24f, 0.27f, 0.30f);
+                 VfxRenderer decalRenderer = new VfxRenderer()) {
+                Camera camera = new Camera(new Vector3f(0.0f, 5.0f, 9.0f),
+                        new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -32.0f);
+                Scene scene = new Scene(camera);
+                int width = window.width();
+                int height = window.height();
+                scene.add(SceneObject.fixed(ground.mesh, ground.material,
+                        new Matrix4f().rotateX(-(float) (Math.PI / 2.0
+                                        + Math.toRadians(WATER_RAMP_DEGREES)))
+                                .scale(16.0f, 16.0f, 1.0f)));
+                scene.addLight(SceneLight.directional(
+                        new Vector3f(0.15f, -1.0f, 0.25f), new Vector3f(1.0f), 1.0f));
+                WaterSurfaceSettings water = waterDecalSurface();
+                WaterRefractionSettings refraction = waterRefraction();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                        S6InteractionMatrixGlFixture.hdr(AntiAliasingMode.NONE))
+                        .waterSurface(water)
+                        .waterRefraction(refraction)
+                        .planarReflections(PlanarReflectionSettings.builder().enabled(true)
+                                .planeY(0.0f).maxResolution(128).build())
+                        .decals(decalRenderer, () -> List.of(WATER_DECAL));
+                try {
+                    pipeline.build();
+                    assertTrue(pipeline.graph().hasPass(WaterSurfacePass.PASS_NAME),
+                            "the finite water pass must be active");
+                    assertTrue(pipeline.graph().hasPass(
+                                    WaterSurfacePass.REFRACTION_BACKGROUND_PASS),
+                            "water refraction must declare its background copy");
+                    assertTrue(pipeline.graph().hasPass(PlanarReflectionPass.PASS_NAME),
+                            "the planar reflection pass must be active");
+                    assertFalse(pipeline.graph().hasPass(ProjectedDecalPass.PASS_NAME),
+                            "a disabled decal request must not declare the decal pass");
+
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] baseline = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal baseline");
+                    S6InteractionMatrixGlFixture.requireCleanFrame(baseline,
+                            "water decal baseline");
+
+                    pipeline.applyProjectedDecals(WATER_DECAL_SETTINGS);
+                    assertTrue(pipeline.graph().hasPass(ProjectedDecalPass.PASS_NAME),
+                            "enabling the decal request must declare the production pass");
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] decals = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal enabled");
+                    S6InteractionMatrixGlFixture.requireCleanFrame(decals,
+                            "water decal enabled");
+                    assertTrue(pipeline.projectedDecalStatistics().drawn() > 0,
+                            "the enabled water/floor decal batch must record a draw");
+                    assertNotNull(pipeline.activeGenerationForTest().planarReflection(),
+                            "the water group must own the planar reflection pass");
+                    assertTrue(pipeline.activeGenerationForTest().planarReflection()
+                                    .hasValidContent(),
+                            "an executed frame must keep planar reflection content");
+
+                    List<String> order = pipeline.graph().description().executionOrder();
+                    int decalIndex = order.indexOf(ProjectedDecalPass.PASS_NAME);
+                    int planarIndex = order.indexOf(PlanarReflectionPass.PASS_NAME);
+                    int refractionIndex = order.indexOf(
+                            WaterSurfacePass.REFRACTION_BACKGROUND_PASS);
+                    int waterIndex = order.indexOf(WaterSurfacePass.PASS_NAME);
+                    assertTrue(decalIndex >= 0 && planarIndex >= 0
+                                    && refractionIndex >= 0 && waterIndex >= 0,
+                            "the combined chain must contain decal/planar/refraction/water: "
+                                    + order);
+                    assertTrue(decalIndex < refractionIndex,
+                            "the decal batch must record before the refraction background "
+                                    + "copy: " + order);
+                    assertTrue(decalIndex < planarIndex,
+                            "the decal batch must record before the planar reflection: "
+                                    + order);
+                    assertTrue(planarIndex < waterIndex,
+                            "planar reflection must record before the water consumer: "
+                                    + order);
+                    assertTrue(refractionIndex < waterIndex,
+                            "the refraction background copy must precede the water pass: "
+                                    + order);
+
+                    int[] dryPixel = projectedPixel(camera, WATER_DECAL.center(),
+                            width, height, "water decal dry centre");
+                    int[] wetPixel = projectedPixel(camera, WATER_DECAL_WET_PROBE,
+                            width, height, "water decal underwater probe");
+                    float dryBaseline = meanLuminance(baseline, dryPixel, 1,
+                            width, height);
+                    float dryEnabled = meanLuminance(decals, dryPixel, 1,
+                            width, height);
+                    float wetBaseline = meanLuminance(baseline, wetPixel, 1,
+                            width, height);
+                    float wetEnabled = meanLuminance(decals, wetPixel, 1,
+                            width, height);
+                    assertTrue(dryEnabled > dryBaseline + 0.05f,
+                            "the dry part of the decal must land at its projected pixel: "
+                                    + "baseline=" + dryBaseline + " enabled=" + dryEnabled);
+                    assertTrue(Math.abs(wetEnabled - wetBaseline) > 1.0e-3f,
+                            "the water-composited decal must change the underwater probe: "
+                                    + "decalOff=" + wetBaseline + " decalOn=" + wetEnabled);
+
+                    pipeline.applyProjectedDecals(ProjectedDecalSettings.disabled());
+                    assertFalse(pipeline.graph().hasPass(ProjectedDecalPass.PASS_NAME));
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] decalRestored = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal disabled");
+                    S6InteractionMatrixGlFixture.requireCleanFrame(decalRestored,
+                            "water decal disabled");
+                    S6InteractionMatrixGlFixture.requireSameImage(baseline, decalRestored,
+                            "disabling the decal must restore the frozen water baseline");
+                    S6InteractionMatrixGlFixture.report("water",
+                            "waterDecalRestoreDifferingPixels",
+                            S6InteractionMatrixGlFixture.differingPixels(baseline,
+                                    decalRestored));
+
+                    pipeline.applyProjectedDecals(WATER_DECAL_SETTINGS);
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] decalReenabled = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal re-enabled");
+                    S6InteractionMatrixGlFixture.requireSameImage(decals, decalReenabled,
+                            "re-enabling the decal must restore the deterministic composition");
+
+                    pipeline.applyWaterRefraction(WaterRefractionSettings.disabled());
+                    pipeline.applyWaterSurface(WaterSurfaceSettings.disabled());
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] withoutWater = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal without water");
+                    S6InteractionMatrixGlFixture.requireCleanFrame(withoutWater,
+                            "water decal without water");
+                    float wetDirect = meanLuminance(withoutWater, wetPixel, 1,
+                            width, height);
+                    assertTrue(Math.abs(wetEnabled - wetDirect) > 1.0e-3f,
+                            "the water pixel must blend over the decal contribution: "
+                                    + "water=" + wetEnabled + " direct=" + wetDirect);
+                    S6InteractionMatrixGlFixture.report("water", "waterDecalWetProbe",
+                            String.format(Locale.ROOT,
+                                    "pixel=%d,%d decalOff=%.6f decalOn=%.6f waterOff=%.6f",
+                                    wetPixel[0], wetPixel[1], wetBaseline, wetEnabled,
+                                    wetDirect));
+                    S6InteractionMatrixGlFixture.report("water", "waterDecalDryProbe",
+                            String.format(Locale.ROOT,
+                                    "pixel=%d,%d baseline=%.6f enabled=%.6f",
+                                    dryPixel[0], dryPixel[1], dryBaseline, dryEnabled));
+
+                    pipeline.applyWaterSurface(water);
+                    pipeline.applyWaterRefraction(refraction);
+                    S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                    float[] waterRestored = S6InteractionMatrixGlFixture.capture(
+                            pipeline, "water decal water restored");
+                    S6InteractionMatrixGlFixture.requireSameImage(decals, waterRestored,
+                            "restoring water/refraction must restore the deterministic "
+                                    + "decal composition");
+                    S6InteractionMatrixGlFixture.report("water",
+                            "waterDecalWaterRestoreDifferingPixels",
+                            S6InteractionMatrixGlFixture.differingPixels(decals,
+                                    waterRestored));
+                    GlDebug.assertNoError("S6 water decal/refraction matrix");
+                } finally {
+                    pipeline.close();
+                }
+            }
+            S6InteractionMatrixGlFixture.requireNoLiveResources(
+                    "water decal/refraction matrix");
+        }
+    }
+
+    // 10 -----------------------------------------------------------------
+    /**
+     * Particles/contact/OIT: additive production GPU particles recorded inside
+     * the HDR VFX composite, one weighted-OIT surface and the screen-space
+     * contact-shadow darkening on the same single-sample scene colour.
+     *
+     * <p>Weighted OIT forces the earlier VFX composite boundary, so the graph
+     * order proves the particle composite resolves before the OIT resolve.
+     * Contact shadows attenuate direct light only: every pixel changed by the
+     * contact toggle must become darker and the changed region must stay
+     * bounded. Particle on/off/restore replays the same fixed emission sequence
+     * through the production lifecycle, so the particle-free and particle
+     * captures are byte-comparable.</p>
+     */
+    @Test
+    void particlesGroupOrdersVfxContactShadowsAndOit() {
+        try (GlfwWindow window = S6InteractionMatrixGlFixture.window(
+                "S6 particles/contact/OIT matrix")) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking();
+                 ShaderProgram shader = ShaderProgram.fromResource(getClass(),
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 Mesh quad = Mesh.from(TangentGenerator.generate(
+                         BuiltinMeshData.texturedQuad("s6-particle-contact-quad")).mesh());
+                 PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                         "/environments/pbr/studio-small.hdr",
+                         PbrEnvironmentSettings.testQuality());
+                 VfxRenderer vfx = new VfxRenderer();
+                 GpuParticleSystem particles = new GpuParticleSystem(GPU_PARTICLES)) {
+                Material material = PbrMaterials.create(shader,
+                        new PbrMaterialProperties(new Vector4f(0.58f, 0.54f, 0.48f, 1.0f),
+                                0.0f, 0.72f, 1.0f, 1.0f, new Vector3f(), Map.of()),
+                        Map.of(), fallbacks);
+                try {
+                    Camera camera = new Camera(new Vector3f(0.0f, 2.2f, 5.5f),
+                            new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -20.0f);
+                    Scene scene = new Scene(camera);
+                    scene.add(MeshRenderer.of(quad, material,
+                                    Transform.at(0.0f, 0.0f, 0.0f)
+                                            .rotationRadians(-(float) Math.PI / 2.0f, 0.0f, 0.0f)
+                                            .scale(12.0f, 12.0f, 1.0f))
+                            .withoutShadows());
+                    scene.add(MeshRenderer.of(quad, material,
+                            Transform.at(0.0f, 1.1f, -2.4f).scale(5.0f, 2.2f, 1.0f)));
+                    scene.addLight(SceneLight.shadowedDirectional(
+                            new Vector3f(1.2f, -1.0f, 0.35f), new Vector3f(5.0f), 6.0f));
+                    AtomicBoolean particlesEnabled = new AtomicBoolean(true);
+                    int width = window.width();
+                    int height = window.height();
+                    vfx.gpuParticleSettings(new GpuParticleVfx.Settings(
+                            S6InteractionMatrixGlFixture.DELTA_SECONDS, 32,
+                            GpuParticleVfx.SortingMode.NONE));
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            S6InteractionMatrixGlFixture.hdr(AntiAliasingMode.NONE),
+                            environment)
+                            .hdrVfxWithCamera((resources, commands, frameCamera) -> {
+                                if (!particlesEnabled.get()) return;
+                                vfx.recordGpuParticles(commands, particles, GPU_PARTICLES,
+                                        CameraProjection.stable(frameCamera, width, height,
+                                                new Matrix4f()),
+                                        frameCamera.getViewMatrix(new Matrix4f()),
+                                        resources.depthAttachment(
+                                                PostProcessTargets.VFX_SCENE_DEPTH),
+                                        width, height,
+                                        GpuParticleVfx.Boundary
+                                                .BEFORE_TRANSPARENT_COLLECTORS);
+                            });
+                    try {
+                        pipeline.features().submit(pipeline.features().effective().toBuilder()
+                                .directionalShadows(true)
+                                .directionalShadowMap(new DirectionalShadowMap(
+                                        contactShadowSettings(true)))
+                                .build());
+                        pipeline.build();
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        pipeline.weightedOitSurfaces(List.of(OIT_SURFACE));
+                        pipeline.applyWeightedOit(WeightedOitSettings.defaults());
+                        assertTrue(pipeline.graph().hasPass(
+                                        PostProcessTargets.VFX_COMPOSITE_PASS),
+                                "the GPU particle composite must declare HDR VFX");
+                        assertTrue(pipeline.graph().hasPass(WeightedOitPass.PASS_NAME),
+                                "the weighted-OIT resolve must be active");
+                        assertTrue(pipeline.graph().hasPass(
+                                        ScreenSpaceContactShadowPass.PASS_NAME),
+                                "the contact-shadow pass must be active");
+                        List<String> order = pipeline.graph().description().executionOrder();
+                        int vfxIndex = order.indexOf(PostProcessTargets.VFX_COMPOSITE_PASS);
+                        int oitIndex = order.indexOf(WeightedOitPass.PASS_NAME);
+                        int contactIndex = order.indexOf(
+                                ScreenSpaceContactShadowPass.PASS_NAME);
+                        assertTrue(contactIndex >= 0 && vfxIndex >= 0 && oitIndex >= 0,
+                                "the combined chain must contain contact, VFX and OIT: "
+                                        + order);
+                        assertTrue(contactIndex < vfxIndex,
+                                "contact shadows must darken before the particle composite: "
+                                        + order);
+                        assertTrue(vfxIndex < oitIndex,
+                                "the particle composite must resolve before weighted OIT: "
+                                        + order);
+
+                        particlesEnabled.set(false);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] baseline = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles/contact baseline");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(baseline,
+                                "particles/contact baseline");
+
+                        particlesEnabled.set(true);
+                        vfx.gpuParticleVfx().replay();
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] particlesOn = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles enabled");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(particlesOn,
+                                "particles enabled");
+                        assertTrue(vfx.gpuParticleVfx().statistics().drawn() > 0,
+                                "the enabled recorder must hand particles to the fixed-step "
+                                        + "draw");
+                        int particleChanged = S6InteractionMatrixGlFixture
+                                .requireDifferentImage(baseline, particlesOn,
+                                        "enabling additive GPU particles must change the "
+                                                + "composed pixels");
+                        S6InteractionMatrixGlFixture.report("particles",
+                                "gpuParticlesEnabledChangedPixels", particleChanged);
+
+                        particlesEnabled.set(false);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] particlesOff = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles disabled");
+                        S6InteractionMatrixGlFixture.requireSameImage(baseline, particlesOff,
+                                "disabling GPU particles must restore the particle-free "
+                                        + "baseline");
+
+                        particlesEnabled.set(true);
+                        vfx.gpuParticleVfx().replay();
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] particlesRestored = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles restored");
+                        S6InteractionMatrixGlFixture.requireSameImage(particlesOn,
+                                particlesRestored,
+                                "replaying the fixed particle sequence must restore the "
+                                        + "exact composed image");
+                        S6InteractionMatrixGlFixture.report("particles",
+                                "gpuParticlesRestoreDifferingPixels",
+                                S6InteractionMatrixGlFixture.differingPixels(particlesOn,
+                                        particlesRestored));
+
+                        int[] contactPixel = projectedPixel(camera,
+                                MATERIAL_CONTACT_PROBE, width, height,
+                                "particle contact probe");
+                        vfx.gpuParticleVfx().replay();
+                        submitContactShadow(pipeline, false);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] withoutContact = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles contact disabled");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(withoutContact,
+                                "particles contact disabled");
+                        assertFalse(pipeline.graph().hasPass(
+                                        ScreenSpaceContactShadowPass.PASS_NAME),
+                                "disabling contact shadows must remove the contact pass");
+
+                        vfx.gpuParticleVfx().replay();
+                        submitContactShadow(pipeline, true);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        float[] withContact = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "particles contact enabled");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(withContact,
+                                "particles contact enabled");
+                        S6InteractionMatrixGlFixture.requireSameImage(particlesOn,
+                                withContact,
+                                "restoring contact shadows with the replayed particle "
+                                        + "sequence must restore the exact composition");
+
+                        int darker = 0;
+                        int brighter = 0;
+                        int pixels = withContact.length / 4;
+                        for (int pixel = 0; pixel < pixels; pixel++) {
+                            float delta = S6InteractionMatrixGlFixture.luminance(
+                                    withContact, pixel)
+                                    - S6InteractionMatrixGlFixture.luminance(
+                                    withoutContact, pixel);
+                            if (delta < -1.0e-4f) darker++;
+                            if (delta > 1.0e-4f) brighter++;
+                        }
+                        assertTrue(darker > 0,
+                                "contact shadows must darken at least one composed pixel");
+                        assertEquals(0, brighter,
+                                "the contact-shadow composite may only attenuate colour");
+                        assertTrue(darker < pixels * 3 / 4,
+                                "contact shadows must stay local to the selected directional "
+                                        + "light region; darkened=" + darker
+                                        + " of " + pixels);
+                        float contactOff = meanLuminance(withoutContact, contactPixel, 1,
+                                width, height);
+                        float contactOn = meanLuminance(withContact, contactPixel, 1,
+                                width, height);
+                        assertTrue(contactOn < contactOff - 1.0e-3f,
+                                "the selected directional-light contact area must darken: "
+                                        + "contactOff=" + contactOff
+                                        + " contactOn=" + contactOn);
+                        S6InteractionMatrixGlFixture.report("particles",
+                                "gpuContactDarkenedPixels", darker);
+                        S6InteractionMatrixGlFixture.report("particles",
+                                "gpuContactBrighterPixels", brighter);
+                        S6InteractionMatrixGlFixture.report("particles",
+                                "gpuContactProbe",
+                                String.format(Locale.ROOT,
+                                        "pixel=%d,%d contactOff=%.6f contactOn=%.6f",
+                                        contactPixel[0], contactPixel[1], contactOff,
+                                        contactOn));
+                        GlDebug.assertNoError("S6 particles/contact/OIT matrix");
+                    } finally {
+                        pipeline.close();
+                    }
+                } finally {
+                    material.close();
+                }
+            }
+            S6InteractionMatrixGlFixture.requireNoLiveResources(
+                    "particles/contact/OIT matrix");
+        }
+    }
+
+    // 11 -----------------------------------------------------------------
+    /**
+     * Indirect/cloud-shadow/temporal-upscaling: SSGI plus the selected
+     * directional light's frozen cloud shadow, then a temporal-upscaling
+     * request on the same scene.
+     *
+     * <p>The production policy rejects SSGI together with temporal upscaling as
+     * a configuration conflict ({@link IllegalArgumentException}) before any
+     * candidate generation exists, so the real outcome is a documented
+     * rejection, not a composed upscaled frame. A separate request that drops
+     * SSGI but keeps temporal upscaling exercises the other documented outcome:
+     * with no low-resolution source the feature is sanitized to
+     * {@code UNAVAILABLE} and stripped from the effective snapshot. The
+     * SSGI/cloud-shadow composition itself is captured, toggled per feature and
+     * restored byte-for-byte on the same pipeline.</p>
+     */
+    @Test
+    void indirectGroupCombinesSsgiCloudShadowsAndTemporalUpscalingRejection() {
+        try (GlfwWindow window = S6InteractionMatrixGlFixture.window(
+                "S6 SSGI/cloud-shadow/upscaling matrix")) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking();
+                 ShaderProgram shader = ShaderProgram.fromResource(getClass(),
+                         "/shaders/render3d/pbr/pbr-forward.vert",
+                         "/shaders/render3d/pbr/pbr-forward.frag");
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 Mesh quad = Mesh.from(TangentGenerator.generate(
+                         BuiltinMeshData.texturedQuad("s6-ssgi-cloud-quad")).mesh());
+                 PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                         "/environments/pbr/studio-small.hdr",
+                         PbrEnvironmentSettings.testQuality())) {
+                Material material = PbrMaterials.create(shader,
+                        new PbrMaterialProperties(new Vector4f(0.46f, 0.48f, 0.44f, 1.0f),
+                                0.0f, 0.82f, 1.0f, 1.0f, new Vector3f(), Map.of()),
+                        Map.of(), fallbacks);
+                try {
+                    Scene scene = ssgiCloudShadowScene(quad, material);
+                    RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                            S6InteractionMatrixGlFixture.hdr(AntiAliasingMode.NONE),
+                            environment)
+                            .postProcessSettings(PostProcessSettings.defaults()
+                                    .withSsgi(SsgiSettings.defaults()));
+                    try {
+                        pipeline.build();
+                        assertTrue(pipeline.graph().hasPass(PostProcessTargets.SSGI_PASS),
+                                "the SSGI pass must be active in the built baseline");
+                        RenderFeatureSettings cloudRequest = pipeline.features().effective()
+                                .toBuilder()
+                                .directionalShadows(true)
+                                .directionalShadowMap(new DirectionalShadowMap(
+                                        cloudShadowSettings()))
+                                .build();
+                        pipeline.features().submit(cloudRequest);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        assertTrue(pipeline.features().effective().directionalShadowMap()
+                                        .settings().cloudShadows().active(),
+                                "the selected directional light must publish cloud shadows");
+                        assertTrue(pipeline.graph().hasPass(PostProcessTargets.SSGI_PASS),
+                                "the composed baseline must keep SSGI in the chain");
+                        float[] composed = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "SSGI cloud-shadow composed");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(composed,
+                                "SSGI cloud-shadow composed");
+
+                        // SSGI contribution in the same composition; no TAA, so the
+                        // restore is byte-exact.
+                        RenderFeatureSettings withoutSsgi = cloudRequest.toBuilder()
+                                .postProcess(cloudRequest.postProcess()
+                                        .withSsgi(SsgiSettings.disabled()))
+                                .build();
+                        pipeline.features().submit(withoutSsgi);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        assertFalse(pipeline.graph().hasPass(PostProcessTargets.SSGI_PASS));
+                        float[] noSsgi = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "SSGI cloud-shadow SSGI off");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(noSsgi,
+                                "SSGI cloud-shadow SSGI off");
+                        int ssgiChanged = S6InteractionMatrixGlFixture.requireDifferentImage(
+                                composed, noSsgi,
+                                "disabling SSGI must change the indirect pixels");
+                        S6InteractionMatrixGlFixture.report("sky",
+                                "ssgiCloudSsgiDisabledChangedPixels", ssgiChanged);
+                        pipeline.features().submit(cloudRequest);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        S6InteractionMatrixGlFixture.requireSameImage(composed,
+                                S6InteractionMatrixGlFixture.capture(pipeline,
+                                        "SSGI cloud-shadow restored"),
+                                "restoring SSGI must restore the deterministic composed frame");
+
+                        // Cloud shadow contribution on the same composition.
+                        RenderFeatureSettings withoutCloud = cloudRequest.toBuilder()
+                                .directionalShadowMap(new DirectionalShadowMap(
+                                        baseShadowSettings()))
+                                .build();
+                        pipeline.features().submit(withoutCloud);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 2);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        assertFalse(pipeline.features().effective().directionalShadowMap()
+                                        .settings().cloudShadows().active(),
+                                "the cloud-off request must clear the effective cloud shadow");
+                        float[] noCloud = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "SSGI cloud-shadow clouds off");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(noCloud,
+                                "SSGI cloud-shadow clouds off");
+                        int cloudChanged = S6InteractionMatrixGlFixture.requireDifferentImage(
+                                composed, noCloud,
+                                "disabling cloud shadows must change the lit pixels");
+                        S6InteractionMatrixGlFixture.report("sky",
+                                "ssgiCloudCloudShadowDisabledChangedPixels", cloudChanged);
+                        pipeline.features().submit(cloudRequest);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        S6InteractionMatrixGlFixture.requireSameImage(composed,
+                                S6InteractionMatrixGlFixture.capture(pipeline,
+                                        "SSGI cloud-shadow clouds restored"),
+                                "restoring cloud shadows must restore the deterministic "
+                                        + "composed frame");
+
+                        // The production conflict: SSGI cannot compose with temporal
+                        // upscaling. Assert the exact production error type/message
+                        // before the request reaches the pipeline.
+                        RenderFeatureSettings upscalingRequest = cloudRequest.toBuilder()
+                                .postProcess(cloudRequest.postProcess()
+                                        .withTemporalUpscaling(
+                                                TemporalUpscalingSettings.defaults()))
+                                .build();
+                        IllegalArgumentException conflict = assertThrows(
+                                IllegalArgumentException.class,
+                                () -> RenderFeaturePolicy.resolve(upscalingRequest,
+                                        pipeline.featureFacts()),
+                                "SSGI + temporal upscaling must be rejected by the policy");
+                        assertTrue(conflict.getMessage().contains(
+                                        "screen-space indirect diffuse"),
+                                "the rejection must name the conflicting producer: "
+                                        + conflict.getMessage());
+                        assertTrue(conflict.getMessage().contains("temporal upscaling"),
+                                "the rejection must name temporal upscaling: "
+                                        + conflict.getMessage());
+                        assertFalse(conflict.getMessage().contains("low-resolution"),
+                                "the conflict rejection must not be reported as a missing "
+                                        + "source: " + conflict.getMessage());
+
+                        pipeline.features().submit(upscalingRequest);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 1);
+                        assertEquals(RenderFeatureStatus.FAILED,
+                                pipeline.features().status(),
+                                "the unified request must fail closed, not compose the "
+                                        + "conflict");
+                        assertTrue(pipeline.features().failureReason().contains(
+                                        "temporal upscaling"),
+                                "the failed request must carry the production reason: "
+                                        + pipeline.features().failureReason());
+                        assertFalse(pipeline.graph().hasPass(
+                                        PostProcessTargets.TEMPORAL_UPSCALING_PASS),
+                                "a rejected upscaling request must not declare its pass");
+                        assertTrue(pipeline.graph().hasPass(PostProcessTargets.SSGI_PASS),
+                                "a rejected request must keep the published SSGI generation");
+                        S6InteractionMatrixGlFixture.requireSameImage(composed,
+                                S6InteractionMatrixGlFixture.capture(pipeline,
+                                        "SSGI cloud-shadow rejected upscaling"),
+                                "a rejected upscaling request must not change the frame");
+                        S6InteractionMatrixGlFixture.report("sky",
+                                "temporalUpscalingRejection",
+                                "type=IllegalArgumentException reason="
+                                        + conflict.getMessage());
+
+                        // The other documented outcome: without SSGI and without a
+                        // low-resolution source, temporal upscaling is sanitized to
+                        // UNAVAILABLE instead of failing the whole request.
+                        RenderFeatureSettings sanitizedUpscaling = cloudRequest.toBuilder()
+                                .postProcess(cloudRequest.postProcess()
+                                        .withSsgi(SsgiSettings.disabled())
+                                        .withTemporalUpscaling(
+                                                TemporalUpscalingSettings.defaults()))
+                                .build();
+                        pipeline.features().submit(sanitizedUpscaling);
+                        // The caller intent is published on the request frame; the
+                        // following frame refreshes the compatibility snapshot from
+                        // the effective fields (the documented settle behaviour).
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 1);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        assertTrue(pipeline.features().requested().postProcess()
+                                        .temporalUpscaling().active(),
+                                "the request must keep the caller's upscaling intent");
+                        assertFalse(pipeline.features().effective().postProcess()
+                                        .temporalUpscaling().active(),
+                                "the missing source must strip upscaling from the effective "
+                                        + "snapshot");
+                        RenderFeatureActivity upscalingActivity = pipeline.features()
+                                .activities().stream()
+                                .filter(activity -> activity.feature()
+                                        == RenderFeature.TEMPORAL_UPSCALING)
+                                .findFirst().orElseThrow();
+                        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                                upscalingActivity.reason(),
+                                "the missing source must be reported as UNAVAILABLE");
+                        assertTrue(upscalingActivity.detail().contains(
+                                        "TemporalUpscalingSource"),
+                                "the sanitization reason must name the missing source: "
+                                        + upscalingActivity.detail());
+                        assertFalse(pipeline.graph().hasPass(
+                                        PostProcessTargets.TEMPORAL_UPSCALING_PASS),
+                                "a sanitized upscaling request must not declare its pass");
+                        float[] sanitized = S6InteractionMatrixGlFixture.capture(
+                                pipeline, "SSGI cloud-shadow sanitized upscaling");
+                        S6InteractionMatrixGlFixture.requireCleanFrame(sanitized,
+                                "SSGI cloud-shadow sanitized upscaling");
+                        S6InteractionMatrixGlFixture.report("sky",
+                                "temporalUpscalingSanitized",
+                                "reason=" + upscalingActivity.reason()
+                                        + " detail=" + upscalingActivity.detail());
+
+                        pipeline.features().submit(cloudRequest);
+                        S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
+                        assertEquals(RenderFeatureStatus.APPLIED,
+                                pipeline.features().status(),
+                                pipeline.features().failureReason());
+                        S6InteractionMatrixGlFixture.requireSameImage(composed,
+                                S6InteractionMatrixGlFixture.capture(pipeline,
+                                        "SSGI cloud-shadow final restore"),
+                                "the final SSGI/cloud-shadow request must restore the "
+                                        + "deterministic composed frame");
+                        GlDebug.assertNoError("S6 SSGI/cloud-shadow/upscaling matrix");
+                    } finally {
+                        pipeline.close();
+                    }
+                } finally {
+                    material.close();
+                }
+            }
+            S6InteractionMatrixGlFixture.requireNoLiveResources(
+                    "SSGI/cloud-shadow/upscaling matrix");
+        }
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static final AssetRef BATTLE_DECAL_TEXTURE =
@@ -2014,6 +2867,44 @@ class S6InteractionMatrixGlTest {
             new Vector2f(3.2f, 3.2f), new Vector4f(1.0f, 1.0f, 1.0f, 1.0f), 1.5f);
     private static final ProjectedDecalSettings BATTLE_DECAL_SETTINGS =
             new ProjectedDecalSettings(true, 0.6f, 0.02f, 0.5f, false, true, 8);
+
+    /** Decal on the PBR floor used by the decal/contact/TAA case. */
+    private static final ProjectedDecal MATERIAL_DECAL = new ProjectedDecal(73L,
+            AssetRef.of("/vfx/decals/kenney/particle_pack/scorch_01.png"),
+            new Vector3f(1.4f, 0.01f, 0.4f),
+            new Vector3f(0.0f, 1.0f, 0.0f), new Vector3f(0.0f, 0.0f, -1.0f),
+            new Vector2f(2.6f, 2.6f), new Vector4f(1.0f, 1.0f, 1.0f, 1.0f), 4.0f);
+    private static final ProjectedDecalSettings MATERIAL_DECAL_SETTINGS =
+            new ProjectedDecalSettings(true, 0.6f, 0.12f, 0.5f, false, true, 8);
+    /** Lit floor point in front of the occluder where the contact march starts. */
+    private static final Vector3f MATERIAL_CONTACT_PROBE =
+            new Vector3f(0.5f, 0.02f, -2.1f);
+
+    /** Slope of the solid floor that crosses the frozen water line. */
+    private static final float WATER_RAMP_DEGREES = 18.0f;
+    private static final float WATER_RAMP_RADIANS =
+            (float) Math.toRadians(WATER_RAMP_DEGREES);
+    private static final float WATER_RAMP_TAN = (float) Math.tan(WATER_RAMP_RADIANS);
+    private static final float WATER_RAMP_COS = (float) Math.cos(WATER_RAMP_RADIANS);
+    private static final float WATER_RAMP_SIN = (float) Math.sin(WATER_RAMP_RADIANS);
+    /** Decal centred on the dry part of the sloped floor, straddling the shoreline. */
+    private static final ProjectedDecal WATER_DECAL = new ProjectedDecal(83L,
+            AssetRef.of("/vfx/decals/kenney/particle_pack/scorch_01.png"),
+            new Vector3f(0.0f, 0.5f * WATER_RAMP_TAN, 0.5f),
+            new Vector3f(0.0f, WATER_RAMP_COS, -WATER_RAMP_SIN),
+            new Vector3f(0.0f, WATER_RAMP_SIN, WATER_RAMP_COS),
+            new Vector2f(3.0f, 6.0f), new Vector4f(1.0f, 1.0f, 1.0f, 1.0f), 1.5f);
+    private static final ProjectedDecalSettings WATER_DECAL_SETTINGS =
+            new ProjectedDecalSettings(true, 0.6f, 0.02f, 0.6f, false, true, 8);
+    /** Point on the same decal below the water line, seen through the water. */
+    private static final Vector3f WATER_DECAL_WET_PROBE =
+            new Vector3f(0.0f, -0.6f * WATER_RAMP_TAN, -0.6f);
+
+    /** Bounded additive GPU particle set recorded inside the HDR VFX composite. */
+    private static final GpuParticleSettings GPU_PARTICLES = new GpuParticleSettings(96,
+            new Vector3f(-1.2f, 0.2f, -2.4f), new Vector3f(1.2f, 1.6f, -0.6f),
+            2.0f, 0.3f, 0.2f, 0.5f, 0.12f,
+            new Vector3f(1.0f, 0.45f, 0.12f), 1.2f);
     /**
      * The battle VFX mesh owns the dissolve/erosion path (#3). Progress zero
      * leaves the sampled colour untouched (the documented endpoint), and the
@@ -2034,6 +2925,12 @@ class S6InteractionMatrixGlTest {
                                  boolean bloomPass, boolean taaPass,
                                  boolean directionalShadowPass, boolean contactShadowPass,
                                  int decalDraws) {
+    }
+
+    /** One fixed decal/contact/TAA variant used by the material group. */
+    private record DecalContactVariant(float[] pixels, boolean decalPass,
+                                       boolean contactPass, boolean taaPass,
+                                       int decalDraws, List<String> passOrder) {
     }
 
     /** Fixed camera/scene used by every character sub-case. */
@@ -2215,6 +3112,176 @@ class S6InteractionMatrixGlTest {
     /** True when the fixed PBR program declares the named production uniform. */
     private static boolean hasUniform(Material material, String name) {
         return material.shader().hasUniform(name);
+    }
+
+    // ------------------------------------------------- decal/contact helpers
+
+    private static final ContactShadowSettings ACTIVE_CONTACT_SHADOW =
+            new ContactShadowSettings(true, 3.0f, 1.0f, 24, 1.0f);
+    private static final CloudShadowSettings FROZEN_CLOUD_SHADOW =
+            new CloudShadowSettings(true, 0.85f, 0.3f, 0.12f, 0.0f, 0.65f);
+
+    private static ShadowSettings baseShadowSettings() {
+        return new ShadowSettings(64, 8.0f, 0.1f, 40.0f, 0.05f);
+    }
+
+    private static ShadowSettings contactShadowSettings(boolean contact) {
+        return new ShadowSettings(64, 8.0f, 0.1f, 40.0f, 0.05f,
+                contact ? ACTIVE_CONTACT_SHADOW : ContactShadowSettings.disabled());
+    }
+
+    private static ShadowSettings cloudShadowSettings() {
+        return new ShadowSettings(64, 8.0f, 0.1f, 40.0f, 0.05f,
+                ContactShadowSettings.disabled(), FROZEN_CLOUD_SHADOW);
+    }
+
+    private static void submitContactShadow(RenderPipeline pipeline, boolean contact) {
+        pipeline.features().submit(pipeline.features().effective().toBuilder()
+                .directionalShadows(true)
+                .directionalShadowMap(new DirectionalShadowMap(
+                        contactShadowSettings(contact)))
+                .build());
+    }
+
+    /**
+     * Fixed PBR floor + occluder scene for the decal/contact combination. The
+     * floor is the decal receiver and the vertical quad is the contact
+     * occluder; the single shadowed directional light feeds both terms.
+     */
+    private static Scene decalAndContactScene(Mesh quad, Material material) {
+        return decalAndContactScene(quad, material, new Camera(
+                new Vector3f(0.0f, 4.0f, 6.0f),
+                new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -30.0f));
+    }
+
+    private static Scene decalAndContactScene(Mesh quad, Material material,
+                                              Camera camera) {
+        Scene scene = new Scene(camera);
+        scene.add(MeshRenderer.of(quad, material,
+                        Transform.at(0.0f, 0.0f, 0.0f)
+                                .rotationRadians(-(float) Math.PI / 2.0f, 0.0f, 0.0f)
+                                .scale(12.0f, 12.0f, 1.0f))
+                .withoutShadows());
+        scene.add(MeshRenderer.of(quad, material,
+                Transform.at(0.0f, 1.1f, -2.4f).scale(5.0f, 2.2f, 1.0f)));
+        scene.addLight(SceneLight.shadowedDirectional(
+                new Vector3f(1.2f, -1.0f, 0.35f), new Vector3f(1.2f), 6.0f));
+        return scene;
+    }
+
+    /**
+     * Builds and runs one fixed decal/contact/TAA variant on its own pipeline.
+     * Every variant starts with the same frame index, jitter sequence and
+     * history length, so the pixel deltas isolate the toggled stages.
+     */
+    private static DecalContactVariant runDecalContactVariant(GlfwWindow window,
+                                                              GlRenderDevice device,
+                                                              Scene scene,
+                                                              PbrEnvironment environment,
+                                                              VfxRenderer renderer,
+                                                              ProjectedDecalSettings decals,
+                                                              boolean contact,
+                                                              String label) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null,
+                S6InteractionMatrixGlFixture.hdr(AntiAliasingMode.TAA), environment)
+                .decals(renderer, () -> List.of(MATERIAL_DECAL));
+        try {
+            pipeline.features().submit(pipeline.features().effective().toBuilder()
+                    .directionalShadows(true)
+                    .directionalShadowMap(new DirectionalShadowMap(
+                            contactShadowSettings(contact)))
+                    .projectedDecals(decals)
+                    .build());
+            pipeline.build();
+            assertEquals(RenderFeatureStatus.APPLIED, pipeline.features().status(),
+                    label + ": " + pipeline.features().failureReason());
+            boolean decalPass = pipeline.graph().hasPass(ProjectedDecalPass.PASS_NAME);
+            boolean contactPass = pipeline.graph()
+                    .hasPass(ScreenSpaceContactShadowPass.PASS_NAME);
+            boolean taaPass = pipeline.graph().hasPass(PostProcessTargets.TAA_PASS);
+            List<String> passOrder = pipeline.graph().description().executionOrder();
+            S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
+            float[] pixels = S6InteractionMatrixGlFixture.capture(pipeline, label);
+            S6InteractionMatrixGlFixture.requireCleanFrame(pixels, label);
+            return new DecalContactVariant(pixels, decalPass, contactPass, taaPass,
+                    pipeline.projectedDecalStatistics().drawn(), passOrder);
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    /** Frozen water surface used by the decal/water ordering case. */
+    private static WaterSurfaceSettings waterDecalSurface() {
+        return WaterSurfaceSettings.builder().enabled(true)
+                .level(0.0f).bounds(-20.0f, -20.0f, 20.0f, 20.0f)
+                // Frozen waves: the on/off/restore comparisons render later
+                // frames, so an animated surface would change the baseline.
+                .waveSpeed(0.0f).waveAmplitude(0.0f)
+                .absorptionDensity(0.9f).shoreFadeDistance(0.35f).build();
+    }
+
+    /**
+     * SSGI/cloud-shadow scene: a PBR floor plus one PBR receiver quad, both lit
+     * by the single shadowed directional light whose cloud mask is frozen.
+     */
+    private static Scene ssgiCloudShadowScene(Mesh quad, Material material) {
+        Scene scene = new Scene(new Camera(new Vector3f(0.0f, 2.2f, 6.0f),
+                new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, -18.0f));
+        scene.add(MeshRenderer.of(quad, material,
+                        Transform.at(0.0f, 0.0f, 0.0f)
+                                .rotationRadians(-(float) Math.PI / 2.0f, 0.0f, 0.0f)
+                                .scale(12.0f, 12.0f, 1.0f))
+                .withoutShadows());
+        scene.add(MeshRenderer.of(quad, material,
+                Transform.at(0.0f, 1.3f, -3.2f).scale(4.0f, 2.6f, 1.0f)));
+        scene.add(MeshRenderer.of(quad, material,
+                Transform.at(1.6f, 0.8f, -1.4f).scale(1.2f, 1.6f, 1.0f)));
+        scene.addLight(SceneLight.shadowedDirectional(
+                new Vector3f(0.45f, -1.0f, 0.35f), new Vector3f(10.0f), 8.0f));
+        return scene;
+    }
+
+    // ------------------------------------------------------- pixel helpers
+
+    /**
+     * Projects a world point with the stable (un-jittered) camera projection
+     * used by the fixture. RenderGraph readback is bottom-up, matching
+     * glReadPixels and this mapping.
+     */
+    private static int[] projectedPixel(Camera camera, Vector3f world, int width,
+                                        int height, String label) {
+        Matrix4f projection = CameraProjection.stable(camera, width, height,
+                new Matrix4f());
+        Matrix4f view = camera.getViewMatrix(new Matrix4f());
+        Vector4f clip = new Matrix4f(projection).mul(view)
+                .transform(new Vector4f(world, 1.0f));
+        assertTrue(clip.w > 0.0f, label + " must project in front of the camera");
+        float ndcX = clip.x / clip.w;
+        float ndcY = clip.y / clip.w;
+        assertTrue(ndcX >= -0.98f && ndcX <= 0.98f && ndcY >= -0.98f
+                        && ndcY <= 0.98f,
+                label + " must project inside the fixed frame, ndc=" + ndcX + ","
+                        + ndcY);
+        int x = Math.max(1, Math.min(width - 2,
+                Math.round((ndcX * 0.5f + 0.5f) * width)));
+        int y = Math.max(1, Math.min(height - 2,
+                Math.round((ndcY * 0.5f + 0.5f) * height)));
+        return new int[] {x, y};
+    }
+
+    /** Mean luminance over a small square probe that tolerates one-pixel jitter. */
+    private static float meanLuminance(float[] rgba, int[] point, int radius,
+                                       int width, int height) {
+        float sum = 0.0f;
+        int count = 0;
+        for (int y = point[1] - radius; y <= point[1] + radius; y++) {
+            for (int x = point[0] - radius; x <= point[0] + radius; x++) {
+                if (x < 0 || y < 0 || x >= width || y >= height) continue;
+                sum += S6InteractionMatrixGlFixture.luminance(rgba, y * width + x);
+                count++;
+            }
+        }
+        return count == 0 ? 0.0f : sum / count;
     }
 
     private record CameraRig(RenderPipeline pipeline, Camera camera) {
