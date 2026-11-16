@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "bdacd64b"
+    "head": "db4aac7f"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-16T14:30:00+08:00",
+  "updatedAt": "2026-11-16T15:26:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1744,7 +1744,8 @@
     "S6/S7 signal contracts integrated (11b0fcaa) and shader oracles resynced (9dddc9bc); focused verification 5413ef66 PASS 1371 tests, 0 skipped, 0 failures",
     "hair+TAA invalidation (model/settings/feature paths, appended reasons, GL ghost regression) and decal alphaMask/MSAA/TAA/shadow boundaries integrated; focused verification bf3d6b67 PASS",
     "S6 expanded matrix (8 real-GL cases, 8/8) integrated; focused verification f678b463 PASS",
-    "SSGI temporal/planar/SSR gap closure integrated as bdacd64b (from codex/render-high-1 4d24dfd4): the SSGI temporal shader always clamps to the depth-matched 3x3 neighbourhood with a 1x1 current-sample fallback instead of trusting a stale history tap, uAlbedo is a hard zero gate, and the temporal reference now carries velocity plus jitter so the reprojection contract can be separated from missing/flipped jitter; the water planar lookup uses the stable (unjittered) view-projection with a jitter-compensated water shader hash and two new counterexample GL cases; SSR roughness resolve under MSAA runs through the production SceneSurfaceResolvePass with a new policy row (config/gl-debug-policy.tsv 65 -> 66). Focused verification a7ef5c37 PASS 1383 tests, 0 skipped, 0 failures at bdacd64b with FRESH evidence and a stable candidate; five guards executed (focusedVerificationContracts force-executed once because it declares no inputs). Remaining gaps unchanged: thin translucency has no transmission shadow pass, decals have no RenderFeatureSettings/RenderPipeline consumer or MSAA depth resolve, particle OIT boundary ordering is caller-asserted, hair lacks velocity/normal/reactive channels, temporal upscaling is caller-supplied source only, water refraction has no underwater volume, SSS uses one diffuse-share scalar and denoise motion is camera+rigid only. Performance, human visual and release readiness NOT_EVALUATED."
+    "SSGI temporal/planar/SSR gap closure integrated as bdacd64b (from codex/render-high-1 4d24dfd4): the SSGI temporal shader always clamps to the depth-matched 3x3 neighbourhood with a 1x1 current-sample fallback instead of trusting a stale history tap, uAlbedo is a hard zero gate, and the temporal reference now carries velocity plus jitter so the reprojection contract can be separated from missing/flipped jitter; the water planar lookup uses the stable (unjittered) view-projection with a jitter-compensated water shader hash and two new counterexample GL cases; SSR roughness resolve under MSAA runs through the production SceneSurfaceResolvePass with a new policy row (config/gl-debug-policy.tsv 65 -> 66). Focused verification a7ef5c37 PASS 1383 tests, 0 skipped, 0 failures at bdacd64b with FRESH evidence and a stable candidate; five guards executed (focusedVerificationContracts force-executed once because it declares no inputs). Remaining gaps unchanged: thin translucency has no transmission shadow pass, decals have no RenderFeatureSettings/RenderPipeline consumer or MSAA depth resolve, particle OIT boundary ordering is caller-asserted, hair lacks velocity/normal/reactive channels, temporal upscaling is caller-supplied source only, water refraction has no underwater volume, SSS uses one diffuse-share scalar and denoise motion is camera+rigid only. Performance, human visual and release readiness NOT_EVALUATED.",
+    "thin-translucency self-shadow closure integrated as db4aac7f (from codex/render-thin-transmission 3f2e3769): the forward shader and its full-scan reference add THIN_MAX_THICKNESS_METRES=0.05, thinTransmissionWorldThickness(), directionalCascadeDepthTolerance() (projected slab depth, normalized, clamped to [0,0.02]) and directionalShadowFactorTransmissive(), which raises a zero-default invocation global around the unchanged PCF/PCSS taps; directionalRadiance keeps the exact visibility*base path bit-for-bit when the thin term, the slab or the shadow light is absent and recombines only the additive thin share. New ThinTranslucencyTransmissionShadowGlTest 3/3 real GL (self-shadowed backlit slab 0.328613 vs thickness=0 baseline 0.0; distant opaque caster 0.5 m still fully occludes 0.0; front-lit and zero-thickness frames exactly equal), existing ThinTranslucencyGlTest 4/4; ThinTranslucencyShaderTest 6/6; one bounded NVIDIA 131218 row (7/8) and policy count 66 -> 67. Focused verification 494cc24d PASS 1386 tests, 0 skipped, 0 failures at db4aac7f, FRESH and candidateStable; five guards executed fresh. This is a bounded comparison tolerance, not a transmission shadow map: no caster colour, no per-caster differentiation, opaque receivers behind a thin panel remain fully occluded, point/spot lights and thickness maps unsupported. Performance, human visual and release readiness NOT_EVALUATED."
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
