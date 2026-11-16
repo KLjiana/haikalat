@@ -305,8 +305,9 @@ tasks.register('releaseVerificationContracts') {
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
         // particle-indirect and VFX sampler policies, the S6 interaction-matrix
-        // cold-link policy, and the SSR MSAA-resolve cold-link policy.
-        assert policies.size() == 66
+        // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
+        // transmission-shadow cold-link policy.
+        assert policies.size() == 67
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -334,6 +335,21 @@ tasks.register('releaseVerificationContracts') {
                 ssrMsaaDevice + ssrMsaaMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
                 ssrMsaaDevice + ssrMsaaMessage * 5, policies).violations.isEmpty()
+        def thinTransmissionShadowPolicy =
+                policies.find { it.owner == 'render3d/thin-translucency-transmission-shadow' }
+        assert thinTransmissionShadowPolicy != null && thinTransmissionShadowPolicy.id == 131218
+        assert thinTransmissionShadowPolicy.maximum == 8
+        assert thinTransmissionShadowPolicy.entry == '.*ThinTranslucencyTransmissionShadowGlTest.*'
+        assert thinTransmissionShadowPolicy.expiry == LocalDate.of(2027, 5, 16)
+        def thinTransmissionShadowEntry = 'TEST-com.kaleblangley.haikalat.integration.ThinTranslucencyTransmissionShadowGlTest.xml'
+        assert auditGlText(thinTransmissionShadowEntry,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 8,
+                policies).violations.isEmpty()
+        assert !auditGlText(thinTransmissionShadowEntry,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 9,
+                policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.OtherGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex'), policies).violations.isEmpty()
         def pcssPolicy = policies.find { it.owner == 'render3d/pcss' }
         assert pcssPolicy != null && pcssPolicy.id == 131218
         assert pcssPolicy.severity == 'MEDIUM'

@@ -173,6 +173,7 @@ def glCases = [
         'StochasticTransparencyPassGlTest',
         'StochasticTransparencyPipelineGlTest',
         'ProjectedDecalGlTest', 'ThinTranslucencyGlTest',
+        'ThinTranslucencyTransmissionShadowGlTest',
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
         'HairTaaInvalidationGlTest',

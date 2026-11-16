@@ -7,10 +7,12 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -30,6 +32,20 @@ class ThinTranslucencyShaderTest {
             "/shaders/clustered/full-scan-reference.frag";
     private static final String[] UNIFORMS = {
             "uThicknessFactor", "uTransmissionFactor", "uBacklightFactor"};
+    private static final String[] SHADER_PATHS = {PBR, CLUSTER_REFERENCE};
+    private static final String[] TRANSMISSION_SHADOW_IDENTIFIERS = {
+            "THIN_MAX_THICKNESS_METRES", "thinTransmissionWorldThickness",
+            "directionalCascadeDepthTolerance", "directionalShadowFactorTransmissive",
+            "gDirectionalShadowDepthTolerance", "thinVisibility"};
+    // GLSL 4.60 reserved keywords that could silently shadow a built-in if a new
+    // helper reused one. The check keeps added names out of this set.
+    private static final Set<String> GLSL_RESERVED = Set.of(
+            "common", "partition", "active", "asm", "class", "union", "enum", "typedef",
+            "template", "this", "resource", "goto", "inline", "noinline", "public", "static",
+            "extern", "external", "interface", "long", "short", "double", "half", "fixed",
+            "unsigned", "superp", "input", "output", "hvec2", "hvec3", "hvec4", "fvec2",
+            "fvec3", "fvec4", "sampler3DRect", "filter", "sizeof", "cast", "namespace",
+            "using", "row_major", "attribute", "varying");
     private static final Pattern TOP_LEVEL_LOCAL = Pattern.compile(
             "^    (?:const\\s+)?(?:vec[234]|mat[234]|float|int|uint|bool|ivec[234]|uvec[234])"
                     + "\\s+(\\w+)\\s*=", Pattern.MULTILINE);
@@ -59,9 +75,15 @@ class ThinTranslucencyShaderTest {
         assertTrue(term.contains(
                         "(uTransmissionFactor * uBacklightFactor * back * lobe * absorption)"),
                 "the artistic transmission weight must be the documented product");
-        assertEquals(2, occurrences(source,
+        // The local-light evaluator keeps the direct additive term; the
+        // directional evaluator captures the term so only its shadow share can
+        // be re-evaluated with the bounded thickness tolerance.
+        assertEquals(1, occurrences(source,
                         "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);"),
-                "directional and local evaluators must add the same term once each");
+                "the local-light evaluator must add the unchanged term once");
+        assertEquals(1, occurrences(source,
+                        "vec3 thin = thinSurfaceTransmission(n, v, l, radiance, baseColor);"),
+                "the directional evaluator must capture the term for the split");
         assertTermIsAdditiveAfterSubsurface(source);
     }
 
@@ -76,8 +98,10 @@ class ThinTranslucencyShaderTest {
         }
         assertTrue(source.contains("vec3 thinSurfaceTransmission(vec3 n"),
                 "the light-table reference shader must mirror the production surface term");
-        assertEquals(2, occurrences(source,
-                        "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);"));
+        assertEquals(1, occurrences(source,
+                "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);"));
+        assertEquals(1, occurrences(source,
+                "vec3 thin = thinSurfaceTransmission(n, v, l, radiance, baseColor);"));
         assertTermIsAdditiveAfterSubsurface(source);
     }
 
@@ -117,18 +141,134 @@ class ThinTranslucencyShaderTest {
         String directional = section(source, "vec3 directionalRadiance(int index",
                 "vec3 localRadiance(int index");
         String local = section(source, "vec3 localRadiance(int index", "int resolveCluster()");
-        for (String evaluator : new String[]{directional, local}) {
-            int transmission = evaluator.indexOf(
-                    "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);");
-            assertTrue(transmission > 0, "missing additive thin term");
-            int subsurface = evaluator.indexOf(
-                    "base += subsurfaceTransmission(n, l, radiance);");
-            assertTrue(subsurface > 0,
-                    "missing subsurface transmission term; the ordering check would be vacuous");
-            assertTrue(transmission > subsurface,
-                    "the thin term must stay additive next to the unchanged reflection terms");
-            assertTrue(evaluator.indexOf("return visibility * base;") > transmission,
-                    "visibility must scale the whole additive result");
+        int directionalSubsurface = directional.indexOf(
+                "base += subsurfaceTransmission(n, l, radiance);");
+        assertTrue(directionalSubsurface > 0,
+                "missing directional subsurface transmission term; ordering check would be vacuous");
+        int directionalCapture = directional.indexOf(
+                "vec3 thin = thinSurfaceTransmission(n, v, l, radiance, baseColor);");
+        assertTrue(directionalCapture > directionalSubsurface,
+                "the thin term must be evaluated next to the unchanged reflection terms");
+        assertTrue(directional.indexOf("base += thin;") > directionalCapture,
+                "the captured thin term must still enter the additive result");
+        assertTrue(directional.indexOf("return visibility * base;") > directionalCapture,
+                "the legacy branch must scale the whole additive result by visibility");
+
+        int localSubsurface = local.indexOf("base += subsurfaceTransmission(n, l, radiance);");
+        assertTrue(localSubsurface > 0,
+                "missing local subsurface transmission term; ordering check would be vacuous");
+        int localTransmission = local.indexOf(
+                "base += thinSurfaceTransmission(n, v, l, radiance, baseColor);");
+        assertTrue(localTransmission > localSubsurface,
+                "the local thin term must stay additive next to the unchanged reflection terms");
+        assertTrue(local.indexOf("return visibility * base;") > localTransmission,
+                "visibility must scale the whole local additive result");
+    }
+
+    @Test
+    void transmissionShadowToleranceIsBoundedToTheBacklightLookupOnly() throws IOException {
+        for (String path : SHADER_PATHS) {
+            String source = resource(path);
+            String label = path.substring(path.lastIndexOf('/') + 1);
+            assertTrue(source.contains("const float THIN_MAX_THICKNESS_METRES = 0.05;"),
+                    label + ": the world-thickness bound must be the documented 5 cm");
+
+            String thickness = section(source,
+                    "float thinTransmissionWorldThickness() {",
+                    "float directionalCascadeDepthTolerance(int cascade");
+            assertTrue(thickness.contains("if (isnan(uThicknessFactor) || isinf(uThicknessFactor))"
+                            + " return 0.0;"),
+                    label + ": a non-finite thickness must fail closed before the clamp");
+            assertTrue(thickness.contains(
+                            "return clamp(uThicknessFactor, 0.0, 1.0) * THIN_MAX_THICKNESS_METRES;"),
+                    label + ": the slab is the clamped control times the compile-time bound");
+
+            String tolerance = section(source,
+                    "float directionalCascadeDepthTolerance(int cascade",
+                    "float directionalShadowFactorTransmissive(vec3 n, vec3 l)");
+            assertTrue(tolerance.contains("directionalCascadeMatrix(cascade)"),
+                    label + ": the tolerance must use the selected cascade matrix");
+            assertTrue(tolerance.contains("vec4(vWorldPosition, 1.0)"),
+                    label + ": the tolerance must project the receiver");
+            assertTrue(tolerance.contains(
+                            "vec4(vWorldPosition + l * worldThickness, 1.0)"),
+                    label + ": the tolerance must project the slab toward the light");
+            assertTrue(tolerance.contains(
+                            "float difference = abs(receiver.z / receiver.w - slab.z / slab.w);"),
+                    label + ": the tolerance is the normalized window-depth extent");
+            assertTrue(tolerance.contains("return clamp(difference * 0.5, 0.0, 0.02);"),
+                    label + ": the tolerance must be clamped to [0, 0.02] normalized depth");
+            assertTrue(tolerance.contains("isnan(difference) || isinf(difference)"),
+                    label + ": a non-finite projection must fail closed");
+
+            String transmissive = section(source,
+                    "float directionalShadowFactorTransmissive(vec3 n, vec3 l)",
+                    "float directionalContactShadow(vec3 n, vec3 l)");
+            assertTrue(transmissive.contains(
+                            "if (uHasDirectionalShadow == 0 || uDirectionalCascadeCount <= 0)"
+                                    + " return 0.0;"),
+                    label + ": no directional shadow/cascade must return a fully lit factor");
+            assertTrue(transmissive.contains(
+                            "directionalCascadeDepthTolerance("),
+                    label + ": the transmissive factor must derive the tolerance");
+            assertTrue(transmissive.contains("gDirectionalShadowDepthTolerance = tolerance;")
+                            && transmissive.contains("gDirectionalShadowDepthTolerance = 0.0;"),
+                    label + ": the extra bias may only be raised around one shadow lookup");
+            assertTrue(transmissive.contains("float factor = directionalShadowFactor(n, l);"),
+                    label + ": the same PCF/PCSS selection must produce the transmissive factor");
+            // The exact lookup keeps its call sites; only the comparison bias
+            // gains the tolerance when the transmissive wrapper raises it.
+            assertEquals(2, occurrences(source, "+ gDirectionalShadowDepthTolerance"),
+                    label + ": exactly the PCF and PCSS comparison references take the extra bias");
+            String pcf = section(source, "float sampleDirectionalCascade(int cascade",
+                    "float sampleDirectionalCascadePcss(int cascade");
+            String pcss = section(source, "float sampleDirectionalCascadePcss(int cascade",
+                    "float sampleDirectionalShadow(int cascade");
+            assertEquals(1, occurrences(pcf,
+                            "for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y)"),
+                    label + ": the legacy 5x5 PCF loop bound must stay identical");
+            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_BLOCKER_TAPS; ++tap)"),
+                    label + ": the PCSS blocker loop bound must stay identical");
+            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_FILTER_TAPS; ++tap)"),
+                    label + ": the PCSS filter loop bound must stay identical");
+
+            String directional = section(source, "vec3 directionalRadiance(int index",
+                    "vec3 localRadiance(int index");
+            String local = section(source, "vec3 localRadiance(int index", "int resolveCluster()");
+            assertEquals(1, occurrences(directional,
+                            "directionalShadowFactorTransmissive(n, l)"),
+                    label + ": only the directional evaluator may re-evaluate the backlight shadow");
+            assertEquals(0, occurrences(local, "directionalShadowFactorTransmissive"),
+                    label + ": local point/spot shadows must not take the directional tolerance");
+            assertTrue(directional.contains(
+                            "if (all(equal(thin, vec3(0.0))) || index != uDirectionalShadowFrameLightIndex"),
+                    label + ": zero/no-slab/non-shadow-light must take the exact legacy branch");
+            assertTrue(directional.contains(
+                            "return visibility * (base - thin) + thinVisibility * thin;"),
+                    label + ": only the thin share may be recombined with thinVisibility");
+            assertTrue(directional.contains("thinVisibility = 1.0 - directionalShadowFactorTransmissive"),
+                    label + ": the thin share uses the transmissive visibility");
+            assertTrue(directional.contains("visibility = 1.0 - directionalShadowFactor(n, l);"),
+                    label + ": the direct term must keep the exact visibility");
+            // Five uses: declaration, PCF bias, PCSS bias, raise, reset.
+            assertEquals(5, countIdentifier(source, "gDirectionalShadowDepthTolerance"),
+                    label + ": the tolerance global must have exactly one writer pair");
+        }
+    }
+
+    @Test
+    void transmissionShadowHelpersUseNoReservedGlslKeywords() throws IOException {
+        for (String path : SHADER_PATHS) {
+            String source = resource(path);
+            String label = path.substring(path.lastIndexOf('/') + 1);
+            for (String name : TRANSMISSION_SHADOW_IDENTIFIERS) {
+                assertFalse(GLSL_RESERVED.contains(name),
+                        label + ": '" + name + "' is a reserved GLSL keyword");
+                assertTrue(name.startsWith("THIN_") || Character.isLowerCase(name.charAt(0)),
+                        label + ": '" + name + "' does not follow the shader naming style");
+                assertTrue(source.contains(name),
+                        label + ": missing transmission-shadow identifier " + name);
+            }
         }
     }
 

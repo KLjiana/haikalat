@@ -218,6 +218,11 @@ const float SUBSURFACE_MIN_PROFILE_SCALE = 0.001;
 const float SUBSURFACE_MAX_PROFILE_SCALE = 10.0;
 const float SUBSURFACE_MAX_THICKNESS = 2.0;
 const float SUBSURFACE_MAX_INTENSITY = 4.0;
+// Upper bound of the thin panel's world-space thickness used by the bounded
+// transmission-aware shadow lookup. The material control is normalized to
+// [0,1]; this constant maps it to metres and caps the shadow-depth tolerance a
+// 5 cm slab can produce. It is a comparison tolerance, not a shadow map.
+const float THIN_MAX_THICKNESS_METRES = 0.05;
 // Red survives the longest in the skin profile; green and blue are absorbed
 // faster in the same thickness. Wax uses the uniform (1, 1, 1) profile.
 const vec3 SUBSURFACE_SKIN_PENETRATION = vec3(1.0, 0.55, 0.30);
@@ -231,6 +236,10 @@ float gSubsurfaceThickness;
 // arithmetic never reads them.
 vec3 gDirectSpecularRadiance;
 vec3 gSubsurfaceNonDiffuseRadiance;
+// Extra normalized light-space depth tolerance consumed by the next directional
+// shadow lookup. It stays zero for the exact direct-light path; only the
+// transmissive thin-backlight lookup raises it for the duration of one call.
+float gDirectionalShadowDepthTolerance = 0.0;
 
 float luminance3(vec3 color) {
     return dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
@@ -816,7 +825,8 @@ float sampleDirectionalCascade(int cascade, vec3 n, vec3 l) {
             || any(greaterThanEqual(projected.xy, tileMaximum))) return 0.0;
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
     vec2 gradient = receiverPlaneGradient(projected);
-    float bias = shadowDepthBias(uShadowBias, n, l);
+    float bias = shadowDepthBias(uShadowBias, n, l)
+            + gDirectionalShadowDepthTolerance;
     bias += min(dot(abs(gradient), texel) * 0.5, 0.01);
     float shadow = 0.0;
     for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y) {
@@ -894,7 +904,8 @@ float sampleDirectionalCascadePcss(int cascade, vec3 n, vec3 l) {
     vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
     vec2 gradient = receiverPlaneGradient(projected);
     float bias = shadowDepthBias(uShadowBias, n, l)
-            + min(dot(abs(gradient), texel) * 0.5, 0.01) + uPcssDepthBias;
+            + min(dot(abs(gradient), texel) * 0.5, 0.01) + uPcssDepthBias
+            + gDirectionalShadowDepthTolerance;
     int blockerTaps = clamp(uPcssBlockerTaps, 1, PCSS_MAX_BLOCKER_TAPS);
     float blockerSum = 0.0;
     int blockerCount = 0;
@@ -950,6 +961,65 @@ float directionalShadowFactor(vec3 n, vec3 l) {
     if (weight <= 1.0e-4) return current;
     float next = sampleDirectionalShadow(cascade + 1, n, l);
     return weight >= 0.9999 ? next : mix(current, next, weight);
+}
+
+/**
+ * Bounded world-space thickness of the thin panel for the shadow lookup.
+ *
+ * <p>A non-finite raw override is rejected before the clamp so it cannot poison
+ * the depth tolerance; the normalized [0,1] material control then maps onto the
+ * compile-time {@code THIN_MAX_THICKNESS_METRES} bound.</p>
+ */
+float thinTransmissionWorldThickness() {
+    if (isnan(uThicknessFactor) || isinf(uThicknessFactor)) return 0.0;
+    return clamp(uThicknessFactor, 0.0, 1.0) * THIN_MAX_THICKNESS_METRES;
+}
+
+/**
+ * Normalized depth of a thickness-sized slab toward the light.
+ *
+ * <p>Directional cascades use an orthographic projection, so projecting the
+ * receiver and the receiver advanced by {@code l * worldThickness} gives the
+ * window-depth extent of the slab. Half of that extent is the tolerance used by
+ * the thin-backlight lookup only; the direct-light lookup keeps its exact
+ * comparison. The result is clamped to [0, 0.02] and fails closed on
+ * non-finite values.</p>
+ */
+float directionalCascadeDepthTolerance(int cascade, vec3 l, float worldThickness) {
+    if (!(worldThickness > 0.0) || isnan(worldThickness) || isinf(worldThickness)) {
+        return 0.0;
+    }
+    mat4 lightSpace = directionalCascadeMatrix(cascade);
+    vec4 receiver = lightSpace * vec4(vWorldPosition, 1.0);
+    vec4 slab = lightSpace * vec4(vWorldPosition + l * worldThickness, 1.0);
+    if (!(abs(receiver.w) > 1.0e-6) || !(abs(slab.w) > 1.0e-6)) return 0.0;
+    float difference = abs(receiver.z / receiver.w - slab.z / slab.w);
+    if (isnan(difference) || isinf(difference)) return 0.0;
+    return clamp(difference * 0.5, 0.0, 0.02);
+}
+
+/**
+ * Shadow factor for the thin-backlight lookup only.
+ *
+ * <p>The exact direct-light lookup stays untouched. This variant adds the
+ * receiver slab's normalized depth to the same PCF/PCSS comparison reference,
+ * so a caster inside the bounded slab (the panel's own light-facing face, or
+ * any caster thinner than the bound) no longer occludes its transmitted
+ * backlight. The tolerance is caster-agnostic but cannot exceed a 5 cm slab, so
+ * distant opaque casters still occlude. Returns 0 (fully lit) when there is no
+ * directional shadow or no cascade.</p>
+ */
+float directionalShadowFactorTransmissive(vec3 n, vec3 l) {
+    if (uHasDirectionalShadow == 0 || uDirectionalCascadeCount <= 0) return 0.0;
+    float worldThickness = thinTransmissionWorldThickness();
+    if (!(worldThickness > 0.0)) return directionalShadowFactor(n, l);
+    float tolerance = directionalCascadeDepthTolerance(
+            directionalCascadeIndex(), l, worldThickness);
+    if (!(tolerance > 0.0)) return directionalShadowFactor(n, l);
+    gDirectionalShadowDepthTolerance = tolerance;
+    float factor = directionalShadowFactor(n, l);
+    gDirectionalShadowDepthTolerance = 0.0;
+    return factor;
 }
 
 /**
@@ -1228,11 +1298,22 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
     }
     // Thin-surface backlight transmission is an additive artistic term next to
     // the unchanged reflection lobe. Zero controls return exactly zero.
-    base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
+    vec3 thin = thinSurfaceTransmission(n, v, l, radiance, baseColor);
+    base += thin;
     if (uSubsurfaceDiffuseSignal != 0) {
         gSubsurfaceNonDiffuseRadiance += visibility * directSpecular;
     }
-    return visibility * base;
+    // Legacy path: no thin term, no thickness slab, or a non-shadow directional
+    // light keeps the original single visibility multiplication bit-for-bit.
+    // Only the shadow light with a non-zero slab re-evaluates the backlight
+    // share with the bounded thickness tolerance; the direct, SSS, contact and
+    // cloud terms stay under the exact visibility.
+    if (all(equal(thin, vec3(0.0))) || index != uDirectionalShadowFrameLightIndex
+            || !(thinTransmissionWorldThickness() > 0.0)) {
+        return visibility * base;
+    }
+    float thinVisibility = 1.0 - directionalShadowFactorTransmissive(n, l);
+    return visibility * (base - thin) + thinVisibility * thin;
 }
 
 vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
