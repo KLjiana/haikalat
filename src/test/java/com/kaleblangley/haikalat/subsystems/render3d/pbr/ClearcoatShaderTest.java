@@ -88,8 +88,16 @@ class ClearcoatShaderTest {
         String source = resource(PBR);
         String direct = section(source, "vec3 directionalRadiance(int index",
                 "vec3 localRadiance(int index");
+        // The S6 diffuse-share signal needs the coat term as a named contribution:
+        // the base colour keeps the same convex split, while the parallel
+        // `directSpecular` copy receives the identical transmission and coat term.
         assertTrue(direct.contains(
-                "+ clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)"));
+                "vec3 coatSpecular = clearcoatDirectBrdf(clearcoatNormalValue, v, l,\n"
+                        + "                clearcoatRoughness) * radiance;\n"
+                        + "        base = base * transmitted + coatSpecular;\n"
+                        + "        directSpecular = directSpecular * transmitted + coatSpecular;"),
+                "the direct path must add the coat term exactly once and mirror it into "
+                        + "the specular side channel");
         String ibl = section(source,
                 "        // Same convex interface split as the direct path:",
                 "    float gtao = 1.0;");

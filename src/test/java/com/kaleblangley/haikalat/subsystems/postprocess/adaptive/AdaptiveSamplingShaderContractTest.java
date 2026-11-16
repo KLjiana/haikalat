@@ -58,9 +58,40 @@ class AdaptiveSamplingShaderContractTest {
                 "extra budget must never discard a coarse hit");
         assertTrue(source.contains("if (budget > floorSteps)"),
                 "the finer march must only run when the measured error earned it");
-        assertTrue(source.contains("FragColor = vec4(base, 1.0);"),
-                "the fallback must write the input colour exactly");
-        assertTrue(source.contains("base + weight * (hitRadiance - environmentRadiance)"),
+        // The shared selector keeps legacy bytes and the reflection-signal
+        // fallback exact: legacy returns the input colour unchanged, while the
+        // signal variant returns an exact zero contribution whose composite is
+        // the untouched base colour.
+        assertTrue(source.contains(
+                        "vec4 reflectionFallback(vec3 base, float legacyAlpha) {\n"
+                                + "#ifdef SSR_REFLECTION_SIGNAL\n"
+                                + "    return vec4(0.0);\n"
+                                + "#else\n"
+                                + "    return vec4(base, legacyAlpha);\n"
+                                + "#endif\n"
+                                + "}"),
+                "the fallback selector must keep the legacy input colour byte-exact and "
+                        + "emit an exact zero signal contribution");
+        assertEquals(2, occurrences(source, "FragColor = reflectionFallback(base, 1.0);"),
+                "both environment and roughness/grazing fallbacks must go through the "
+                        + "exact base-colour selector");
+        assertTrue(source.contains(
+                        "vec4 reflectionResult(vec3 base, vec3 contribution, float confidence,\n"
+                                + "                      float legacyAlpha) {\n"
+                                + "#ifdef SSR_REFLECTION_SIGNAL\n"
+                                + "    return vec4(contribution, confidence);\n"
+                                + "#else\n"
+                                + "    return vec4(base + contribution, legacyAlpha);\n"
+                                + "#endif\n"
+                                + "}"),
+                "legacy mode must keep the exact base+contribution equation while signal "
+                        + "mode writes only the contribution");
+        assertTrue(source.contains(
+                        "FragColor = reflectionResult(base,\n"
+                                + "            weight * (hitRadiance - environmentRadiance), "
+                                + "hitWeight,\n"
+                                + "            uBudgetDebug != 0 ? float(budget) "
+                                + "/ float(ceilingSteps) : 1.0);"),
                 "zero weight must leave the forward environment colour untouched");
         assertTrue(source.contains("uBudgetDebug != 0"),
                 "the budget readback must be an explicit default-off diagnostic");

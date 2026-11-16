@@ -190,8 +190,18 @@ class SsgiShaderTest {
                 "the environment must not be added directly on top of the ambient baseline");
         assertTrue(source.contains("vec3 ambientIrradiance;"),
                 "the ambient baseline is still derived for the fallback comparison");
-        assertTrue(source.contains("FragColor = vec4(base, 1.0);"),
-                "background/albedo-zero/NaN pixels must fall back to the exact base colour");
+        // S6/S7 alpha propagation: every no-op path keeps RGB exactly equal to the
+        // input base colour and only forwards the incoming HDR alpha (the bounded
+        // subsurface diffuse share). The two early paths select that tuple in the
+        // temporal staging branch as well; the NaN result fallback writes it directly.
+        assertEquals(2, occurrences(source,
+                        "FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);"),
+                "background and albedo-zero pixels must keep the exact base RGB while "
+                        + "propagating the incoming alpha");
+        assertTrue(source.contains("FragColor = vec4(base, baseSample.a);"),
+                "the NaN result fallback must keep the exact base RGB and incoming alpha");
+        assertTrue(source.contains("FragColor = vec4(result, baseSample.a);"),
+                "the composited path must not overwrite the incoming alpha signal");
     }
 
     @Test
@@ -240,9 +250,14 @@ class SsgiShaderTest {
                 + "1.0);"));
         assertTrue(source.contains("outHistoryColor = vec4(max(added, vec3(0.0)), 1.0);"),
                 "the history colour must store only the accumulated bounce");
-        assertTrue(source.contains("outComposite = vec4(base, 1.0);"),
-                "background and numerical fallbacks must keep the exact base colour");
-        assertTrue(source.contains("outComposite = vec4(result, 1.0);"));
+        // S6/S7 alpha propagation: both early fallbacks and the final composite
+        // keep RGB exactly as read and forward the incoming HDR alpha instead of
+        // resetting the subsurface diffuse share to 1.0.
+        assertEquals(2, occurrences(source, "outComposite = vec4(base, baseSample.a);"),
+                "background and non-finite-depth fallbacks must keep the exact base RGB "
+                        + "while propagating the incoming alpha");
+        assertTrue(source.contains("outComposite = vec4(result, baseSample.a);"),
+                "the final composite must propagate the incoming alpha signal");
         assertFalse(source.contains("while ("), "temporal SSGI must contain no unbounded loop");
         Matcher declaration = Pattern.compile("uniform\\s+\\w+\\s+(u\\w+)").matcher(source);
         Set<String> declared = new LinkedHashSet<>();

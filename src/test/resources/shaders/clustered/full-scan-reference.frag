@@ -184,8 +184,15 @@ uniform int uSubsurfaceProfile;          // 0 uniform, 1 skin-like channel penet
 uniform float uSubsurfaceProfileScale;   // mean free path in world units (metres)
 uniform int uSubsurfaceThicknessSource;  // 0 constant, 1 occlusion proxy, 2 base-alpha proxy
 uniform float uSubsurfaceThickness;      // metres; constant thickness or derived-thickness scale
-// Screen-space radius/participation/distance are consumed by the shared
-// scene-surface mask producer and SubsurfaceScatteringPass, not by this shader.
+// The radius/distance stay owned by the mask producer and the screen-space
+// pass.  The screen-space flag is consumed here only to decide whether the
+// material writes the bounded diffuse-share signal into the output alpha.
+uniform int uSubsurfaceScreenSpace;
+// Frame-level gate: set by the pipeline only while the shared SUBSURFACE mask
+// (and therefore the screen-space pass) is allocated.  When zero this shader
+// keeps the original opaque alpha exactly, so the disabled/legacy colour chain
+// stays byte-identical.
+uniform int uSubsurfaceDiffuseSignal;
 uniform int uGtaoEnabled;
 // Zero is the backwards-compatible default; demo/host materials can opt out.
 uniform int uGtaoMaterialOptOut;
@@ -218,6 +225,16 @@ const vec3 SUBSURFACE_SKIN_PENETRATION = vec3(1.0, 0.55, 0.30);
 // by the per-light transmission term. It is a shader-invocation global so the
 // direct-light helper signatures (and their existing tests) stay unchanged.
 float gSubsurfaceThickness;
+// Unshadowed direct specular of the most recent base-BRDF evaluation, and the
+// accumulated shadowed direct specular. Both are only consumed when the
+// screen-space diffuse-share signal is requested; the existing colour
+// arithmetic never reads them.
+vec3 gDirectSpecularRadiance;
+vec3 gSubsurfaceNonDiffuseRadiance;
+
+float luminance3(vec3 color) {
+    return dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+}
 
 int shadowKernelRadius() {
     return clamp(uShadowQualityMeta.x, 0, 2);
@@ -460,6 +477,7 @@ float visibilitySmithAnisotropic(vec3 n, vec3 v, vec3 l, vec3 t, vec3 b,
 vec3 directBrdfAnisotropic(vec3 n, vec3 v, vec3 l, vec3 radiance,
                            vec3 baseColor, float metallic, float roughness, vec3 f0,
                            vec3 tangent, vec3 bitangent, float strength) {
+    gDirectSpecularRadiance = vec3(0.0);
     float nDotL = max(dot(n, l), 0.0);
     if (nDotL <= 0.0) return vec3(0.0);
     vec3 h = normalize(v + l);
@@ -471,6 +489,7 @@ vec3 directBrdfAnisotropic(vec3 n, vec3 v, vec3 l, vec3 radiance,
     float visibility = visibilitySmithAnisotropic(n, v, l, tangent, bitangent, at, ab);
     vec3 specular = d * visibility * f;
     vec3 kd = (1.0 - f) * (1.0 - metallic);
+    gDirectSpecularRadiance = specular * radiance * nDotL;
     return (kd * baseColor / PI + specular) * radiance * nDotL;
 }
 
@@ -1130,6 +1149,7 @@ float spotShadowFactor(int slot, vec3 n, vec3 l) {
 
 vec3 directBrdf(vec3 n, vec3 v, vec3 l, vec3 radiance,
                 vec3 baseColor, float metallic, float roughness, vec3 f0) {
+    gDirectSpecularRadiance = vec3(0.0);
     float nDotL = max(dot(n, l), 0.0);
     if (nDotL <= 0.0) return vec3(0.0);
     vec3 h = normalize(v + l);
@@ -1138,6 +1158,9 @@ vec3 directBrdf(vec3 n, vec3 v, vec3 l, vec3 radiance,
     float g = geometrySmith(n, v, l, roughness);
     vec3 specular = d * g * f / max(4.0 * max(dot(n, v), 0.0) * nDotL, 1.0e-5);
     vec3 kd = (1.0 - f) * (1.0 - metallic);
+    // The side channel mirrors the rendered specular lobe for the bounded
+    // screen-space SSS signal. It never feeds back into the returned colour.
+    gDirectSpecularRadiance = specular * radiance * nDotL;
     return (kd * baseColor / PI + specular) * radiance * nDotL;
 }
 
@@ -1186,12 +1209,17 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
             ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
                     anisotropicTangent, anisotropicBitangent, anisotropicStrength)
             : directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    // The side channel must follow the rendered convex interface split so the
+    // SSS diffuse share describes the actual specular output, not just the base
+    // lobe before the clearcoat transmittance.
+    vec3 directSpecular = gDirectSpecularRadiance;
     if (uClearcoatEnabled != 0) {
         vec3 h = normalize(v + l);
         float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
-        base = base * transmitted
-                + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
-                        * radiance;
+        vec3 coatSpecular = clearcoatDirectBrdf(clearcoatNormalValue, v, l,
+                clearcoatRoughness) * radiance;
+        base = base * transmitted + coatSpecular;
+        directSpecular = directSpecular * transmitted + coatSpecular;
     }
     if (uSubsurfaceEnabled != 0) {
         // Separate back-light term: the existing diffuse and specular output
@@ -1201,6 +1229,9 @@ vec3 directionalRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
     // Thin-surface backlight transmission is an additive artistic term next to
     // the unchanged reflection lobe. Zero controls return exactly zero.
     base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
+    if (uSubsurfaceDiffuseSignal != 0) {
+        gSubsurfaceNonDiffuseRadiance += visibility * directSpecular;
+    }
     return visibility * base;
 }
 
@@ -1234,12 +1265,14 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
             ? directBrdfAnisotropic(n, v, l, radiance, baseColor, metallic, roughness, f0,
                     anisotropicTangent, anisotropicBitangent, anisotropicStrength)
             : directBrdf(n, v, l, radiance, baseColor, metallic, roughness, f0);
+    vec3 directSpecular = gDirectSpecularRadiance;
     if (uClearcoatEnabled != 0) {
         vec3 h = normalize(v + l);
         float transmitted = 1.0 - clearcoatFresnel(max(dot(h, v), 0.0));
-        base = base * transmitted
-                + clearcoatDirectBrdf(clearcoatNormalValue, v, l, clearcoatRoughness)
-                        * radiance;
+        vec3 coatSpecular = clearcoatDirectBrdf(clearcoatNormalValue, v, l,
+                clearcoatRoughness) * radiance;
+        base = base * transmitted + coatSpecular;
+        directSpecular = directSpecular * transmitted + coatSpecular;
     }
     if (uSubsurfaceEnabled != 0) {
         // Separate back-light term: the existing diffuse and specular output
@@ -1247,6 +1280,9 @@ vec3 localRadiance(int index, vec3 n, vec3 v, vec3 baseColor,
         base += subsurfaceTransmission(n, l, radiance);
     }
     base += thinSurfaceTransmission(n, v, l, radiance, baseColor);
+    if (uSubsurfaceDiffuseSignal != 0) {
+        gSubsurfaceNonDiffuseRadiance += visibility * directSpecular;
+    }
     return visibility * base;
 }
 
@@ -1305,6 +1341,8 @@ vec3 clusterDebugColor(int cluster) {
 }
 
 void main() {
+    gDirectSpecularRadiance = vec3(0.0);
+    gSubsurfaceNonDiffuseRadiance = vec3(0.0);
     vec3 geometricNormal = normalize(vNormal);
     if (uDoubleSided != 0 && !gl_FrontFacing) geometricNormal = -geometricNormal;
     vec3 v = normalize(uCameraPosition - vWorldPosition);
@@ -1456,6 +1494,10 @@ void main() {
     }
     vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
     vec3 specularIbl = prefiltered * (f * brdf.x + brdf.y);
+    // Parallel copy of the rendered specular IBL. It receives the same
+    // clearcoat/convex split and the same occlusion/environment scaling as
+    // `indirect`, so the SSS diffuse share describes the final specular term.
+    vec3 specularIndirect = uEnableSpecularIbl != 0 ? specularIbl : vec3(0.0);
     float aoSample = texture(uOcclusionMap, materialUv).r;
     float ao = mix(1.0, aoSample, uOcclusionStrength);
     vec3 indirect = vec3(0.0);
@@ -1470,12 +1512,16 @@ void main() {
         float cnDotV = max(dot(clearcoatNormalValue, v), 0.0);
         float clearcoatF = clearcoatFresnelRoughness(cnDotV, clearcoatRoughness);
         indirect *= 1.0 - clearcoatF;
+        specularIndirect *= 1.0 - clearcoatF;
         if (uEnableSpecularIbl != 0) {
             vec3 coatReflection = rotateEnvironment(reflect(-v, clearcoatNormalValue));
             vec3 coatPrefiltered = textureLod(uPrefilteredMap, coatReflection,
                     clearcoatRoughness * uPrefilterMaxLod).rgb;
             vec2 coatBrdf = texture(uBrdfLut, vec2(cnDotV, clearcoatRoughness)).rg;
-            indirect += coatPrefiltered * (clearcoatF * coatBrdf.x + coatBrdf.y);
+            vec3 coatIndirect = coatPrefiltered
+                    * (clearcoatF * coatBrdf.x + coatBrdf.y);
+            indirect += coatIndirect;
+            specularIndirect += coatIndirect;
         }
     }
     float gtao = 1.0;
@@ -1487,9 +1533,26 @@ void main() {
         return;
     }
     indirect *= ao * gtao * uEnvironmentIntensity;
+    specularIndirect *= ao * gtao * uEnvironmentIntensity;
     vec3 emissive = texture(uEmissiveMap, materialUv).rgb * uEmissiveFactor;
-    FragColor = vec4(max(direct + indirect + emissive, vec3(0.0)),
-            uAlphaMode == 2 ? baseSample.a : 1.0);
+    vec3 surfaceRadiance = max(direct + indirect + emissive, vec3(0.0));
+    float outputAlpha = uAlphaMode == 2 ? baseSample.a : 1.0;
+    // Bounded screen-space SSS signal: the opaque output alpha carries the
+    // diffuse share of the rendered surface radiance. The pass diffuses
+    // `colour * share` and re-adds `colour * (1 - share)`, so the actual
+    // specular/emissive term is never part of the diffusion sum. The frame
+    // gate keeps every legacy/disabled path byte-identical.
+    if (uSubsurfaceEnabled != 0 && uSubsurfaceScreenSpace != 0
+            && uSubsurfaceDiffuseSignal != 0 && uAlphaMode != 2) {
+        float totalLuminance = luminance3(surfaceRadiance);
+        vec3 nonDiffuse = max(gSubsurfaceNonDiffuseRadiance + specularIndirect
+                + emissive, vec3(0.0));
+        float diffuseLuminance = max(totalLuminance - luminance3(nonDiffuse), 0.0);
+        outputAlpha = totalLuminance > 1.0e-5
+                ? clamp(diffuseLuminance / totalLuminance, 0.0, 1.0) : 1.0;
+        if (!(outputAlpha >= 0.0)) outputAlpha = 0.0;
+    }
+    FragColor = vec4(surfaceRadiance, outputAlpha);
 #ifdef HAIKALAT_VOLUME_FOG
     FragColor = volumeFogSurface(FragColor, vWorldPosition, uVolumeAdditive != 0);
 #endif
