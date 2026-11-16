@@ -1,15 +1,21 @@
 package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
+import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.BlendMode;
 import com.kaleblangley.haikalat.core.assets.AssetRef;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaResolveInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalAccumulationPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
@@ -29,6 +35,8 @@ import java.util.List;
 
 import static com.kaleblangley.haikalat.integration.GlTestSupport.hiddenWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
@@ -39,8 +47,12 @@ import static org.lwjgl.opengl.GL11.GL_RGBA8;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.glGetError;
 import static org.lwjgl.opengl.GL11.glReadPixels;
+import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_R32F;
+import static org.lwjgl.opengl.GL30.GL_R8;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
+import static org.lwjgl.opengl.GL30.glReadBuffer;
 
 /**
  * Real-GL contract for the projected-decal receiver volume.
@@ -57,6 +69,13 @@ import static org.lwjgl.opengl.GL30.glBindFramebuffer;
  * receiver before the decal draw; that assertion fails if the fixture stops
  * writing scene depth instead of silently sampling the clear value.  Run with
  * the command recorded in the worker report.</p>
+ *
+ * <p>The boundary cases add a test-only varying-alpha texture and cover the
+ * {@code alphaMask} pixel branch against {@code alphaMask=false}, the
+ * documented MSAA rejection (no sampleable single-sample window depth), the
+ * decal-inside-the-TAA-input composition with a production temporal resolve,
+ * and shadow receive/occlusion (a caster in front of the volume never receives
+ * the decal).</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class ProjectedDecalGlTest {
@@ -64,6 +83,14 @@ class ProjectedDecalGlTest {
     private static final int HEIGHT = 72;
     private static final AssetRef DECAL_TEXTURE =
             AssetRef.of("/vfx/decals/kenney/particle_pack/scorch_01.png");
+    /**
+     * Test-only 8x8 texture: constant RGB with per-column alpha
+     * {@code [0, 0, 64, 128, 192, 255, 255, 255]}.  The bundled decal texture
+     * is fully opaque, so without this fixture the {@code alphaMask} branch is
+     * a no-op.
+     */
+    private static final AssetRef ALPHA_TEXTURE =
+            AssetRef.of("/vfx/test/decal-alpha-columns-8x8.png");
     private static final String RECEIVER_VERTEX = """
             #version 460 core
             layout (location = 0) in vec3 aPosition;
@@ -86,6 +113,43 @@ class ProjectedDecalGlTest {
             uniform vec4 uColor;
             void main() {
                 fragColor = uColor;
+            }
+            """;
+    /** World-position pass-through used by the shadow/caster fixture. */
+    private static final String WORLD_VERTEX = """
+            #version 460 core
+            layout (location = 0) in vec3 aPosition;
+            uniform mat4 uMvp;
+            uniform mat4 uModel;
+            out vec3 vWorldPosition;
+            void main() {
+                vec4 world = uModel * vec4(aPosition, 1.0);
+                vWorldPosition = world.xyz;
+                gl_Position = uMvp * vec4(aPosition, 1.0);
+            }
+            """;
+    /**
+     * Test-owned shadowed receiver: the -X half is shadowed and the +X half is
+     * lit.  The decal shader never samples a shadow map, so the source of the
+     * darkening is irrelevant to the contract under test: the decal must blend
+     * over both bands instead of applying its own darkening/lighting term.
+     */
+    private static final String SHADOWED_RECEIVER_FRAGMENT = """
+            #version 460 core
+            in vec3 vWorldPosition;
+            layout (location = 0) out vec4 fragColor;
+            void main() {
+                vec3 lit = vec3(0.62, 0.55, 0.42);
+                vec3 shadowed = vec3(0.12, 0.11, 0.09);
+                fragColor = vec4(mix(shadowed, lit, step(0.0, vWorldPosition.x)), 1.0);
+            }
+            """;
+    /** Flat foreground caster that hides part of the decal's receiver volume. */
+    private static final String OCCLUDER_FRAGMENT = """
+            #version 460 core
+            layout (location = 0) out vec4 fragColor;
+            void main() {
+                fragColor = vec4(0.30, 0.35, 0.28, 1.0);
             }
             """;
 
@@ -512,6 +576,360 @@ class ProjectedDecalGlTest {
         }
     }
 
+    /**
+     * Alpha-mask pixel coverage: the bundled decal texture is fully opaque, so
+     * the mask branch needs a texture whose alpha varies per texel.  The
+     * test-only texture keeps the RGB constant and sets the alpha columns to
+     * {@code 0, 0, 64, 128, 192, 255, 255, 255}.
+     */
+    @Test
+    void alphaMaskCoverageKeepsMaskedTexelsAndTheUnmaskedComparison() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram receiverShader = ShaderProgram.fromSources(
+                    RECEIVER_VERTEX, RECEIVER_FRAGMENT);
+                 Mesh quad = Mesh.from(BuiltinMeshData.texturedQuad(
+                         "projected-decal-alpha-mask"));
+                 VfxRenderer renderer = new VfxRenderer();
+                 Framebuffer target = target(WIDTH, HEIGHT)) {
+                Vector3f cameraPosition = new Vector3f(0.0f, 0.0f, 4.2f);
+                Matrix4f view = new Matrix4f().lookAt(cameraPosition, new Vector3f(),
+                        new Vector3f(0.0f, 1.0f, 0.0f));
+                Matrix4f projection = projection(WIDTH, HEIGHT);
+                Matrix4f projectionView = projectionView(projection, view);
+                Matrix4f receiver = new Matrix4f().scale(3.0f, 3.0f, 1.0f);
+                float size = 2.4f;
+                ProjectedDecal decal = new ProjectedDecal(21L, ALPHA_TEXTURE,
+                        new Vector3f(), new Vector3f(0.0f, 0.0f, 1.0f),
+                        new Vector3f(0.0f, 1.0f, 0.0f), new Vector2f(size, size),
+                        new Vector4f(1.0f, 1.0f, 1.0f, 1.0f), 1.0f);
+                // Texel centres: u*8 = 1.0 (two zero-alpha columns), 3.5 (50%
+                // alpha) and 7.5 (fully opaque last column).
+                int[] maskedOut = decalColumn(0.125f, size, projection, view);
+                int[] partial = decalColumn(0.4375f, size, projection, view);
+                int[] opaque = decalColumn(0.9375f, size, projection, view);
+                int[] outside = project(new Vector3f(size * 0.5625f, 0.0f, 0.0f),
+                        projection, view, WIDTH, HEIGHT);
+
+                renderScene(device, target, receiverShader, quad, projectionView, receiver);
+                ByteBuffer baseline = read(target, WIDTH, HEIGHT);
+                assertReceiverProbe(target, partial, WIDTH, HEIGHT, "alpha-mask receiver");
+                float depthBefore = readDepth(target, opaque[0], opaque[1]);
+                ProjectedDecalSettings maskedSettings = new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, true, 8);
+                VfxRenderer.ProjectedDecalStatistics maskedStats = renderDecals(
+                        device, renderer, target, maskedSettings, List.of(decal),
+                        projection, view);
+                ByteBuffer masked = read(target, WIDTH, HEIGHT);
+                assertEquals(1, maskedStats.drawn());
+                assertEquals(1, maskedStats.drawCalls());
+                assertSamePixel(baseline, masked, maskedOut[0], maskedOut[1], WIDTH,
+                        "zero-alpha texels must keep the background byte-exact");
+                int partialDelta = pixelDelta(baseline, masked, partial[0], partial[1], WIDTH);
+                int opaqueDelta = pixelDelta(baseline, masked, opaque[0], opaque[1], WIDTH);
+                assertTrue(opaqueDelta > 0, "opaque texels must receive the decal");
+                assertTrue(partialDelta > 0,
+                        "the 50% alpha texel must receive a partial decal");
+                assertTrue(partialDelta < opaqueDelta,
+                        "coverage must follow the texture alpha: partial=" + partialDelta
+                                + " opaque=" + opaqueDelta);
+                assertEquals(0, pixelDelta(baseline, masked, outside[0], outside[1], WIDTH),
+                        "the alpha mask must not extend the decal rectangle");
+                assertEquals(depthBefore, readDepth(target, opaque[0], opaque[1]), 0.0f,
+                        "the masked decal must not write scene depth");
+                assertEquals(GL_NO_ERROR, glGetError());
+
+                // alphaMask=false must ignore the texture alpha: the same
+                // zero-alpha texel now receives the decal, and the constant
+                // texture makes every covered pixel the same colour.
+                renderScene(device, target, receiverShader, quad, projectionView, receiver);
+                ByteBuffer unmaskedBaseline = read(target, WIDTH, HEIGHT);
+                ProjectedDecalSettings unmaskedSettings = new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, false, 8);
+                renderDecals(device, renderer, target, unmaskedSettings, List.of(decal),
+                        projection, view);
+                ByteBuffer unmasked = read(target, WIDTH, HEIGHT);
+                assertTrue(pixelDelta(unmaskedBaseline, unmasked, maskedOut[0], maskedOut[1],
+                                WIDTH) > 0,
+                        "alphaMask=false must apply the decal where the texture alpha is zero");
+                for (int channel = 0; channel < 3; channel++) {
+                    assertEquals(rgbChannel(unmasked, maskedOut, WIDTH, channel),
+                            rgbChannel(unmasked, opaque, WIDTH, channel), 0,
+                            "alphaMask=false coverage must be independent of the texture alpha");
+                }
+                assertEquals(depthBefore, readDepth(target, opaque[0], opaque[1]), 0.0f,
+                        "the unmasked decal must not write scene depth");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    /**
+     * Shadow receive/reject.  A decal over a shadowed receiver must follow the
+     * alpha-blend equation on both sides of the shadow boundary (no extra
+     * darkening or bleaching of the receiver contrast), and a foreground caster
+     * that occludes the receiver volume must not receive the decal.
+     *
+     * <p>The shadow band is painted by the test-owned receiver shader: the
+     * stencil-free decal consumes only scene depth, so the origin of the
+     * darkening cannot change the blend contract under test.  The caster is a
+     * real opaque quad drawn into the same scene depth.</p>
+     */
+    @Test
+    void shadowedReceiverKeepsContrastAndTheCasterDoesNotLeakTheDecal() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram receiverShader = ShaderProgram.fromSources(
+                    WORLD_VERTEX, SHADOWED_RECEIVER_FRAGMENT);
+                 ShaderProgram occluderShader = ShaderProgram.fromSources(
+                         WORLD_VERTEX, OCCLUDER_FRAGMENT);
+                 Mesh quad = Mesh.from(BuiltinMeshData.texturedQuad(
+                         "projected-decal-shadow-receiver"));
+                 VfxRenderer renderer = new VfxRenderer();
+                 Framebuffer target = target(WIDTH, HEIGHT)) {
+                Vector3f cameraPosition = new Vector3f(0.0f, 0.0f, 4.2f);
+                Matrix4f view = new Matrix4f().lookAt(cameraPosition, new Vector3f(),
+                        new Vector3f(0.0f, 1.0f, 0.0f));
+                Matrix4f projection = projection(WIDTH, HEIGHT);
+                Matrix4f projectionView = projectionView(projection, view);
+                Matrix4f receiver = new Matrix4f().scale(3.0f, 3.0f, 1.0f);
+                Matrix4f occluder = new Matrix4f().translate(-0.9f, 0.0f, 0.8f)
+                        .scale(0.5f, 2.0f, 1.0f);
+                ProjectedDecal decal = new ProjectedDecal(31L, ALPHA_TEXTURE,
+                        new Vector3f(), new Vector3f(0.0f, 0.0f, 1.0f),
+                        new Vector3f(0.0f, 1.0f, 0.0f), new Vector2f(2.4f, 2.4f),
+                        new Vector4f(1.0f, 1.0f, 1.0f, 0.5f), 1.0f);
+                ProjectedDecalSettings settings = new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, false, 8);
+                int[] shadowed = project(new Vector3f(-0.45f, 0.0f, 0.0f),
+                        projection, view, WIDTH, HEIGHT);
+                int[] lit = project(new Vector3f(0.45f, 0.0f, 0.0f),
+                        projection, view, WIDTH, HEIGHT);
+                int[] occluded = project(new Vector3f(-0.9f, 0.0f, 0.0f),
+                        projection, view, WIDTH, HEIGHT);
+
+                renderShadowScene(device, target, receiverShader, occluderShader, quad,
+                        projectionView, receiver, occluder);
+                ByteBuffer baseline = read(target, WIDTH, HEIGHT);
+                float shadowDepth = readDepth(target, shadowed[0], shadowed[1]);
+                float litDepth = readDepth(target, lit[0], lit[1]);
+                float occluderDepth = readDepth(target, occluded[0], occluded[1]);
+                assertTrue(shadowDepth > 0.0f && shadowDepth < 0.999f,
+                        "the shadowed receiver must write depth, was " + shadowDepth);
+                assertTrue(litDepth > 0.0f && litDepth < 0.999f,
+                        "the lit receiver must write depth, was " + litDepth);
+                assertTrue(occluderDepth > 0.0f && occluderDepth < shadowDepth,
+                        "the caster must be in front of the receiver, was " + occluderDepth
+                                + " vs " + shadowDepth);
+                assertTrue(rgbChannel(baseline, shadowed, WIDTH, 0)
+                                < rgbChannel(baseline, lit, WIDTH, 0),
+                        "the fixture shadow band must be darker than the lit band");
+                assertOccluderColour(baseline, occluded, WIDTH);
+
+                VfxRenderer.ProjectedDecalStatistics stats = renderDecals(device, renderer,
+                        target, settings, List.of(decal), projection, view);
+                ByteBuffer after = read(target, WIDTH, HEIGHT);
+                assertEquals(1, stats.drawCalls());
+
+                // Occlusion: the caster hides the receiver volume, so its own
+                // pixels and depth must stay byte-exact.
+                assertSamePixel(baseline, after, occluded[0], occluded[1], WIDTH,
+                        "a caster in front of the receiver volume must not receive the decal");
+                assertEquals(occluderDepth, readDepth(target, occluded[0], occluded[1]), 0.0f,
+                        "the occluded decal must not write depth");
+                assertEquals(shadowDepth, readDepth(target, shadowed[0], shadowed[1]), 0.0f,
+                        "the shadowed receiver depth must not change");
+                assertEquals(litDepth, readDepth(target, lit[0], lit[1]), 0.0f,
+                        "the lit receiver depth must not change");
+
+                // Independent blend oracle: coverage 0.5 over the sampled sRGB
+                // texture colour (constant RGB 240/160/64).  Both bands must
+                // follow the same equation, so the shadow contrast scales by
+                // (1 - coverage) instead of being darkened or bleached.
+                float coverage = 0.5f;
+                int[] textureRgb = {240, 160, 64};
+                for (int channel = 0; channel < 3; channel++) {
+                    double decalLinear = srgbToLinear(textureRgb[channel] / 255.0);
+                    int shadowBefore = rgbChannel(baseline, shadowed, WIDTH, channel);
+                    int litBefore = rgbChannel(baseline, lit, WIDTH, channel);
+                    int expectedShadow = (int) Math.round(
+                            (1.0 - coverage) * shadowBefore + coverage * 255.0 * decalLinear);
+                    int expectedLit = (int) Math.round(
+                            (1.0 - coverage) * litBefore + coverage * 255.0 * decalLinear);
+                    assertEquals(expectedShadow, rgbChannel(after, shadowed, WIDTH, channel), 2,
+                            "the shadowed band must follow the alpha-blend equation (channel "
+                                    + channel + ")");
+                    assertEquals(expectedLit, rgbChannel(after, lit, WIDTH, channel), 2,
+                            "the lit band must follow the alpha-blend equation (channel "
+                                    + channel + ")");
+                    int beforeContrast = litBefore - shadowBefore;
+                    int afterContrast = rgbChannel(after, lit, WIDTH, channel)
+                            - rgbChannel(after, shadowed, WIDTH, channel);
+                    assertEquals((1.0 - coverage) * beforeContrast, afterContrast, 2.0,
+                            "the decal must preserve the shadow contrast (channel " + channel
+                                    + ")");
+                }
+                assertTrue(rgbChannel(after, shadowed, WIDTH, 0)
+                                < rgbChannel(after, lit, WIDTH, 0) - 32,
+                        "the shadowed band must stay visibly darker after the decal");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    /**
+     * MSAA documented rejection.  A multisampled target only has a depth
+     * renderbuffer, and the backend refuses a multisampled depth texture, so no
+     * sampleable single-sample window depth exists for the decal contract.  The
+     * renderer must therefore fail closed when no depth texture is supplied.
+     */
+    @Test
+    void multisampledDepthHasNoSampleableTextureSoTheDecalFailsClosed() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram receiverShader = ShaderProgram.fromSources(
+                    RECEIVER_VERTEX, RECEIVER_FRAGMENT);
+                 Mesh quad = Mesh.from(BuiltinMeshData.texturedQuad(
+                         "projected-decal-msaa"));
+                 VfxRenderer renderer = new VfxRenderer();
+                 Framebuffer target = Framebuffer.fromDescriptor(
+                         FramebufferDescriptor.multisampledColorDepthRenderbuffer(
+                                 WIDTH, HEIGHT, 4))) {
+                Vector3f cameraPosition = new Vector3f(0.0f, 0.0f, 4.2f);
+                Matrix4f view = new Matrix4f().lookAt(cameraPosition, new Vector3f(),
+                        new Vector3f(0.0f, 1.0f, 0.0f));
+                Matrix4f projection = projection(WIDTH, HEIGHT);
+                renderScene(device, target, receiverShader, quad,
+                        projectionView(projection, view),
+                        new Matrix4f().scale(3.0f, 3.0f, 1.0f));
+                assertEquals(4, target.samples());
+                assertFalse(target.depthAttachmentIsTexture(),
+                        "an MSAA target can only provide a depth renderbuffer");
+                assertTrue(target.depthAttachment() > 0);
+                assertEquals(GL_NO_ERROR, glGetError());
+
+                IllegalArgumentException unsupported = assertThrows(
+                        IllegalArgumentException.class,
+                        () -> FramebufferDescriptor.builder(WIDTH, HEIGHT)
+                                .samples(4).depthTexture().build());
+                assertTrue(unsupported.getMessage().contains(
+                                "multisampled depth textures are not supported yet"),
+                        unsupported.getMessage());
+
+                ProjectedDecalSettings settings = new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, true, 8);
+                CommandBuffer commands = device.createCommandBuffer();
+                IllegalArgumentException rejected = assertThrows(
+                        IllegalArgumentException.class,
+                        () -> renderer.recordProjectedDecals(commands, settings,
+                                List.of(decal(new Vector3f())), projection, view, 0,
+                                WIDTH, HEIGHT));
+                assertTrue(rejected.getMessage().contains("require a scene depth texture"),
+                        "the documented rejection must name the missing depth contract: "
+                                + rejected.getMessage());
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    /**
+     * TAA composition.  The decal is recorded into the single-sample scene
+     * colour before the temporal resolve; the first resolve (no trusted
+     * history) must therefore output the decal-composited current colour.  A
+     * decal recorded after the resolve would be absent from that output.  The
+     * pass samples the borrowed scene depth while writing a colour-only view of
+     * the same colour texture, and the resolve owns its own history target, so
+     * no depth feedback or scene-depth write may occur.
+     */
+    @Test
+    void decalCompositesIntoTheTaaResolveInputWithoutDepthFeedback() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram receiverShader = ShaderProgram.fromSources(
+                    RECEIVER_VERTEX, RECEIVER_FRAGMENT);
+                 Mesh quad = Mesh.from(BuiltinMeshData.texturedQuad(
+                         "projected-decal-taa"));
+                 VfxRenderer renderer = new VfxRenderer();
+                 Framebuffer target = target(WIDTH, HEIGHT);
+                 Texture2D velocity = Texture2D.createEmpty(WIDTH, HEIGHT, GL_R32F);
+                 Texture2D previousDepth = Texture2D.createEmpty(WIDTH, HEIGHT, GL_R32F);
+                 Texture2D validity = Texture2D.createEmpty(WIDTH, HEIGHT, GL_R8);
+                 Texture2D reactive = Texture2D.createEmpty(WIDTH, HEIGHT, GL_R8);
+                 TemporalAccumulationPass resolve = new TemporalAccumulationPass();
+                 TaaHistory history = new TaaHistory(WIDTH, HEIGHT,
+                         RenderFormat.RGBA16F)) {
+                fillR32F(velocity, WIDTH, HEIGHT, 0.0f);
+                fillR32F(previousDepth, WIDTH, HEIGHT, 0.0f);
+                fillR8(validity, WIDTH, HEIGHT, 255);
+                fillR8(reactive, WIDTH, HEIGHT, 0);
+                Vector3f cameraPosition = new Vector3f(0.0f, 0.0f, 4.2f);
+                Matrix4f view = new Matrix4f().lookAt(cameraPosition, new Vector3f(),
+                        new Vector3f(0.0f, 1.0f, 0.0f));
+                Matrix4f projection = projection(WIDTH, HEIGHT);
+                Matrix4f projectionView = projectionView(projection, view);
+                int[] probe = project(new Vector3f(), projection, view, WIDTH, HEIGHT);
+                ProjectedDecalSettings settings = new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, false, 8);
+                ProjectedDecal decal = new ProjectedDecal(41L, ALPHA_TEXTURE,
+                        new Vector3f(), new Vector3f(0.0f, 0.0f, 1.0f),
+                        new Vector3f(0.0f, 1.0f, 0.0f), new Vector2f(2.4f, 2.4f),
+                        new Vector4f(1.0f, 1.0f, 1.0f, 1.0f), 2.0f);
+
+                renderScene(device, target, receiverShader, quad, projectionView,
+                        new Matrix4f().scale(3.0f, 3.0f, 1.0f));
+                ByteBuffer receiver = read(target, WIDTH, HEIGHT);
+                assertEquals(56, rgbChannel(receiver, probe, WIDTH, 0), 2,
+                        "the scene pass must write the receiver");
+                float depthBefore = readDepth(target, probe[0], probe[1]);
+                assertTrue(depthBefore > 0.0f && depthBefore < 0.999f);
+                renderDecals(device, renderer, target, settings, List.of(decal),
+                        projection, view);
+                ByteBuffer current = read(target, WIDTH, HEIGHT);
+                assertTrue(pixelDelta(receiver, current, probe[0], probe[1], WIDTH) > 0,
+                        "the decal must composite into the TAA resolve input");
+                assertEquals(depthBefore, readDepth(target, probe[0], probe[1]), 0.0f,
+                        "the decal must not write scene depth");
+
+                TaaSettings taaSettings = new TaaSettings(0.9f, 0.01f, 0.01f, 1.0f,
+                        false, 1);
+                history.prepareFrame();
+                TaaResolveInputs inputs = new TaaResolveInputs(target.colorAttachment(0),
+                        history.readColorTexture(), history.readDepthTexture(),
+                        target.depthAttachment(), velocity.id(), previousDepth.id(),
+                        validity.id(), reactive.id(), history.valid(), WIDTH, HEIGHT,
+                        0.0f, 0.0f, 0.0f, 0.0f, new Matrix4f(), new Matrix4f(),
+                        new Matrix4f(), taaSettings);
+                CommandBuffer commands = device.createCommandBuffer();
+                resolve.recordResolve(commands, history.writeFramebuffer(), inputs);
+                device.execute(commands);
+                float[] resolved = readFloat4(history.writeFramebuffer(), probe[0], probe[1]);
+                for (int channel = 0; channel < 3; channel++) {
+                    assertEquals(rgbChannel(current, probe, WIDTH, channel) / 255.0f,
+                            resolved[channel], 0.01f,
+                            "the first TAA resolve must pass the decal-composited current "
+                                    + "colour through (channel " + channel + ")");
+                }
+                history.commitSuccessfulFrame();
+                assertTrue(history.valid(), "the resolve must publish its first history");
+                assertEquals(depthBefore, readDepth(target, probe[0], probe[1]), 0.0f,
+                        "the temporal resolve must not feed back into the scene depth");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
     private static ProjectedDecal decal(Vector3f center, float size) {
         return new ProjectedDecal(1L, DECAL_TEXTURE, center,
                 new Vector3f(0.0f, 0.0f, 1.0f), new Vector3f(0.0f, 1.0f, 0.0f),
@@ -698,6 +1116,108 @@ class ProjectedDecalGlTest {
                         + Byte.toUnsignedInt(actual.get(index)));
             }
         }
+    }
+
+    /** Projects the world point at decal texture column centre {@code u}. */
+    private static int[] decalColumn(float u, float size, Matrix4f projection,
+                                     Matrix4f view) {
+        return project(new Vector3f(size * (u - 0.5f), 0.0f, 0.0f),
+                projection, view, WIDTH, HEIGHT);
+    }
+
+    private static int rgbChannel(ByteBuffer image, int[] probe, int width, int channel) {
+        return Byte.toUnsignedInt(image.get((probe[1] * width + probe[0]) * 4 + channel));
+    }
+
+    /** Sum of absolute RGB differences at one probe pixel. */
+    private static int pixelDelta(ByteBuffer expected, ByteBuffer actual, int x, int y,
+                                  int width) {
+        int offset = (y * width + x) * 4;
+        int delta = 0;
+        for (int channel = 0; channel < 3; channel++) {
+            delta += Math.abs(Byte.toUnsignedInt(expected.get(offset + channel))
+                    - Byte.toUnsignedInt(actual.get(offset + channel)));
+        }
+        return delta;
+    }
+
+    private static void assertSamePixel(ByteBuffer expected, ByteBuffer actual, int x, int y,
+                                        int width, String message) {
+        int offset = (y * width + x) * 4;
+        for (int channel = 0; channel < 4; channel++) {
+            assertEquals(Byte.toUnsignedInt(expected.get(offset + channel)),
+                    Byte.toUnsignedInt(actual.get(offset + channel)),
+                    message + " (channel " + channel + " at " + x + "," + y + ")");
+        }
+    }
+
+    private static void assertOccluderColour(ByteBuffer image, int[] probe, int width) {
+        int offset = (probe[1] * width + probe[0]) * 4;
+        String label = "the caster shader must write (0.30,0.35,0.28) at the occluded probe";
+        assertEquals(77, Byte.toUnsignedInt(image.get(offset)), 2, label);
+        assertEquals(89, Byte.toUnsignedInt(image.get(offset + 1)), 2, label);
+        assertEquals(71, Byte.toUnsignedInt(image.get(offset + 2)), 2, label);
+    }
+
+    private static void renderShadowScene(GlRenderDevice device, Framebuffer target,
+                                          ShaderProgram receiverShader,
+                                          ShaderProgram occluderShader, Mesh quad,
+                                          Matrix4f projectionView, Matrix4f receiver,
+                                          Matrix4f occluder) {
+        CommandBuffer commands = device.createCommandBuffer();
+        commands.bindFramebuffer(target)
+                .viewport(0, 0, target.width(), target.height())
+                .enableFramebufferSrgb(false)
+                .enableBlend(false)
+                .enableCullFace(false)
+                .enableDepthTest(true)
+                .depthMask(true)
+                .clearColor(0.05f, 0.06f, 0.08f, 1.0f)
+                .clear(true, true)
+                .bindShader(receiverShader)
+                .bindMesh(quad)
+                .setUniformMat4(receiverShader, "uMvp",
+                        new Matrix4f(projectionView).mul(receiver))
+                .setUniformMat4(receiverShader, "uModel", receiver)
+                .drawMesh(quad)
+                .bindShader(occluderShader)
+                .bindMesh(quad)
+                .setUniformMat4(occluderShader, "uMvp",
+                        new Matrix4f(projectionView).mul(occluder))
+                .drawMesh(quad);
+        device.execute(commands);
+    }
+
+    private static void fillR32F(Texture2D texture, int width, int height, float value) {
+        ByteBuffer bytes = BufferUtils.createByteBuffer(width * height * Float.BYTES);
+        for (int index = 0; index < width * height; index++) {
+            bytes.putFloat(value);
+        }
+        bytes.flip();
+        texture.uploadRegion(0, 0, width, height, bytes);
+    }
+
+    private static void fillR8(Texture2D texture, int width, int height, int value) {
+        ByteBuffer bytes = BufferUtils.createByteBuffer(width * height);
+        for (int index = 0; index < width * height; index++) {
+            bytes.put((byte) value);
+        }
+        bytes.flip();
+        texture.uploadRegion(0, 0, width, height, bytes);
+    }
+
+    private static float[] readFloat4(Framebuffer framebuffer, int x, int y) {
+        FloatBuffer pixel = BufferUtils.createFloatBuffer(4);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id());
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glReadPixels(x, y, 1, 1, GL_RGBA, GL_FLOAT, pixel);
+        return new float[]{pixel.get(0), pixel.get(1), pixel.get(2), pixel.get(3)};
+    }
+
+    private static double srgbToLinear(double encoded) {
+        return encoded <= 0.04045
+                ? encoded / 12.92
+                : Math.pow((encoded + 0.055) / 1.055, 2.4);
     }
 
     private static int clamp(int value, int minimum, int maximum) {
