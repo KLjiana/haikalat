@@ -4221,6 +4221,14 @@ public final class RenderPipeline {
                 variableRateShadingCapabilitySupplier.get().nvImagePathAvailable(),
                 temporalUpscalingSource != null,
                 projectedDecalRecorderPresent(),
+                // Structural invariant: an effective decal request forces the
+                // geometry pass onto the shareable depth-texture path
+                // (ForwardPassBuilder adds the depth texture when the decal
+                // topology is active), and the decal pass resolves that depth
+                // into its own single-sample copy. A missing depth is therefore
+                // a pipeline bug, not a reachable policy state here; the
+                // UNAVAILABLE branch is still exercised through
+                // PipelineTopology.capture's explicit argument.
                 true);
     }
 
