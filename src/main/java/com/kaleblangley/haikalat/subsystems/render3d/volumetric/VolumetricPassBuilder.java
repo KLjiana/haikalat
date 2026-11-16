@@ -214,6 +214,23 @@ public final class VolumetricPassBuilder implements AutoCloseable {
      */
     public void addColorPrePasses(RenderGraph graph, Scene scene, PipelineTopology topology,
                                   VolumetricSurfaceInputs surfaceInputs) {
+        addColorPrePasses(graph, scene, topology, surfaceInputs,
+                PostProcessTargets.GEOMETRY_PASS);
+    }
+
+    /**
+     * Declares the froxel guide and the opaque fog colour composite against an
+     * explicit scene-colour producer. A projected-decal batch between the
+     * opaque geometry pass and the fog composite changes the producer so fog
+     * attenuates the decal instead of the pre-decal geometry frame.
+     *
+     * @param colorSourcePass pass whose colour attachment holds the opaque
+     *                        scene colour the composite integrates over
+     */
+    public void addColorPrePasses(RenderGraph graph, Scene scene, PipelineTopology topology,
+                                  VolumetricSurfaceInputs surfaceInputs,
+                                  String colorSourcePass) {
+        java.util.Objects.requireNonNull(colorSourcePass, "colorSourcePass");
         if (surfaceInputs.surface().graph() != graph || colorSamples != topology.sampleCount()
                 || colorVfx != topology.hdrVfx()) {
             throw new IllegalArgumentException("incompatible fog surface/color inputs");
@@ -257,11 +274,11 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         RenderGraph.PassBuilder pass=graph.addPass(COMPOSITE_PASS);
         if (ms) pass.createColorsMS(java.util.List.of(COMPOSITE_COLOR),java.util.List.of(RenderFormat.RGBA16F),topology.sampleCount());
         else pass.createColors(java.util.List.of(COMPOSITE_COLOR,OPAQUE_REACTIVE),java.util.List.of(RenderFormat.RGBA16F,RenderFormat.R8));
-        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(PostProcessTargets.GEOMETRY_PASS)
+        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(colorSourcePass)
                 .dependsOn(surfaceInputs.rawDepth().producer())
                 .borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes","volume.lightHints",
                         "volume.dirtyDomains","lighting.lightTable","lighting.clusterHeaders","lighting.clusterIndices","shadows.allocatedAtlases")
-                .execute((res, cmd) -> recordComposite(res, cmd, ms, surfaceInputs));
+                .execute((res, cmd) -> recordComposite(res, cmd, ms, surfaceInputs, colorSourcePass));
     }
 
     /**
@@ -360,9 +377,14 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         } catch (IOException failure) { throw new IllegalStateException(failure); }
     }
 
-    private void recordComposite(PassResources inputs, CommandBuffer cmd, boolean ms, VolumetricSurfaceInputs surfaceInputs) {
-        var geometry=inputs.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-        var frame=requireFrame();
+    private void recordComposite(PassResources inputs, CommandBuffer cmd, boolean ms,
+                                 VolumetricSurfaceInputs surfaceInputs, String colorSourcePass) {
+        var colorSource = inputs.framebufferOfPass(colorSourcePass);
+        if (colorSource == null) {
+            throw new IllegalStateException(
+                    "fog composite requires the scene-colour producer " + colorSourcePass);
+        }
+        var frame = requireFrame();
         opaqueDepthTexture = surfaceInputs.singleDepth(inputs);
         int rasterDepth = surfaceInputs.rawDepth(inputs);
         cmd.bindShader(composite).enableBlend(false).enableDepthTest(false).depthMask(false)
@@ -372,8 +394,8 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         cmd.setUniformInt(composite,"uVolumeDiagnosticsEnabled",0).setUniformInt(composite,"uFineOmittedLight",diagnosticOmittedLight)
                 .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES)
                 .bindStorageBuffer(7,resources.diagnostics(),0,VolumetricResources.DIAGNOSTICS_BYTES);
-        if (ms) cmd.bindTextureMultisample(0,geometry.colorAttachment()).bindTextureMultisample(1, rasterDepth);
-        else cmd.bindTexture(0,geometry.colorAttachment()).bindTexture(1, rasterDepth);
+        if (ms) cmd.bindTextureMultisample(0,colorSource.colorAttachment()).bindTextureMultisample(1, rasterDepth);
+        else cmd.bindTexture(0,colorSource.colorAttachment()).bindTexture(1, rasterDepth);
         cmd.setUniformMat4(composite,"uFogRasterInverseProjection",rasterInverseProjection)
                 .setUniformMat4(composite,"uFogStableProjection",frame.camera().projection())
                 .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6)

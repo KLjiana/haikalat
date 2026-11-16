@@ -195,9 +195,16 @@ class ProjectedDecalPipelineGlTest {
                             com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
                                     .HDR_RESOLVE_PASS))
                     .findFirst().orElseThrow();
-            assertTrue(resolve.directDependencies().contains(ProjectedDecalPass.PASS_NAME),
-                    "the MSAA HDR resolve must consume the decal pass output, deps="
+            assertTrue(resolve.directDependencies().contains(
+                            com.kaleblangley.haikalat.subsystems.render3d.pipeline
+                                    .ForwardPassBuilder.TRANSPARENT_PASS),
+                    "the MSAA HDR resolve must consume the transparent forward half, deps="
                             + resolve.directDependencies());
+            assertTrue(pass(fixture.pipeline,
+                            com.kaleblangley.haikalat.subsystems.render3d.pipeline
+                                    .ForwardPassBuilder.TRANSPARENT_PASS)
+                            .directDependencies().contains(ProjectedDecalPass.PASS_NAME),
+                    "the transparent forward half must composite over the decal batch");
 
             fixture.frame();
             float[] enabled = fixture.capture();
@@ -323,6 +330,53 @@ class ProjectedDecalPipelineGlTest {
      * angle. {@code surfaceOffset} is the documented world-unit knob for that
      * bounded reconstruction error.
      */
+    /**
+     * The sorted transparent forward half must composite over the decal instead
+     * of being overwritten by it: an opaque-alpha overlay in front of the
+     * receiver hides the decal exactly, while the same fixture without the
+     * overlay shows the decal delta.
+     */
+    @Test
+    void transparentOverlayCompositesOverTheDecalInsteadOfBeingOverwritten() {
+        try (Fixture fixture = new Fixture(AntiAliasingMode.NONE, 1,
+                WaterSurfaceSettings.disabled(), solidSettings(),
+                ProjectedDecalPipelineGlTest::oneDecal, false, true, true)) {
+            int[] centre = fixture.project(new Vector3f(0.0f, 0.0f, 0.0f));
+            var transparent = pass(fixture.pipeline,
+                    com.kaleblangley.haikalat.subsystems.render3d.pipeline
+                            .ForwardPassBuilder.TRANSPARENT_PASS);
+            assertTrue(transparent.directDependencies().contains(ProjectedDecalPass.PASS_NAME),
+                    "the transparent forward half must composite over the decal batch, deps="
+                            + transparent.directDependencies());
+            fixture.frame();
+            float[] enabled = fixture.capture();
+            assertEquals(1, fixture.pipeline.projectedDecalStatistics().drawn());
+            int index = (centre[1] * fixture.width + centre[0]) * 4;
+            assertEquals(0.05f, enabled[index], 0.02f, "the overlay red hides the decal");
+            assertEquals(0.90f, enabled[index + 1], 0.02f, "the overlay green hides the decal");
+            assertEquals(0.15f, enabled[index + 2], 0.02f, "the overlay blue hides the decal");
+            fixture.pipeline.applyProjectedDecals(ProjectedDecalSettings.disabled());
+            fixture.frame();
+            float[] baseline = fixture.capture();
+            assertEquals(0.0f, delta(enabled, baseline, centre, fixture.width), 0.0f,
+                    "disabling the decal must not change an overlay-covered pixel");
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+        try (Fixture fixture = new Fixture(AntiAliasingMode.NONE, 1,
+                WaterSurfaceSettings.disabled(), solidSettings(),
+                ProjectedDecalPipelineGlTest::oneDecal, false, true)) {
+            int[] centre = fixture.project(new Vector3f(0.0f, 0.0f, 0.0f));
+            fixture.frame();
+            float[] enabled = fixture.capture();
+            fixture.pipeline.applyProjectedDecals(ProjectedDecalSettings.disabled());
+            fixture.frame();
+            float[] baseline = fixture.capture();
+            assertTrue(delta(enabled, baseline, centre, fixture.width) > 0.2f,
+                    "the control decal must change the uncovered floor pixel");
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
     private static ProjectedDecalSettings solidSettings() {
         return new ProjectedDecalSettings(true, 0.6f, 0.12f, 0.5f, false, false, 8);
     }
@@ -384,6 +438,15 @@ class ProjectedDecalPipelineGlTest {
                     fragColor = vec4(uGroundColor, 1.0);
                 }
                 """;
+        /** Opaque-alpha overlay drawn in the sorted transparent stream. */
+        private static final String OVERLAY_FRAGMENT = """
+                #version 460 core
+                layout(location = 0) out vec4 fragColor;
+                uniform vec4 uOverlayColor;
+                void main() {
+                    fragColor = uOverlayColor;
+                }
+                """;
 
         final GlfwWindow window;
         final int width;
@@ -395,12 +458,21 @@ class ProjectedDecalPipelineGlTest {
         final Material floorMaterial;
         final Material casterMaterial;
         final Mesh casterMesh;
+        final ShaderProgram overlayShader;
+        final Material overlayMaterial;
+        final Mesh overlayMesh;
         final VfxRenderer renderer;
         final RenderPipeline pipeline;
 
         Fixture(AntiAliasingMode antiAliasing, int samples, WaterSurfaceSettings water,
                 ProjectedDecalSettings decals, Supplier<List<ProjectedDecal>> source,
                 boolean occluder, boolean registerSource) {
+            this(antiAliasing, samples, water, decals, source, occluder, registerSource, false);
+        }
+
+        Fixture(AntiAliasingMode antiAliasing, int samples, WaterSurfaceSettings water,
+                ProjectedDecalSettings decals, Supplier<List<ProjectedDecal>> source,
+                boolean occluder, boolean registerSource, boolean transparentOverlay) {
             window = new GlfwWindow.Builder().dimensions(REQUESTED_SIZE, REQUESTED_SIZE)
                     .title("Projected decal pipeline test").visible(false).build();
             width = window.width();
@@ -453,6 +525,31 @@ class ProjectedDecalPipelineGlTest {
                 casterMaterial = null;
                 casterMesh = null;
             }
+            if (transparentOverlay) {
+                overlayShader = ShaderProgram.fromSources(GROUND_VERTEX, OVERLAY_FRAGMENT);
+                overlayMesh = Mesh.builder()
+                        .vertices(new float[]{
+                                -1.5f, 0.0f, -1.5f,
+                                -1.5f, 0.0f, 1.5f,
+                                1.5f, 0.0f, 1.5f,
+                                1.5f, 0.0f, -1.5f
+                        }, 3 * Float.BYTES, position)
+                        .indices(new int[]{0, 1, 2, 0, 2, 3})
+                        .build();
+                overlayMaterial = Material.builder(overlayShader)
+                        .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA)
+                        .setVec4("uOverlayColor", new Vector4f(0.05f, 0.9f, 0.15f, 1.0f))
+                        .build();
+                // Sorted-transparent overlay between the camera and the decal
+                // receiver: a decal recorded after the transparent stream would
+                // replace the overlay pixel.
+                scene.add(SceneObject.fixed(overlayMesh, overlayMaterial,
+                        new Matrix4f().translate(0.0f, 0.5f, 0.0f)));
+            } else {
+                overlayShader = null;
+                overlayMesh = null;
+                overlayMaterial = null;
+            }
             renderer = new VfxRenderer();
             RenderSettings.Builder settings = RenderSettings.builder()
                     .vsync(false)
@@ -494,6 +591,9 @@ class ProjectedDecalPipelineGlTest {
                 renderer.close();
                 if (casterMaterial != null) casterMaterial.close();
                 if (casterMesh != null) casterMesh.close();
+                if (overlayMaterial != null) overlayMaterial.close();
+                if (overlayMesh != null) overlayMesh.close();
+                if (overlayShader != null) overlayShader.close();
                 floorMaterial.close();
                 quad.close();
                 groundShader.close();

@@ -40,6 +40,14 @@ public final class SceneRenderer {
 
         boolean sharedDepth();
 
+        /**
+         * True for the volumetric-fog transparency replay: those transparent
+         * draws use the fog-composited material variant and its premultiplied
+         * blend contract. The ordinary transparent forward half keeps the
+         * material's own blend function.
+         */
+        boolean volumeTransparency();
+
         InstancedRenderer instanced();
 
         SceneDeformationDefaults deformationDefaults();
@@ -124,9 +132,11 @@ public final class SceneRenderer {
             boolean materialBindingChanged = materialChanged
                     && (boundMaterialTemplate != materialTemplate
                     || boundMaterialHasOverrides || materialHasOverrides);
+            boolean fogComposited = segment >= 2 && host.volumeTransparency()
+                    && !materialTemplate.volumetricFogOptOut();
             if (materialBindingChanged) {
                 material.bind(cmd, shader);
-                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) {
+                if (fogComposited) {
                     cmd.blendFunc(org.lwjgl.opengl.GL11.GL_ONE,
                                     materialTemplate.blendMode() == BlendMode.ADDITIVE
                                             ? org.lwjgl.opengl.GL11.GL_ONE
@@ -152,7 +162,7 @@ public final class SceneRenderer {
                 if (gtaoEnabled) boundGtaoTexture = materialGtaoTexture;
                 boundSkinningEnabled = -1;
                 boundMorphTargetCount = -1;
-                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) {
+                if (fogComposited) {
                     host.bindVolumeQuery(cmd, shader);
                 }
             }

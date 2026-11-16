@@ -23,6 +23,15 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 
 public final class ForwardPassBuilder {
+    /**
+     * Pass that records the sorted transparent half of the forward queue after
+     * an in-between scene-colour producer (currently the projected-decal
+     * batch). It aliases that producer's colour storage and the opaque raster
+     * depth, so transparent materials composite over the decal without writing
+     * depth and later MSAA consumers keep the topology sample count.
+     */
+    public static final String TRANSPARENT_PASS = "ForwardTransparency";
+
     private ForwardPassBuilder() {
     }
 
@@ -110,10 +119,13 @@ public final class ForwardPassBuilder {
             geometry.clearColorOnly(0.08f, 0.10f, 0.14f, 1.0f);
             geometry.dependsOn(sharedDepth.producer());
         } else if (((postProcessSettings.fog().enabled() || topology.hdrVfx())
-                && settings.antiAliasingMode() != AntiAliasingMode.MSAA) || refraction) {
+                && settings.antiAliasingMode() != AntiAliasingMode.MSAA)
+                || refraction || topology.projectedDecals()) {
             // Refraction shares this texture with its glass pass and samples a
             // resolved snapshot; a renderbuffer depth attachment cannot be
-            // borrowed, so both paths request a depth texture.
+            // borrowed, so both paths request a depth texture. The projected-
+            // decal split also needs a shareable depth texture for the
+            // transparent forward half that runs after the decal batch.
             geometry.createDepthTexture(PostProcessTargets.SCENE_DEPTH);
             geometry.clearColor(0.08f, 0.10f, 0.14f, 1.0f);
         } else {
@@ -132,6 +144,27 @@ public final class ForwardPassBuilder {
             geometry.dependsOn(PostProcessTargets.GTAO_UPSAMPLE_PASS);
         }
         geometry.execute(geometryExecutor);
+    }
+
+    /**
+     * Adds the transparent half of the scene forward queue after {@code
+     * colorSourcePass} (the projected-decal batch). The pass borrows the
+     * producer's colour storage and the shared raster depth: no second colour
+     * target is allocated, transparent materials still depth-test against the
+     * opaque surface, and their ALPHA/ADDITIVE state keeps depth writes
+     * disabled. {@code depthTexture} must be a texture attachment of
+     * {@code depthProducer} with the same sample count as the colour storage.
+     */
+    public static void addTransparentForwardPass(RenderGraph graph, RenderFormat format,
+                                                 int sampleCount, String colorSourcePass,
+                                                 String depthTexture, String depthProducer,
+                                                 PassExecutor executor) {
+        graph.addPass(TRANSPARENT_PASS)
+                .shareColorTextures(java.util.List.of(PostProcessTargets.SCENE_COLOR),
+                        java.util.List.of(format), colorSourcePass, sampleCount)
+                .shareDepthTexture(depthTexture, depthProducer)
+                .noClear()
+                .execute(executor);
     }
 
     /**

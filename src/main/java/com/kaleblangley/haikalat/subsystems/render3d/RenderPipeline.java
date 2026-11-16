@@ -2826,10 +2826,24 @@ public final class RenderPipeline {
     static void addHairStrandPass(RenderGraph graph, PipelineTopology topology,
                                   RenderSettings settings, String depthTexture,
                                   String depthProducer, PassExecutor executor) {
+        addHairStrandPass(graph, topology, settings, depthTexture, depthProducer,
+                PostProcessTargets.GEOMETRY_PASS, executor);
+    }
+
+    /**
+     * Declares the hair forward pass against an explicit scene-colour producer.
+     * With projected decals the current colour is the decal batch (and the
+     * transparent forward half), so hair must alias that storage instead of the
+     * pre-decal geometry target.
+     */
+    static void addHairStrandPass(RenderGraph graph, PipelineTopology topology,
+                                  RenderSettings settings, String depthTexture,
+                                  String depthProducer, String colorSourcePass,
+                                  PassExecutor executor) {
         graph.addPass(HairStrandPass.PASS_NAME)
                 .shareColorTextures(List.of(PostProcessTargets.SCENE_COLOR),
                         List.of(ForwardPassBuilder.sceneColorFormat(settings)),
-                        PostProcessTargets.GEOMETRY_PASS, topology.sampleCount())
+                        colorSourcePass, topology.sampleCount())
                 .shareDepthTexture(depthTexture, depthProducer)
                 .noClear()
                 .execute(executor);
@@ -2957,7 +2971,7 @@ public final class RenderPipeline {
                 // colour/depth consumer and no dependency on the visible frame.
                 addSmokeSimulationPass(candidate.graph(), smokeSimulationExecutor(candidate));
             }
-            if (candidate.hairStrands() != null) {
+            if (candidate.hairStrands() != null && !topology.projectedDecals()) {
                 var rawDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
                 if (rawDepth == null) {
                     throw new IllegalStateException(
@@ -2968,11 +2982,63 @@ public final class RenderPipeline {
             }
             String sceneColorTexture = PostProcessTargets.SCENE_COLOR;
             String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
+            boolean splitDecals = topology.projectedDecals();
+            String decalDepthTexture = null;
+            String decalDepthProducer = null;
+            if (splitDecals) {
+                // The projected-decal batch is recorded between the opaque and
+                // transparent halves of the forward queue. The pass owns its
+                // colour copy and the single-sample depth resolve, so MSAA never
+                // samples a multisampled depth attachment and transparent
+                // materials composite over the decal instead of being
+                // overwritten by it.
+                var rawDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
+                decalDepthTexture = rawDepth != null
+                        ? rawDepth.name() : PostProcessTargets.SCENE_DEPTH;
+                decalDepthProducer = rawDepth != null
+                        ? rawDepth.producer() : PostProcessTargets.GEOMETRY_PASS;
+                addProjectedDecalPass(candidate.graph(), sceneColorProducer,
+                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
+                        projectedDecalDepthResolveExecutor(),
+                        projectedDecalExecutor(sceneColorProducer));
+                sceneColorTexture = ProjectedDecalPass.COLOR_TEXTURE;
+                sceneColorProducer = ProjectedDecalPass.PASS_NAME;
+            }
+            if (splitDecals && candidate.volumetric() == null) {
+                // Transparent forward half: loads the decal colour and reuses
+                // the opaque raster depth, so ALPHA/ADDITIVE materials composite
+                // over the decal without writing depth. The volumetric chain
+                // owns its own transparency replay below instead.
+                ForwardPassBuilder.addTransparentForwardPass(candidate.graph(),
+                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
+                        sceneColorProducer, decalDepthTexture, decalDepthProducer,
+                        transparentForwardExecutor());
+                sceneColorProducer = ForwardPassBuilder.TRANSPARENT_PASS;
+            }
+            if (candidate.hairStrands() != null && splitDecals) {
+                var rawDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
+                if (rawDepth == null) {
+                    throw new IllegalStateException(
+                            "hair strands require the shared raster depth for depth testing");
+                }
+                // Hair is a transparent overlay: with decals it records after
+                // the decal (and after the transparent forward half when there
+                // is no fog replay) against the same colour storage, so it
+                // composites over the decal instead of being overwritten.
+                addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
+                        rawDepth.producer(), sceneColorProducer,
+                        hairStrandExecutor(candidate));
+            }
             VolumetricSurfaceInputs volumeInputs = null;
             if (candidate.volumetric() != null) {
                 volumeInputs = new VolumetricSurfaceInputs(candidate.surfaceInputs());
+                // With decals the fog composite consumes the decal colour, so
+                // fog attenuates the decal and the transparent replay that
+                // follows still composites over both.
                 candidate.volumetric().addColorPrePasses(candidate.graph(), generationScene,
-                        topology, volumeInputs);
+                        topology, volumeInputs,
+                        splitDecals ? ProjectedDecalPass.PASS_NAME
+                                : PostProcessTargets.GEOMETRY_PASS);
                 String transparentColorSource = volumetricTransparentColorSource(
                         candidate.volumetricParticles() != null);
                 if (candidate.volumetricParticles() != null) {
@@ -2996,26 +3062,22 @@ public final class RenderPipeline {
                 sceneColorProducer = VolumetricPassBuilder.TRANSPARENT_PASS;
             }
             java.util.List<String> waterDependencies = new java.util.ArrayList<>();
-            if (topology.projectedDecals()) {
-                // The batch is recorded exactly once, after the opaque geometry
-                // pass and before planar/caustics/contact-shadow/water/glass and
-                // the transparent collectors. The pass owns its colour copy and
-                // resolves the geometry depth into a single-sample texture, so
-                // MSAA never samples a multisampled depth attachment.
-                addProjectedDecalPass(candidate.graph(), sceneColorProducer,
-                        ForwardPassBuilder.sceneColorFormat(settings), topology.sampleCount(),
-                        projectedDecalDepthResolveExecutor(),
-                        projectedDecalExecutor(sceneColorProducer));
-                sceneColorTexture = ProjectedDecalPass.COLOR_TEXTURE;
-                sceneColorProducer = ProjectedDecalPass.PASS_NAME;
+            if (splitDecals) {
+                // The water pass reads the current scene colour without
+                // borrowing it, so these explicit edges keep the decal batch,
+                // the transparent forward half and hair before the water
+                // consumer.
+                waterDependencies.add(ProjectedDecalPass.PASS_NAME);
+                if (candidate.volumetric() == null) {
+                    waterDependencies.add(ForwardPassBuilder.TRANSPARENT_PASS);
+                }
+                if (candidate.hairStrands() != null) {
+                    waterDependencies.add(HairStrandPass.PASS_NAME);
+                }
                 candidate.postProcess().sceneColorInput(sceneColorTexture, sceneColorProducer);
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(sceneColorProducer);
                 }
-                // The water pass reads the current scene colour without
-                // borrowing it, so this explicit edge is what keeps the decal
-                // batch before the water consumer.
-                waterDependencies.add(ProjectedDecalPass.PASS_NAME);
             }
             if (candidate.planarReflection() != null) {
                 // The reflection is an independent single-sample subview. It is
@@ -3077,9 +3139,12 @@ public final class RenderPipeline {
                 }
             }
             if (refraction) {
-                String colourProducer = topology.volumetricFog()
-                        ? VolumetricPassBuilder.TRANSPARENT_PASS
-                        : PostProcessTargets.GEOMETRY_PASS;
+                // The glass must refract the current colour chain (decal batch,
+                // transparent forward half, water or fog replay), not the
+                // pre-decal geometry frame. Snapshotting a stale producer made
+                // the decal invisible behind glass and left later collectors
+                // aliasing the wrong physical colour texture.
+                String colourProducer = sceneColorProducer;
                 var sharedDepth = topology.sceneSurface().raw(
                         com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH);
                 String depthTexture = sharedDepth == null
@@ -3092,6 +3157,10 @@ public final class RenderPipeline {
                         refractionExecutor());
                 candidate.postProcess().sceneColorInput(PostProcessTargets.SCENE_COLOR,
                         RefractionPass.PASS_NAME);
+                // The refraction pass aliases the source pass colour storage, so
+                // both the texture name and the producer identity move together
+                // to the refraction output for every later consumer.
+                sceneColorTexture = PostProcessTargets.SCENE_COLOR;
                 sceneColorProducer = RefractionPass.PASS_NAME;
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
@@ -4780,6 +4849,11 @@ public final class RenderPipeline {
             ShadowFramePlan plan = shadowFramePlan();
             int gtaoTexture = requireGeneration().topology().gtaoEnabled()
                     ? res.colorAttachment(PostProcessTargets.GTAO_FINAL) : 0;
+            // The volumetric colour chain and the projected-decal split both
+            // need the opaque and transparent halves as separate passes; every
+            // other topology keeps the historical single-pass forward queue.
+            boolean splitForward = requireGeneration().volumetric() != null
+                    || requireGeneration().topology().projectedDecals();
             renderScene(cmd,
                 plan.directional().isPresent()
                         ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
@@ -4787,7 +4861,29 @@ public final class RenderPipeline {
                         ? res.depthAttachment(PointShadowAtlas.TEXTURE_NAME) : 0,
                 !plan.spots().isEmpty()
                         ? res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME) : 0,
-                gtaoTexture,requireGeneration().volumetric() == null ? 0 : 1);
+                gtaoTexture, splitForward ? 1 : 0);
+        };
+    }
+
+    /**
+     * Records the sorted transparent forward half against the current colour
+     * producer (the projected-decal batch) and the opaque raster depth.
+     */
+    private PassExecutor transparentForwardExecutor() {
+        return (res, cmd) -> {
+            ShadowFramePlan plan = shadowFramePlan();
+            renderScene(cmd,
+                    plan.directional().isPresent()
+                            ? res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME) : 0,
+                    plan.points().isEmpty()
+                            ? 0 : res.depthAttachment(PointShadowAtlas.TEXTURE_NAME),
+                    plan.spots().isEmpty()
+                            ? 0 : res.depthAttachment(SpotShadowAtlas.TEXTURE_NAME),
+                    0, 2);
+            // ALPHA/ADDITIVE draws leave blend/depth-write state from the last
+            // material; restore the defaults later colour passes expect.
+            cmd.enableBlend(false).depthMask(true).enableDepthTest(true)
+                    .depthFunc(org.lwjgl.opengl.GL11.GL_LESS);
         };
     }
 
@@ -5113,6 +5209,11 @@ public final class RenderPipeline {
 
         @Override
         public boolean sharedDepth() {
+            return false;
+        }
+
+        @Override
+        public boolean volumeTransparency() {
             return false;
         }
 
@@ -5526,6 +5627,11 @@ public final class RenderPipeline {
         @Override
         public boolean sharedDepth() {
             return generation.topology().sceneSurface().hasSurface();
+        }
+
+        @Override
+        public boolean volumeTransparency() {
+            return generation.volumetric() != null;
         }
 
         @Override
