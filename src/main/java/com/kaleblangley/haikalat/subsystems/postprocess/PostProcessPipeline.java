@@ -97,6 +97,7 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final List<AutoCloseable> owned;
     private final List<AutoCloseable> borrowed;
     private PostProcessPipeline donor;
+    private boolean vfxCompositeAdded;
     private boolean closed;
 
     private PostProcessPipeline(RenderSettings settings, PostProcessSettings effects,
@@ -974,6 +975,63 @@ public final class PostProcessPipeline implements AutoCloseable {
         recordFinalPass(PostProcessTargets.PRESENT_PASS);
     }
 
+    /**
+     * Adds the caller-recorder VFX composite ahead of the transparent
+     * collectors instead of after the fog pass.
+     *
+     * <p>Weighted OIT and stochastic transparency resolve over the scene colour
+     * in place. When one of them is active, the particle draw must be composited
+     * before that resolve; otherwise additive particles are added on top of a
+     * surface they are geometrically behind. Render3D calls this immediately
+     * before the selected collector and updates {@link #sceneColorInput(String,
+     * String)} to the collector afterwards. The normal post-fog composite is
+     * skipped when this method has been called.</p>
+     *
+     * @param graph        graph receiving the composite pass
+     * @param baseProducer scene-colour producer copied into the composite target
+     */
+    public void addVfxCompositeBeforeCollectors(RenderGraph graph, String baseProducer) {
+        if (hdrVfx == null) {
+            throw new IllegalStateException(
+                    "an early HDR VFX composite requires a configured recorder");
+        }
+        addVfxComposite(graph, Objects.requireNonNull(baseProducer, "baseProducer"));
+    }
+
+    /**
+     * Declares the single VFX composite pass: copy the base colour and opaque
+     * depth into the pass-owned target, then hand the target to the caller
+     * recorder. Added either by {@link #addVfxCompositeBeforeCollectors} or by
+     * the post-fog chain at most once.
+     */
+    private void addVfxComposite(RenderGraph graph, String baseProducer) {
+        if (vfxCompositeAdded) {
+            throw new IllegalStateException("the HDR VFX composite pass has already been added");
+        }
+        final String sourcePass = Objects.requireNonNull(baseProducer, "baseProducer");
+        RenderGraph.PassBuilder vfxComposite = graph.addPass(PostProcessTargets.VFX_COMPOSITE_PASS)
+                .createColor(PostProcessTargets.VFX_COMPOSITE_COLOR, RenderFormat.RGBA16F)
+                .createDepthTexture(PostProcessTargets.VFX_SCENE_DEPTH)
+                .noClear()
+                .dependsOn(sourcePass);
+        if (!PostProcessTargets.GEOMETRY_PASS.equals(sourcePass)) {
+            vfxComposite.dependsOn(PostProcessTargets.GEOMETRY_PASS);
+        }
+        vfxComposite.execute((res, cmd) -> {
+            Framebuffer source = res.framebufferOfPass(sourcePass);
+            Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
+            Framebuffer target = res.currentTarget();
+            if (source != null && geometry != null && target != null) {
+                cmd.blitColor(source, target)
+                        .blitDepth(geometry, target)
+                        .bindFramebuffer(target)
+                        .viewport(0, 0, target.width(), target.height());
+                hdrVfx.execute(res, cmd);
+            }
+        });
+        vfxCompositeAdded = true;
+    }
+
     private void addHdrFinalPasses(RenderGraph graph) {
         String hdrTexture = sceneColorInput;
         String hdrProducer = sceneColorProducer;
@@ -1011,29 +1069,8 @@ public final class PostProcessPipeline implements AutoCloseable {
             hdrProducer = PostProcessTargets.FOG_PASS;
         }
 
-        if (hdrVfx != null) {
-            final String baseTexture = hdrTexture;
-            final String baseProducer = hdrProducer;
-            RenderGraph.PassBuilder vfxComposite = graph.addPass(PostProcessTargets.VFX_COMPOSITE_PASS)
-                    .createColor(PostProcessTargets.VFX_COMPOSITE_COLOR, RenderFormat.RGBA16F)
-                    .createDepthTexture(PostProcessTargets.VFX_SCENE_DEPTH)
-                    .noClear()
-                    .dependsOn(baseProducer);
-            if (!PostProcessTargets.GEOMETRY_PASS.equals(baseProducer)) {
-                vfxComposite.dependsOn(PostProcessTargets.GEOMETRY_PASS);
-            }
-            vfxComposite.execute((res, cmd) -> {
-                Framebuffer source = res.framebufferOfPass(baseProducer);
-                Framebuffer geometry = res.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-                Framebuffer target = res.currentTarget();
-                if (source != null && geometry != null && target != null) {
-                    cmd.blitColor(source, target)
-                            .blitDepth(geometry, target)
-                            .bindFramebuffer(target)
-                            .viewport(0, 0, target.width(), target.height());
-                    hdrVfx.execute(res, cmd);
-                }
-            });
+        if (hdrVfx != null && !vfxCompositeAdded) {
+            addVfxComposite(graph, hdrProducer);
             hdrTexture = PostProcessTargets.VFX_COMPOSITE_COLOR;
             hdrProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
         }

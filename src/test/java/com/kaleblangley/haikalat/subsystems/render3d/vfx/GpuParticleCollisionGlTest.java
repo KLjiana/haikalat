@@ -20,6 +20,7 @@ import org.lwjgl.opengl.GL;
 
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -61,7 +62,11 @@ import static org.lwjgl.opengl.GL45.glGetNamedBufferSubData;
  *       smaller than the penetration reproduce the particle-indirect
  *       trajectory byte for byte;</li>
  *   <li>capacity replacement, a resized depth viewport, idempotent close and
- *       error state release every tracked GL resource.</li>
+ *       error state release every tracked GL resource;</li>
+ *   <li>the production {@link GpuParticleVfx} consumer forwards the same-frame
+ *       scene depth to a collision-enabled owner (bounce) while a disabled owner
+ *       and an enabled owner recorded without depth keep the free-flight
+ *       trajectory byte for byte.</li>
  * </ul>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
@@ -292,6 +297,93 @@ class GpuParticleCollisionGlTest {
             }
             assertEquals(GL_NO_ERROR, glGetError());
         }
+    }
+
+    @Test
+    void productionConsumerForwardsTheSceneDepthToCollisionOwners() {
+        try (GlfwWindow window = hiddenWindow()) {
+            bind(window);
+            GlRenderDevice device = new GlRenderDevice();
+            try (Framebuffer scene = sceneTarget(SIZE, SIZE);
+                 Framebuffer target = particleTarget(SIZE, SIZE);
+                 VfxRenderer freeRenderer = new VfxRenderer();
+                 VfxRenderer collisionRenderer = new VfxRenderer();
+                 VfxRenderer noDepthRenderer = new VfxRenderer()) {
+                renderFloor(device, scene, viewProjection());
+                assertFloorDepthWritten(scene);
+                GpuParticleSystem free = new GpuParticleSystem(particleSettings());
+                GpuParticleSystem colliding = new GpuParticleSystem(particleSettings(),
+                        collision(THICKNESS));
+                GpuParticleSystem collidingWithoutDepth = new GpuParticleSystem(
+                        particleSettings(), collision(THICKNESS));
+                try {
+                    GpuParticleVfx.Settings consumerSettings = new GpuParticleVfx.Settings(
+                            DELTA_SECONDS, PARTICLES, GpuParticleVfx.SortingMode.NONE);
+                    freeRenderer.gpuParticleSettings(consumerSettings);
+                    collisionRenderer.gpuParticleSettings(consumerSettings);
+                    noDepthRenderer.gpuParticleSettings(consumerSettings);
+                    assertTrue(colliding.collisionSettings().enabled(),
+                            "fixture: the colliding owner must carry an enabled collision generation");
+
+                    GpuParticleVfx.Statistics freeStatistics = recordThroughConsumer(
+                            device, target, freeRenderer, free, scene, scene.depthAttachment());
+                    GpuParticleVfx.Statistics collisionStatistics = recordThroughConsumer(
+                            device, target, collisionRenderer, colliding, scene,
+                            scene.depthAttachment());
+                    GpuParticleVfx.Statistics noDepthStatistics = recordThroughConsumer(
+                            device, target, noDepthRenderer, collidingWithoutDepth, scene, 0);
+
+                    for (GpuParticleVfx.Statistics statistics : List.of(freeStatistics,
+                            collisionStatistics, noDepthStatistics)) {
+                        assertEquals(PARTICLES, statistics.drawn(),
+                                "the consumer must hand the configured emission budget to the owner");
+                        assertEquals(1L, statistics.steps(),
+                                "one running record must advance exactly one fixed step");
+                        assertEquals(1L, statistics.framesRecorded());
+                    }
+
+                    FloatBuffer freeParticles = readParticleFloats(free);
+                    FloatBuffer collidedParticles = readParticleFloats(colliding);
+                    FloatBuffer noDepthParticles = readParticleFloats(collidingWithoutDepth);
+                    for (int index = 0; index < PARTICLES; index++) {
+                        int base = index * 8;
+                        assertTrue(freeParticles.get(base + 1) < PLANE_Y,
+                                "a collision-disabled owner must pass through the rendered floor");
+                        assertTrue(collidedParticles.get(base + 1) > PLANE_Y,
+                                "the consumer-forwarded scene depth must resolve particle "
+                                        + index + " above the floor");
+                        assertTrue(collidedParticles.get(base + 5) > 0.0f,
+                                "the forwarded depth must reverse the normal velocity of particle "
+                                        + index);
+                        assertTrue(noDepthParticles.get(base + 1) < PLANE_Y,
+                                "an enabled owner recorded without a depth texture must keep "
+                                        + "free flight: particle " + index);
+                    }
+                    assertBytesEqual(readParticleBytes(free),
+                            readParticleBytes(collidingWithoutDepth),
+                            "a consumer record without depth must reproduce the free-flight "
+                                    + "trajectory byte for byte");
+                    assertTrue(nonBlackPixels(readPixels(target)) > 20,
+                            "the consumer-recorded collision frame must still draw billboards");
+                    assertEquals(GL_NO_ERROR, glGetError());
+                } finally {
+                    free.close();
+                    colliding.close();
+                    collidingWithoutDepth.close();
+                }
+            }
+        }
+    }
+
+    private static GpuParticleVfx.Statistics recordThroughConsumer(
+            GlRenderDevice device, Framebuffer target, VfxRenderer renderer,
+            GpuParticleSystem particles, Framebuffer scene, int sceneDepthTexture) {
+        CommandBuffer commands = clearParticleTarget(device, target);
+        GpuParticleVfx.Statistics statistics = renderer.recordGpuParticles(commands, particles,
+                particleSettings(), projection(), view(), sceneDepthTexture,
+                scene.width(), scene.height());
+        device.execute(commands);
+        return statistics;
     }
 
     private static void bind(GlfwWindow window) {

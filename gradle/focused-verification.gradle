@@ -162,6 +162,7 @@ def glCases = [
         'GpuParticleSystemGlTest',
         'GpuParticleSortingGlTest',
         'GpuParticleVfxGlTest',
+        'GpuParticleVfxBoundaryGlTest',
         'ReflectionProbeGlTest',
         'GpuParticleCollisionGlTest',
         'TemporalDenoisePassGlTest',

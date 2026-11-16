@@ -2809,6 +2809,14 @@ public final class RenderPipeline {
             if (reusable == null || reusable.pbrMaterialBinder() != candidate.pbrMaterialBinder()) applyIblOverrides(candidate);
             PassExecutor postVfx = topology.volumetricFog() || !hdrVfxEnabled
                     ? null : hdrVfxRecorder;
+            // Weighted OIT and stochastic transparency resolve over the scene
+            // colour in place. The particle draw must be recorded before that
+            // resolve, otherwise additive particles cover a surface they are
+            // behind; the post-fog position is kept only when no transparent
+            // collector owns the colour target.
+            boolean earlyHdrVfx = postVfx != null
+                    && (candidate.weightedOit() != null
+                    || candidate.stochasticTransparency() != null);
             candidate.assemblePostProcess(settings, postProcessSettings, postVfx, reactiveExecutor(),
                     postProcessSettings.temporalUpscaling().active()
                             ? temporalUpscalingSource : null);
@@ -2949,6 +2957,15 @@ public final class RenderPipeline {
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
                 }
+            }
+            if (earlyHdrVfx) {
+                // Record the caller's VFX before the transparent collector
+                // resolves the shared colour, matching the
+                // GpuParticleVfx.Boundary.BEFORE_TRANSPARENT_COLLECTORS claim.
+                candidate.postProcess().addVfxCompositeBeforeCollectors(
+                        candidate.graph(), sceneColorProducer);
+                sceneColorTexture = PostProcessTargets.VFX_COMPOSITE_COLOR;
+                sceneColorProducer = PostProcessTargets.VFX_COMPOSITE_PASS;
             }
             if (candidate.weightedOit() != null) {
                 // OIT is an alternative transparent-collection strategy: it resolves

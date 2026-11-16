@@ -1054,11 +1054,9 @@ class S6InteractionMatrixGlTest {
                                 < order.indexOf(VolumetricParticlePass.PASS_NAME),
                         "particles must compose after the fog composite: " + order);
                 assertTrue(order.indexOf(VolumetricParticlePass.PASS_NAME)
-                                < order.indexOf(WeightedOitPass.PASS_NAME)
-                                || order.indexOf(WeightedOitPass.PASS_NAME)
-                                < order.indexOf(VolumetricParticlePass.PASS_NAME),
-                        "the transparent strategy and the particle bridge share the frame: "
-                                + order);
+                                < order.indexOf(WeightedOitPass.PASS_NAME),
+                        "the volumetric particle bridge must composite before the OIT resolve "
+                                + "consumes the scene colour: " + order);
 
                 S6InteractionMatrixGlFixture.execute(pipeline, device, 3);
                 float[] enabled = S6InteractionMatrixGlFixture.capture(
