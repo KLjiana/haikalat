@@ -40,7 +40,26 @@ final class RenderFeaturePolicy {
                  boolean directionalLightDownward, boolean weightedOitSetDeclared,
                  boolean transparentSetsOverlap, boolean directionalLightPresent,
                  boolean variableRateShadingAvailable,
-                 boolean temporalUpscalingSourceAvailable) {
+                 boolean temporalUpscalingSourceAvailable,
+                 boolean projectedDecalSourcePresent,
+                 boolean singleSampleDepthAvailable) {
+        /** Source-compatible shape used by pre-decal callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent,
+              boolean variableRateShadingAvailable,
+              boolean temporalUpscalingSourceAvailable) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    variableRateShadingAvailable, temporalUpscalingSourceAvailable,
+                    false, false);
+        }
+
         /** Source-compatible shape used by pre-#35 callers/tests. */
         Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
               boolean spotCaster, boolean pbrEnvironmentAvailable,
@@ -127,6 +146,7 @@ final class RenderFeaturePolicy {
                     boolean ssgi,
                     boolean adaptiveSampling, boolean variableRateShading,
                     boolean temporalUpscaling,
+                    boolean projectedDecals,
                     PostProcessSettings effectivePostProcess,
                     List<RenderFeatureActivity> activities) {
         Resolved {
@@ -240,6 +260,14 @@ final class RenderFeaturePolicy {
                 && facts.temporalUpscalingSourceAvailable();
         boolean temporalUpscaling = master && temporalUpscalingEligible;
         boolean waterRefraction = master && waterRefractionEligible;
+        boolean projectedDecalRequest = settings.projectedDecals().active();
+        boolean projectedDecalEligible = PipelineTopology.projectedDecalCompositionActive(
+                settings.render(), settings.projectedDecals(),
+                facts.projectedDecalSourcePresent(), facts.singleSampleDepthAvailable());
+        boolean projectedDecals = master && projectedDecalEligible;
+        String projectedDecalDetail = projectedDecalRequest
+                ? projectedDecalUnavailableDetail(facts.projectedDecalSourcePresent(),
+                facts.singleSampleDepthAvailable(), hdr) : "";
 
         PostProcessSettings effectiveEffects = requestedEffects;
         if (master) {
@@ -306,6 +334,8 @@ final class RenderFeaturePolicy {
                 RenderFeatureReason.DISABLED));
         activities.add(child(RenderFeature.WATER_REFRACTION, master, waterRefraction,
                 RenderFeatureReason.DISABLED));
+        activities.add(unavailableActivity(RenderFeature.PROJECTED_DECALS, master,
+                projectedDecals, projectedDecalRequest, projectedDecalDetail));
         activities.add(child(RenderFeature.VOLUMETRIC_PARTICLES, master, volumetricParticles,
                 particleReason));
         activities.add(child(RenderFeature.STOCHASTIC_TRANSPARENCY, master,
@@ -350,6 +380,7 @@ final class RenderFeaturePolicy {
                 effective(master, vct), effective(master, hairStrands),
                 effective(master, waterRefractionEligible),
                 ssgi, adaptiveSampling, variableRateShading, temporalUpscaling,
+                projectedDecals,
                 effectiveEffects,
                 List.copyOf(activities));
     }
@@ -517,6 +548,21 @@ final class RenderFeaturePolicy {
     private static String temporalUpscalingUnavailableDetail(boolean sourceAvailable) {
         if (!sourceAvailable) {
             return "requires a low-resolution colour/depth source (TemporalUpscalingSource)";
+        }
+        return "";
+    }
+
+    private static String projectedDecalUnavailableDetail(boolean sourcePresent,
+                                                          boolean depthAvailable,
+                                                          boolean hdr) {
+        if (!sourcePresent) {
+            return "requires a registered projected-decal renderer/source";
+        }
+        if (!depthAvailable) {
+            return "requires a single-sample scene depth";
+        }
+        if (!hdr) {
+            return "requires HDR tone mapping";
         }
         return "";
     }

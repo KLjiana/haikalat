@@ -11,6 +11,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.PcssSettings;
 import org.joml.Vector3f;
@@ -209,6 +210,78 @@ class RenderFeatureControlTest {
     }
 
     @Test
+    void projectedDecalRequestIsOptionalAndReportsWhyItCannotRun() {
+        ProjectedDecalSettings request = new ProjectedDecalSettings(
+                true, 0.6f, 0.02f, 0.5f, false, true, 8);
+        assertEquals(ProjectedDecalSettings.disabled(),
+                RenderFeatureSettings.defaults().projectedDecals(),
+                "the default request must stay an exact no-op");
+        assertThrows(NullPointerException.class,
+                () -> RenderFeatureSettings.builder().projectedDecals(null));
+
+        assertFalse(RenderFeaturePolicy.resolve(hdrBuilder().build(),
+                        decalFacts(true, true)).projectedDecals());
+        assertEquals(RenderFeatureReason.DISABLED,
+                activity(RenderFeaturePolicy.resolve(hdrBuilder().build(),
+                        decalFacts(true, true)), RenderFeature.PROJECTED_DECALS).reason());
+
+        var active = RenderFeaturePolicy.resolve(
+                hdrBuilder().projectedDecals(request).build(), decalFacts(true, true));
+        assertTrue(active.projectedDecals());
+        assertEquals(RenderFeatureReason.ACTIVE,
+                activity(active, RenderFeature.PROJECTED_DECALS).reason());
+        assertEquals(request, hdrBuilder().projectedDecals(request).build().projectedDecals(),
+                "the request stays in the effective snapshot");
+
+        var paused = RenderFeaturePolicy.resolve(
+                hdrBuilder().enabled(false).projectedDecals(request).build(),
+                decalFacts(true, true));
+        assertFalse(paused.projectedDecals());
+        assertEquals(RenderFeatureReason.PAUSED_BY_MASTER,
+                activity(paused, RenderFeature.PROJECTED_DECALS).reason());
+
+        var missingSource = RenderFeaturePolicy.resolve(
+                hdrBuilder().projectedDecals(request).build(), decalFacts(false, true));
+        assertFalse(missingSource.projectedDecals());
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(missingSource, RenderFeature.PROJECTED_DECALS).reason());
+        assertTrue(activity(missingSource, RenderFeature.PROJECTED_DECALS).detail()
+                        .contains("registered projected-decal renderer/source"),
+                activity(missingSource, RenderFeature.PROJECTED_DECALS).detail());
+
+        var missingDepth = RenderFeaturePolicy.resolve(
+                hdrBuilder().projectedDecals(request).build(), decalFacts(true, false));
+        assertFalse(missingDepth.projectedDecals());
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(missingDepth, RenderFeature.PROJECTED_DECALS).reason());
+        assertTrue(activity(missingDepth, RenderFeature.PROJECTED_DECALS).detail()
+                        .contains("single-sample scene depth"),
+                activity(missingDepth, RenderFeature.PROJECTED_DECALS).detail());
+
+        var ldr = RenderFeaturePolicy.resolve(
+                RenderFeatureSettings.builder().projectedDecals(request).build(),
+                decalFacts(false, true, true));
+        assertFalse(ldr.projectedDecals());
+        assertEquals(RenderFeatureReason.UNAVAILABLE,
+                activity(ldr, RenderFeature.PROJECTED_DECALS).reason());
+        assertTrue(activity(ldr, RenderFeature.PROJECTED_DECALS).detail()
+                        .contains("HDR tone mapping"),
+                activity(ldr, RenderFeature.PROJECTED_DECALS).detail());
+    }
+
+    private static RenderFeaturePolicy.Facts decalFacts(boolean sourcePresent,
+                                                        boolean depthAvailable) {
+        return decalFacts(true, sourcePresent, depthAvailable);
+    }
+
+    private static RenderFeaturePolicy.Facts decalFacts(boolean pbr, boolean sourcePresent,
+                                                        boolean depthAvailable) {
+        return new RenderFeaturePolicy.Facts(pbr, true, true, true, true,
+                false, false, false, false, true, false, false, true, false, false,
+                sourcePresent, depthAvailable);
+    }
+
+    @Test
     void builderRoundTripKeepsEveryComponent() {
         RenderFeatureSettings original = hdrBuilder()
                 .enabled(false)
@@ -219,10 +292,14 @@ class RenderFeatureControlTest {
                 .spotShadows(false)
                 .hdrVfx(false)
                 .preview(false)
+                .projectedDecals(new ProjectedDecalSettings(
+                        true, 0.6f, 0.02f, 0.5f, false, true, 8))
                 .build();
 
         assertEquals(original, original.toBuilder().build());
         assertEquals(original.render(), original.toBuilder().build().render());
+        assertEquals(original.projectedDecals(),
+                original.toBuilder().build().projectedDecals());
     }
 
     private static void assertMessage(String fragment, RenderFeatureSettings settings,

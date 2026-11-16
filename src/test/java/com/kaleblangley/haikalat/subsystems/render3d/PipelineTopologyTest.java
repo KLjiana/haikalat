@@ -18,6 +18,21 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -253,6 +268,88 @@ class PipelineTopologyTest {
                         1337, new Vector3f()), true, true, true, water);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                 () -> new PipelineFeaturePolicy(volume, false).validate());
+    }
+
+    @Test
+    void projectedDecalTopologyRestoresBaselineAndParticipatesInTheGenerationKey() {
+        Scene scene = new Scene(new Camera());
+        RenderSettings hdr = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        RenderSettings hdrMsaa = RenderSettings.builder()
+                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                .toneMappingMode(ToneMappingMode.ACES).build();
+        PostProcessSettings effects = PostProcessSettings.defaults();
+        ProjectedDecalSettings active = new ProjectedDecalSettings(
+                true, 0.6f, 0.02f, 0.5f, false, true, 8);
+
+        PipelineTopology baseline = captureDecals(scene, hdr, effects,
+                ProjectedDecalSettings.disabled(), false, true);
+        assertFalse(baseline.projectedDecals());
+        assertEquals(baseline, captureDecals(scene, hdr, effects,
+                        ProjectedDecalSettings.disabled(), true, true),
+                "a disabled batch must ignore the registered source and keep the baseline key");
+        assertEquals(baseline, captureDecals(scene, hdr, effects, active, false, true),
+                "an enabled batch without a registered renderer/source has no stage");
+        assertEquals(baseline, captureDecals(scene, hdr, effects, active, true, false),
+                "an enabled batch without a single-sample depth copy has no stage");
+        PipelineTopology ldr = PipelineTopology.capture(scene,
+                RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                        .toneMappingMode(ToneMappingMode.NONE).build(),
+                effects, 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), LocalShadowPipelineSettings.legacyDefaults(),
+                VolumetricFogSettings.disabled(), true, true, true,
+                WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
+                WeightedOitSettings.disabled(), false,
+                PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(),
+                HairStrandSettings.disabled(), ContactShadowSettings.disabled(),
+                WaterRefractionSettings.disabled(), active, true, true);
+        assertFalse(ldr.hdr());
+        assertFalse(ldr.projectedDecals(),
+                "projected decals require the HDR linear colour chain");
+
+        PipelineTopology enabled = captureDecals(scene, hdr, effects, active, true, true);
+        assertTrue(enabled.projectedDecals());
+        assertNotEquals(baseline, enabled,
+                "an eligible decal batch must change the generation key");
+        assertTrue(enabled.withExtent(128, 96).projectedDecals(),
+                "the extent candidate must retain the decal stage");
+        assertEquals(enabled, captureDecals(scene, hdr, effects,
+                        new ProjectedDecalSettings(true, 1.2f, 0.02f, 0.5f, false, true, 8),
+                        true, true),
+                "batch tuning values stay outside the topology key; only participation does");
+
+        PipelineTopology msaa = captureDecals(scene, hdrMsaa, effects, active, true, true);
+        assertTrue(msaa.projectedDecals(),
+                "MSAA is supported through the resolved single-sample depth copy");
+        assertEquals(4, msaa.sampleCount());
+        assertFalse(msaa.sceneSurface().hasResolve(),
+                "the decal stage owns its depth resolve; no extra shared surface resolve is required");
+    }
+
+    private static PipelineTopology captureDecals(Scene scene, RenderSettings settings,
+                                                  PostProcessSettings effects,
+                                                  ProjectedDecalSettings decals,
+                                                  boolean sourcePresent,
+                                                  boolean depthAvailable) {
+        return PipelineTopology.capture(scene, settings, effects, 64, 48, false, false,
+                DirectionalCascadeSettings.disabled(), LocalShadowPipelineSettings.legacyDefaults(),
+                VolumetricFogSettings.disabled(), true, true, true,
+                WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), CloudShadowSettings.disabled(),
+                WeightedOitSettings.disabled(), false,
+                PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(),
+                HairStrandSettings.disabled(), ContactShadowSettings.disabled(),
+                WaterRefractionSettings.disabled(), decals, sourcePresent, depthAvailable);
     }
 
     @Test

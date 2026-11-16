@@ -10,6 +10,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
@@ -68,7 +69,8 @@ public record RenderFeatureSettings(
         DdgiSettings ddgi,
         VctSettings vct,
         HairStrandSettings hairStrands,
-        WaterRefractionSettings waterRefraction) {
+        WaterRefractionSettings waterRefraction,
+        ProjectedDecalSettings projectedDecals) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -91,6 +93,7 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(vct, "vct");
         Objects.requireNonNull(hairStrands, "hairStrands");
         Objects.requireNonNull(waterRefraction, "waterRefraction");
+        Objects.requireNonNull(projectedDecals, "projectedDecals");
     }
 
     /**
@@ -125,7 +128,8 @@ public record RenderFeatureSettings(
                 SmokeRenderSettings.disabled(), WeightedOitSettings.disabled(),
                 PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
                 DdgiSettings.disabled(), VctSettings.disabled(),
-                HairStrandSettings.disabled(), WaterRefractionSettings.disabled());
+                HairStrandSettings.disabled(), WaterRefractionSettings.disabled(),
+                ProjectedDecalSettings.disabled());
     }
 
     public static RenderFeatureSettings defaults() {
@@ -162,7 +166,8 @@ public record RenderFeatureSettings(
                 .ddgi(ddgi)
                 .vct(vct)
                 .hairStrands(hairStrands)
-                .waterRefraction(waterRefraction);
+                .waterRefraction(waterRefraction)
+                .projectedDecals(projectedDecals);
     }
 
     public static Builder builder() {
@@ -203,6 +208,7 @@ public record RenderFeatureSettings(
         private HairStrandSettings hairStrands = HairStrandSettings.disabled();
         private WaterRefractionSettings waterRefraction =
                 WaterRefractionSettings.disabled();
+        private ProjectedDecalSettings projectedDecals = ProjectedDecalSettings.disabled();
 
         private Builder() {
         }
@@ -352,6 +358,11 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder projectedDecals(ProjectedDecalSettings value) {
+            projectedDecals = Objects.requireNonNull(value, "projectedDecals");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
@@ -359,7 +370,7 @@ public record RenderFeatureSettings(
                     directionalCascades, localShadows, clusteredLighting, waterSurface,
                     volumetricParticles, stochasticTransparency, volumetricClouds,
                     smokeSimulation, smokeRender, weightedOit, planarReflections, caustics,
-                    ddgi, vct, hairStrands, waterRefraction);
+                    ddgi, vct, hairStrands, waterRefraction, projectedDecals);
         }
     }
 }

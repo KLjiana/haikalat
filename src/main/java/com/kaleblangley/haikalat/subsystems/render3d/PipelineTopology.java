@@ -23,6 +23,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTran
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
@@ -78,7 +79,8 @@ public record PipelineTopology(int width,
                         boolean voxelConeTracing,
                         boolean hairStrands,
                         boolean screenSpaceContactShadows,
-                        boolean waterRefraction) {
+                        boolean waterRefraction,
+                        boolean projectedDecals) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -138,6 +140,38 @@ public record PipelineTopology(int width,
                 volumetricParticles, stochasticTransparency, volumetricClouds, volumetricSmoke,
                 weightedOit, planarReflections, caustics, ddgi, voxelConeTracing, hairStrands,
                 screenSpaceContactShadows, false);
+    }
+
+    /**
+     * Source-compatible constructor for the pre-decal shape.  The projected-decal
+     * stage defaults to disabled, so the topology key stays byte-identical.
+     */
+    public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
+                            int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
+                            boolean automaticExposure, boolean colorGrading, boolean fog,
+                            boolean directionalShadow, boolean pointShadow, boolean spotShadow,
+                            int directionalCascadeCount, int directionalShadowAtlasSize,
+                            int pointShadowCapacity, int pointShadowResolution,
+                            int spotShadowCapacity, int spotShadowResolution,
+                            boolean pbrMaterials, boolean hdrVfx, boolean embedded,
+                            boolean gtaoEnabled, boolean gtaoTemporal, int gtaoHalfWidth,
+                            int gtaoHalfHeight, SceneSurfaceLayout sceneSurface,
+                            boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                            boolean volumetricEmission, boolean waterSurface,
+                            boolean volumetricParticles, boolean stochasticTransparency,
+                            boolean volumetricClouds, boolean volumetricSmoke,
+                            boolean weightedOit, boolean planarReflections, boolean caustics,
+                            boolean ddgi, boolean voxelConeTracing, boolean hairStrands,
+                            boolean screenSpaceContactShadows, boolean waterRefraction) {
+        this(width, height, antiAliasingMode, sampleCount, hdr, bloom, bloomLevels,
+                automaticExposure, colorGrading, fog, directionalShadow, pointShadow, spotShadow,
+                directionalCascadeCount, directionalShadowAtlasSize, pointShadowCapacity,
+                pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
+                hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
+                sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency, volumetricClouds, volumetricSmoke,
+                weightedOit, planarReflections, caustics, ddgi, voxelConeTracing, hairStrands,
+                screenSpaceContactShadows, waterRefraction, false);
     }
 
     /**
@@ -416,6 +450,7 @@ public record PipelineTopology(int width,
      * request.  Refraction adds a companion background-copy pass and requires
      * the finite water surface, so the topology flag is only set when both are
      * active.  The disabled value leaves the pre-refraction topology identical.
+     * The projected-decal request defaults to disabled and absent.
      */
     public static PipelineTopology capture(Scene scene, RenderSettings settings,
                                     PostProcessSettings effects, int width, int height,
@@ -438,11 +473,55 @@ public record PipelineTopology(int width,
                                     HairStrandSettings hairStrandSettings,
                                     ContactShadowSettings contactShadows,
                                     WaterRefractionSettings waterRefraction) {
+        return capture(scene, settings, effects, width, height, hdrVfx, embedded, cascades,
+                localShadows, volume, directionalShadowRequested, pointShadowRequested,
+                spotShadowRequested, waterSurface, volumetricParticles, stochasticTransparency,
+                volumetricClouds, smokeSimulation, smokeRender, directionalCloudShadows,
+                weightedOit, weightedOitSetDeclared, planarReflections, caustics, ddgiSettings,
+                vctSettings, hairStrandSettings, contactShadows, waterRefraction,
+                ProjectedDecalSettings.disabled(), false, false);
+    }
+
+    /**
+     * Complete capture including the projected-decal stage.
+     *
+     * <p>The stage participates only when the batch settings are active, a
+     * caller-owned {@code VfxRenderer} plus decal source are registered, a
+     * single-sample scene depth can be handed to the pass, and the colour chain
+     * is HDR.  MSAA is supported through a resolved single-sample depth copy,
+     * so the sample count itself is not an eligibility gate.  A disabled or
+     * unavailable request leaves the pre-decal topology key byte-identical.</p>
+     */
+    public static PipelineTopology capture(Scene scene, RenderSettings settings,
+                                    PostProcessSettings effects, int width, int height,
+                                    boolean hdrVfx, boolean embedded, DirectionalCascadeSettings cascades,
+                                    LocalShadowPipelineSettings localShadows, VolumetricFogSettings volume,
+                                    boolean directionalShadowRequested, boolean pointShadowRequested,
+                                    boolean spotShadowRequested,
+                                    WaterSurfaceSettings waterSurface,
+                                    VolumetricParticleSettings volumetricParticles,
+                                    StochasticTransparencySettings stochasticTransparency,
+                                    VolumetricCloudSettings volumetricClouds,
+                                    SmokeSimulationSettings smokeSimulation,
+                                    SmokeRenderSettings smokeRender,
+                                    CloudShadowSettings directionalCloudShadows,
+                                    WeightedOitSettings weightedOit, boolean weightedOitSetDeclared,
+                                    PlanarReflectionSettings planarReflections,
+                                    CausticsSettings caustics,
+                                    DdgiSettings ddgiSettings,
+                                    VctSettings vctSettings,
+                                    HairStrandSettings hairStrandSettings,
+                                    ContactShadowSettings contactShadows,
+                                    WaterRefractionSettings waterRefraction,
+                                    ProjectedDecalSettings projectedDecals,
+                                    boolean projectedDecalSourcePresent,
+                                    boolean singleSampleDepthAvailable) {
         Objects.requireNonNull(scene, "scene");
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(waterSurface, "waterSurface");
         Objects.requireNonNull(waterRefraction, "waterRefraction");
+        Objects.requireNonNull(projectedDecals, "projectedDecals");
         Objects.requireNonNull(volumetricParticles, "volumetricParticles");
         Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
         Objects.requireNonNull(volumetricClouds, "volumetricClouds");
@@ -508,6 +587,8 @@ public record PipelineTopology(int width,
         boolean contactShadow = screenSpaceContactShadowCompositionActive(settings,
                 contactShadows, directionalLight);
         boolean waterRefractionActive = waterRefraction.active() && waterSurface.active();
+        boolean projectedDecalsActive = projectedDecalCompositionActive(settings,
+                projectedDecals, projectedDecalSourcePresent, singleSampleDepthAvailable);
         return new PipelineTopology(Math.max(1, width), Math.max(1, height),
                 settings.antiAliasingMode(), samples, settings.hdrEnabled(), bloom,
                 bloom ? settings.bloomSettings().maxLevels() : 0,
@@ -528,7 +609,24 @@ public record PipelineTopology(int width,
                 volume.enabled(), volume.enabled() ? volume.quality() : VolumetricFogSettings.Quality.BALANCED,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
                 stochastic, clouds, smoke, oit, planar, causticsActive, ddgi, vct, hair,
-                contactShadow, waterRefractionActive);
+                contactShadow, waterRefractionActive, projectedDecalsActive);
+    }
+
+    /**
+     * A projected-decal batch participates only when it can produce a draw and
+     * its composing inputs exist: an active bounded batch, a registered
+     * caller-owned renderer/source, a single-sample depth copy and an HDR
+     * linear colour chain.  MSAA is allowed because the stage resolves the
+     * geometry depth into its own single-sample copy before sampling.
+     */
+    public static boolean projectedDecalCompositionActive(RenderSettings settings,
+                                                          ProjectedDecalSettings decals,
+                                                          boolean sourcePresent,
+                                                          boolean singleSampleDepthAvailable) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(decals, "decals");
+        return decals.active() && sourcePresent && singleSampleDepthAvailable
+                && settings.hdrEnabled();
     }
 
     /**
@@ -831,6 +929,6 @@ public record PipelineTopology(int width,
                 volumetricParticles, stochasticTransparency, volumetricClouds,
                 volumetricSmoke, weightedOit, planarReflections, caustics,
                 ddgi, voxelConeTracing, hairStrands, screenSpaceContactShadows,
-                waterRefraction);
+                waterRefraction, projectedDecals);
     }
 }

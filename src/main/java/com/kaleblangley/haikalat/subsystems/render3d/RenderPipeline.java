@@ -61,6 +61,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
@@ -362,6 +365,11 @@ public final class RenderPipeline {
     private DdgiSettings ddgiSettings = DdgiSettings.disabled();
     private VctSettings vctSettings = VctSettings.disabled();
     private HairStrandSettings hairStrandSettings = HairStrandSettings.disabled();
+    /** Projected-decal batch settings; disabled keeps the topology baseline. */
+    private ProjectedDecalSettings projectedDecalSettings = ProjectedDecalSettings.disabled();
+    /** Caller-owned decal renderer and per-frame source registered before build. */
+    private VfxRenderer projectedDecalRenderer;
+    private Supplier<List<ProjectedDecal>> projectedDecalSource;
     /** Caller-converted visible opaque triangles for the next VCT update; never built here. */
     private VctSceneInput vctSceneInput;
     /** Dirty world boxes bounding scene changes since the last successful voxel update. */
@@ -2475,7 +2483,13 @@ public final class RenderPipeline {
                 weightedOitSettings, weightedOitSetDeclared, planarReflectionSettings,
                 causticsSettings,
                 ddgiSettings, vctSettings, hairStrandSettings,
-                effectiveContactShadowSettings(), waterRefractionSettings);
+                effectiveContactShadowSettings(), waterRefractionSettings,
+                projectedDecalSettings, projectedDecalRecorderPresent(), true);
+    }
+
+    /** True when the caller supplied both the decal renderer and its frame source. */
+    private boolean projectedDecalRecorderPresent() {
+        return projectedDecalRenderer != null && projectedDecalSource != null;
     }
 
     /** Captures the topology from the pipeline's current immutable settings. */
@@ -3970,7 +3984,8 @@ public final class RenderPipeline {
                 waterSurfaceSettings, volumetricParticleSettings, stochasticTransparencySettings,
                 volumetricCloudSettings, smokeSimulationSettings, smokeRenderSettings,
                 weightedOitSettings, planarReflectionSettings, causticsSettings,
-                ddgiSettings, vctSettings, hairStrandSettings, waterRefractionSettings);
+                ddgiSettings, vctSettings, hairStrandSettings, waterRefractionSettings,
+                projectedDecalSettings);
     }
 
     RenderFeaturePolicy.Facts featureFacts() {
@@ -4006,7 +4021,9 @@ public final class RenderPipeline {
                 downwardDirectional, weightedOitSetDeclared, weightedOitStochasticOverlap,
                 directionalLight,
                 variableRateShadingCapabilitySupplier.get().nvImagePathAvailable(),
-                temporalUpscalingSource != null);
+                temporalUpscalingSource != null,
+                projectedDecalRecorderPresent(),
+                true);
     }
 
     private void publishCompatibilityFeatureState() {
