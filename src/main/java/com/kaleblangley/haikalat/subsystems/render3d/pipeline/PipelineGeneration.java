@@ -48,6 +48,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricAllocationPlan;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
@@ -134,6 +135,7 @@ public final class PipelineGeneration implements AutoCloseable {
     private SceneSurfaceResolvePass sceneSurfaceResolvePass;
     private SceneReactivePass sceneReactivePass;
     private WaterSurfacePass waterSurfacePass;
+    private UnderwaterVolumePass underwaterVolumePass;
     private boolean waterRefraction;
     private String finalPassName;
     private PbrMaterialBinder pbrMaterialBinder;
@@ -577,6 +579,69 @@ public final class PipelineGeneration implements AutoCloseable {
         return waterRefraction;
     }
 
+    /**
+     * Declares the bounded underwater volume producer after the current scene
+     * colour producer and before the post-process consumers.
+     *
+     * <p>The pass owns only its program and screen mesh; the colour target and,
+     * under MSAA, the single-sample colour copy/depth resolve are graph-owned.
+     * Under MSAA the draw samples the resolved single-sample copies instead of
+     * the multisampled scene attachments; with a single-sample chain it samples
+     * the current scene-colour texture and the shared raster depth directly. A
+     * compatible donor pass is borrowed because the program is
+     * sample-count-independent.</p>
+     *
+     * @param executor          draw executor for {@link UnderwaterVolumePass#PASS_NAME}
+     * @param extraDependencies additional ordering edges
+     * @param colorProducer     current scene-colour producer
+     * @param colorTexture      logical texture name of that producer's colour
+     * @param depthTexture      logical name of the shared raster depth
+     * @param depthProducer     pass that produces the shared raster depth
+     * @param format            scene colour format
+     */
+    public void assembleUnderwaterVolume(RenderGraph.PassExecutor executor,
+                                         java.util.List<String> extraDependencies,
+                                         String colorProducer, String colorTexture,
+                                         String depthTexture, String depthProducer,
+                                         RenderFormat format) {
+        var source = reuseSource;
+        underwaterVolumePass = source != null && source.underwaterVolumePass != null
+                ? borrow(source.underwaterVolumePass) : new UnderwaterVolumePass();
+        int samples = topology.sampleCount();
+        boolean multisample = samples > 1;
+        if (multisample) {
+            graph.addPass(UnderwaterVolumePass.COLOR_COPY_PASS)
+                    .createColor(UnderwaterVolumePass.SOURCE_COLOR, format)
+                    .noClear()
+                    .dependsOn(colorProducer)
+                    .execute((res, cmd) -> UnderwaterVolumePass.recordColorCopy(cmd,
+                            res.framebufferOfPass(colorProducer), res.currentTarget()));
+            graph.addPass(UnderwaterVolumePass.DEPTH_RESOLVE_PASS)
+                    .createDepthTexture(UnderwaterVolumePass.DEPTH_TEXTURE)
+                    .noClear()
+                    .dependsOn(depthProducer)
+                    .execute((res, cmd) -> UnderwaterVolumePass.recordDepthResolve(cmd,
+                            res.framebufferOfPass(depthProducer), res.currentTarget()));
+        }
+        var pass = graph.addPass(UnderwaterVolumePass.PASS_NAME).noClear();
+        if (multisample) {
+            pass.createColorMS(UnderwaterVolumePass.COLOR, format, samples);
+        } else {
+            pass.createColor(UnderwaterVolumePass.COLOR, format);
+        }
+        java.util.Set<String> dependencies = new java.util.LinkedHashSet<>();
+        dependencies.add(colorProducer);
+        dependencies.add(depthProducer);
+        if (multisample) {
+            dependencies.add(UnderwaterVolumePass.COLOR_COPY_PASS);
+            dependencies.add(UnderwaterVolumePass.DEPTH_RESOLVE_PASS);
+        }
+        dependencies.addAll(extraDependencies);
+        dependencies.remove(UnderwaterVolumePass.PASS_NAME);
+        for (String dependency : dependencies) pass.dependsOn(dependency);
+        pass.execute(executor);
+    }
+
 
     public PipelineGeneration(PipelineTopology topology) {
         this(topology, null, false, 0, VolumetricFogSettings.disabled());
@@ -661,6 +726,7 @@ public final class PipelineGeneration implements AutoCloseable {
     public SceneSurfaceResolvePass sceneSurfaceResolvePass() { return sceneSurfaceResolvePass; }
     public SceneReactivePass sceneReactivePass() { return sceneReactivePass; }
     public WaterSurfacePass waterSurfacePass() { return waterSurfacePass; }
+    public UnderwaterVolumePass underwaterVolumePass() { return underwaterVolumePass; }
     public String finalPassName() { return finalPassName; }
     public PbrMaterialBinder pbrMaterialBinder() { return pbrMaterialBinder; }
     public EnvironmentBackgroundRenderer environmentBackground() { return environmentBackground; }
@@ -1078,6 +1144,7 @@ public final class PipelineGeneration implements AutoCloseable {
         SceneSurfaceResolvePass localSceneSurfaceResolve = sceneSurfaceResolvePass;
         SceneReactivePass localSceneReactive = sceneReactivePass;
         WaterSurfacePass localWaterSurface = waterSurfacePass;
+        UnderwaterVolumePass localUnderwaterVolume = underwaterVolumePass;
         ShadowSamplingBlock localShadowSamplingBlock = shadowSamplingBlock;
         ClusteredLightingResources localClusteredResources = clusteredResources;
         ClusteredLightingBinder localClusteredBinder = clusteredLightingBinder;
@@ -1112,6 +1179,7 @@ public final class PipelineGeneration implements AutoCloseable {
         sceneSurfaceResolvePass = null;
         sceneReactivePass = null;
         waterSurfacePass = null;
+        underwaterVolumePass = null;
         shadowSamplingBlock = null;
         clusteredResources = null;
         clusteredLightingBinder = null;
@@ -1147,6 +1215,7 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localSceneSurfaceResolve, failure);
         failure = closeCollecting(localSceneReactive, failure);
         failure = closeCollecting(localWaterSurface, failure);
+        failure = closeCollecting(localUnderwaterVolume, failure);
         failure = closeCollecting(localDeformationDefaults, failure);
         failure = closeCollecting(localShadowSamplingBlock, failure);
         failure = closeCollecting(localClusteredBinder, failure);

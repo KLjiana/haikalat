@@ -186,6 +186,9 @@ internal com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitP
 
 # v0.28.1 S3 #11 bounded screen-space water refraction settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings
+# v0.28.1 S3 #11/#30 bounded underwater volume Beer-Lambert settings and pass-owned colour target.
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumeSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumePass
 # v0.28.1 S2 #27 production GPU particle indirect owner and bounded settings.
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem

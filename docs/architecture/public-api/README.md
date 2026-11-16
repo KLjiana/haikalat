@@ -262,6 +262,14 @@ v0.28.1 S3 #11 新增 advanced GL-free `render3d.water.WaterRefractionSettings`�
 `WaterSurfacePass.REFRACTION_BACKGROUND_PASS` 提供受控背景颜色拷贝。屏幕空间近似：无真实水下体积/色散/
 多层水体/焦散，前景拒绝仅用共享不透明深度；与 #13 玻璃折射互斥、与 SSR/体积雾的水面限制不变。
 合同、限制与 GL 参考见[水面折射技术卡](../../planning/v0.28.1-s3-water-refraction.md)，迁移说明见[迁移记录](migrations.md)。
+v0.28.1 S3 #11/#30 新增 advanced GL-free `render3d.water.UnderwaterVolumeSettings`（启用、吸收密度
+`[0,8] 1/m`、散射色分量 `[0,16]`、路径钳制距离 `[0.1,500] m` 默认 60，构造期校验，颜色防御性拷贝；
+默认 `disabled()`），与 internal `render3d.water.UnderwaterVolumePass`（全屏三角形、自有 RGBA16F 颜色
+目标、MSAA 时单采样颜色拷贝 + 单采样深度 resolve，采样当前场景颜色生产者/单采样深度）。`RenderPipeline`
+新增 `underwaterVolume(...)`/`applyUnderwaterVolume(...)`；仅在设置启用且有限水面启用时加入图上
+水面/折射之后、TAA resolve 与解析雾/云之前。相机在水面以上时只拷贝颜色，帧逐字节不变且不因相机高度
+重建拓扑。入口平面取自 `WaterSurfaceSettings.level()`，不含色散、多层水体或波形对入口平面的位移；
+合同、限制与 GL 证据见[水下体积技术卡](../../planning/v0.28.1-s3-water-refraction.md#水下体积34)。
 v0.28.1 S3 #36 新增 advanced GL-free `render3d.caustics.CausticsSettings`（强度/颜色、世界尺度、
 动画速度、水面矩形/水位、接收面高度带、最大投射距离、深度偏置/衰减、可选图样纹理，构造期校验）与
 internal `render3d.caustics.CausticsPass`（自有 RGBA16F 目标、程序化图样 + 共享深度拒绝、resize/close

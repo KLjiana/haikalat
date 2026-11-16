@@ -65,6 +65,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
+import com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumePass;
+import com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumeSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
@@ -361,6 +363,7 @@ public final class RenderPipeline {
     private CausticsSettings causticsSettings = CausticsSettings.disabled();
     private WaterSurfaceSettings waterSurfaceSettings = WaterSurfaceSettings.disabled();
     private WaterRefractionSettings waterRefractionSettings = WaterRefractionSettings.disabled();
+    private UnderwaterVolumeSettings underwaterVolumeSettings = UnderwaterVolumeSettings.disabled();
     /** Borrowed low-resolution colour/depth source bound to the assembled colour chain. */
     private TemporalUpscalingSource temporalUpscalingSource;
     private DdgiSettings ddgiSettings = DdgiSettings.disabled();
@@ -1451,6 +1454,7 @@ public final class RenderPipeline {
         if (waterRefractionSettings.active()) {
             validateWaterRefractionComposition(scene, waterRefractionSettings);
         }
+        validateUnderwaterVolumeComposition(underwaterVolumeSettings);
         if (postProcessSettings.temporalUpscaling().active()
                 && temporalUpscalingSource == null) {
             throw new IllegalArgumentException(
@@ -1869,6 +1873,10 @@ public final class RenderPipeline {
             throw new IllegalArgumentException(
                     "water refraction requires an active finite water surface");
         }
+        if (!replacement.active() && underwaterVolumeSettings.active()) {
+            throw new IllegalArgumentException(
+                    "underwater volume requires an active finite water surface");
+        }
         if (activeGeneration == null) { waterSurface(replacement); return; }
         WaterSurfaceSettings previous = waterSurfaceSettings;
         PipelineGeneration previousGeneration = activeGeneration;
@@ -1997,6 +2005,147 @@ public final class RenderPipeline {
                     "single-layer refraction and finite water surface are mutually exclusive "
                             + "in this version; disable one of them");
         }
+    }
+
+    /**
+     * Configures the bounded underwater volume pass before the first generation
+     * is built.
+     *
+     * <p>The volume needs the active finite water surface for its entry plane
+     * and HDR tone mapping for linear Beer-Lambert composition.  An active
+     * request without either fails closed before a candidate is prepared
+     * instead of silently dropping the effect.  {@link
+     * UnderwaterVolumeSettings#disabled()} is the exact no-op value: no pass,
+     * attachment, shader or draw exists.</p>
+     */
+    public RenderPipeline underwaterVolume(UnderwaterVolumeSettings value) {
+        requireGpuOwner();
+        if (activeGeneration != null) {
+            throw new IllegalStateException("use applyUnderwaterVolume after build");
+        }
+        UnderwaterVolumeSettings replacement =
+                Objects.requireNonNull(value, "underwaterVolume");
+        validateUnderwaterVolumeComposition(replacement);
+        if (underwaterVolumeSettings.active() != replacement.active()) {
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        }
+        underwaterVolumeSettings = replacement;
+        return this;
+    }
+
+    /** Current bounded underwater volume configuration; does not expose GPU resources. */
+    public UnderwaterVolumeSettings underwaterVolume() {
+        return underwaterVolumeSettings;
+    }
+
+    /**
+     * Publishes an underwater-volume change at a synchronous render-owner frame
+     * boundary.
+     *
+     * <p>Scalar changes (density, scatter colour, distance clamp) are read by
+     * the executor every frame and only update the value.  Enabling or
+     * disabling the volume changes the graph, so a complete candidate
+     * generation replaces the active one; a failure keeps both the previous
+     * generation and the previous settings.</p>
+     */
+    public void applyUnderwaterVolume(UnderwaterVolumeSettings value) {
+        requireGpuOwner();
+        if (embedded && gpuOwner != null) {
+            try (HostGlState ignored = HostGlState.capture()) {
+                applyUnderwaterVolumeInternal(value);
+            }
+        } else {
+            applyUnderwaterVolumeInternal(value);
+        }
+        publishCompatibilityFeatureState();
+    }
+
+    private void applyUnderwaterVolumeInternal(UnderwaterVolumeSettings value) {
+        UnderwaterVolumeSettings replacement =
+                Objects.requireNonNull(value, "underwaterVolume");
+        if (executing) {
+            throw new IllegalStateException(
+                    "underwater volume changes are only allowed at frame boundaries");
+        }
+        validateUnderwaterVolumeComposition(replacement);
+        if (replacement.equals(underwaterVolumeSettings)) return;
+        if (activeGeneration == null) {
+            underwaterVolume(replacement);
+            return;
+        }
+        boolean activeChanged = underwaterVolumeSettings.active() != replacement.active();
+        UnderwaterVolumeSettings previous = underwaterVolumeSettings;
+        PipelineGeneration previousGeneration = activeGeneration;
+        underwaterVolumeSettings = replacement;
+        try {
+            if (activeChanged) {
+                PipelineTopology topology = captureTopology(scene,
+                        activeGeneration.graph().width(), activeGeneration.graph().height(),
+                        volumetricParticleSettings, stochasticTransparencySettings);
+                if (!topology.equals(activeGeneration.topology())) {
+                    activateGeneration(createGeneration(scene, topology, activeGeneration));
+                }
+            }
+            topologySettingsRevision = Math.incrementExact(topologySettingsRevision);
+        } catch (RuntimeException | Error failure) {
+            if (activeGeneration == previousGeneration) {
+                underwaterVolumeSettings = previous;
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Fails closed for an active underwater-volume request before any candidate
+     * generation is prepared.  The volume's entry plane is the finite water
+     * level, and the tint is composed in linear HDR, so both dependencies are
+     * required rather than approximated.
+     */
+    private void validateUnderwaterVolumeComposition(UnderwaterVolumeSettings value) {
+        if (!value.active()) return;
+        if (!waterSurfaceSettings.active()) {
+            throw new IllegalArgumentException(
+                    "underwater volume requires an active finite water surface");
+        }
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "underwater volume requires HDR tone mapping");
+        }
+    }
+
+    /**
+     * Records the bounded underwater volume. The MSAA chain samples the
+     * pass-owned single-sample colour copy and depth resolve; the
+     * single-sample chain samples the current scene producer and the shared
+     * raster depth directly. Above the water plane the pass only copies the
+     * producer, so the result stays byte-identical to the disabled baseline.
+     */
+    private PassExecutor underwaterVolumeExecutor(PipelineGeneration generation,
+                                                  String colorProducer,
+                                                  String colorTexture, String depthTexture) {
+        return (res, cmd) -> {
+            Framebuffer source = res.framebufferOfPass(colorProducer);
+            Framebuffer target = res.currentTarget();
+            if (source == null || target == null) {
+                throw new IllegalStateException(
+                        "underwater volume requires the scene colour and depth targets");
+            }
+            boolean multisample = generation.topology().sampleCount() > 1;
+            String sampledColor = multisample
+                    ? UnderwaterVolumePass.SOURCE_COLOR : colorTexture;
+            String sampledDepth = multisample
+                    ? UnderwaterVolumePass.DEPTH_TEXTURE : depthTexture;
+            int colorTextureId = res.colorAttachment(sampledColor);
+            int depthTextureId = res.depthAttachment(sampledDepth);
+            TemporalFrameState.FrameParameters frame = temporalFrameState.current();
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "underwater volume requires a prepared temporal frame state");
+            }
+            generation.underwaterVolumePass().record(cmd, source, target, colorTextureId,
+                    depthTextureId, frame, underwaterVolumeSettings,
+                    waterSurfaceSettings.level());
+        };
     }
 
     /** Current advanced GTAO configuration; does not expose private resources. */
@@ -2588,7 +2737,8 @@ public final class RenderPipeline {
                 causticsSettings,
                 ddgiSettings, vctSettings, hairStrandSettings,
                 effectiveContactShadowSettings(), waterRefractionSettings,
-                projectedDecalSettings, projectedDecalRecorderPresent(), true);
+                projectedDecalSettings, projectedDecalRecorderPresent(), true,
+                underwaterVolumeSettings);
     }
 
     /** True when the caller supplied both the decal renderer and its frame source. */
@@ -3164,6 +3314,36 @@ public final class RenderPipeline {
                 sceneColorProducer = RefractionPass.PASS_NAME;
                 if (topology.sampleCount() > 1) {
                     candidate.postProcess().hdrResolveSource(RefractionPass.PASS_NAME);
+                }
+            }
+            if (candidate.topology().underwaterVolume()) {
+                // Bounded underwater volume. It sits after the transparent
+                // collector / water / refraction colour chain and before the
+                // TAA resolve plus the analytic-fog and cloud consumers, so
+                // those consumers see the tinted colour. The camera height is
+                // not a topology input: above the plane the executor copies
+                // the producer unchanged, so crossing the plane neither
+                // rebuilds the graph nor changes the frame.
+                var rasterDepth = topology.sceneSurface().raw(SceneBufferChannel.DEPTH);
+                if (rasterDepth == null) {
+                    throw new IllegalStateException(
+                            "underwater volume requires the shared raster scene depth");
+                }
+                String underwaterProducer = sceneColorProducer;
+                String underwaterColorTexture = sceneColorTexture;
+                String underwaterDepthTexture = rasterDepth.name();
+                candidate.assembleUnderwaterVolume(
+                        underwaterVolumeExecutor(candidate, underwaterProducer,
+                                underwaterColorTexture, underwaterDepthTexture),
+                        java.util.List.of(), underwaterProducer, underwaterColorTexture,
+                        underwaterDepthTexture, rasterDepth.producer(),
+                        ForwardPassBuilder.sceneColorFormat(settings));
+                candidate.postProcess().sceneColorInput(UnderwaterVolumePass.COLOR,
+                        UnderwaterVolumePass.PASS_NAME);
+                sceneColorTexture = UnderwaterVolumePass.COLOR;
+                sceneColorProducer = UnderwaterVolumePass.PASS_NAME;
+                if (topology.sampleCount() > 1) {
+                    candidate.postProcess().hdrResolveSource(UnderwaterVolumePass.PASS_NAME);
                 }
             }
             if (earlyHdrVfx) {
