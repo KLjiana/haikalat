@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "144e73a0"
+    "head": "bdacd64b"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-16T12:31:55+08:00",
+  "updatedAt": "2026-11-16T14:30:00+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1743,7 +1743,8 @@
     "S4/S5 wiring: water refraction main path (copy pass + combined water record, fail-closed combos) and temporal upscaling source lifecycle (initial/replacement/resize, unavailable without source); focused verification cfa3fd6e PASS",
     "S6/S7 signal contracts integrated (11b0fcaa) and shader oracles resynced (9dddc9bc); focused verification 5413ef66 PASS 1371 tests, 0 skipped, 0 failures",
     "hair+TAA invalidation (model/settings/feature paths, appended reasons, GL ghost regression) and decal alphaMask/MSAA/TAA/shadow boundaries integrated; focused verification bf3d6b67 PASS",
-    "S6 expanded matrix (8 real-GL cases, 8/8) integrated; focused verification f678b463 PASS"
+    "S6 expanded matrix (8 real-GL cases, 8/8) integrated; focused verification f678b463 PASS",
+    "SSGI temporal/planar/SSR gap closure integrated as bdacd64b (from codex/render-high-1 4d24dfd4): the SSGI temporal shader always clamps to the depth-matched 3x3 neighbourhood with a 1x1 current-sample fallback instead of trusting a stale history tap, uAlbedo is a hard zero gate, and the temporal reference now carries velocity plus jitter so the reprojection contract can be separated from missing/flipped jitter; the water planar lookup uses the stable (unjittered) view-projection with a jitter-compensated water shader hash and two new counterexample GL cases; SSR roughness resolve under MSAA runs through the production SceneSurfaceResolvePass with a new policy row (config/gl-debug-policy.tsv 65 -> 66). Focused verification a7ef5c37 PASS 1383 tests, 0 skipped, 0 failures at bdacd64b with FRESH evidence and a stable candidate; five guards executed (focusedVerificationContracts force-executed once because it declares no inputs). Remaining gaps unchanged: thin translucency has no transmission shadow pass, decals have no RenderFeatureSettings/RenderPipeline consumer or MSAA depth resolve, particle OIT boundary ordering is caller-asserted, hair lacks velocity/normal/reactive channels, temporal upscaling is caller-supplied source only, water refraction has no underwater volume, SSS uses one diffuse-share scalar and denoise motion is camera+rigid only. Performance, human visual and release readiness NOT_EVALUATED."
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
