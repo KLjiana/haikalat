@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-16T09:59:20+08:00",
+  "updatedAt": "2026-11-16T10:59:27+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -304,13 +304,15 @@
         "final per-feature matrix 20261113-021232: #6 JVM 5/6 + GL 1/1 PASS",
         "second acceptance ccfa06c0 (based on 4b1f3e62): ProjectedDecalGlTest 4/4 real GL PASS, 0 skipped, 0 failures - thin-wall back face rejects byte-exactly with receiveBackFaces=false and accepts with true; moving/resize baselines probe receiver depth+colour and background depth=1/clear colour; transparent-queue overlay composites over the decal with an independent 0.5/0.5 blend check and both passes leave scene depth bit-identical",
         "second acceptance guards: publicApiGuard architectureGuard assetManifestGuard releaseVerificationContracts focusedVerificationContracts BUILD SUCCESSFUL; no new GL class and no production shader change",
-        "second acceptance boundary GL at db0b7e96: thin-wall back faces (receiveBackFaces false/true), moving/resize with non-vacuous probes, transparent-queue order and depth preservation; ProjectedDecalGlTest 4/4 PASS"
+        "second acceptance boundary GL at db0b7e96: thin-wall back faces (receiveBackFaces false/true), moving/resize with non-vacuous probes, transparent-queue order and depth preservation; ProjectedDecalGlTest 4/4 PASS",
+        "third acceptance (f-bound2, 2026-11-16): test-only varying-alpha texture src/test/resources/vfx/test/decal-alpha-columns-8x8.png (RGB 240/160/64, alpha columns 0/0/64/128/192/255/255/255); alphaMask=true keeps alpha=0 texels byte-exact, opaque texels receive the decal and the 50% column changes less; alphaMask=false ignores texture alpha and renders different-alpha columns identically; MSAA documented rejection (depth renderbuffer only, backend rejects multisampled depth textures, recordProjectedDecals fails closed with sceneDepthTexture=0); TAA resolve-order fixture (decal into single-sample scene colour before the resolve, first resolve output byte-equals the current colour, no depth feedback, scene depth unchanged); shadowed receiver follows the half-coverage blend oracle on both bands and preserves contrast, an opaque caster in front of the volume keeps its pixels and depth byte-exact; ProjectedDecalGlTest 8/8 real GL PASS, 0 skipped, 0 failures",
+        "third acceptance guards: publicApiGuard architectureGuard assetManifestGuard releaseVerificationContracts focusedVerificationContracts BUILD SUCCESSFUL; no production shader change and no new GL class (ProjectedDecalGlTest stayed registered)"
       ],
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "bounded decal plan; alpha-mask pixel coverage, global transparent ordering, MSAA/TAA, shadow rejection and performance/human visual remain unsupported or NOT_EVALUATED",
+      "nextAction": "third acceptance closed alpha-mask pixel coverage, MSAA documented rejection, TAA resolve-order/no-feedback and shadow receive/occlude; remaining: decal has no RenderFeatureSettings/RenderPipeline production consumer, no MSAA depth resolve, global multi-batch ordering and performance/human visual remain NOT_EVALUATED",
       "review": "APPROVE_WITH_SCOPE"
     },
     {
@@ -1681,14 +1683,16 @@
         "F5 also exposed inherited static tiles across applyHairStrands enable/disable; fixed by invalidating the borrowed ShadowCacheState when the hair caster participates; discriminating run with the model-move invalidation disabled fails frame 3 (expected 1 but was 0)",
         "F5 GL event sequence at a8720b89: static hit -> move only hair -> shadow follows -> stable reuse; enabling/disabling the caster invalidates the borrowed ShadowCacheState (applyHairStrandsInternal fix); RenderPipelineWiringB3GlTest 4/4 and HairStrandGlTest 7/7 real GL PASS, 0 skipped; disabling restores the pre-hair baseline",
         "final per-feature matrix 20261113-021232: #46 JVM 21/28 + GL 7/7 PASS",
-        "second acceptance fix 043e36bb: hair enable through features().submit() now invalidates the borrowed static shadow cache; GL feature-path regression added"
+        "second acceptance fix 043e36bb: hair enable through features().submit() now invalidates the borrowed static shadow cache; GL feature-path regression added",
+        "third acceptance (f-bound2, 2026-11-16): hair + TAA history invalidation closed - TaaInvalidationReason appends HAIR_STRANDS_SETTINGS and HAIR_STRAND_MODEL; applyHairStrandsInternal invalidates when either side is active, hairStrandModel invalidates only on a real matrix change while hair is active (an identical matrix is a no-op for both shadow cache and history), and applyPendingFeatureRequest invalidates when the hair request changes and is accepted (including the candidate-already-active recovery branch); new HairTaaInvalidationGlTest registered in focused glCases: enabling, moving the lock, stable frames, an identical matrix and a features().submit disable are executed under TAA; every invalidation frame resolves byte-exactly to the current scene colour, the converged vacated probe has no ghost, and the invalidation reasons are asserted through diagnostics",
+        "third acceptance counts: HairTaaInvalidationGlTest 1/1 plus HairStrandGlTest 7/7 plus ProjectedDecalGlTest 8/8 plus TaaHistoryGlTest 2/2 plus TaaResolveGlTest 1/1 = 19 real GL tests, 0 skipped, 0 failures; JVM 127 tests with 47 GL-guard skips and 0 failures; five guards BUILD SUCCESSFUL; discrimination checked by disabling each of the three invalidation points in turn (apply path, model path and the fresh-resolve pixel ghost, feature-request path)"
       ],
       "review": "APPROVE",
       "functional": "PASS_FOCUSED",
       "performance": "NOT_EVALUATED",
       "humanVisual": "NOT_EVALUATED",
       "blockedReason": null,
-      "nextAction": "scope: test-owned shadow-only receiver (not PBR), single directional tile, one shift direction/distance; performance and human visual NOT_EVALUATED"
+      "nextAction": "third acceptance closed hair + TAA history invalidation; remaining: hair still writes no velocity/normal/reactive (stability relies on reset-on-change, not per-object reprojection), test-owned pattern receiver and one lock/shift configuration only, CUTOUT depth path and transition covered by the existing pass-level GL suite, performance and human visual NOT_EVALUATED"
     },
     {
       "taskId": "S6",
@@ -1732,6 +1736,7 @@
     "second acceptance: focused verification 1a78b471 (1332 tests, 0 skipped, 0 failures) at e7a02dc9; remaining: S6/#6/#8 boundary evidence and the GL jittered SSGI counterexample",
     "second acceptance boundary evidence at ccfa06c0 (based on 4b1f3e62): SsgiTemporalGlTest 9/9, ProjectedDecalGlTest 4/4, ThinTranslucencyGlTest 4/4 real GL PASS, 0 skipped, 0 failures; JVM SsgiTemporalReferenceTest 9/9 plus ProjectedDecalTest 5/5 and ThinTranslucencyShaderTest 4/4; all five guards PASS. GL classes stayed within existing glCases; the only policy change is the ThinTranslucencyGlTest NVIDIA 131218 bound 2 -> 4. Remaining limits: SSGI jitter counterexample uses fixed two-frame jitter and zero velocity; decal alpha-mask/global ordering/MSAA/TAA; thin translucency has no transmission shadow pass and still lacks thickness maps/local-light combinations; performance/human visual NOT_EVALUATED",
     "second acceptance boundaries: focused verification a524d782 (1342 tests, 0 skipped, 0 failures) at 79890835; S6 remains 7 representative sub-combinations with documented choices",
+    "boundary closure in worktree f-bound2 (branch codex/render-boundary-2, based on integration c25449e9): #46 hair+TAA history invalidation via appended TaaInvalidationReason.HAIR_STRANDS_SETTINGS / HAIR_STRAND_MODEL at the apply, model and feature-request paths with a new real-GL HairTaaInvalidationGlTest (registered in focused glCases), and #6 decal alpha-mask pixel coverage, MSAA documented rejection, TAA resolve-order/no-feedback, shadow receive contrast and caster occlusion in the existing ProjectedDecalGlTest. Real GL 19/19 (0 skipped, 0 failures), focused JVM 127 tests (47 GL-guard skips, 0 failures), five guards PASS. Remaining: decal has no RenderFeatureSettings/RenderPipeline consumer and no MSAA depth resolve; hair still has no velocity/normal/reactive surface channels; performance and human visual NOT_EVALUATED. No push/tag.",
     "structure review defects: PBR direct/IBL switch fix (GL regression), DDGI/VCT failed-submission invalidation, SSR jittered projection fix; focused verification b5f11ac5 PASS. Remaining structural: water refraction and temporal upscaling not wired into the main path, SSS signal separation, denoise whole-colour signal",
     "structure review regression follow-up (codex/render-recovery-tests, based on integration 39776120): added the missing real-GL counterexamples for the DDGI/VCT failed-submission invalidation and SSR jitter fix via the one-shot test-only haikalat.test.failSubmissionAfterPass=<passName> graph hook (fires after all pass recording and before device.execute, clears itself, never set by production). New DdgiRecoveryGlTest, VctRecoveryGlTest and SsrJitterGlTest are registered in focused-verification glCases; glSmoke *Ddgi*GlTest/*Vct*GlTest/*Ssr*GlTest = 30 tests, 0 skipped, 0 failures; DDGI recovery proves an unscheduled probe depth returns to 1.0 after re-initialization, VCT recovery proves full=true/dispatches>0 instead of noOp, and the SSR case predicts 609 jitter-sensitive pixels (607 brighter on the wrong stable path; 774 pixels changed overall). The SSR counterexample exposed that c4a1b451 passed inverse(inverseJitteredProjection) without the view; this branch corrects it to inverse(inverseJitteredProjection) x view. No policy-row or release-verification changes. Remaining limits: partial mid-submission execution, repeated failures, resize/close combinations, full RenderPipeline TAA+SSR and MSAA roughness resolve; performance/human visual NOT_EVALUATED",
     "structure-review regressions: test-only failSubmissionAfterPass injection; DDGI first-submit recovery reinitializes the sentinel atlas, VCT recovery full rebuild, SSR jitter reference exposes and fixes the view-composition bug; focused verification 39dc5b56 (1346 tests, 0 skipped, 0 failures)",
