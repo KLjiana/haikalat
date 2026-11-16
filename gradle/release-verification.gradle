@@ -754,15 +754,15 @@ tasks.register('releaseVerificationContracts') {
         assert s6InteractionMatrixPolicy.severity == 'MEDIUM'
         assert s6InteractionMatrixPolicy.source == 'API'
         assert s6InteractionMatrixPolicy.type == 'PERFORMANCE'
-        assert s6InteractionMatrixPolicy.maximum == 24
+        assert s6InteractionMatrixPolicy.maximum == 26
         assert s6InteractionMatrixPolicy.entry == '.*S6InteractionMatrixGlTest.*'
         assert s6InteractionMatrixPolicy.expiry == LocalDate.of(2027, 5, 13)
         def s6MatrixDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
         def s6MatrixMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 21 is being recompiled based on GL state.\n'
         assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
-                s6MatrixDevice + s6MatrixMessage * 24, policies).violations.isEmpty()
+                s6MatrixDevice + s6MatrixMessage * 26, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
-                s6MatrixDevice + s6MatrixMessage * 25, policies).violations.isEmpty()
+                s6MatrixDevice + s6MatrixMessage * 27, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
                 s6MatrixDevice + s6MatrixMessage, policies).violations.isEmpty()
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
