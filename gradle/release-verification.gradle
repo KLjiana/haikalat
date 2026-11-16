@@ -304,9 +304,9 @@ tasks.register('releaseVerificationContracts') {
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
         // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
-        // particle-indirect and VFX sampler policies, and the S6 interaction-matrix
-        // cold-link policy.
-        assert policies.size() == 65
+        // particle-indirect and VFX sampler policies, the S6 interaction-matrix
+        // cold-link policy, and the SSR MSAA-resolve cold-link policy.
+        assert policies.size() == 66
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -323,6 +323,17 @@ tasks.register('releaseVerificationContracts') {
         assert depthOfFieldPolicy != null && depthOfFieldPolicy.id == 131218
         assert depthOfFieldPolicy.maximum == 2
         assert depthOfFieldPolicy.entry == '.*DepthOfFieldPassGlTest.*'
+        def ssrMsaaPolicy = policies.find { it.owner == 'render3d/ssr-msaa-resolve' }
+        assert ssrMsaaPolicy != null && ssrMsaaPolicy.id == 131218
+        assert ssrMsaaPolicy.maximum == 4
+        assert ssrMsaaPolicy.entry == '.*SsrPassGlTest.*'
+        assert ssrMsaaPolicy.expiry == LocalDate.of(2027, 5, 16)
+        def ssrMsaaDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def ssrMsaaMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Fragment shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage * 5, policies).violations.isEmpty()
         def pcssPolicy = policies.find { it.owner == 'render3d/pcss' }
         assert pcssPolicy != null && pcssPolicy.id == 131218
         assert pcssPolicy.severity == 'MEDIUM'

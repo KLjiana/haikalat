@@ -4,8 +4,9 @@
 // (S5 #39).  The spatial pass writes the current added bounce into a private
 // staging target; this pass reprojects the previous accumulated GI through the
 // shared single-sample velocity, rejects disoccluded samples per pixel, clamps
-// the surviving history to the depth-matched current 3x3 GI neighbourhood and
-// blends it with the current sample.
+// the surviving history to the depth-matched current 3x3 GI neighbourhood (or to
+// the current 1x1 sample when that neighbourhood is empty) and blends it with
+// the current sample. A zero-albedo receiver never inherits history.
 //
 // Rejection contract (all thresholds come from SsgiSettings):
 //   - the validity channel must be >= 0.5 (camera cut, first frame, invalid
@@ -23,10 +24,10 @@
 //   attachment 1: positive view depth, octahedral normal and a validity flag;
 //   attachment 2: base + accumulated bounce (the colour-chain output).
 //
-// Bounded cost: one direct colour/spatial/depth/normal/velocity/validity lookup
-// per pixel, at most 4 history taps (colour + state), and one 3x3 current-GI
-// neighbourhood. No loop grows with the history length and no pixel is read
-// back.
+// Bounded cost: one direct colour/spatial/depth/normal/albedo/velocity/validity
+// lookup per pixel, at most 4 history taps (colour + state), and one 3x3
+// current-GI neighbourhood. No loop grows with the history length and no pixel
+// is read back.
 
 #define SSGI_TEMPORAL_EPSILON 1.0e-6
 #define SSGI_TEMPORAL_MAX_VELOCITY 4.0
@@ -41,6 +42,7 @@ uniform sampler2D uSpatialGi;
 uniform sampler2D uColor;
 uniform sampler2D uDepth;
 uniform sampler2D uNormal;
+uniform sampler2D uAlbedo;
 uniform sampler2D uVelocity;
 uniform sampler2D uPreviousDepth;
 uniform sampler2D uValidity;
@@ -115,6 +117,7 @@ void main() {
         return;
     }
     vec3 currentNormal = octDecode(currentOct);
+    vec3 currentAlbedo = clamp(texelFetch(uAlbedo, pixel, 0).rgb, 0.0, 1.0);
 
     bool acceptedHistory = false;
     vec3 resolvedHistory = spatial;
@@ -177,10 +180,12 @@ void main() {
     // Clamp accepted history to the depth-matched current 3x3 GI neighbourhood.
     // A uniform light/emissive step updates every neighbour in the same frame,
     // so stale bright history is clamped to the new range instead of ghosting.
+    // An empty depth-matched neighbourhood leaves the 1x1 current sample as the
+    // only bounded range, so a thin/silhouette receiver cannot retain stale
+    // history that no current neighbour can justify.
     if (acceptedHistory) {
         vec3 low = spatial;
         vec3 high = spatial;
-        bool hasNeighbour = false;
         float neighbourhoodTolerance = max(depthToleranceFor(currentDepth) * 2.0, 1.0e-4);
         for (int y = -SSGI_TEMPORAL_NEIGHBOURHOOD;
                 y <= SSGI_TEMPORAL_NEIGHBOURHOOD; y++) {
@@ -203,14 +208,14 @@ void main() {
                 vec3 neighbourGi = currentGi(neighbourPixel);
                 low = min(low, neighbourGi);
                 high = max(high, neighbourGi);
-                hasNeighbour = true;
             }
         }
-        // An empty depth-matched neighbourhood means the receiver is a thin
-        // silhouette (for example the receiver hole in the acceptance fixture);
-        // there is no current GI range to clamp to, so the history survives.
-        if (hasNeighbour) {
-            resolvedHistory = clamp(resolvedHistory, low, high);
+        resolvedHistory = clamp(resolvedHistory, low, high);
+        // A zero-albedo receiver has no current GI contribution of its own. Its
+        // lit neighbours must not resurrect history from a previous non-zero
+        // albedo, so the composite stays exactly the current spatial sample.
+        if (currentAlbedo.r + currentAlbedo.g + currentAlbedo.b <= 0.0) {
+            resolvedHistory = vec3(0.0);
         }
     }
 

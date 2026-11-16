@@ -47,6 +47,7 @@ import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_RG32F;
+import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA32F;
 import static org.lwjgl.opengl.GL30.glReadBuffer;
 
@@ -106,7 +107,7 @@ class SsgiTemporalGlTest {
     void temporalAccumulationConvergesTowardTheHighSampleReference() {
         try (GlfwWindow window = window("SSGI temporal convergence")) {
             GlRenderDevice device = new GlRenderDevice();
-            Fixture fixture = Fixture.directional(2.0f);
+            Fixture fixture = Fixture.plate(2.0f);
             try (Textures textures = new Textures(fixture);
                  SsgiPass pass = new SsgiPass(TEMPORAL, SIZE, SIZE)) {
                 float[] first = null;
@@ -117,8 +118,7 @@ class SsgiTemporalGlTest {
                     if (frame == 0) first = output;
                     if (frame == 63) last = output;
                 }
-                double[] expected = SsgiTemporalReference.temporalPrediction(
-                        fixture.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y, 64);
+                double[] expected = zeroJitterPrediction(fixture, 64);
                 double[] average = SsgiTemporalReference.rotationAverage(
                         fixture.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y, 512);
                 double[] base = SsgiTemporalReference.sceneBase(fixture.scene(), PROBE_X,
@@ -138,6 +138,200 @@ class SsgiTemporalGlTest {
                                 + lastError + " vs " + firstError);
                 assertTrue(lastError < 0.05,
                         "the converged residual must stay bounded: " + lastError);
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void nonzeroVelocityAndJitterFollowTheCorrectedReprojection() {
+        try (GlfwWindow window = window("SSGI nonzero velocity and jitter")) {
+            GlRenderDevice device = new GlRenderDevice();
+            Fixture fixture = Fixture.patternedWindowPlate(2.0f).withVelocityPixels(2, 0);
+            try (Textures textures = new Textures(fixture);
+                 SsgiPass pass = new SsgiPass(TEMPORAL, SIZE, SIZE)) {
+                int frames = 8;
+                float[][] actual = new float[frames][];
+                for (int frame = 0; frame < frames; frame++) {
+                    device.invalidateState();
+                    actual[frame] = runFrame(pass, device, textures, identityView(),
+                            jitterUvX(frame), 0.0f);
+                }
+                assertEquals(frames, pass.historyAcceptedFrames(),
+                        "a nonzero velocity plus alternating jitter must keep committing history");
+                assertTrue(pass.historyValid());
+
+                double[][] contract = jitteredPrediction(fixture, frames,
+                        Reprojection.CONTRACT, TEMPORAL);
+                double[][] missing = jitteredPrediction(fixture, frames,
+                        Reprojection.MISSING_JITTER, TEMPORAL);
+                double[][] flipped = jitteredPrediction(fixture, frames,
+                        Reprojection.FLIPPED_JITTER, TEMPORAL);
+                for (int frame : new int[]{1, 2, 5, 7}) {
+                    assertMatches(actual[frame], PROBE_X, PROBE_Y, contract[frame],
+                            "frame " + frame + " must follow the jitter- and velocity-corrected "
+                                    + "recurrence");
+                }
+                assertDiffers(actual[frames - 1], PROBE_X, PROBE_Y,
+                        missing[frames - 1], 0.03,
+                        "omitting the jitter correction must not reproduce the contract");
+                assertDiffers(actual[frames - 1], PROBE_X, PROBE_Y,
+                        flipped[frames - 1], 0.03,
+                        "reversing the jitter sign must not reproduce the contract");
+                assertTrue(distance(contract[frames - 1], missing[frames - 1]) > 0.03,
+                        "the nonzero-velocity counterfactuals must be distinguishable");
+                assertTrue(distance(contract[frames - 1], flipped[frames - 1]) > 0.03,
+                        "the nonzero-velocity counterfactuals must differ from each other");
+
+                // The same fixture with zero velocity addresses a different
+                // neighbour under the same jitter sequence, so the GPU has to
+                // follow the combined velocity+jitter address rather than either
+                // term alone.
+                double[][] zeroVelocity = jitteredPrediction(
+                        Fixture.patternedWindowPlate(2.0f), frames,
+                        Reprojection.CONTRACT, TEMPORAL);
+                assertTrue(distance(contract[frames - 1], zeroVelocity[frames - 1]) > 0.03,
+                        "the nonzero velocity must move the controlled history address");
+                assertDiffers(actual[frames - 1], PROBE_X, PROBE_Y,
+                        zeroVelocity[frames - 1], 0.03,
+                        "the GPU output must not match the zero-velocity recurrence");
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void thinReceiverFallsBackToTheCurrentSampleInsteadOfRetainingStaleHistory() {
+        try (GlfwWindow window = window("SSGI thin receiver clamp")) {
+            GlRenderDevice device = new GlRenderDevice();
+            Fixture bright = Fixture.isolatedReceiver(2.0f);
+            try (Textures textures = new Textures(bright);
+                 SsgiPass pass = new SsgiPass(TEMPORAL, SIZE, SIZE)) {
+                float[] settled = null;
+                for (int frame = 0; frame < 8; frame++) {
+                    device.invalidateState();
+                    settled = runFrame(pass, device, textures, identityView());
+                }
+                double[] brightAdded = added(settled, bright.base(PROBE_X, PROBE_Y));
+                assertTrue(brightAdded[0] > 0.05,
+                        "the thin receiver must warm up a bright history: " + brightAdded[0]);
+                assertEquals(8, pass.historyAcceptedFrames());
+
+                // Dim the whole surround with the same 1x1 receiver. No 3x3
+                // neighbour shares the receiver depth, so the only current
+                // range is the 1x1 sample and the stale bright history must not
+                // survive beyond this frame.
+                Fixture dim = Fixture.isolatedReceiver(0.2f);
+                textures.upload(dim);
+                double[] dimBase = asDouble(dim.base(PROBE_X, PROBE_Y));
+                double[] dimSpatial = SsgiTemporalReference.spatialAdded(
+                        dim.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y,
+                        TEMPORAL.sampleCount(), SsgiTemporalReference.rotationForFrame(8));
+                assertTrue(dimSpatial[0] > 1.0e-4,
+                        "the dim surround must still produce a current spatial sample, got "
+                                + dimSpatial[0]);
+                device.invalidateState();
+                float[] afterDim = runFrame(pass, device, textures, identityView());
+                assertMatches(afterDim, PROBE_X, PROBE_Y,
+                        SsgiTemporalReference.composite(dimBase, dimSpatial),
+                        "an empty depth-matched neighbourhood must clamp to the current 1x1 "
+                                + "sample");
+                double weight = SsgiTemporalReference.historyWeight(TEMPORAL.temporalBlend(),
+                        TEMPORAL.historyFrames(), 9);
+                double[] ghost = SsgiTemporalReference.composite(dimBase,
+                        SsgiTemporalReference.blend(brightAdded, dimSpatial, weight));
+                assertTrue(distance(asDouble(pixel(afterDim, PROBE_X, PROBE_Y)), ghost) > 0.1,
+                        "the stale bright history must not survive the dim step");
+                assertEquals(9, pass.historyAcceptedFrames());
+
+                // The next frame keeps the same bounded fallback: once the
+                // history has been clamped, there is no residual bright tail.
+                device.invalidateState();
+                float[] next = runFrame(pass, device, textures, identityView());
+                double[] nextSpatial = SsgiTemporalReference.spatialAdded(
+                        dim.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y,
+                        TEMPORAL.sampleCount(),
+                        SsgiTemporalReference.rotationForFrame(9));
+                assertMatches(next, PROBE_X, PROBE_Y,
+                        SsgiTemporalReference.composite(dimBase, nextSpatial),
+                        "a thin receiver must stay at the current sample after the warm-up");
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void zeroAlbedoReceiverStaysAtTheExactBaseDespiteLitNeighbours() {
+        try (GlfwWindow window = window("SSGI zero albedo parity")) {
+            GlRenderDevice device = new GlRenderDevice();
+            Fixture warm = Fixture.windowPlate(2.0f);
+            try (Textures textures = new Textures(warm);
+                 SsgiPass pass = new SsgiPass(TEMPORAL, SIZE, SIZE)) {
+                float[] settled = null;
+                for (int frame = 0; frame < 8; frame++) {
+                    device.invalidateState();
+                    settled = runFrame(pass, device, textures, identityView());
+                }
+                double[] warmAdded = added(settled, warm.base(PROBE_X, PROBE_Y));
+                assertTrue(warmAdded[0] > 0.05,
+                        "the receiver must warm up a non-zero history: " + warmAdded[0]);
+
+                Fixture zero = warm.withProbeAlbedo(0.0f);
+                // The 3x3 neighbourhood must mix non-zero current GI; otherwise
+                // the history could legitimately be clamped to the 1x1 fallback
+                // for the wrong reason.
+                double neighbourGi = 0.0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        double[] neighbour = SsgiTemporalReference.spatialAdded(
+                                zero.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT,
+                                PROBE_X + dx, PROBE_Y + dy, TEMPORAL.sampleCount(),
+                                SsgiTemporalReference.rotationForFrame(8));
+                        neighbourGi = Math.max(neighbourGi, neighbour[0]);
+                    }
+                }
+                assertTrue(neighbourGi > 0.05,
+                        "the zero-albedo probe must be surrounded by non-zero GI, got "
+                                + neighbourGi);
+
+                textures.upload(zero);
+                double[] current = SsgiTemporalReference.spatialAdded(
+                        zero.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y,
+                        TEMPORAL.sampleCount(),
+                        SsgiTemporalReference.rotationForFrame(8));
+                assertEquals(0.0, current[0], 0.0,
+                        "a zero-albedo receiver must have an exactly zero current sample");
+                assertEquals(0.0, current[1], 0.0);
+                assertEquals(0.0, current[2], 0.0);
+
+                device.invalidateState();
+                float[] afterZero = runFrame(pass, device, textures, identityView());
+                float[] base = zero.base(PROBE_X, PROBE_Y);
+                float[] actual = pixel(afterZero, PROBE_X, PROBE_Y);
+                // The RGBA16F target applies the driver's float-to-half
+                // conversion. Use the production spatial path on the same zero
+                // fixture and target format as the exact base oracle instead of
+                // assuming a Java-side half rounding.
+                float[] expectedBase;
+                try (SsgiPass spatial = new SsgiPass(SsgiSettings.defaults());
+                     Framebuffer halfTarget = Framebuffer.mrt(SIZE, SIZE, GL_RGBA16F)) {
+                    device.invalidateState();
+                    expectedBase = pixel(renderSpatial(device, spatial, textures, halfTarget),
+                            PROBE_X, PROBE_Y);
+                }
+                for (int channel = 0; channel < 3; channel++) {
+                    assertEquals(expectedBase[channel], actual[channel], 0.0f,
+                            "the zero-albedo composite must stay exactly at the spatial base "
+                                    + "(channel " + channel + ")");
+                }
+                double weight = SsgiTemporalReference.historyWeight(TEMPORAL.temporalBlend(),
+                        TEMPORAL.historyFrames(), 9);
+                double[] ghost = SsgiTemporalReference.composite(asDouble(base),
+                        SsgiTemporalReference.blend(warmAdded, current, weight));
+                assertTrue(distance(asDouble(actual), ghost) > 0.1,
+                        "lit neighbours must not resurrect the stale history");
+                assertEquals(9, pass.historyAcceptedFrames());
             }
             assertEquals(GL_NO_ERROR, glGetError());
         }
@@ -675,13 +869,15 @@ class SsgiTemporalGlTest {
      * receiver-plane fixture.
      *
      * <p>The probe row keeps the accepted history of every column. At frame
-     * {@code f} the contract history tap is at
-     * {@code x + velocity - jitter(f) + jitter(f-1)}; the two counterfactuals
-     * omit the jitter term or flip its sign. The expected spatial GI at each
-     * pixel comes from {@link SsgiTemporalReference#spatialAdded}, the blend
-     * weights from {@link SsgiTemporalReference#historyWeight} and the accepted
-     * history is clamped to the depth-matched current 3x3 range exactly like
-     * the shader. Nothing is read back from the GPU.</p>
+     * {@code f} the contract history address is
+     * {@code x + velocityPixels - jitter(f) + jitter(f-1)} in pixel units; the
+     * two counterfactuals omit the jitter term or flip its sign. The expected
+     * spatial GI at each pixel comes from
+     * {@link SsgiTemporalReference#spatialAdded}, the blend weights from
+     * {@link SsgiTemporalReference#historyWeight} and the accepted history is
+     * bilinearly sampled and clamped to the depth-matched current 3x3 range
+     * exactly like the shader, including the current-1x1 fallback and the
+     * zero-current reset. Nothing is read back from the GPU.</p>
      */
     private static double[][] jitteredPrediction(Fixture fixture, int frames,
                                                  Reprojection reprojection,
@@ -710,20 +906,39 @@ class SsgiTemporalGlTest {
                     next[x] = center.clone();
                     continue;
                 }
-                int q = x + jitterOffsetPixels(frame, reprojection);
-                if (!fixture.isReceiver(q, PROBE_Y) || q < 0 || q >= SIZE) {
-                    // The tap lands outside the six-metre receiver surface (or
-                    // the raster) and would be rejected as a depth mismatch.
-                    next[x] = center.clone();
-                    continue;
+                // uv * extent - 0.5 cancels the +0.5 pixel-centre offset, so
+                // the history address is the current pixel plus the velocity
+                // and the jitter delta, all in whole/half pixel units.
+                double address = x + fixture.velocityPixelsX
+                        + jitterOffsetPixels(frame, reprojection);
+                int origin = (int) Math.floor(address);
+                double fraction = address - origin;
+                double[] accumulated = new double[3];
+                double historyWeightSum = 0.0;
+                for (int tap = 0; tap < 2; tap++) {
+                    int q = origin + tap;
+                    double tapWeight = tap == 0 ? 1.0 - fraction : fraction;
+                    if (tapWeight <= 0.0 || q < 0 || q >= SIZE
+                            || !fixture.isReceiver(q, PROBE_Y)) {
+                        continue;
+                    }
+                    for (int channel = 0; channel < 3; channel++) {
+                        accumulated[channel] += history[q][channel] * tapWeight;
+                    }
+                    historyWeightSum += tapWeight;
                 }
-                double[] resolved = SsgiTemporalReference.blend(history[q], center, weight);
-                // The shader clamps accepted history to the depth-matched
-                // current 3x3 range; a column left of RECEIVER_START is the
-                // closer layer and has no matching depth.
+                boolean accepted = historyWeightSum > 1.0e-6;
+                double[] resolved = center.clone();
+                if (accepted) {
+                    for (int channel = 0; channel < 3; channel++) {
+                        resolved[channel] = accumulated[channel] / historyWeightSum;
+                    }
+                }
+                // The shader always clamps accepted history to the
+                // depth-matched current 3x3 range. An empty range collapses to
+                // the current 1x1 sample.
                 double[] low = center.clone();
                 double[] high = center.clone();
-                boolean hasNeighbour = false;
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dx = -1; dx <= 1; dx++) {
                         if (dx == 0 && dy == 0) {
@@ -740,19 +955,61 @@ class SsgiTemporalGlTest {
                             low[channel] = Math.min(low[channel], neighbour[channel]);
                             high[channel] = Math.max(high[channel], neighbour[channel]);
                         }
-                        hasNeighbour = true;
                     }
                 }
-                if (hasNeighbour) {
+                if (accepted) {
                     resolved = SsgiTemporalReference.clampNeighbourhood(resolved, low, high);
+                    if (fixture.probeAlbedo() <= 0.0f) {
+                        resolved = new double[3];
+                    }
+                    next[x] = SsgiTemporalReference.blend(resolved, center, weight);
+                } else {
+                    next[x] = center.clone();
                 }
-                next[x] = resolved;
             }
             history = next;
             composite[frame] = SsgiTemporalReference.composite(
                     asDouble(fixture.base(PROBE_X, PROBE_Y)), history[PROBE_X]);
         }
         return composite;
+    }
+
+    /**
+     * Independent zero-jitter recurrence for one receiver plane with matched
+     * 3x3 depth: same history, clamp and zero-albedo rules as the shader.
+     */
+    private static double[] zeroJitterPrediction(Fixture fixture, int frames) {
+        double[] history = SsgiTemporalReference.spatialAdded(fixture.scene(), CAMERA,
+                TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y, TEMPORAL.sampleCount(),
+                SsgiTemporalReference.rotationForFrame(0));
+        for (int frame = 1; frame < frames; frame++) {
+            double rotation = SsgiTemporalReference.rotationForFrame(frame);
+            double[] spatial = SsgiTemporalReference.spatialAdded(fixture.scene(), CAMERA,
+                    TEMPORAL, NO_ENVIRONMENT, PROBE_X, PROBE_Y, TEMPORAL.sampleCount(),
+                    rotation);
+            double[] low = spatial.clone();
+            double[] high = spatial.clone();
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue;
+                    double[] neighbour = SsgiTemporalReference.spatialAdded(
+                            fixture.scene(), CAMERA, TEMPORAL, NO_ENVIRONMENT,
+                            PROBE_X + dx, PROBE_Y + dy, TEMPORAL.sampleCount(), rotation);
+                    for (int channel = 0; channel < 3; channel++) {
+                        low[channel] = Math.min(low[channel], neighbour[channel]);
+                        high[channel] = Math.max(high[channel], neighbour[channel]);
+                    }
+                }
+            }
+            double[] resolved = SsgiTemporalReference.clampNeighbourhood(history, low, high);
+            if (fixture.probeAlbedo() <= 0.0f) {
+                resolved = new double[3];
+            }
+            double weight = SsgiTemporalReference.historyWeight(TEMPORAL.temporalBlend(),
+                    TEMPORAL.historyFrames(), frame + 1);
+            history = SsgiTemporalReference.blend(resolved, spatial, weight);
+        }
+        return history;
     }
 
     private static double distance(float[] image, int x, int y, double[] expected) {
@@ -895,6 +1152,8 @@ class SsgiTemporalGlTest {
         private float receiverNormalX;
         private float receiverNormalY;
         private float[] receiverBase = {0.02f, 0.02f, 0.02f};
+        private int velocityPixelsX;
+        private int velocityPixelsY;
 
         private Fixture() {
         }
@@ -1010,6 +1269,47 @@ class SsgiTemporalGlTest {
             return plateWithAlbedo(RECEIVER_START, layerBrightness, true);
         }
 
+        /**
+         * A one-pixel-tall receiver window surrounded by a closer bright layer,
+         * like {@link #windowPlate(float)}, but with the three-period albedo
+         * pattern on the receiver row. The strong, almost rotation-independent
+         * spatial GI and the patterned history make the jitter/velocity address
+         * observable; the window is wide enough that the contract and
+         * counterfactual history taps stay on the receiver.
+         */
+        static Fixture patternedWindowPlate(float layerBrightness) {
+            Fixture fixture = new Fixture();
+            for (int y = 0; y < SIZE; y++) {
+                for (int x = 0; x < SIZE; x++) {
+                    int pixel = y * SIZE + x;
+                    boolean receiver = Math.abs(x - PROBE_X) <= 4 && y == PROBE_Y;
+                    if (receiver) {
+                        fixture.fillReceiverPlane(pixel, -6.0f,
+                                ALBEDO_PATTERN[x % ALBEDO_PATTERN.length]);
+                    } else {
+                        fixture.fillSurround(pixel, layerBrightness, -5.0f);
+                    }
+                }
+            }
+            fixture.syncPreviousDepth();
+            return fixture;
+        }
+
+        /**
+         * One six-metre receiver pixel surrounded by a closer layer. Every 3x3
+         * neighbour has a different depth, so the current-GI clamp has no
+         * depth-matched range and must fall back to the 1x1 sample.
+         */
+        static Fixture isolatedReceiver(float layerBrightness) {
+            Fixture fixture = new Fixture();
+            for (int pixel = 0; pixel < SIZE * SIZE; pixel++) {
+                fixture.fillSurround(pixel, layerBrightness, -5.0f);
+            }
+            fixture.fillReceiverPlane(PROBE_Y * SIZE + PROBE_X, -6.0f, 0.5f);
+            fixture.syncPreviousDepth();
+            return fixture;
+        }
+
         private static Fixture plateWithAlbedo(int receiverStart, float layerBrightness,
                                                boolean pattern) {
             Fixture fixture = new Fixture();
@@ -1065,6 +1365,32 @@ class SsgiTemporalGlTest {
             copy.receiverNormalY = octY;
             copy.fillReceiver();
             copy.syncPreviousDepth();
+            return copy;
+        }
+
+        /**
+         * Adds a uniform object velocity in whole output pixels. The shared
+         * velocity channel stores a stable-raster UV offset, so a negative value
+         * means the current surface was to the right in the previous frame.
+         */
+        Fixture withVelocityPixels(int x, int y) {
+            Fixture copy = copy();
+            copy.velocityPixelsX = x;
+            copy.velocityPixelsY = y;
+            for (int pixel = 0; pixel < SIZE * SIZE; pixel++) {
+                copy.velocity[pixel * 2] = x / (float) SIZE;
+                copy.velocity[pixel * 2 + 1] = y / (float) SIZE;
+            }
+            return copy;
+        }
+
+        /** Sets only the probe pixel's albedo, leaving its 3x3 neighbours lit. */
+        Fixture withProbeAlbedo(float value) {
+            Fixture copy = copy();
+            int probe = PROBE_Y * SIZE + PROBE_X;
+            copy.albedo[probe * 4] = value;
+            copy.albedo[probe * 4 + 1] = value;
+            copy.albedo[probe * 4 + 2] = value;
             return copy;
         }
 
@@ -1124,12 +1450,18 @@ class SsgiTemporalGlTest {
             copy.receiverNormalX = receiverNormalX;
             copy.receiverNormalY = receiverNormalY;
             copy.receiverBase = receiverBase;
+            copy.velocityPixelsX = velocityPixelsX;
+            copy.velocityPixelsY = velocityPixelsY;
             return copy;
         }
 
         float[] base(int x, int y) {
             int offset = (y * SIZE + x) * 4;
             return new float[]{colour[offset], colour[offset + 1], colour[offset + 2]};
+        }
+
+        float probeAlbedo() {
+            return albedo[(PROBE_Y * SIZE + PROBE_X) * 4];
         }
 
         SsgiIndirectReference.Scene scene() {

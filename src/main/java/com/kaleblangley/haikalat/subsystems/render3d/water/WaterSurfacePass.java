@@ -172,6 +172,14 @@ public final class WaterSurfacePass implements AutoCloseable {
      * is positive; zero keeps the environment/fallback reflection path exactly
      * as before. The caller must make the water pass depend on the planar pass
      * and pass {@code 0} when the target has no valid content yet.</p>
+     *
+     * <p>The planar target is recorded with the main camera's <em>stable</em>
+     * projection (the planar pass deliberately does not add the TAA jitter), so
+     * the screen-space lookup uses {@link TemporalFrameState.FrameParameters#stableViewProjection()}
+     * while the water surface itself is still rasterised with the jittered
+     * projection. Feeding the jittered view-projection to the lookup would
+     * shift the reflection by the jitter delta and sample the wrong stable
+     * texel; a stable lookup is the jitter compensation for this consumer.</p>
      */
     public void record(CommandBuffer cmd, Framebuffer sceneColorSource, Framebuffer target,
                        int sceneDepthTexture, int planarReflectionTexture,
@@ -338,8 +346,8 @@ public final class WaterSurfacePass implements AutoCloseable {
                 .setUniformFloat(activeShader, "uTimeSeconds", timeSeconds)
                 .setUniformInt(activeShader, "uDebugMode", debugNormals ? 1 : 0)
                 .setUniformInt(activeShader, "uSceneDepth", DEPTH_UNIT)
-                .setUniformMat4(activeShader, "uViewProjection",
-                        new Matrix4f(frame.jitteredProjection()).mul(frame.view()))
+                .setUniformMat4(activeShader, "uStableViewProjection",
+                        frame.stableViewProjection())
                 .setUniformInt(activeShader, "uHasPlanarReflection",
                         planarReflectionTexture > 0 ? 1 : 0);
 

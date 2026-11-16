@@ -24,7 +24,11 @@ uniform float uEnvironmentRotation;
 // fall back to the environment so the surface keeps a stable colour.
 uniform int uHasPlanarReflection;
 uniform sampler2D uPlanarReflection;
-uniform mat4 uViewProjection;
+// Stable (non-jittered) view-projection of the planar reflection recording.
+// The water surface is rasterised with the jittered projection, but the planar
+// target is recorded without TAA jitter, so its screen-space address must be
+// computed from the stable projection to compensate for the current jitter.
+uniform mat4 uStableViewProjection;
 
 uniform vec3 uWaterColor;
 uniform vec3 uReflectionFallback;
@@ -141,7 +145,7 @@ void main() {
     vec3 reflection = uReflectionFallback;
     bool planarSampled = false;
     if (uHasPlanarReflection == 1) {
-        vec4 planarClip = uViewProjection * vec4(vWorldPosition, 1.0);
+        vec4 planarClip = uStableViewProjection * vec4(vWorldPosition, 1.0);
         if (planarClip.w > 0.0) {
             vec2 planarUv = planarClip.xy / planarClip.w * 0.5 + 0.5;
             if (all(greaterThanEqual(planarUv, vec2(0.0)))

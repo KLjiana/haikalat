@@ -3,23 +3,36 @@ package com.kaleblangley.haikalat.subsystems.postprocess.ssr;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.backend.shader.ShaderStage;
 import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
 import com.kaleblangley.haikalat.subsystems.postprocess.SurfaceInputs;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.Camera;
+import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.scene.RenderFrameContext;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceResolvePass;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -46,6 +59,7 @@ import static org.lwjgl.opengl.GL11.GL_LINEAR_MIPMAP_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
 import static org.lwjgl.opengl.GL11.GL_RENDERER;
 import static org.lwjgl.opengl.GL11.GL_VENDOR;
@@ -111,6 +125,33 @@ class SsrPassGlTest {
             .strength(0.9f)
             .edgeFadePixels(8.0f)
             .build();
+
+    /**
+     * MSAA G-buffer producer used by the resolve-path case. Sample 1 is the
+     * nearest covered sample at every pixel (a small device-depth bias), and it
+     * writes roughness 0.05 while the other samples write 0.95. The production
+     * {@link SceneSurfaceResolvePass} must therefore resolve roughness to 0.05;
+     * an averaged or wrong-sample resolve would exceed the SSR roughness cutoff
+     * and fall back exactly.
+     */
+    private static final String MSAA_SURFACE_PATTERN = """
+            #version 460 core
+            uniform sampler2D uDepth;
+            uniform sampler2D uNormal;
+            uniform vec2 uViewportSize;
+            layout(location = 0) out vec2 outNormal;
+            layout(location = 1) out float outRoughness;
+            void main() {
+                vec2 uv = gl_FragCoord.xy / uViewportSize;
+                float depth = texture(uDepth, uv).r;
+                if (depth >= 1.0) discard;
+                int sampleId = gl_SampleID;
+                gl_FragDepth = depth + (sampleId == 1 ? -1.0e-4 : 1.0e-4);
+                outNormal = texture(uNormal, uv).rg;
+                float sampleRoughness[4] = float[4](0.95, 0.05, 0.95, 0.95);
+                outRoughness = sampleRoughness[sampleId];
+            }
+            """;
 
     @Test
     void reflectionFollowsTheMirroredRayAndFallsBackAtRoughnessAndDistance() {
@@ -270,6 +311,181 @@ class SsrPassGlTest {
         }
     }
 
+
+    @Test
+    void msaaRoughnessResolveDrivesTheFixedAndAdaptiveSsrPaths() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
+                .title("SSR MSAA Roughness Resolve GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                    "/environments/pbr/studio-small.hdr",
+                    PbrEnvironmentSettings.testQuality());
+                 Sampler cubeSampler = Sampler.create(new Sampler.Descriptor(
+                         GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR,
+                         GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE))) {
+                SsrEnvironmentSource source = environment(environment, cubeSampler);
+                Fixture fixture = fixture();
+                SceneSurfaceLayout layout = SceneSurfaceLayout.plan(4,
+                        SceneBufferRequirements.none(), SceneBufferRequirements.ssr(),
+                        SceneSurfaceLayout.ReactiveMode.NONE);
+                assertEquals(4, layout.samples());
+                assertTrue(layout.hasResolve(),
+                        "a 4x MSAA SSR request must create a single-sample surface resolve");
+
+                try (Texture2D colourTexture = floatTexture(4, fixture.colour());
+                     Texture2D depthSource = floatTexture(1, fixture.depth());
+                     Texture2D normalSource = floatTexture(4, fixture.normal());
+                     Texture2D roughnessSource = byteTexture(fixture.roughness());
+                     ShaderProgram producer = ShaderProgram.builder()
+                             .resource(SsrPassGlTest.class, ShaderStage.VERTEX,
+                                     "/shaders/postprocess/screen-quad.vert")
+                             .stage(ShaderStage.FRAGMENT, MSAA_SURFACE_PATTERN,
+                                     "ssr-msaa-surface.frag")
+                             .link();
+                     ScreenQuad quad = new ScreenQuad();
+                     SceneSurfaceResolvePass resolve = new SceneSurfaceResolvePass(layout);
+                     RenderGraph graph = new RenderGraph(SIZE, SIZE);
+                     SsrPass resolvedFixed = new SsrPass(SETTINGS);
+                     SsrPass resolvedAdaptive = new SsrPass(SETTINGS,
+                             AdaptiveSamplingSettings.defaults())) {
+                    SceneSurfaceInputs inputs = new SceneSurfaceInputs(1, graph, layout);
+                    var raw = graph.addPass(layout.raw(SceneBufferChannel.DEPTH).producer());
+                    layout.configureRaster(raw);
+                    raw.execute((res, cmd) -> {
+                        cmd.enableBlend(false).enableDepthTest(true).depthMask(true)
+                                .enableCullFace(false)
+                                .bindShader(producer)
+                                .bindTexture(0, depthSource.id())
+                                .bindTexture(1, normalSource.id())
+                                .setUniformInt(producer, "uDepth", 0)
+                                .setUniformInt(producer, "uNormal", 1)
+                                .setUniformVec2(producer, "uViewportSize", SIZE, SIZE)
+                                .sampleShading(true, 1.0f)
+                                .bindVertexArray(quad.id())
+                                .drawArrays(GL_TRIANGLES, 0, 6)
+                                .sampleShading(false, 0.0f);
+                        inputs.frame().rasterProduced(res);
+                    });
+                    var resolvePass = graph.addPass(
+                            layout.single(SceneBufferChannel.DEPTH).producer());
+                    layout.configureResolve(resolvePass);
+                    resolvePass.execute((res, cmd) -> {
+                        resolve.record(cmd, res, inputs);
+                        inputs.frame().resolveProduced(res);
+                    });
+                    graph.addPass("SsrMsaaResolvedFixed")
+                            .createColor("ssrMsaaResolvedFixed", RenderFormat.RGBA32F)
+                            .noClear()
+                            .dependsOn(layout.single(SceneBufferChannel.DEPTH).producer())
+                            .execute((res, cmd) -> recordResolvedSsr(cmd, resolvedFixed,
+                                    colourTexture, inputs, layout, res, source));
+                    graph.addPass("SsrMsaaResolvedAdaptive")
+                            .createColor("ssrMsaaResolvedAdaptive", RenderFormat.RGBA32F)
+                            .noClear()
+                            .dependsOn(layout.single(SceneBufferChannel.DEPTH).producer())
+                            .execute((res, cmd) -> recordResolvedSsr(cmd, resolvedAdaptive,
+                                    colourTexture, inputs, layout, res, source));
+                    graph.compile();
+                    inputs.validate();
+                    Scene scene = new Scene(new Camera());
+                    inputs.beginFrame(RenderFrameContext.capture(scene, scene.camera(),
+                            SIZE, SIZE, 0, 0, 0, 0, null));
+                    try {
+                        graph.execute(device);
+                    } finally {
+                        inputs.endFrame();
+                    }
+
+                    float[] resolvedRoughness = graph.readColorAttachmentRgbaFloat(
+                            layout.single(SceneBufferChannel.ROUGHNESS).name());
+                    float[] resolvedDepth = graph.readColorAttachmentRgbaFloat(
+                            layout.single(SceneBufferChannel.DEPTH).name());
+                    float[] resolvedNormal = graph.readColorAttachmentRgbaFloat(
+                            layout.single(SceneBufferChannel.NORMAL).name());
+                    int covered = 0;
+                    for (int index = 0; index < SIZE * SIZE; index++) {
+                        if (fixture.depth[index] < 1.0f) {
+                            covered++;
+                            assertEquals(13.0f / 255.0f, resolvedRoughness[index * 4],
+                                    1.0f / 255.0f,
+                                    "the resolve must carry sample 1's roughness at pixel "
+                                            + index);
+                        } else {
+                            assertEquals(1.0f, resolvedRoughness[index * 4], 1.0f / 255.0f,
+                                    "uncovered samples keep the rough clear value at pixel "
+                                            + index);
+                        }
+                    }
+                    assertTrue(covered > 2000,
+                            "the fixture must cover a meaningful MSAA surface region: "
+                                    + covered);
+
+                    float[] fixedResolved = graph.readColorAttachmentRgbaFloat(
+                            "ssrMsaaResolvedFixed");
+                    float[] adaptiveResolved = graph.readColorAttachmentRgbaFloat(
+                            "ssrMsaaResolvedAdaptive");
+
+                    float[] controlDepth = new float[SIZE * SIZE];
+                    float[] controlNormal = new float[SIZE * SIZE * 4];
+                    byte[] controlRoughness = new byte[SIZE * SIZE];
+                    byte[] wrongRoughness = new byte[SIZE * SIZE];
+                    for (int index = 0; index < SIZE * SIZE; index++) {
+                        controlDepth[index] = resolvedDepth[index * 4];
+                        controlNormal[index * 4] = resolvedNormal[index * 4];
+                        controlNormal[index * 4 + 1] = resolvedNormal[index * 4 + 1];
+                        controlNormal[index * 4 + 3] = 1.0f;
+                        controlRoughness[index] = (byte) Math.round(
+                                resolvedRoughness[index * 4] * 255.0f);
+                        wrongRoughness[index] = (byte) Math.round(0.95f * 255.0f);
+                    }
+                    try (Texture2D controlDepthTexture = floatTexture(1, controlDepth);
+                         Texture2D controlNormalTexture = floatTexture(4, controlNormal);
+                         Texture2D controlRoughnessTexture = byteTexture(controlRoughness);
+                         Texture2D wrongRoughnessTexture = byteTexture(wrongRoughness)) {
+                        float[] fixedControl = renderWithTextures(device, colourTexture,
+                                controlDepthTexture, controlNormalTexture,
+                                controlRoughnessTexture, SETTINGS,
+                                AdaptiveSamplingSettings.disabled(), source);
+                        float[] adaptiveControl = renderWithTextures(device, colourTexture,
+                                controlDepthTexture, controlNormalTexture,
+                                controlRoughnessTexture, SETTINGS,
+                                AdaptiveSamplingSettings.defaults(), source);
+                        assertExact(fixedResolved, fixedControl,
+                                "the fixed SSR path must consume exactly the resolved "
+                                        + "single-sample surface");
+                        assertExact(adaptiveResolved, adaptiveControl,
+                                "the adaptive SSR path must consume exactly the resolved "
+                                        + "single-sample surface");
+                        assertTrue(countChanged(fixture.colour(), fixedResolved) > 200,
+                                "the resolved roughness must enable a real fixed reflection "
+                                        + "region");
+                        assertTrue(countChanged(fixture.colour(), adaptiveResolved) > 200,
+                                "the resolved roughness must enable a real adaptive "
+                                        + "reflection region");
+
+                        float[] fixedWrong = renderWithTextures(device, colourTexture,
+                                controlDepthTexture, controlNormalTexture,
+                                wrongRoughnessTexture, SETTINGS,
+                                AdaptiveSamplingSettings.disabled(), source);
+                        float[] adaptiveWrong = renderWithTextures(device, colourTexture,
+                                controlDepthTexture, controlNormalTexture,
+                                wrongRoughnessTexture, SETTINGS,
+                                AdaptiveSamplingSettings.defaults(), source);
+                        assertExactBaseline(fixture, fixedWrong,
+                                "a wrong resolved roughness sample must fall back exactly in "
+                                        + "the fixed path");
+                        assertExactBaseline(fixture, adaptiveWrong,
+                                "a wrong resolved roughness sample must fall back exactly in "
+                                        + "the adaptive path");
+                    }
+                }
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
 
     @Test
     void pipelineAddsBoundedSsrInTheHdrChainAndRestoresTheDisabledBaseline() {
@@ -452,6 +668,66 @@ class SsrPassGlTest {
         texture.uploadRegion(0, 0, SIZE, SIZE, upload);
         texture.setFiltering(GL_NEAREST, GL_NEAREST);
         return texture;
+    }
+
+    private static void recordResolvedSsr(CommandBuffer cmd, SsrPass pass,
+                                          Texture2D colour, SceneSurfaceInputs inputs,
+                                          SceneSurfaceLayout layout, PassResources resources,
+                                          SsrEnvironmentSource source) {
+        pass.recordIntoCurrentTarget(cmd, colour.id(),
+                inputs.frame().require(resources,
+                        layout.single(SceneBufferChannel.DEPTH)),
+                inputs.frame().require(resources,
+                        layout.single(SceneBufferChannel.NORMAL)),
+                inputs.frame().require(resources,
+                        layout.single(SceneBufferChannel.ROUGHNESS)),
+                INVERSE_PROJECTION, INVERSE_VIEW, VIEW, VIEW_PROJECTION, source,
+                SIZE, SIZE);
+    }
+
+    private static float[] renderWithTextures(GlRenderDevice device, Texture2D colour,
+                                              Texture2D depth, Texture2D normal,
+                                              Texture2D roughness, SsrSettings settings,
+                                              AdaptiveSamplingSettings adaptive,
+                                              SsrEnvironmentSource source) {
+        try (Framebuffer target = Framebuffer.mrt(SIZE, SIZE, GL_RGBA32F);
+             SsrPass pass = new SsrPass(settings, adaptive)) {
+            target.bind();
+            glViewport(0, 0, SIZE, SIZE);
+            CommandBuffer commands = device.createCommandBuffer();
+            pass.recordIntoCurrentTarget(commands, colour.id(), depth.id(), normal.id(),
+                    roughness.id(), INVERSE_PROJECTION, INVERSE_VIEW, VIEW,
+                    VIEW_PROJECTION, source, SIZE, SIZE);
+            device.execute(commands);
+            target.bind();
+            glViewport(0, 0, SIZE, SIZE);
+            FloatBuffer pixels = BufferUtils.createFloatBuffer(SIZE * SIZE * 4);
+            glReadPixels(0, 0, SIZE, SIZE, GL_RGBA, GL_FLOAT, pixels);
+            float[] result = new float[SIZE * SIZE * 4];
+            pixels.get(result);
+            return result;
+        }
+    }
+
+    private static void assertExact(float[] expected, float[] actual, String message) {
+        assertEquals(expected.length, actual.length, message);
+        for (int index = 0; index < expected.length; index++) {
+            assertEquals(expected[index], actual[index], 0.0f,
+                    message + " at index " + index);
+        }
+    }
+
+    private static int countChanged(float[] base, float[] output) {
+        int changed = 0;
+        for (int index = 0; index < SIZE * SIZE; index++) {
+            int offset = index * 4;
+            if (Math.abs(base[offset] - output[offset]) > 1.0e-3f
+                    || Math.abs(base[offset + 1] - output[offset + 1]) > 1.0e-3f
+                    || Math.abs(base[offset + 2] - output[offset + 2]) > 1.0e-3f) {
+                changed++;
+            }
+        }
+        return changed;
     }
 
     private static void assertDisabledBaseline() {

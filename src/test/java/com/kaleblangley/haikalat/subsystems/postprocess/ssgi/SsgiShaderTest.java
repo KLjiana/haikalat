@@ -214,6 +214,7 @@ class SsgiShaderTest {
                 "uniform sampler2D uColor;",
                 "uniform sampler2D uDepth;",
                 "uniform sampler2D uNormal;",
+                "uniform sampler2D uAlbedo;",
                 "uniform sampler2D uVelocity;",
                 "uniform sampler2D uPreviousDepth;",
                 "uniform sampler2D uValidity;",
@@ -245,6 +246,15 @@ class SsgiShaderTest {
         assertTrue(source.contains("for (int y = -SSGI_TEMPORAL_NEIGHBOURHOOD;"),
                 "the current-GI clamp is a fixed bounded neighbourhood");
         assertTrue(source.contains("resolvedHistory = clamp(resolvedHistory, low, high);"));
+        assertFalse(source.contains("hasNeighbour"),
+                "an empty depth-matched neighbourhood must fall back to the current 1x1 "
+                        + "sample instead of leaving the history unclamped");
+        assertTrue(source.contains("texelFetch(uAlbedo, pixel, 0).rgb"),
+                "the zero-albedo history gate must read the current receiver albedo");
+        assertTrue(source.contains("if (currentAlbedo.r + currentAlbedo.g + currentAlbedo.b <= 0.0)"),
+                "a zero-albedo receiver must not inherit stale history");
+        assertTrue(source.contains("resolvedHistory = vec3(0.0);"),
+                "the zero-albedo fallback must clamp to the exact zero spatial sample");
         assertTrue(source.contains("vec3 added = acceptedHistory"));
         assertTrue(source.contains("outState = vec4(currentDepth, currentOct.x, currentOct.y, "
                 + "1.0);"));
@@ -268,11 +278,12 @@ class SsgiShaderTest {
                     "uniform " + name + " is declared but never referenced and may be "
                             + "optimized out");
         }
-        assertEquals(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal", "uVelocity",
-                        "uPreviousDepth", "uValidity", "uHistoryColor", "uHistoryState",
-                        "uViewportSize", "uInverseProjection", "uHistoryValid",
-                        "uHistoryWeight", "uCurrentJitter", "uPreviousJitter", "uDepthRejection",
-                        "uNormalRejection", "uVelocityRejection"),
+        assertEquals(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal", "uAlbedo",
+                        "uVelocity", "uPreviousDepth", "uValidity", "uHistoryColor",
+                        "uHistoryState", "uViewportSize", "uInverseProjection",
+                        "uHistoryValid", "uHistoryWeight", "uCurrentJitter",
+                        "uPreviousJitter", "uDepthRejection", "uNormalRejection",
+                        "uVelocityRejection"),
                 declared,
                 "the temporal shader uniform set must match the pass upload set");
     }
@@ -339,7 +350,7 @@ class SsgiShaderTest {
                             + "ssgi-temporal.frag");
         }
         assertTrue(uploaded.containsAll(Set.of("uSpatialGi", "uColor", "uDepth", "uNormal",
-                "uVelocity", "uPreviousDepth", "uValidity", "uHistoryColor",
+                "uAlbedo", "uVelocity", "uPreviousDepth", "uValidity", "uHistoryColor",
                 "uHistoryState", "uHistoryValid", "uHistoryWeight", "uDepthRejection",
                 "uNormalRejection", "uVelocityRejection")),
                 "the temporal pass must upload every input the shader consumes: " + uploaded);

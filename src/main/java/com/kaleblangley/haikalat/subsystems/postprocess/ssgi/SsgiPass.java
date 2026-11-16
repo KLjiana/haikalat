@@ -69,6 +69,7 @@ public final class SsgiPass implements GlResource {
     private static final int TEMPORAL_VALIDITY_UNIT = 6;
     private static final int TEMPORAL_HISTORY_COLOR_UNIT = 7;
     private static final int TEMPORAL_HISTORY_STATE_UNIT = 8;
+    private static final int TEMPORAL_ALBEDO_UNIT = 9;
 
     static final float CAMERA_CUT_POSITION_DISTANCE_SQUARED = 16.0f;
     static final float CAMERA_CUT_FORWARD_DOT = 0.8f;
@@ -269,10 +270,12 @@ public final class SsgiPass implements GlResource {
                 .bindTexture(TEMPORAL_HISTORY_COLOR_UNIT,
                         temporalStorage.readHistoryColorTexture())
                 .bindTexture(TEMPORAL_HISTORY_STATE_UNIT, temporalStorage.readStateTexture())
+                .bindTexture(TEMPORAL_ALBEDO_UNIT, inputs.albedoTexture())
                 .setUniformInt(temporalProgram, "uSpatialGi", TEMPORAL_SPATIAL_GI_UNIT)
                 .setUniformInt(temporalProgram, "uColor", TEMPORAL_COLOR_UNIT)
                 .setUniformInt(temporalProgram, "uDepth", TEMPORAL_DEPTH_UNIT)
                 .setUniformInt(temporalProgram, "uNormal", TEMPORAL_NORMAL_UNIT)
+                .setUniformInt(temporalProgram, "uAlbedo", TEMPORAL_ALBEDO_UNIT)
                 .setUniformInt(temporalProgram, "uVelocity", TEMPORAL_VELOCITY_UNIT)
                 .setUniformInt(temporalProgram, "uPreviousDepth", TEMPORAL_PREVIOUS_DEPTH_UNIT)
                 .setUniformInt(temporalProgram, "uValidity", TEMPORAL_VALIDITY_UNIT)
