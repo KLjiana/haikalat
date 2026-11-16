@@ -345,15 +345,15 @@ tasks.register('releaseVerificationContracts') {
         def thinTransmissionShadowPolicy =
                 policies.find { it.owner == 'render3d/thin-translucency-transmission-shadow' }
         assert thinTransmissionShadowPolicy != null && thinTransmissionShadowPolicy.id == 131218
-        assert thinTransmissionShadowPolicy.maximum == 8
+        assert thinTransmissionShadowPolicy.maximum == 18
         assert thinTransmissionShadowPolicy.entry == '.*ThinTranslucencyTransmissionShadowGlTest.*'
         assert thinTransmissionShadowPolicy.expiry == LocalDate.of(2027, 5, 16)
         def thinTransmissionShadowEntry = 'TEST-com.kaleblangley.haikalat.integration.ThinTranslucencyTransmissionShadowGlTest.xml'
         assert auditGlText(thinTransmissionShadowEntry,
-                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 8,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 18,
                 policies).violations.isEmpty()
         assert !auditGlText(thinTransmissionShadowEntry,
-                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 9,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 19,
                 policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.OtherGlTest.xml',
                 ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex'), policies).violations.isEmpty()

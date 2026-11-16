@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.integration;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
+import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.assets.PbrMaterialProperties;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
@@ -14,6 +15,7 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
 import com.kaleblangley.haikalat.subsystems.render3d.RenderPipeline;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 import com.kaleblangley.haikalat.subsystems.render3d.SceneLight;
@@ -24,6 +26,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
@@ -36,6 +40,8 @@ import org.lwjgl.opengl.GL;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -56,6 +62,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * baseline; a far opaque caster proves the tolerance cannot leak through
  * distant geometry; and a front-lit run proves the direct term and the
  * zero-control frame are unchanged by the new path.</p>
+ *
+ * <p>Four additional cases pin the review fixes: a world-space cloud shadow and
+ * the material-level contact term must attenuate only the thin share; a
+ * four-cascade blend band must convert the transmitted world thickness with
+ * each sampled cascade's own matrix; and a 3-4 cm caster outside the half-slab
+ * bound must not transmit. The four-cascade fixture is used because the
+ * existing two-cascade atlas layout writes 256x256 tiles while the forward
+ * shader reads a half-width, full-height tile, so a two-cascade fixture cannot
+ * sample its own shadow map; that layout mismatch is out of this change's
+ * scope.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class ThinTranslucencyTransmissionShadowGlTest {
@@ -206,6 +222,256 @@ class ThinTranslucencyTransmissionShadowGlTest {
         }
     }
 
+    /**
+     * Defect 1, cloud half. The production procedural cloud layer is evaluated
+     * at a world position that is under cloud cover; the same slab at a clear
+     * world position must stay bit-identical. Before the fix the cloud-on frame
+     * measured the same 0.328613 as cloud-off, i.e. the thin share escaped the
+     * cloud attenuation entirely.
+     */
+    @Test
+    void cloudShadowAttenuatesTheThinBacklightShare() {
+        try (GlfwWindow window = thinWindow()) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = loadEnvironment(device);
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 ShaderProgram shader = forwardShader();
+                 Mesh mesh = thinMesh("thin-transmission-cloud")) {
+                environment.intensity(0.0f);
+                Material thin = thinMaterial(shader, fallbacks, thinProperties(1.0f));
+                try {
+                    // Production cloud tuning with the wind pinned to zero so the
+                    // fixture is deterministic (the animated path is covered by
+                    // CloudShadowsGlTest and the shader contract test).
+                    CloudShadowSettings production = new CloudShadowSettings(
+                            true, 0.55f, 0.35f, 0.12f, 0.0f, 0.65f);
+                    ShadowSettings off = shadowSettings(
+                            ContactShadowSettings.disabled(), CloudShadowSettings.disabled());
+                    ShadowSettings on = shadowSettings(
+                            ContactShadowSettings.disabled(), production);
+                    Vector3f overcast = new Vector3f(-4.5f, 2.0f, 0.0f);
+                    Vector3f clear = new Vector3f();
+
+                    float[] overcastOff = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, overcast, 3.0f,
+                            off, DirectionalCascadeSettings.disabled(), renderSettings());
+                    float[] overcastOn = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, overcast, 3.0f,
+                            on, DirectionalCascadeSettings.disabled(), renderSettings());
+                    float[] clearOff = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, clear, 3.0f,
+                            off, DirectionalCascadeSettings.disabled(), renderSettings());
+                    float[] clearOn = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, clear, 3.0f,
+                            on, DirectionalCascadeSettings.disabled(), renderSettings());
+
+                    float baseline = centerLuminance(overcastOff);
+                    float clouded = centerLuminance(overcastOn);
+                    assertTrue(baseline > 0.31f,
+                            "the thin self-shadow baseline must stay at the recorded value: "
+                                    + baseline);
+                    assertTrue(clouded < baseline * 0.75f,
+                            "cloud shadow must attenuate the thin backlight share: measured "
+                                    + clouded + " vs " + baseline);
+                    assertTrue(clouded > 0.05f,
+                            "cloud shadow is attenuation, not a full shadow: " + clouded);
+                    // A clear world position must take the exact same thin share:
+                    // the cloud mask is world-locked, not a global toggle.
+                    assertArrayEquals(clearOff, clearOn, 1.0e-4f,
+                            "a clear cloud-field position must leave the thin share unchanged");
+                    assertTrue(centerLuminance(clearOn) > 0.31f,
+                            "the clear control must reproduce the baseline: "
+                                    + centerLuminance(clearOn));
+                    GlDebug.checkError("thin transmission cloud shadow");
+                } finally {
+                    thin.close();
+                }
+            }
+        }
+    }
+
+    /**
+     * Defect 1, contact half. MSAA keeps the screen-space contact pass out of the
+     * topology, so only the material-level shadow-map march runs. The 2.2 cm
+     * caster sits inside the half-slab tolerance: the transmissive lookup passes
+     * it, and only the contact term may darken the thin share. Before the fix
+     * contact-on measured the same 0.328613 as contact-off.
+     */
+    @Test
+    void materialContactShadowAttenuatesTheThinBacklightShare() {
+        try (GlfwWindow window = thinWindow()) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = loadEnvironment(device);
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 ShaderProgram shader = forwardShader();
+                 Mesh mesh = thinMesh("thin-transmission-contact")) {
+                environment.intensity(0.0f);
+                Material thin = thinMaterial(shader, fallbacks, thinProperties(1.0f));
+                Material opaque = opaqueMaterial(shader, fallbacks);
+                try {
+                    ContactShadowSettings contact = new ContactShadowSettings(
+                            true, 0.1f, 0.05f, 8, 0.8f);
+                    RenderSettings settings = renderSettings(AntiAliasingMode.MSAA);
+                    assertFalse(PipelineTopology.screenSpaceContactShadowCompositionActive(
+                                    settings, contact, true),
+                            "MSAA must keep the screen-space contact pass inactive so the "
+                                    + "material-level term is the only consumer");
+                    assertTrue(PipelineTopology.screenSpaceContactShadowCompositionActive(
+                                    renderSettings(AntiAliasingMode.NONE), contact, true),
+                            "the non-MSAA topology must contain the screen-space pass, proving "
+                                    + "the MSAA fixture isolates the material term");
+                    float nearCaster = -0.022f;
+                    float[] offWithCaster = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, nearCaster, new Vector3f(),
+                            3.0f, shadowSettings(ContactShadowSettings.disabled(),
+                                    CloudShadowSettings.disabled()),
+                            DirectionalCascadeSettings.disabled(), settings);
+                    float[] onWithCaster = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, nearCaster, new Vector3f(),
+                            3.0f, shadowSettings(contact, CloudShadowSettings.disabled()),
+                            DirectionalCascadeSettings.disabled(), settings);
+                    float[] offNoCaster = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, new Vector3f(), 3.0f,
+                            shadowSettings(ContactShadowSettings.disabled(),
+                                    CloudShadowSettings.disabled()),
+                            DirectionalCascadeSettings.disabled(), settings);
+                    float[] onNoCaster = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, new Vector3f(), 3.0f,
+                            shadowSettings(contact, CloudShadowSettings.disabled()),
+                            DirectionalCascadeSettings.disabled(), settings);
+
+                    float contactOff = centerLuminance(offWithCaster);
+                    float contactOn = centerLuminance(onWithCaster);
+                    assertEquals(centerLuminance(offNoCaster), contactOff, 1.0e-4f,
+                            "the 2.2 cm caster is inside the half-slab tolerance and must not "
+                                    + "change the transmissive baseline");
+                    assertEquals(centerLuminance(onNoCaster), contactOff, 1.0e-4f,
+                            "the material contact term must not self-occlude at these settings");
+                    assertTrue(contactOn < contactOff * 0.5f,
+                            "the material contact shadow must attenuate the thin backlight "
+                                    + "share: measured " + contactOn + " vs " + contactOff);
+                    assertTrue(contactOn > 0.01f,
+                            "contact strength 0.8 is a partial attenuation, not a full shadow: "
+                                    + contactOn);
+                    GlDebug.checkError("thin transmission material contact shadow");
+                } finally {
+                    thin.close();
+                    opaque.close();
+                }
+            }
+        }
+    }
+
+    /**
+     * Defect 2. The receiver sits at 2.25 m, inside cascade 0's blend band for a
+     * four-cascade, lambda=0 plan; the 4 cm caster is deeper than the half-slab
+     * bound, so both sampled cascades must block it. The pre-fix shader reused
+     * cascade 0's normalized tolerance for cascade 1 and leaked 0.161987
+     * (about half the 0.328613 baseline) at this exact pixel.
+     */
+    @Test
+    void cascadeBlendBandUsesEachCascadesOwnTolerance() {
+        try (GlfwWindow window = thinWindow()) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = loadEnvironment(device);
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 ShaderProgram shader = forwardShader();
+                 Mesh mesh = thinMesh("thin-transmission-cascade")) {
+                environment.intensity(0.0f);
+                Material thin = thinMaterial(shader, fallbacks, thinProperties(1.0f));
+                Material opaque = opaqueMaterial(shader, fallbacks);
+                try {
+                    // Lambda 0 keeps cascade 0 small and cascade 1 larger, which is
+                    // the worst case for reusing the near tolerance; the four-tile
+                    // atlas has the same layout the forward shader expects.
+                    DirectionalCascadeSettings cascades =
+                            new DirectionalCascadeSettings(4, 1024, 0.0f, 0.25f, 10.0f);
+                    ShadowSettings shadow = shadowSettings(
+                            ContactShadowSettings.disabled(), CloudShadowSettings.disabled());
+                    float[] baseline = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, null, null, new Vector3f(), 2.25f,
+                            shadow, cascades, renderSettings());
+                    float[] inside = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.015f, new Vector3f(),
+                            2.25f, shadow, cascades, renderSettings());
+                    float[] beyond = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.04f, new Vector3f(),
+                            2.25f, shadow, cascades, renderSettings());
+                    float[] distant = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.1f, new Vector3f(),
+                            2.25f, shadow, cascades, renderSettings());
+
+                    assertTrue(centerLuminance(baseline) > 0.31f,
+                            "the blend-band fixture must start from the recorded thin baseline: "
+                                    + centerLuminance(baseline));
+                    assertTrue(centerLuminance(inside) > 0.31f,
+                            "a caster inside the half-slab bound must still transmit: "
+                                    + centerLuminance(inside));
+                    assertTrue(centerLuminance(beyond) < 0.005f,
+                            "a 4 cm caster beyond the half-slab bound must not leak through the "
+                                    + "blend band: " + centerLuminance(beyond));
+                    assertTrue(centerLuminance(distant) < 0.005f,
+                            "a 10 cm caster in the same blend band must fully occlude the thin "
+                                    + "share: " + centerLuminance(distant));
+                    GlDebug.checkError("thin transmission cascade blend band");
+                } finally {
+                    thin.close();
+                    opaque.close();
+                }
+            }
+        }
+    }
+
+    /**
+     * Defect 5/6 bound. The NDC projection is mapped to [0, 1] window depth and
+     * then halved, so the effective pass-through is half the 5 cm material
+     * bound (about 2.5 cm). A 3-4 cm caster must therefore not transmit, while
+     * 2.5 cm still does.
+     */
+    @Test
+    void halfSlabBoundBlocksThreeToFourCentimetreCasters() {
+        try (GlfwWindow window = thinWindow()) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = loadEnvironment(device);
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 ShaderProgram shader = forwardShader();
+                 Mesh mesh = thinMesh("thin-transmission-half-slab-bound")) {
+                environment.intensity(0.0f);
+                Material thin = thinMaterial(shader, fallbacks, thinProperties(1.0f));
+                Material opaque = opaqueMaterial(shader, fallbacks);
+                try {
+                    ShadowSettings shadow = shadowSettings(
+                            ContactShadowSettings.disabled(), CloudShadowSettings.disabled());
+                    float[] boundary = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.025f, new Vector3f(),
+                            3.0f, shadow, DirectionalCascadeSettings.disabled(),
+                            renderSettings());
+                    float[] three = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.03f, new Vector3f(),
+                            3.0f, shadow, DirectionalCascadeSettings.disabled(),
+                            renderSettings());
+                    float[] four = renderBacklitFixture(window, device, environment,
+                            fallbacks, shader, mesh, thin, opaque, -0.04f, new Vector3f(),
+                            3.0f, shadow, DirectionalCascadeSettings.disabled(),
+                            renderSettings());
+                    assertTrue(centerLuminance(boundary) > 0.31f,
+                            "a caster at the 2.5 cm effective bound must still transmit: "
+                                    + centerLuminance(boundary));
+                    assertTrue(centerLuminance(three) < 0.005f,
+                            "a 3 cm caster must not transmit through the half-slab bound: "
+                                    + centerLuminance(three));
+                    assertTrue(centerLuminance(four) < 0.005f,
+                            "a 4 cm caster must not transmit through the half-slab bound: "
+                                    + centerLuminance(four));
+                    GlDebug.checkError("thin transmission half-slab bound");
+                } finally {
+                    thin.close();
+                    opaque.close();
+                }
+            }
+        }
+    }
+
     private static GlfwWindow thinWindow() {
         GlfwWindow window = new GlfwWindow.Builder()
                 .dimensions(WIDTH, HEIGHT)
@@ -323,12 +589,22 @@ class ThinTranslucencyTransmissionShadowGlTest {
     private static float[] execute(GlfwWindow window, GlRenderDevice device,
                                    PbrEnvironment environment, Scene scene,
                                    ShadowSettings shadowSettings) {
-        RenderPipeline pipeline = new RenderPipeline(window, scene, null, renderSettings(),
+        return execute(window, device, environment, scene, shadowSettings,
+                DirectionalCascadeSettings.disabled(), renderSettings());
+    }
+
+    private static float[] execute(GlfwWindow window, GlRenderDevice device,
+                                   PbrEnvironment environment, Scene scene,
+                                   ShadowSettings shadowSettings,
+                                   DirectionalCascadeSettings cascades,
+                                   RenderSettings renderSettings) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null, renderSettings,
                 environment);
         try {
-            pipeline.directionalCascades(DirectionalCascadeSettings.disabled());
+            pipeline.directionalCascades(cascades);
             pipeline.features().submit(pipeline.features().effective().toBuilder()
                     .directionalShadowMap(new DirectionalShadowMap(shadowSettings))
+                    .directionalCascades(cascades)
                     .build());
             pipeline.build();
             pipeline.execute(device);
@@ -338,8 +614,53 @@ class ThinTranslucencyTransmissionShadowGlTest {
         }
     }
 
+    private static ShadowSettings shadowSettings(ContactShadowSettings contact,
+                                                 CloudShadowSettings clouds) {
+        return new ShadowSettings(32, 4.0f, 0.1f, 20.0f, 0.0f, contact, clouds);
+    }
+
+    /**
+     * Two parallel casters model the panel's two faces plus an optional opaque
+     * caster on the light side. The light travels +Z, so the camera at +Z sees
+     * the front face and the -Z face writes the nearer shadow-map depth. The
+     * fixture is translated as a unit when a cloud test needs a specific
+     * world-space cloud field position.
+     */
+    private static float[] renderBacklitFixture(GlfwWindow window, GlRenderDevice device,
+                                                PbrEnvironment environment,
+                                                PbrFallbackTextures fallbacks,
+                                                ShaderProgram shader, Mesh mesh,
+                                                Material panel, Material caster, Float casterZ,
+                                                Vector3f origin, float cameraZ,
+                                                ShadowSettings shadow,
+                                                DirectionalCascadeSettings cascades,
+                                                RenderSettings renderSettings) {
+        Camera camera = new Camera(new Vector3f(origin.x, origin.y, cameraZ));
+        Scene scene = new Scene(camera)
+                .add(SceneObject.fixed(mesh, panel,
+                        new Matrix4f().translate(origin.x, origin.y, origin.z)
+                                .scale(3.0f, 3.0f, 1.0f), true))
+                .add(SceneObject.fixed(mesh, panel,
+                        new Matrix4f().translate(origin.x, origin.y,
+                                        origin.z - PANEL_GAP_METRES)
+                                .scale(3.0f, 3.0f, 1.0f), true))
+                .addLight(SceneLight.shadowedDirectional(new Vector3f(0.0f, 0.0f, 1.0f),
+                        new Vector3f(1.0f), LIGHT_INTENSITY));
+        if (casterZ != null) {
+            scene.add(SceneObject.fixed(mesh, caster,
+                    new Matrix4f().translate(origin.x, origin.y, origin.z + casterZ)
+                            .scale(3.0f, 3.0f, 1.0f), true));
+        }
+        return execute(window, device, environment, scene, shadow, cascades, renderSettings);
+    }
+
     private static RenderSettings renderSettings() {
+        return renderSettings(AntiAliasingMode.NONE);
+    }
+
+    private static RenderSettings renderSettings(AntiAliasingMode antiAliasing) {
         return RenderSettings.builder()
+                .antiAliasingMode(antiAliasing)
                 .toneMappingMode(ToneMappingMode.ACES)
                 .bloomSettings(BloomSettings.disabled())
                 .vsync(false)

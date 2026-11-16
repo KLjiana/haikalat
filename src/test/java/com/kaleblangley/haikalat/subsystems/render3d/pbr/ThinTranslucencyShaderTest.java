@@ -36,7 +36,7 @@ class ThinTranslucencyShaderTest {
     private static final String[] TRANSMISSION_SHADOW_IDENTIFIERS = {
             "THIN_MAX_THICKNESS_METRES", "thinTransmissionWorldThickness",
             "directionalCascadeDepthTolerance", "directionalShadowFactorTransmissive",
-            "gDirectionalShadowDepthTolerance", "thinVisibility"};
+            "gThinTransmissionShadowLookup", "thinVisibility"};
     // GLSL 4.60 reserved keywords that could silently shadow a built-in if a new
     // helper reused one. The check keeps added names out of this set.
     private static final Set<String> GLSL_RESERVED = Set.of(
@@ -175,7 +175,7 @@ class ThinTranslucencyShaderTest {
 
             String thickness = section(source,
                     "float thinTransmissionWorldThickness() {",
-                    "float directionalCascadeDepthTolerance(int cascade");
+                    "float directionalShadowFactorTransmissive(vec3 n, vec3 l)");
             assertTrue(thickness.contains("if (isnan(uThicknessFactor) || isinf(uThicknessFactor))"
                             + " return 0.0;"),
                     label + ": a non-finite thickness must fail closed before the clamp");
@@ -187,7 +187,7 @@ class ThinTranslucencyShaderTest {
                     "float directionalCascadeDepthTolerance(int cascade",
                     "float directionalShadowFactorTransmissive(vec3 n, vec3 l)");
             assertTrue(tolerance.contains("directionalCascadeMatrix(cascade)"),
-                    label + ": the tolerance must use the selected cascade matrix");
+                    label + ": the tolerance must use the sampled cascade's own matrix");
             assertTrue(tolerance.contains("vec4(vWorldPosition, 1.0)"),
                     label + ": the tolerance must project the receiver");
             assertTrue(tolerance.contains(
@@ -195,11 +195,40 @@ class ThinTranslucencyShaderTest {
                     label + ": the tolerance must project the slab toward the light");
             assertTrue(tolerance.contains(
                             "float difference = abs(receiver.z / receiver.w - slab.z / slab.w);"),
-                    label + ": the tolerance is the normalized window-depth extent");
-            assertTrue(tolerance.contains("return clamp(difference * 0.5, 0.0, 0.02);"),
-                    label + ": the tolerance must be clamped to [0, 0.02] normalized depth");
+                    label + ": the tolerance is the normalized device-depth extent");
+            assertTrue(tolerance.contains("return clamp(difference * 0.25, 0.0, 0.02);"),
+                    label + ": NDC is mapped to [0,1] window depth (0.5) and then halved, "
+                            + "so the effective pass-through is half the world thickness");
             assertTrue(tolerance.contains("isnan(difference) || isinf(difference)"),
                     label + ": a non-finite projection must fail closed");
+
+            String pcf = section(source, "float sampleDirectionalCascade(int cascade",
+                    "float sampleDirectionalCascadePcss(int cascade");
+            String pcss = section(source, "float sampleDirectionalCascadePcss(int cascade",
+                    "float sampleDirectionalShadow(int cascade");
+            for (String[] sampled : new String[][]{{"PCF", pcf}, {"PCSS", pcss}}) {
+                assertTrue(sampled[1].contains("float depthTolerance = 0.0;"),
+                        label + ": " + sampled[0] + " must default the tolerance to zero");
+                assertTrue(sampled[1].contains(
+                                "if (gThinTransmissionShadowLookup > 0.0) {"),
+                        label + ": " + sampled[0] + " must only derive the tolerance when the "
+                                + "transmissive invocation raised the world thickness");
+                assertTrue(sampled[1].contains(
+                                "depthTolerance = directionalCascadeDepthTolerance(\n"
+                                        + "                cascade, l, gThinTransmissionShadowLookup);"),
+                        label + ": " + sampled[0] + " must convert the thickness with the "
+                                + "cascade it is actually sampling");
+            }
+            assertEquals(1, occurrences(pcf,
+                            "for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y)"),
+                    label + ": the legacy 5x5 PCF loop bound must stay identical");
+            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_BLOCKER_TAPS; ++tap)"),
+                    label + ": the PCSS blocker loop bound must stay identical");
+            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_FILTER_TAPS; ++tap)"),
+                    label + ": the PCSS filter loop bound must stay identical");
+            assertEquals(2, occurrences(source, "+ depthTolerance"),
+                    label + ": exactly the PCF and PCSS comparison references take the "
+                            + "per-cascade tolerance");
 
             String transmissive = section(source,
                     "float directionalShadowFactorTransmissive(vec3 n, vec3 l)",
@@ -208,29 +237,16 @@ class ThinTranslucencyShaderTest {
                             "if (uHasDirectionalShadow == 0 || uDirectionalCascadeCount <= 0)"
                                     + " return 0.0;"),
                     label + ": no directional shadow/cascade must return a fully lit factor");
-            assertTrue(transmissive.contains(
-                            "directionalCascadeDepthTolerance("),
-                    label + ": the transmissive factor must derive the tolerance");
-            assertTrue(transmissive.contains("gDirectionalShadowDepthTolerance = tolerance;")
-                            && transmissive.contains("gDirectionalShadowDepthTolerance = 0.0;"),
-                    label + ": the extra bias may only be raised around one shadow lookup");
+            assertTrue(transmissive.contains("float previous = gThinTransmissionShadowLookup;")
+                            && transmissive.contains(
+                                    "gThinTransmissionShadowLookup = worldThickness;")
+                            && transmissive.contains("gThinTransmissionShadowLookup = previous;"),
+                    label + ": the world thickness must be saved, raised for one lookup and "
+                            + "restored, not hard-zeroed");
             assertTrue(transmissive.contains("float factor = directionalShadowFactor(n, l);"),
                     label + ": the same PCF/PCSS selection must produce the transmissive factor");
-            // The exact lookup keeps its call sites; only the comparison bias
-            // gains the tolerance when the transmissive wrapper raises it.
-            assertEquals(2, occurrences(source, "+ gDirectionalShadowDepthTolerance"),
-                    label + ": exactly the PCF and PCSS comparison references take the extra bias");
-            String pcf = section(source, "float sampleDirectionalCascade(int cascade",
-                    "float sampleDirectionalCascadePcss(int cascade");
-            String pcss = section(source, "float sampleDirectionalCascadePcss(int cascade",
-                    "float sampleDirectionalShadow(int cascade");
-            assertEquals(1, occurrences(pcf,
-                            "for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y)"),
-                    label + ": the legacy 5x5 PCF loop bound must stay identical");
-            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_BLOCKER_TAPS; ++tap)"),
-                    label + ": the PCSS blocker loop bound must stay identical");
-            assertEquals(1, occurrences(pcss, "for (int tap = 0; tap < PCSS_MAX_FILTER_TAPS; ++tap)"),
-                    label + ": the PCSS filter loop bound must stay identical");
+            assertFalse(source.contains("gDirectionalShadowDepthTolerance"),
+                    label + ": the old cross-cascade normalized tolerance global must be gone");
 
             String directional = section(source, "vec3 directionalRadiance(int index",
                     "vec3 localRadiance(int index");
@@ -250,9 +266,72 @@ class ThinTranslucencyShaderTest {
                     label + ": the thin share uses the transmissive visibility");
             assertTrue(directional.contains("visibility = 1.0 - directionalShadowFactor(n, l);"),
                     label + ": the direct term must keep the exact visibility");
-            // Five uses: declaration, PCF bias, PCSS bias, raise, reset.
-            assertEquals(5, countIdentifier(source, "gDirectionalShadowDepthTolerance"),
-                    label + ": the tolerance global must have exactly one writer pair");
+            // Nine uses: declaration, gated sample and thickness argument in both
+            // the PCF and PCSS paths, one Javadoc reference, and the save/raise/
+            // restore pair in the wrapper.
+            assertEquals(9, countIdentifier(source, "gThinTransmissionShadowLookup"),
+                    label + ": the world-thickness global must have one invocation writer pair");
+        }
+    }
+
+    @Test
+    void thinBacklightShareReevaluatesCloudAndContactForTheLightFacingSide() throws IOException {
+        for (String path : SHADER_PATHS) {
+            String source = resource(path);
+            String label = path.substring(path.lastIndexOf('/') + 1);
+            String directional = section(source, "vec3 directionalRadiance(int index",
+                    "vec3 localRadiance(int index");
+            String local = section(source, "vec3 localRadiance(int index", "int resolveCluster()");
+
+            // The exact direct-light visibility keeps its original arithmetic and
+            // operation order. The cloud and contact samples on the shading normal
+            // are unchanged; a backlit face is neutral there (0 and 1).
+            int exactShadow = directional.indexOf(
+                    "visibility = 1.0 - directionalShadowFactor(n, l);");
+            int exactContact = directional.indexOf(
+                    "float contact = directionalContactShadow(n, l) * visibility;");
+            int exactClamp = directional.indexOf(
+                    "visibility = max(visibility - contact, 0.0);");
+            int exactCloud = directional.indexOf(
+                    "visibility *= cloudShadowVisibility(n, l);");
+            assertTrue(exactShadow > 0, label + ": missing exact shadow visibility");
+            assertTrue(exactContact > exactShadow,
+                    label + ": the exact contact term must still sample after the exact shadow");
+            assertTrue(exactClamp > exactContact,
+                    label + ": the exact contact subtraction must stay in place");
+            assertTrue(exactCloud > exactClamp,
+                    label + ": the exact cloud multiplication must stay in place");
+
+            int legacyReturn = directional.indexOf("return visibility * base;");
+            assertTrue(legacyReturn > exactCloud,
+                    label + ": the zero-thin legacy return must follow the exact visibility block");
+            int transmissive = directional.indexOf(
+                    "thinVisibility = 1.0 - directionalShadowFactorTransmissive(n, l);");
+            int thinContact = directional.indexOf(
+                    "thinVisibility *= 1.0 - directionalContactShadow(-n, l);");
+            int thinCloud = directional.indexOf(
+                    "thinVisibility *= cloudShadowVisibility(-n, l);");
+            int thinReturn = directional.indexOf(
+                    "return visibility * (base - thin) + thinVisibility * thin;");
+            assertTrue(transmissive > legacyReturn,
+                    label + ": only the recombined thin share may re-evaluate the shadow");
+            assertTrue(thinContact > transmissive,
+                    label + ": the material contact term must attenuate the thin share");
+            assertTrue(thinCloud > thinContact,
+                    label + ": the cloud term must attenuate the thin share");
+            assertTrue(thinReturn > thinCloud,
+                    label + ": the attenuated thin share must feed the recombination");
+            // The light travels through the panel toward the camera, so the
+            // backlight terms are evaluated for the light-facing side. The exact
+            // visibility above keeps the shading-normal orientation.
+            assertEquals(1, occurrences(directional, "directionalContactShadow(-n, l)"),
+                    label + ": exactly one light-facing contact evaluation for the thin share");
+            assertEquals(1, occurrences(directional, "cloudShadowVisibility(-n, l)"),
+                    label + ": exactly one light-facing cloud evaluation for the thin share");
+            assertEquals(0, occurrences(local, "thinVisibility"),
+                    label + ": local point/spot lights must not recombine the thin share");
+            assertEquals(0, occurrences(local, "directionalContactShadow(-n, l)"),
+                    label + ": local lights must not consume the light-facing contact term");
         }
     }
 
