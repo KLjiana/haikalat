@@ -82,7 +82,9 @@ class ScreenSpaceContactShadowsGlTest {
             };
             uniform mat4 uModel;
             void main() {
-                gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+                // Keep the shared-depth contract order: world first, then P*V.
+                vec4 world = uModel * vec4(aPos, 1.0);
+                gl_Position = uProjection * uView * world;
             }
             """;
     private static final String FLOOR_FRAGMENT = """

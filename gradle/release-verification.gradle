@@ -307,7 +307,7 @@ tasks.register('releaseVerificationContracts') {
         // particle-indirect and VFX sampler policies, the S6 interaction-matrix
         // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
         // transmission-shadow cold-link policy.
-        assert policies.size() == 67
+        assert policies.size() == 68
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -316,6 +316,13 @@ tasks.register('releaseVerificationContracts') {
         assert contactShadowPolicy != null && contactShadowPolicy.id == 131218
         assert contactShadowPolicy.maximum == 4
         assert contactShadowPolicy.entry.contains('ContactShadowsGlTest')
+        def contactCombinationPolicy =
+                policies.find { it.owner == 'render3d/contact-shadow-combinations' }
+        assert contactCombinationPolicy != null && contactCombinationPolicy.id == 131218
+        assert contactCombinationPolicy.maximum == 4
+        assert contactCombinationPolicy.entry ==
+                '.*ScreenSpaceContactShadowCompositionGlTest.*'
+        assert contactCombinationPolicy.expiry == LocalDate.of(2027, 5, 16)
         def cloudShadowPolicy = policies.find { it.owner == 'render3d/cloud-shadows' }
         assert cloudShadowPolicy != null && cloudShadowPolicy.id == 131218
         assert cloudShadowPolicy.maximum == 4

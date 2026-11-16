@@ -133,6 +133,8 @@ def glCases = [
         'VignettePassGlTest',
         'ContactShadowsGlTest',
         'ScreenSpaceContactShadowsGlTest',
+        'ScreenSpaceContactShadowTaaResizeGlTest',
+        'ScreenSpaceContactShadowCompositionGlTest',
         'CloudShadowsGlTest',
         'PcssGlTest',
         'ScreenDistortionPassGlTest',

@@ -5233,11 +5233,15 @@ public final class RenderPipeline {
                 throw new IllegalStateException(
                         "screen-space contact shadows require a prepared temporal frame state");
             }
-            SceneLight light = firstDirectionalLight();
-            if (light == null) {
-                throw new IllegalStateException(
-                        "screen-space contact shadows require a directional light");
-            }
+            // The pass must march toward the light that owns the frame's
+            // directional shadow map, not merely the first directional light in
+            // scene order: the forward material term applies the contact factor
+            // only to uDirectionalShadowFrameLightIndex, and a multi-light scene
+            // may select a different directional light than the first one.
+            ShadowFramePlan.DirectionalPlan plan = shadowFramePlan().directional()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "screen-space contact shadows require a selected directional shadow light"));
+            SceneLight light = plan.entry().light();
             Framebuffer source = res.framebufferOfPass(colorSourcePass);
             Framebuffer target = res.currentTarget();
             if (source == null || target == null) {
