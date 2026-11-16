@@ -21,7 +21,7 @@
   "integration": {
     "branch": "codex/render-roadmap-integration-lf",
     "worktree": "D:/project/Java/learnopengl-worktrees/integration2",
-    "head": "a7ec24ac"
+    "head": "144e73a0"
   },
   "gpuQueue": {
     "state": "IDLE",
@@ -29,7 +29,7 @@
     "taskId": null,
     "startedAt": null
   },
-  "updatedAt": "2026-11-16T11:12:48+08:00",
+  "updatedAt": "2026-11-16T12:31:55+08:00",
   "tasks": [
     {
       "taskId": "B0-M",
@@ -1742,7 +1742,8 @@
     "structure-review regressions: test-only failSubmissionAfterPass injection; DDGI first-submit recovery reinitializes the sentinel atlas, VCT recovery full rebuild, SSR jitter reference exposes and fixes the view-composition bug; focused verification 39dc5b56 (1346 tests, 0 skipped, 0 failures)",
     "S4/S5 wiring: water refraction main path (copy pass + combined water record, fail-closed combos) and temporal upscaling source lifecycle (initial/replacement/resize, unavailable without source); focused verification cfa3fd6e PASS",
     "S6/S7 signal contracts integrated (11b0fcaa) and shader oracles resynced (9dddc9bc); focused verification 5413ef66 PASS 1371 tests, 0 skipped, 0 failures",
-    "hair+TAA invalidation (model/settings/feature paths, appended reasons, GL ghost regression) and decal alphaMask/MSAA/TAA/shadow boundaries integrated; focused verification bf3d6b67 PASS"
+    "hair+TAA invalidation (model/settings/feature paths, appended reasons, GL ghost regression) and decal alphaMask/MSAA/TAA/shadow boundaries integrated; focused verification bf3d6b67 PASS",
+    "S6 expanded matrix (8 real-GL cases, 8/8) integrated; focused verification f678b463 PASS"
   ],
   "b0": {
     "state": "INTEGRATED_WITH_SCOPE_NOTE",
