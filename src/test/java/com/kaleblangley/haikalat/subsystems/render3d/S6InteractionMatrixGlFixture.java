@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
@@ -167,6 +168,22 @@ final class S6InteractionMatrixGlFixture {
                 + " count=" + count);
     }
 
+    /** Emits a non-count diagnostic row (for example a documented unsupported combination). */
+    static void report(String group, String fact, String value) {
+        System.out.println("S6-MATRIX-DIAG group=" + group + " fact=" + fact
+                + " value=" + value);
+    }
+
+    /**
+     * Requires that every resource created inside the current tracking lease was
+     * released. Call after closing the pipeline and every owned fixture resource.
+     */
+    static void requireNoLiveResources(String label) {
+        var live = GlDebug.resources().liveResources();
+        assertTrue(live.isEmpty(), label + " must release every tracked GL resource, live="
+                + live);
+    }
+
     /**
      * Reads the presented LDR back buffer. SMAA is an AA mode applied after
      * tone mapping, so its pixels are only visible here, not in the linear HDR
@@ -209,6 +226,16 @@ final class S6InteractionMatrixGlFixture {
         }
         assertTrue(changed > 0, message + ": the two presented captures are byte-identical");
         report("camera", "smaaPresentedChangedBytes", changed);
+    }
+
+    /** Counts differing bytes between two presented LDR captures. */
+    static int differingBytes(byte[] left, byte[] right) {
+        assertEquals(left.length, right.length, "presented captures must share one extent");
+        int changed = 0;
+        for (int index = 0; index < left.length; index++) {
+            if (left[index] != right[index]) changed++;
+        }
+        return changed;
     }
 
     static float luminance(float[] rgba, int pixel) {
