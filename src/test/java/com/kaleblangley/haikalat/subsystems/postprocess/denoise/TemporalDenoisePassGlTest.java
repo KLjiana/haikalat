@@ -691,14 +691,17 @@ class TemporalDenoisePassGlTest {
                 assertEquals(java.util.List.of(PostProcessTargets.GEOMETRY_PASS,
                                 PostProcessTargets.SSR_PASS,
                                 PostProcessTargets.TEMPORAL_DENOISE_PASS,
+                                PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_PASS,
                                 PostProcessTargets.TONE_MAPPING_PASS,
                                 PostProcessTargets.PRESENT_PASS),
                         graph.description().executionOrder(),
-                        "the denoiser must run after SSR and before tone mapping");
+                        "the denoiser must resolve the reflection contribution and composite it "
+                                + "over the base before tone mapping");
                 assertTrue(graph.hasPass(PostProcessTargets.TEMPORAL_DENOISE_PASS));
-                assertEquals(PostProcessTargets.TEMPORAL_DENOISE_COLOR,
+                assertTrue(graph.hasPass(PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_PASS));
+                assertEquals(PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_COLOR,
                         pipeline.linearHdrTextureName(),
-                        "the HDR capture and downstream effects must see the denoised colour");
+                        "the HDR capture and downstream effects must see the composited colour");
             }
 
             assertThrows(IllegalArgumentException.class,

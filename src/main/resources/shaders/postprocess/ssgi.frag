@@ -138,18 +138,19 @@ float sampleRoughnessWeight(float roughness) {
 
 void main() {
     vec2 uv = gl_FragCoord.xy / uViewportSize;
-    vec3 base = texture(uColor, uv).rgb;
+    vec4 baseSample = texture(uColor, uv);
+    vec3 base = baseSample.rgb;
     float depth = fetchPixel(uDepth, uv).r;
 
     // Background pixels are not receivers: the pass is an exact no-op there.
     if (depth >= 1.0) {
-        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, 1.0);
+        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
         return;
     }
 
     vec3 albedo = clamp(fetchPixel(uAlbedo, uv).rgb, 0.0, 1.0);
     if (albedo.r + albedo.g + albedo.b <= 0.0) {
-        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, 1.0);
+        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
         return;
     }
     vec3 normal = octDecode(fetchPixel(uNormal, uv).rg);
@@ -243,8 +244,8 @@ void main() {
     }
     vec3 result = base + added;
     if (any(isnan(result)) || any(isinf(result))) {
-        FragColor = vec4(base, 1.0);
+        FragColor = vec4(base, baseSample.a);
         return;
     }
-    FragColor = vec4(result, 1.0);
+    FragColor = vec4(result, baseSample.a);
 }

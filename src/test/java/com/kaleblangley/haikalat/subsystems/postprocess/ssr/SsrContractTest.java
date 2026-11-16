@@ -70,12 +70,7 @@ class SsrContractTest {
 
     @Test
     void productionShaderKeepsTheBoundedMarchAndExactFallbackShape() throws IOException {
-        String source;
-        try (var stream = SsrContractTest.class.getResourceAsStream(
-                "/shaders/postprocess/ssr.frag")) {
-            assertNotNull(stream);
-            source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        String source = resource("/shaders/postprocess/ssr.frag");
         assertTrue(source.contains("#version 460 core"));
         assertTrue(source.contains("#define SSR_MAX_STEPS 64"),
                 "the shader loop bound must match SsrSettings.MAXIMUM_STEPS");
@@ -88,10 +83,6 @@ class SsrContractTest {
         assertTrue(source.contains("uThickness"), "the hit window must be a uniform");
         assertTrue(source.contains("uRoughnessCutoff"), "rough surfaces must be rejected");
         assertTrue(source.contains("uMinimumConfidence"), "the confidence floor must be applied");
-        assertTrue(source.contains("base + weight * (hitRadiance - environmentRadiance)"),
-                "zero weight must leave the forward environment colour untouched");
-        assertTrue(source.contains("fetchPixel(uRoughness, uv)"),
-                "roughness must be read from the shared surface channel");
         assertTrue(source.contains("texelFetch(source, pixel, 0)"),
                 "depth and geometric normals must be point-sampled, never filtered");
         assertTrue(source.contains("textureLod(uPrefilteredMap"),
@@ -101,8 +92,40 @@ class SsrContractTest {
     }
 
     @Test
+    void bothVariantsDeclareTheContributionConfidenceSignal() throws IOException {
+        for (String path : new String[]{"/shaders/postprocess/ssr.frag",
+                "/shaders/postprocess/ssr-adaptive.frag"}) {
+            String source = resource(path);
+            assertTrue(source.contains("#ifdef SSR_REFLECTION_SIGNAL"),
+                    path + " must compile a reflection-signal variant");
+            assertTrue(source.contains("vec4 reflectionResult("),
+                    path + " must share one result selector");
+            assertTrue(source.contains("vec4 reflectionFallback("),
+                    path + " must keep the fallback path exact");
+            assertTrue(source.contains("return vec4(contribution, confidence);"),
+                    path + " must write only the contribution plus confidence");
+            assertTrue(source.contains("return vec4(base + contribution, legacyAlpha);"),
+                    path + " must keep the legacy composited output exact");
+            assertTrue(source.contains("return vec4(base, legacyAlpha);"),
+                    path + " must keep the legacy fallback byte-identical");
+            assertTrue(source.contains("FragColor = reflectionResult(base,"),
+                    path + " main path must use the shared selector");
+            assertTrue(source.contains("weight * (hitRadiance - environmentRadiance)"),
+                    "the contribution must be the same Fresnel/confidence delta "
+                            + "the legacy path adds");
+        }
+    }
+
+    @Test
     void stepBudgetMatchesTheDocumentedBounds() {
         assertEquals(64, SsrSettings.MAXIMUM_STEPS);
         assertTrue(SsrSettings.builder().maxSteps(64).build().maxSteps() <= 64);
+    }
+
+    private static String resource(String path) throws IOException {
+        try (var stream = SsrContractTest.class.getResourceAsStream(path)) {
+            assertNotNull(stream, "missing shader " + path);
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }

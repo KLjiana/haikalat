@@ -5485,6 +5485,13 @@ public final class RenderPipeline {
                 shadowFramePlan(), lastDirectionalLightSpaceMatrix, lastDirectionalCascadeMatrices,
                 lastDirectionalCascadeSplits, clusterDebugMode, shadowTexture, pointShadowTexture,
                 spotShadowTexture, gtaoTexture);
+        // The HDR alpha carries the bounded subsurface diffuse share only while
+        // the shared SUBSURFACE mask is allocated. With the pass disabled the
+        // uniform stays zero and the forward shader keeps its original alpha.
+        boolean subsurfaceDiffuseSignal = requireGeneration().topology().sceneBuffers()
+                .requires(SceneBufferChannel.SUBSURFACE);
+        cmd.trySetUniformInt(shader, "uSubsurfaceDiffuseSignal",
+                subsurfaceDiffuseSignal ? 1 : 0);
     }
 
     private void validatePbrVertexLayouts(Scene candidateScene) {

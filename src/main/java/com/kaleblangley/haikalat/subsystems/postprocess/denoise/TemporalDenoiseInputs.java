@@ -31,6 +31,13 @@ import java.util.Objects;
  * next frame's reprojection matrix after a successful commit.
  * {@code jitterUvX/Y} is the current TAA UV jitter; the pass remembers it and
  * converts both reprojection modes back to the previous jittered raster.</p>
+ *
+ * <p>{@code noisyColorTexture} must carry the noisy signal itself, not scene
+ * colour: for the SSR binding it is the bounded reflection contribution in RGB
+ * and the usable hit confidence in alpha. A zero alpha is an exact zero
+ * contribution and rejects history; the caller composites
+ * {@code base + contribution} through
+ * {@code TemporalDenoisePass.recordComposite(...)}.</p>
  */
 public record TemporalDenoiseInputs(
         int noisyColorTexture,

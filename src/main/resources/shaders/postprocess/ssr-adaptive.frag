@@ -38,6 +38,32 @@
 in vec2 vUv;
 layout(location = 0) out vec4 FragColor;
 
+// One shared output selector for the fixed and adaptive SSR variants; keep the
+// two files in sync. Legacy mode writes the composited colour exactly as
+// before. `SSR_REFLECTION_SIGNAL` writes only the bounded reflection
+// contribution plus the post-floor hit confidence in alpha, so the temporal
+// denoiser never sees unrelated scene colour and a later composite uses
+// `base + contribution`. A zero confidence means the contribution is exactly
+// zero and the base colour must stay byte-identical.
+vec4 reflectionResult(vec3 base, vec3 contribution, float confidence,
+                      float legacyAlpha) {
+#ifdef SSR_REFLECTION_SIGNAL
+    return vec4(contribution, confidence);
+#else
+    return vec4(base + contribution, legacyAlpha);
+#endif
+}
+
+// Paths that keep the environment/IBL fallback untouched. In signal mode this
+// is the exact zero contribution, so the composite is the base colour.
+vec4 reflectionFallback(vec3 base, float legacyAlpha) {
+#ifdef SSR_REFLECTION_SIGNAL
+    return vec4(0.0);
+#else
+    return vec4(base, legacyAlpha);
+#endif
+}
+
 uniform sampler2D uColor;
 uniform sampler2D uDepth;
 uniform sampler2D uNormal;
@@ -286,7 +312,7 @@ void main() {
 
     // Background pixels and sky have no reflecting surface.
     if (depth >= 1.0 || uEnvironmentAvailable == 0) {
-        FragColor = vec4(base, 1.0);
+        FragColor = reflectionFallback(base, 1.0);
         return;
     }
 
@@ -302,7 +328,7 @@ void main() {
     // Rough, backfacing and grazing surfaces keep the existing environment
     // reflection instead of a screen-space probe.
     if (roughness > uRoughnessCutoff || nDotV <= 0.05) {
-        FragColor = vec4(base, 1.0);
+        FragColor = reflectionFallback(base, 1.0);
         return;
     }
 
@@ -389,7 +415,10 @@ void main() {
     float weight = uStrength * fresnelSchlickRoughness(nDotV, 0.04, roughness)
             * hitWeight;
     // Where the hit weight is zero this is exactly the input colour: the
-    // forward IBL specular term remains the environment fallback.
-    FragColor = vec4(base + weight * (hitRadiance - environmentRadiance),
+    // forward IBL specular term remains the environment fallback. In signal
+    // mode the contribution is the exact delta the legacy path would add and
+    // alpha carries the post-floor usable confidence.
+    FragColor = reflectionResult(base,
+            weight * (hitRadiance - environmentRadiance), hitWeight,
             uBudgetDebug != 0 ? float(budget) / float(ceilingSteps) : 1.0);
 }

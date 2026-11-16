@@ -595,7 +595,12 @@ public final class PbrMaterials {
                 .setInt("uSubsurfaceProfile", subsurface.profile().shaderIndex())
                 .setFloat("uSubsurfaceProfileScale", subsurface.profileScaleMetres())
                 .setInt("uSubsurfaceThicknessSource", subsurface.thicknessSource().shaderIndex())
-                .setFloat("uSubsurfaceThickness", subsurface.thicknessMetres());
+                .setFloat("uSubsurfaceThickness", subsurface.thicknessMetres())
+                // Consumed by the forward shader only to decide whether the
+                // material writes the bounded diffuse-share signal into the
+                // HDR alpha; the mask producer uses the same value.
+                .setInt("uSubsurfaceScreenSpace",
+                        subsurface.screenSpaceEnabled() ? 1 : 0);
     }
 
     /**

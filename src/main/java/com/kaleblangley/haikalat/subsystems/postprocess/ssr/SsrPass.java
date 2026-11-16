@@ -24,14 +24,18 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * surface attachments and owns no history, so the spatial result can later be
  * denoised by the temporal feature without a second signal owner.</p>
  *
- * <p>Two shader variants share the same input/output contract.  The fixed
+ * <p>Two shader sources share the same input/output contract: the fixed
  * {@code ssr.frag} program is used whenever {@link AdaptiveSamplingSettings} is
  * disabled (the exact no-op value) and is also the fixed-budget control of the
  * adaptive feature.  The adaptive {@code ssr-adaptive.frag} program is compiled
  * only when the request is active; it measures a per-tile variance and a
  * per-pixel coarse-march residual and spends a bounded step budget derived from
  * them.  Both variants keep the environment/IBL fallback, the confidence floor
- * and the same target, so the surrounding colour chain is unchanged.</p>
+ * and the same target, so the surrounding colour chain is unchanged.  An
+ * optional {@code SSR_REFLECTION_SIGNAL} compile variant of either source
+ * writes only the bounded reflection contribution plus the usable hit
+ * confidence in alpha for the temporal denoiser; the default constructors keep
+ * the legacy composited output byte-for-byte.</p>
  *
  * <p>Camera facts arrive as matrices: {@code inverseProjection} is the inverse
  * of the raster projection (jitter included when TAA is active, because depth
@@ -45,44 +49,86 @@ public final class SsrPass implements GlResource {
     /** Environment cubemap texture unit. */
     public static final int ENVIRONMENT_UNIT = 4;
 
+    /** GLSL marker the signal variant requires in the shared fragment source. */
+    private static final String REFLECTION_SIGNAL_MARKER = "SSR_REFLECTION_SIGNAL";
+    /** Compile-time prelude that selects the contribution/confidence output. */
+    private static final String REFLECTION_SIGNAL_PRELUDE =
+            "#define SSR_REFLECTION_SIGNAL 1";
+
     private final SsrSettings settings;
     private final AdaptiveSamplingSettings adaptiveSettings;
+    private final boolean reflectionSignal;
     private final ShaderProgram program;
     private final ShaderProgram adaptiveProgram;
+    private final ShaderProgram signalProgram;
+    private final ShaderProgram signalAdaptiveProgram;
     private final ScreenQuad quad;
     private boolean closed;
 
     public SsrPass(SsrSettings settings) {
-        this(settings, AdaptiveSamplingSettings.disabled());
+        this(settings, AdaptiveSamplingSettings.disabled(), false);
     }
 
     public SsrPass(SsrSettings settings, AdaptiveSamplingSettings adaptiveSettings) {
+        this(settings, adaptiveSettings, false);
+    }
+
+    /**
+     * Creates the reflection pass, optionally selecting the contribution /
+     * confidence signal contract instead of the legacy composited colour.
+     *
+     * <p>The signal variant is compiled with
+     * {@code SSR_REFLECTION_SIGNAL}: it writes
+     * {@code strength * Fresnel * hitWeight * (hitRadiance - environment)}
+     * into RGB and the post-floor usable hit confidence into alpha. Zero
+     * confidence therefore means the exact zero contribution, so a caller can
+     * composite {@code base + contribution} and keep base-colour regions
+     * byte-identical. The pass object otherwise keeps the same inputs, target
+     * and resource lifecycle; the legacy constructor pair is unchanged.</p>
+     */
+    public SsrPass(SsrSettings settings, AdaptiveSamplingSettings adaptiveSettings,
+                   boolean reflectionSignal) {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.adaptiveSettings = Objects.requireNonNull(adaptiveSettings, "adaptiveSettings");
+        this.reflectionSignal = reflectionSignal;
         if (!settings.active()) {
             throw new IllegalArgumentException("SsrPass requires active screen-space reflections");
         }
         ShaderProgram createdProgram = null;
         ShaderProgram createdAdaptiveProgram = null;
+        ShaderProgram createdSignalProgram = null;
+        ShaderProgram createdSignalAdaptiveProgram = null;
         ScreenQuad createdQuad = null;
         try {
             createdProgram = ShaderProgram.fromResource(SsrPass.class,
                     "/shaders/postprocess/screen-quad.vert",
                     "/shaders/postprocess/ssr.frag");
+            if (reflectionSignal) {
+                createdSignalProgram = createdProgram.withFragmentPrelude(
+                        REFLECTION_SIGNAL_MARKER, REFLECTION_SIGNAL_PRELUDE);
+            }
             if (adaptiveSettings.active()) {
                 createdAdaptiveProgram = ShaderProgram.fromResource(SsrPass.class,
                         "/shaders/postprocess/screen-quad.vert",
                         "/shaders/postprocess/ssr-adaptive.frag");
+                if (reflectionSignal) {
+                    createdSignalAdaptiveProgram = createdAdaptiveProgram.withFragmentPrelude(
+                            REFLECTION_SIGNAL_MARKER, REFLECTION_SIGNAL_PRELUDE);
+                }
             }
             createdQuad = new ScreenQuad();
         } catch (RuntimeException failure) {
             closeSuppressed(createdQuad, failure);
+            closeSuppressed(createdSignalAdaptiveProgram, failure);
+            closeSuppressed(createdSignalProgram, failure);
             closeSuppressed(createdAdaptiveProgram, failure);
             closeSuppressed(createdProgram, failure);
             throw failure;
         }
         program = createdProgram;
         adaptiveProgram = createdAdaptiveProgram;
+        signalProgram = createdSignalProgram;
+        signalAdaptiveProgram = createdSignalAdaptiveProgram;
         quad = createdQuad;
     }
 
@@ -93,6 +139,18 @@ public final class SsrPass implements GlResource {
     /** @return the adaptive-budget request; {@code disabled()} for the fixed path */
     public AdaptiveSamplingSettings adaptiveSettings() {
         return adaptiveSettings;
+    }
+
+    /** @return true when the pass writes the contribution/confidence signal */
+    public boolean reflectionSignal() {
+        return reflectionSignal;
+    }
+
+    private ShaderProgram activeProgram() {
+        if (adaptiveSettings.active()) {
+            return reflectionSignal ? signalAdaptiveProgram : adaptiveProgram;
+        }
+        return reflectionSignal ? signalProgram : program;
     }
 
     /**
@@ -162,7 +220,12 @@ public final class SsrPass implements GlResource {
             throw new IllegalArgumentException(
                     "budget diagnostics require an active adaptive-sampling request");
         }
-        ShaderProgram active = adaptiveSettings.active() ? adaptiveProgram : program;
+        if (exposeBudgetInAlpha && reflectionSignal) {
+            throw new IllegalArgumentException(
+                    "budget diagnostics cannot share the alpha channel with the reflection "
+                            + "confidence signal");
+        }
+        ShaderProgram active = activeProgram();
         cmd.enableBlend(false)
                 .enableDepthTest(false)
                 .enableCullFace(false)
@@ -197,8 +260,13 @@ public final class SsrPass implements GlResource {
                     .setUniformFloat(active, "uScreenStepScalePixels",
                             adaptiveSettings.screenStepScalePixels())
                     .setUniformFloat(active, "uDepthJumpScale",
-                            adaptiveSettings.depthJumpScale())
-                    .setUniformInt(active, "uBudgetDebug", exposeBudgetInAlpha ? 1 : 0);
+                            adaptiveSettings.depthJumpScale());
+            // The reflection-signal variant does not read the debug alpha, so
+            // GLSL drops the uniform from that program; skip the upload there
+            // instead of failing on a missing location.
+            if (!reflectionSignal) {
+                cmd.setUniformInt(active, "uBudgetDebug", exposeBudgetInAlpha ? 1 : 0);
+            }
         } else {
             cmd.setUniformInt(active, "uStepCount", settings.maxSteps());
         }
@@ -223,7 +291,7 @@ public final class SsrPass implements GlResource {
 
     @Override
     public int id() {
-        return adaptiveSettings.active() ? adaptiveProgram.id() : program.id();
+        return activeProgram().id();
     }
 
     @Override
@@ -249,6 +317,22 @@ public final class SsrPass implements GlResource {
         if (adaptiveProgram != null) {
             try {
                 adaptiveProgram.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
+        }
+        if (signalProgram != null) {
+            try {
+                signalProgram.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
+        }
+        if (signalAdaptiveProgram != null) {
+            try {
+                signalAdaptiveProgram.close();
             } catch (RuntimeException closeFailure) {
                 if (failure == null) failure = closeFailure;
                 else failure.addSuppressed(closeFailure);

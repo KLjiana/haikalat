@@ -88,6 +88,18 @@ public final class SceneBufferRequirements {
     }
 
     /**
+     * The temporal denoiser consumes the frozen single-sample velocity and the
+     * previous-surface depth for its rigid-motion reprojection contract. The
+     * colour chain falls back to the previous-stable-view-projection mode when
+     * the topology cannot provide them, but requesting them here makes the
+     * motion path structural for the production graph.
+     */
+    public static SceneBufferRequirements temporalDenoise() {
+        return of(SceneBufferChannel.VELOCITY,
+                SceneBufferChannel.PREVIOUS_SURFACE_DEPTH);
+    }
+
+    /**
      * Screen-space indirect diffuse needs depth and world normals for the
      * hemisphere march, the hit roughness gate and the receiver albedo weight.
      * The temporal variant additionally reprojects its history through the

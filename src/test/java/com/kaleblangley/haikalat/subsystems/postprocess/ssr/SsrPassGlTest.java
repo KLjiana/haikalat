@@ -157,6 +157,121 @@ class SsrPassGlTest {
     }
 
     @Test
+    void reflectionSignalIsTheExactLegacyDeltaAndZeroOnFallback() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
+                .title("SSR Reflection Signal GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                    "/environments/pbr/studio-small.hdr",
+                    PbrEnvironmentSettings.testQuality());
+                 Sampler cubeSampler = Sampler.create(new Sampler.Descriptor(
+                         GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR,
+                         GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE))) {
+                SsrEnvironmentSource source = environment(environment, cubeSampler);
+                Fixture fixture = fixture();
+                float[] legacy = render(device, fixture.colour(), fixture.depth(),
+                        fixture.normal(), fixture.roughness(), SETTINGS, source, false);
+                float[] signal = render(device, fixture.colour(), fixture.depth(),
+                        fixture.normal(), fixture.roughness(), SETTINGS, source, true);
+
+                int exposed = 0;
+                int fallback = 0;
+                for (int index = 0; index < SIZE * SIZE; index++) {
+                    int offset = index * 4;
+                    float confidence = signal[offset + 3];
+                    assertTrue(confidence >= 0.0f && confidence <= 1.0f,
+                            "the confidence must stay bounded at pixel " + index);
+                    if (confidence == 0.0f) {
+                        fallback++;
+                        // Exact legacy fallback and the exact zero contribution.
+                        assertEquals(0.0f, signal[offset], 0.0f,
+                                "a zero-confidence pixel must write zero contribution");
+                        assertEquals(0.0f, signal[offset + 1], 0.0f);
+                        assertEquals(0.0f, signal[offset + 2], 0.0f);
+                        assertEquals(fixture.colour()[offset], legacy[offset], 0.0f,
+                                "the legacy fallback must be byte-identical at pixel "
+                                        + index);
+                        assertEquals(fixture.colour()[offset + 1], legacy[offset + 1], 0.0f);
+                        assertEquals(fixture.colour()[offset + 2], legacy[offset + 2], 0.0f);
+                    } else {
+                        exposed++;
+                        for (int channel = 0; channel < 3; channel++) {
+                            float expected = legacy[offset + channel]
+                                    - fixture.colour()[offset + channel];
+                            assertEquals(expected, signal[offset + channel], 2.0e-5f,
+                                    "the signal must be exactly the legacy delta at pixel "
+                                            + index + " channel " + channel);
+                        }
+                    }
+                    for (int channel = 0; channel < 3; channel++) {
+                        assertEquals(legacy[offset + channel],
+                                fixture.colour()[offset + channel]
+                                        + signal[offset + channel], 2.0e-5f,
+                                "base + contribution must reproduce the legacy colour at pixel "
+                                        + index);
+                    }
+                }
+                assertTrue(exposed > 200,
+                        "the fixture must expose a meaningful confident reflection region: "
+                                + exposed);
+                assertTrue(fallback > 1000,
+                        "the fixture must contain a meaningful zero-confidence region: "
+                                + fallback);
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+
+    @Test
+    void adaptiveReflectionSignalVariantCompilesAndKeepsBoundedConfidence() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
+                .title("SSR Adaptive Signal GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (PbrEnvironment environment = PbrEnvironmentLoader.load(device, getClass(),
+                    "/environments/pbr/studio-small.hdr",
+                    PbrEnvironmentSettings.testQuality());
+                 Sampler cubeSampler = Sampler.create(new Sampler.Descriptor(
+                         GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR,
+                         GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE))) {
+                SsrEnvironmentSource source = environment(environment, cubeSampler);
+                Fixture fixture = fixture();
+                float[] signal = render(device, fixture.colour(), fixture.depth(),
+                        fixture.normal(), fixture.roughness(), SETTINGS, source, true,
+                        com.kaleblangley.haikalat.subsystems.postprocess
+                                .AdaptiveSamplingSettings.defaults());
+                int exposed = 0;
+                int fallback = 0;
+                for (int index = 0; index < SIZE * SIZE; index++) {
+                    int offset = index * 4;
+                    for (int channel = 0; channel < 4; channel++) {
+                        assertTrue(Float.isFinite(signal[offset + channel]),
+                                "the adaptive signal variant must stay finite at pixel "
+                                        + index);
+                    }
+                    assertTrue(signal[offset + 3] >= 0.0f && signal[offset + 3] <= 1.0f,
+                            "the adaptive confidence must stay bounded at pixel " + index);
+                    if (signal[offset + 3] == 0.0f) fallback++;
+                    else exposed++;
+                }
+                assertTrue(exposed > 200,
+                        "the adaptive variant must expose confident reflections: " + exposed);
+                assertTrue(fallback > 1000,
+                        "the adaptive variant must keep zero-confidence fallbacks: "
+                                + fallback);
+            }
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+
+    @Test
     void pipelineAddsBoundedSsrInTheHdrChainAndRestoresTheDisabledBaseline() {
         try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
                 .title("SSR Pipeline GL Test").visible(false).build()) {
@@ -257,12 +372,29 @@ class SsrPassGlTest {
     private static float[] render(GlRenderDevice device, float[] colour, float[] depth,
                                   float[] normal, byte[] roughness, SsrSettings settings,
                                   SsrEnvironmentSource source) {
+        return render(device, colour, depth, normal, roughness, settings, source, false);
+    }
+
+    private static float[] render(GlRenderDevice device, float[] colour, float[] depth,
+                                  float[] normal, byte[] roughness, SsrSettings settings,
+                                  SsrEnvironmentSource source, boolean reflectionSignal) {
+        return render(device, colour, depth, normal, roughness, settings, source,
+                reflectionSignal,
+                com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings
+                        .disabled());
+    }
+
+    private static float[] render(GlRenderDevice device, float[] colour, float[] depth,
+                                  float[] normal, byte[] roughness, SsrSettings settings,
+                                  SsrEnvironmentSource source, boolean reflectionSignal,
+                                  com.kaleblangley.haikalat.subsystems.postprocess
+                                          .AdaptiveSamplingSettings adaptiveSettings) {
         try (Texture2D colourTexture = floatTexture(4, colour);
              Texture2D depthTexture = floatTexture(1, depth);
              Texture2D normalTexture = floatTexture(4, normal);
              Texture2D roughnessTexture = byteTexture(roughness);
              Framebuffer target = Framebuffer.mrt(SIZE, SIZE, GL_RGBA32F);
-             SsrPass pass = new SsrPass(settings)) {
+             SsrPass pass = new SsrPass(settings, adaptiveSettings, reflectionSignal)) {
             target.bind();
             glViewport(0, 0, SIZE, SIZE);
             CommandBuffer commands = device.createCommandBuffer();

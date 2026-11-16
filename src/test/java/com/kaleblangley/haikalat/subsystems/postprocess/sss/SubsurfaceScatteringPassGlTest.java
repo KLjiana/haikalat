@@ -112,6 +112,92 @@ class SubsurfaceScatteringPassGlTest {
     }
 
     @Test
+    void equalLuminanceSpecularShareStaysUndiffusedWhileDiffuseShareDiffuses() {
+        try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
+                .title("Subsurface Diffuse Share GL Test").visible(false).build()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+
+            Fixture fixture = equalLuminanceFixture();
+            float[] output = render(device, fixture, SETTINGS);
+            assertFinite(output);
+
+            // Both patches have exactly the same colour and therefore the same
+            // luminance; only the alpha diffuse share differs. A luminance-band
+            // heuristic cannot distinguish them.
+            int specularEdge = pixel(31, 24);
+            int diffuseEdge = pixel(58, 24);
+            assertEquals(fixture.colour()[specularEdge * 4], output[specularEdge * 4],
+                    0.0f, "an alpha-0 specular pixel must stay byte-exact");
+            assertEquals(fixture.colour()[specularEdge * 4 + 1],
+                    output[specularEdge * 4 + 1], 0.0f);
+            assertTrue(output[diffuseEdge * 4] < fixture.colour()[diffuseEdge * 4] * 0.95f,
+                    "an alpha-1 diffuse pixel must participate in the gather: "
+                            + output[diffuseEdge * 4] + " vs "
+                            + fixture.colour()[diffuseEdge * 4]);
+
+            // The near gap participates in the mask. The diffuse patch must
+            // spread light into it; the equally bright specular patch must not.
+            int diffuseHalo = pixel(57, 24);
+            int specularHalo = pixel(32, 24);
+            assertTrue(output[diffuseHalo * 4] > 0.01f,
+                    "the diffuse patch must scatter into the participating gap");
+            assertEquals(0.0f, output[specularHalo * 4], 0.0f,
+                    "the specular patch must not produce a diffusion halo");
+
+            // The bright specular patch is not itself diffused by its
+            // neighbours either: it has no diffuse albedo to scatter.
+            assertEquals(fixture.colour()[pixel(20, 24) * 4], output[pixel(20, 24) * 4],
+                    0.0f, "the specular patch interior must be copied exactly");
+            assertTrue(output[pixel(70, 24) * 4] < fixture.colour()[pixel(70, 24) * 4] * 0.95f,
+                    "the diffuse patch interior must still diffuse from its dark gap");
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    /**
+     * Two isolated patches with identical colour/luminance: the left one is
+     * marked fully specular (alpha 0) and the right one fully diffuse
+     * (alpha 1). Both sit on a participating black gap with the same near
+     * depth and normal, so only the alpha contract can tell them apart.
+     */
+    private static Fixture equalLuminanceFixture() {
+        float[] colour = new float[SIZE * SIZE * 4];
+        float[] depth = new float[SIZE * SIZE];
+        float[] normal = new float[SIZE * SIZE * 4];
+        float[] mask = new float[SIZE * SIZE * 4];
+        float nearDepth = deviceDepth(-4.0f);
+        for (int y = 0; y < SIZE; y++) {
+            for (int x = 0; x < SIZE; x++) {
+                int index = pixel(x, y);
+                int offset = index * 4;
+                boolean body = y >= 8 && y < 48;
+                boolean specular = body && x >= 16 && x < 32;
+                boolean diffuse = body && x >= 58 && x < 74;
+                if (specular || diffuse) {
+                    colour[offset] = 0.60f;
+                    colour[offset + 1] = 0.30f;
+                    colour[offset + 2] = 0.15f;
+                }
+                colour[offset + 3] = specular ? 0.0f : 1.0f;
+                depth[index] = nearDepth;
+                normal[offset] = 0.0f;
+                normal[offset + 1] = 0.0f;
+                normal[offset + 2] = 0.0f;
+                normal[offset + 3] = 1.0f;
+                boolean participating = x >= 8 && x < 82;
+                mask[offset] = participating ? 1.0f : 0.0f;
+                mask[offset + 1] = participating ? 0.35f : 0.0f;
+                mask[offset + 2] = participating ? 0.05f : 0.0f;
+                mask[offset + 3] = participating ? 1.0f : 0.0f;
+            }
+        }
+        return new Fixture(colour, depth, normal, mask);
+    }
+
+    @Test
     void pipelineInsertsOnePassAndDisabledResizeCloseStayClean() {
         try (GlfwWindow window = new GlfwWindow.Builder().dimensions(SIZE, SIZE)
                 .title("Subsurface Pipeline GL Test").visible(false).build()) {
@@ -310,7 +396,8 @@ class SubsurfaceScatteringPassGlTest {
                     green = 0.30f;
                     blue = 0.15f;
                 }
-                if (x == 40 && y == 48) red = green = blue = 16.0f;
+                boolean highlight = x == 40 && y == 48;
+                if (highlight) red = green = blue = 16.0f;
                 boolean far = x >= 52;
                 if (far && brightFar) {
                     // Below the highlight-protection window, so a failed depth
@@ -332,7 +419,10 @@ class SubsurfaceScatteringPassGlTest {
                 colour[offset] = red;
                 colour[offset + 1] = green;
                 colour[offset + 2] = blue;
-                colour[offset + 3] = 1.0f;
+                // The fixture's bright centre is a specular highlight: under the
+                // S7 contract it carries alpha 0 and must never be diffused or
+                // spread into its neighbours. Every diffuse pixel is alpha 1.
+                colour[offset + 3] = highlight ? 0.0f : 1.0f;
                 depth[index] = far ? farDepth : nearDepth;
                 boolean flipped = !far && y >= 60;
                 normal[offset] = 0.0f;

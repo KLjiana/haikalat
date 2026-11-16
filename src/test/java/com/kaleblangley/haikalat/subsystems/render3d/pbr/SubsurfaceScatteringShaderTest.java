@@ -42,14 +42,17 @@ class SubsurfaceScatteringShaderTest {
                 "uniform int uSubsurfaceProfile;",
                 "uniform float uSubsurfaceProfileScale;",
                 "uniform int uSubsurfaceThicknessSource;",
-                "uniform float uSubsurfaceThickness;"}) {
+                "uniform float uSubsurfaceThickness;",
+                "uniform int uSubsurfaceScreenSpace;",
+                "uniform int uSubsurfaceDiffuseSignal;"}) {
             assertTrue(source.contains(uniform), "missing forward uniform " + uniform);
         }
         assertEverySubsurfaceUniformReferenced(source, "pbr-forward.frag");
         assertFalse(source.contains("uSubsurfaceDiffusionRadius"),
                 "the radius is consumed by the mask/pass, not the forward shader");
-        assertFalse(source.contains("uSubsurfaceScreenSpace"),
-                "the screen-space toggle is consumed by the mask/pass");
+        assertTrue(source.contains("uSubsurfaceScreenSpace"),
+                "the forward shader needs the material screen-space toggle to decide "
+                        + "whether it may write the diffuse-share signal");
         assertFalse(source.contains("uSubsurfaceMaxDistance"),
                 "the gather distance is consumed by the mask/pass");
         assertTrue(source.contains("const float SUBSURFACE_MIN_PROFILE_SCALE = "
@@ -64,6 +67,42 @@ class SubsurfaceScatteringShaderTest {
         assertFalse(source.contains("sampler2D uSubsurfaceProfileMap"),
                 "the first version has an analytic profile, not a per-pixel profile texture");
     }
+
+    @Test
+    void forwardWritesTheBoundedDiffuseShareIntoAlphaOnlyWhenAllocated()
+            throws IOException {
+        String source = resource(PBR);
+        String main = section(source, "void main() {", "#ifdef HAIKALAT_VOLUME_FOG");
+        assertTrue(main.contains(
+                        "float outputAlpha = uAlphaMode == 2 ? baseSample.a : 1.0;"),
+                "the legacy opaque alpha must be the default before the signal gate");
+        assertTrue(main.contains(
+                        "if (uSubsurfaceEnabled != 0 && uSubsurfaceScreenSpace != 0\n"
+                                + "            && uSubsurfaceDiffuseSignal != 0"
+                                + " && uAlphaMode != 2) {"),
+                "the signal needs the material, screen-space and frame gates together");
+        assertTrue(main.contains("vec3 nonDiffuse = max(gSubsurfaceNonDiffuseRadiance"
+                        + " + specularIndirect"),
+                "the diffuse share must subtract the actual specular + emissive terms");
+        assertTrue(main.contains(
+                        "float diffuseLuminance = max(totalLuminance - luminance3(nonDiffuse), 0.0);"));
+        assertTrue(main.contains(
+                        "clamp(diffuseLuminance / totalLuminance, 0.0, 1.0) : 1.0"));
+        assertTrue(main.contains("FragColor = vec4(surfaceRadiance, outputAlpha);"));
+        assertEquals(2, occurrences(source,
+                        "gSubsurfaceNonDiffuseRadiance += visibility * directSpecular;"),
+                "both the directional and local light evaluators must accumulate the "
+                        + "actual specular contribution exactly once");
+        assertEquals(2, occurrences(source,
+                        "gDirectSpecularRadiance = specular * radiance * nDotL;"),
+                "the isotropic and anisotropic BRDFs must both publish the specular lobe");
+        assertTrue(source.contains(
+                        "specularIndirect = uEnableSpecularIbl != 0 ? specularIbl : vec3(0.0);"),
+                "the specular IBL copy must be gated by the same enable switch");
+        assertTrue(source.contains("specularIndirect *= ao * gtao * uEnvironmentIntensity;"),
+                "the specular copy must receive the same occlusion scaling as indirect");
+    }
+
 
     @Test
     void transmissionIsAddedWithoutScalingTheExistingDirectTerms() throws IOException {
@@ -142,7 +181,6 @@ class SubsurfaceScatteringShaderTest {
         assertTrue(source.contains("const float SUBSURFACE_MAX_RADIUS_PIXELS = 64.0;"));
         assertTrue(source.contains("const float SUBSURFACE_DEPTH_TOLERANCE = 0.03;"));
         assertTrue(source.contains("const float SUBSURFACE_NORMAL_TOLERANCE = 0.85;"));
-        assertTrue(source.contains("const float SUBSURFACE_HIGHLIGHT_PROTECTION = 0.85;"));
         assertTrue(source.contains("const float SUBSURFACE_EDGE_FADE_PIXELS = 8.0;"));
         assertTrue(source.contains("const vec2 SUBSURFACE_TAPS[SUBSURFACE_TAP_COUNT]"));
         assertTrue(source.contains("if (sampleUv.x <= 0.0 || sampleUv.x >= 1.0"),
@@ -153,12 +191,23 @@ class SubsurfaceScatteringShaderTest {
                 "a normal boundary must reject the tap");
         assertTrue(source.contains("abs(dot(delta, centerNormal)) > tolerance"),
                 "a depth layer boundary must reject the tap");
-        assertTrue(source.contains("highlightProtection(sampleColor)"),
-                "bright specular neighbours must contribute less");
-        assertTrue(source.contains("(1.0 - centerHighlight)"),
-                "a centre highlight must not be replaced by its blurred copy");
+        assertTrue(source.contains("float diffuseShare(vec4 color)"),
+                "the shader must consume the alpha diffuse-share contract");
+        assertTrue(source.contains("centerColor.rgb * centerShare"),
+                "the centre diffuse share must be a separate value");
+        assertTrue(source.contains("sampleColor.rgb * diffuseShare(sampleColor)"),
+                "only the tap's diffuse share may enter the gather");
+        assertTrue(source.contains("* clamp(centerShare, 0.0, 1.0);"),
+                "a fully specular centre must receive no scattering");
+        assertTrue(source.contains(
+                        "FragColor = vec4(centerColor.rgb - centerDiffuse + scattered, centerColor.a);"),
+                "the centre specular part must be re-added untouched");
         assertTrue(source.contains("FragColor = vec4(centerColor.rgb, centerColor.a);"),
                 "non-scattering pixels must be copied exactly");
+        assertFalse(source.contains("SUBSURFACE_HIGHLIGHT_PROTECTION"),
+                "the legacy luminance band must be gone; alpha is the material signal");
+        assertFalse(source.contains("highlightProtection("),
+                "diffusion must be gated by the diffuse share, not a luminance window");
 
         for (double[] tap : SubsurfaceScatteringReference.POISSON_TAPS) {
             String literal = String.format(Locale.ROOT, "vec2(%.8f, %.8f)",
@@ -184,7 +233,7 @@ class SubsurfaceScatteringShaderTest {
         assertEquals(Set.of("uSubsurfaceEnabled", "uSubsurfaceScatterColor",
                         "uSubsurfaceIntensity", "uSubsurfaceProfile",
                         "uSubsurfaceProfileScale", "uSubsurfaceThicknessSource",
-                        "uSubsurfaceThickness"),
+                        "uSubsurfaceThickness", "uSubsurfaceScreenSpace"),
                 uploaded,
                 "the forward material upload set must match the uniforms the forward shader "
                         + "actually consumes");

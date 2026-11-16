@@ -93,7 +93,8 @@ void main() {
     ivec2 extent = ivec2(uViewportSize);
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), extent - ivec2(1));
     vec2 uv = (vec2(pixel) + 0.5) / uViewportSize;
-    vec3 base = texelFetch(uColor, pixel, 0).rgb;
+    vec4 baseSample = texelFetch(uColor, pixel, 0);
+    vec3 base = baseSample.rgb;
     vec3 spatial = currentGi(pixel);
     float deviceDepth = texelFetch(uDepth, pixel, 0).r;
 
@@ -101,7 +102,7 @@ void main() {
     if (deviceDepth >= 0.999999) {
         outHistoryColor = vec4(0.0);
         outState = vec4(-1.0, 0.0, 0.0, 0.0);
-        outComposite = vec4(base, 1.0);
+        outComposite = vec4(base, baseSample.a);
         return;
     }
 
@@ -110,7 +111,7 @@ void main() {
     if (!(currentDepth > 0.0) || !(currentDepth < 1.0e12)) {
         outHistoryColor = vec4(0.0);
         outState = vec4(-1.0, 0.0, 0.0, 0.0);
-        outComposite = vec4(base, 1.0);
+        outComposite = vec4(base, baseSample.a);
         return;
     }
     vec3 currentNormal = octDecode(currentOct);
@@ -228,5 +229,5 @@ void main() {
     // separate prevents the base colour from feeding back into the GI history.
     outHistoryColor = vec4(max(added, vec3(0.0)), 1.0);
     outState = vec4(currentDepth, currentOct.x, currentOct.y, 1.0);
-    outComposite = vec4(result, 1.0);
+    outComposite = vec4(result, baseSample.a);
 }

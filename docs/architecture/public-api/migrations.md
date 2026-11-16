@@ -321,6 +321,19 @@ canonical record 由 12 个组件扩展为 13 个（S4 #32/#33 新增 `subsurfac
 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)与
 [体积粒子技术卡](../../planning/v0.28.1-s4-volumetric-particles.md)。
 
+v0.28.1（候选）S7 #32/#33/#34 没有删除 stable 类型或修改稳定签名。advanced `postprocess.ssr.SsrPass`
+新增 `SsrPass(SsrSettings, AdaptiveSamplingSettings, boolean reflectionSignal)` 与 `reflectionSignal()`：
+signal 模式写反射贡献 + 置信度，legacy 构造器/输出逐字节不变。advanced `postprocess.denoise.TemporalDenoisePass`
+新增 `recordComposite(CommandBuffer, int, int, int, int)`；`PostProcessTargets` 新增
+`TEMPORAL_DENOISE_COMPOSITE_PASS`/`TEMPORAL_DENOISE_COMPOSITE_COLOR`，denoise active 时
+`PostProcessPipeline.linearHdrTextureName()` 从 denoise external target 改为 composite 目标；setup 顺序增加
+一个 composite pass（`SsrPass → TemporalDenoisePass → TemporalDenoiseCompositePass`）。共享 surface 在 denoise
+active 时额外请求 `VELOCITY`/`PREVIOUS_SURFACE_DEPTH`（缺失时仍回退 previous-VP 模式，源码兼容）。SSS 的
+HDR alpha 语义、`uSubsurfaceScreenSpace` 前向引用与 `PbrMaterials` 上传集是内部合同修正，不改变 public
+类型/签名。技术范围、限制与 GL 证据见[次表面散射技术卡](../../planning/v0.28.1-s4-sss.md)、
+[时域降噪技术卡](../../planning/v0.28.1-s4-temporal-denoise.md)与
+[SSR 技术卡](../../planning/v0.28.1-s3-ssr.md)。
+
 v0.28.1（候选）S4 #38/#37 生产接线没有删除 stable 类型或修改稳定签名。advanced
 `RenderFeatureSettings` canonical record 由 17 个组件扩展为 19 个（末尾新增 `volumetricParticles`
 与 `stochasticTransparency`，默认 `disabled()`）；既有 builder、`defaults()`、`toBuilder()` 与访问器

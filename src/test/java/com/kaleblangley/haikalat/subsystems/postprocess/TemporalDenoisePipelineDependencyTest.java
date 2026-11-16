@@ -1,11 +1,15 @@
 package com.kaleblangley.haikalat.subsystems.postprocess;
 
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Regression for the colour-chain dependency assembler used by SSR and the
@@ -18,6 +22,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * context.</p>
  */
 class TemporalDenoisePipelineDependencyTest {
+    @Test
+    void temporalDenoiseRequestsTheSharedVelocityAndPreviousDepthPair() {
+        SceneBufferRequirements requirements = SceneBufferRequirements.temporalDenoise();
+        assertTrue(requirements.requires(SceneBufferChannel.VELOCITY),
+                "the denoiser's rigid-motion reprojection needs the shared velocity");
+        assertTrue(requirements.requires(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH),
+                "velocity without previous depth would skip depth rejection");
+        assertEquals(1, requirements.samples(),
+                "the motion pair is consumed at the single-sample resolve");
+        assertFalse(SceneBufferRequirements.ssr().requires(SceneBufferChannel.VELOCITY),
+                "the spatial SSR pass itself still owns no history");
+        assertTrue(SceneBufferRequirements.temporalDenoise()
+                        .merge(SceneBufferRequirements.ssr())
+                        .requires(SceneBufferChannel.ROUGHNESS),
+                "merging the two requests must keep both consumers' channels");
+    }
+
     @Test
     void surfaceProducersAreUniqueOrderedAndExcludeTheColourProducer() {
         List<SurfaceInputs.Input> geometryOnly = List.of(

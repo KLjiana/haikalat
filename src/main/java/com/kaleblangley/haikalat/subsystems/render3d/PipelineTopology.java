@@ -760,6 +760,12 @@ public record PipelineTopology(int width,
         if (effects.ssr().active()) {
             requirements = requirements.mergeView(SceneBufferRequirements.ssr());
         }
+        // The temporal denoiser consumes the shared velocity and previous-depth
+        // pair for its rigid-motion reprojection contract.
+        if (effects.temporalDenoise().active()) {
+            requirements = requirements.mergeView(
+                    SceneBufferRequirements.temporalDenoise());
+        }
         // Screen-space subsurface diffusion consumes depth, world normals and
         // the per-material mask/radius/thickness channel.
         if (effects.subsurfaceScattering().screenSpaceActive()) {

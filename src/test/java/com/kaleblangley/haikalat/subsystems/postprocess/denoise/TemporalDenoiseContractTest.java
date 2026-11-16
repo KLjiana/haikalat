@@ -88,12 +88,7 @@ class TemporalDenoiseContractTest {
 
     @Test
     void productionShaderKeepsTheBoundedResolveAndMomentShape() throws IOException {
-        String source;
-        try (var stream = TemporalDenoiseContractTest.class.getResourceAsStream(
-                "/shaders/postprocess/temporal-denoise.frag")) {
-            assertNotNull(stream);
-            source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        String source = resource("/shaders/postprocess/temporal-denoise.frag");
         assertTrue(source.contains("#version 460 core"));
         assertTrue(source.contains("#define TDN_MAX_NEIGHBORHOOD_RADIUS 4"),
                 "the neighbourhood loop bound must match the settings maximum");
@@ -123,9 +118,58 @@ class TemporalDenoiseContractTest {
     }
 
     @Test
+    void productionShaderTreatsTheInputAsContributionAndConfidence() throws IOException {
+        String source = resource("/shaders/postprocess/temporal-denoise.frag");
+        assertTrue(source.contains("float confidenceOf(float alpha)"),
+                "the signal alpha must be validated and bounded");
+        assertTrue(source.contains("float currentConfidence = confidenceOf(noisy.a);"));
+        assertTrue(source.contains("if (currentConfidence <= 0.0) {"),
+                "a zero-confidence pixel must reject all history");
+        assertTrue(source.contains("outColor = vec4(0.0);"),
+                "a zero-confidence pixel must write an exact zero contribution");
+        assertTrue(source.contains("confidenceOf(historySample.a) > 0.0"),
+                "history taps must themselves carry confidence");
+        assertTrue(source.contains(
+                        "resolvedConfidence = mix(historyConfidence, currentConfidence,"),
+                "confidence must be blended with the signal");
+        assertTrue(source.contains("outColor = vec4(resolvedHistory"),
+                "the resolved contribution must be written with its confidence");
+        assertTrue(source.contains("mean - sigma, mean + sigma"),
+                "the signed contribution clamp must not floor at zero");
+        assertFalse(source.contains("max(mean - sigma, 0.0)"),
+                "a negative reflection contribution is legitimate");
+        assertFalse(source.contains("max(low - vec3(historySigma), vec3(0.0))"),
+                "a negative reflection contribution must not be clamped to zero");
+    }
+
+    @Test
+    void compositeShaderAppliesTheSameBasePlusContributionEquation() throws IOException {
+        String source = resource("/shaders/postprocess/temporal-denoise-composite.frag");
+        assertTrue(source.contains("#version 460 core"));
+        assertTrue(source.contains("uniform sampler2D uBaseColor;"));
+        assertTrue(source.contains("uniform sampler2D uContribution;"));
+        assertTrue(source.contains("vec3 base = texelFetch(uBaseColor, pixel, 0).rgb;"));
+        assertTrue(source.contains(
+                "vec3 contribution = texelFetch(uContribution, pixel, 0).rgb;"));
+        assertTrue(source.contains("isnan(contribution)") && source.contains("isinf(contribution)"),
+                "a non-finite signal must fail closed instead of poisoning the base");
+        assertTrue(source.contains("FragColor = vec4(base + contribution, 1.0);"),
+                "the composite must be the same equation as the spatial SSR pass");
+        assertFalse(source.contains("while ("),
+                "the composite must stay a single full-screen draw");
+    }
+
+    @Test
     void settingsBoundsMatchTheShaderShape() {
         assertEquals(4, TemporalDenoiseSettings.MAXIMUM_NEIGHBORHOOD_RADIUS);
         assertEquals(64, TemporalDenoiseSettings.MAXIMUM_HISTORY_LENGTH);
         assertEquals(0.9f, TemporalDenoiseSettings.defaults().historyWeight(), 1.0e-6f);
+    }
+
+    private static String resource(String path) throws IOException {
+        try (var stream = TemporalDenoiseContractTest.class.getResourceAsStream(path)) {
+            assertNotNull(stream, "missing shader " + path);
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }

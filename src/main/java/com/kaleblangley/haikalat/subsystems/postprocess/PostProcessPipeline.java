@@ -368,8 +368,11 @@ public final class PostProcessPipeline implements AutoCloseable {
                                     && donor.ssr.settings().equals(effects.ssr())
                                     && donor.ssr.adaptiveSettings()
                                     .equals(effects.adaptiveSampling())
+                                    && donor.ssr.reflectionSignal()
+                                    == effects.temporalDenoise().active()
                                     ? donor.ssr : null,
-                            () -> new SsrPass(effects.ssr(), effects.adaptiveSampling()),
+                            () -> new SsrPass(effects.ssr(), effects.adaptiveSampling(),
+                                    effects.temporalDenoise().active()),
                             owned, borrowed) : null;
             SsgiPass ssgi = effects.ssgi().active()
                     ? reuseOrCreate(donor != null && donor.ssgi != null
@@ -1193,9 +1196,13 @@ public final class PostProcessPipeline implements AutoCloseable {
             hdrProducer = PostProcessTargets.SUBSURFACE_SCATTERING_PASS;
         }
 
+        String reflectionBaseTexture = null;
+        String reflectionBaseProducer = null;
         if (ssr != null) {
             final String reflectionInput = hdrTexture;
             final String reflectionProducer = hdrProducer;
+            reflectionBaseTexture = reflectionInput;
+            reflectionBaseProducer = reflectionProducer;
             SurfaceInputs.Input ssrDepth = requireInput(SurfaceInputs.Channel.DEPTH);
             SurfaceInputs.Input ssrNormal = requireInput(SurfaceInputs.Channel.NORMAL);
             SurfaceInputs.Input ssrRoughness = requireInput(SurfaceInputs.Channel.ROUGHNESS);
@@ -1245,6 +1252,15 @@ public final class PostProcessPipeline implements AutoCloseable {
             final String denoiseProducer = hdrProducer;
             SurfaceInputs.Input denoiseDepth = requireInput(SurfaceInputs.Channel.DEPTH);
             SurfaceInputs.Input denoiseNormal = requireInput(SurfaceInputs.Channel.NORMAL);
+            // Velocity and previous depth are the frozen shared motion pair;
+            // use them when the topology produced them, otherwise fall back to
+            // the previous-stable-view-projection contract.
+            SurfaceInputs.Input denoiseVelocity =
+                    surfaceInputs.single(SurfaceInputs.Channel.VELOCITY);
+            SurfaceInputs.Input denoisePreviousDepth =
+                    surfaceInputs.single(SurfaceInputs.Channel.PREVIOUS_SURFACE_DEPTH);
+            final boolean denoiseUsesVelocity =
+                    denoiseVelocity != null && denoisePreviousDepth != null;
             var denoiseTarget = temporalDenoise.writeFramebuffer();
             graph.importExternalColor(PostProcessTargets.TEMPORAL_DENOISE_COLOR,
                     ExternalAttachment.borrowedColor(denoiseTarget.colorAttachment(0),
@@ -1254,8 +1270,15 @@ public final class PostProcessPipeline implements AutoCloseable {
                     .writeToExternalTarget()
                     .noClear()
                     .dependsOn(denoiseProducer);
+            List<SurfaceInputs.Input> denoiseInputs = new ArrayList<>();
+            denoiseInputs.add(denoiseDepth);
+            denoiseInputs.add(denoiseNormal);
+            if (denoiseUsesVelocity) {
+                denoiseInputs.add(denoiseVelocity);
+                denoiseInputs.add(denoisePreviousDepth);
+            }
             for (String producer : uniqueSurfaceProducers(denoiseProducer,
-                    List.of(denoiseDepth, denoiseNormal))) {
+                    denoiseInputs)) {
                 if (!graph.hasPass(producer)) {
                     throw new IllegalStateException(
                             "temporal denoising requires surface producer "
@@ -1273,7 +1296,10 @@ public final class PostProcessPipeline implements AutoCloseable {
                         res.colorAttachment(denoiseInput),
                         surfaceInputs.texture(res, denoiseDepth),
                         surfaceInputs.texture(res, denoiseNormal),
-                        0, 0,
+                        denoiseUsesVelocity
+                                ? surfaceInputs.texture(res, denoiseVelocity) : 0,
+                        denoiseUsesVelocity
+                                ? surfaceInputs.texture(res, denoisePreviousDepth) : 0,
                         frame.jitterUvX(), frame.jitterUvY(),
                         frame.inverseJitteredProjection(),
                         frame.inverseView(),
@@ -1281,6 +1307,29 @@ public final class PostProcessPipeline implements AutoCloseable {
             });
             hdrTexture = PostProcessTargets.TEMPORAL_DENOISE_COLOR;
             hdrProducer = PostProcessTargets.TEMPORAL_DENOISE_PASS;
+
+            // The denoiser resolves the reflection contribution, not scene
+            // colour. Composite it over the pre-SSR base with the same
+            // `base + contribution` equation the spatial SSR pass uses; a
+            // zero-confidence contribution is exactly zero, so base-colour
+            // regions stay byte-identical.
+            if (reflectionBaseTexture == null) {
+                throw new IllegalStateException(
+                        "temporal denoising requires an SSR reflection signal base colour");
+            }
+            final String compositeBase = reflectionBaseTexture;
+            final String compositeBaseProducer = reflectionBaseProducer;
+            var compositePass = graph.addPass(PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_PASS)
+                    .createColor(PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_COLOR,
+                            RenderFormat.RGBA16F)
+                    .noClear()
+                    .dependsOn(PostProcessTargets.TEMPORAL_DENOISE_PASS)
+                    .dependsOn(compositeBaseProducer);
+            compositePass.execute((res, cmd) -> temporalDenoise.recordComposite(cmd,
+                    res.colorAttachment(compositeBase),
+                    temporalDenoise.writeColorTexture(), graph.width(), graph.height()));
+            hdrTexture = PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_COLOR;
+            hdrProducer = PostProcessTargets.TEMPORAL_DENOISE_COMPOSITE_PASS;
         }
 
         if (depthOfField != null) {

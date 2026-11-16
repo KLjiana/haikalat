@@ -27,6 +27,7 @@ public final class PostProcessTargets {
     public static final String SSGI_PASS = "SsgiPass";
     public static final String SUBSURFACE_SCATTERING_PASS = "SubsurfaceScatteringPass";
     public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
+    public static final String TEMPORAL_DENOISE_COMPOSITE_PASS = "TemporalDenoiseCompositePass";
     public static final String TEMPORAL_UPSCALING_PASS = "TemporalUpscalingPass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
@@ -89,6 +90,7 @@ public final class PostProcessTargets {
     public static final String SSGI_COLOR = "ssgiColor";
     public static final String SUBSURFACE_SCATTERING_COLOR = "subsurfaceScatteringColor";
     public static final String TEMPORAL_DENOISE_COLOR = "temporalDenoiseColor";
+    public static final String TEMPORAL_DENOISE_COMPOSITE_COLOR = "temporalDenoiseCompositeColor";
     public static final String TEMPORAL_UPSCALING_COLOR = "temporalUpscalingColor";
     public static final String TEMPORAL_UPSCALING_INPUT_COLOR = "temporalUpscalingInputColor";
     public static final String TEMPORAL_UPSCALING_INPUT_DEPTH = "temporalUpscalingInputDepth";

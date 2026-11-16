@@ -9,9 +9,20 @@
 // not jump enough to trigger the reactive reset.  Accepted history is clamped
 // to the current depth-matched neighbourhood and its luminance moments, then
 // blended into the current sample.  One MRT draw writes:
-//   attachment 0: resolved linear colour;
+//   attachment 0: resolved reflection contribution (RGB) plus the resolved
+//                 usable hit confidence in alpha;
 //   attachment 1: positive view depth, octahedral normal, surface flag;
 //   attachment 2: luminance mean and mean-square for the next sigma clip.
+//
+// Signal contract (S7 / #34): the input is the bounded SSR reflection
+// contribution, not scene colour, and its alpha is the usable hit confidence.
+// A zero-confidence pixel has an exact zero contribution: it rejects all
+// history, writes zero and therefore composites back to the untouched base
+// colour.  History taps must themselves be confident, and the confidence is
+// carried through the blend so a reflection that is revealed as background or
+// becomes non-reflective cannot persist as a ghost.  The signal may be signed
+// (a hit darker than the environment fallback is a negative contribution), so
+// the clamp arithmetic never floors a value at zero.
 //
 // Bounded cost: 4 history taps plus at most (2 * TDN_MAX_NEIGHBORHOOD_RADIUS +
 // 1)^2 current taps; no unbounded loop, no readback.
@@ -88,19 +99,34 @@ vec3 currentColor(ivec2 pixel) {
     return texelFetch(uNoisyColor, pixel, 0).rgb;
 }
 
+// Usable hit confidence from the signal alpha. A missing, NaN or out-of-range
+// alpha fails closed to zero (no reflection) so a broken producer can never
+// manufacture ghost radiance.
+float confidenceOf(float alpha) {
+    return alpha >= 0.0 && alpha <= 1.0 ? alpha : 0.0;
+}
+
 void main() {
     ivec2 extent = ivec2(uExtent);
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), extent - ivec2(1));
     vec2 uv = (vec2(pixel) + 0.5) / uExtent;
     vec4 noisy = texelFetch(uNoisyColor, pixel, 0);
     vec3 current = noisy.rgb;
+    float currentConfidence = confidenceOf(noisy.a);
+    if (!finite3(current)) {
+        outColor = vec4(0.0);
+        outState = vec4(-1.0, 0.0, 0.0, 0.0);
+        outMoments = vec2(0.0);
+        return;
+    }
     float deviceDepth = texelFetch(uDepth, pixel, 0).r;
 
     // Background has no surface correspondence.  Refuse history instead of
-    // blending unrelated radiance into the sky/background.
+    // blending unrelated radiance into the sky/background.  The SSR signal
+    // contract already writes an exact zero contribution here.
     if (deviceDepth >= 0.999999) {
         float backgroundLum = luminance(current);
-        outColor = vec4(current, noisy.a);
+        outColor = vec4(current, currentConfidence);
         outState = vec4(-1.0, 0.0, 0.0, 0.0);
         outMoments = vec2(backgroundLum, backgroundLum * backgroundLum);
         return;
@@ -109,7 +135,7 @@ void main() {
     float currentDepth = viewDepthAt(uv, deviceDepth);
     if (!(currentDepth > 0.0) || !(currentDepth < 1.0e12)) {
         float fallbackLum = luminance(current);
-        outColor = vec4(current, noisy.a);
+        outColor = vec4(current, currentConfidence);
         outState = vec4(-1.0, 0.0, 0.0, 0.0);
         outMoments = vec2(fallbackLum, fallbackLum * fallbackLum);
         return;
@@ -120,8 +146,19 @@ void main() {
 
     bool acceptedHistory = false;
     vec3 resolvedHistory = current;
+    float resolvedConfidence = currentConfidence;
     float historyMean = 0.0;
     float historyM2 = 0.0;
+
+    // A non-reflective pixel has no contribution to denoise. It must not accept
+    // stale history: that is exactly the revealed-reflection ghost the signal
+    // contract forbids. The composite then writes the untouched base colour.
+    if (currentConfidence <= 0.0) {
+        outColor = vec4(0.0);
+        outState = vec4(currentDepth, currentOct.x, currentOct.y, 1.0);
+        outMoments = vec2(0.0);
+        return;
+    }
 
     if (uHistoryValid != 0) {
         vec2 previousUv = uv;
@@ -171,6 +208,7 @@ void main() {
 
             vec3 historyAccum = vec3(0.0);
             float historyWeight = 0.0;
+            float historyConfidenceAccum = 0.0;
             float meanAccum = 0.0;
             float m2Accum = 0.0;
             for (int y = 0; y < 2; y++) {
@@ -182,6 +220,11 @@ void main() {
                     }
                     vec4 state = texelFetch(uHistoryState, samplePixel, 0);
                     if (state.a < 0.5) continue;
+                    // A history texel that had no reflection confidence is not
+                    // a valid sample: accepting it would blend a zero into a
+                    // real reflection (or the reverse) at a confidence edge.
+                    vec4 historySample = texelFetch(uHistoryColor, samplePixel, 0);
+                    if (!(confidenceOf(historySample.a) > 0.0)) continue;
                     if (!(state.r > 0.0)
                             || abs(state.r - expectedPreviousDepth) > tolerance) {
                         continue;
@@ -195,8 +238,8 @@ void main() {
                     vec2 moments = texelFetch(uHistoryMoments, samplePixel, 0).rg;
                     float tapWeight = (x == 0 ? 1.0 - fraction.x : fraction.x)
                             * (y == 0 ? 1.0 - fraction.y : fraction.y);
-                    historyAccum += texelFetch(uHistoryColor, samplePixel, 0).rgb
-                            * tapWeight;
+                    historyAccum += historySample.rgb * tapWeight;
+                    historyConfidenceAccum += confidenceOf(historySample.a) * tapWeight;
                     meanAccum += moments.x * tapWeight;
                     m2Accum += moments.y * tapWeight;
                     historyWeight += tapWeight;
@@ -205,6 +248,7 @@ void main() {
 
             if (historyWeight > TDN_EPSILON) {
                 vec3 historyRgb = historyAccum / historyWeight;
+                float historyConfidence = historyConfidenceAccum / historyWeight;
                 float historyMeanValue = meanAccum / historyWeight;
                 float historyM2Value = m2Accum / historyWeight;
                 float historyVariance = max(
@@ -252,6 +296,13 @@ void main() {
                         }
                         vec3 neighbour = currentColor(neighbourPixel);
                         if (!finite3(neighbour)) continue;
+                        // Unreflective neighbours have an exact zero
+                        // contribution; they must not drag a confident
+                        // reflection's clamp window toward black.
+                        if (!(confidenceOf(texelFetch(uNoisyColor,
+                                neighbourPixel, 0).a) > 0.0)) {
+                            continue;
+                        }
                         float neighbourLum = luminance(neighbour);
                         low = min(low, neighbour);
                         high = max(high, neighbour);
@@ -270,14 +321,17 @@ void main() {
                 float currentSigma = sqrt(variance) * TDN_MOMENT_SIGMA;
                 float sigma = max(currentSigma, historySigma);
                 if (all(lessThan(abs(high - low), vec3(TDN_EPSILON)))) {
-                    low = max(low - vec3(historySigma), vec3(0.0));
+                    // Signed signal: never floor the widened window at zero,
+                    // because a reflection darker than the environment is a
+                    // legitimate negative contribution.
+                    low = low - vec3(historySigma);
                     high = high + vec3(historySigma);
                 }
                 vec3 clamped = clamp(historyRgb, low, high);
                 float clampedLum = luminance(clamped);
-                if (clampedLum > TDN_EPSILON) {
+                if (abs(clampedLum) > TDN_EPSILON) {
                     float targetLum = clamp(clampedLum,
-                            max(mean - sigma, 0.0), mean + sigma);
+                            mean - sigma, mean + sigma);
                     clamped *= targetLum / clampedLum;
                 }
                 clamped = clamp(clamped, low, high);
@@ -285,6 +339,10 @@ void main() {
                 if (!shocked) {
                     float currentWeight = clamp(1.0 - uHistoryBlend, 0.0, 1.0);
                     resolvedHistory = mix(clamped, current, currentWeight);
+                    // Carry the confidence through the same blend so a fading
+                    // reflection reports how much signal it still represents.
+                    resolvedConfidence = mix(historyConfidence, currentConfidence,
+                            currentWeight);
                     acceptedHistory = true;
                     historyMean = historyMeanValue;
                     historyM2 = historyM2Value;
@@ -306,7 +364,7 @@ void main() {
         outM2 = currentLum * currentLum;
     }
 
-    outColor = vec4(resolvedHistory, noisy.a);
+    outColor = vec4(resolvedHistory, clamp(resolvedConfidence, 0.0, 1.0));
     outState = vec4(currentDepth, currentOct.x, currentOct.y, 1.0);
     outMoments = vec2(outMean, outM2);
 }

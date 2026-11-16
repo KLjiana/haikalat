@@ -6,8 +6,16 @@
 // written by scene-surface.frag. It performs one fixed 16-tap Poisson-disk
 // gather inside the per-pixel world-space radius (converted to pixels from the
 // reconstructed view position at the same depth), rejects depth/normal
-// boundaries, protects specular highlights and leaves a non-scattering pixel
-// bit-exact. There is no history, no private target and no read-back.
+// boundaries and leaves a non-scattering pixel bit-exact. There is no history,
+// no private target and no read-back.
+//
+// Signal contract: the alpha of the linear HDR colour carries the bounded
+// diffuse share of the rendered surface radiance, written by pbr-forward.frag
+// while the shared SUBSURFACE mask is allocated (alpha 1 = fully diffuse,
+// alpha 0 = fully specular/emissive). The gather only diffuses
+// `colour.rgb * alpha`; the remaining `colour.rgb * (1 - alpha)` is added back
+// unchanged. A low-luminance specular highlight therefore cannot be diffused
+// and a bright diffuse surface is not protected by a luminance heuristic.
 //
 // This pass is the declared consumer of selective fragment shading rate
 // (feature #42). Colour and depth samples use an explicit LOD 0 so a coarse
@@ -36,9 +44,6 @@ const float SUBSURFACE_MAX_RADIUS_PIXELS = 64.0;
 const float SUBSURFACE_DEPTH_TOLERANCE = 0.03;
 const float SUBSURFACE_MIN_DEPTH_TOLERANCE = 0.01;
 const float SUBSURFACE_NORMAL_TOLERANCE = 0.85;
-const float SUBSURFACE_HIGHLIGHT_START = 2.0;
-const float SUBSURFACE_HIGHLIGHT_END = 8.0;
-const float SUBSURFACE_HIGHLIGHT_PROTECTION = 0.85;
 const float SUBSURFACE_EDGE_FADE_PIXELS = 8.0;
 const float SUBSURFACE_KERNEL_FALLOFF = 2.5;
 
@@ -79,13 +84,11 @@ vec3 viewPosition(vec2 uv, float deviceDepth) {
     return view.xyz / view.w;
 }
 
-float luminance(vec3 color) {
-    return dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
-}
-
-float highlightProtection(vec3 color) {
-    return smoothstep(SUBSURFACE_HIGHLIGHT_START, SUBSURFACE_HIGHLIGHT_END,
-            luminance(color));
+// Bounded diffuse share from the colour alpha. A missing/non-finite alpha fails
+// closed to the legacy fully-diffuse signal, never to a NaN gather.
+float diffuseShare(vec4 color) {
+    float share = color.a;
+    return share >= 0.0 && share <= 1.0 ? share : 1.0;
 }
 
 void main() {
@@ -107,7 +110,10 @@ void main() {
     }
     vec3 centerWorld = (uInverseView * vec4(centerView, 1.0)).xyz;
     vec3 centerNormal = decodeOctahedral(texelFetch(uNormal, ivec2(gl_FragCoord.xy), 0).rg);
-    float centerHighlight = highlightProtection(centerColor.rgb);
+    // The specular/emissive part is carried separately and is never part of the
+    // diffusion sum or of the replacement value.
+    float centerShare = diffuseShare(centerColor);
+    vec3 centerDiffuse = centerColor.rgb * centerShare;
 
     // Reconstruct the world-space size of one pixel at the center depth. The
     // same device-depth surface is sampled one pixel to the right/up, so the
@@ -130,7 +136,7 @@ void main() {
     float edgeFade = smoothstep(0.0, SUBSURFACE_EDGE_FADE_PIXELS, edgePixels);
 
     float centerWeight = 1.0;
-    vec3 sum = centerColor.rgb * centerWeight;
+    vec3 sum = centerDiffuse * centerWeight;
     float weightSum = centerWeight;
 
     for (int tapIndex = 0; tapIndex < SUBSURFACE_TAP_COUNT; ++tapIndex) {
@@ -165,20 +171,29 @@ void main() {
                 SUBSURFACE_DEPTH_TOLERANCE * abs(centerView.z));
         if (abs(dot(delta, centerNormal)) > tolerance) continue;
 
-        vec3 sampleColor = textureLod(uColor, sampleUv, 0.0).rgb;
+        vec4 sampleColor = textureLod(uColor, sampleUv, 0.0);
+        // Only the tap's diffuse share enters the gather. A specular or
+        // emissive neighbour therefore cannot bleed into the scattering halo
+        // regardless of its luminance.
+        vec3 sampleDiffuse = sampleColor.rgb * diffuseShare(sampleColor);
         float radial = length(tap);
         float weight = exp(-SUBSURFACE_KERNEL_FALLOFF * radial * radial);
-        // A bright specular tap contributes little to the diffusion halo, so a
-        // front highlight neither bleeds into the surrounding surface nor
-        // gets replaced by its own blurred copy.
-        weight *= 1.0 - SUBSURFACE_HIGHLIGHT_PROTECTION
-                * highlightProtection(sampleColor);
-        sum += sampleColor * weight;
+        sum += sampleDiffuse * weight;
         weightSum += weight;
     }
 
     vec3 diffused = sum / max(weightSum, 1.0e-5);
+    // The scatter amount is proportional to the centre's own diffuse share:
+    // a fully specular pixel (share 0) must neither be replaced by its blurred
+    // copy nor receive diffuse radiance it has no diffuse albedo for.
     float blend = clamp(centerMask.r, 0.0, 1.0) * edgeFade
-            * (1.0 - centerHighlight);
-    FragColor = vec4(mix(centerColor.rgb, diffused, blend), centerColor.a);
+            * clamp(centerShare, 0.0, 1.0);
+    if (!(blend > 0.0)) {
+        FragColor = vec4(centerColor.rgb, centerColor.a);
+        return;
+    }
+    // Replace only the centre's diffuse share with the diffused diffuse and add
+    // the centre specular/emissive back untouched.
+    vec3 scattered = mix(centerDiffuse, diffused, blend);
+    FragColor = vec4(centerColor.rgb - centerDiffuse + scattered, centerColor.a);
 }

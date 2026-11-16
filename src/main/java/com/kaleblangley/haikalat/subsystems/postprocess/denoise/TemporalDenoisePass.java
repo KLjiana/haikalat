@@ -27,6 +27,14 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * owns the double-buffered history and never writes the shared scene depth or
  * reads pixels back.</p>
  *
+ * <p>The resolved colour is the bounded reflection <em>contribution</em>, not
+ * scene colour: RGB is the contribution and alpha is the usable hit
+ * confidence. A zero-confidence pixel has an exact zero contribution and
+ * rejects all history. {@link #recordComposite(CommandBuffer, int, int, int,
+ * int)} then applies the same {@code base + contribution} equation as the
+ * spatial SSR pass, so base-colour regions stay byte-identical and the
+ * denoiser never smears scene detail.</p>
+ *
  * <p>History advances only through {@link #frameSucceeded()}.  A failed frame
  * keeps the previous read slot; resize allocates a complete candidate first.
  * No other effect shares this history: a second signal must create its own
@@ -35,6 +43,7 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 public final class TemporalDenoisePass implements GlResource {
     private final TemporalDenoiseSettings settings;
     private final ShaderProgram program;
+    private final ShaderProgram compositeProgram;
     private final ScreenQuad quad;
     private final TemporalDenoiseHistory history;
     private Matrix4f previousViewProjection;
@@ -57,21 +66,27 @@ public final class TemporalDenoisePass implements GlResource {
             throw new IllegalArgumentException("temporal denoise extent must be positive");
         }
         ShaderProgram createdProgram = null;
+        ShaderProgram createdCompositeProgram = null;
         ScreenQuad createdQuad = null;
         TemporalDenoiseHistory createdHistory = null;
         try {
             createdProgram = ShaderProgram.fromResource(TemporalDenoisePass.class,
                     "/shaders/postprocess/screen-quad.vert",
                     "/shaders/postprocess/temporal-denoise.frag");
+            createdCompositeProgram = ShaderProgram.fromResource(TemporalDenoisePass.class,
+                    "/shaders/postprocess/screen-quad.vert",
+                    "/shaders/postprocess/temporal-denoise-composite.frag");
             createdQuad = new ScreenQuad();
             createdHistory = new TemporalDenoiseHistory(width, height);
         } catch (RuntimeException failure) {
             closeSuppressed(createdHistory, failure);
             closeSuppressed(createdQuad, failure);
+            closeSuppressed(createdCompositeProgram, failure);
             closeSuppressed(createdProgram, failure);
             throw failure;
         }
         program = createdProgram;
+        compositeProgram = createdCompositeProgram;
         quad = createdQuad;
         history = createdHistory;
     }
@@ -169,6 +184,48 @@ public final class TemporalDenoisePass implements GlResource {
         pendingJitterUvX = inputs.jitterUvX();
         pendingJitterUvY = inputs.jitterUvY();
         return cmd;
+    }
+
+    /**
+     * Composites the resolved reflection contribution over the base colour with
+     * the same equation as the spatial SSR pass: {@code base + contribution}.
+     *
+     * <p>Both inputs are point-sampled and a zero-confidence contribution is an
+     * exact zero, so base-colour regions are reproduced byte-for-byte. The
+     * output alpha is the opaque {@code 1.0} contract downstream effects
+     * already expect from the legacy SSR output. The caller records this into
+     * a graph colour target; the pass binds no framebuffer itself.</p>
+     *
+     * @param cmd               command buffer being recorded
+     * @param baseColorTexture  colour produced before the reflection signal
+     * @param contributionTexture resolved contribution/confidence texture
+     * @param width             target width in pixels
+     * @param height            target height in pixels
+     */
+    public CommandBuffer recordComposite(CommandBuffer cmd, int baseColorTexture,
+                                         int contributionTexture, int width, int height) {
+        ensureOpen();
+        Objects.requireNonNull(cmd, "cmd");
+        if (baseColorTexture <= 0 || contributionTexture <= 0) {
+            throw new IllegalArgumentException(
+                    "reflection composite requires base colour and contribution textures");
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException(
+                    "reflection composite viewport must be positive");
+        }
+        return cmd.enableBlend(false)
+                .enableDepthTest(false)
+                .enableCullFace(false)
+                .enableFramebufferSrgb(false)
+                .bindShader(compositeProgram)
+                .bindTexture(0, baseColorTexture)
+                .bindTexture(1, contributionTexture)
+                .setUniformInt(compositeProgram, "uBaseColor", 0)
+                .setUniformInt(compositeProgram, "uContribution", 1)
+                .bindVertexArray(quad.id())
+                .drawArrays(GL_TRIANGLES, 0, 6)
+                .enableDepthTest(true);
     }
 
     /** Commits this frame's write slot and stores its camera pose for reprojection. */
@@ -338,6 +395,12 @@ public final class TemporalDenoisePass implements GlResource {
         }
         try {
             quad.close();
+        } catch (RuntimeException closeFailure) {
+            if (failure == null) failure = closeFailure;
+            else failure.addSuppressed(closeFailure);
+        }
+        try {
+            compositeProgram.close();
         } catch (RuntimeException closeFailure) {
             if (failure == null) failure = closeFailure;
             else failure.addSuppressed(closeFailure);
