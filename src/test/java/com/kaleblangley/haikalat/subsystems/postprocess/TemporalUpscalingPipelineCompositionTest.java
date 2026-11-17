@@ -119,6 +119,45 @@ class TemporalUpscalingPipelineCompositionTest {
                         hdr(AntiAliasingMode.NONE), ACTIVE, 64, 64, false, false, tooLarge));
     }
 
+    @Test
+    void reducedScaleWithoutCallerSourceUsesTheInternalContract() {
+        RenderSettings reduced = hdr(AntiAliasingMode.NONE).withRenderScale(0.5f);
+        assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalComposition(
+                reduced, PostProcessSettings.defaults(), 64, 64, false, false, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                                .vsync(false).renderScale(0.5f).build(),
+                        PostProcessSettings.defaults(), 64, 64, false, false, null),
+                "the internal source needs the linear RGBA16F HDR raster");
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        reduced, ACTIVE, 64, 64, false, false, SOURCE),
+                "a caller source must not compose with a reduced scene extent");
+    }
+
+    @Test
+    void internalReducedSourceRejectsFullResolutionConsumers() {
+        RenderSettings reduced = hdr(AntiAliasingMode.NONE).withRenderScale(0.5f);
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        reduced.withVisualSettings(1.0f,
+                                BloomSettings.builder().enabled(true).build(),
+                                AntiAliasingMode.NONE),
+                        PostProcessSettings.defaults(), 64, 64, false, false, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        reduced, PostProcessSettings.builder()
+                                .depthOfField(DepthOfFieldSettings.of(0.2f, 1.0f, 4.0f)).build(),
+                        64, 64, false, false, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PostProcessPipeline.validateTemporalComposition(
+                        reduced, PostProcessSettings.builder()
+                                .temporalUpscaling(TemporalUpscalingSettings.defaults()).build(),
+                        64, 64, false, false, null),
+                "an active caller request still needs its caller source");
+    }
+
     private static void assertAccepted(RenderSettings settings, PostProcessSettings effects) {
         assertDoesNotThrow(() -> PostProcessPipeline.validateTemporalComposition(
                 settings, effects, 64, 64, false, false, SOURCE));

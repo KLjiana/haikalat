@@ -3,12 +3,14 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
+import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
 import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
+import com.kaleblangley.haikalat.core.graph.RenderGraphTestAccess;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.core.presentation.ExternalAttachment;
@@ -23,8 +25,12 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingInputs;
+import com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPass;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.pipeline.PipelineGeneration;
 import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
@@ -35,8 +41,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
 
+import java.nio.FloatBuffer;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -48,15 +56,37 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
+import static org.lwjgl.opengl.GL11.GL_RGBA;
+import static org.lwjgl.opengl.GL11.GL_FLOAT;
+import static org.lwjgl.opengl.GL11.GL_TEXTURE_2D;
 import static org.lwjgl.opengl.GL11.glGetError;
+import static org.lwjgl.opengl.GL11.glReadBuffer;
+import static org.lwjgl.opengl.GL11.glReadPixels;
+import static org.lwjgl.opengl.GL11.glViewport;
+import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
+import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_COMPLETE;
+import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.glBindFramebuffer;
+import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
+import static org.lwjgl.opengl.GL30.glCheckFramebufferStatus;
+import static org.lwjgl.opengl.GL30.glDeleteFramebuffers;
+import static org.lwjgl.opengl.GL30.glFramebufferTexture2D;
+import static org.lwjgl.opengl.GL30.glGenFramebuffers;
 
 /**
- * Real-GL acceptance for the reduced internal scene resolution skeleton.
+ * Real-GL acceptance for the reduced internal scene resolution + temporal
+ * reconstruction boundary.
  *
- * <p>The scene surface/geometry passes render at the rounded scene extent while
- * the post-process chain, the spatial scene→chain magnifier and present stay at
- * the target extent.  Scale 1.0 must remain a byte-identical no-op and every
+ * <p>The scene surface/geometry passes render at the rounded scene extent R
+ * while the internal temporal upscaler and every post-process pass stay at the
+ * target extent O.  The upscaler consumes the generation-owned R colour and
+ * single-sample R depth; no caller {@code TemporalUpscalingSource} is
+ * registered.  Scale 1.0 must remain a byte-identical no-op and every
  * unsupported composition must still fail closed before a generation exists.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
@@ -109,8 +139,9 @@ class LowResolutionMainChainGlTest {
                         PostProcessSettings.defaults());
                 try {
                     assertFalse(firstPipeline.graph().hasPass(
-                                    PostProcessTargets.SCENE_UPSCALE_PASS),
-                            "renderScale 1.0 must not insert the spatial magnifier");
+                                    PostProcessTargets.TEMPORAL_UPSCALING_PASS),
+                            "renderScale 1.0 must not insert the temporal reconstruction pass");
+                    assertNull(firstPipeline.temporalUpscalingSource());
                     firstPipeline.execute(device, 1.0f / 60.0f);
                     first = firstPipeline.captureLinearHdrRgbaFloat();
                     assertEquals(window.width() * window.height() * 4, first.length);
@@ -134,8 +165,8 @@ class LowResolutionMainChainGlTest {
                     assertArrayEquals(first, rebuiltPipeline.captureLinearHdrRgbaFloat(),
                             "a renderScale 1.0 frame after a 0.5 generation must be byte-identical");
                     assertFalse(rebuiltPipeline.graph().hasPass(
-                                    PostProcessTargets.SCENE_UPSCALE_PASS),
-                            "the rebuilt full-resolution generation must not add the magnifier");
+                                    PostProcessTargets.TEMPORAL_UPSCALING_PASS),
+                            "the rebuilt full-resolution generation must not add a reconstruction pass");
                 } finally {
                     rebuiltPipeline.close();
                 }
@@ -148,7 +179,7 @@ class LowResolutionMainChainGlTest {
     }
 
     @Test
-    void halfScaleRendersTheSceneAtRAndMagnifiesFlatInteriorsToTheTarget() {
+    void halfScaleReconstructsAtTheTargetAndMatchesTheSpatialAndIndependentUpscaler() {
         try (GlfwWindow window = window("Low-Resolution Half Scale")) {
             GlRenderDevice device = new GlRenderDevice();
             int targetWidth = window.width();
@@ -160,31 +191,65 @@ class LowResolutionMainChainGlTest {
                         REDUCED_SCALE, PostProcessSettings.defaults());
                 try {
                     reducedPipeline.execute(device, 1.0f / 60.0f);
+                    assertEquals(window.width(), targetWidth);
                     RenderGraph.Description description = reducedPipeline.graph().description();
-                    RenderGraph.PassDescription upscale = pass(description,
-                            PostProcessTargets.SCENE_UPSCALE_PASS);
-                    assertNotNull(upscale, "renderScale 0.5 must insert one spatial magnifier");
-                    assertEquals(targetWidth, upscale.width());
-                    assertEquals(targetHeight, upscale.height());
+                    RenderGraph.PassDescription reconstruction = pass(description,
+                            PostProcessTargets.TEMPORAL_UPSCALING_PASS);
+                    assertNotNull(reconstruction,
+                            "renderScale 0.5 must insert the internal temporal reconstruction pass");
+                    assertEquals(RenderGraph.TargetKind.EXTERNAL, reconstruction.targetKind(),
+                            "the reconstruction pass owns its O-sized history target");
+                    assertTrue(reconstruction.borrowedExternalStorage().isEmpty(),
+                            "the internal source must not be imported as caller storage");
+                    assertTrue(reconstruction.directDependencies().contains(
+                                    PostProcessTargets.GEOMETRY_PASS),
+                            "the reconstruction pass must depend on the scene colour producer");
                     RenderGraph.PassDescription geometry = pass(description,
                             PostProcessTargets.GEOMETRY_PASS);
                     assertNotNull(geometry);
                     assertEquals(sceneWidth, geometry.width(),
                             "the geometry pass must rasterise at the scene extent");
                     assertEquals(sceneHeight, geometry.height());
+                    assertNull(reducedPipeline.temporalUpscalingSource(),
+                            "no caller TemporalUpscalingSource may be registered on the internal path");
+                    assertTrue(temporalHistoryValid(reducedPipeline),
+                            "the pipeline must commit the internal upscaling history");
+
                     float[] reduced = reducedPipeline.captureLinearHdrRgbaFloat();
                     assertEquals(targetWidth * targetHeight * 4, reduced.length,
-                            "the magnified output must have the target extent");
+                            "the reconstructed output must have the target extent");
                     for (float value : reduced) {
                         assertTrue(Float.isFinite(value),
-                                "the magnified output must stay finite");
+                                "the reconstructed output must stay finite");
                     }
+
+                    int sceneColor = RenderGraphTestAccess.textureId(reducedPipeline.graph(),
+                            PostProcessTargets.SCENE_COLOR);
+                    int sceneDepth = RenderGraphTestAccess.textureId(reducedPipeline.graph(),
+                            PostProcessTargets.SCENE_DEPTH);
+                    assertTrue(sceneColor > 0, "the scene colour attachment must exist at R");
+                    assertTrue(sceneDepth > 0,
+                            "the reduced scene must expose its single-sample depth as a texture");
+
+                    float[] independent = independentUpscale(device, fixture.scene().camera(),
+                            sceneColor, sceneDepth, sceneWidth, sceneHeight,
+                            targetWidth, targetHeight);
+                    assertRgbaClose(independent, reduced, 2.0e-3f,
+                            "the pipeline must match the independently driven TemporalUpscalingPass");
+
+                    float[] spatial = spatialMagnifier(sceneColor, sceneWidth, sceneHeight,
+                            targetWidth, targetHeight);
+                    assertRgbaClose(spatial, reduced, 4.0e-3f,
+                            "at jitter 0 the temporal reconstruction must reproduce the spatial "
+                                    + "magnifier geometry");
+                    assertRgbaClose(spatial, independent, 4.0e-3f,
+                            "the independent pass must also match the spatial magnifier at jitter 0");
                     assertFlatInteriorsMatch(window, fixture, device, reduced);
                 } finally {
                     reducedPipeline.close();
                 }
             }
-            GlDebug.assertNoError("low-resolution half-scale frame");
+            GlDebug.assertNoError("low-resolution half-scale temporal reconstruction");
             assertEquals(GL_NO_ERROR, glGetError());
             assertTrue(GlDebug.resources().liveResources().isEmpty(),
                     "the half-scale case must release every tracked GL resource");
@@ -216,6 +281,12 @@ class LowResolutionMainChainGlTest {
                             "the surface prepass must render at the scene extent");
                     assertEquals(sceneHeight, surface.height());
                     assertNotNull(surface.depthAttachment());
+                    RenderGraph.PassDescription reconstruction = pass(description,
+                            PostProcessTargets.TEMPORAL_UPSCALING_PASS);
+                    assertNotNull(reconstruction);
+                    assertTrue(reconstruction.directDependencies().contains(
+                                    PostProcessTargets.SCENE_SURFACE_PASS),
+                            "the reconstruction must sample the shared surface depth producer");
                     RenderGraph.PassDescription fogPass = pass(description,
                             PostProcessTargets.FOG_PASS);
                     assertNotNull(fogPass);
@@ -273,19 +344,24 @@ class LowResolutionMainChainGlTest {
                         assertEquals(resizedWidth, pipeline.graph().width());
                         assertEquals(resizedHeight, pipeline.graph().height());
                         RenderGraph.Description description = pipeline.graph().description();
-                        RenderGraph.PassDescription upscale = pass(description,
-                                PostProcessTargets.SCENE_UPSCALE_PASS);
-                        assertNotNull(upscale);
-                        assertEquals(resizedWidth, upscale.width());
-                        assertEquals(resizedHeight, upscale.height());
+                        RenderGraph.PassDescription reconstruction = pass(description,
+                                PostProcessTargets.TEMPORAL_UPSCALING_PASS);
+                        assertNotNull(reconstruction,
+                                "the replacement generation must own a fresh reconstruction pass");
+                        assertEquals(RenderGraph.TargetKind.EXTERNAL,
+                                reconstruction.targetKind());
                         RenderGraph.PassDescription geometry = pass(description,
                                 PostProcessTargets.GEOMETRY_PASS);
                         assertNotNull(geometry);
                         assertEquals(sceneWidth, geometry.width(),
                                 "the replacement generation must move the scene extent with the target");
                         assertEquals(sceneHeight, geometry.height());
+                        assertNull(pipeline.temporalUpscalingSource());
+                        assertTrue(temporalHistoryValid(pipeline),
+                                "the resized generation must commit its own O-sized history");
                         assertEquals(resizedWidth * resizedHeight * 4,
-                                pipeline.captureLinearHdrRgbaFloat().length);
+                                pipeline.captureLinearHdrRgbaFloat().length,
+                                "the history/output extent must follow the resized target");
                     }
                 } finally {
                     pipeline.close();
@@ -295,6 +371,44 @@ class LowResolutionMainChainGlTest {
             assertEquals(GL_NO_ERROR, glGetError());
             assertTrue(GlDebug.resources().liveResources().isEmpty(),
                     "the resize case must release every tracked GL resource");
+        }
+    }
+
+    @Test
+    void repeatedReducedFramesStayFiniteAndLeakFree() {
+        try (GlfwWindow window = window("Low-Resolution Stability")) {
+            GlRenderDevice device = new GlRenderDevice();
+            int targetWidth = window.width();
+            int targetHeight = window.height();
+            try (Fixture fixture = new Fixture()) {
+                RenderPipeline pipeline = buildPipeline(window, fixture.scene(),
+                        REDUCED_SCALE, PostProcessSettings.defaults());
+                try {
+                    float[] previous = null;
+                    for (int frame = 0; frame < 3; frame++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                        assertTrue(temporalHistoryValid(pipeline),
+                                "frame " + frame + " must commit the internal history");
+                        float[] current = pipeline.captureLinearHdrRgbaFloat();
+                        assertEquals(targetWidth * targetHeight * 4, current.length);
+                        for (float value : current) {
+                            assertTrue(Float.isFinite(value),
+                                    "frame " + frame + " output must stay finite");
+                        }
+                        if (previous != null) {
+                            assertRgbaClose(previous, current, 1.0e-3f,
+                                    "a static scene must stay stable across reconstructed frames");
+                        }
+                        previous = current;
+                    }
+                } finally {
+                    pipeline.close();
+                }
+            }
+            GlDebug.assertNoError("low-resolution multi-frame stability");
+            assertEquals(GL_NO_ERROR, glGetError());
+            assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                    "the stability case must release every tracked GL resource");
         }
     }
 
@@ -383,6 +497,70 @@ class LowResolutionMainChainGlTest {
                         pipeline -> pipeline.weightedOit(WeightedOitSettings.defaults())));
     }
 
+    /**
+     * Drives a standalone {@link TemporalUpscalingPass} over the generation's
+     * R colour/depth attachments with exactly the internal settings and pose.
+     */
+    private static float[] independentUpscale(GlRenderDevice device, Camera camera,
+                                              int colorTexture, int depthTexture,
+                                              int inputWidth, int inputHeight,
+                                              int outputWidth, int outputHeight) {
+        TemporalUpscalingSettings upscaling =
+                TemporalUpscalingSettings.internalLowResolution(REDUCED_SCALE);
+        TemporalUpscalingPass pass = new TemporalUpscalingPass(upscaling, outputWidth,
+                outputHeight);
+        try {
+            Matrix4f projection = CameraProjection.stable(camera, inputWidth, inputHeight,
+                    new Matrix4f());
+            Matrix4f view = camera.getViewMatrix(new Matrix4f());
+            Matrix4f stableViewProjection = new Matrix4f(projection).mul(view);
+            pass.beginFrame();
+            var commands = device.createCommandBuffer();
+            pass.record(commands, new TemporalUpscalingInputs(
+                    colorTexture, depthTexture, 0, 0, 0, 0, inputWidth, inputHeight,
+                    0.0f, 0.0f, settings(REDUCED_SCALE, AntiAliasingMode.NONE).exposure(),
+                    new Matrix4f(projection).invert(),
+                    new Matrix4f(view).invert(),
+                    stableViewProjection));
+            device.execute(commands);
+            pass.frameSucceeded();
+            return readFloat(pass.readOutputFramebuffer());
+        } finally {
+            pass.close();
+        }
+    }
+
+    /**
+     * Reproduces the removed spatial magnifier independently: a GL_LINEAR
+     * colour blit from the R scene colour attachment into an O RGBA16F target.
+     */
+    private static float[] spatialMagnifier(int sourceColor, int sourceWidth, int sourceHeight,
+                                            int targetWidth, int targetHeight) {
+        try (Framebuffer target = Framebuffer.fromDescriptor(FramebufferDescriptor
+                .builder(targetWidth, targetHeight)
+                .colorTexture(RenderFormat.RGBA16F)
+                .build())) {
+            int readFramebuffer = glGenFramebuffers();
+            try {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer);
+                glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                        GL_TEXTURE_2D, sourceColor, 0);
+                glReadBuffer(GL_COLOR_ATTACHMENT0);
+                assertEquals(GL_FRAMEBUFFER_COMPLETE,
+                        glCheckFramebufferStatus(GL_READ_FRAMEBUFFER),
+                        "the scene colour attachment must be blit-complete");
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target.id());
+                glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
+                        0, 0, targetWidth, targetHeight,
+                        GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            } finally {
+                glDeleteFramebuffers(readFramebuffer);
+            }
+            return readFloat(target);
+        }
+    }
+
     private static void assertFlatInteriorsMatch(GlfwWindow window, Fixture fixture,
                                                  GlRenderDevice device, float[] reduced) {
         int targetWidth = window.width();
@@ -422,6 +600,35 @@ class LowResolutionMainChainGlTest {
         }
         assertTrue(inside > 100, "the fixture must expose a large flat interior region");
         assertTrue(outside > 100, "the fixture must expose a large flat exterior region");
+    }
+
+    private static void assertRgbaClose(float[] expected, float[] actual, float tolerance,
+                                        String message) {
+        assertEquals(expected.length, actual.length, message + " length");
+        for (int index = 0; index < expected.length; index++) {
+            if (index % 4 == 3) continue;
+            assertEquals(expected[index], actual[index], tolerance,
+                    message + " at component " + index);
+        }
+    }
+
+    private static float[] readFloat(Framebuffer framebuffer) {
+        int width = framebuffer.width();
+        int height = framebuffer.height();
+        framebuffer.bind();
+        glViewport(0, 0, width, height);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        FloatBuffer pixels = BufferUtils.createFloatBuffer(width * height * 4);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, pixels);
+        float[] result = new float[width * height * 4];
+        pixels.get(result);
+        return result;
+    }
+
+    private static boolean temporalHistoryValid(RenderPipeline pipeline) {
+        PipelineGeneration generation = pipeline.activeGenerationForTest();
+        return generation != null
+                && generation.postProcess().temporalUpscalingHistoryValid();
     }
 
     private static RenderPipeline buildPipeline(GlfwWindow window, Scene scene, float scale,

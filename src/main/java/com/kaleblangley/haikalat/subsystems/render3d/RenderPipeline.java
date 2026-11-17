@@ -1481,13 +1481,14 @@ public final class RenderPipeline {
      * Fail-closed gate for the advanced {@code renderScale} request on the
      * legacy/configuration entry paths.
      *
-     * <p>The reduced-scene-resolution slice is not implemented yet, so every
-     * composition below reads full-resolution scene colour/depth/material data
-     * and is rejected with its own documented reason code while the scale is
-     * below one.  At {@code renderScale == 1.0} this method never throws, so
-     * today's behaviour is unchanged.  The unified feature path is checked
-     * earlier by {@code RenderFeaturePolicy}; this method also covers callers
-     * that configure the pipeline through the individual setters.</p>
+     * <p>The reduced scene raster is reconstructed to the target extent by the
+     * internal temporal source; every composition below still reads
+     * full-resolution scene colour/depth/material data and is rejected with its
+     * own documented reason code while the scale is below one.  At
+     * {@code renderScale == 1.0} this method never throws, so today's behaviour
+     * is unchanged.  The unified feature path is checked earlier by
+     * {@code RenderFeaturePolicy}; this method also covers callers that
+     * configure the pipeline through the individual setters.</p>
      */
     private void validateRenderScaleCompositions() {
         RenderScalePolicy.rejectSettingsCompositions(settings, postProcessSettings);
@@ -4083,9 +4084,13 @@ public final class RenderPipeline {
         try {
             // Temporal camera/state capture is only paid when a temporal
             // consumer exists; the NONE/FXAA/MSAA paths must keep their
-            // pre-v0.24.1 cost.
+            // pre-v0.24.1 cost.  A reduced scene raster is also a temporal
+            // consumer: the internal reconstruction pass needs the R stable
+            // projection/view-projection, not the O post-process pose.
             boolean temporalActive = generation.sceneSurfacePass() != null
-                    || settings.antiAliasingMode() == AntiAliasingMode.TAA;
+                    || settings.antiAliasingMode() == AntiAliasingMode.TAA
+                    || generation.topology().sceneWidth() != generation.topology().width()
+                    || generation.topology().sceneHeight() != generation.topology().height();
             TemporalFrameState.FrameParameters frameParameters = temporalActive
                     ? captureFrameParameters(activeFrameContext) : null;
             if (temporalActive) {

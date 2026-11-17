@@ -246,6 +246,8 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                 topology.antiAliasingMode() == AntiAliasingMode.MSAA);
         RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.TAA,
                 topology.antiAliasingMode() == AntiAliasingMode.TAA);
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.LOW_RESOLUTION_LDR,
+                !topology.hdr());
         RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.BLOOM, topology.bloom());
         RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.AUTO_EXPOSURE,
                 topology.automaticExposure());

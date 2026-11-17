@@ -127,14 +127,18 @@ public final class ForwardPassBuilder {
             geometry.shareDepthTexture(sharedDepth.name(), sharedDepth.producer());
             geometry.clearColorOnly(0.08f, 0.10f, 0.14f, 1.0f);
             geometry.dependsOn(sharedDepth.producer());
-        } else if (((postProcessSettings.fog().enabled() || topology.hdrVfx())
+        } else if (reducedSceneExtent
+                || ((postProcessSettings.fog().enabled() || topology.hdrVfx())
                 && settings.antiAliasingMode() != AntiAliasingMode.MSAA)
                 || refraction || topology.projectedDecals()) {
             // Refraction shares this texture with its glass pass and samples a
             // resolved snapshot; a renderbuffer depth attachment cannot be
             // borrowed, so both paths request a depth texture. The projected-
             // decal split also needs a shareable depth texture for the
-            // transparent forward half that runs after the decal batch.
+            // transparent forward half that runs after the decal batch. A
+            // reduced scene raster always exposes its single-sample depth as a
+            // texture so the generation-owned temporal upscaler can reconstruct
+            // the surface.
             geometry.createDepthTexture(PostProcessTargets.SCENE_DEPTH);
             geometry.clearColor(0.08f, 0.10f, 0.14f, 1.0f);
         } else {

@@ -82,12 +82,12 @@ public final class RenderSettings {
      *
      * <p>{@code 1.0} is the default and the exact no-op: the scene extent equals
      * the target extent and every existing composition is unchanged.  A value
-     * below one asks a later rendering slice to rasterise the scene at
-     * {@code max(1, round(target * renderScale))} and reconstruct the target
-     * extent; the single rounding rule lives in
-     * {@code TemporalUpscalingSettings.scaledExtent(int, float)}.  Until that
-     * slice exists, every composition that assumes full-resolution scene data is
-     * rejected by the feature policy instead of being rendered incorrectly.</p>
+     * below one rasterises the scene at
+     * {@code max(1, round(target * renderScale))} and reconstructs the target
+     * extent through the internal temporal source; the single rounding rule
+     * lives in {@code TemporalUpscalingSettings.scaledExtent(int, float)}.
+     * Compositions that still require full-resolution scene data are rejected by
+     * the feature policy instead of being rendered incorrectly.</p>
      *
      * @return the validated ratio in {@code [0.25, 1.0]}
      */

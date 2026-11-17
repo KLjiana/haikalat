@@ -307,7 +307,7 @@ tasks.register('releaseVerificationContracts') {
         // particle-indirect and VFX sampler policies, the S6 interaction-matrix
         // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
         // transmission-shadow cold-link policy.
-        assert policies.size() == 68
+        assert policies.size() == 69
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -454,6 +454,24 @@ tasks.register('releaseVerificationContracts') {
                 upscaleDevice + upscaleMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPipelineGlTest.xml',
                 upscaleDevice + upscaleMessage * 5, policies).violations.isEmpty()
+        def lowResolutionTemporalPolicy = policies.find {
+            it.owner == 'render3d/lowres-temporal'
+        }
+        assert lowResolutionTemporalPolicy != null
+        assert lowResolutionTemporalPolicy.id == 131218
+        assert lowResolutionTemporalPolicy.severity == 'MEDIUM'
+        assert lowResolutionTemporalPolicy.source == 'API'
+        assert lowResolutionTemporalPolicy.type == 'PERFORMANCE'
+        assert lowResolutionTemporalPolicy.maximum == 2
+        assert lowResolutionTemporalPolicy.entry == '.*LowResolutionMainChainGlTest.*'
+        assert lowResolutionTemporalPolicy.expiry == LocalDate.of(2027, 5, 17)
+        def lowResolutionEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.LowResolutionMainChainGlTest.xml'
+        assert auditGlText(lowResolutionEntry,
+                upscaleDevice + upscaleMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(lowResolutionEntry,
+                upscaleDevice + upscaleMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                upscaleDevice + upscaleMessage, policies).violations.isEmpty()
         def volumetricParticleReadback = policies.find { it.owner == 'render3d/volumetric-particle-readback' }
         assert volumetricParticleReadback != null && volumetricParticleReadback.id == 131186
         assert volumetricParticleReadback.maximum == 2

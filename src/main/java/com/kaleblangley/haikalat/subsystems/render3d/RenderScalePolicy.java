@@ -9,15 +9,15 @@ import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
  * Fail-closed policy for the advanced {@link RenderSettings#renderScale()}
  * request.
  *
- * <p>The reduced-scene-resolution slice is not implemented yet: the graph still
- * has exactly one extent, so every composition below that reads the scene
- * colour, depth, normals or material channels at the full target extent would
- * produce wrong pixels if it ran against a reduced scene extent.  Rather than
- * silently dropping these features or rendering them against mismatched
- * extents, each requested composition is rejected while
- * {@code renderScale < 1.0} with its own documented reason code.  At
- * {@code renderScale == 1.0} nothing is rejected: every request keeps today's
- * exact behaviour.</p>
+ * <p>The reduced-resolution path rasterises the scene colour/depth at
+ * {@code max(1, round(target * scale))} and reconstructs the target extent with
+ * the internal temporal upscaler before the HDR colour chain.  Compositions
+ * below still assume full-resolution scene data, so they would produce wrong
+ * pixels if they ran against the reduced raster.  Rather than silently dropping
+ * these features or rendering them against mismatched extents, each requested
+ * composition is rejected while {@code renderScale < 1.0} with its own
+ * documented reason code.  At {@code renderScale == 1.0} nothing is rejected:
+ * every request keeps today's exact behaviour.</p>
  *
  * <p>The same codes and messages are used by the settings policy
  * ({@link RenderFeaturePolicy}), the topology policy
@@ -69,6 +69,8 @@ final class RenderScalePolicy {
         BLOOM("bloom", "the bloom chain"),
         AUTO_EXPOSURE("auto-exposure", "automatic exposure"),
         TEMPORAL_UPSCALING_SOURCE("temporal-upscaling-source", "a caller-supplied TemporalUpscalingSource"),
+        LOW_RESOLUTION_LDR("low-resolution-ldr",
+                "a non-HDR (sRGB) scene raster (the internal temporal source requires RGBA16F)"),
         EMBEDDED_TARGET("embedded-target", "embedded/borrowed host targets");
 
         private final String code;
@@ -146,6 +148,12 @@ final class RenderScalePolicy {
         if (scale >= FULL_RESOLUTION) {
             return;
         }
+        // The internal temporal source samples a linear RGBA16F scene colour and
+        // writes a linear RGBA16F history.  An LDR chain rasterises an sRGB
+        // scene colour and presents without tone mapping, so the reconstruction
+        // cannot preserve the colour encoding; fail closed instead of silently
+        // changing LDR output.
+        reject(scale, Feature.LOW_RESOLUTION_LDR, !render.hdrEnabled());
         reject(scale, Feature.MSAA, render.antiAliasingMode() == AntiAliasingMode.MSAA);
         reject(scale, Feature.TAA, render.antiAliasingMode() == AntiAliasingMode.TAA);
         reject(scale, Feature.BLOOM, render.bloomSettings().enabled());

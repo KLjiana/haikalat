@@ -132,6 +132,37 @@ public record TemporalUpscalingSettings(
         return disabled().withEnabled(true);
     }
 
+    /**
+     * Settings for the pipeline-owned reconstruction of a reduced internal
+     * scene raster.
+     *
+     * <p>This is the internal contract behind {@code RenderSettings.renderScale
+     * < 1}: the scene colour/depth attachments are rendered at
+     * {@link #scaledExtent(int, float)} of the target and reconstructed to the
+     * output extent.  The tuning is {@link #defaults()} with one deliberate
+     * difference: sharpening is zero, so the pass has no sharpen program/target
+     * and the jitter-zero resolve reproduces the previous spatial magnifier
+     * geometry instead of adding local contrast.</p>
+     *
+     * <p>This slice has no low-resolution jitter (TAA is rejected at
+     * {@code renderScale < 1}), so callers must feed the pass a zero jitter;
+     * {@link #scaledExtent(int, float)} remains the single rounding rule for
+     * the input extent.  A future nonzero-jitter slice must extend this
+     * contract before the jitter arguments of the pass may be used here.</p>
+     *
+     * @param renderScale reduced scene/target ratio in
+     *                    {@code [MIN_RENDER_SCALE, 1)} (the caller-supplied
+     *                    source path owns the full-resolution ratio)
+     */
+    public static TemporalUpscalingSettings internalLowResolution(float renderScale) {
+        if (!Float.isFinite(renderScale) || renderScale < MIN_RENDER_SCALE
+                || renderScale >= MAX_RENDER_SCALE) {
+            throw new IllegalArgumentException("internal temporal upscaling renderScale must be "
+                    + "finite and in [" + MIN_RENDER_SCALE + ", " + MAX_RENDER_SCALE + ")");
+        }
+        return defaults().withRenderScale(renderScale).withSharpness(0.0f);
+    }
+
     /** @return true when the pass, shader and history attachments should exist */
     public boolean active() {
         return enabled;

@@ -82,6 +82,10 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final TemporalDenoisePass temporalDenoise;
     private final TemporalUpscalingPass temporalUpscaling;
     private final TemporalUpscalingSource temporalUpscalingSource;
+    private final boolean internalTemporalUpscaling;
+    private SceneUpscalingInputs sceneUpscalingInputs;
+    private RenderGraph internalUpscalingGraph;
+    private boolean internalUpscalingAdded;
     private final RenderGraph.PassExecutor hdrVfx;
     private final SurfaceInputs surfaceInputs;
     private final SsrEnvironmentSource ssrEnvironment;
@@ -118,6 +122,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                                 TemporalDenoisePass temporalDenoise,
                                 TemporalUpscalingPass temporalUpscaling,
                                 TemporalUpscalingSource temporalUpscalingSource,
+                                boolean internalTemporalUpscaling,
                                 RenderGraph.PassExecutor hdrVfx,
                                 SurfaceInputs surfaceInputs,
                                 SsrEnvironmentSource ssrEnvironment,
@@ -148,6 +153,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         this.temporalDenoise = temporalDenoise;
         this.temporalUpscaling = temporalUpscaling;
         this.temporalUpscalingSource = temporalUpscalingSource;
+        this.internalTemporalUpscaling = internalTemporalUpscaling;
         this.hdrVfx = hdrVfx;
         this.surfaceInputs = surfaceInputs;
         this.ssrEnvironment = ssrEnvironment;
@@ -242,9 +248,10 @@ public final class PostProcessPipeline implements AutoCloseable {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(effects, "effects");
         Objects.requireNonNull(surfaceInputs, "surfaceInputs");
+        boolean internalUpscaling = internalUpscaling(settings, effects, width, height);
         validateTemporalComposition(settings, effects, width, height,
                 hdrVfx != null, lateSurface != null && lateSurface.enabled(),
-                temporalUpscalingSource);
+                temporalUpscalingSource, internalUpscaling);
         var owned = new ArrayList<AutoCloseable>();
         var borrowed = new ArrayList<AutoCloseable>();
         try {
@@ -419,12 +426,18 @@ public final class PostProcessPipeline implements AutoCloseable {
                 owned.add(temporalDenoise);
             }
             TemporalUpscalingPass temporalUpscaling = null;
-            if (effects.temporalUpscaling().active()) {
+            if (effects.temporalUpscaling().active() || internalUpscaling) {
                 // The upscaler owns new history storage on every generation; it
                 // is never borrowed from a donor because its extent relationship
-                // to the low-resolution source may differ.
-                temporalUpscaling = new TemporalUpscalingPass(
-                        effects.temporalUpscaling(), width, height);
+                // to the low-resolution source may differ.  The internal
+                // reduced-scene path is created here at the chain extent and its
+                // input attachments stay owned by the scene/generation.
+                TemporalUpscalingSettings upscalingSettings =
+                        effects.temporalUpscaling().active()
+                                ? effects.temporalUpscaling()
+                                : TemporalUpscalingSettings.internalLowResolution(
+                                        settings.renderScale());
+                temporalUpscaling = new TemporalUpscalingPass(upscalingSettings, width, height);
                 owned.add(temporalUpscaling);
             }
             return new PostProcessPipeline(settings, effects, fxaa, smaa, temporal, toneMapping, bloom,
@@ -433,6 +446,7 @@ public final class PostProcessPipeline implements AutoCloseable {
                     variableRateShading, variableRateShadingStatus, temporalDenoise,
                     temporalUpscaling,
                     effects.temporalUpscaling().active() ? temporalUpscalingSource : null,
+                    internalUpscaling,
                     hdrVfx, surfaceInputs, ssrEnvironment, ssgiEnvironment, lateSurface, owned,
                     borrowed, donor);
         } catch (RuntimeException | Error failure) {
@@ -498,6 +512,31 @@ public final class PostProcessPipeline implements AutoCloseable {
                                             boolean hdrVfx,
                                             boolean lateSurfaceEnabled,
                                             TemporalUpscalingSource source) {
+        validateTemporalComposition(settings, effects, width, height, hdrVfx,
+                lateSurfaceEnabled, source, internalUpscaling(settings, effects, width, height));
+    }
+
+    /**
+     * @return true when the colour chain must reconstruct the generation-owned
+     *         reduced scene raster instead of an imported caller source
+     */
+    static boolean internalUpscaling(RenderSettings settings, PostProcessSettings effects,
+                                     int width, int height) {
+        if (effects.temporalUpscaling().active()
+                || settings.renderScale() >= RenderSettings.MAX_RENDER_SCALE) {
+            return false;
+        }
+        return TemporalUpscalingSettings.scaledExtent(width, settings.renderScale()) != width
+                || TemporalUpscalingSettings.scaledExtent(height, settings.renderScale()) != height;
+    }
+
+    static void validateTemporalComposition(RenderSettings settings,
+                                            PostProcessSettings effects,
+                                            int width, int height,
+                                            boolean hdrVfx,
+                                            boolean lateSurfaceEnabled,
+                                            TemporalUpscalingSource source,
+                                            boolean internalUpscaling) {
         validateExternalTargetConsumers(settings, effects);
         TemporalUpscalingSettings upscaling = effects.temporalUpscaling();
         if (!upscaling.active()) {
@@ -506,11 +545,20 @@ public final class PostProcessPipeline implements AutoCloseable {
                         "a temporal upscaling source was supplied while temporal upscaling is "
                                 + "disabled");
             }
+            if (internalUpscaling) {
+                validateInternalTemporalComposition(settings, effects);
+            }
             return;
         }
         if (source == null) {
             throw new IllegalArgumentException(
                     "temporal upscaling requires a low-resolution colour/depth source");
+        }
+        if (settings.renderScale() < RenderSettings.MAX_RENDER_SCALE) {
+            throw new IllegalArgumentException(
+                    "a caller-supplied temporal upscaling source cannot compose with "
+                            + "renderScale " + settings.renderScale()
+                            + "; the reduced scene owns its internal source");
         }
         if (!settings.hdrEnabled()) {
             throw new IllegalArgumentException(
@@ -561,6 +609,54 @@ public final class PostProcessPipeline implements AutoCloseable {
                             + "indirect diffuse, temporal denoising or screen-space subsurface scattering");
         }
         source.validateAgainst(upscaling, width, height);
+    }
+
+    /**
+     * Rejects compositions that cannot feed the internal reduced-scene
+     * reconstruction source.
+     *
+     * <p>The internal source is the generation-owned R colour/depth raster, and
+     * the upscaler resolves at O before the HDR chain.  It therefore needs the
+     * same linear HDR target and single-sample stable raster as the caller
+     * source path, and it cannot consume a full-resolution surface producer.
+     * Fog and screen distortion remain post-chain effects at O; they do not
+     * change the reconstruction source.  Every rejection here is also enforced
+     * earlier by {@code RenderScalePolicy} on the production path.</p>
+     */
+    private static void validateInternalTemporalComposition(RenderSettings settings,
+                                                            PostProcessSettings effects) {
+        if (!settings.hdrEnabled()) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source requires HDR tone mapping");
+        }
+        if (settings.antiAliasingMode() == AntiAliasingMode.TAA
+                || settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source is mutually exclusive with "
+                            + settings.antiAliasingMode());
+        }
+        if (settings.bloomSettings().enabled()) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source does not yet support Bloom: the "
+                            + "upscaler is an external-target producer without a managed colour "
+                            + "target");
+        }
+        if (settings.exposureMode() == ExposureMode.AUTO) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source does not yet support automatic "
+                            + "exposure: the upscaler is an external-target producer without a "
+                            + "managed luminance source");
+        }
+        if (effects.depthOfField().active() || effects.motionBlur().active()
+                || effects.ssr().active() || effects.ssgi().active()
+                || effects.temporalDenoise().active()
+                || effects.subsurfaceScattering().screenSpaceActive()) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source cannot consume a full-resolution "
+                            + "surface input required by depth of field, motion blur, screen-space "
+                            + "reflections, screen-space indirect diffuse, temporal denoising or "
+                            + "screen-space subsurface scattering");
+        }
     }
 
     /**
@@ -747,6 +843,11 @@ public final class PostProcessPipeline implements AutoCloseable {
             throw new IllegalStateException("Final backbuffer pass has already been added: "
                     + finalPassName);
         }
+        if (internalTemporalUpscaling && !internalUpscalingAdded) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass must be added before the final "
+                            + "colour-chain pass");
+        }
         if (settings.hdrEnabled()) {
             addHdrFinalPasses(graph);
             return;
@@ -754,8 +855,178 @@ public final class PostProcessPipeline implements AutoCloseable {
         addLdrFinalPass(graph);
     }
 
+    /**
+     * Adds the temporal reconstruction of the generation-owned reduced scene
+     * raster at the scene-to-chain boundary.
+     *
+     * <p>This is the internal counterpart of the caller-supplied
+     * {@link TemporalUpscalingSource} path: the R colour and single-sample R
+     * depth are graph-owned attachments of the scene producers
+     * ({@code colorProducer}/{@code depthProducer}), so they are sampled through
+     * their logical names for the duration of the frame and never imported as
+     * external storage.  The upscaler and its O-sized history remain owned by
+     * this colour chain and are destroyed with the generation.  No
+     * {@code TemporalUpscalingSource} record is constructed and no caller source
+     * is registered.</p>
+     *
+     * <p>The pass is created only for an assembled internal upscaler and is
+     * placed before every HDR effect.  Jitter is exactly zero in this slice
+     * (TAA is rejected at a reduced scale), so the resolve reproduces the
+     * spatial-magnifier geometry at stable output positions.</p>
+     *
+     * @param graph           graph receiving the pass
+     * @param colorTexture    logical R scene colour texture (linear RGBA16F)
+     * @param colorProducer   pass that produced it
+     * @param depthTexture    logical single-sample R scene depth texture
+     * @param depthProducer   pass that produced it
+     * @param inputWidth      R width from the single documented rounding rule
+     * @param inputHeight     R height from the single documented rounding rule
+     */
+    public void addInternalTemporalUpscalingPass(RenderGraph graph, String colorTexture,
+                                                 String colorProducer, String depthTexture,
+                                                 String depthProducer, int inputWidth,
+                                                 int inputHeight) {
+        if (!internalTemporalUpscaling || temporalUpscaling == null) {
+            throw new IllegalStateException(
+                    "this colour chain was not assembled for the internal reduced-scene temporal "
+                            + "source");
+        }
+        if (internalUpscalingAdded) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass has already been added");
+        }
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(colorTexture, "colorTexture");
+        Objects.requireNonNull(colorProducer, "colorProducer");
+        Objects.requireNonNull(depthTexture, "depthTexture");
+        Objects.requireNonNull(depthProducer, "depthProducer");
+        if (inputWidth <= 0 || inputHeight <= 0) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source extent must be positive");
+        }
+        if (inputWidth > graph.width() || inputHeight > graph.height()) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source must not exceed the output "
+                            + "extent");
+        }
+        TemporalUpscalingSettings upscaling = temporalUpscaling.settings();
+        if (upscaling.inputWidth(graph.width()) != inputWidth
+                || upscaling.inputHeight(graph.height()) != inputHeight) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-scene temporal source extent " + inputWidth + "x"
+                            + inputHeight + " disagrees with the documented render-scale rounding "
+                            + "rule (" + upscaling.inputWidth(graph.width()) + "x"
+                            + upscaling.inputHeight(graph.height()) + ")");
+        }
+
+        publishTemporalUpscalingOutput(graph);
+        var pass = graph.addPass(PostProcessTargets.TEMPORAL_UPSCALING_PASS)
+                .writeToExternalTarget()
+                .noClear()
+                .dependsOn(colorProducer);
+        if (!depthProducer.equals(colorProducer)) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.execute((res, cmd) -> {
+            TemporalFramePose frame = framePose;
+            if (frame == null) {
+                throw new IllegalStateException(
+                        "internal temporal upscaling requires a started frame pose");
+            }
+            int color = res.colorAttachment(colorTexture);
+            int depth = res.depthAttachment(depthTexture);
+            if (color <= 0) {
+                throw new IllegalStateException(
+                        "internal temporal upscaling requires the scene colour attachment "
+                                + colorTexture);
+            }
+            if (depth <= 0) {
+                throw new IllegalStateException(
+                        "internal temporal upscaling requires the single-sample scene depth "
+                                + depthTexture);
+            }
+            temporalUpscaling.record(cmd, new TemporalUpscalingInputs(
+                    color, depth, 0, 0, 0, 0, inputWidth, inputHeight,
+                    0.0f, 0.0f, manualExposure,
+                    frame.inverseJitteredProjection(), frame.inverseView(),
+                    frame.stableViewProjection()));
+        });
+        sceneUpscalingInputs = new SceneUpscalingInputs(colorTexture, colorProducer, depthTexture,
+                depthProducer, inputWidth, inputHeight);
+        internalUpscalingGraph = graph;
+        internalUpscalingAdded = true;
+        sceneColorInput = PostProcessTargets.TEMPORAL_UPSCALING_COLOR;
+        sceneColorProducer = PostProcessTargets.TEMPORAL_UPSCALING_PASS;
+    }
+
+    private record SceneUpscalingInputs(String colorTexture, String colorProducer,
+                                        String depthTexture, String depthProducer,
+                                        int width, int height) {
+    }
+
+    private void validateInternalUpscalingInputs() {
+        SceneUpscalingInputs input = sceneUpscalingInputs;
+        RenderGraph.Description description = internalUpscalingGraph.description();
+        RenderGraph.PassDescription temporalPass = description.passes().stream()
+                .filter(pass -> pass.name().equals(PostProcessTargets.TEMPORAL_UPSCALING_PASS))
+                .findFirst().orElse(null);
+        if (temporalPass == null) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass is missing from the compiled graph");
+        }
+        if (temporalPass.targetKind() != RenderGraph.TargetKind.EXTERNAL) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass must write its owned history target");
+        }
+        if (!temporalPass.borrowedExternalStorage().isEmpty()) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass must not import a caller source");
+        }
+        if (!temporalPass.directDependencies().contains(input.colorProducer())) {
+            throw new IllegalStateException(
+                    "the internal reduced-scene temporal pass must depend on the scene colour "
+                            + "producer " + input.colorProducer());
+        }
+        RenderGraph.PassDescription color = pass(description, input.colorProducer());
+        if (color.width() != input.width() || color.height() != input.height()) {
+            throw new IllegalStateException(
+                    "the internal temporal source colour producer must render at the reduced "
+                            + "scene extent");
+        }
+        boolean colorFound = color.colorAttachments().stream()
+                .anyMatch(attachment -> attachment.logicalName().equals(input.colorTexture()));
+        if (!colorFound) {
+            throw new IllegalStateException(
+                    "the scene colour producer does not declare " + input.colorTexture());
+        }
+        RenderGraph.PassDescription depth = pass(description, input.depthProducer());
+        if (depth.depthAttachment() == null
+                || !depth.depthAttachment().logicalName().equals(input.depthTexture)) {
+            throw new IllegalStateException(
+                    "the internal temporal source requires a depth texture produced by "
+                            + input.depthProducer());
+        }
+        if (depth.width() != input.width() || depth.height() != input.height()) {
+            throw new IllegalStateException(
+                    "the internal temporal source depth producer must render at the reduced "
+                            + "scene extent");
+        }
+    }
+
+    private static RenderGraph.PassDescription pass(RenderGraph.Description description,
+                                                    String name) {
+        return description.passes().stream()
+                .filter(pass -> pass.name().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "missing pass " + name + " in the internal temporal source graph"));
+    }
+
     /** Validates the dependency edges that the colour chain declares on surface producers. */
     public void validateSurfaceInputs() {
+        if (internalUpscalingAdded) {
+            validateInternalUpscalingInputs();
+        }
         if (temporal != null) {
             temporal.validateDependencies(surfaceInputs, reactiveRequested());
         }
@@ -1036,7 +1307,7 @@ public final class PostProcessPipeline implements AutoCloseable {
         String hdrTexture = sceneColorInput;
         String hdrProducer = sceneColorProducer;
 
-        if (temporalUpscaling != null) {
+        if (temporalUpscalingSource != null) {
             addTemporalUpscalingPass(graph);
             hdrTexture = PostProcessTargets.TEMPORAL_UPSCALING_COLOR;
             hdrProducer = PostProcessTargets.TEMPORAL_UPSCALING_PASS;

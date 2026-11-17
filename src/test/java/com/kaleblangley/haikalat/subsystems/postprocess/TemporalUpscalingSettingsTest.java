@@ -90,6 +90,32 @@ class TemporalUpscalingSettingsTest {
     }
 
     @Test
+    void internalLowResolutionKeepsTheConservativeDefaultsExceptSharpening() {
+        TemporalUpscalingSettings internal = TemporalUpscalingSettings.internalLowResolution(0.5f);
+        TemporalUpscalingSettings defaults = TemporalUpscalingSettings.defaults();
+        assertTrue(internal.active());
+        assertEquals(0.5f, internal.renderScale());
+        assertEquals(0.0f, internal.sharpness(),
+                "the internal reconstruction must not add a sharpen pass");
+        assertEquals(defaults.historyBlend(), internal.historyBlend());
+        assertEquals(defaults.reactiveThreshold(), internal.reactiveThreshold());
+        assertEquals(defaults.exposureThreshold(), internal.exposureThreshold());
+        assertEquals(defaults.maxReprojectionPixels(), internal.maxReprojectionPixels());
+        assertEquals(defaults.quality(), internal.quality());
+        assertEquals(76, internal.inputWidth(152));
+        assertEquals(36, internal.inputHeight(72));
+        assertEquals(internal.inputWidth(152),
+                TemporalUpscalingSettings.scaledExtent(152, 0.5f),
+                "the internal input extent must use the single rounding rule");
+        for (float rejected : new float[]{1.0f, 0.05f, 0.0f, -0.5f, Float.NaN,
+                Float.POSITIVE_INFINITY}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> TemporalUpscalingSettings.internalLowResolution(rejected),
+                    "internal temporal upscaling is a reduced-scene contract: " + rejected);
+        }
+    }
+
+    @Test
     void acceptedBoundariesBuildAndPreserveTheDocumentedWeights() {
         TemporalUpscalingSettings boundary = settings(0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         assertEquals(1.0f, boundary.withRenderScale(1.0f).renderScale());

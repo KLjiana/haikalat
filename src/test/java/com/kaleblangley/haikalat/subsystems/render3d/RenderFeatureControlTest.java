@@ -352,6 +352,13 @@ class RenderFeatureControlTest {
     private static final RenderFeaturePolicy.Facts SCALE_FACTS_WITH_SOURCE =
             new RenderFeaturePolicy.Facts(true, true, true, true, true, true, true, true,
                     true, true, true, false, true, true, true, true, true);
+    /**
+     * LDR is a legal full-resolution configuration, so its 1.0 control cannot
+     * carry the PBR/HDR-VFX facts that independently require HDR.
+     */
+    private static final RenderFeaturePolicy.Facts SCALE_FACTS_LDR =
+            new RenderFeaturePolicy.Facts(false, true, true, true, true, false, true, true,
+                    true, true, true, false, true, true, false, true, true);
 
     private static Stream<RenderScaleCase> renderScaleCases() {
         return Stream.of(
@@ -363,6 +370,12 @@ class RenderFeatureControlTest {
                         scale -> base(scale).render(hdrRender(scale)
                                 .antiAliasingMode(AntiAliasingMode.TAA)
                                 .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.LOW_RESOLUTION_LDR, SCALE_FACTS_LDR,
+                        scale -> RenderFeatureSettings.builder()
+                                .render(RenderSettings.builder()
+                                        .antiAliasingMode(AntiAliasingMode.NONE)
+                                        .vsync(false).renderScale(scale).build())
+                                .build()),
                 new RenderScaleCase(RenderScalePolicy.Feature.BLOOM, SCALE_FACTS,
                         scale -> base(scale).render(hdrRender(scale)
                                 .bloomSettings(BloomSettings.builder().enabled(true)
@@ -486,7 +499,7 @@ class RenderFeatureControlTest {
 
     @Test
     void renderScaleReasonCodesAreDistinctAndDocumented() {
-        assertEquals(31, RenderScalePolicy.Feature.values().length,
+        assertEquals(32, RenderScalePolicy.Feature.values().length,
                 "the documented matrix must list every rejected composition");
         Set<String> codes = Arrays.stream(RenderScalePolicy.Feature.values())
                 .map(RenderScalePolicy.Feature::code).collect(Collectors.toSet());
