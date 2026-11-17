@@ -27,12 +27,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Real-GL regression for the hair-strand + TAA history boundary.
  *
- * <p>The hair lock is a dynamic forward overlay that writes no shared-surface
- * velocity and (for {@code SORTED_ALPHA}) no depth. A temporal resolve would
- * therefore accept the previous strand image as valid history after the lock
- * moves, leaving the old hair as a ghost. The pipeline must invalidate the
- * post-process history exactly on a real participation/placement change and
- * must not reset it on stable frames.</p>
+ * <p>The hair lock is a dynamic forward overlay. The forward pass writes no
+ * shared-surface velocity (the dedicated velocity pass is a separate later
+ * pass) and, for {@code SORTED_ALPHA}, no depth. Without an explicit reset a
+ * temporal resolve would therefore accept the previous strand image as valid
+ * history after the lock moves, leaving the old hair as a ghost. The pipeline
+ * must invalidate the post-process history exactly on a real
+ * participation/placement change and must not reset it on stable frames; that
+ * policy is unchanged by the velocity channel, whose own boundary is pinned by
+ * the second case below.</p>
  *
  * <p>The fixture is a full-screen receiver with a deterministic
  * {@code gl_FragCoord} checker pattern: without hair the pattern is identical on
@@ -42,6 +45,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * baseline exactly" is only true when the stale history was really dropped.
  * The invalidation reason is also asserted through the production
  * diagnostics.</p>
+ *
+ * <p>The velocity case uses the same fixture and reads
+ * {@code graph().readColorAttachmentRgbaFloat(SCENE_VELOCITY)}: a static lock
+ * and receiver must leave the attachment at exactly zero, a lock move must
+ * write the previous-to-current vector on the new placement, receiver pixels
+ * outside both placements must keep the surface velocity, and the same
+ * {@code HAIR_STRAND_MODEL} reset must still fire. It uses {@code CUTOUT} so
+ * the velocity pass's LEQUAL comparison is exercised against hair depth the
+ * forward pass itself wrote.</p>
  */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class HairTaaInvalidationGlTest {
@@ -184,6 +196,148 @@ class HairTaaInvalidationGlTest {
             }
             GlDebug.assertNoError("hair + TAA history invalidation");
         }
+    }
+
+    /**
+     * The velocity channel boundary: hair + TAA must borrow {@code sceneVelocity}
+     * and publish zero while the lock is static, a real previous-to-current
+     * vector on a lock move, and must not invent motion on receiver pixels the
+     * lock never covers. The existing {@code HAIR_STRAND_MODEL} history reset is
+     * retained and still fires on the same move.
+     */
+    @Test
+    void hairVelocityIsZeroWhenStaticNonZeroOnAMoveAndTheModelResetStillFires() {
+        try (GlfwWindow window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (Fixture fixture = fixture(window)) {
+                    RenderPipeline pipeline = fixture.pipeline();
+                    pipeline.build();
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    for (int frame = 0; frame < CONVERGENCE_FRAMES; frame++) {
+                        execute(pipeline, device);
+                    }
+                    float[] baseline = pipeline.captureLinearHdrRgbaFloat();
+
+                    pipeline.hairStrandModel(hairModel(0.0f));
+                    // CUTOUT writes the shared raster depth, so this case also
+                    // proves the velocity pass's LEQUAL comparison can match the
+                    // forward pass's own depth instead of requiring GL_LESS.
+                    pipeline.applyHairStrands(hair(HairStrandSettings.Transparency.CUTOUT));
+                    assertTrue(pipeline.graph().hasPass(HairStrandPass.PASS_NAME));
+                    assertTrue(pipeline.graph().hasPass(HairStrandPass.VELOCITY_PASS_NAME),
+                            "hair + TAA must declare the borrowed velocity pass");
+                    var order = pipeline.graph().description().executionOrder();
+                    assertTrue(order.indexOf(HairStrandPass.PASS_NAME)
+                                    < order.indexOf(HairStrandPass.VELOCITY_PASS_NAME),
+                            "the velocity draw must follow the forward transparent half: "
+                                    + order);
+                    assertTrue(order.indexOf(HairStrandPass.VELOCITY_PASS_NAME)
+                                    < order.indexOf(PostProcessTargets.TAA_PASS),
+                            "the velocity draw must complete before TAA samples sceneVelocity: "
+                                    + order);
+                    // The first hair frame has no committed previous state and
+                    // must not write a fabricated zero; later frames commit.
+                    for (int frame = 0; frame < CONVERGENCE_FRAMES; frame++) {
+                        execute(pipeline, device);
+                    }
+                    float[] stableHair = pipeline.captureLinearHdrRgbaFloat();
+                    float[] staticVelocity = pipeline.graph().readColorAttachmentRgbaFloat(
+                            PostProcessTargets.SCENE_VELOCITY);
+                    boolean[] staticMask = hairMask(baseline, stableHair);                    assertTrue(countMask(staticMask) > 200,
+                            "the lock must cover a measurable region, was "
+                                    + countMask(staticMask));
+                    for (int pixel = 0; pixel < width * height; pixel++) {
+                        assertEquals(0.0f, Math.abs(staticVelocity[pixel * 4]), 0.0f,
+                                "a static lock and receiver must write zero u at " + pixel);
+                        assertEquals(0.0f, Math.abs(staticVelocity[pixel * 4 + 1]), 0.0f,
+                                "a static lock and receiver must write zero v at " + pixel);
+                    }
+
+                    // The model reset policy is unchanged and still fires.
+                    pipeline.hairStrandModel(hairModel(HAIR_SHIFT_X));
+                    assertFalse(pipeline.activeGenerationForTest().postProcess()
+                            .taaHistoryForTest().valid(),
+                            "moving the lock must still invalidate the TAA history");
+                    execute(pipeline, device);
+                    assertEquals("TAA_HAIR_STRAND_MODEL",
+                            pipeline.activeGenerationForTest().postProcess()
+                                    .completedTaaInvalidationReason());
+                    assertTrue(pipeline.lastRender3dDiagnostics().invalidationReasons()
+                                    .contains("TAA_HAIR_STRAND_MODEL"),
+                            pipeline.lastRender3dDiagnostics().invalidationReasons().toString());
+
+                    float[] moved = pipeline.captureLinearHdrRgbaFloat();
+                    float[] movedVelocity = pipeline.graph().readColorAttachmentRgbaFloat(
+                            PostProcessTargets.SCENE_VELOCITY);
+                    boolean[] movedMask = hairMask(baseline, moved);
+                    assertTrue(countMask(movedMask) > 200,
+                            "the moved lock must cover a measurable region, was "
+                                    + countMask(movedMask));
+                    int nonzeroOnMovedHair = 0;
+                    int nonzeroOutsideLocks = 0;
+                    StringBuilder outsideSamples = new StringBuilder();
+                    for (int pixel = 0; pixel < width * height; pixel++) {
+                        float u = movedVelocity[pixel * 4];
+                        float v = movedVelocity[pixel * 4 + 1];
+                        boolean nonzero = Math.abs(u) > 1.0e-3f || Math.abs(v) > 1.0e-3f;
+                        if (!nonzero) continue;
+                        if (movedMask[pixel]) nonzeroOnMovedHair++;
+                        if (!staticMask[pixel] && !movedMask[pixel]) {
+                            nonzeroOutsideLocks++;
+                            if (outsideSamples.length() < 1200) {
+                                outsideSamples.append('[').append(pixel % width).append(',')
+                                        .append(pixel / width).append("] u=").append(u)
+                                        .append(" v=").append(v)
+                                        .append(" base=").append(luminance(baseline, pixel * 4))
+                                        .append(" static=").append(luminance(stableHair, pixel * 4))
+                                        .append(" moved=").append(luminance(moved, pixel * 4))
+                                        .append(' ');
+                            }
+                        }
+                    }
+                    assertTrue(nonzeroOnMovedHair > 100,
+                            "the lock move must write real motion on the new placement, was "
+                                    + nonzeroOnMovedHair);
+                    assertEquals(0, nonzeroOutsideLocks,
+                            "receiver pixels outside both placements must keep the "
+                                    + "surface velocity, but " + nonzeroOutsideLocks
+                                    + " invented motion: " + outsideSamples);
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                        "the hair velocity + TAA fixture must release every tracked resource");
+            }
+            GlDebug.assertNoError("hair velocity + TAA");
+        }
+    }
+
+    /**
+     * Hair silhouette mask: a receiver pixel the lock darkened to at most 80%
+     * of its baseline luminance. The root of a {@code SORTED_ALPHA} strand
+     * blends at about 55% alpha, so a strict 50% threshold would miss the root
+     * region and report its real velocity as invented receiver motion.
+     */
+    private static boolean[] hairMask(float[] baseline, float[] hair) {
+        boolean[] mask = new boolean[baseline.length / 4];
+        for (int pixel = 0; pixel < mask.length; pixel++) {
+            double baselineLuminance = luminance(baseline, pixel * 4);
+            double hairLuminance = luminance(hair, pixel * 4);
+            mask[pixel] = baselineLuminance > 0.02
+                    && hairLuminance < baselineLuminance * 0.8;
+        }
+        return mask;
+    }
+
+    private static int countMask(boolean[] mask) {
+        int count = 0;
+        for (boolean value : mask) {
+            if (value) count++;
+        }
+        return count;
     }
 
     private static void execute(RenderPipeline pipeline, GlRenderDevice device) {
@@ -369,6 +523,10 @@ class HairTaaInvalidationGlTest {
      * depth/velocity surface, which is exactly the ghosting case.
      */
     private static HairStrandSettings hair() {
+        return hair(HairStrandSettings.Transparency.SORTED_ALPHA);
+    }
+
+    private static HairStrandSettings hair(HairStrandSettings.Transparency transparency) {
         return HairStrandSettings.builder()
                 .strandCount(64)
                 .segmentsPerStrand(8)
@@ -386,7 +544,7 @@ class HairTaaInvalidationGlTest {
                 .lodWidthScale(1.0f)
                 .alpha(1.0f)
                 .alphaCutoff(0.35f)
-                .transparency(HairStrandSettings.Transparency.SORTED_ALPHA)
+                .transparency(transparency)
                 .rootColor(new Vector3f(0.01f, 0.008f, 0.006f))
                 .tipColor(new Vector3f(0.01f, 0.008f, 0.006f))
                 .diffuseStrength(0.0f)

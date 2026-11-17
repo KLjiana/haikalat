@@ -7,6 +7,7 @@ import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.Bounds3f;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
@@ -14,6 +15,8 @@ import org.joml.Vector3fc;
 
 import java.util.Objects;
 
+import static org.lwjgl.opengl.GL11.GL_LEQUAL;
+import static org.lwjgl.opengl.GL11.GL_LESS;
 import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
@@ -22,11 +25,13 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * Production owner of a bounded deterministic hair-strand set (roadmap #46).
  *
  * <p>Owns three LOD meshes (high/medium/low) generated procedurally by
- * {@link HairStrandGeometry}, one forward program and one shadow-caster
- * program. It never owns the caller's colour target or shadow atlas: the
- * forward record draws into the currently bound colour target and the shadow
- * record draws into the currently bound shadow depth tile, so the existing
- * pipeline keeps ownership of its graph attachments and shadow maps.</p>
+ * {@link HairStrandGeometry}, one forward program, one shadow-caster program
+ * and one velocity-only program. It never owns the caller's colour target or
+ * shadow atlas: the forward record draws into the currently bound colour
+ * target, the velocity record draws into the currently bound velocity
+ * attachment, and the shadow record draws into the currently bound shadow depth
+ * tile, so the existing pipeline keeps ownership of its graph attachments and
+ * shadow maps.</p>
  *
  * <h2>Forward contract</h2>
  *
@@ -60,6 +65,18 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
  * map with a bounded 3x3 PCF so the strands are also receivers; see the S4 #46
  * technical card for the exact bias convention.</p>
  *
+ * <h2>Velocity contract</h2>
+ *
+ * <p>{@link #recordVelocity} records the same ribbons into a caller-bound
+ * single-sample RG16F velocity attachment. The vertex stage duplicates the
+ * forward screen-space expansion so the rasterized coverage is identical, while
+ * the written vector is the unexpanded centreline's stable reprojection
+ * difference {@code previousUv - currentUv}. A static lock and camera therefore
+ * encode exactly zero. The pass owns no target and no history: the caller
+ * supplies the previous camera/model pair and skips the draw when that pair is
+ * not usable. CUTOUT strands keep the forward alpha cutoff, so pixels the
+ * forward pass discarded retain the opaque receiver's motion vector.</p>
+ *
  * <h2>Lifecycle</h2>
  *
  * <p>Construction requires active settings and creates every GPU resource
@@ -73,6 +90,12 @@ import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 public final class HairStrandPass implements GlResource {
     /** RenderGraph pass name reserved for integration. */
     public static final String PASS_NAME = "HairStrandPass";
+    /**
+     * RenderGraph pass name of the optional velocity-only contribution. It is
+     * internal integration, not a public extension point: the pass borrows the
+     * shared {@code sceneVelocity} attachment and never owns a target.
+     */
+    public static final String VELOCITY_PASS_NAME = "HairStrandVelocityPass";
     /** Largest accepted logical viewport edge in pixels. */
     public static final int MAXIMUM_EXTENT = 16_384;
     /** Texture unit of the borrowed directional shadow map (after material units). */
@@ -83,6 +106,8 @@ public final class HairStrandPass implements GlResource {
     private static final String FORWARD_FRAGMENT = SHADER_ROOT + "hair-forward.frag";
     private static final String SHADOW_VERTEX = SHADER_ROOT + "hair-shadow.vert";
     private static final String SHADOW_FRAGMENT = SHADER_ROOT + "hair-shadow.frag";
+    private static final String VELOCITY_VERTEX = SHADER_ROOT + "hair-velocity.vert";
+    private static final String VELOCITY_FRAGMENT = SHADER_ROOT + "hair-velocity.frag";
     private static final float MINIMUM_RADIUS = 1.0e-4f;
     private static final float BEHIND_EYE_EPSILON = 1.0e-6f;
 
@@ -91,11 +116,15 @@ public final class HairStrandPass implements GlResource {
     private final Mesh[] meshes = new Mesh[3];
     private final ShaderProgram forwardProgram;
     private final ShaderProgram shadowProgram;
+    private final ShaderProgram velocityProgram;
     private final int[] drawOrder;
     private final float[] strandDepths;
     private final Matrix4f viewScratch = new Matrix4f();
     private final Matrix4f projectionScratch = new Matrix4f();
     private final Matrix4f viewProjectionScratch = new Matrix4f();
+    private final Matrix4f previousViewScratch = new Matrix4f();
+    private final Matrix4f previousProjectionScratch = new Matrix4f();
+    private final Matrix4f previousViewProjectionScratch = new Matrix4f();
     private final Matrix4f lightSpaceScratch = new Matrix4f();
     private final Vector3f centerScratch = new Vector3f();
     private final Vector3f cameraScratch = new Vector3f();
@@ -129,12 +158,15 @@ public final class HairStrandPass implements GlResource {
         strandDepths = new float[drawOrder.length];
         ShaderProgram createdForward = null;
         ShaderProgram createdShadow = null;
+        ShaderProgram createdVelocity = null;
         Mesh[] createdMeshes = new Mesh[3];
         try {
             createdForward = ShaderProgram.fromResource(HairStrandPass.class,
                     FORWARD_VERTEX, FORWARD_FRAGMENT);
             createdShadow = ShaderProgram.fromResource(HairStrandPass.class,
                     SHADOW_VERTEX, SHADOW_FRAGMENT);
+            createdVelocity = ShaderProgram.fromResource(HairStrandPass.class,
+                    VELOCITY_VERTEX, VELOCITY_FRAGMENT);
             for (HairStrandSettings.Lod lod : HairStrandSettings.Lod.values()) {
                 HairStrandGeometry.StrandMesh level = HairStrandGeometry.build(settings, lod);
                 levels[lod.ordinal()] = level;
@@ -142,6 +174,7 @@ public final class HairStrandPass implements GlResource {
             }
             forwardProgram = createdForward;
             shadowProgram = createdShadow;
+            velocityProgram = createdVelocity;
             System.arraycopy(createdMeshes, 0, meshes, 0, createdMeshes.length);
             this.width = width;
             this.height = height;
@@ -149,6 +182,7 @@ public final class HairStrandPass implements GlResource {
             for (Mesh mesh : createdMeshes) {
                 closeSuppressed(mesh, failure);
             }
+            closeSuppressed(createdVelocity, failure);
             closeSuppressed(createdShadow, failure);
             closeSuppressed(createdForward, failure);
             throw failure;
@@ -324,6 +358,101 @@ public final class HairStrandPass implements GlResource {
     }
 
     /**
+     * Records the velocity-only strand draws into the currently bound velocity
+     * attachment.
+     *
+     * <p>The caller owns the framebuffer, viewport and the shared
+     * {@code sceneVelocity} attachment; this method only binds its own program
+     * and mesh and draws every strand once. The vertex stage duplicates the
+     * forward ribbon expansion so the rasterized coverage matches the forward
+     * draw; the fragment stage encodes {@code previousUv - currentUv} for the
+     * strand centreline with the same stable view-projections, {@code w > 0}
+     * gate and {@code |velocity| < 4} bound as the shared surface pass.</p>
+     *
+     * <p>A disabled requested value or an invalid previous frame is an exact
+     * no-op: no command is enqueued, so the receiver's velocity is never
+     * overwritten with a zero that does not describe the previous visibility.
+     * The method never allocates, reads back or waits.</p>
+     *
+     * @param cmd           GPU-owner command buffer
+     * @param current       frozen camera of the frame being recorded
+     * @param previous      frozen camera of the last successful frame
+     * @param model         finite current model matrix of the lock
+     * @param previousModel finite model matrix committed by the last successful frame
+     * @param previousValid whether the previous frame's lock state is usable
+     * @param requested     per-frame settings; a disabled value is an exact no-op
+     * @throws IllegalArgumentException on mismatched settings or non-finite matrices
+     */
+    public void recordVelocity(CommandBuffer cmd, ExternalCamera current, ExternalCamera previous,
+                               Matrix4fc model, Matrix4fc previousModel, boolean previousValid,
+                               HairStrandSettings requested) {
+        ensureOpen();
+        Objects.requireNonNull(cmd, "cmd");
+        Objects.requireNonNull(current, "current");
+        Objects.requireNonNull(previous, "previous");
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(previousModel, "previousModel");
+        Objects.requireNonNull(requested, "requested");
+        if (!requested.active() || !previousValid) {
+            return;
+        }
+        if (!requested.equals(settings)) {
+            throw new IllegalArgumentException(
+                    "hair geometry is fixed per pass; create a new HairStrandPass for new settings");
+        }
+        if (!model.isFinite() || !previousModel.isFinite()) {
+            throw new IllegalArgumentException("hair velocity model matrices must be finite");
+        }
+
+        current.getViewMatrix(viewScratch);
+        CameraProjection.stable(current, width, height, projectionScratch);
+        viewProjectionScratch.set(projectionScratch).mul(viewScratch);
+        previous.getViewMatrix(previousViewScratch);
+        CameraProjection.stable(previous, width, height, previousProjectionScratch);
+        previousViewProjectionScratch.set(previousProjectionScratch).mul(previousViewScratch);
+        cameraScratch.set(current.position());
+        HairStrandSettings.Lod lod = selectLod(model);
+        float widthScale = (float) settings.widthScaleFor(distanceToLock(model));
+        HairStrandGeometry.StrandMesh level = levels[lod.ordinal()];
+        Mesh mesh = meshes[lod.ordinal()];
+
+        cmd.bindShader(velocityProgram)
+                .enableScissor(false)
+                .enableDepthTest(true)
+                .depthFunc(GL_LEQUAL)
+                .depthMask(false)
+                .enableBlend(false)
+                .enableCullFace(false)
+                .enableFramebufferSrgb(false)
+                .setUniformMat4(velocityProgram, "uCurrentStableViewProjection",
+                        viewProjectionScratch)
+                .setUniformMat4(velocityProgram, "uPreviousStableViewProjection",
+                        previousViewProjectionScratch)
+                .setUniformMat4(velocityProgram, "uModel", uniformMatrixScratch.set(model))
+                .setUniformMat4(velocityProgram, "uPreviousModel",
+                        uniformMatrixScratch.set(previousModel))
+                .setUniformVec3(velocityProgram, "uCameraPosition", cameraScratch)
+                .setUniformVec2(velocityProgram, "uViewportSize", width, height)
+                .setUniformFloat(velocityProgram, "uWidthPixels", settings.widthPixels())
+                .setUniformFloat(velocityProgram, "uMinimumWidthPixels",
+                        settings.minimumWidthPixels())
+                .setUniformFloat(velocityProgram, "uMaximumWidthPixels",
+                        settings.maximumWidthPixels())
+                .setUniformFloat(velocityProgram, "uWidthScale", widthScale)
+                .setUniformFloat(velocityProgram, "uRootRadiusMetres",
+                        Math.max(MINIMUM_RADIUS, settings.rootSpreadMetres() * 0.5f))
+                .setUniformInt(velocityProgram, "uTransparencyMode",
+                        settings.transparency() == HairStrandSettings.Transparency.CUTOUT ? 0 : 1)
+                .setUniformFloat(velocityProgram, "uAlpha", settings.alpha())
+                .setUniformFloat(velocityProgram, "uAlphaCutoff", settings.alphaCutoff());
+        cmd.bindMesh(mesh);
+        cmd.drawArrays(GL_TRIANGLES, 0, level.strandCount() * level.verticesPerStrand());
+        // Restore the pipeline-wide default so later depth-writing passes do not
+        // inherit the borrowed-depth comparison.
+        cmd.depthMask(true).depthFunc(GL_LESS);
+    }
+
+    /**
      * Records the alpha-tested shadow-caster draw into the currently bound
      * shadow depth target.
      *
@@ -425,6 +554,7 @@ public final class HairStrandPass implements GlResource {
             failure = close(mesh, failure);
         }
         failure = close(shadowProgram, failure);
+        failure = close(velocityProgram, failure);
         failure = close(forwardProgram, failure);
         if (failure != null) {
             throw failure;

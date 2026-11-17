@@ -33,6 +33,8 @@ class HairStrandShaderTest {
     private static final String FORWARD_FRAGMENT = "/shaders/render3d/hair/hair-forward.frag";
     private static final String SHADOW_VERTEX = "/shaders/render3d/hair/hair-shadow.vert";
     private static final String SHADOW_FRAGMENT = "/shaders/render3d/hair/hair-shadow.frag";
+    private static final String VELOCITY_VERTEX = "/shaders/render3d/hair/hair-velocity.vert";
+    private static final String VELOCITY_FRAGMENT = "/shaders/render3d/hair/hair-velocity.frag";
     private static final Pattern DECLARED_UNIFORM = Pattern.compile(
             "(?m)^\\s*uniform\\s+\\w+\\s+(u[A-Za-z0-9_]+)\\s*;");
     private static final Pattern UPLOADED_UNIFORM = Pattern.compile(
@@ -110,41 +112,80 @@ class HairStrandShaderTest {
     }
 
     @Test
-    void everyDeclaredForwardUniformIsReferencedAndUploadedByThePass() throws Exception {
-        String vertex = resource(FORWARD_VERTEX);
-        String fragment = resource(FORWARD_FRAGMENT);
-        Set<String> declared = new LinkedHashSet<>();
-        collect(DECLARED_UNIFORM, vertex, declared);
-        collect(DECLARED_UNIFORM, fragment, declared);
-        assertFalse(declared.isEmpty());
-
-        String combined = vertex + "\n" + fragment;
-        String passSource = Files.readString(Path.of("src", "main", "java", "com",
-                "kaleblangley", "haikalat", "subsystems", "render3d", "hair",
-                "HairStrandPass.java"));
-        Set<String> uploaded = new LinkedHashSet<>();
-        collect(UPLOADED_UNIFORM, passSource, uploaded);
-        // Shadow-program-only uniforms are not part of the forward shader set.
-        uploaded.removeAll(Set.of("uLightSpace", "uStrandRadiusMetres"));
-        for (String uniform : declared) {
-            assertTrue(countIdentifier(combined, uniform) >= 2,
-                    "uniform " + uniform + " is declared but never referenced; GLSL may drop it");
-            assertTrue(uploaded.contains(uniform),
-                    "declared uniform " + uniform + " is never uploaded by HairStrandPass");
+    void velocityStageDuplicatesTheRibbonExpansionAndEncodesTheStableReprojection()
+            throws IOException {
+        String vertex = resource(VELOCITY_VERTEX);
+        for (String token : new String[]{
+                "layout(location = 0) in vec3 aPosition;",
+                "layout(location = 1) in vec3 aTangent;",
+                "layout(location = 2) in float aStrandParameter;",
+                "layout(location = 3) in float aCorner;",
+                "layout(location = 4) in float aRandom;",
+                "uniform mat4 uCurrentStableViewProjection;",
+                "uniform mat4 uPreviousStableViewProjection;",
+                "uniform mat4 uModel;",
+                "uniform mat4 uPreviousModel;",
+                "vec2 pixelDelta = (ndcProbe - ndcCenter) * 0.5 * uViewportSize;",
+                "clamp(uWidthPixels * uWidthScale,",
+                "aCorner * widthPixels / uViewportSize",
+                "gl_Position = clip;",
+                "vCurrentClip = clipCenter;",
+                "vPreviousClip = previousClip;"}) {
+            assertTrue(vertex.contains(token), "missing velocity ribbon token: " + token);
         }
-        assertEquals(declared, uploaded,
-                "the pass upload set must exactly match the forward shader uniforms: "
-                        + "declared=" + declared + " uploaded=" + uploaded);
+        assertFalse(vertex.contains("uDirectionalLightSpace") || vertex.contains("aTexCoord"),
+                "the velocity stage must expand the same centreline ribbon, not add a card or "
+                        + "shadow dependency");
+        assertFalse(vertex.contains("vWorldPosition"),
+                "the velocity stage must not carry the forward shading varyings");
+
+        String fragment = resource(VELOCITY_FRAGMENT);
+        for (String token : new String[]{
+                "layout(location = 0) out vec2 outVelocity;",
+                "vec2 currentUv = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;",
+                "vec2 previousUv = (vPreviousClip.xy / vPreviousClip.w) * 0.5 + 0.5;",
+                "vec2 velocity = previousUv - currentUv;",
+                "all(lessThan(abs(velocity), vec2(4.0)))",
+                "outVelocity = finiteVelocity ? velocity : vec2(0.0);",
+                "if (!(vCurrentClip.w > 0.0) || !(vPreviousClip.w > 0.0)) {",
+                "alpha < uAlphaCutoff",
+                "float profile = mix(0.55, 1.0, smoothstep(0.0, 0.3, vStrandParameter));"}) {
+            assertTrue(fragment.contains(token), "missing velocity encoding token: " + token);
+        }
+        assertFalse(fragment.contains("FragColor"),
+                "the velocity stage must have a single vec2 output and no colour attachment");
+        assertFalse(fragment.contains("uRootColor") || fragment.contains("uTipColor"),
+                "velocity must not duplicate strand shading");
+    }
+
+    @Test
+    void everyDeclaredForwardUniformIsReferencedAndUploadedByThePass() throws Exception {
+        assertUploadSetMatches("hair-forward", FORWARD_VERTEX, FORWARD_FRAGMENT,
+                "public void record(");
+    }
+
+    @Test
+    void everyDeclaredShadowUniformIsReferencedAndUploadedByThePass() throws Exception {
+        assertUploadSetMatches("hair-shadow", SHADOW_VERTEX, SHADOW_FRAGMENT,
+                "public void recordShadow(");
+    }
+
+    @Test
+    void everyDeclaredVelocityUniformIsReferencedAndUploadedByThePass() throws Exception {
+        assertUploadSetMatches("hair-velocity", VELOCITY_VERTEX, VELOCITY_FRAGMENT,
+                "public void recordVelocity(");
     }
 
     @Test
     void geometryLayoutMatchesTheVertexAttributeLocations() throws IOException {
-        String vertex = resource(FORWARD_VERTEX);
         List<VertexAttribute> attributes = HairStrandGeometry.LAYOUT.attributes();
         assertEquals(5, attributes.size());
-        for (VertexAttribute attribute : attributes) {
-            assertTrue(vertex.contains("layout(location = " + attribute.index() + ") in "),
-                    "vertex shader is missing attribute location " + attribute.index());
+        for (String path : List.of(FORWARD_VERTEX, VELOCITY_VERTEX)) {
+            String vertex = resource(path);
+            for (VertexAttribute attribute : attributes) {
+                assertTrue(vertex.contains("layout(location = " + attribute.index() + ") in "),
+                        path + " is missing attribute location " + attribute.index());
+            }
         }
         assertEquals(0, attributes.get(0).index());
         assertEquals(3, attributes.get(0).size());
@@ -170,6 +211,61 @@ class HairStrandShaderTest {
                 () -> new HairStrandPass(HairStrandSettings.builder().build(), 0, 128));
         assertThrows(IllegalArgumentException.class,
                 () -> new HairStrandPass(HairStrandSettings.builder().build(), 128, -1));
+    }
+
+    /**
+     * Pins one program's complete uniform contract: every declared uniform is
+     * referenced (so GLSL cannot silently optimize it out) and the pass method
+     * that records this program uploads exactly that set. Splitting the check
+     * per program keeps the forward, shadow and velocity contracts independent.
+     */
+    private static void assertUploadSetMatches(String label, String vertexPath,
+                                               String fragmentPath, String methodSignature)
+            throws IOException {
+        String vertex = resource(vertexPath);
+        String fragment = resource(fragmentPath);
+        Set<String> declared = new LinkedHashSet<>();
+        collect(DECLARED_UNIFORM, vertex, declared);
+        collect(DECLARED_UNIFORM, fragment, declared);
+        assertFalse(declared.isEmpty(), label + " must declare uniforms");
+        String combined = vertex + "\n" + fragment;
+        Set<String> uploaded = new LinkedHashSet<>();
+        collect(UPLOADED_UNIFORM, methodBody(passSource(), methodSignature), uploaded);
+        for (String uniform : declared) {
+            assertTrue(countIdentifier(combined, uniform) >= 2,
+                    label + " uniform " + uniform + " is declared but never referenced; "
+                            + "GLSL may drop it");
+        }
+        assertEquals(declared, uploaded,
+                label + " upload set must exactly match its shader uniforms: declared="
+                        + declared + " uploaded=" + uploaded);
+    }
+
+    private static String passSource() throws IOException {
+        return Files.readString(Path.of("src", "main", "java", "com", "kaleblangley",
+                "haikalat", "subsystems", "render3d", "hair", "HairStrandPass.java"));
+    }
+
+    /**
+     * Extracts the body of the last overload whose declaration starts with the
+     * given signature. The forward record has a delegating overload, so the
+     * concrete upload body is the last definition.
+     */
+    private static String methodBody(String source, String signature) {
+        int start = source.lastIndexOf(signature);
+        assertTrue(start >= 0, "missing pass method " + signature);
+        int open = source.indexOf('{', start + signature.length());
+        assertTrue(open >= 0, "missing body for " + signature);
+        int depth = 0;
+        for (int index = open; index < source.length(); index++) {
+            char character = source.charAt(index);
+            if (character == '{') {
+                depth++;
+            } else if (character == '}' && --depth == 0) {
+                return source.substring(open + 1, index);
+            }
+        }
+        throw new AssertionError("unterminated pass method " + signature);
     }
 
     private static void collect(Pattern pattern, String source, Set<String> destination) {

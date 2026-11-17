@@ -385,6 +385,18 @@ public final class RenderPipeline {
     private final Vector3f vctSurfaceAlbedo = new Vector3f(0.8f);
     /** Placement of the procedural hair lock for the forward and shadow passes. */
     private final Matrix4f hairStrandModel = new Matrix4f();
+    /**
+     * Placement committed by the last successful frame, used as the previous
+     * transform of the hair velocity pass. Never read while
+     * {@link #hairStrandVelocityHistoryValid} is false.
+     */
+    private final Matrix4f previousHairStrandModel = new Matrix4f();
+    /** Frozen camera of the last successful frame; null when no history exists. */
+    private ExternalCamera previousHairStrandCamera;
+    /** LOD of the committed previous lock; a level change skips one velocity frame. */
+    private HairStrandSettings.Lod previousHairStrandLod = HairStrandSettings.Lod.HIGH;
+    /** True only while the committed previous model/camera describe the last frame. */
+    private boolean hairStrandVelocityHistoryValid;
     private float waterTimeSeconds;
     private PassExecutor hdrVfxRecorder;
     private CameraPassExecutor cameraAwareHdrVfxRecorder;
@@ -1693,6 +1705,7 @@ public final class RenderPipeline {
             // rebuilding the lock therefore invalidates the post-process
             // history; a failed candidate keeps the previous history untouched.
             if (previous.active() || replacement.active()) {
+                invalidateHairVelocityHistory();
                 candidate.postProcess().invalidateTemporalHistory(
                         TaaInvalidationReason.HAIR_STRANDS_SETTINGS);
             }
@@ -2998,6 +3011,41 @@ public final class RenderPipeline {
                 .noClear()
                 .execute(executor);
     }
+
+    /**
+     * Declares the velocity-only hair contribution.
+     *
+     * <p>The pass borrows the shared single-sample {@code sceneVelocity}
+     * attachment at its source slot from the surface producer plus the same
+     * raster depth. It never calls {@code createColor(SCENE_VELOCITY)}: that
+     * would shadow the surface pass's output. The declaration is emitted after
+     * the hair forward pass and before the post-process chain; an explicit
+     * ordering edge keeps it after the forward transparent half even when the
+     * compiler's declaration-order tie-break could otherwise run it earlier.</p>
+     */
+    static void addHairStrandVelocityPass(RenderGraph graph, PipelineTopology topology,
+                                          String depthTexture, String depthProducer,
+                                          PassExecutor executor) {
+        if (topology.sampleCount() != 1) {
+            throw new IllegalStateException(
+                    "hair strand velocity requires a single-sample scene surface");
+        }
+        var velocity = topology.sceneSurface().raw(SceneBufferChannel.VELOCITY);
+        if (velocity == null) {
+            throw new IllegalStateException(
+                    "hair strand velocity requires a raw scene velocity attachment");
+        }
+        var pass = graph.addPass(HairStrandPass.VELOCITY_PASS_NAME)
+                .dependsOn(HairStrandPass.PASS_NAME)
+                .shareColorAttachments(List.of(velocity.name()), List.of(velocity.format()),
+                        velocity.producer(), List.of(velocity.colorSlot()), 1);
+        if (!depthProducer.equals(velocity.producer())) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.shareDepthTexture(depthTexture, depthProducer)
+                .noClear()
+                .execute(executor);
+    }
     private PipelineGeneration createGeneration(Scene generationScene,
                                                 PipelineTopology topology) {
         return createGeneration(generationScene, topology, null);
@@ -3129,6 +3177,11 @@ public final class RenderPipeline {
                 }
                 addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
                         rawDepth.producer(), hairStrandExecutor(candidate));
+                if (topology.sampleCount() == 1
+                        && topology.sceneSurface().raw(SceneBufferChannel.VELOCITY) != null) {
+                    addHairStrandVelocityPass(candidate.graph(), topology, rawDepth.name(),
+                            rawDepth.producer(), hairStrandVelocityExecutor(candidate));
+                }
             }
             String sceneColorTexture = PostProcessTargets.SCENE_COLOR;
             String sceneColorProducer = PostProcessTargets.GEOMETRY_PASS;
@@ -3178,6 +3231,11 @@ public final class RenderPipeline {
                 addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
                         rawDepth.producer(), sceneColorProducer,
                         hairStrandExecutor(candidate));
+                if (topology.sampleCount() == 1
+                        && topology.sceneSurface().raw(SceneBufferChannel.VELOCITY) != null) {
+                    addHairStrandVelocityPass(candidate.graph(), topology, rawDepth.name(),
+                            rawDepth.producer(), hairStrandVelocityExecutor(candidate));
+                }
             }
             VolumetricSurfaceInputs volumeInputs = null;
             if (candidate.volumetric() != null) {
@@ -3979,6 +4037,7 @@ public final class RenderPipeline {
                         temporalFrameState.previous(), frameParameters)) {
                     temporalFrameState.invalidate();
                     temporalSceneState.invalidate();
+                    invalidateHairVelocityHistory();
                     if (instanced != null) instanced.invalidatePreviousFrame();
                 }
             }
@@ -4070,6 +4129,7 @@ public final class RenderPipeline {
             if (temporalActive) {
                 temporalFrameState.commitSuccessfulFrame();
             }
+            commitHairVelocityHistory(generation);
             if (generation.sceneSurfacePass() != null) {
                 temporalSceneState.commitSuccessfulFrame();
                 if (instanced != null) instanced.commitFrame();
@@ -4140,6 +4200,7 @@ public final class RenderPipeline {
                 smokeSimulationResetPending = true;
             }
             temporalFrameState.discardFrame();
+            invalidateHairVelocityHistory();
             if (generation.sceneSurfacePass() != null) {
                 temporalSceneState.discardFrame();
             }
@@ -4187,6 +4248,7 @@ public final class RenderPipeline {
             current.resize(w, h);
         }
         lastVolumeCandidatePeakBytes = requireGeneration().volumeAllocation().peakBytes();
+        invalidateHairVelocityHistory();
         currentSceneFrame = null;
         currentShadowFramePlan = null;
         currentShadowCasterPlan = null;
@@ -4480,7 +4542,11 @@ public final class RenderPipeline {
         recomputeWeightedOitOverlap();
         ddgiSettings = requested.ddgi();
         vctSettings = requested.vct();
+        HairStrandSettings previousHairStrandRequest = hairStrandSettings;
         hairStrandSettings = requested.hairStrands();
+        if (!Objects.equals(previousHairStrandRequest, hairStrandSettings)) {
+            invalidateHairVelocityHistory();
+        }
         waterRefractionSettings = requested.waterRefraction();
         projectedDecalSettings = requested.projectedDecals();
         pointShadowAtlas = localShadowSettings.maxPointLights() == 0 ? null
@@ -4781,6 +4847,58 @@ public final class RenderPipeline {
         };
     }
 
+    /**
+     * Records the hair motion vectors into the borrowed scene velocity target.
+     *
+     * <p>No command is recorded while no committed previous lock exists, while
+     * hair participation is off, or for one frame after the LOD changes: the
+     * previous local geometry is then not the geometry this frame rasterizes.
+     * Skipping leaves the receiver's surface velocity untouched instead of
+     * writing a zero that does not describe the previous visibility.</p>
+     */
+    private PassExecutor hairStrandVelocityExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            HairStrandPass hair = generation.hairStrands();
+            if (hair == null) {
+                throw new IllegalStateException(
+                        "hair strand pass is absent from the active topology");
+            }
+            if (!hairStrandSettings.active() || !hairStrandVelocityHistoryValid
+                    || previousHairStrandCamera == null
+                    || previousHairStrandLod != hair.activeLod()) {
+                return;
+            }
+            hair.recordVelocity(cmd, externalFrameCamera(), previousHairStrandCamera,
+                    hairStrandModel, previousHairStrandModel, true, hairStrandSettings);
+        };
+    }
+
+    /**
+     * Publishes the current lock state as the previous frame's velocity history.
+     * Called only after every fallible frame finalizer has succeeded.
+     */
+    private void commitHairVelocityHistory(PipelineGeneration generation) {
+        HairStrandPass hair = generation.hairStrands();
+        if (hair == null || !hairStrandSettings.active()) {
+            invalidateHairVelocityHistory();
+            return;
+        }
+        previousHairStrandModel.set(hairStrandModel);
+        previousHairStrandCamera = activeFrameContext == null
+                ? null : activeFrameContext.camera();
+        previousHairStrandLod = hair.activeLod();
+        hairStrandVelocityHistoryValid = previousHairStrandCamera != null;
+    }
+
+    /**
+     * Drops the previous lock/camera pair. The next frame skips the velocity
+     * draw rather than treating the stale pair as the previous frame.
+     */
+    private void invalidateHairVelocityHistory() {
+        previousHairStrandCamera = null;
+        hairStrandVelocityHistoryValid = false;
+    }
+
     /** Late directional caster hook: records the hair lock into the current shadow tile. */
     private void recordHairShadowCaster(CommandBuffer cmd, Matrix4fc lightSpace, int cascade) {
         PipelineGeneration generation = requireGeneration();
@@ -5008,6 +5126,7 @@ public final class RenderPipeline {
     private void invalidateSurfaceHistory() {
         temporalFrameState.invalidate();
         temporalSceneState.invalidate();
+        invalidateHairVelocityHistory();
         if (instanced != null) instanced.invalidatePreviousFrame();
     }
 

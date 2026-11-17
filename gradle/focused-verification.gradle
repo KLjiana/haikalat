@@ -184,6 +184,7 @@ def glCases = [
         'ThinTranslucencyTransmissionShadowGlTest',
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
+        'HairStrandVelocityGlTest',
         'HairTaaInvalidationGlTest',
         'RenderPipelineWiringB3GlTest',
         'SsgiPassGlTest',

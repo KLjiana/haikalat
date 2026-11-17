@@ -8,6 +8,7 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass;
 import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume;
 import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
@@ -32,6 +33,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -262,6 +264,124 @@ class RenderPipelineWiringB3Test {
                     "hair must alias the geometry colour instead of owning a second target");
             assertTrue(hairPass.directDependencies().contains(
                     PostProcessTargets.GEOMETRY_PASS));
+        }
+    }
+
+    @Test
+    void hairVelocityPassAliasesTheSurfaceVelocitySlotAndRunsBeforeTaa() {
+        Scene scene = new Scene(new Camera());
+        scene.addLight(directional());
+        PostProcessSettings ssrEffects = PostProcessSettings.builder()
+                .ssr(SsrSettings.builder().enabled(true).build())
+                .build();
+        PipelineTopology topology = PipelineTopology.capture(scene,
+                hdr(AntiAliasingMode.TAA), ssrEffects, 64, 48, false,
+                false, DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
+                true, true, true, WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(), hair());
+        assertTrue(topology.hairStrands());
+        assertEquals(1, topology.sampleCount(),
+                "hair and MSAA are rejected by policy; the velocity pass is single-sample");
+        var velocity = topology.sceneSurface().raw(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.VELOCITY);
+        assertNotNull(velocity, "TAA must expose the raw single-sample velocity attachment");
+        assertEquals(1, velocity.colorSlot(),
+                "SSR's NORMAL channel precedes VELOCITY in the shared surface MRT order");
+
+        try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
+            graph.addPass(PostProcessTargets.GEOMETRY_PASS)
+                    .createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F)
+                    .execute((res, cmd) -> { });
+            graph.addPass(PostProcessTargets.SCENE_SURFACE_PASS)
+                    .createColors(List.of(PostProcessTargets.SCENE_NORMAL,
+                                    PostProcessTargets.SCENE_VELOCITY),
+                            List.of(RenderFormat.RG16F, RenderFormat.RG16F))
+                    .createDepthTexture(PostProcessTargets.SCENE_DEPTH)
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addHairStrandPass(graph, topology, hdr(AntiAliasingMode.TAA),
+                    PostProcessTargets.SCENE_DEPTH, PostProcessTargets.SCENE_SURFACE_PASS,
+                    (res, cmd) -> { });
+            RenderPipeline.addHairStrandVelocityPass(graph, topology,
+                    PostProcessTargets.SCENE_DEPTH, PostProcessTargets.SCENE_SURFACE_PASS,
+                    (res, cmd) -> { });
+            graph.addPass(PostProcessTargets.TAA_PASS)
+                    .writeToExternalTarget()
+                    .noClear()
+                    .dependsOn(PostProcessTargets.GEOMETRY_PASS)
+                    .dependsOn(PostProcessTargets.SCENE_SURFACE_PASS)
+                    .execute((res, cmd) -> { });
+            graph.compile();
+
+            List<String> order = graph.description().executionOrder();
+            assertTrue(order.indexOf(HairStrandPass.PASS_NAME)
+                            < order.indexOf(HairStrandPass.VELOCITY_PASS_NAME),
+                    "the velocity draw must follow the forward transparent half: " + order);
+            assertTrue(order.indexOf(HairStrandPass.VELOCITY_PASS_NAME)
+                            < order.indexOf(PostProcessTargets.TAA_PASS),
+                    "the velocity draw must complete before TAA samples sceneVelocity: " + order);
+
+            var surface = pass(graph, PostProcessTargets.SCENE_SURFACE_PASS);
+            assertEquals(List.of(PostProcessTargets.SCENE_NORMAL,
+                            PostProcessTargets.SCENE_VELOCITY),
+                    surface.colorAttachments().stream()
+                            .map(RenderGraph.AttachmentDescription::logicalName).toList(),
+                    "the hair velocity pass must not shadow or replace the surface outputs");
+            assertTrue(graph.matchesColorStorage(PostProcessTargets.SCENE_SURFACE_PASS,
+                            null, List.of()),
+                    "the surface pass must keep owning its colour attachments");
+
+            var velocityPass = pass(graph, HairStrandPass.VELOCITY_PASS_NAME);
+            assertEquals(PostProcessTargets.SCENE_VELOCITY,
+                    velocityPass.colorAttachments().getFirst().logicalName());
+            assertEquals(PostProcessTargets.SCENE_DEPTH,
+                    velocityPass.depthAttachment().logicalName(),
+                    "the velocity pass must depth-test against the shared raster depth");
+            assertFalse(velocityPass.clearColor());
+            assertFalse(velocityPass.clearDepth());
+            assertTrue(graph.matchesColorStorage(HairStrandPass.VELOCITY_PASS_NAME,
+                            PostProcessTargets.SCENE_SURFACE_PASS, List.of(1)),
+                    "the velocity pass must borrow sceneVelocity at its source slot, not copy it");
+            assertTrue(velocityPass.directDependencies()
+                            .contains(PostProcessTargets.SCENE_SURFACE_PASS));
+            assertTrue(velocityPass.directDependencies()
+                            .contains(HairStrandPass.PASS_NAME),
+                    "the velocity draw must be ordered after the forward transparent half");
+        }
+
+        PipelineTopology withoutNormal = PipelineTopology.capture(scene,
+                hdr(AntiAliasingMode.TAA), PostProcessSettings.defaults(), 64, 48, false,
+                false, DirectionalCascadeSettings.disabled(),
+                LocalShadowPipelineSettings.legacyDefaults(), VolumetricFogSettings.disabled(),
+                true, true, true, WaterSurfaceSettings.disabled(),
+                VolumetricParticleSettings.disabled(),
+                StochasticTransparencySettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(), hair());
+        var normalFree = withoutNormal.sceneSurface().raw(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.VELOCITY);
+        assertNotNull(normalFree);
+        assertEquals(0, normalFree.colorSlot(),
+                "without NORMAL the velocity attachment is the first colour slot");
+        try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
+            graph.addPass(PostProcessTargets.SCENE_SURFACE_PASS)
+                    .createColor(PostProcessTargets.SCENE_VELOCITY, RenderFormat.RG16F)
+                    .createDepthTexture(PostProcessTargets.SCENE_DEPTH)
+                    .execute((res, cmd) -> { });
+            // The velocity pass is declared next to the forward pass; the
+            // ordering stub keeps this mini-graph equivalent in topology terms.
+            graph.addPass(HairStrandPass.PASS_NAME)
+                    .computeOnly()
+                    .dependsOn(PostProcessTargets.SCENE_SURFACE_PASS)
+                    .execute((res, cmd) -> { });
+            RenderPipeline.addHairStrandVelocityPass(graph, withoutNormal,
+                    PostProcessTargets.SCENE_DEPTH, PostProcessTargets.SCENE_SURFACE_PASS,
+                    (res, cmd) -> { });
+            graph.compile();
+            assertTrue(graph.matchesColorStorage(HairStrandPass.VELOCITY_PASS_NAME,
+                            PostProcessTargets.SCENE_SURFACE_PASS, List.of(0)),
+                    "the slot-0 fallback must alias the first source attachment");
         }
     }
 
