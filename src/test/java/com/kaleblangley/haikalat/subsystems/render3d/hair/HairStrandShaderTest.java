@@ -35,6 +35,8 @@ class HairStrandShaderTest {
     private static final String SHADOW_FRAGMENT = "/shaders/render3d/hair/hair-shadow.frag";
     private static final String VELOCITY_VERTEX = "/shaders/render3d/hair/hair-velocity.vert";
     private static final String VELOCITY_FRAGMENT = "/shaders/render3d/hair/hair-velocity.frag";
+    private static final String NORMAL_VERTEX = "/shaders/render3d/hair/hair-normal.vert";
+    private static final String NORMAL_FRAGMENT = "/shaders/render3d/hair/hair-normal.frag";
     private static final Pattern DECLARED_UNIFORM = Pattern.compile(
             "(?m)^\\s*uniform\\s+\\w+\\s+(u[A-Za-z0-9_]+)\\s*;");
     private static final Pattern UPLOADED_UNIFORM = Pattern.compile(
@@ -177,10 +179,58 @@ class HairStrandShaderTest {
     }
 
     @Test
+    void normalStageDuplicatesTheRibbonExpansionAndEncodesTheSharedOctahedralNormal()
+            throws IOException {
+        String vertex = resource(NORMAL_VERTEX);
+        for (String token : new String[]{
+                "layout(location = 0) in vec3 aPosition;",
+                "layout(location = 1) in vec3 aTangent;",
+                "layout(location = 2) in float aStrandParameter;",
+                "layout(location = 3) in float aCorner;",
+                "layout(location = 4) in float aRandom;",
+                "uniform mat4 uView;",
+                "uniform mat4 uProjection;",
+                "uniform mat4 uModel;",
+                "vec2 pixelDelta = (ndcProbe - ndcCenter) * 0.5 * uViewportSize;",
+                "clamp(uWidthPixels * uWidthScale,",
+                "aCorner * widthPixels / uViewportSize",
+                "cross(tangent, viewDirection)"}) {
+            assertTrue(vertex.contains(token), "missing normal ribbon token: " + token);
+        }
+        assertFalse(vertex.contains("uCurrentStableViewProjection")
+                        || vertex.contains("uDirectionalLightSpace")
+                        || vertex.contains("aTexCoord"),
+                "the normal stage must reuse the forward ribbon expansion, not a card, "
+                        + "a motion-vector projection or a shadow dependency");
+
+        String fragment = resource(NORMAL_FRAGMENT);
+        for (String token : new String[]{
+                "layout(location = 0) out vec4 outNormal;",
+                "in vec3 vSide;",
+                "vec2 octEncode(vec3 normal) {",
+                "oct = n.z >= 0.0 ? oct : (1.0 - abs(oct.yx)) * sign(oct + vec2(1.0e-8));",
+                "vec3 normal = cross(side, tangent);",
+                "outNormal = vec4(octEncode(ribbonNormal()), 0.0, 1.0);",
+                "alpha < uAlphaCutoff",
+                "float profile = mix(0.55, 1.0, smoothstep(0.0, 0.3, vStrandParameter));"}) {
+            assertTrue(fragment.contains(token), "missing normal encoding token: " + token);
+        }
+        assertFalse(fragment.contains("uRootColor") || fragment.contains("uTipColor")
+                        || fragment.contains("uPrimaryExponent"),
+                "the normal stage must not duplicate strand shading");
+    }
+
+    @Test
+    void everyDeclaredNormalUniformIsReferencedAndUploadedByThePass() throws Exception {
+        assertUploadSetMatches("hair-normal", NORMAL_VERTEX, NORMAL_FRAGMENT,
+                "public void recordNormals(");
+    }
+
+    @Test
     void geometryLayoutMatchesTheVertexAttributeLocations() throws IOException {
         List<VertexAttribute> attributes = HairStrandGeometry.LAYOUT.attributes();
         assertEquals(5, attributes.size());
-        for (String path : List.of(FORWARD_VERTEX, VELOCITY_VERTEX)) {
+        for (String path : List.of(FORWARD_VERTEX, VELOCITY_VERTEX, NORMAL_VERTEX)) {
             String vertex = resource(path);
             for (VertexAttribute attribute : attributes) {
                 assertTrue(vertex.contains("layout(location = " + attribute.index() + ") in "),

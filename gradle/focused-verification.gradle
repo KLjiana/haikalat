@@ -185,6 +185,7 @@ def glCases = [
         'SceneSurfaceResolveGlTest',
         'HairStrandGlTest',
         'HairStrandVelocityGlTest',
+        'HairStrandNormalGlTest',
         'HairTaaInvalidationGlTest',
         'RenderPipelineWiringB3GlTest',
         'LowResolutionMainChainGlTest',

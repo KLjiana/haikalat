@@ -3117,6 +3117,42 @@ public final class RenderPipeline {
                 .noClear()
                 .execute(executor);
     }
+
+    /**
+     * Declares the normal-only hair contribution.
+     *
+     * <p>The pass borrows the shared single-sample {@code sceneNormal}
+     * attachment at its source slot from the surface producer plus the same
+     * raster depth, and explicitly follows the hair forward pass. It never calls
+     * {@code createColor(SCENE_NORMAL)}: that would shadow the surface pass's
+     * output. The declaration is emitted next to the forward/velocity passes,
+     * before the post-process chain is assembled, so TAA-adjacent normal
+     * consumers (SSR, SSGI, screen-space subsurface diffusion, temporal denoise)
+     * observe the current hair placement instead of the receiver behind it.</p>
+     */
+    static void addHairStrandNormalPass(RenderGraph graph, PipelineTopology topology,
+                                        String depthTexture, String depthProducer,
+                                        PassExecutor executor) {
+        if (topology.sampleCount() != 1) {
+            throw new IllegalStateException(
+                    "hair strand normals require a single-sample scene surface");
+        }
+        var normal = topology.sceneSurface().raw(SceneBufferChannel.NORMAL);
+        if (normal == null) {
+            throw new IllegalStateException(
+                    "hair strand normals require a raw scene normal attachment");
+        }
+        var pass = graph.addPass(HairStrandPass.NORMAL_PASS_NAME)
+                .dependsOn(HairStrandPass.PASS_NAME)
+                .shareColorAttachments(List.of(normal.name()), List.of(normal.format()),
+                        normal.producer(), List.of(normal.colorSlot()), 1);
+        if (!depthProducer.equals(normal.producer())) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.shareDepthTexture(depthTexture, depthProducer)
+                .noClear()
+                .execute(executor);
+    }
     private PipelineGeneration createGeneration(Scene generationScene,
                                                 PipelineTopology topology) {
         return createGeneration(generationScene, topology, null);
@@ -3249,6 +3285,11 @@ public final class RenderPipeline {
                 addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
                         rawDepth.producer(), hairStrandExecutor(candidate));
                 if (topology.sampleCount() == 1
+                        && topology.sceneSurface().raw(SceneBufferChannel.NORMAL) != null) {
+                    addHairStrandNormalPass(candidate.graph(), topology, rawDepth.name(),
+                            rawDepth.producer(), hairStrandNormalExecutor(candidate));
+                }
+                if (topology.sampleCount() == 1
                         && topology.sceneSurface().raw(SceneBufferChannel.VELOCITY) != null) {
                     addHairStrandVelocityPass(candidate.graph(), topology, rawDepth.name(),
                             rawDepth.producer(), hairStrandVelocityExecutor(candidate));
@@ -3302,6 +3343,11 @@ public final class RenderPipeline {
                 addHairStrandPass(candidate.graph(), topology, settings, rawDepth.name(),
                         rawDepth.producer(), sceneColorProducer,
                         hairStrandExecutor(candidate));
+                if (topology.sampleCount() == 1
+                        && topology.sceneSurface().raw(SceneBufferChannel.NORMAL) != null) {
+                    addHairStrandNormalPass(candidate.graph(), topology, rawDepth.name(),
+                            rawDepth.producer(), hairStrandNormalExecutor(candidate));
+                }
                 if (topology.sampleCount() == 1
                         && topology.sceneSurface().raw(SceneBufferChannel.VELOCITY) != null) {
                     addHairStrandVelocityPass(candidate.graph(), topology, rawDepth.name(),
@@ -4979,6 +5025,27 @@ public final class RenderPipeline {
             }
             hair.recordVelocity(cmd, externalFrameCamera(), previousHairStrandCamera,
                     hairStrandModel, previousHairStrandModel, true, hairStrandSettings);
+        };
+    }
+
+    /**
+     * Records the current hair placement's surface normals into the borrowed
+     * scene normal target. There is no previous-frame state: the normal channel
+     * describes the current lock only, so a rejected or disabled request skips
+     * the draw and leaves the receiver's normal untouched.
+     */
+    private PassExecutor hairStrandNormalExecutor(PipelineGeneration generation) {
+        return (res, cmd) -> {
+            HairStrandPass hair = generation.hairStrands();
+            if (hair == null) {
+                throw new IllegalStateException(
+                        "hair strand pass is absent from the active topology");
+            }
+            if (!hairStrandSettings.active()) {
+                return;
+            }
+            hair.recordNormals(cmd, externalFrameCamera(), hairStrandModel,
+                    hairStrandSettings);
         };
     }
 

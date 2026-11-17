@@ -5,19 +5,24 @@ import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
 import com.kaleblangley.haikalat.core.material.Material;
+import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass;
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.lwjgl.opengl.GL;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -67,6 +72,18 @@ class HairTaaInvalidationGlTest {
      * 0.9 history weight leaves about 8% of a fresh frame's error after this.
      */
     private static final int CONVERGENCE_FRAMES = 24;
+    /** Scene camera position of the shared fixture; the receiver plane is z=0. */
+    private static final double CAMERA_EYE_Z = 4.0;
+    /**
+     * A lock whose strands point almost straight at the camera. The ribbon is
+     * still several pixels wide and visible, but its camera-facing plane normal
+     * is nearly perpendicular to the view direction (nDotV well under SSR's
+     * 0.05 backface gate).
+     */
+    private static final Vector3f VIEW_ALIGNED_FLOW =
+            new Vector3f(0.0f, -0.3569f, -0.9341f);
+    private static final Matrix4f VIEW_ALIGNED_MODEL =
+            new Matrix4f().translate(0.0f, -0.6f, 2.6f);
 
     @Test
     void movingTheHairLockUnderTaaInvalidatesHistoryOnceAndLeavesNoGhost() {
@@ -316,6 +333,121 @@ class HairTaaInvalidationGlTest {
     }
 
     /**
+     * The normal channel boundary: hair + a real normal consumer (screen-space
+     * subsurface diffusion requests the shared normal) must declare the borrowed
+     * normal pass between the forward hair pass and TAA, alias {@code
+     * sceneNormal} at the surface producer's slot, write the analytic ribbon
+     * normal on hair pixels, leave receiver pixels byte-identical, and feed a
+     * normal whose decoded {@code nDotV} flips SSR's documented backface gate
+     * while the receiver normal stays eligible.
+     */
+    @Test
+    void hairNormalFeedsTheSharedSurfaceAndChangesTheSsrBackfaceGate() {
+        try (GlfwWindow window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (var tracking = GlDebug.acquireResourceTracking()) {
+                try (Fixture fixture = fixture(window, normalConsumingEffects())) {
+                    RenderPipeline pipeline = fixture.pipeline();
+                    pipeline.build();
+                    int width = pipeline.graph().width();
+                    int height = pipeline.graph().height();
+                    for (int frame = 0; frame < 4; frame++) {
+                        execute(pipeline, device);
+                    }
+                    float[] baseline = normals(pipeline);
+                    assertTrue(pipeline.graph().hasPass(PostProcessTargets.SCENE_SURFACE_PASS));
+                    assertFalse(pipeline.graph().hasPass(HairStrandPass.NORMAL_PASS_NAME),
+                            "hair disabled must not declare a normal pass");
+
+                    pipeline.hairStrandModel(VIEW_ALIGNED_MODEL);
+                    pipeline.applyHairStrands(viewAlignedHair());
+                    assertTrue(pipeline.graph().hasPass(HairStrandPass.NORMAL_PASS_NAME),
+                            "hair + a normal consumer must declare the borrowed normal pass");
+                    var layout = pipeline.activeGenerationForTest().topology().sceneSurface();
+                    var normalAttachment = layout.raw(SceneBufferChannel.NORMAL);
+                    assertNotNull(normalAttachment);
+                    assertEquals(0, normalAttachment.colorSlot(),
+                            "NORMAL is the first shared surface colour slot in this fixture");
+                    assertTrue(pipeline.graph().matchesColorStorage(
+                                    HairStrandPass.NORMAL_PASS_NAME,
+                                    PostProcessTargets.SCENE_SURFACE_PASS,
+                                    List.of(normalAttachment.colorSlot())),
+                            "the normal pass must borrow sceneNormal instead of owning it");
+                    var order = pipeline.graph().description().executionOrder();
+                    assertTrue(order.indexOf(HairStrandPass.PASS_NAME)
+                                    < order.indexOf(HairStrandPass.NORMAL_PASS_NAME),
+                            "the normal draw must follow the forward hair pass: " + order);
+                    assertTrue(order.indexOf(HairStrandPass.NORMAL_PASS_NAME)
+                                    < order.indexOf(PostProcessTargets.TAA_PASS),
+                            "the normal draw must complete before TAA/post sample sceneNormal: "
+                                    + order);
+
+                    execute(pipeline, device);
+                    float[] hairNormals = normals(pipeline);
+                    double[] expected = viewAlignedAnalyticNormal();
+                    int hairPixels = 0;
+                    int receiverPixels = 0;
+                    int ineligibleHair = 0;
+                    int firstHair = -1;
+                    double receiverNDotV = Double.NaN;
+                    for (int pixel = 0; pixel < width * height; pixel++) {
+                        boolean changed = Float.floatToIntBits(baseline[pixel * 4])
+                                != Float.floatToIntBits(hairNormals[pixel * 4])
+                                || Float.floatToIntBits(baseline[pixel * 4 + 1])
+                                != Float.floatToIntBits(hairNormals[pixel * 4 + 1]);
+                        if (changed) {
+                            if (firstHair < 0) {
+                                firstHair = pixel;
+                            }
+                            hairPixels++;
+                            double[] decoded = assertNormalEncoded(hairNormals, pixel, expected,
+                                    "hair pixel " + pixel);
+                            if (ssrNDotV(decoded) <= 0.05) {
+                                ineligibleHair++;
+                            }
+                        } else {
+                            receiverPixels++;
+                            double[] decoded = octDecode(baseline[pixel * 4],
+                                    baseline[pixel * 4 + 1]);
+                            if (Double.isNaN(receiverNDotV)) {
+                                receiverNDotV = ssrNDotV(decoded);
+                            }
+                            assertTrue(ssrNDotV(decoded) > 0.05,
+                                    "a receiver pixel must stay SSR-eligible at " + pixel
+                                            + " normal=" + java.util.Arrays.toString(decoded));
+                        }
+                    }
+                    double[] firstHairNormal = octDecode(hairNormals[firstHair * 4],
+                            hairNormals[firstHair * 4 + 1]);
+                    System.out.println("[hair-normal] pipeline hairPixels=" + hairPixels
+                            + " ineligibleHair=" + ineligibleHair + " receiverPixels="
+                            + receiverPixels + " sampleEncoded=("
+                            + hairNormals[firstHair * 4] + ", "
+                            + hairNormals[firstHair * 4 + 1] + ") sampleNormal="
+                            + java.util.Arrays.toString(firstHairNormal)
+                            + " hairNDotV=" + ssrNDotV(firstHairNormal)
+                            + " receiverNDotV=" + receiverNDotV
+                            + " expected=" + java.util.Arrays.toString(expected));
+                    assertTrue(hairPixels > 15,
+                            "the view-aligned lock must cover a measurable region, was "
+                                    + hairPixels);
+                    assertEquals(hairPixels, ineligibleHair,
+                            "every covered hair pixel must fall under SSR's 0.05 backface gate");
+                    assertTrue(receiverPixels > width * height / 2,
+                            "receiver pixels outside the lock must remain untouched, were "
+                                    + receiverPixels);
+                }
+                assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                        "the hair normal fixture must release every tracked resource");
+            }
+            GlDebug.assertNoError("hair normal channel");
+        }
+    }
+
+    /**
      * Hair silhouette mask: a receiver pixel the lock darkened to at most 80%
      * of its baseline luminance. The root of a {@code SORTED_ALPHA} strand
      * blends at about 55% alpha, so a strict 50% threshold would miss the root
@@ -464,7 +596,134 @@ class HairTaaInvalidationGlTest {
                 + 0.0722 * pixels[index + 2];
     }
 
+    /** Forces the shared NORMAL channel with the non-PBR normal consumer. */
+    private static PostProcessSettings normalConsumingEffects() {
+        return PostProcessSettings.builder()
+                .subsurfaceScattering(SubsurfaceScatteringSettings.ofSkin())
+                .build();
+    }
+
+    private static float[] normals(RenderPipeline pipeline) {
+        return pipeline.graph().readColorAttachmentRgbaFloat(PostProcessTargets.SCENE_NORMAL);
+    }
+
+    /** Dense near-view-aligned lock; every strand lies on the same world line. */
+    private static HairStrandSettings viewAlignedHair() {
+        return HairStrandSettings.builder()
+                .strandCount(16)
+                .segmentsPerStrand(8)
+                .strandLengthMetres(2.0f)
+                .rootSpreadMetres(0.0f)
+                .curlMetres(0.0f)
+                .strandRadiusMetres(0.01f)
+                .flowDirection(new Vector3f(VIEW_ALIGNED_FLOW))
+                .widthPixels(16.0f)
+                .minimumWidthPixels(8.0f)
+                .maximumWidthPixels(24.0f)
+                .nearDistanceMetres(1.0f)
+                .farDistanceMetres(20.0f)
+                .lodMinimumPixels(1.0f)
+                .lodWidthScale(1.0f)
+                .alpha(1.0f)
+                .alphaCutoff(0.35f)
+                .transparency(HairStrandSettings.Transparency.SORTED_ALPHA)
+                .rootColor(new Vector3f(0.01f, 0.008f, 0.006f))
+                .tipColor(new Vector3f(0.01f, 0.008f, 0.006f))
+                .diffuseStrength(0.0f)
+                .specularStrength(0.0f)
+                .colorVariation(0.0f)
+                .castsShadow(false)
+                .seed(91L)
+                .build();
+    }
+
+    /**
+     * Independent double reference for the near-view-aligned ribbon plane: the
+     * normal is the component of {@code eye - p0} perpendicular to the strand
+     * tangent. The fixture camera is at (0, 0, 4) and the lock's local origin is
+     * transformed only by the known translation.
+     */
+    private static double[] viewAlignedAnalyticNormal() {
+        double tangentX = VIEW_ALIGNED_FLOW.x;
+        double tangentY = VIEW_ALIGNED_FLOW.y;
+        double tangentZ = VIEW_ALIGNED_FLOW.z;
+        double tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY
+                + tangentZ * tangentZ);
+        tangentX /= tangentLength;
+        tangentY /= tangentLength;
+        tangentZ /= tangentLength;
+        double dx = -VIEW_ALIGNED_MODEL.m30();
+        double dy = -VIEW_ALIGNED_MODEL.m31();
+        double dz = CAMERA_EYE_Z - VIEW_ALIGNED_MODEL.m32();
+        double tangentDot = tangentX * dx + tangentY * dy + tangentZ * dz;
+        double nx = dx - tangentX * tangentDot;
+        double ny = dy - tangentY * tangentDot;
+        double nz = dz - tangentZ * tangentDot;
+        double length = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        return new double[]{nx / length, ny / length, nz / length};
+    }
+
+    /**
+     * The SSR fragment gate ({@code roughness > cutoff || nDotV <= 0.05}) uses
+     * {@code nDotV = clamp(dot(normal, normalize(cameraPosition - worldPosition)), 0, 1)}.
+     * This fixture's receiver depth plane is z=0 and the camera sits at (0, 0, 4),
+     * so the reconstructed view direction is +Z: the decoded z component is the
+     * gate value. Hair is SORTED_ALPHA, which intentionally does not write depth,
+     * so the receiver depth behind the lock is exactly what SSR would read.
+     */
+    private static double ssrNDotV(double[] normal) {
+        return Math.max(0.0, Math.min(1.0, normal[2]));
+    }
+
+    private static double[] assertNormalEncoded(float[] pixels, int pixel, double[] expected,
+                                                String label) {
+        double[] encoded = octEncode(expected[0], expected[1], expected[2]);
+        assertEquals(encoded[0], pixels[pixel * 4], 2.0e-3, label + ": encoded u");
+        assertEquals(encoded[1], pixels[pixel * 4 + 1], 2.0e-3, label + ": encoded v");
+        double[] decoded = octDecode(pixels[pixel * 4], pixels[pixel * 4 + 1]);
+        assertEquals(expected[0], decoded[0], 5.0e-3, label + ": decoded x");
+        assertEquals(expected[1], decoded[1], 5.0e-3, label + ": decoded y");
+        assertEquals(expected[2], decoded[2], 5.0e-3, label + ": decoded z");
+        return decoded;
+    }
+
+    /** Mirrors {@code octEncode} in scene-surface.frag/hair-normal.frag in double. */
+    private static double[] octEncode(double x, double y, double z) {
+        double length = Math.sqrt(x * x + y * y + z * z);
+        x /= length;
+        y /= length;
+        z /= length;
+        double denominator = Math.abs(x) + Math.abs(y) + Math.abs(z) + 1.0e-8;
+        double ox = x / denominator;
+        double oy = y / denominator;
+        if (z < 0.0) {
+            double previousX = ox;
+            ox = (1.0 - Math.abs(oy)) * Math.signum(previousX + 1.0e-8);
+            oy = (1.0 - Math.abs(previousX)) * Math.signum(oy + 1.0e-8);
+        }
+        return new double[]{ox, oy};
+    }
+
+    /** Mirrors {@code octDecode} in ssr.frag/ssgi.frag in double. */
+    private static double[] octDecode(double ox, double oy) {
+        double x = ox;
+        double y = oy;
+        double z = 1.0 - Math.abs(ox) - Math.abs(oy);
+        if (z < 0.0) {
+            double previousX = x;
+            double previousY = y;
+            x = (1.0 - Math.abs(previousY)) * (previousX >= 0.0 ? 1.0 : -1.0);
+            y = (1.0 - Math.abs(previousX)) * (previousY >= 0.0 ? 1.0 : -1.0);
+        }
+        double length = Math.sqrt(x * x + y * y + z * z);
+        return new double[]{x / length, y / length, z / length};
+    }
+
     private static Fixture fixture(GlfwWindow window) {
+        return fixture(window, PostProcessSettings.defaults());
+    }
+
+    private static Fixture fixture(GlfwWindow window, PostProcessSettings effects) {
         ShaderProgram shader = ShaderProgram.fromSources(VERTEX_SOURCE, FRAGMENT_SOURCE);
         Mesh mesh = Mesh.from(BuiltinMeshData.coloredQuad("hair-taa-pattern-receiver"));
         Material material = Material.builder(shader).build();
@@ -480,7 +739,8 @@ class HairTaaInvalidationGlTest {
                         .antiAliasingMode(AntiAliasingMode.TAA)
                         .toneMappingMode(ToneMappingMode.ACES)
                         .vsync(false)
-                        .build());
+                        .build())
+                .postProcessSettings(effects);
         return new Fixture(pipeline, material, shader, mesh);
     }
 

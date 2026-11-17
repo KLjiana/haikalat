@@ -307,7 +307,7 @@ tasks.register('releaseVerificationContracts') {
         // particle-indirect and VFX sampler policies, the S6 interaction-matrix
         // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
         // transmission-shadow cold-link policy.
-        assert policies.size() == 69
+        assert policies.size() == 70
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -342,6 +342,22 @@ tasks.register('releaseVerificationContracts') {
                 ssrMsaaDevice + ssrMsaaMessage * 4, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
                 ssrMsaaDevice + ssrMsaaMessage * 5, policies).violations.isEmpty()
+        def hairNormalConsumerPolicy = policies.find { it.owner == 'render3d/hair-normal-consumer' }
+        assert hairNormalConsumerPolicy != null && hairNormalConsumerPolicy.id == 131218
+        assert hairNormalConsumerPolicy.maximum == 2
+        assert hairNormalConsumerPolicy.entry == '.*HairTaaInvalidationGlTest.*'
+        assert hairNormalConsumerPolicy.expiry == LocalDate.of(2027, 5, 17)
+        def hairNormalConsumerEntry =
+                'TEST-com.kaleblangley.haikalat.subsystems.render3d.HairTaaInvalidationGlTest.xml'
+        def hairNormalConsumerMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: ' +
+                'Program/shader state performance warning: Vertex shader in program 1 is being ' +
+                'recompiled based on GL state.\n'
+        assert auditGlText(hairNormalConsumerEntry,
+                ssrMsaaDevice + hairNormalConsumerMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(hairNormalConsumerEntry,
+                ssrMsaaDevice + hairNormalConsumerMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                ssrMsaaDevice + hairNormalConsumerMessage, policies).violations.isEmpty()
         def thinTransmissionShadowPolicy =
                 policies.find { it.owner == 'render3d/thin-translucency-transmission-shadow' }
         assert thinTransmissionShadowPolicy != null && thinTransmissionShadowPolicy.id == 131218
