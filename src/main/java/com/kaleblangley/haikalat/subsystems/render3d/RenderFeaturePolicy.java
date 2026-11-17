@@ -567,7 +567,57 @@ final class RenderFeaturePolicy {
         return "";
     }
 
+    /**
+     * Rejects every requested composition that assumes full-resolution scene
+     * data while the advanced {@code renderScale} is below one.  At scale one
+     * this method returns immediately and the rest of {@link #validate} keeps
+     * today's behaviour exactly.
+     */
+    private static void validateRenderScale(RenderFeatureSettings settings, Facts facts) {
+        com.kaleblangley.haikalat.runtime.RenderSettings render = settings.render();
+        RenderScalePolicy.rejectSettingsCompositions(render, settings.postProcess());
+        float scale = render.renderScale();
+        // Dependent compositions are checked before their prerequisite so the
+        // reason names the request that needs the full-resolution scene data.
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_REFRACTION,
+                settings.waterRefraction().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CAUSTICS,
+                settings.caustics().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_SURFACE,
+                settings.waterSurface().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CONTACT_SHADOWS,
+                settings.directionalShadowMap().settings().contactShadows().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PLANAR_REFLECTIONS,
+                settings.planarReflections().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.DDGI,
+                settings.ddgi().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOXEL_CONE_TRACING,
+                settings.vct().enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.HAIR_STRANDS,
+                settings.hairStrands().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_CLOUDS,
+                settings.volumetricClouds().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_SMOKE,
+                settings.smokeSimulation().active() || settings.smokeRender().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_PARTICLES,
+                settings.volumetricParticles().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_FOG,
+                settings.volumetricFog().enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WEIGHTED_OIT,
+                settings.weightedOit().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.STOCHASTIC_TRANSPARENCY,
+                settings.stochasticTransparency().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PROJECTED_DECALS,
+                settings.projectedDecals().active());
+        // A caller-supplied low-resolution source owns its own scene raster;
+        // combining it with a pipeline-level reduced scene extent would create
+        // two disagreeing low-resolution owners.
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.TEMPORAL_UPSCALING_SOURCE,
+                facts.temporalUpscalingSourceAvailable());
+    }
+
     private static void validate(RenderFeatureSettings settings, Facts facts) {
+        validateRenderScale(settings, facts);
         boolean hdr = settings.render().hdrEnabled();
         if (!hdr && (settings.postProcess().colorGrading().enabled()
                 || settings.postProcess().fog().enabled()

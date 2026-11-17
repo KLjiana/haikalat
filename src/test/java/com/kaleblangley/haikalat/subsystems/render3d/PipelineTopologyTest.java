@@ -16,6 +16,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings;
 import com.kaleblangley.haikalat.backend.RenderFormat;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
@@ -381,5 +382,79 @@ class PipelineTopologyTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new DirectionalCascadeSettings(5, 4096, 0.5f, 0.05f, Float.MAX_VALUE));
+    }
+
+    // Merged into this class because the render scale is part of the same
+    // topology key contract as the target extent.
+    @Test
+    void sceneExtentUsesTheSingleRoundedRule() {
+        Scene scene = new Scene(new Camera());
+        PostProcessSettings effects = PostProcessSettings.defaults();
+
+        PipelineTopology odd = PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(0.5f).build(), effects, 153, 65,
+                false, false, DirectionalCascadeSettings.disabled());
+        assertEquals(153, odd.width());
+        assertEquals(65, odd.height());
+        assertEquals(77, odd.sceneWidth());
+        assertEquals(33, odd.sceneHeight());
+        assertEquals(TemporalUpscalingSettings.scaledExtent(153, 0.5f), odd.sceneWidth(),
+                "the topology scene extent must reuse the documented rounding rule");
+        assertEquals(TemporalUpscalingSettings.scaledExtent(65, 0.5f), odd.sceneHeight());
+
+        PipelineTopology even = PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(0.5f).build(), effects, 152, 64,
+                false, false, DirectionalCascadeSettings.disabled());
+        assertEquals(76, even.sceneWidth());
+        assertEquals(32, even.sceneHeight());
+
+        PipelineTopology quarter = PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(0.25f).build(), effects, 150, 70,
+                false, false, DirectionalCascadeSettings.disabled());
+        assertEquals(38, quarter.sceneWidth());
+        assertEquals(18, quarter.sceneHeight());
+
+        PipelineTopology full = PipelineTopology.capture(scene,
+                RenderSettings.builder().build(), effects, 153, 65,
+                false, false, DirectionalCascadeSettings.disabled());
+        assertEquals(1.0f, full.renderScale());
+        assertEquals(153, full.sceneWidth());
+        assertEquals(65, full.sceneHeight());
+    }
+
+    @Test
+    void renderScaleChangesOnlyTheScaleDependentGenerationKeyAndManagedExtent() {
+        Scene scene = new Scene(new Camera());
+        PostProcessSettings effects = PostProcessSettings.defaults();
+        PipelineTopology full = PipelineTopology.capture(scene,
+                RenderSettings.builder().build(), effects, 96, 64,
+                false, false, DirectionalCascadeSettings.disabled());
+        PipelineTopology explicitFull = PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(1.0f).build(), effects, 96, 64,
+                false, false, DirectionalCascadeSettings.disabled());
+        PipelineTopology half = PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(0.5f).build(), effects, 96, 64,
+                false, false, DirectionalCascadeSettings.disabled());
+
+        assertEquals(full, explicitFull,
+                "renderScale 1.0 is the builder default and must keep the key byte-identical");
+        assertEquals(full, full.withExtent(96, 64),
+                "the extent candidate must preserve every other component");
+        assertNotEquals(full, half,
+                "the render scale belongs to the generation key");
+        assertEquals(half, PipelineTopology.capture(scene,
+                RenderSettings.builder().renderScale(0.5f).build(), effects, 96, 64,
+                false, false, DirectionalCascadeSettings.disabled()));
+
+        assertTrue(full.sameManagedExtent(explicitFull));
+        assertTrue(half.sameManagedExtent(half.withExtent(96, 64)));
+        assertFalse(full.sameManagedExtent(half),
+                "a different scene extent must not reuse the managed targets");
+        assertFalse(full.sameManagedExtent(full.withExtent(97, 64)));
+
+        PipelineTopology resized = half.withExtent(192, 128);
+        assertEquals(0.5f, resized.renderScale());
+        assertEquals(96, resized.sceneWidth());
+        assertEquals(64, resized.sceneHeight());
     }
 }

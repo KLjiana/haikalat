@@ -22,6 +22,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureCha
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -230,6 +231,21 @@ class RenderPipelineTest {
                 RenderSettings.builder().build()).hdrVfx((resources, commands) -> { });
         assertThrows(IllegalStateException.class, ldr::build);
 
+    }
+
+    @Test
+    void reducedRenderScaleRejectsLegacyFullResolutionCompositionsBeforeBuild() {
+        RenderWindowStub window = new RenderWindowStub();
+        RenderPipeline pipeline = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                        .renderScale(0.5f).build())
+                .postProcessSettings(PostProcessSettings.builder()
+                        .depthOfField(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f)).build());
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                pipeline::build,
+                "the legacy setter path must fail closed before candidate preparation");
+        assertTrue(failure.getMessage().contains("depth-of-field"), failure.getMessage());
     }
 
     @Test

@@ -120,6 +120,22 @@ class TemporalUpscalingSettingsTest {
     }
 
     @Test
+    void scaledExtentIsThePublicSingleRuleUsedByOtherExtents() {
+        // Odd target extents round half up: 153 * 0.5 = 76.5 -> 77.
+        assertEquals(77, TemporalUpscalingSettings.scaledExtent(153, 0.5f));
+        assertEquals(33, TemporalUpscalingSettings.scaledExtent(65, 0.5f));
+        assertEquals(76, TemporalUpscalingSettings.scaledExtent(152, 0.5f));
+        assertEquals(32, TemporalUpscalingSettings.scaledExtent(64, 0.5f));
+        assertEquals(151, TemporalUpscalingSettings.scaledExtent(151, 1.0f));
+        assertEquals(1, TemporalUpscalingSettings.scaledExtent(1, 0.25f));
+        assertEquals(TemporalUpscalingSettings.disabled().inputWidth(153),
+                TemporalUpscalingSettings.scaledExtent(153, 0.5f),
+                "the accessor and the shared helper must be one rule");
+        assertThrows(IllegalArgumentException.class,
+                () -> TemporalUpscalingSettings.scaledExtent(0, 0.5f));
+    }
+
+    @Test
     void depthExposureAndReactiveFormulasMatchTheirDocumentedWindows() {
         TemporalUpscalingSettings settings = TemporalUpscalingSettings.disabled();
         assertEquals(0.02f, settings.depthTolerance(0.5f), 1.0e-7f);

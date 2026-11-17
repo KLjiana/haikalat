@@ -1,23 +1,51 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
+import com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings;
 import com.kaleblangley.haikalat.runtime.BloomSettings;
+import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
+import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.PcssSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -300,6 +328,189 @@ class RenderFeatureControlTest {
         assertEquals(original.render(), original.toBuilder().build().render());
         assertEquals(original.projectedDecals(),
                 original.toBuilder().build().projectedDecals());
+    }
+
+    // ---- v0.28.1 low-resolution foundation: renderScale rejection matrix ----
+
+    /**
+     * One requested composition that assumes full-resolution scene data.  The
+     * factory is applied at the 1.0 control and at a reduced scale, so the same
+     * request exercises both the no-op and the fail-closed branch.
+     */
+    private record RenderScaleCase(RenderScalePolicy.Feature feature,
+                                   RenderFeaturePolicy.Facts facts,
+                                   Function<Float, RenderFeatureSettings> request) {
+        @Override
+        public String toString() {
+            return feature.code();
+        }
+    }
+
+    private static final RenderFeaturePolicy.Facts SCALE_FACTS =
+            new RenderFeaturePolicy.Facts(true, true, true, true, true, true, true, true,
+                    true, true, true, false, true, true, false, true, true);
+    private static final RenderFeaturePolicy.Facts SCALE_FACTS_WITH_SOURCE =
+            new RenderFeaturePolicy.Facts(true, true, true, true, true, true, true, true,
+                    true, true, true, false, true, true, true, true, true);
+
+    private static Stream<RenderScaleCase> renderScaleCases() {
+        return Stream.of(
+                new RenderScaleCase(RenderScalePolicy.Feature.MSAA, SCALE_FACTS,
+                        scale -> base(scale).render(hdrRender(scale)
+                                .antiAliasingMode(AntiAliasingMode.MSAA).msaaSamples(4)
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.TAA, SCALE_FACTS,
+                        scale -> base(scale).render(hdrRender(scale)
+                                .antiAliasingMode(AntiAliasingMode.TAA)
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.BLOOM, SCALE_FACTS,
+                        scale -> base(scale).render(hdrRender(scale)
+                                .bloomSettings(BloomSettings.builder().enabled(true)
+                                        .maxLevels(4).build())
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.AUTO_EXPOSURE, SCALE_FACTS,
+                        scale -> base(scale).render(hdrRender(scale)
+                                .exposureMode(ExposureMode.AUTO).build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.SSR, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .ssr(SsrSettings.defaults()).build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.SSGI, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .ssgi(SsgiSettings.defaults()).build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.GTAO, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .gtao(GtaoSettings.defaults().withEnabled(true)).build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.TEMPORAL_DENOISE, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .temporalDenoise(TemporalDenoiseSettings.defaults())
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.DEPTH_OF_FIELD, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .depthOfField(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f))
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.MOTION_BLUR, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .motionBlur(MotionBlurSettings.of(0.5f, 16.0f)).build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.SUBSURFACE_SCATTERING, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .subsurfaceScattering(SubsurfaceScatteringSettings.ofSkin())
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.ADAPTIVE_SAMPLING, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .adaptiveSampling(AdaptiveSamplingSettings.defaults())
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VARIABLE_RATE_SHADING, SCALE_FACTS,
+                        scale -> base(scale).postProcess(PostProcessSettings.builder()
+                                .variableRateShading(VariableRateShadingSettings.disabled()
+                                        .withEnabled(true))
+                                .build()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.PROJECTED_DECALS, SCALE_FACTS,
+                        scale -> base(scale).projectedDecals(new ProjectedDecalSettings(
+                                true, 0.6f, 0.02f, 0.5f, false, true, 8)).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.WATER_SURFACE, SCALE_FACTS,
+                        scale -> base(scale).waterSurface(activeWater()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.WATER_REFRACTION, SCALE_FACTS,
+                        scale -> base(scale).waterSurface(activeWater())
+                                .waterRefraction(WaterRefractionSettings.disabled()
+                                        .withEnabled(true))
+                                .build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.CONTACT_SHADOWS, SCALE_FACTS,
+                        scale -> base(scale).directionalShadows(true)
+                                .directionalShadowMap(activeContactShadows()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.CAUSTICS, SCALE_FACTS,
+                        scale -> base(scale).waterSurface(activeWater())
+                                .caustics(CausticsSettings.disabled().withEnabled(true))
+                                .build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.PLANAR_REFLECTIONS, SCALE_FACTS,
+                        scale -> base(scale).planarReflections(
+                                PlanarReflectionSettings.disabled().withEnabled(true)).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.DDGI, SCALE_FACTS,
+                        scale -> base(scale).ddgi(DdgiSettings.disabled().withEnabled(true))
+                                .build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VOXEL_CONE_TRACING, SCALE_FACTS,
+                        scale -> base(scale).vct(VctSettings.enabled(32, 8.0f)).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.HAIR_STRANDS, SCALE_FACTS,
+                        scale -> base(scale)
+                                .hairStrands(HairStrandSettings.disabled().withEnabled(true))
+                                .build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VOLUMETRIC_CLOUDS, SCALE_FACTS,
+                        scale -> base(scale).volumetricClouds(
+                                VolumetricCloudSettings.disabled().withEnabled(true)).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VOLUMETRIC_SMOKE, SCALE_FACTS,
+                        scale -> base(scale)
+                                .smokeSimulation(SmokeSimulationSettings.disabled()
+                                        .withEnabled(true))
+                                .smokeRender(SmokeRenderSettings.disabled().withEnabled(true))
+                                .build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VOLUMETRIC_PARTICLES, SCALE_FACTS,
+                        scale -> base(scale).volumetricParticles(
+                                VolumetricParticleSettings.disabled().withEnabled(true)).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.VOLUMETRIC_FOG, SCALE_FACTS,
+                        scale -> base(scale).volumetricFog(volumetric()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.WEIGHTED_OIT, SCALE_FACTS,
+                        scale -> base(scale).weightedOit(WeightedOitSettings.defaults()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.STOCHASTIC_TRANSPARENCY, SCALE_FACTS,
+                        scale -> base(scale).stochasticTransparency(
+                                StochasticTransparencySettings.defaults()).build()),
+                new RenderScaleCase(RenderScalePolicy.Feature.TEMPORAL_UPSCALING_SOURCE,
+                        SCALE_FACTS_WITH_SOURCE, scale -> base(scale).build()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("renderScaleCases")
+    void reducedRenderScaleRejectsFullResolutionCompositionsAndScaleOneDoesNot(
+            RenderScaleCase testCase) {
+        RenderFeatureSettings full = testCase.request().apply(1.0f);
+        assertDoesNotThrow(() -> RenderFeaturePolicy.resolve(full, testCase.facts()),
+                "renderScale 1.0 must keep today's behaviour for " + testCase.feature().code());
+
+        RenderFeatureSettings reduced = testCase.request().apply(0.5f);
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> RenderFeaturePolicy.resolve(reduced, testCase.facts()),
+                testCase.feature().code());
+        assertTrue(failure.getMessage().contains(testCase.feature().code()),
+                () -> "expected reason '" + testCase.feature().code() + "' but got: "
+                        + failure.getMessage());
+    }
+
+    @Test
+    void renderScaleMatrixCoversEverySettingsExpressibleFeature() {
+        Set<RenderScalePolicy.Feature> covered = renderScaleCases()
+                .map(RenderScaleCase::feature).collect(Collectors.toSet());
+        Set<RenderScalePolicy.Feature> expected = EnumSet.complementOf(EnumSet.of(
+                RenderScalePolicy.Feature.UNDERWATER_VOLUME,
+                RenderScalePolicy.Feature.EMBEDDED_TARGET));
+        assertEquals(expected, covered,
+                "every settings-expressible full-resolution composition needs a matrix case");
+    }
+
+    @Test
+    void renderScaleReasonCodesAreDistinctAndDocumented() {
+        assertEquals(31, RenderScalePolicy.Feature.values().length,
+                "the documented matrix must list every rejected composition");
+        Set<String> codes = Arrays.stream(RenderScalePolicy.Feature.values())
+                .map(RenderScalePolicy.Feature::code).collect(Collectors.toSet());
+        assertEquals(RenderScalePolicy.Feature.values().length, codes.size(),
+                "each rejection needs its own stable reason code");
+    }
+
+    private static RenderSettings.Builder hdrRender(float renderScale) {
+        return RenderSettings.builder().antiAliasingMode(AntiAliasingMode.NONE)
+                .toneMappingMode(ToneMappingMode.ACES).vsync(false).renderScale(renderScale);
+    }
+
+    private static RenderFeatureSettings.Builder base(float renderScale) {
+        return RenderFeatureSettings.builder().render(hdrRender(renderScale).build());
+    }
+
+    private static WaterSurfaceSettings activeWater() {
+        return WaterSurfaceSettings.builder().enabled(true).build();
+    }
+
+    private static DirectionalShadowMap activeContactShadows() {
+        ContactShadowSettings contact = new ContactShadowSettings(true, 1.0f, 0.5f, 8, 0.8f);
+        return new DirectionalShadowMap(new ShadowSettings(512, 12.0f, 0.1f, 40.0f, 0.003f,
+                contact));
     }
 
     private static void assertMessage(String fragment, RenderFeatureSettings settings,

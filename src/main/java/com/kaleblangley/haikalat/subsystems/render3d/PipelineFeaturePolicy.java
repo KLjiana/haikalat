@@ -14,6 +14,7 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
     }
 
     public void validate() {
+        validateRenderScale();
         if ((topology.colorGrading() || topology.fog() || topology.volumetricFog()) && !topology.hdr()) {
             throw new IllegalStateException("Color grading and fog require HDR tone mapping");
         }
@@ -226,6 +227,70 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                         "hair strands require the shared raster depth for depth testing");
             }
         }
+    }
+
+    /**
+     * Rejects every topology-represented composition that assumes a
+     * full-resolution scene raster while the advanced render scale is below
+     * one.  At {@code renderScale == 1.0} no branch runs, so existing topologies
+     * validate exactly as before.  Compositions that only exist in
+     * {@code PostProcessSettings} (depth of field, motion blur, the temporal
+     * denoiser, screen-space subsurface scattering, adaptive sampling and VRS)
+     * are owned by the settings gate in {@code RenderFeaturePolicy} and the
+     * legacy {@code RenderPipeline} validation; they have no topology flag to
+     * consult here.
+     */
+    private void validateRenderScale() {
+        float scale = topology.renderScale();
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.MSAA,
+                topology.antiAliasingMode() == AntiAliasingMode.MSAA);
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.TAA,
+                topology.antiAliasingMode() == AntiAliasingMode.TAA);
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.BLOOM, topology.bloom());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.AUTO_EXPOSURE,
+                topology.automaticExposure());
+        // SSGI also requests the roughness channel, so its own code is checked
+        // first; a topology with SSGI and SSR reports the indirect-diffuse code.
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.SSGI,
+                topology.sceneBuffers().requires(SceneBufferChannel.ALBEDO));
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.SSR,
+                topology.sceneBuffers().requires(SceneBufferChannel.ROUGHNESS));
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.GTAO, topology.gtaoEnabled());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.VOLUMETRIC_FOG,
+                topology.volumetricFog());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.VOLUMETRIC_PARTICLES,
+                topology.volumetricParticles());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.STOCHASTIC_TRANSPARENCY,
+                topology.stochasticTransparency());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.VOLUMETRIC_CLOUDS,
+                topology.volumetricClouds());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.VOLUMETRIC_SMOKE,
+                topology.volumetricSmoke());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.WEIGHTED_OIT,
+                topology.weightedOit());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.PLANAR_REFLECTIONS,
+                topology.planarReflections());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.CAUSTICS,
+                topology.caustics());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.DDGI, topology.ddgi());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.VOXEL_CONE_TRACING,
+                topology.voxelConeTracing());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.HAIR_STRANDS,
+                topology.hairStrands());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.CONTACT_SHADOWS,
+                topology.screenSpaceContactShadows());
+        // Dependent compositions are checked before their prerequisite so the
+        // reason names the request that needs the full-resolution scene data.
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.WATER_REFRACTION,
+                topology.waterRefraction());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.UNDERWATER_VOLUME,
+                topology.underwaterVolume());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.WATER_SURFACE,
+                topology.waterSurface());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.PROJECTED_DECALS,
+                topology.projectedDecals());
+        RenderScalePolicy.rejectTopology(scale, RenderScalePolicy.Feature.EMBEDDED_TARGET,
+                topology.embedded());
     }
 
     /**

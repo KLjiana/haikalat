@@ -1446,6 +1446,7 @@ public final class RenderPipeline {
      * this before any candidate generation is prepared.
      */
     private void validateCompositionDependencies() {
+        validateRenderScaleCompositions();
         if (weightedOitSettings.active() && !settings.hdrEnabled()) {
             throw new IllegalArgumentException(
                     "weighted OIT requires HDR tone mapping for linear compositing");
@@ -1474,6 +1475,60 @@ public final class RenderPipeline {
                             + "call temporalUpscalingSource(...) before build or enable the "
                             + "feature through the unified feature request");
         }
+    }
+
+    /**
+     * Fail-closed gate for the advanced {@code renderScale} request on the
+     * legacy/configuration entry paths.
+     *
+     * <p>The reduced-scene-resolution slice is not implemented yet, so every
+     * composition below reads full-resolution scene colour/depth/material data
+     * and is rejected with its own documented reason code while the scale is
+     * below one.  At {@code renderScale == 1.0} this method never throws, so
+     * today's behaviour is unchanged.  The unified feature path is checked
+     * earlier by {@code RenderFeaturePolicy}; this method also covers callers
+     * that configure the pipeline through the individual setters.</p>
+     */
+    private void validateRenderScaleCompositions() {
+        RenderScalePolicy.rejectSettingsCompositions(settings, postProcessSettings);
+        float scale = settings.renderScale();
+        // Dependent compositions are checked before their prerequisite so the
+        // reason names the request that needs the full-resolution scene data.
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_REFRACTION,
+                waterRefractionSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.UNDERWATER_VOLUME,
+                underwaterVolumeSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CAUSTICS,
+                causticsSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_SURFACE,
+                waterSurfaceSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CONTACT_SHADOWS,
+                effectiveContactShadowSettings().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PLANAR_REFLECTIONS,
+                planarReflectionSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.DDGI,
+                ddgiSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOXEL_CONE_TRACING,
+                vctSettings.enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.HAIR_STRANDS,
+                hairStrandSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_CLOUDS,
+                volumetricCloudSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_SMOKE,
+                smokeSimulationSettings.active() || smokeRenderSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_PARTICLES,
+                volumetricParticleSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_FOG,
+                volumetricFogSettings.enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WEIGHTED_OIT,
+                weightedOitSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.STOCHASTIC_TRANSPARENCY,
+                stochasticTransparencySettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PROJECTED_DECALS,
+                projectedDecalSettings.active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.EMBEDDED_TARGET, embedded);
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.TEMPORAL_UPSCALING_SOURCE,
+                temporalUpscalingSource != null);
     }
 
     private void validateTransparentSetClaims(WeightedOitSettings oit,

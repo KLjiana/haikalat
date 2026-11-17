@@ -35,6 +35,7 @@ import com.kaleblangley.haikalat.core.assets.MaterialModel;
 import com.kaleblangley.haikalat.runtime.ExposureMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings;
 
 import java.util.Objects;
 
@@ -82,7 +83,8 @@ public record PipelineTopology(int width,
                         boolean screenSpaceContactShadows,
                         boolean waterRefraction,
                         boolean projectedDecals,
-                        boolean underwaterVolume) {
+                        boolean underwaterVolume,
+                        float renderScale) {
     public PipelineTopology {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("pipeline topology extent must be positive");
@@ -90,6 +92,11 @@ public record PipelineTopology(int width,
         Objects.requireNonNull(antiAliasingMode, "antiAliasingMode");
         Objects.requireNonNull(sceneSurface, "sceneSurface");
         Objects.requireNonNull(volumetricQuality, "volumetricQuality");
+        if (!Float.isFinite(renderScale) || renderScale < RenderSettings.MIN_RENDER_SCALE
+                || renderScale > RenderSettings.MAX_RENDER_SCALE) {
+            throw new IllegalArgumentException("pipeline topology render scale must be finite and in ["
+                    + RenderSettings.MIN_RENDER_SCALE + ", " + RenderSettings.MAX_RENDER_SCALE + "]");
+        }
         if (sampleCount < 1) {
             throw new IllegalArgumentException("pipeline topology sample count must be positive");
         }
@@ -110,6 +117,42 @@ public record PipelineTopology(int width,
         if (gtaoHalfWidth <= 0 || gtaoHalfHeight <= 0) {
             throw new IllegalArgumentException("invalid GTAO half-resolution extent");
         }
+    }
+
+    /**
+     * Source-compatible constructor for the pre-renderScale shape.  The scene
+     * extent defaults to the full target extent ({@code renderScale == 1.0}), so
+     * a caller that does not opt into a reduced scene resolution keeps the exact
+     * previous topology key.
+     */
+    public PipelineTopology(int width, int height, AntiAliasingMode antiAliasingMode,
+                            int sampleCount, boolean hdr, boolean bloom, int bloomLevels,
+                            boolean automaticExposure, boolean colorGrading, boolean fog,
+                            boolean directionalShadow, boolean pointShadow, boolean spotShadow,
+                            int directionalCascadeCount, int directionalShadowAtlasSize,
+                            int pointShadowCapacity, int pointShadowResolution,
+                            int spotShadowCapacity, int spotShadowResolution,
+                            boolean pbrMaterials, boolean hdrVfx, boolean embedded,
+                            boolean gtaoEnabled, boolean gtaoTemporal, int gtaoHalfWidth,
+                            int gtaoHalfHeight, SceneSurfaceLayout sceneSurface,
+                            boolean volumetricFog, VolumetricFogSettings.Quality volumetricQuality,
+                            boolean volumetricEmission, boolean waterSurface,
+                            boolean volumetricParticles, boolean stochasticTransparency,
+                            boolean volumetricClouds, boolean volumetricSmoke,
+                            boolean weightedOit, boolean planarReflections, boolean caustics,
+                            boolean ddgi, boolean voxelConeTracing, boolean hairStrands,
+                            boolean screenSpaceContactShadows, boolean waterRefraction,
+                            boolean projectedDecals, boolean underwaterVolume) {
+        this(width, height, antiAliasingMode, sampleCount, hdr, bloom, bloomLevels,
+                automaticExposure, colorGrading, fog, directionalShadow, pointShadow, spotShadow,
+                directionalCascadeCount, directionalShadowAtlasSize, pointShadowCapacity,
+                pointShadowResolution, spotShadowCapacity, spotShadowResolution, pbrMaterials,
+                hdrVfx, embedded, gtaoEnabled, gtaoTemporal, gtaoHalfWidth, gtaoHalfHeight,
+                sceneSurface, volumetricFog, volumetricQuality, volumetricEmission, waterSurface,
+                volumetricParticles, stochasticTransparency, volumetricClouds, volumetricSmoke,
+                weightedOit, planarReflections, caustics, ddgi, voxelConeTracing, hairStrands,
+                screenSpaceContactShadows, waterRefraction, projectedDecals, underwaterVolume,
+                1.0f);
     }
 
     /**
@@ -267,9 +310,27 @@ public record PipelineTopology(int width,
                 weightedOit, planarReflections, caustics, false, false, false, false);
     }
 
+    /**
+     * Width of the reduced scene raster for this target extent.
+     *
+     * <p>Derived with the single documented rounding rule
+     * {@link TemporalUpscalingSettings#scaledExtent(int, float)}, so the scene
+     * extent and the temporal-upscaling input extent cannot disagree.
+     * {@code renderScale == 1.0} returns {@link #width()} exactly.</p>
+     */
+    public int sceneWidth() {
+        return TemporalUpscalingSettings.scaledExtent(width, renderScale);
+    }
+
+    /** Height of the reduced scene raster; see {@link #sceneWidth()}. */
+    public int sceneHeight() {
+        return TemporalUpscalingSettings.scaledExtent(height, renderScale);
+    }
+
     /** Graph replacement retains compatible targets at the same managed extent. */
     public boolean sameManagedExtent(PipelineTopology other) {
-        return width == other.width && height == other.height && embedded == other.embedded;
+        return width == other.width && height == other.height && embedded == other.embedded
+                && Float.compare(renderScale, other.renderScale) == 0;
     }
 
     public boolean sameShadowShape(PipelineTopology other) {
@@ -693,7 +754,7 @@ public record PipelineTopology(int width,
                 volume.enabled() && volume.hasEmission(), waterSurface.active(), particles,
                 stochastic, clouds, smoke, oit, planar, causticsActive, ddgi, vct, hair,
                 contactShadow, waterRefractionActive, projectedDecalsActive,
-                underwaterVolumeActive);
+                underwaterVolumeActive, settings.renderScale());
     }
 
     /**
@@ -1013,6 +1074,6 @@ public record PipelineTopology(int width,
                 volumetricParticles, stochasticTransparency, volumetricClouds,
                 volumetricSmoke, weightedOit, planarReflections, caustics,
                 ddgi, voxelConeTracing, hairStrands, screenSpaceContactShadows,
-                waterRefraction, projectedDecals, underwaterVolume);
+                waterRefraction, projectedDecals, underwaterVolume, renderScale);
     }
 }

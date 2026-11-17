@@ -158,6 +158,27 @@ public record TemporalUpscalingSettings(
     }
 
     /**
+     * The single authoritative render-scale rounding rule:
+     * {@code max(1, round(extent * scale))}.
+     *
+     * <p>Every reduced scene extent in the engine is derived here: this record's
+     * {@link #inputWidth(int)}/{@link #inputHeight(int)} and the
+     * {@code RenderSettings.renderScale} scene extent reported by
+     * {@code PipelineTopology.sceneWidth()}/{@code sceneHeight()}.  A second
+     * rounding rule would let the two extents disagree, so do not copy it.</p>
+     *
+     * @param extent positive target (output) extent
+     * @param scale  finite input/output ratio
+     * @return the reduced extent, never below one pixel
+     */
+    public static int scaledExtent(int extent, float scale) {
+        if (extent <= 0) {
+            throw new IllegalArgumentException("output extent must be positive");
+        }
+        return Math.max(1, (int) Math.round((double) extent * (double) scale));
+    }
+
+    /**
      * Absolute plus relative depth acceptance window for an expected positive
      * view-space depth.
      *
@@ -243,13 +264,6 @@ public record TemporalUpscalingSettings(
 
     public static Builder builder() {
         return new Builder();
-    }
-
-    private static int scaledExtent(int outputExtent, float scale) {
-        if (outputExtent <= 0) {
-            throw new IllegalArgumentException("output extent must be positive");
-        }
-        return Math.max(1, (int) Math.round((double) outputExtent * (double) scale));
     }
 
     public static final class Builder {

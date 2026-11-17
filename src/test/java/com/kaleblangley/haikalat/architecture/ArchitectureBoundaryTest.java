@@ -347,7 +347,7 @@ class ArchitectureBoundaryTest {
                 "PipelineTopology", "Render3dDiagnostics", "RenderPipeline", "RenderPipelineKind",
                 "RenderFeature", "RenderFeatureActivity", "RenderFeaturePolicy",
                 "RenderFeatureReason", "RenderFeatureSettings", "RenderFeatureState",
-                "RenderFeatureStatus", "RenderFeaturesControl",
+                "RenderFeatureStatus", "RenderFeaturesControl", "RenderScalePolicy",
                 "Scene", "SceneLight", "SceneLightEntry", "SceneObject", "ShadowFilterMode",
                 "ShadowLightHints", "ShadowSelectionMode", "ShadowSettings", "StylizedSkySettings",
                 "Transform", "VisualSettings", "VolumetricFogSettings",
