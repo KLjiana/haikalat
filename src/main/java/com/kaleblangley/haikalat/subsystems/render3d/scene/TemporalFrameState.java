@@ -62,17 +62,47 @@ public final class TemporalFrameState {
      */
     public static boolean looksLikeCameraCut(FrameParameters previous, FrameParameters current) {
         if (previous == null || current == null) return false;
-        if (!previous.view.equals(current.view, 1.0e-6f)) {
-            float dx = previous.cameraPositionX - current.cameraPositionX;
-            float dy = previous.cameraPositionY - current.cameraPositionY;
-            float dz = previous.cameraPositionZ - current.cameraPositionZ;
+        return looksLikeCameraCut(previous, current.view,
+                current.cameraPositionX, current.cameraPositionY, current.cameraPositionZ,
+                current.forwardX, current.forwardY, current.forwardZ);
+    }
+
+    /**
+     * Pose-only camera-cut check that can run before the current frame's jitter
+     * is captured.
+     *
+     * <p>The frame setup needs to decide on a cut before it reads the reduced
+     * jitter phase, otherwise the cut frame would be rasterised with the old
+     * phase and the sequence could not restart at zero for that same frame.
+     * This overload takes the already-frozen view/position/forward facts; the
+     * criteria are identical to {@link #looksLikeCameraCut(FrameParameters,
+     * FrameParameters)}.</p>
+     *
+     * @param previous previous successful frame parameters (may be {@code null})
+     * @param view     current frozen view matrix
+     * @param positionX current camera position x
+     * @param positionY current camera position y
+     * @param positionZ current camera position z
+     * @param forwardX current camera forward x
+     * @param forwardY current camera forward y
+     * @param forwardZ current camera forward z
+     * @return true when the previous successful pose must not be trusted
+     */
+    public static boolean looksLikeCameraCut(FrameParameters previous, Matrix4f view,
+                                             float positionX, float positionY, float positionZ,
+                                             float forwardX, float forwardY, float forwardZ) {
+        if (previous == null || view == null) return false;
+        if (!previous.view.equals(view, 1.0e-6f)) {
+            float dx = previous.cameraPositionX - positionX;
+            float dy = previous.cameraPositionY - positionY;
+            float dz = previous.cameraPositionZ - positionZ;
             if (dx * dx + dy * dy + dz * dz
                     > CAMERA_CUT_POSITION_DISTANCE_SQUARED) {
                 return true;
             }
-            float dot = previous.forwardX * current.forwardX
-                    + previous.forwardY * current.forwardY
-                    + previous.forwardZ * current.forwardZ;
+            float dot = previous.forwardX * forwardX
+                    + previous.forwardY * forwardY
+                    + previous.forwardZ * forwardZ;
             return dot < CAMERA_CUT_FORWARD_DOT;
         }
         return false;

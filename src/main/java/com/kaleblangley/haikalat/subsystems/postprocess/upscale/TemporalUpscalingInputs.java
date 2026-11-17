@@ -31,13 +31,21 @@ import java.util.Objects;
  * the reprojection origin would offset history by up to half a low-resolution
  * texel and blur high-frequency detail.</p>
  *
- * <p>{@code jitterUvX/Y} is the low-resolution TAA jitter in UV units that was
- * active when the colour and depth were rasterised; the pass uses it to recover
- * the stable sample position and to rebuild the world position from the jittered
- * inverse projection.  It must be zero when the low-resolution signal is
- * jitter-free, and it must match the projection encoded in
- * {@code inverseProjection}; the jitter itself is not stored in history because
- * the output history raster is the stable display raster.</p>
+ * <p>{@code jitterUvX/Y} is the geometry displacement in the low-resolution
+ * raster's normalized UV produced by the jittered projection that rasterised
+ * the colour and depth.  The shader samples
+ * {@code outputUv + jitter}, and a surface that would be rasterised at the
+ * stable output position {@code s} appears at {@code s + jitter}, so this value
+ * is exactly the displacement to add.  It must match the projection encoded in
+ * {@code inverseProjection}; it is normalized by the <b>low-resolution</b>
+ * extent (a sub-pixel offset in reduced-raster pixels), not by the output
+ * extent, because the reduced and output rasters share the same normalized-UV
+ * frustum and a UV delta is dimensionally shared.  At a 0.5 render scale a
+ * quarter reduced pixel is half an output pixel.  The internal reduced-scene
+ * chain passes the value captured in the R frame pose and keeps the output
+ * post-process pose unjittered; a caller source passes its own input jitter.
+ * The jitter is not stored in history because the output history raster is the
+ * stable display raster.</p>
  *
  * <p>{@code exposure} is a positive scalar used only as a history-rejection
  * signal (auto-exposure or a manual exposure change); the pass never applies

@@ -128,6 +128,64 @@ class LowResolutionMainChainGlTest {
             }
             """;
 
+    /**
+     * World-anchored variant: the reduced raster content is a function of the
+     * fragment's world position, so a jittered projection visibly moves the
+     * boundaries relative to the screen.  The independent reference below
+     * recomputes the same world position from the jittered ray in double.
+     */
+    private static final String WORLD_ANCHORED_VERTEX_SOURCE = """
+            #version 460 core
+            layout (location = 0) in vec3 aPos;
+            layout (std140) uniform CameraBlock {
+                mat4 uProjection;
+                mat4 uView;
+            };
+            uniform mat4 uModel;
+            out vec3 vWorld;
+            void main() {
+                vec4 world = uModel * vec4(aPos, 1.0);
+                vWorld = world.xyz;
+                gl_Position = uProjection * uView * world;
+            }
+            """;
+
+    /**
+     * Sharp world-space cell grid.  Every sampled reduced pixel is exactly one
+     * of two constants, so a wrong jitter sign or magnitude flips a whole
+     * column/row of pixels rather than hiding inside filtering noise.  Several
+     * cell boundaries make at least one flip certain for a sub-pixel phase step.
+     */
+    private static final String WORLD_STEP_FRAGMENT_SOURCE = """
+            #version 460 core
+            in vec3 vWorld;
+            out vec4 FragColor;
+            void main() {
+                bool inside = fract(vWorld.x / 1.7) < 0.5
+                        && fract(vWorld.y / 1.3) < 0.5;
+                FragColor = inside ? vec4(0.75, 0.125, 0.5, 1.0)
+                                   : vec4(0.0625, 0.8125, 0.25, 1.0);
+            }
+            """;
+
+    private static final float[] WORLD_STEP_INSIDE = {0.75f, 0.125f, 0.5f};
+    private static final float[] WORLD_STEP_OUTSIDE = {0.0625f, 0.8125f, 0.25f};
+
+    /**
+     * Independent copy of the documented reduced-raster pattern in reduced
+     * pixels.  Deliberately not read from {@code TemporalJitter}: the phase
+     * reference must fail if the production sequence changes sign, magnitude or
+     * ordering.
+     */
+    private static final double[][] REDUCED_JITTER_PIXELS = {
+            {-0.25, -0.25},
+            {0.25, -0.25},
+            {-0.25, 0.25},
+            {0.25, 0.25}
+    };
+    private static final double WORLD_CELL_X = 1.7;
+    private static final double WORLD_CELL_Y = 1.3;
+
     @Test
     void scaleOneFrameStaysByteIdenticalAfterAReducedGeneration() {
         try (GlfwWindow window = window("Low-Resolution Identity")) {
@@ -180,6 +238,11 @@ class LowResolutionMainChainGlTest {
 
     @Test
     void halfScaleReconstructsAtTheTargetAndMatchesTheSpatialAndIndependentUpscaler() {
+        // This case pins the jitter-0 contract: the disable switch must make the
+        // internal resolve reproduce the independent pass and the spatial
+        // magnifier.  The nonzero-jitter behavior is covered by the dedicated
+        // jitter cases below.
+        System.setProperty(RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY, "true");
         try (GlfwWindow window = window("Low-Resolution Half Scale")) {
             GlRenderDevice device = new GlRenderDevice();
             int targetWidth = window.width();
@@ -253,6 +316,8 @@ class LowResolutionMainChainGlTest {
             assertEquals(GL_NO_ERROR, glGetError());
             assertTrue(GlDebug.resources().liveResources().isEmpty(),
                     "the half-scale case must release every tracked GL resource");
+        } finally {
+            System.clearProperty(RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY);
         }
     }
 
@@ -376,6 +441,10 @@ class LowResolutionMainChainGlTest {
 
     @Test
     void repeatedReducedFramesStayFiniteAndLeakFree() {
+        // Static-frame stability is the jitter-0 contract; with the sequence
+        // enabled consecutive frames deliberately differ at sub-pixel edges (the
+        // convergence/observability case covers that path).
+        System.setProperty(RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY, "true");
         try (GlfwWindow window = window("Low-Resolution Stability")) {
             GlRenderDevice device = new GlRenderDevice();
             int targetWidth = window.width();
@@ -409,6 +478,255 @@ class LowResolutionMainChainGlTest {
             assertEquals(GL_NO_ERROR, glGetError());
             assertTrue(GlDebug.resources().liveResources().isEmpty(),
                     "the stability case must release every tracked GL resource");
+        } finally {
+            System.clearProperty(RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY);
+        }
+    }
+
+    /**
+     * Requirement (a): the internal reduced raster is jittered with a
+     * deterministic nonzero sequence, consecutive frames differ before the
+     * history converges, and the converged output matches the scale-1 reference
+     * on flat interiors within 1e-3 (the same tolerance the jitter-0 slice used).
+     */
+    @Test
+    void nonzeroReducedJitterConvergesToTheFullResolutionReferenceAndIsObservable() {
+        try (GlfwWindow window = window("Low-Resolution Jitter Convergence")) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (Fixture fixture = new Fixture()) {
+                RenderPipeline pipeline = buildPipeline(window, fixture.scene(), REDUCED_SCALE,
+                        PostProcessSettings.defaults());
+                try {
+                    int width = window.width();
+                    int height = window.height();
+                    float[] full = fullResolutionReference(window, fixture, device);
+                    float[] first = null;
+                    float[] second = null;
+                    float[] last = null;
+                    for (int frame = 0; frame < 12; frame++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                        assertTrue(temporalHistoryValid(pipeline),
+                                "frame " + frame + " must commit the internal history");
+                        float[] output = pipeline.captureLinearHdrRgbaFloat();
+                        assertEquals(width * height * 4, output.length);
+                        assertFinite(output, "jittered frame " + frame);
+                        if (frame == 0) first = output;
+                        if (frame == 1) second = output;
+                        last = output;
+                    }
+                    float difference = maxChannelDifference(first, second);
+                    assertTrue(difference > 1.0e-3f,
+                            "the nonzero jitter must change the frame before convergence, max "
+                                    + "channel difference " + difference);
+                    assertFlatInteriorsMatch(full, last, width, height);
+                    double firstBand = transitionBandMeanAbsoluteError(first, full, width, height);
+                    double convergedBand = transitionBandMeanAbsoluteError(last, full, width,
+                            height);
+                    System.out.println("[lowres-jitter] frame0-vs-frame1 max-channel-diff="
+                            + difference + " first transition-band MAE=" + firstBand
+                            + " frame12 transition-band MAE=" + convergedBand);
+                    assertTrue(convergedBand < 0.05,
+                            "the converged jittered reconstruction must stay close to the "
+                                    + "full-resolution reference at the transition band, got "
+                                    + convergedBand);
+                    assertTrue(convergedBand < firstBand * 1.25,
+                            "history accumulation must stay bounded relative to the first "
+                                    + "frame at the transition band: " + convergedBand
+                                    + " vs first " + firstBand);
+                } finally {
+                    pipeline.close();
+                }
+            }
+            GlDebug.assertNoError("low-resolution jitter convergence");
+            assertEquals(GL_NO_ERROR, glGetError());
+            assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                    "the jitter convergence case must release every tracked GL resource");
+        }
+    }
+
+    /**
+     * Requirement (b): for every phase of the known four-phase sequence, the
+     * reduced raster read back from the generation must equal an independent
+     * double-precision ray/projection reference.  The world-anchored cell grid
+     * makes a wrong jitter sign or magnitude flip whole columns of reduced
+     * pixels.
+     */
+    @Test
+    void jitteredReducedRasterMatchesAnIndependentRayReferenceAtKnownPhases() {
+        try (GlfwWindow window = window("Low-Resolution Jitter Phase Reference")) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (Fixture fixture = Fixture.worldAnchored()) {
+                RenderPipeline pipeline = buildPipeline(window, fixture.scene(), REDUCED_SCALE,
+                        PostProcessSettings.defaults());
+                try {
+                    int outputWidth = window.width();
+                    int outputHeight = window.height();
+                    int reducedWidth = scaledExtent(outputWidth, REDUCED_SCALE);
+                    int reducedHeight = scaledExtent(outputHeight, REDUCED_SCALE);
+                    float[][] rasters = new float[REDUCED_JITTER_PIXELS.length][];
+                    for (int phase = 0; phase < REDUCED_JITTER_PIXELS.length; phase++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                        assertEquals((phase + 1) % REDUCED_JITTER_PIXELS.length,
+                                currentReducedJitterPhase(pipeline),
+                                "the sequence must advance once per successful frame");
+                        int sceneColor = RenderGraphTestAccess.textureId(pipeline.graph(),
+                                PostProcessTargets.SCENE_COLOR);
+                        assertTrue(sceneColor > 0,
+                                "the reduced scene colour attachment must exist");
+                        rasters[phase] = readColorTexture(sceneColor, reducedWidth, reducedHeight);
+                        assertWorldStepReference(fixture.scene().camera(), outputWidth,
+                                outputHeight, reducedWidth, reducedHeight, phase, rasters[phase]);
+                    }
+                    for (int phase = 1; phase < rasters.length; phase++) {
+                        assertTrue(maxChannelDifference(rasters[0], rasters[phase]) > 1.0e-3f,
+                                "phase " + phase + " must be observably different from phase 0");
+                    }
+                    assertEquals(0, currentReducedJitterPhase(pipeline),
+                            "four successful frames must wrap the sequence back to phase 0");
+                    pipeline.execute(device, 1.0f / 60.0f);
+                    assertEquals(1, currentReducedJitterPhase(pipeline),
+                            "the wrapped frame uses phase 0 and advances to phase 1");
+                    int wrappedColor = RenderGraphTestAccess.textureId(pipeline.graph(),
+                            PostProcessTargets.SCENE_COLOR);
+                    float[] wrapped = readColorTexture(wrappedColor, reducedWidth, reducedHeight);
+                    assertEquals(0.0f, maxChannelDifference(rasters[0], wrapped),
+                            "the wrapped phase-0 raster must be deterministic");
+                } finally {
+                    pipeline.close();
+                }
+            }
+            GlDebug.assertNoError("low-resolution jitter phase reference");
+            assertEquals(GL_NO_ERROR, glGetError());
+            assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                    "the jitter phase case must release every tracked GL resource");
+        }
+    }
+
+    /**
+     * Requirement (c): the test-only disable switch reproduces the jitter-0
+     * output exactly.  The pipeline frame is compared bit for bit with an
+     * independently driven {@link TemporalUpscalingPass} on the same reduced
+     * colour/depth attachments, and the enabled first frame must differ.
+     */
+    @Test
+    void disablingTheReducedJitterSequenceRestoresTheJitterZeroOutput() {
+        try (GlfwWindow window = window("Low-Resolution Jitter Disable")) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (Fixture fixture = new Fixture()) {
+                float[] jitteredFirst;
+                RenderPipeline jittered = buildPipeline(window, fixture.scene(), REDUCED_SCALE,
+                        PostProcessSettings.defaults());
+                try {
+                    jittered.execute(device, 1.0f / 60.0f);
+                    jitteredFirst = jittered.captureLinearHdrRgbaFloat();
+                } finally {
+                    jittered.close();
+                }
+
+                float[] disabledFirst;
+                float[] independent;
+                System.setProperty(RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY, "true");
+                try {
+                    RenderPipeline disabled = buildPipeline(window, fixture.scene(),
+                            REDUCED_SCALE, PostProcessSettings.defaults());
+                    try {
+                        disabled.execute(device, 1.0f / 60.0f);
+                        disabledFirst = disabled.captureLinearHdrRgbaFloat();
+                        int sceneWidth = scaledExtent(window.width(), REDUCED_SCALE);
+                        int sceneHeight = scaledExtent(window.height(), REDUCED_SCALE);
+                        int sceneColor = RenderGraphTestAccess.textureId(disabled.graph(),
+                                PostProcessTargets.SCENE_COLOR);
+                        int sceneDepth = RenderGraphTestAccess.textureId(disabled.graph(),
+                                PostProcessTargets.SCENE_DEPTH);
+                        independent = independentUpscale(device, fixture.scene().camera(),
+                                sceneColor, sceneDepth, sceneWidth, sceneHeight,
+                                window.width(), window.height());
+                    } finally {
+                        disabled.close();
+                    }
+                } finally {
+                    System.clearProperty(
+                            RenderPipeline.DISABLE_REDUCED_SCENE_JITTER_PROPERTY);
+                }
+                assertArrayEquals(independent, disabledFirst, 0.0f,
+                        "with the sequence disabled the internal resolve must reproduce the "
+                                + "jitter-0 output bit for bit");
+                assertTrue(maxChannelDifference(jitteredFirst, disabledFirst) > 1.0e-3f,
+                        "the enabled sequence must change the first reconstructed frame");
+            }
+            GlDebug.assertNoError("low-resolution jitter disable");
+            assertEquals(GL_NO_ERROR, glGetError());
+            assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                    "the jitter disable case must release every tracked GL resource");
+        }
+    }
+
+    /**
+     * Requirement (d): a camera cut invalidates the reduced reconstruction
+     * history and restarts its sequence, and an explicit history reset does the
+     * same, so the world-anchored step never retains the previous view.  The
+     * assertion counts pixels that keep the wrong side of the step after
+     * excluding a 3-output-pixel band around the geometric boundary.
+     */
+    @Test
+    void cameraCutAndHistoryResetDoNotLeaveAPersistentGhost() {
+        try (GlfwWindow window = window("Low-Resolution Jitter Camera Cut")) {
+            GlRenderDevice device = new GlRenderDevice();
+            try (Fixture fixture = Fixture.worldAnchored()) {
+                RenderPipeline pipeline = buildPipeline(window, fixture.scene(), REDUCED_SCALE,
+                        PostProcessSettings.defaults());
+                try {
+                    int width = window.width();
+                    int height = window.height();
+                    Camera camera = fixture.scene().camera();
+                    for (int frame = 0; frame < 5; frame++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                    }
+                    assertEquals(1, currentReducedJitterPhase(pipeline));
+                    float[] beforeCut = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(0, misclassifiedPixels(camera, width, height, beforeCut, 3),
+                            "the settled pre-cut view must show the current step");
+
+                    // 5 m jump: above the documented camera-cut distance.
+                    camera.setPosition(new Vector3f(5.0f, 0.0f, 5.0f));
+                    pipeline.execute(device, 1.0f / 60.0f);
+                    float[] afterCut = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(1, currentReducedJitterPhase(pipeline),
+                            "the cut frame must be rasterised with phase 0 and advance to phase 1");
+                    assertEquals(0, misclassifiedPixels(camera, width, height, afterCut, 3),
+                            "a camera cut must not keep history from the previous view");
+                    assertTrue(maxChannelDifference(beforeCut, afterCut) > 0.05f,
+                            "the camera cut must change the rendered view");
+
+                    for (int frame = 0; frame < 4; frame++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                    }
+                    float[] settled = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(0, misclassifiedPixels(camera, width, height, settled, 3),
+                            "the post-cut view must stay ghost-free");
+
+                    // Small move (below the cut threshold) plus an explicit reset.
+                    camera.setPosition(new Vector3f(5.0f, 0.3f, 5.0f));
+                    for (int frame = 0; frame < 3; frame++) {
+                        pipeline.execute(device, 1.0f / 60.0f);
+                    }
+                    pipeline.resetTemporalHistory();
+                    assertEquals(0, currentReducedJitterPhase(pipeline),
+                            "an explicit history reset must restart the sequence at phase 0");
+                    pipeline.execute(device, 1.0f / 60.0f);
+                    float[] afterReset = pipeline.captureLinearHdrRgbaFloat();
+                    assertEquals(0, misclassifiedPixels(camera, width, height, afterReset, 3),
+                            "an explicit history reset must not keep a ghost of the old view");
+                    assertEquals(1, currentReducedJitterPhase(pipeline),
+                            "the frame after an explicit reset uses phase 0 and advances to 1");
+                } finally {
+                    pipeline.close();
+                }
+            }
+            GlDebug.assertNoError("low-resolution jitter camera cut");
+            assertEquals(GL_NO_ERROR, glGetError());
+            assertTrue(GlDebug.resources().liveResources().isEmpty(),
+                    "the camera-cut case must release every tracked GL resource");
         }
     }
 
@@ -499,7 +817,13 @@ class LowResolutionMainChainGlTest {
 
     /**
      * Drives a standalone {@link TemporalUpscalingPass} over the generation's
-     * R colour/depth attachments with exactly the internal settings and pose.
+     * R colour/depth attachments with exactly the internal settings and a
+     * jitter-zero pose.
+     *
+     * <p>The stable projection is built at the <b>output</b> extent because the
+     * pipeline's frozen frame camera carries the output-aspect projection and
+     * the reduced passes reuse it unchanged; the reduced extent only changes the
+     * texel grid, not the frustum.</p>
      */
     private static float[] independentUpscale(GlRenderDevice device, Camera camera,
                                               int colorTexture, int depthTexture,
@@ -510,7 +834,7 @@ class LowResolutionMainChainGlTest {
         TemporalUpscalingPass pass = new TemporalUpscalingPass(upscaling, outputWidth,
                 outputHeight);
         try {
-            Matrix4f projection = CameraProjection.stable(camera, inputWidth, inputHeight,
+            Matrix4f projection = CameraProjection.stable(camera, outputWidth, outputHeight,
                     new Matrix4f());
             Matrix4f view = camera.getViewMatrix(new Matrix4f());
             Matrix4f stableViewProjection = new Matrix4f(projection).mul(view);
@@ -563,17 +887,24 @@ class LowResolutionMainChainGlTest {
 
     private static void assertFlatInteriorsMatch(GlfwWindow window, Fixture fixture,
                                                  GlRenderDevice device, float[] reduced) {
-        int targetWidth = window.width();
-        int targetHeight = window.height();
-        float[] full;
+        assertFlatInteriorsMatch(fullResolutionReference(window, fixture, device), reduced,
+                window.width(), window.height());
+    }
+
+    private static float[] fullResolutionReference(GlfwWindow window, Fixture fixture,
+                                                   GlRenderDevice device) {
         RenderPipeline reference = buildPipeline(window, fixture.scene(), 1.0f,
                 PostProcessSettings.defaults());
         try {
             reference.execute(device, 1.0f / 60.0f);
-            full = reference.captureLinearHdrRgbaFloat();
+            return reference.captureLinearHdrRgbaFloat();
         } finally {
             reference.close();
         }
+    }
+
+    private static void assertFlatInteriorsMatch(float[] full, float[] reduced,
+                                                 int targetWidth, int targetHeight) {
         int inside = 0;
         int outside = 0;
         for (int y = 0; y < targetHeight; y++) {
@@ -623,6 +954,226 @@ class LowResolutionMainChainGlTest {
         float[] result = new float[width * height * 4];
         pixels.get(result);
         return result;
+    }
+
+    private static int currentReducedJitterPhase(RenderPipeline pipeline) {        PipelineGeneration generation = pipeline.activeGenerationForTest();
+        return generation == null ? -1 : generation.postProcess().internalRasterJitterPhase();
+    }
+
+    /**
+     * Reads one RGBA16F attachment through a temporary read framebuffer at the
+     * given extent.  Row 0 is the OpenGL bottom row, matching the shader's
+     * {@code ndcY = -1} convention used by the ray reference.
+     */
+    private static float[] readColorTexture(int texture, int width, int height) {
+        int framebuffer = glGenFramebuffers();
+        try {
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                    texture, 0);
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            assertEquals(GL_FRAMEBUFFER_COMPLETE,
+                    glCheckFramebufferStatus(GL_READ_FRAMEBUFFER),
+                    "the reduced scene colour attachment must be read-complete");
+            FloatBuffer pixels = BufferUtils.createFloatBuffer(width * height * 4);
+            glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, pixels);
+            float[] result = new float[width * height * 4];
+            pixels.get(result);
+            return result;
+        } finally {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDeleteFramebuffers(framebuffer);
+        }
+    }
+
+    private static float maxChannelDifference(float[] first, float[] second) {
+        assertEquals(first.length, second.length, "image extents must agree");
+        float maximum = 0.0f;
+        for (int index = 0; index < first.length; index++) {
+            if (index % 4 == 3) continue;
+            maximum = Math.max(maximum, Math.abs(first[index] - second[index]));
+        }
+        return maximum;
+    }
+
+    private static void assertFinite(float[] pixels, String message) {
+        for (float value : pixels) {
+            assertTrue(Float.isFinite(value), message + " must stay finite");
+        }
+    }
+
+    /** MAE of the pixels whose pattern distance lies in the 0.3 transition band. */
+    private static double transitionBandMeanAbsoluteError(float[] actual, float[] reference,
+                                                          int width, int height) {
+        double sum = 0.0;
+        int count = 0;
+        for (int y = 0; y < height; y++) {
+            float v = (y + 0.5f) / height;
+            for (int x = 0; x < width; x++) {
+                float u = (x + 0.5f) / width;
+                float distance = Math.max(Math.abs(u - 0.5f), Math.abs(v - 0.5f));
+                if (distance < 0.26f || distance > 0.34f) continue;
+                int offset = (y * width + x) * 4;
+                for (int channel = 0; channel < 3; channel++) {
+                    sum += Math.abs(actual[offset + channel] - reference[offset + channel]);
+                }
+                count += 3;
+            }
+        }
+        return count == 0 ? 0.0 : sum / count;
+    }
+
+    /**
+     * Double-precision world position at the {@code z = 0} plane for one
+     * reduced-raster pixel centre under the documented jitter.
+     *
+     * <p>The fixture camera never rotates, so its view is a translation; the
+     * projection is the output-aspect perspective the frozen frame camera
+     * carries.  The stable NDC of the ray through the pixel is
+     * {@code pixelNdc + delta} with {@code delta = 2 * jitterPixels / extent},
+     * because the jittered projection shifts NDC by {@code -delta}.</p>
+     */
+    private static double[] worldAtPlane(Camera camera, int outputWidth, int outputHeight,
+                                         int reducedWidth, int reducedHeight,
+                                         double[] jitterPixels, int pixelX, int pixelY) {
+        double f = 1.0 / Math.tan(Math.toRadians(camera.zoom()) * 0.5);
+        double aspect = outputWidth / (double) outputHeight;
+        double m00 = f / aspect;
+        double m11 = f;
+        Vector3f position = camera.position();
+        double ndcX = (pixelX + 0.5) / reducedWidth * 2.0 - 1.0;
+        double ndcY = (pixelY + 0.5) / reducedHeight * 2.0 - 1.0;
+        double stableNdcX = ndcX + 2.0 * jitterPixels[0] / reducedWidth;
+        double stableNdcY = ndcY + 2.0 * jitterPixels[1] / reducedHeight;
+        // The plane sits at view depth = camera z (camera looks down -Z).
+        double viewDepth = position.z;
+        return new double[]{
+                position.x + stableNdcX * viewDepth / m00,
+                position.y + stableNdcY * viewDepth / m11
+        };
+    }
+
+    private static boolean worldStepInside(double worldX, double worldY) {
+        return cellFraction(worldX, WORLD_CELL_X) < 0.5
+                && cellFraction(worldY, WORLD_CELL_Y) < 0.5;
+    }
+
+    private static double cellFraction(double value, double period) {
+        double scaled = value / period;
+        return scaled - Math.floor(scaled);
+    }
+
+    /** @return true when the world point is within double noise of a cell edge */
+    private static boolean nearCellBoundary(double x, double y) {
+        return nearCellEdge(cellFraction(x, WORLD_CELL_X), WORLD_CELL_X)
+                || nearCellEdge(cellFraction(y, WORLD_CELL_Y), WORLD_CELL_Y);
+    }
+
+    private static boolean nearCellEdge(double fraction, double period) {
+        double toHalf = Math.abs(fraction - 0.5) * period;
+        double toZero = Math.min(fraction, 1.0 - fraction) * period;
+        return Math.min(toHalf, toZero) < 1.0e-4;
+    }
+
+    private static void assertWorldStepReference(Camera camera, int outputWidth,
+                                                 int outputHeight, int reducedWidth,
+                                                 int reducedHeight, int phase, float[] raster) {
+        double[] jitter = REDUCED_JITTER_PIXELS[phase];
+        int compared = 0;
+        for (int y = 0; y < reducedHeight; y++) {
+            for (int x = 0; x < reducedWidth; x++) {
+                double[] world = worldAtPlane(camera, outputWidth, outputHeight,
+                        reducedWidth, reducedHeight, jitter, x, y);
+                // A pixel whose ray lands within float noise of a cell edge could
+                // classify either way; exclude only that degenerate sliver.
+                if (nearCellBoundary(world[0], world[1])) {
+                    continue;
+                }
+                float[] expected = worldStepInside(world[0], world[1])
+                        ? WORLD_STEP_INSIDE : WORLD_STEP_OUTSIDE;
+                int offset = (y * reducedWidth + x) * 4;
+                for (int channel = 0; channel < 3; channel++) {
+                    assertEquals(expected[channel], raster[offset + channel], 1.0e-6f,
+                            "phase " + phase + " reduced pixel (" + x + "," + y
+                                    + ") channel " + channel);
+                }
+                compared++;
+            }
+        }
+        assertTrue(compared > reducedWidth * reducedHeight / 2,
+                "the independent ray reference must cover most reduced pixels");
+    }
+
+    /**
+     * Stable (no jitter) classification of an output pixel by tracing its
+     * output-ray to the plane; {@code null} for pixels outside the image.
+     */
+    private static Boolean stableWorldStepInside(Camera camera, int outputWidth,
+                                                 int outputHeight, int x, int y) {
+        if (x < 0 || y < 0 || x >= outputWidth || y >= outputHeight) return null;
+        double[] world = stableWorldPixel(camera, outputWidth, outputHeight, x, y);
+        return worldStepInside(world[0], world[1]);
+    }
+
+    private static double[] stableWorldPixel(Camera camera, int outputWidth, int outputHeight,
+                                             int x, int y) {
+        double f = 1.0 / Math.tan(Math.toRadians(camera.zoom()) * 0.5);
+        double m00 = f / (outputWidth / (double) outputHeight);
+        double m11 = f;
+        Vector3f position = camera.position();
+        double ndcX = (x + 0.5) / outputWidth * 2.0 - 1.0;
+        double ndcY = (y + 0.5) / outputHeight * 2.0 - 1.0;
+        return new double[]{
+                position.x + ndcX * position.z / m00,
+                position.y + ndcY * position.z / m11
+        };
+    }
+
+    /**
+     * Counts output pixels that keep the wrong side of the world step while
+     * staying at least {@code marginPixels} away from the geometric boundary in
+     * every direction (including the reduced-texel bilinear footprint).
+     */
+    private static int misclassifiedPixels(Camera camera, int outputWidth, int outputHeight,
+                                           float[] output, int marginPixels) {
+        int misclassified = 0;
+        for (int y = 0; y < outputHeight; y++) {
+            for (int x = 0; x < outputWidth; x++) {
+                Boolean inside = stableWorldStepInside(camera, outputWidth, outputHeight, x, y);
+                if (inside == null) continue;
+                boolean confident = true;
+                for (int dx = -marginPixels; dx <= marginPixels && confident; dx++) {
+                    for (int dy = -marginPixels; dy <= marginPixels && confident; dy++) {
+                        Boolean neighbour = stableWorldStepInside(camera, outputWidth,
+                                outputHeight, x + dx, y + dy);
+                        if (neighbour == null || !neighbour.equals(inside)) confident = false;
+                    }
+                }
+                if (!confident) continue;
+                float[] expected = inside ? WORLD_STEP_INSIDE : WORLD_STEP_OUTSIDE;
+                int offset = (y * outputWidth + x) * 4;
+                for (int channel = 0; channel < 3; channel++) {
+                    // The reconstructed value is RGBA16F history blended in
+                    // float, so a flat cell may differ by one half-float ULP
+                    // (~4.9e-4).  A retained ghost is ~0.69, far above this.
+                    if (Math.abs(output[offset + channel] - expected[channel]) > 1.5e-3f) {
+                        if (misclassified < 5) {
+                            double[] ray = stableWorldPixel(camera, outputWidth, outputHeight,
+                                    x, y);
+                            System.out.println("[jitter-debug] misclassified (" + x + "," + y
+                                    + ") expectedInside=" + inside + " expected="
+                                    + expected[0] + "," + expected[1] + "," + expected[2]
+                                    + " actual=" + output[offset] + "," + output[offset + 1]
+                                    + "," + output[offset + 2] + " world=" + ray[0] + ","
+                                    + ray[1]);
+                        }
+                        misclassified++;
+                        break;
+                    }
+                }
+            }
+        }
+        return misclassified;
     }
 
     private static boolean temporalHistoryValid(RenderPipeline pipeline) {
@@ -686,6 +1237,10 @@ class LowResolutionMainChainGlTest {
         private final Scene scene;
 
         private Fixture() {
+            this(FULLSCREEN_VERTEX_SOURCE, FLAT_INTERIOR_FRAGMENT_SOURCE);
+        }
+
+        private Fixture(String vertexSource, String fragmentSource) {
             VertexAttribute position = VertexAttribute.builder()
                     .index(0).size(3).offsetBytes(0L)
                     .semantic(VertexSemantic.POSITION).build();
@@ -699,11 +1254,14 @@ class LowResolutionMainChainGlTest {
                             -20.0f, 20.0f, 0.0f
                     }, 3 * Float.BYTES, position)
                     .build();
-            shader = ShaderProgram.fromSources(FULLSCREEN_VERTEX_SOURCE,
-                    FLAT_INTERIOR_FRAGMENT_SOURCE);
+            shader = ShaderProgram.fromSources(vertexSource, fragmentSource);
             material = Material.builder(shader).build();
             scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 5.0f)));
             scene.add(new SceneObject(mesh, material, (model, frame) -> model.identity()));
+        }
+
+        private static Fixture worldAnchored() {
+            return new Fixture(WORLD_ANCHORED_VERTEX_SOURCE, WORLD_STEP_FRAGMENT_SOURCE);
         }
 
         private Scene scene() {

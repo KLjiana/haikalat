@@ -212,6 +212,19 @@ public final class RenderPipeline {
     private static final int[] NO_CASCADE_COUNTS = new int[0];
     private static final String SHADOW_FAILURE_PROPERTY = "haikalat.test.failShadowPassOnce";
     private static final String SHADOW_FAILURE_MESSAGE = "injected shadow pass failure";
+    /**
+     * Test-only switch that forces the internal reduced-scene jitter sequence to
+     * zero without changing any other path.
+     *
+     * <p>Default off: the reduced main chain always jitters.  The switch exists
+     * so the real-GL acceptance can prove that disabling the sequence restores
+     * the jitter-0 output bit for bit; it is not production configuration and
+     * is sampled once when the pipeline is constructed.</p>
+     */
+    static final String DISABLE_REDUCED_SCENE_JITTER_PROPERTY =
+            "haikalat.test.disableReducedSceneJitter";
+    private final boolean reducedSceneRasterJitterEnabled =
+            !Boolean.getBoolean(DISABLE_REDUCED_SCENE_JITTER_PROPERTY);
     private final RenderWindow window;
     private Scene scene;
     private final InstancedRenderer instanced;
@@ -424,6 +437,8 @@ public final class RenderPipeline {
     private RenderFrameContext lastFailedFrameContext;
     private final TemporalFrameState temporalFrameState = new TemporalFrameState();
     private final TemporalSceneState temporalSceneState = new TemporalSceneState();
+    /** This frame's captured R pose; the raster camera block and upscaler both use it. */
+    private TemporalFrameState.FrameParameters activeFrameParameters;
     private long topologySettingsRevision;
     private boolean executing;
     private boolean embedded;
@@ -4091,19 +4106,40 @@ public final class RenderPipeline {
                     || settings.antiAliasingMode() == AntiAliasingMode.TAA
                     || generation.topology().sceneWidth() != generation.topology().width()
                     || generation.topology().sceneHeight() != generation.topology().height();
-            TemporalFrameState.FrameParameters frameParameters = temporalActive
-                    ? captureFrameParameters(activeFrameContext) : null;
-            if (temporalActive) {
-                temporalFrameState.prepare(frameParameters);
-                if (TemporalFrameState.looksLikeCameraCut(
-                        temporalFrameState.previous(), frameParameters)) {
-                    temporalFrameState.invalidate();
-                    temporalSceneState.invalidate();
-                    invalidateHairVelocityHistory();
-                    if (instanced != null) instanced.invalidatePreviousFrame();
+            // Camera-cut detection runs on the frozen camera pose *before* the
+            // frame's jitter is captured.  That lets an invalidated reduced
+            // sequence restart at phase 0 for this same frame instead of one
+            // frame later, and keeps the R projection and the resolve uniform
+            // derived from the same pose.
+            if (temporalActive && cameraCut(activeFrameContext)) {
+                temporalFrameState.invalidate();
+                temporalSceneState.invalidate();
+                invalidateHairVelocityHistory();
+                if (instanced != null) instanced.invalidatePreviousFrame();
+                if (generation.postProcess().internalRasterJitterPhase() >= 0) {
+                    // The reduced reconstruction history and its jitter sequence
+                    // are one unit: invalidate both through the existing path.
+                    generation.postProcess().invalidateTemporalHistory(
+                            TaaInvalidationReason.EXPLICIT_RESET);
                 }
             }
-            generation.postProcess().beginFrame(postProcessPose(activeFrameContext, frameParameters));
+            int reducedRasterJitterPhase = generation.postProcess().internalRasterJitterPhase();
+            boolean internalRasterJitter = reducedRasterJitterPhase >= 0
+                    && reducedSceneRasterJitterEnabled;
+            TemporalFrameState.FrameParameters frameParameters = temporalActive
+                    ? captureFrameParameters(activeFrameContext,
+                            internalRasterJitter ? reducedRasterJitterPhase : -1)
+                    : null;
+            activeFrameParameters = frameParameters;
+            if (temporalActive) {
+                temporalFrameState.prepare(frameParameters);
+            }
+            // The internal reduced-scene pass receives the exact displacement the
+            // R raster was rendered with; the output (O) pose keeps jitter zero.
+            generation.postProcess().beginFrame(
+                    postProcessPose(activeFrameContext, frameParameters),
+                    internalRasterJitter ? frameParameters.jitterUvX() : 0.0f,
+                    internalRasterJitter ? frameParameters.jitterUvY() : 0.0f);
             postProcessFrameStarted = true;
             FrameInvalidation invalidation = activeFrameContext.invalidation();
             if (generation.previewRenderer() != null) {
@@ -4276,6 +4312,7 @@ public final class RenderPipeline {
             generation.surfaceInputs().endFrame();
             executing = false;
             activeFrameContext = null;
+            activeFrameParameters = null;
         }
     }
 
@@ -4809,9 +4846,11 @@ public final class RenderPipeline {
                         "scene surface pass requires a prepared temporal frame state");
             }
             // Upload the single shared camera block before recording the
-            // surface draws; the forward geometry pass reuses it.
-            generation.cameraUniforms().update(cmd, frameCamera(), frameWidth(), frameHeight(),
-                    settings.antiAliasingMode(), activeFrameIndex);
+            // surface draws; the forward geometry pass reuses it.  The
+            // projection comes from this frame's captured R pose so the surface
+            // raster and the reconstruction disagree on nothing.
+            generation.cameraUniforms().update(cmd, frameCamera(),
+                    current.jitteredProjection());
             generation.deformationDefaults().record(cmd);
             generation.sceneSurfacePass().record(cmd, frame, temporalSceneState, current,
                     temporalFrameState.previous(), instanced, activeFrameIndex,
@@ -5091,22 +5130,63 @@ public final class RenderPipeline {
         };
     }
 
-    private TemporalFrameState.FrameParameters captureFrameParameters(RenderFrameContext context) {
+    /**
+     * Pose-only camera-cut check used before the frame's jitter is captured.
+     *
+     * <p>The frozen frame camera supplies the view, position and forward facts;
+     * the criteria live in {@link TemporalFrameState#looksLikeCameraCut} so the
+     * pre-capture and post-capture forms cannot drift.</p>
+     */
+    private boolean cameraCut(RenderFrameContext context) {
+        TemporalFrameState.FrameParameters previous = temporalFrameState.previous();
+        if (previous == null) return false;
+        ExternalCamera camera = context.camera();
+        Matrix4f view = camera.getViewMatrix(new Matrix4f());
+        Vector3f position = camera.position();
+        Vector3f forward = camera.inverseView().transformDirection(0.0f, 0.0f, -1.0f,
+                new Vector3f()).normalize();
+        return TemporalFrameState.looksLikeCameraCut(previous, view,
+                position.x, position.y, position.z, forward.x, forward.y, forward.z);
+    }
+
+    /**
+     * Captures the immutable raster-space camera facts for one frame.
+     *
+     * <p>Raster-space facts (jitter and the explicit raster extent) belong to
+     * the scene extent; the projection itself depends on aspect only.  The
+     * frozen frame camera already carries the output-aspect stable projection,
+     * so the reduced raster and the output share one normalized-UV frustum.</p>
+     *
+     * @param reducedRasterJitterPhase phase of the internal reduced-scene
+     *                                 sequence, or {@code -1} to use the native
+     *                                 TAA sequence (which is a no-op outside TAA)
+     */
+    private TemporalFrameState.FrameParameters captureFrameParameters(
+            RenderFrameContext context, int reducedRasterJitterPhase) {
         Camera camera = context.camera();
-        // Raster-space facts (jitter and the explicit raster extent) belong to
-        // the scene extent; the projection itself depends on aspect only.
         int width = context.sceneWidth();
         int height = context.sceneHeight();
         Matrix4f stableProjection = CameraProjection.stable(camera, width, height, new Matrix4f());
         Matrix4f jitteredProjection = new Matrix4f(stableProjection);
-        TemporalJitter.applyProjection(jitteredProjection, width, height,
-                settings.antiAliasingMode(), context.frameIndex());
+        Vector2f jitterUv;
+        if (reducedRasterJitterPhase >= 0) {
+            // The internal reduced sequence normalizes the sub-pixel offset by
+            // the R extent; the same displacement is the upscaler's
+            // uCurrentJitter (see TemporalJitter).
+            TemporalJitter.applyReducedProjection(jitteredProjection, width, height,
+                    reducedRasterJitterPhase);
+            jitterUv = TemporalJitter.reducedUvOffset(reducedRasterJitterPhase, width, height,
+                    new Vector2f());
+        } else {
+            TemporalJitter.applyProjection(jitteredProjection, width, height,
+                    settings.antiAliasingMode(), context.frameIndex());
+            jitterUv = TemporalJitter.uvOffset(settings.antiAliasingMode(),
+                    context.frameIndex(), width, height, new Vector2f());
+        }
         Matrix4f view = camera.getViewMatrix(new Matrix4f());
         Matrix4f stableViewProjection = new Matrix4f(stableProjection).mul(view);
         Matrix4f inverseStableViewProjection = new Matrix4f(stableViewProjection).invert();
         Matrix4f inverseJitteredProjection = new Matrix4f(jitteredProjection).invert();
-        Vector2f jitterUv = TemporalJitter.uvOffset(settings.antiAliasingMode(),
-                context.frameIndex(), width, height, new Vector2f());
         float nearPlane;
         float farPlane;
         Vector3f forward;
@@ -5135,11 +5215,23 @@ public final class RenderPipeline {
      * <p>The chain never reads the mutable {@link Camera} or the Render3D frame
      * context; it receives an immutable pose with the jittered inverse
      * projection used by the temporal resolve and the fog matrices.</p>
+     *
+     * <p>The internal reduced-scene path deliberately keeps this pose's
+     * {@code jitterUv} at zero: the output raster is always the stable display
+     * raster.  The reduced raster's nonzero displacement stays an input fact on
+     * {@link TemporalFrameState.FrameParameters} and is forwarded only to the
+     * internal upscaler through
+     * {@link PostProcessPipeline#beginFrame(TemporalFramePose, float, float)}.
+     * The pose's {@code inverseJitteredProjection} is still the reduced
+     * jittered inverse because that is what the resolve must use to recover the
+     * surface from a jitter-shifted reduced sample; every other pass that reads
+     * that matrix (DoF) is rejected at a reduced scale.</p>
      */
     private TemporalFramePose postProcessPose(RenderFrameContext context,
                                               TemporalFrameState.FrameParameters frame) {
         int width = Math.max(1, context.width());
         int height = Math.max(1, context.height());
+        boolean reducedRaster = context.hasReducedSceneExtent();
         if (frame != null) {
             Matrix4f fogInverseViewProjection = null;
             Vector3f fogCameraPosition = null;
@@ -5150,7 +5242,8 @@ public final class RenderPipeline {
                         frame.cameraPositionY(), frame.cameraPositionZ());
             }
             return new TemporalFramePose(context.deltaSeconds(), width, height,
-                    frame.jitterUvX(), frame.jitterUvY(),
+                    reducedRaster ? 0.0f : frame.jitterUvX(),
+                    reducedRaster ? 0.0f : frame.jitterUvY(),
                     frame.inverseJitteredProjection(),
                     new Matrix4f(frame.view()).invert(),
                     frame.stableViewProjection(),
@@ -6025,8 +6118,17 @@ public final class RenderPipeline {
 
         @Override
         public void updateCameraUniforms(CommandBuffer cmd) {
-            generation.cameraUniforms().update(cmd, frameCamera(), frameWidth(), frameHeight(),
-                    settings.antiAliasingMode(), activeFrameIndex);
+            TemporalFrameState.FrameParameters frame = activeFrameParameters;
+            if (frame != null) {
+                // Rasterise with the exact projection the frame pose captured
+                // (including a reduced-raster jitter phase); recomputing it here
+                // would be a second source of truth.
+                generation.cameraUniforms().update(cmd, frameCamera(),
+                        frame.jitteredProjection());
+            } else {
+                generation.cameraUniforms().update(cmd, frameCamera(), frameWidth(), frameHeight(),
+                        settings.antiAliasingMode(), activeFrameIndex);
+            }
         }
 
         @Override

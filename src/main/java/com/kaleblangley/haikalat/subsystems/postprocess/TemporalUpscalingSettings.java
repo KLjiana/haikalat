@@ -141,14 +141,15 @@ public record TemporalUpscalingSettings(
      * {@link #scaledExtent(int, float)} of the target and reconstructed to the
      * output extent.  The tuning is {@link #defaults()} with one deliberate
      * difference: sharpening is zero, so the pass has no sharpen program/target
-     * and the jitter-zero resolve reproduces the previous spatial magnifier
-     * geometry instead of adding local contrast.</p>
+     * and the resolve reproduces the previous spatial magnifier geometry.</p>
      *
-     * <p>This slice has no low-resolution jitter (TAA is rejected at
-     * {@code renderScale < 1}), so callers must feed the pass a zero jitter;
-     * {@link #scaledExtent(int, float)} remains the single rounding rule for
-     * the input extent.  A future nonzero-jitter slice must extend this
-     * contract before the jitter arguments of the pass may be used here.</p>
+     * <p>The reduced scene raster carries a deterministic four-phase sub-pixel
+     * jitter owned by the render3d frame pose; the per-frame displacement is
+     * forwarded to this pass as its input jitter and must match the projection
+     * encoded in the caller's inverse projection.  A zero displacement is the
+     * exact jitter-0 behaviour (first frame, disabled sequence or a chain that
+     * was started without one).  {@link #scaledExtent(int, float)} remains the
+     * single rounding rule for the input extent.</p>
      *
      * @param renderScale reduced scene/target ratio in
      *                    {@code [MIN_RENDER_SCALE, 1)} (the caller-supplied

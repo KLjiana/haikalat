@@ -59,6 +59,15 @@ import java.util.stream.Stream;
  * changes.</p>
  */
 public final class PostProcessPipeline implements AutoCloseable {
+    /**
+     * Number of phases in the internal reduced-raster jitter sequence.
+     *
+     * <p>Mirrors {@code TemporalJitter.REDUCED_PHASE_COUNT}; the postprocess
+     * subsystem must not import render3d, so only this wrap constant is
+     * repeated.  The sample pattern itself is owned by the render3d sequence.</p>
+     */
+    private static final int INTERNAL_RASTER_JITTER_PHASE_COUNT = 4;
+
     private final RenderSettings settings;
     private final PostProcessSettings effects;
     private final FxaaChain fxaa;
@@ -101,6 +110,9 @@ public final class PostProcessPipeline implements AutoCloseable {
     private final List<AutoCloseable> owned;
     private final List<AutoCloseable> borrowed;
     private PostProcessPipeline donor;
+    private int internalRasterJitterPhase;
+    private float internalRasterJitterUvX;
+    private float internalRasterJitterUvY;
     private boolean vfxCompositeAdded;
     private boolean closed;
 
@@ -870,9 +882,16 @@ public final class PostProcessPipeline implements AutoCloseable {
      * is registered.</p>
      *
      * <p>The pass is created only for an assembled internal upscaler and is
-     * placed before every HDR effect.  Jitter is exactly zero in this slice
-     * (TAA is rejected at a reduced scale), so the resolve reproduces the
-     * spatial-magnifier geometry at stable output positions.</p>
+     * placed before every HDR effect.  The R raster is jittered by the
+     * generation-owned sequence (see {@link #internalRasterJitterPhase()}); the
+     * exact per-frame displacement rendered into the R raster is supplied by
+     * the frame's {@link #beginFrame(TemporalFramePose, float, float)} call and
+     * forwarded to the resolve as {@code uCurrentJitter}, so the sample
+     * position and the rasterisation projection cannot disagree.</p>
+     *
+     * <p>When the sequence is disabled or the phase is zeroed, the displacement
+     * is zero and the resolve reproduces the previous jitter-0 spatial
+     * magnifier geometry at stable output positions.</p>
      *
      * @param graph           graph receiving the pass
      * @param colorTexture    logical R scene colour texture (linear RGBA16F)
@@ -947,7 +966,7 @@ public final class PostProcessPipeline implements AutoCloseable {
             }
             temporalUpscaling.record(cmd, new TemporalUpscalingInputs(
                     color, depth, 0, 0, 0, 0, inputWidth, inputHeight,
-                    0.0f, 0.0f, manualExposure,
+                    internalRasterJitterUvX, internalRasterJitterUvY, manualExposure,
                     frame.inverseJitteredProjection(), frame.inverseView(),
                     frame.stableViewProjection()));
         });
@@ -1869,11 +1888,47 @@ public final class PostProcessPipeline implements AutoCloseable {
     }
 
     /**
-     * Starts the frame: clamps the delta, prepares the temporal write slot and
-     * stores the camera pose used by later pass declarations.
+     * Starts a frame whose reduced scene raster carries no nonzero jitter.
+     *
+     * <p>This is the source-compatible entry point; it is correct for every
+     * caller-source upscaling chain (the caller writes the jitter into the
+     * pose) and for the internal reduced path when the sequence is disabled.</p>
      */
     public void beginFrame(TemporalFramePose pose) {
+        beginFrame(pose, 0.0f, 0.0f);
+    }
+
+    /**
+     * Starts the frame: clamps the delta, prepares the temporal write slot and
+     * stores the camera pose used by later pass declarations.
+     *
+     * <p>{@code reducedRasterJitterUvX/Y} is the internal reduced-scene jitter
+     * that the R raster passes actually rendered with: the geometry
+     * displacement in <b>reduced-raster normalized UV</b> produced by the
+     * jittered projection (the same value the R temporal frame pose stores in
+     * {@code TemporalFrameState.FrameParameters.jitterUvX/Y}, and the value the
+     * upscaler shader adds to the stable output UV as {@code uCurrentJitter}).
+     * It is only consumed by the internal reconstruction pass added through
+     * {@link #addInternalTemporalUpscalingPass}; every other pass keeps using
+     * the stable output pose.  It must be zero when no internal reduced-scene
+     * upscaler exists.</p>
+     */
+    public void beginFrame(TemporalFramePose pose, float reducedRasterJitterUvX,
+                           float reducedRasterJitterUvY) {
         Objects.requireNonNull(pose, "pose");
+        if (!Float.isFinite(reducedRasterJitterUvX)
+                || !Float.isFinite(reducedRasterJitterUvY)) {
+            throw new IllegalArgumentException(
+                    "the internal reduced-raster jitter must be finite");
+        }
+        if (!internalTemporalUpscaling
+                && (reducedRasterJitterUvX != 0.0f || reducedRasterJitterUvY != 0.0f)) {
+            throw new IllegalArgumentException(
+                    "a nonzero reduced-raster jitter requires the internal reduced-scene "
+                            + "upscaler");
+        }
+        internalRasterJitterUvX = reducedRasterJitterUvX;
+        internalRasterJitterUvY = reducedRasterJitterUvY;
         framePose = pose;
         deltaSeconds = Math.min(pose.deltaSeconds(), 0.1f);
         if (temporal != null) {
@@ -1888,6 +1943,20 @@ public final class PostProcessPipeline implements AutoCloseable {
         if (temporalUpscaling != null) {
             temporalUpscaling.beginFrame();
         }
+    }
+
+    /**
+     * @return the phase of the next internal reduced-raster jitter sample, or
+     *         {@code -1} when this chain was not assembled for the internal
+     *         reduced-scene source
+     *
+     * <p>The phase advances only through {@link #frameSucceeded()} and resets
+     * to {@code 0} on construction and on every
+     * {@link #invalidateTemporalHistory(TaaInvalidationReason)}, so the
+     * sequence restarts together with the upscaling history it belongs to.</p>
+     */
+    public int internalRasterJitterPhase() {
+        return internalTemporalUpscaling ? internalRasterJitterPhase : -1;
     }
 
     /**
@@ -1912,6 +1981,17 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporalUpscaling != null) {
             temporalUpscaling.frameSucceeded();
+        }
+        if (internalTemporalUpscaling) {
+            // The sequence advances with committed history only, so a failed
+            // frame retries the same phase and a generation restart begins at 0.
+            // A history invalidation sets the counter back to zero and therefore
+            // takes effect on the next frame's capture.
+            // The modulus mirrors TemporalJitter.REDUCED_PHASE_COUNT; the
+            // postprocess subsystem must not import render3d, and the pattern
+            // itself (not the wrap) stays owned there.
+            internalRasterJitterPhase = (internalRasterJitterPhase + 1)
+                    % INTERNAL_RASTER_JITTER_PHASE_COUNT;
         }
     }
 
@@ -1949,6 +2029,11 @@ public final class PostProcessPipeline implements AutoCloseable {
         }
         if (temporalUpscaling != null) {
             temporalUpscaling.invalidate();
+        }
+        if (internalTemporalUpscaling) {
+            // The sequence belongs to the invalidated history: the next frame is
+            // a history-invalid current sample at phase 0.
+            internalRasterJitterPhase = 0;
         }
     }
 

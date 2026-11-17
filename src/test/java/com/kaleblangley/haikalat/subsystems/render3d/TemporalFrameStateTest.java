@@ -5,6 +5,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalFrameState;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -37,6 +38,31 @@ class TemporalFrameStateTest {
         assertTrue(TemporalFrameState.looksLikeCameraCut(before, after));
         assertFalse(TemporalFrameState.looksLikeCameraCut(before,
                 parameters(1, 0.01f, 0.0f, 0.0f)));
+    }
+
+    @Test
+    void poseOnlyCutCheckMatchesTheCapturedParametersForm() {
+        // Frame setup must decide on a cut before it captures the reduced jitter
+        // phase; the pose-only overload is that path and must apply the same
+        // criteria as the post-capture form.
+        TemporalFrameState.FrameParameters before = parameters(0, 0.0f, 0.0f, 0.0f);
+        float[][] positions = {{0.0f, 0.0f, 0.0f}, {0.01f, 0.0f, 0.0f},
+                {4.1f, 0.0f, 0.0f}, {0.0f, 0.0f, 4.1f}};
+        for (float[] position : positions) {
+            TemporalFrameState.FrameParameters after = parameters(1, position[0], position[1],
+                    position[2]);
+            assertEquals(TemporalFrameState.looksLikeCameraCut(before, after),
+                    TemporalFrameState.looksLikeCameraCut(before, after.view(),
+                            position[0], position[1], position[2],
+                            after.forwardX(), after.forwardY(), after.forwardZ()),
+                    "the pose-only cut check must agree with the captured form");
+        }
+        // A large rotation with an unchanged position must also be a cut.
+        Matrix4f turnedView = new Matrix4f().lookAt(0.0f, 0.0f, 0.0f,
+                1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+        assertTrue(TemporalFrameState.looksLikeCameraCut(before, turnedView,
+                0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
+                "a backward-facing pose is a cut");
     }
 
     private static TemporalFrameState.FrameParameters parameters(long sequence,

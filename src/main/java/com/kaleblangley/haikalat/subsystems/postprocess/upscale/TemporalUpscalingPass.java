@@ -212,6 +212,11 @@ public final class TemporalUpscalingPass implements GlResource {
         }
 
         pendingViewProjection = new Matrix4f(inputs.stableViewProjection());
+        // The stored inverse projection is the current frame's (possibly
+        // jittered) inverse.  Next frame the expected previous view depth is
+        // recovered by applying it to a stable previous clip position; a
+        // clip-space XY jitter translation does not change clip z/w, so the
+        // recovered depth is exact even though the matrix carries the jitter.
         pendingInverseProjection = new Matrix4f(inputs.inverseProjection());
         frameRecorded = true;
         return cmd;

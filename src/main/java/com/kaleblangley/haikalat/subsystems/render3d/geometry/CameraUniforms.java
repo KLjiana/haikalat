@@ -30,6 +30,25 @@ public final class CameraUniforms implements AutoCloseable {
         cmd.bindUniformBlock(BLOCK_BINDING, block);
     }
 
+    /**
+     * Uploads a projection that the frame already owns.
+     *
+     * <p>The reduced-resolution path captures its jittered reduced projection
+     * once in the temporal frame pose ({@code TemporalFrameState.FrameParameters})
+     * so the camera block used for rasterisation is the same matrix the
+     * internal temporal upscaler reconstructs with; recomputing the jitter here
+     * would create a second source of truth for the phase.</p>
+     *
+     * @param cmd        command buffer receiving the block
+     * @param camera     camera supplying the view matrix
+     * @param projection projection for this frame's raster
+     */
+    public void update(CommandBuffer cmd, Camera camera, Matrix4f projection) {
+        block.setMat4(0, projection)
+                .setMat4(16 * Float.BYTES, camera.getViewMatrix(view));
+        cmd.bindUniformBlock(BLOCK_BINDING, block);
+    }
+
     public void bind(ShaderProgram shader) {
         if (boundPrograms.add(shader)) {
             shader.bindUniformBlock(BLOCK_NAME, BLOCK_BINDING);
