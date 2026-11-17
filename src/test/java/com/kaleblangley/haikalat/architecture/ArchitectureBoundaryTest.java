@@ -322,7 +322,8 @@ class ArchitectureBoundaryTest {
                         + "|\\bcom\\.kaleblangley\\.haikalat\\.subsystems\\.render3d\\.pipeline\\.");
         Set<String> violations = new java.util.HashSet<>();
         for (String module : Set.of("scene", "geometry", "surface", "lighting", "shadow",
-                "ao", "volumetric", "environment", "pbr", "gltf", "vfx", "preview", "water")) {
+                "ao", "volumetric", "environment", "pbr", "gltf", "vfx", "preview", "water",
+                "hair", "ddgi", "vct", "transparency", "caustics", "planar")) {
             Path root = render3d.resolve(module);
             if (!Files.isDirectory(root)) continue;
             violations.addAll(dependenciesUnder(root, dependency));
