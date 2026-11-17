@@ -346,14 +346,23 @@ public final class WaterSurfacePass implements AutoCloseable {
                 .setUniformFloat(activeShader, "uTimeSeconds", timeSeconds)
                 .setUniformInt(activeShader, "uDebugMode", debugNormals ? 1 : 0)
                 .setUniformInt(activeShader, "uSceneDepth", DEPTH_UNIT)
+                // Every sampler uniform names its own unit unconditionally, even when
+                // its optional texture is absent.  A sampler left at the default unit 0
+                // aliases the scene depth; with the multisample depth that puts a
+                // sampler2D (planar) and a sampler2DMS (depth) on one unit, and as soon
+                // as the post chain leaves a 2D texture bound on unit 0 the next draw
+                // raises GL_INVALID_OPERATION "program texture usage".  The first frame
+                // hides it only because unit 0 has no 2D texture yet.  Optional textures
+                // stay guarded by uHasEnvironment/uHasPlanarReflection.
+                .setUniformInt(activeShader, "uEnvironment", ENVIRONMENT_UNIT)
+                .setUniformInt(activeShader, "uPlanarReflection", PLANAR_REFLECTION_UNIT)
                 .setUniformMat4(activeShader, "uStableViewProjection",
                         frame.stableViewProjection())
                 .setUniformInt(activeShader, "uHasPlanarReflection",
                         planarReflectionTexture > 0 ? 1 : 0);
 
         if (planarReflectionTexture > 0) {
-            cmd.bindTexture(PLANAR_REFLECTION_UNIT, planarReflectionTexture)
-                    .setUniformInt(activeShader, "uPlanarReflection", PLANAR_REFLECTION_UNIT);
+            cmd.bindTexture(PLANAR_REFLECTION_UNIT, planarReflectionTexture);
         }
 
         if (useRefraction) {
@@ -384,8 +393,7 @@ public final class WaterSurfacePass implements AutoCloseable {
                     .setUniformFloat(activeShader, "uEnvironmentIntensity", environmentIntensity)
                     .setUniformFloat(activeShader, "uEnvironmentRotation", environmentRotationRadians)
                     .bindTextureCube(ENVIRONMENT_UNIT, environment.prefilteredSpecular(),
-                            cubeSampler)
-                    .setUniformInt(activeShader, "uEnvironment", ENVIRONMENT_UNIT);
+                            cubeSampler);
         } else {
             cmd.setUniformInt(activeShader, "uHasEnvironment", 0);
         }

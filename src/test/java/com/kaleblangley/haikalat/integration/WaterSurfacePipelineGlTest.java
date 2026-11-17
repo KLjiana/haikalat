@@ -206,6 +206,72 @@ class WaterSurfacePipelineGlTest {
         }
     }
 
+    /**
+     * Regression for the consecutive-frame MSAA failure: the pass left its optional
+     * planar-reflection sampler at the default texture unit 0, aliasing the
+     * {@code sampler2DMS} scene depth.  The first frame hid the mixed-sampler unit
+     * because unit 0 had no 2D texture bound yet; once the post chain left one bound
+     * there, the next frame's draw raised {@code GL_INVALID_OPERATION 1282}
+     * ("program texture usage").  Three consecutive frames with frozen wave time must
+     * stay error-free and pixel-identical.
+     */
+    @Test
+    void consecutiveMsaaWaterFramesStayErrorFreeAndByteStable() {
+        WaterSurfaceSettings water = settings(0.35f, 0.75f);
+        try (Fixture fixture = new Fixture(water, AntiAliasingMode.MSAA, 4)) {
+            assertTrue(fixture.pipeline.graph().hasPass(WaterSurfacePass.PASS_NAME));
+            assertEquals(4, fixture.pipeline.graph().description().passes().stream()
+                    .filter(pass -> pass.name().equals(WaterSurfacePass.PASS_NAME))
+                    .findFirst().orElseThrow().samples(),
+                    "the water pass must be recorded at the configured MSAA sample count");
+            float[] first = null;
+            for (int frame = 1; frame <= 3; frame++) {
+                fixture.frame(0.0f);
+                assertEquals(GL_NO_ERROR, glGetError(),
+                        "MSAA water frame " + frame + " must not raise a GL error");
+                float[] pixels = fixture.capture();
+                assertEquals(fixture.width * fixture.height * 4, pixels.length,
+                        "frame " + frame + " readback must match the actual extent");
+                for (int index = 0; index < pixels.length; index++) {
+                    assertTrue(Float.isFinite(pixels[index]),
+                            "MSAA water frame " + frame + " must be finite at " + index);
+                }
+                if (first == null) {
+                    first = pixels;
+                } else {
+                    assertEquals(first.length, pixels.length);
+                    for (int index = 0; index < pixels.length; index++) {
+                        assertEquals(Float.floatToIntBits(first[index]),
+                                Float.floatToIntBits(pixels[index]),
+                                "static waves must stay byte-identical at frame " + frame
+                                        + " pixel component " + index);
+                    }
+                }
+            }
+
+            // The stable frames must actually contain the water composite rather than
+            // a constant image: disabling the pass has to change the same region.
+            fixture.pipeline.applyWaterSurface(WaterSurfaceSettings.disabled());
+            fixture.frame(0.0f);
+            float[] withoutWater = fixture.capture();
+            float[] projected = projectedBounds(fixture.camera, water,
+                    fixture.width, fixture.height);
+            int changed = 0;
+            for (int y = Math.max(0, (int) projected[1]);
+                 y <= Math.min(fixture.height - 1, (int) projected[3]); y++) {
+                for (int x = Math.max(0, (int) projected[0]);
+                     x <= Math.min(fixture.width - 1, (int) projected[2]); x++) {
+                    int index = (y * fixture.width + x) * 4;
+                    if (changed(first, withoutWater, index) > 1.0e-4f) changed++;
+                }
+            }
+            assertTrue(changed > 32,
+                    "MSAA water frames must composite inside the finite rectangle, changed="
+                            + changed);
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
     private static WaterSurfaceSettings settings(float absorptionDensity, float shoreFadeDistance) {
         return WaterSurfaceSettings.builder()
                 .enabled(true).level(0.0f).bounds(-6.0f, -6.0f, 6.0f, 6.0f)
