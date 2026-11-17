@@ -205,7 +205,11 @@ public final class PipelineGeneration implements AutoCloseable {
     public void assembleGraph(ClusteredLightingSettings lighting, boolean fullScan) {
         var source = reuseSource;
         graph = source == null ? new RenderGraph(topology.width(), topology.height()) : RenderGraph.replacementOf(source.graph);
-        surfaceInputs = new SceneSurfaceInputs(id, graph, topology.sceneSurface());
+        // The surface lease validates against the scene raster, not the chain
+        // extent: a reduced scene extent is first-class and at scale 1.0 both
+        // values are identical.
+        surfaceInputs = new SceneSurfaceInputs(id, graph, topology.sceneSurface(),
+                topology.sceneWidth(), topology.sceneHeight());
         cameraUniforms = source == null ? new CameraUniforms() : borrow(source.cameraUniforms);
         deformationDefaults = source == null ? new SceneDeformationDefaults() : borrow(source.deformationDefaults);
         if ((topology.directionalShadow() || topology.pointShadow() || topology.spotShadow())
@@ -785,7 +789,9 @@ public final class PipelineGeneration implements AutoCloseable {
     public long surfaceBytes() { return surfaceStorage.bytes(); }
 
     public void prepareSurfaceBudget(PipelineGeneration source, long retainedBytes) {
-        surfaceStorage = surfaceStorageAt(topology.width(), topology.height());
+        // The surface attachments live at the scene raster extent, so accounting
+        // must use it instead of the chain extent (identical at scale 1.0).
+        surfaceStorage = surfaceStorageAt(topology.sceneWidth(), topology.sceneHeight());
         if (source != null) {
             borrowedSurfaceStorage = topology.sceneSurface().compatibleStorageFrom(source.topology.sceneSurface(),
                     source.surfaceStorage, surfaceStorage);
@@ -801,6 +807,15 @@ public final class PipelineGeneration implements AutoCloseable {
         if (isClosed()) throw new IllegalStateException("PipelineGeneration is closed");
         if (width <= 0 || height <= 0
                 || graph.width() == width && graph.height() == height) return;
+        if (topology.sceneWidth() != topology.width()
+                || topology.sceneHeight() != topology.height()) {
+            // The scene producers are fixed-size graph targets; an in-place
+            // graph resize cannot move them to the new rounded scene extent.
+            // Fail closed instead of silently mixing old scene targets with a
+            // new chain extent; RenderPipeline builds a replacement generation.
+            throw new IllegalStateException(
+                    "a reduced scene extent cannot resize in place; build a replacement generation");
+        }
         ResizeCandidate candidate = null;
         Throwable primaryFailure = null;
         try {

@@ -2773,6 +2773,17 @@ public final class RenderPipeline {
         PipelineTopology candidateTopology = captureTopology(scene, w, h,
                 volumetricParticleSettings, stochasticTransparencySettings);
         validateCompositionDependencies();
+        if (candidateTopology.sceneWidth() != candidateTopology.width()
+                || candidateTopology.sceneHeight() != candidateTopology.height()) {
+            // Extent plumbing only: the scene passes are already sized at the
+            // rounded scene extent, but the scene->chain magnifier that hands
+            // the reduced raster to the target-extent colour chain lands in the
+            // next slice.  Fail closed instead of sampling the scene texture at
+            // the wrong normalized scale.
+            throw new IllegalArgumentException(
+                    "renderScale " + settings.renderScale()
+                            + " has no scene-to-chain magnifier yet; set renderScale to 1.0");
+        }
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -4068,6 +4079,7 @@ public final class RenderPipeline {
         vfxLightDiagnostics = mergedLights.diagnostics();
         activeFrameContext = RenderFrameContext.capture(scene,
                 Objects.requireNonNull(camera, "camera"), target.width(), target.height(),
+                generation.topology().sceneWidth(), generation.topology().sceneHeight(),
                 deltaSeconds, activeFrameIndex, previewFrameSequence,
                 topologySettingsRevision, lastFrameContext, mergedLights.extraEntries());
         executing = true;
@@ -4296,6 +4308,14 @@ public final class RenderPipeline {
             // chain rejects an in-place resize while the upscaler is active.
             // Build a complete replacement generation at the new output extent
             // and rebind the same borrowed source.
+            PipelineGeneration candidate = createGeneration(scene,
+                    current.topology().withExtent(w, h), current);
+            activateGeneration(candidate);
+        } else if (current.topology().sceneWidth() != current.topology().width()
+                || current.topology().sceneHeight() != current.topology().height()) {
+            // The reduced scene extent is baked into fixed-size graph targets,
+            // so a new target extent needs a replacement generation; the graph
+            // resize path would leave the scene passes at the old raster size.
             PipelineGeneration candidate = createGeneration(scene,
                     current.topology().withExtent(w, h), current);
             activateGeneration(candidate);
@@ -5078,8 +5098,10 @@ public final class RenderPipeline {
 
     private TemporalFrameState.FrameParameters captureFrameParameters(RenderFrameContext context) {
         Camera camera = context.camera();
-        int width = context.width();
-        int height = context.height();
+        // Raster-space facts (jitter and the explicit raster extent) belong to
+        // the scene extent; the projection itself depends on aspect only.
+        int width = context.sceneWidth();
+        int height = context.sceneHeight();
         Matrix4f stableProjection = CameraProjection.stable(camera, width, height, new Matrix4f());
         Matrix4f jitteredProjection = new Matrix4f(stableProjection);
         TemporalJitter.applyProjection(jitteredProjection, width, height,
@@ -6070,15 +6092,17 @@ public final class RenderPipeline {
                 clusteredLightingSettings);
         if (benchmarkCpuTimingEnabled) lightPackNanos += System.nanoTime() - lightPackStart;
         float jitterFootprint = settings.antiAliasingMode() == AntiAliasingMode.TAA ? 0.5f : 0.0f;
-        currentClusterGrid = ClusterGrid.create(context.camera(), context.width(),
-                context.height(), clusteredLightingSettings, jitterFootprint);
+        // Screen tiles and the visibility scan describe the raster actually
+        // drawn, so they use the scene extent rather than the chain extent.
+        currentClusterGrid = ClusterGrid.create(context.camera(), context.sceneWidth(),
+                context.sceneHeight(), clusteredLightingSettings, jitterFootprint);
         boolean reschedule = lastShadowFramePlan == ShadowFramePlan.EMPTY
                 || invalidation.invalidated(FrameInvalidation.Domain.LIGHTING)
                 || invalidation.invalidated(FrameInvalidation.Domain.CAMERA)
                 || invalidation.invalidated(FrameInvalidation.Domain.TOPOLOGY_SETTINGS);
         ShadowFramePlan selected = reschedule
                 ? generation.shadowLightScheduler().plan(context.lightEntries(), currentLightTable,
-                        context.camera(), context.width(), context.height(), localShadowSettings,
+                        context.camera(), context.sceneWidth(), context.sceneHeight(), localShadowSettings,
                         pointShadowAtlas, spotShadowAtlas, directionalShadowMap,
                         directionalCascadeSettings)
                 : lastShadowFramePlan;
@@ -6119,7 +6143,7 @@ public final class RenderPipeline {
                     * (selected.filterMode().kernelRadius() + 2.0f);
         }
         SceneFrame built = generation.sceneFrameBuilder().build(scene, context.camera(),
-                context.width(), context.height(), lastDirectionalCascadeMatrices.isEmpty()
+                context.sceneWidth(), context.sceneHeight(), lastDirectionalCascadeMatrices.isEmpty()
                         ? lastDirectionalLightSpaceMatrix
                         : lastDirectionalCascadeMatrices.get(lastDirectionalCascadeMatrices.size() - 1),
                 anyShadowView, settings.sceneVisibility(), baseShadowCulling,
@@ -6435,7 +6459,7 @@ public final class RenderPipeline {
 
     private int frameWidth() {
         RenderFrameContext context = activeFrameContext;
-        return context == null ? Math.max(1, window.width()) : context.width();
+        return context == null ? Math.max(1, window.width()) : context.sceneWidth();
     }
 
     private ExternalCamera fogRasterCamera() {
@@ -6449,7 +6473,7 @@ public final class RenderPipeline {
 
     private int frameHeight() {
         RenderFrameContext context = activeFrameContext;
-        return context == null ? Math.max(1, window.height()) : context.height();
+        return context == null ? Math.max(1, window.height()) : context.sceneHeight();
     }
 
     private RenderFrameContext requireFrameContext() {

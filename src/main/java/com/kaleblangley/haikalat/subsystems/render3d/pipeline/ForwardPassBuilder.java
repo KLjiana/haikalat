@@ -82,9 +82,16 @@ public final class ForwardPassBuilder {
         }
 
         SceneSurfaceLayout layout = topology.sceneSurface();
+        // A reduced scene raster keeps the graph/chain extent at the target and
+        // sizes only the scene producers through fixedSize. At renderScale 1.0
+        // the extents are equal, so no pass declaration changes.
+        int sceneWidth = topology.sceneWidth();
+        int sceneHeight = topology.sceneHeight();
+        boolean reducedSceneExtent = sceneWidth != graph.width() || sceneHeight != graph.height();
         var sharedDepth = layout.raw(SceneBufferChannel.DEPTH);
         if (layout.hasSurface()) {
             RenderGraph.PassBuilder surface = graph.addPass(sharedDepth.producer());
+            if (reducedSceneExtent) surface.fixedSize(sceneWidth, sceneHeight);
             layout.configureRaster(surface);
             if (hasDirectionalShadow) surface.dependsOn(DirectionalShadowMap.PASS_NAME);
             if (hasPointShadow) surface.dependsOn(PointShadowAtlas.PASS_NAME);
@@ -93,11 +100,13 @@ public final class ForwardPassBuilder {
         }
         if (layout.hasResolve()) {
             var resolve = graph.addPass(layout.single(SceneBufferChannel.DEPTH).producer());
+            if (reducedSceneExtent) resolve.fixedSize(sceneWidth, sceneHeight);
             layout.configureResolve(resolve);
             resolve.execute(surfaceResolveExecutor);
         }
 
         RenderGraph.PassBuilder geometry = graph.addPass(PostProcessTargets.GEOMETRY_PASS);
+        if (reducedSceneExtent) geometry.fixedSize(sceneWidth, sceneHeight);
         RenderFormat sceneFormat = sceneColorFormat(settings);
         if (settings.antiAliasingMode() == AntiAliasingMode.MSAA) {
             if (topology.volumetricFog() || refraction || topology.planarReflections()) {

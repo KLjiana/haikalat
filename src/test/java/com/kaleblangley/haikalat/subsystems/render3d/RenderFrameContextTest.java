@@ -54,6 +54,35 @@ class RenderFrameContextTest {
     }
 
     @Test
+    void contextSeparatesSceneRasterExtentFromTheChainExtent() {
+        Scene scene = new Scene(new Camera());
+
+        RenderFrameContext legacy = RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 1.0f / 60.0f, 0, 0L, 1L, null);
+        assertEquals(320, legacy.width());
+        assertEquals(180, legacy.height());
+        assertEquals(320, legacy.sceneWidth(),
+                "the source-compatible capture keeps the scene raster at the target extent");
+        assertEquals(180, legacy.sceneHeight());
+        assertFalse(legacy.hasReducedSceneExtent());
+
+        RenderFrameContext reduced = RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 160, 90,
+                1.0f / 60.0f, 0, 0L, 1L, null);
+        assertEquals(320, reduced.width(), "the chain extent keeps its established meaning");
+        assertEquals(180, reduced.height());
+        assertEquals(160, reduced.sceneWidth());
+        assertEquals(90, reduced.sceneHeight());
+        assertTrue(reduced.hasReducedSceneExtent());
+
+        assertThrows(IllegalArgumentException.class, () -> RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 0, 90, 0.0f, 0, 0L, 1L, null));
+        assertThrows(IllegalArgumentException.class, () -> RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 321, 90, 0.0f, 0, 0L, 1L, null),
+                "a scene raster wider than the chain target is invalid");
+    }
+
+    @Test
     void contextFreezesCameraAndLightsAndComparesWithLastSuccessfulFrame() {
         Camera camera = new Camera(new Vector3f(1.0f, 2.0f, 5.0f));
         SceneLight originalLight = SceneLight.directional(

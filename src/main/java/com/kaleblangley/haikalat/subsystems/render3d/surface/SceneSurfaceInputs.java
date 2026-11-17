@@ -19,19 +19,62 @@ public final class SceneSurfaceInputs {
     private final long generationId;
     private final RenderGraph graph;
     private final SceneSurfaceLayout layout;
+    private final int sceneWidth;
+    private final int sceneHeight;
+    private final boolean pinnedSceneExtent;
     private Frame current;
     private boolean retired;
 
+    /** Surface extent follows the graph extent (the full-resolution default). */
     public SceneSurfaceInputs(long generationId, RenderGraph graph, SceneSurfaceLayout layout) {
+        this(generationId, graph, layout, graphWidth(graph), graphHeight(graph));
+    }
+
+    private static int graphWidth(RenderGraph graph) {
+        return Objects.requireNonNull(graph, "graph").width();
+    }
+
+    private static int graphHeight(RenderGraph graph) {
+        return Objects.requireNonNull(graph, "graph").height();
+    }
+
+    /**
+     * Surface extent is explicit.  A reduced scene raster is validated against
+     * the scene extent, while chain consumers keep the graph (target) extent.
+     */
+    public SceneSurfaceInputs(long generationId, RenderGraph graph, SceneSurfaceLayout layout,
+                              int sceneWidth, int sceneHeight) {
         if (generationId <= 0) throw new IllegalArgumentException("invalid surface generation");
+        if (sceneWidth <= 0 || sceneHeight <= 0) {
+            throw new IllegalArgumentException("invalid scene surface extent");
+        }
+        if (sceneWidth > Objects.requireNonNull(graph, "graph").width()
+                || sceneHeight > graph.height()) {
+            throw new IllegalArgumentException(
+                    "scene surface extent must not exceed the graph extent");
+        }
         this.generationId = generationId;
-        this.graph = Objects.requireNonNull(graph);
+        this.graph = graph;
         this.layout = Objects.requireNonNull(layout);
+        this.sceneWidth = sceneWidth;
+        this.sceneHeight = sceneHeight;
+        // A full-resolution surface follows the graph extent in place (the
+        // graph resize path moves both together).  Only a reduced scene raster
+        // pins the extent, because its fixed-size targets cannot be resized.
+        this.pinnedSceneExtent = sceneWidth != graph.width() || sceneHeight != graph.height();
     }
 
     public long generationId() { return generationId; }
     public RenderGraph graph() { return graph; }
     public SceneSurfaceLayout layout() { return layout; }
+    /** @return the raster extent the surface attachments and producers use */
+    public int sceneWidth() { return pinnedSceneExtent ? sceneWidth : graph.width(); }
+    /** @return the raster extent the surface attachments and producers use */
+    public int sceneHeight() { return pinnedSceneExtent ? sceneHeight : graph.height(); }
+    /** @return true when the scene raster is smaller than the graph/target extent */
+    public boolean hasReducedSceneExtent() {
+        return sceneWidth() != graph.width() || sceneHeight() != graph.height();
+    }
 
     public SceneSurfaceLayout.Attachment single(SceneBufferChannel channel) {
         var attachment = layout.single(channel);
@@ -57,10 +100,10 @@ public final class SceneSurfaceInputs {
         }
     }
 
-    private static void validatePass(RenderGraph.Description graph, String name,
-                                     List<SceneSurfaceLayout.Attachment> attachments) {
+    private void validatePass(RenderGraph.Description graph,
+                              String name, List<SceneSurfaceLayout.Attachment> attachments) {
         var pass = pass(graph, name);
-        if (pass.width() != graph.width() || pass.height() != graph.height()
+        if (pass.width() != sceneWidth() || pass.height() != sceneHeight()
                 || pass.samples() != attachments.getFirst().samples()) {
             throw new IllegalArgumentException("invalid surface extent or samples in " + name);
         }
@@ -94,7 +137,8 @@ public final class SceneSurfaceInputs {
     }
 
     public void beginFrame(RenderFrameContext context) {
-        if (retired || current != null || graph.width() != context.width() || graph.height() != context.height()) {
+        if (retired || current != null || sceneWidth() != context.sceneWidth()
+                || sceneHeight() != context.sceneHeight()) {
             throw new IllegalStateException("cannot borrow surface inputs for generation " + generationId);
         }
         current = new Frame(context);
@@ -121,7 +165,8 @@ public final class SceneSurfaceInputs {
         private Frame(RenderFrameContext context) { this.context = context; }
 
         private void ensureCurrent() {
-            if (current != this || graph.width() != context.width() || graph.height() != context.height()) {
+            if (current != this || sceneWidth() != context.sceneWidth()
+                || sceneHeight() != context.sceneHeight()) {
                 throw new IllegalStateException("expired scene surface frame " + context.frameSequence());
             }
         }
@@ -173,7 +218,8 @@ public final class SceneSurfaceInputs {
             };
             if (!ready) throw new IllegalStateException("surface input read before " + attachment.producer());
             var target = resources.framebufferOfPass(attachment.producer());
-            if (target == null || target.isClosed() || target.width() != context.width() || target.height() != context.height()
+            if (target == null || target.isClosed() || target.width() != sceneWidth()
+                    || target.height() != sceneHeight()
                     || target.descriptor().samples() != attachment.samples()) {
                 throw new IllegalStateException("stale framebuffer for surface input " + attachment.name());
             }

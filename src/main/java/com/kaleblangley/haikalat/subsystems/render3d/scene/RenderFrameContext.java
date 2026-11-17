@@ -16,7 +16,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** One-frame immutable input captured before RenderGraph command recording begins. */
+/**
+ * One-frame immutable input captured before RenderGraph command recording begins.
+ *
+ * <p>{@link #width()} and {@link #height()} keep their established meaning: the
+ * chain/output (target) extent that the post-process colour chain and present
+ * stage use. {@link #sceneWidth()} and {@link #sceneHeight()} are the raster
+ * extent actually rendered by the scene surface/geometry passes. At
+ * {@code renderScale == 1.0} both pairs are equal, so every previous caller
+ * observes the exact same values.</p>
+ */
 public record RenderFrameContext(ExternalCamera camera,
                           List<SceneLight> lights,
                           List<SceneLightEntry> lightEntries,
@@ -26,7 +35,9 @@ public record RenderFrameContext(ExternalCamera camera,
                           int height,
                           float deltaSeconds,
                           int frameIndex,
-                          long frameSequence) {
+                          long frameSequence,
+                          int sceneWidth,
+                          int sceneHeight) {
     public RenderFrameContext {
         Objects.requireNonNull(camera, "camera");
         lights = List.copyOf(Objects.requireNonNull(lights, "lights"));
@@ -39,17 +50,55 @@ public record RenderFrameContext(ExternalCamera camera,
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("frame extent must be positive");
         }
+        if (sceneWidth <= 0 || sceneHeight <= 0 || sceneWidth > width || sceneHeight > height) {
+            throw new IllegalArgumentException(
+                    "scene extent must be positive and not exceed the frame extent");
+        }
         if (!Float.isFinite(deltaSeconds) || deltaSeconds < 0.0f) {
             throw new IllegalArgumentException("deltaSeconds must be finite and non-negative");
         }
+    }
+
+    /**
+     * Source-compatible constructor for callers written before the explicit
+     * scene extent existed: the scene raster equals the chain extent.
+     */
+    public RenderFrameContext(ExternalCamera camera, List<SceneLight> lights,
+                              List<SceneLightEntry> lightEntries,
+                              SceneRevisionSnapshot revisions, FrameInvalidation invalidation,
+                              int width, int height, float deltaSeconds, int frameIndex,
+                              long frameSequence) {
+        this(camera, lights, lightEntries, revisions, invalidation, width, height,
+                deltaSeconds, frameIndex, frameSequence, width, height);
+    }
+
+    /** @return true when the scene raster is smaller than the chain/output extent */
+    public boolean hasReducedSceneExtent() {
+        return sceneWidth != width || sceneHeight != height;
     }
 
     public static RenderFrameContext capture(Scene scene, Camera camera, int width, int height,
                                       float deltaSeconds, int frameIndex, long frameSequence,
                                       long topologySettingsRevision,
                                       RenderFrameContext previousSuccessfulFrame) {
-        return capture(scene, camera, width, height, deltaSeconds, frameIndex, frameSequence,
-                topologySettingsRevision, previousSuccessfulFrame, List.of());
+        return capture(scene, camera, width, height, width, height, deltaSeconds, frameIndex,
+                frameSequence, topologySettingsRevision, previousSuccessfulFrame, List.of());
+    }
+
+    /**
+     * Captures a frame whose scene raster extent may be smaller than the
+     * chain/output extent.  The camera freeze still uses the output extent (the
+     * projection depends on aspect, so the scene raster stays geometrically
+     * consistent); only the explicit raster extent is recorded separately.
+     */
+    public static RenderFrameContext capture(Scene scene, Camera camera, int width, int height,
+                                      int sceneWidth, int sceneHeight, float deltaSeconds,
+                                      int frameIndex, long frameSequence,
+                                      long topologySettingsRevision,
+                                      RenderFrameContext previousSuccessfulFrame) {
+        return capture(scene, camera, width, height, sceneWidth, sceneHeight, deltaSeconds,
+                frameIndex, frameSequence, topologySettingsRevision, previousSuccessfulFrame,
+                List.of());
     }
 
     /**
@@ -63,6 +112,27 @@ public record RenderFrameContext(ExternalCamera camera,
      */
     public static RenderFrameContext capture(Scene scene, Camera camera, int width, int height,
                                       float deltaSeconds, int frameIndex, long frameSequence,
+                                      long topologySettingsRevision,
+                                      RenderFrameContext previousSuccessfulFrame,
+                                      List<SceneLightEntry> additionalLights) {
+        return capture(scene, camera, width, height, width, height, deltaSeconds, frameIndex,
+                frameSequence, topologySettingsRevision, previousSuccessfulFrame,
+                additionalLights);
+    }
+
+    /**
+     * Captures the frame with a separate scene raster extent and additional
+     * frozen light entries (for example temporary effect lights) merged before
+     * any pass records commands.
+     *
+     * <p>Additional entries must carry stable IDs that do not collide with the
+     * Scene.  The Scene revision check stays untouched: effect-light changes
+     * are already frozen into {@code additionalLights} and do not make the
+     * Scene itself unstable.</p>
+     */
+    public static RenderFrameContext capture(Scene scene, Camera camera, int width, int height,
+                                      int sceneWidth, int sceneHeight, float deltaSeconds,
+                                      int frameIndex, long frameSequence,
                                       long topologySettingsRevision,
                                       RenderFrameContext previousSuccessfulFrame,
                                       List<SceneLightEntry> additionalLights) {
@@ -83,7 +153,7 @@ public record RenderFrameContext(ExternalCamera camera,
                 ? null : previousSuccessfulFrame.revisions();
         return new RenderFrameContext(frozenCamera, frozenLights, frozenEntries, revisions,
                 FrameInvalidation.between(previous, revisions), width, height,
-                deltaSeconds, frameIndex, frameSequence);
+                deltaSeconds, frameIndex, frameSequence, sceneWidth, sceneHeight);
     }
 
     public void verifySceneStable(Scene scene, long topologySettingsRevision) {
