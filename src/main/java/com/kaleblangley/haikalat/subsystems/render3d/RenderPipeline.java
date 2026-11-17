@@ -2773,17 +2773,6 @@ public final class RenderPipeline {
         PipelineTopology candidateTopology = captureTopology(scene, w, h,
                 volumetricParticleSettings, stochasticTransparencySettings);
         validateCompositionDependencies();
-        if (candidateTopology.sceneWidth() != candidateTopology.width()
-                || candidateTopology.sceneHeight() != candidateTopology.height()) {
-            // Extent plumbing only: the scene passes are already sized at the
-            // rounded scene extent, but the scene->chain magnifier that hands
-            // the reduced raster to the target-extent colour chain lands in the
-            // next slice.  Fail closed instead of sampling the scene texture at
-            // the wrong normalized scale.
-            throw new IllegalArgumentException(
-                    "renderScale " + settings.renderScale()
-                            + " has no scene-to-chain magnifier yet; set renderScale to 1.0");
-        }
         PipelineGeneration candidate = createGeneration(scene, candidateTopology);
         synchronizeOutdoorSun(scene);
         activateGeneration(candidate);
@@ -3581,7 +3570,8 @@ public final class RenderPipeline {
                 sceneColorProducer = VCT_COMPOSITE_PASS;
             }
             candidate.finishAssembly(previewController, pbrEnvironment,
-                    PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled);
+                    PREVIEW_GENERATIONS.incrementAndGet(), previewEnabled,
+                    sceneColorTexture, sceneColorProducer);
             if (Boolean.getBoolean("haikalat.test.failVolumeGraph"))
                 candidate.graph().addPass("InvalidVolumeCandidate").computeOnly().dependsOn("MissingVolumeProducer").execute((res, cmd) -> {});
             if (Boolean.getBoolean("haikalat.test.failGtaoGraph"))

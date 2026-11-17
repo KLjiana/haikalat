@@ -78,7 +78,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.backend.RenderFormat;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer;
@@ -86,6 +88,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
 
 import java.util.concurrent.atomic.AtomicLong;
+
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_LINEAR;
 
 /** Exclusive owner of one complete RenderGraph/pass-resource generation. */
 public final class PipelineGeneration implements AutoCloseable {
@@ -282,13 +287,61 @@ public final class PipelineGeneration implements AutoCloseable {
                 spotShadowAtlas == null ? SpotShadowAtlas.defaults() : spotShadowAtlas, cascades, localShadows, instanced);
     }
 
+    /**
+     * Completes the colour chain.  When the scene extent is reduced, one
+     * spatial (non-temporal) magnifier is inserted between the final scene
+     * colour producer and the HDR colour chain; the magnifier samples the
+     * scene colour with linear filtering and writes the target extent.  At
+     * renderScale 1.0 no pass is added and the chain stays byte-identical.
+     *
+     * @param sceneColorTexture  logical scene colour texture handed to the chain
+     * @param sceneColorProducer pass that produced {@code sceneColorTexture}
+     */
     public void finishAssembly(GraphPreviewController controller, PbrEnvironment environment,
-                               long previewId, boolean previewEnabled) {
+                               long previewId, boolean previewEnabled,
+                               String sceneColorTexture, String sceneColorProducer) {
+        if (topology.sceneWidth() != topology.width()
+                || topology.sceneHeight() != topology.height()) {
+            addSceneUpscalePass(sceneColorTexture, sceneColorProducer);
+        }
         postProcess.addFinalPass(graph);
         finalPassName = postProcess.finalPassName();
         if (previewEnabled) {
             previewRenderer = new GraphPreviewRenderer(controller, graph, environment, previewId);
         }
+    }
+
+    /**
+     * Adds the bounded scene→chain magnifier: source scene colour at the scene
+     * extent is blitted linearly into a chain-extent managed RGBA16F target.
+     * This is a spatial only path (no history, no jitter, no depth
+     * reconstruction); the post-process chain then runs at the target extent.
+     */
+    private void addSceneUpscalePass(String sceneColorTexture, String sceneColorProducer) {
+        graph.addPass(PostProcessTargets.SCENE_UPSCALE_PASS)
+                .createColor(PostProcessTargets.SCENE_UPSCALED_COLOR, RenderFormat.RGBA16F)
+                .noClear()
+                .dependsOn(sceneColorProducer)
+                .execute((res, cmd) -> {
+                    Framebuffer source = res.framebufferOfPass(sceneColorProducer);
+                    Framebuffer target = res.currentTarget();
+                    if (source == null || target == null || source.isClosed()) {
+                        throw new IllegalStateException(
+                                "scene upscaling requires the scene colour producer and its target");
+                    }
+                    int sourceColor = res.colorAttachment(sceneColorTexture);
+                    if (sourceColor <= 0 || source.colorAttachmentCount() == 0
+                            || sourceColor != source.colorAttachment(0)) {
+                        throw new IllegalStateException(
+                                "scene upscaling requires the producer's first colour attachment");
+                    }
+                    cmd.blitFramebuffer(source.id(), target.id(),
+                            source.width(), source.height(),
+                            target.width(), target.height(),
+                            GL_COLOR_BUFFER_BIT, GL_LINEAR, 0);
+                });
+        postProcess.sceneColorInput(PostProcessTargets.SCENE_UPSCALED_COLOR,
+                PostProcessTargets.SCENE_UPSCALE_PASS);
     }
 
     public void assembleVolumetric(VolumetricFogSettings settings, Scene scene, PipelineGeneration source,

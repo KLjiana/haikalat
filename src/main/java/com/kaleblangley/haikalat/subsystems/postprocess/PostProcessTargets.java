@@ -29,6 +29,11 @@ public final class PostProcessTargets {
     public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
     public static final String TEMPORAL_DENOISE_COMPOSITE_PASS = "TemporalDenoiseCompositePass";
     public static final String TEMPORAL_UPSCALING_PASS = "TemporalUpscalingPass";
+    /**
+     * Spatial (non-temporal) scene→chain magnifier used when the scene is
+     * rendered at a reduced extent.  It is absent at full resolution.
+     */
+    public static final String SCENE_UPSCALE_PASS = "SceneUpscalePass";
     public static final String TONE_MAPPING_PASS = "ToneMappingPass";
     public static final String VIGNETTE_PASS = "VignettePass";
     public static final String FILM_GRAIN_PASS = "FilmGrainPass";
@@ -92,6 +97,8 @@ public final class PostProcessTargets {
     public static final String TEMPORAL_DENOISE_COLOR = "temporalDenoiseColor";
     public static final String TEMPORAL_DENOISE_COMPOSITE_COLOR = "temporalDenoiseCompositeColor";
     public static final String TEMPORAL_UPSCALING_COLOR = "temporalUpscalingColor";
+    /** Chain-extent output of {@link #SCENE_UPSCALE_PASS}. */
+    public static final String SCENE_UPSCALED_COLOR = "sceneUpscaledColor";
     public static final String TEMPORAL_UPSCALING_INPUT_COLOR = "temporalUpscalingInputColor";
     public static final String TEMPORAL_UPSCALING_INPUT_DEPTH = "temporalUpscalingInputDepth";
     public static final String TEMPORAL_UPSCALING_INPUT_VELOCITY = "temporalUpscalingInputVelocity";
