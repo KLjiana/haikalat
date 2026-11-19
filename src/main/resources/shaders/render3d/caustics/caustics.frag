@@ -34,6 +34,15 @@ uniform sampler2DMS uSceneDepth;
 #endif
 
 uniform sampler2D uPatternTexture;
+uniform sampler2D uShadowMap;
+uniform int uShadowCascadeCount;
+uniform mat4 uShadowMatrices[4];
+uniform float uShadowSplits[4];
+uniform vec4 uShadowTiles[4];
+uniform float uShadowBias;
+uniform float uShadowNormalBias;
+uniform float uShadowBlendRange;
+uniform int uShadowRadius;
 
 uniform vec2 uViewportSize;
 uniform mat4 uInverseProjection;
@@ -106,14 +115,51 @@ float rectangleFade(float distanceToEdge, float requestedFade, float minimumExte
     return width <= 0.0 ? 1.0 : smoothstep(0.0, width, distanceToEdge);
 }
 
+float cascadeVisibility(int cascade, vec3 world, vec3 normal, vec3 dx, vec3 dy) {
+    mat4 lightSpace = uShadowMatrices[cascade];
+    vec3 p = (lightSpace * vec4(world + normal * uShadowNormalBias, 1.0)).xyz * 0.5 + 0.5;
+    if (any(lessThanEqual(p, vec3(0.0))) || any(greaterThanEqual(p, vec3(1.0)))) return 1.0;
+    vec4 tile = uShadowTiles[cascade];
+    vec2 tileSize = tile.zw - tile.xy;
+    vec2 uv = tile.xy + p.xy * tileSize;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    vec2 lower = tile.xy + 0.5 * texel;
+    vec2 upper = tile.zw - 0.5 * texel;
+    // Orthographic shadow coordinates; compensate each tap against the receiver plane.
+    dx = (lightSpace * vec4(dx, 0.0)).xyz * vec3(tileSize, 1.0) * 0.5;
+    dy = (lightSpace * vec4(dy, 0.0)).xyz * vec3(tileSize, 1.0) * 0.5;
+    float determinant = dx.x * dy.y - dx.y * dy.x;
+    vec2 gradient = abs(determinant) < 1.0e-10 ? vec2(0.0)
+            : vec2(dx.z * dy.y - dy.z * dx.y, dy.z * dx.x - dx.z * dy.x) / determinant;
+    float bias = max(uShadowBias * (1.0 - dot(normal, -uLightDirection)), uShadowBias * 0.25)
+            + min(dot(abs(gradient), texel) * 0.5, 0.01);
+    float lit = 0.0;
+    int radius = clamp(uShadowRadius, 0, 2);
+    for (int y = -radius; y <= radius; y++) for (int x = -radius; x <= radius; x++) {
+        vec2 tap = clamp(uv + vec2(x, y) * texel, lower, upper);
+        float receiver = p.z + dot(gradient, tap - uv) - bias;
+        lit += receiver <= textureLod(uShadowMap, tap, 0.0).r ? 1.0 : 0.0;
+    }
+    float width = float(radius * 2 + 1);
+    return lit / (width * width);
+}
+
+float directionalVisibility(float viewDepth, vec3 world, vec3 normal, vec3 dx, vec3 dy) {
+    if (uShadowCascadeCount == 0) return 1.0;
+    int cascade = 0;
+    while (cascade < uShadowCascadeCount - 1 && viewDepth > uShadowSplits[cascade]) cascade++;
+    float current = cascadeVisibility(cascade, world, normal, dx, dy);
+    if (cascade == uShadowCascadeCount - 1 || uShadowBlendRange <= 0.0) return current;
+    float start = cascade == 0 ? 0.0 : uShadowSplits[cascade - 1];
+    float end = uShadowSplits[cascade];
+    float weight = smoothstep(end - max((end - start) * uShadowBlendRange, 1.0e-4), end, viewDepth);
+    if (weight <= 0.0) return current;
+    return mix(current, cascadeVisibility(cascade + 1, world, normal, dx, dy), weight);
+}
+
 void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     float depth = sampleSceneDepth(pixel);
-    if (!(depth < 1.0)) {
-        FragColor = vec4(0.0);
-        return;
-    }
-
     vec2 uv = gl_FragCoord.xy / uViewportSize;
     vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = uInverseProjection * clip;
@@ -123,7 +169,13 @@ void main() {
     // Screen-space geometric normal from the reconstructed position. The sign
     // is arbitrary; caustic receivers are selected by the absolute up axis so
     // both winding conventions (and mirrored projections) work.
-    vec3 normal = cross(dFdx(world), dFdy(world));
+    vec3 dx = dFdx(world);
+    vec3 dy = dFdy(world);
+    if (!(depth < 1.0)) {
+        FragColor = vec4(0.0);
+        return;
+    }
+    vec3 normal = cross(dx, dy);
     float normalLengthSquared = dot(normal, normal);
     if (!(normalLengthSquared > 1.0e-12)) {
         FragColor = vec4(0.0);
@@ -176,5 +228,7 @@ void main() {
         FragColor = vec4(0.0);
         return;
     }
-    FragColor = vec4(uColor * amount, 0.0);
+    vec3 upNormal = normalize(normal) * (normal.y < 0.0 ? -1.0 : 1.0);
+    float visibility = directionalVisibility(-view.z, world, upNormal, dx, dy);
+    FragColor = vec4(uColor * (amount * visibility), 0.0);
 }

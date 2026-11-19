@@ -13,8 +13,11 @@ import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.TemporalFrameState;
+import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -39,9 +42,9 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
  * inside the finite water rectangle projected along the main light, inside the
  * configured receiver height band, within the maximum light-path distance and
  * facing up enough to be a floor rather than a wall. This is a deliberate
- * screen-space artistic approximation; it does not perform photon transport and
- * cannot detect an occluder that exists only between the water and the receiver
- * but is hidden from the camera depth buffer.</p>
+ * screen-space artistic approximation, not photon transport. When the caustic
+ * light owns a directional shadow atlas, receiver visibility also accounts for
+ * occluders in that atlas, including those hidden from the main camera.</p>
  *
  * <p>{@link CausticsSettings#disabled()} is rejected by the constructor: while
  * disabled no pass, target, shader, texture or draw exists. {@link #resize(int,
@@ -58,6 +61,7 @@ public final class CausticsPass implements GlResource {
     public static final int DEPTH_UNIT = 0;
     /** Fragment texture unit for the optional pattern texture. */
     public static final int PATTERN_UNIT = 1;
+    private static final int SHADOW_UNIT = 2;
     /** Largest accepted colour target edge in pixels. */
     public static final int MAXIMUM_EXTENT = 16384;
     /** Smallest accepted absolute light direction Y against the receiver. */
@@ -72,6 +76,7 @@ public final class CausticsPass implements GlResource {
     private final Matrix4f inverseView = new Matrix4f();
     private final Vector3f light = new Vector3f();
     private final Vector3f color = new Vector3f();
+    private final Vector4f tileBounds = new Vector4f();
 
     private Framebuffer target;
     private int width;
@@ -166,6 +171,15 @@ public final class CausticsPass implements GlResource {
     public void record(CommandBuffer cmd, Framebuffer colorSource, int sceneDepthTexture,
                        TemporalFrameState.FrameParameters frame, Vector3f lightDirection,
                        float timeSeconds) {
+        record(cmd, colorSource, sceneDepthTexture, frame, lightDirection, timeSeconds,
+                null, 0, 0.0f, 0.0f, null);
+    }
+
+    /** Records the contribution with the shadow atlas of its own directional light. */
+    public void record(CommandBuffer cmd, Framebuffer colorSource, int sceneDepthTexture,
+                       TemporalFrameState.FrameParameters frame, Vector3f lightDirection,
+                       float timeSeconds, ShadowFramePlan.DirectionalPlan shadow, int shadowTexture,
+                       float shadowBias, float cascadeBlendRange, LocalShadowPipelineSettings sampling) {
         ensureOpen();
         Objects.requireNonNull(cmd, "cmd");
         Objects.requireNonNull(colorSource, "colorSource");
@@ -226,6 +240,8 @@ public final class CausticsPass implements GlResource {
                         settings.minimumReceiverUpDot())
                 .setUniformInt(shader, "uHasPatternTexture", patternTexture != null ? 1 : 0);
 
+        bindDirectionalShadow(cmd, shadow, shadowTexture, shadowBias, cascadeBlendRange, sampling);
+
         if (samples > 1) {
             cmd.bindTextureMultisample(DEPTH_UNIT, sceneDepthTexture);
         } else {
@@ -248,6 +264,31 @@ public final class CausticsPass implements GlResource {
                 .bindMesh(screen)
                 .drawMesh(screen);
         cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
+    }
+
+    private void bindDirectionalShadow(CommandBuffer cmd, ShadowFramePlan.DirectionalPlan shadow,
+                                       int texture, float bias, float blendRange,
+                                       LocalShadowPipelineSettings sampling) {
+        int count = shadow == null ? 0 : shadow.matrices().size();
+        cmd.setUniformInt(shader, "uShadowMap", SHADOW_UNIT)
+                .setUniformInt(shader, "uShadowCascadeCount", count);
+        if (count == 0) return;
+        if (texture <= 0) throw new IllegalArgumentException("missing caustics directional shadow atlas");
+        cmd.bindTexture(SHADOW_UNIT, texture)
+                .bindSampler(SHADOW_UNIT, null)
+                .setUniformFloat(shader, "uShadowBias", bias)
+                .setUniformFloat(shader, "uShadowNormalBias", sampling.normalBias())
+                .setUniformFloat(shader, "uShadowBlendRange", blendRange)
+                .setUniformInt(shader, "uShadowRadius", sampling.filterMode().kernelRadius());
+        float[] splits = shadow.splits();
+        for (int i = 0; i < count; i++) {
+            var tile = shadow.tiles().get(i);
+            String index = "[" + i + "]";
+            cmd.setUniformMat4(shader, "uShadowMatrices" + index, shadow.matrices().get(i))
+                    .setUniformFloat(shader, "uShadowSplits" + index, splits[i])
+                    .setUniformVec4(shader, "uShadowTiles" + index,
+                            tileBounds.set(tile.minU(), tile.minV(), tile.maxU(), tile.maxV()));
+        }
     }
 
     /**

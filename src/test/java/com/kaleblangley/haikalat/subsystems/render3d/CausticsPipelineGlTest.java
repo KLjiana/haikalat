@@ -11,8 +11,11 @@ import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass;
 import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
 import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
+import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -113,6 +116,76 @@ class CausticsPipelineGlTest {
             }
             GlDebug.assertNoError("caustics pipeline composition");
         }
+    }
+
+    @Test
+    void directionalAtlasRejectsCausticsUnderAnOccluderButKeepsLitReceivers() {
+        try (var window = window()) {
+            window.bindContext();
+            GL.createCapabilities();
+            try (Mesh quad = Mesh.from(BuiltinMeshData.coloredQuad("caustics-shadow-quad"));
+                 ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
+                 Material material = Material.builder(shader).build()) {
+                Camera camera = new Camera(new Vector3f(0, 3, 8), new Vector3f(0, 1, 0), -90, -26);
+                Scene scene = new Scene(camera);
+                scene.addLight(SceneLight.shadowedDirectional(new Vector3f(1, -1, 0), new Vector3f(1), 1));
+                float horizontal = (float) (-Math.PI / 2);
+                scene.add(SceneObject.fixed(quad, material,
+                        new Matrix4f().translate(0, -1, 0).rotateX(horizontal).scale(12), false));
+                scene.add(SceneObject.fixed(quad, material,
+                        new Matrix4f().translate(0, 1, 0).rotateX(horizontal).scale(1.5f)));
+                var caustics = CausticsSettings.builder().enabled(true).waterPlane(0)
+                        .waterRegion(-8, -8, 8, 8).receiverHeight(-4, -0.5f).edgeFadeDistance(0)
+                        .animationSpeed(0).intensity(3).build();
+                var water = WaterSurfaceSettings.builder().enabled(true).bounds(-8, -8, 8, 8)
+                        .level(0).waveAmplitude(0).build();
+                RenderPipeline pipeline = new RenderPipeline(window, scene, null, hdrSettings())
+                        .waterSurface(water).directionalCascades(new DirectionalCascadeSettings(
+                                4, 512, 0.6f, 0.08f, 30)).localShadows(LocalShadowPipelineSettings.balanced());
+                try {
+                    var device = new GlRenderDevice();
+                    pipeline.build();
+                    var controls = pipeline.features();
+                    var baseline = controls.requested();
+                    float[][] pixels = new float[4][];
+                    for (int i = 0; i < pixels.length; i++) {
+                        controls.submit(baseline.toBuilder().directionalShadows((i & 2) != 0)
+                                .caustics((i & 1) != 0 ? caustics : CausticsSettings.disabled()).build());
+                        pipeline.execute(device, 0);
+                        pixels[i] = pipeline.captureLinearHdrRgbaFloat();
+                    }
+                    var description = pipeline.graph().description().passes().stream()
+                            .filter(pass -> pass.name().equals(CausticsPass.PASS_NAME)).findFirst().orElseThrow();
+                    assertTrue(description.directDependencies().contains(DirectionalShadowMap.PASS_NAME));
+                    Matrix4f pv = CameraProjection.stable(camera, window.width(), window.height(), new Matrix4f())
+                            .mul(camera.getViewMatrix());
+                    int[] viewport = {0, 0, window.width(), window.height()};
+                    // At y=-1 the light has moved 2m in +X from the caster at y=1.
+                    Vector3f under = pv.project(2, -1, 0, viewport, new Vector3f());
+                    Vector3f open = pv.project(-2, -1, 0, viewport, new Vector3f());
+                    float underUnshadowed = peakGain(pixels[0], pixels[1], window.width(), under);
+                    float underShadowed = peakGain(pixels[2], pixels[3], window.width(), under);
+                    float openUnshadowed = peakGain(pixels[0], pixels[1], window.width(), open);
+                    float openShadowed = peakGain(pixels[2], pixels[3], window.width(), open);
+                    assertTrue(underUnshadowed > 0.02f && underShadowed < 0.002f,
+                            "blocked caustics: " + underUnshadowed + " -> " + underShadowed);
+                    assertTrue(openUnshadowed > 0.02f && Math.abs(openShadowed - openUnshadowed) < 0.002f,
+                            "unblocked caustics: " + openUnshadowed + " -> " + openShadowed);
+                } finally {
+                    pipeline.close();
+                }
+            }
+            GlDebug.assertNoError("caustics directional shadow composition");
+        }
+    }
+
+    private static float peakGain(float[] off, float[] on, int width, Vector3f projected) {
+        float gain = 0;
+        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+            int i = 4 * (((int) projected.y + dy) * width + (int) projected.x + dx) + 1;
+            gain = Math.max(gain, on[i] - off[i]);
+        }
+        return gain;
     }
 
     private static RenderSettings hdrSettings() {
