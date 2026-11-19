@@ -54,8 +54,8 @@ class UnderwaterVolumeGlTest {
     private static final float[] FLOOR_COLOR = {0.5f, 0.2f, 0.1f};
     private static final float[] SCATTER_COLOR = {0.02f, 0.15f, 0.30f};
     private static final Vector3f ABOVE_POSITION = new Vector3f(0.0f, 6.0f, 8.0f);
-    private static final Vector3f BELOW_POSITION = new Vector3f(0.0f, -2.0f, 8.0f);
-    private static final Vector3f LOOK_TARGET = new Vector3f(0.0f, -4.0f, 2.0f);
+    private static final Vector3f BELOW_POSITION = new Vector3f(0.0f, -2.0f, 1.0f);
+    private static final Vector3f LOOK_TARGET = new Vector3f(0.0f, -4.0f, -1.0f);
 
     @Test
     void cameraAboveWaterLeavesTheFrameByteIdentical() {
@@ -129,6 +129,38 @@ class UnderwaterVolumeGlTest {
             assertTrue(tinted[index + 2] > aboveFrame[aboveIndex + 2],
                     "the underwater blue must be above the camera-above reference");
             assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void poolMissAndExitUseOnlyTheWetPartOfTheRay() {
+        try (Fixture outside = new Fixture(REQUESTED_SIZE, REQUESTED_SIZE,
+                new Vector3f(4, -0.01f, 0), new Vector3f(4, -0.01f, -8),
+                AntiAliasingMode.NONE, 1, settings(0.35f))) {
+            outside.frame();
+            float[] tinted = outside.capture();
+            outside.pipeline.applyUnderwaterVolume(UnderwaterVolumeSettings.disabled());
+            outside.frame();
+            float[] clear = outside.capture();
+            // The centre ray never enters the X slab. Other pixels may look back into the pool.
+            int i = outside.centrePixel();
+            for (int channel = 0; channel < 4; channel++) assertEquals(clear[i + channel], tinted[i + channel]);
+        }
+        try (Fixture exit = new Fixture(REQUESTED_SIZE, REQUESTED_SIZE,
+                new Vector3f(0, -0.01f, 0), new Vector3f(0, 1, -2),
+                AntiAliasingMode.NONE, 1, settings(0.35f))) {
+            exit.frame();
+            float[] tinted = exit.capture();
+            exit.pipeline.applyUnderwaterVolume(UnderwaterVolumeSettings.disabled());
+            exit.frame();
+            float[] clear = exit.capture();
+            float wetPath = 0.01f / exit.centreDirection().y;
+            int i = exit.centrePixel();
+            assertTrue(Math.abs(tinted[i + 2] - clear[i + 2]) > 0.001f,
+                    "the short exit path must produce a measurable change: "
+                            + clear[i + 2] + " -> " + tinted[i + 2]);
+            assertBeerLambert(clear, tinted, i, wetPath, settings(0.35f), 0.0006f,
+                    "exit to air just below the water line");
         }
     }
 
@@ -415,6 +447,11 @@ class UnderwaterVolumeGlTest {
 
         Fixture(int requestedWidth, int requestedHeight, Vector3f position,
                 AntiAliasingMode antiAliasing, int samples, UnderwaterVolumeSettings volume) {
+            this(requestedWidth, requestedHeight, position, LOOK_TARGET, antiAliasing, samples, volume);
+        }
+
+        Fixture(int requestedWidth, int requestedHeight, Vector3f position, Vector3f lookTarget,
+                AntiAliasingMode antiAliasing, int samples, UnderwaterVolumeSettings volume) {
             window = new GlfwWindow.Builder().dimensions(requestedWidth, requestedHeight)
                     .title("Underwater volume pipeline test").visible(false).build();
             width = window.width();
@@ -424,7 +461,7 @@ class UnderwaterVolumeGlTest {
             GlDebug.enableDebugCallback();
             window.setVsync(false);
             cameraPosition = new Vector3f(position);
-            view = new Matrix4f().lookAt(cameraPosition, LOOK_TARGET,
+            view = new Matrix4f().lookAt(cameraPosition, lookTarget,
                     new Vector3f(0.0f, 1.0f, 0.0f));
             projection = new Matrix4f().perspective((float) Math.toRadians(55.0),
                     width / (float) height, 0.1f, 50.0f);
@@ -433,7 +470,7 @@ class UnderwaterVolumeGlTest {
             VertexAttribute attribute = VertexAttribute.builder()
                     .index(0).size(3).offsetBytes(0L)
                     .semantic(VertexSemantic.POSITION).build();
-            float half = 200.0f;
+            float half = 20.0f;
             ground = Mesh.builder()
                     .vertices(new float[]{
                             -half, FLOOR_Y, -half,
@@ -492,6 +529,12 @@ class UnderwaterVolumeGlTest {
          * resize, so this stays valid after {@code pipeline.resize}).
          */
         float centrePathLength() {
+            Vector3f direction = centreDirection();
+            assertTrue(direction.y < -1.0e-4f, "the centre ray must look down at the floor");
+            return (FLOOR_Y - cameraPosition.y) / direction.y;
+        }
+
+        Vector3f centreDirection() {
             int centerX = width / 2;
             int centerY = height / 2;
             float ndcX = (centerX + 0.5f) * 2.0f / width - 1.0f;
@@ -501,11 +544,7 @@ class UnderwaterVolumeGlTest {
             near.div(near.w);
             Vector4f far = new Vector4f(ndcX, ndcY, 1.0f, 1.0f).mul(inverse);
             far.div(far.w);
-            Vector3f direction = new Vector3f(far.x - near.x, far.y - near.y,
-                    far.z - near.z).normalize();
-            assertTrue(direction.y < -1.0e-4f,
-                    "the centre ray must look down at the floor, direction=" + direction);
-            return (FLOOR_Y - cameraPosition.y) / direction.y;
+            return new Vector3f(far.x - near.x, far.y - near.y, far.z - near.z).normalize();
         }
 
         @Override

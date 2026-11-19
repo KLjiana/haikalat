@@ -1,5 +1,8 @@
 package com.kaleblangley.haikalat.subsystems.render3d.water;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
@@ -15,6 +18,8 @@ import org.joml.Vector3f;
 final class WaterRefractionReferenceMath {
     /** Same slope limit as the shader's REFRACTION_MIN_DOWNWARD constant. */
     static final double MIN_DOWNWARD = 0.05;
+    private static final double MAX_PATH = 24.0;
+    private static final double COVERAGE_EPSILON = 1.0e-5;
     private static final double GRAZING_EPSILON = 1.0e-3;
 
     private WaterRefractionReferenceMath() {
@@ -39,7 +44,19 @@ final class WaterRefractionReferenceMath {
     /** One fragment evaluation, or {@code water == false} when the pass discards. */
     record Evaluation(boolean water, Vector3d world, Vector3d normal, double thickness,
                       double centreX, double centreY, Offset offset,
-                      FallbackReason fallback) {
+                      FallbackReason fallback, double centrePath, List<Tap> taps) {
+        Evaluation(boolean water, Vector3d world, Vector3d normal, double thickness,
+                   double centreX, double centreY, Offset offset, FallbackReason fallback) {
+            this(water, world, normal, thickness, centreX, centreY, offset, fallback, 0, List.of());
+        }
+    }
+
+    record Tap(int x, int y, double path, double weight) { }
+
+    private record Footprint(List<Tap> taps, FallbackReason fallback) {
+        double coverage() {
+            return taps.stream().mapToDouble(Tap::weight).sum();
+        }
     }
 
     /** Water shading inputs for the composited expectation. */
@@ -56,6 +73,14 @@ final class WaterRefractionReferenceMath {
                          double centreUvX, double centreUvY,
                          double ior, double thickness, double thicknessScale,
                          double strength, double maximumScreenOffset) {
+        return offset(projection, view, world, normal, camera, centreUvX, centreUvY, ior,
+                thickness, thicknessScale, strength, maximumScreenOffset, null);
+    }
+
+    static Offset offset(Matrix4f projection, Matrix4f view, Vector3d world, Vector3d normal,
+                         Vector3f camera, double centreUvX, double centreUvY, double ior,
+                         double thickness, double thicknessScale, double strength,
+                         double maximumScreenOffset, WaterSurfaceSettings water) {
         Vector3d incident = new Vector3d(world).sub(camera.x, camera.y, camera.z).normalize();
         Vector3d refractionNormal = new Vector3d(normal).normalize();
         if (refractionNormal.dot(incident) > 0.0) {
@@ -68,6 +93,12 @@ final class WaterRefractionReferenceMath {
         }
         double downward = Math.max(-refracted.y, MIN_DOWNWARD);
         double travel = Math.max(thickness, 0.0) * thicknessScale / downward;
+        if (water != null) {
+            if (refracted.y >= 0 || camera.y <= water.level()) {
+                return new Offset(0, 0, centreUvX, centreUvY, thickness, 0, FallbackReason.NON_FINITE);
+            }
+            travel = Math.min(travel, exitDistance(water, world, refracted));
+        }
         Vector3d refractedWorld = new Vector3d(world).fma(travel, refracted);
         Vector2f shifted = projectToUv(projection, view, refractedWorld);
         if (shifted == null) {
@@ -85,6 +116,11 @@ final class WaterRefractionReferenceMath {
             double scale = maximumScreenOffset / length;
             offsetX *= scale;
             offsetY *= scale;
+        }
+        if (water != null) {
+            double shore = shorelineWeight(water, thickness);
+            offsetX *= shore;
+            offsetY *= shore;
         }
         double shiftedX = centreUvX + offsetX;
         double shiftedY = centreUvY + offsetY;
@@ -122,6 +158,7 @@ final class WaterRefractionReferenceMath {
         }
         double deviceDepth = depth[y * width + x];
         double sceneY;
+        double sceneDistance = MAX_PATH;
         if (deviceDepth >= 1.0) {
             sceneY = water.level() - farPlane;
         } else {
@@ -137,6 +174,7 @@ final class WaterRefractionReferenceMath {
                         FallbackReason.NONE);
             }
             sceneY = sceneWorld.y;
+            sceneDistance = world.distance(sceneWorld);
         }
         double thickness = water.level() - sceneY;
         if (!(thickness > 0.0)) {
@@ -152,46 +190,98 @@ final class WaterRefractionReferenceMath {
         Vector3d normal = waveNormal(water, world.x, world.z, timeSeconds);
         Offset offset = offset(projection, view, world, normal, camera, centreX, centreY,
                 refraction.ior(), thickness, refraction.thicknessScale(),
-                refraction.strength(), refraction.maximumScreenOffset());
-        FallbackReason fallback = offset.fallback();
-        if (fallback == FallbackReason.NONE) {
-            int sampleX = clamp((int) Math.floor(offset.shiftedX() * width), 0, width - 1);
-            int sampleY = clamp((int) Math.floor(offset.shiftedY() * height), 0, height - 1);
-            double shiftedDepth = depth[sampleY * width + sampleX];
-            if (shiftedDepth >= 1.0) {
-                fallback = FallbackReason.NO_BACKGROUND;
+                refraction.strength(), refraction.maximumScreenOffset(), water);
+        boolean edgeFadeTint = refraction.offscreenFallback() == WaterRefractionSettings.OffscreenFallback.EDGE_FADE_TINT;
+        if (offset.fallback() != FallbackReason.NON_FINITE && offset.travel() > 0) {
+            double wet = thickness / -viewDirection.y;
+            double fade = tapConfidence(wet, refraction.foregroundRejectionBias());
+            double dx = offset.x() * fade;
+            double dy = offset.y() * fade;
+            if (edgeFadeTint && refraction.maximumScreenOffset() > 0) {
+                double band = 2 * refraction.maximumScreenOffset();
+                dx *= smoothstep(0, band, (dx > 0 ? width - 1 - x : x) / (double) width);
+                dy *= smoothstep(0, band, (dy > 0 ? height - 1 - y : y) / (double) height);
+            }
+            double shiftedX = centreX + dx;
+            double shiftedY = centreY + dy;
+            boolean onScreen = shiftedX >= 0 && shiftedX <= 1 && shiftedY >= 0 && shiftedY <= 1;
+            offset = new Offset(dx, dy, shiftedX, shiftedY, thickness, offset.travel(),
+                    onScreen ? FallbackReason.NONE : FallbackReason.OUTSIDE_SCREEN);
+        }
+        Footprint footprint = new Footprint(List.of(), offset.fallback());
+        if (offset.fallback() == FallbackReason.NONE && offset.travel() > 0) {
+            double shiftedX = offset.shiftedX();
+            double shiftedY = offset.shiftedY();
+            double borderInPixels = Math.min(Math.min(shiftedX, 1 - shiftedX) * width,
+                    Math.min(shiftedY, 1 - shiftedY) * height);
+            Footprint shifted = footprint(water, refraction, projection, view, camera,
+                    width, height, depth, shiftedX, shiftedY);
+            double edgeFade = edgeFadeTint ? 1 : smoothstep(0, 2, borderInPixels);
+            if (shifted.coverage() <= COVERAGE_EPSILON || edgeFade <= COVERAGE_EPSILON) {
+                footprint = new Footprint(List.of(), shifted.fallback() == FallbackReason.NONE
+                        ? FallbackReason.NO_BACKGROUND : shifted.fallback());
+            } else if (edgeFade < 1 - COVERAGE_EPSILON) {
+                footprint = footprint(water, refraction, projection, view, camera, width, height, depth,
+                        centreX + offset.x() * edgeFade, centreY + offset.y() * edgeFade);
             } else {
-                Vector3d sampledWorld = unproject(projection, view,
-                        offset.shiftedX(), offset.shiftedY(), shiftedDepth);
-                if (sampledWorld == null) {
-                    fallback = FallbackReason.NO_BACKGROUND;
-                } else {
-                    double sceneDistance = viewPoint(view, sampledWorld).length();
-                    Vector3d direction = new Vector3d(sampledWorld)
-                            .sub(camera.x, camera.y, camera.z);
-                    double directionLength = direction.length();
-                    double waterDistance = -1.0;
-                    if (directionLength > 1.0e-6) {
-                        direction.div(directionLength);
-                        if (Math.abs(direction.y) > 1.0e-6) {
-                            waterDistance = (water.level() - camera.y) / direction.y;
-                        }
-                    }
-                    if (!(waterDistance > 0.0)
-                            || foregroundRejected(waterDistance, sceneDistance,
-                                    refraction.foregroundRejectionBias())) {
-                        fallback = FallbackReason.FOREGROUND;
-                    }
-                }
+                footprint = shifted;
             }
         }
+        double centrePath = Math.min(MAX_PATH, Math.min(sceneDistance, exitDistance(water, world, viewDirection)));
         return new Evaluation(true, world, normal, thickness, centreX, centreY,
-                offset, fallback);
+                offset, footprint.fallback(), centrePath, footprint.taps());
     }
 
-    /** Foreground rule: the opaque sample is closer than the water plane by more than the bias. */
-    static boolean foregroundRejected(double waterDistance, double sceneDistance, double bias) {
-        return waterDistance - sceneDistance > bias;
+    private static Footprint footprint(WaterSurfaceSettings water, WaterRefractionSettings refraction,
+                                       Matrix4f projection, Matrix4f view, Vector3f camera,
+                                       int width, int height, float[] depth, double u, double v) {
+        double px = u * width - 0.5;
+        double py = v * height - 0.5;
+        var taps = new ArrayList<Tap>(4);
+        FallbackReason fallback = FallbackReason.NO_BACKGROUND;
+        for (int j = (int) Math.floor(py); j <= (int) Math.floor(py) + 1; j++) {
+            for (int i = (int) Math.floor(px); i <= (int) Math.floor(px) + 1; i++) {
+                double weight = (1 - Math.abs(px - i)) * (1 - Math.abs(py - j));
+                if (weight <= 0 || i < 0 || j < 0 || i >= width || j >= height) continue;
+                double device = depth[j * width + i];
+                if (device >= 1) continue;
+                Vector3d receiver = unproject(projection, view, (i + 0.5) / width,
+                        (j + 0.5) / height, device);
+                if (receiver == null) continue;
+                Vector3d eye = new Vector3d(camera);
+                if (receiver.y >= water.level() || !inside(water, receiver, 0.001)) {
+                    if (fallback != FallbackReason.NONE) fallback = FallbackReason.FOREGROUND;
+                    continue;
+                }
+                double entry = (eye.y - water.level()) / (eye.y - receiver.y);
+                Vector3d surface = eye.lerp(receiver, entry, new Vector3d());
+                if (!(entry > 0 && entry < 1) || !inside(water, surface, 0)) continue;
+                double wet = receiver.distance(surface);
+                double accepted = weight * tapConfidence(wet, refraction.foregroundRejectionBias());
+                taps.add(new Tap(i, j, Math.min(wet, MAX_PATH), accepted));
+                fallback = FallbackReason.NONE;
+            }
+        }
+        return new Footprint(taps, fallback);
+    }
+
+    private static boolean inside(WaterSurfaceSettings water, Vector3d p, double tolerance) {
+        return p.x >= water.minX() - tolerance && p.x <= water.maxX() + tolerance
+                && p.z >= water.minZ() - tolerance && p.z <= water.maxZ() + tolerance;
+    }
+
+    private static double exitDistance(WaterSurfaceSettings water, Vector3d origin, Vector3d ray) {
+        return Math.min(MAX_PATH, Math.min(exitAxis(origin.x, ray.x, water.minX(), water.maxX()),
+                exitAxis(origin.z, ray.z, water.minZ(), water.maxZ())));
+    }
+
+    private static double exitAxis(double origin, double direction, double min, double max) {
+        if (Math.abs(direction) < 1.0e-7) return Double.POSITIVE_INFINITY;
+        return Math.max(0, ((direction > 0 ? max : min) - origin) / direction);
+    }
+
+    static double tapConfidence(double wetPath, double transition) {
+        return smoothstep(0, Math.max(transition, 1.0e-4), wetPath);
     }
 
     /** Bilinear expected background for an evaluation, including the fallback mode. */
@@ -206,7 +296,7 @@ final class WaterRefractionReferenceMath {
             return sampleBilinear(rgba, width, height, evaluation.offset().shiftedX(),
                     evaluation.offset().shiftedY());
         }
-        if (refraction.offscreenFallback() == WaterRefractionSettings.OffscreenFallback.TINT) {
+        if (refraction.offscreenFallback() != WaterRefractionSettings.OffscreenFallback.UNREFRACTED) {
             return new Vector3f(refraction.offscreenFallbackColor());
         }
         return sampleBilinear(rgba, width, height, evaluation.centreX(), evaluation.centreY());
@@ -231,14 +321,38 @@ final class WaterRefractionReferenceMath {
     static Vector3f composite(WaterSurfaceSettings water, WaterRefractionSettings refraction,
                               Evaluation evaluation, Vector3f camera,
                               float[] rgba, int width, int height) {
-        if (!evaluation.water()) {
-            return sampleBilinear(rgba, width, height, evaluation.centreX(),
-                    evaluation.centreY());
+        Vector3f centre = sampleBilinear(rgba, width, height, evaluation.centreX(), evaluation.centreY());
+        if (!evaluation.water()) return centre;
+        var viewDirection = new Vector3d(camera).sub(evaluation.world()).normalize();
+        double cosine = clamp(viewDirection.dot(evaluation.normal()), 0, 1);
+        double fresnel = 0.02 + 0.98 * Math.pow(1 - cosine, 5);
+        double shore = shorelineWeight(water, evaluation.thickness());
+        Vector3f transmitted = new Vector3f();
+        double coverage = 0;
+        for (Tap tap : evaluation.taps()) {
+            int index = 4 * (tap.y() * width + tap.x());
+            var sample = new Vector3f(rgba[index], rgba[index + 1], rgba[index + 2]);
+            var shallow = transmit(water, sample, tap.path()).lerp(sample, (float) (1 - shore));
+            transmitted.fma((float) tap.weight(), shallow);
+            coverage += tap.weight();
         }
-        Vector3f background = sampleBackground(evaluation, refraction, rgba, width, height);
-        Shade shade = shade(water, new Vector3f(evaluation.world()),
-                new Vector3f(evaluation.normal()), camera, evaluation.thickness());
-        return background.lerp(shade.colour(), (float) shade.alpha());
+        if (coverage > COVERAGE_EPSILON) {
+            return transmitted.div((float) coverage).lerp(water.reflectionFallback(), (float) (fresnel * shore));
+        }
+        Vector3f fallback = refraction.offscreenFallback() != WaterRefractionSettings.OffscreenFallback.UNREFRACTED
+                ? refraction.offscreenFallbackColor() : centre;
+        Vector3f shadedFallback = transmit(water, fallback, evaluation.centrePath())
+                .lerp(water.reflectionFallback(), (float) fresnel);
+        return fallback.lerp(shadedFallback, (float) shore);
+    }
+
+    private static double shorelineWeight(WaterSurfaceSettings water, double thickness) {
+        return water.shoreFadeDistance() <= 0 ? 1 : smoothstep(0, water.shoreFadeDistance(), thickness);
+    }
+
+    private static Vector3f transmit(WaterSurfaceSettings water, Vector3f colour, double path) {
+        return new Vector3f(water.waterColor()).lerp(colour,
+                (float) Math.exp(-water.absorptionDensity() * path));
     }
 
     /** Independent two-train wave normal, matching the documented formula. */

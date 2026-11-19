@@ -29,8 +29,10 @@ import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
  * screen-space refraction variant and one cubemap sampler; it borrows the scene
  * colour/depth framebuffers and the IBL environment and never closes them.  It
  * copies the opaque scene colour into its own full-size target, then draws the
- * finite world-space rectangle at {@code y == level}.  Fragments compare their
- * plane depth against the shared scene depth (no depth attachment: the pass
+ * finite world-space rectangle at {@code y == level}. When the near plane can
+ * clip the waterline, the same mesh covers the screen and fragments intersect
+ * their view ray with the bounded plane. Fragments compare their plane depth
+ * against the shared scene depth (no depth attachment: the pass
  * samples the only copy), derive the vertical water thickness, and alpha-blend
  * absorption, shoreline fade and a Fresnel-weighted reflection over the copied
  * background.</p>
@@ -38,13 +40,14 @@ import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
  * <p>Screen-space refraction is opt-in through {@link WaterRefractionSettings}.
  * The water shader then samples a separate single-sample background copy at a
  * normal/view/thickness-derived screen offset; it never samples the colour
- * attachment it writes.  Shared opaque depth at the shifted pixel rejects
- * foreground lookups, off-screen lookups use the configured fallback, and the
- * offset is clamped to the configured UV bound.  When refraction is disabled
- * the base shader variant is byte-for-byte the pre-refraction shader and the
- * output is identical to the original water pass.</p>
+ * attachment it writes. Each bilinear tap uses matching opaque depth to reject
+ * foreground and out-of-pool samples. Shoreline fade, partial tap coverage and
+ * proximity to a screen edge reduce the offset. The lookup uses only the
+ * accepted taps, or the configured fallback if the lookup is unusable. The
+ * configured UV bound still caps displacement. With refraction disabled, the
+ * legacy colour and blending model is preserved.</p>
  *
- * <p>Limitations are deliberate: no underwater volume, no chromatic dispersion,
+ * <p>The separate underwater pass handles finite-path tint. This pass has no chromatic dispersion,
  * no screen-space reflection, no fluid simulation, no multiple water layers and
  * no depth write.  A camera looking exactly along the plane is rejected per
  * fragment and keeps the background instead of extrapolating an unstable
@@ -80,6 +83,7 @@ public final class WaterSurfacePass implements AutoCloseable {
     private final int samples;
     private final Matrix4f model = new Matrix4f();
     private final Matrix4f inverseView = new Matrix4f();
+    private final Vector3f nearCorner = new Vector3f();
     private final Vector3f cameraPosition = new Vector3f();
     private final Vector3f waterColor = new Vector3f();
     private final Vector3f reflectionFallback = new Vector3f();
@@ -323,6 +327,7 @@ public final class WaterSurfacePass implements AutoCloseable {
                 .scale(settings.width(), 1.0f, settings.depth());
         cameraPosition.set(frame.cameraPositionX(), frame.cameraPositionY(),
                 frame.cameraPositionZ());
+        inverseView.set(frame.view()).invert();
         settings.waterColorTo(waterColor);
         settings.reflectionFallbackTo(reflectionFallback);
 
@@ -330,8 +335,11 @@ public final class WaterSurfacePass implements AutoCloseable {
                 .setUniformMat4(activeShader, "uView", frame.view())
                 .setUniformMat4(activeShader, "uModel", model)
                 .setUniformMat4(activeShader, "uInverseProjection", frame.inverseJitteredProjection())
-                .setUniformMat4(activeShader, "uInverseView",
-                        inverseView.set(frame.view()).invert())
+                .setUniformMat4(activeShader, "uInverseView", inverseView)
+                .setUniformInt(activeShader, "uRepairNearPlane",
+                        nearPlaneCrossesWater(frame.inverseJitteredProjection(), settings.level()) ? 1 : 0)
+                .setUniformVec2(activeShader, "uWaterMinimum", settings.minX(), settings.minZ())
+                .setUniformVec2(activeShader, "uWaterMaximum", settings.maxX(), settings.maxZ())
                 .setUniformVec3(activeShader, "uCameraPosition", cameraPosition)
                 .setUniformFloat(activeShader, "uFarPlane", frame.farPlane())
                 .setUniformVec3(activeShader, "uWaterColor", waterColor)
@@ -410,6 +418,23 @@ public final class WaterSurfacePass implements AutoCloseable {
         cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
     }
 
+    // The water mesh is cheaper when its visible portion is beyond the near
+    // plane. If the eye-to-near pyramid straddles the water, extend coverage
+    // analytically in the fragment stage instead of changing the scene near plane.
+    private boolean nearPlaneCrossesWater(Matrix4f inverseProjection, float level) {
+        float minY = cameraPosition.y;
+        float maxY = cameraPosition.y;
+        for (int y = -1; y <= 1; y += 2) {
+            for (int x = -1; x <= 1; x += 2) {
+                inverseProjection.transformProject(nearCorner.set(x, y, -1.0f));
+                inverseView.transformPosition(nearCorner);
+                minY = Math.min(minY, nearCorner.y);
+                maxY = Math.max(maxY, nearCorner.y);
+            }
+        }
+        return level >= minY && level <= maxY;
+    }
+
     private static void validateBackgroundCopy(Framebuffer backgroundCopy, Framebuffer target) {
         if (backgroundCopy == null) {
             throw new IllegalArgumentException(
@@ -436,23 +461,10 @@ public final class WaterSurfacePass implements AutoCloseable {
     }
 
     static String fragmentSource(boolean multisample, boolean refraction) {
-        try (var input = WaterSurfacePass.class.getResourceAsStream(FRAGMENT_SHADER)) {
-            if (input == null) throw new GlException("missing water surface shader");
-            String source = new String(input.readAllBytes(),
-                    java.nio.charset.StandardCharsets.UTF_8);
-            if (!source.startsWith("#version")) {
-                throw new GlException("missing GLSL version in water surface shader");
-            }
-            if (!multisample && !refraction) return source;
-            int newline = source.indexOf('\n');
-            StringBuilder defines = new StringBuilder();
-            if (multisample) defines.append("#define WATER_MSAA\n");
-            if (refraction) defines.append("#define WATER_REFRACTION\n");
-            return source.substring(0, newline + 1) + defines
-                    + source.substring(newline + 1);
-        } catch (java.io.IOException failure) {
-            throw new GlException("cannot read water surface shader", failure);
-        }
+        StringBuilder defines = new StringBuilder();
+        if (multisample) defines.append("#define WATER_MSAA\n");
+        if (refraction) defines.append("#define WATER_REFRACTION\n");
+        return WaterShaderSource.fragment(FRAGMENT_SHADER, defines.toString());
     }
 
     private static ShaderProgram buildShader(int samples, boolean refraction) {

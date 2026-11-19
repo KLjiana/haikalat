@@ -21,6 +21,9 @@ import java.util.Objects;
  * dispersion, multi-layer water bodies, caustics and refraction of other
  * transparent surfaces.  Glass/shield refraction ({@code RefractionSettings})
  * remains a separate single-layer material path and is not reused here.</p>
+ *
+ * @param foregroundRejectionBias wet-path distance in metres over which a
+ *        geometrically valid tap fades in; zero uses a hard rejection boundary
  */
 public record WaterRefractionSettings(
         boolean enabled,
@@ -41,7 +44,7 @@ public record WaterRefractionSettings(
     public static final float MAXIMUM_SCREEN_OFFSET = 0.5f;
     /** Largest accepted vertical-thickness multiplier. */
     public static final float MAXIMUM_THICKNESS_SCALE = 8.0f;
-    /** Largest accepted foreground rejection bias in world metres. */
+    /** Largest accepted wet-path confidence transition distance in metres. */
     public static final float MAXIMUM_FOREGROUND_REJECTION_BIAS = 10.0f;
     /** Largest accepted linear component of the off-screen fallback colour. */
     public static final float MAXIMUM_COLOR_COMPONENT = 16.0f;
@@ -54,7 +57,9 @@ public record WaterRefractionSettings(
         /** Keep the background already under this pixel and only shade the water over it. */
         UNREFRACTED(0),
         /** Replace the refracted lookup with {@link #offscreenFallbackColor()}. */
-        TINT(1);
+        TINT(1),
+        /** Ease outward displacement at viewport edges; use tint if no wet receiver is visible. */
+        EDGE_FADE_TINT(2);
 
         private final int shaderValue;
 
@@ -107,7 +112,7 @@ public record WaterRefractionSettings(
         return enabled;
     }
 
-    /** Linear fallback colour used by {@link OffscreenFallback#TINT}; defensive copy. */
+    /** Linear fallback colour used by the tint policies; defensive copy. */
     @Override
     public Vector3f offscreenFallbackColor() {
         return new Vector3f(offscreenFallbackColor);

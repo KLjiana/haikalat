@@ -11,7 +11,7 @@ import java.util.Objects;
  * media: for a camera strictly below the configured water plane it attenuates
  * the current scene colour by {@code exp(-absorptionDensity * path)} and adds
  * {@code scatterColor * (1 - attenuation)}, where {@code path} is the
- * world-space distance from the camera to the reconstructed scene surface,
+ * world-space distance through water up to the reconstructed scene surface,
  * clamped to {@link #maximumDistanceMetres()}.  Distances are world units
  * interpreted as metres, matching the rest of Render3D.  There is no
  * dispersion, no multi-layer water and no wave displacement of the entry

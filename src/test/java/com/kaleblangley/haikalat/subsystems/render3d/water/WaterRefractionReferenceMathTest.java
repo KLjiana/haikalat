@@ -156,10 +156,10 @@ class WaterRefractionReferenceMathTest {
 
     @Test
     void foregroundPredicateUsesTheBiasAgainstTheWaterDistance() {
-        assertFalse(WaterRefractionReferenceMath.foregroundRejected(10.0, 9.96, 0.05));
-        assertTrue(WaterRefractionReferenceMath.foregroundRejected(10.0, 9.90, 0.05));
-        assertFalse(WaterRefractionReferenceMath.foregroundRejected(10.0, 12.0, 0.05));
-        assertTrue(WaterRefractionReferenceMath.foregroundRejected(10.0, 9.94, 0.05));
+        assertEquals(0.0, WaterRefractionReferenceMath.tapConfidence(-0.01, 0.05));
+        assertEquals(0.0, WaterRefractionReferenceMath.tapConfidence(0.0, 0.05));
+        assertEquals(0.5, WaterRefractionReferenceMath.tapConfidence(0.025, 0.05), 1e-12);
+        assertEquals(1.0, WaterRefractionReferenceMath.tapConfidence(0.05, 0.05));
     }
 
     @Test

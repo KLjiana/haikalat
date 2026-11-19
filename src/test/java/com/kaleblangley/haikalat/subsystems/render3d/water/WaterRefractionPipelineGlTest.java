@@ -108,6 +108,7 @@ class WaterRefractionPipelineGlTest {
         WaterSurfaceSettings water = water();
         WaterRefractionSettings refraction = refraction();
         try (Fixture fixture = new Fixture(water, refraction)) {
+            fixture.pipeline.applyWaterRefraction(refraction(0.0f));
             fixture.frame(0.0f);
             float[] baseline = fixture.capture();
             fixture.pipeline.applyWaterRefraction(refraction);
@@ -152,7 +153,7 @@ class WaterRefractionPipelineGlTest {
                 projection, view, new Vector3d(world), new Vector3d(normal),
                 fixture.camera.position(), centreU, centreV,
                 refraction.ior(), THICKNESS, refraction.thicknessScale(), refraction.strength(),
-                refraction.maximumScreenOffset());
+                refraction.maximumScreenOffset(), water);
         assertTrue(offset.length() > 0.02,
                 "the chosen fixture pixel must have a measurable shifted lookup");
         return rayPointAtHeight(projection, view, fixture.camera.position(),
@@ -246,8 +247,12 @@ class WaterRefractionPipelineGlTest {
     }
 
     private static WaterRefractionSettings refraction() {
+        return refraction(1.5f);
+    }
+
+    private static WaterRefractionSettings refraction(float strength) {
         return WaterRefractionSettings.builder()
-                .enabled(true).ior(1.333f).strength(1.5f).maximumScreenOffset(0.2f)
+                .enabled(true).ior(1.333f).strength(strength).maximumScreenOffset(0.2f)
                 .thicknessScale(2.0f).foregroundRejectionBias(0.05f)
                 .offscreenFallback(WaterRefractionSettings.OffscreenFallback.UNREFRACTED)
                 .build();

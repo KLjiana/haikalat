@@ -187,6 +187,57 @@ class WaterSurfacePassGlTest {
         }
     }
 
+    @Test
+    void aSubNearWaterlineKeepsCoverageWithoutDrawingOutsideThePoolOrOverForeground() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            var device = new GlRenderDevice();
+            var camera = new Camera(new Vector3f(0, 0.01f, 0), new Vector3f(0, 1, 0), -90, 0);
+            Matrix4f view = camera.getViewMatrix(new Matrix4f());
+            Matrix4f wideNear = new Matrix4f().perspective((float) Math.toRadians(55), 1, 0.1f, 50);
+            Matrix4f smallNear = new Matrix4f().perspective((float) Math.toRadians(55), 1, 0.005f, 50);
+            var water = WaterSurfaceSettings.builder().enabled(true).level(LEVEL)
+                    .bounds(-0.003f, -2, 0.05f, 1).waveAmplitude(0).shoreFadeDistance(0)
+                    .reflectionFallback(1, 0, 0).build();
+            try (Framebuffer source = sceneSource(); Framebuffer target = waterTarget();
+                 WaterSurfacePass pass = new WaterSurfacePass(1)) {
+                renderSource(source, smallNear, 3);
+                Vector3f background = readFramebufferColor(source, 0, 0);
+                var reference = render(device, pass, source, target,
+                        camera, smallNear, view, water, 0, false);
+                renderSource(source, wideNear, 3);
+                var actual = render(device, pass, source, target,
+                        camera, wideNear, view, water, 0, false);
+                int wet = pixel(SIZE / 2, 8);
+                Vector3f expectedWet = referencePixel(water, camera, smallNear, view,
+                        SIZE / 2, 8, 3, background);
+                assertTrue(expectedWet.distance(background) > 0.05f,
+                        "the sub-near fixture must produce a visible change");
+                assertPixel(expectedWet, reference, wet, 1.0e-3f,
+                        "the small-near control must visibly draw water");
+                for (int channel = 0; channel < 4; channel++) {
+                    assertEquals(reference.get(wet * 4 + channel), actual.get(wet * 4 + channel),
+                            1.0e-3f, "water under the 0.1 m near plane");
+                }
+                assertPixel(background, actual, pixel(2, 8), 0, "outside finite pool");
+                int shallowAngle = pixel(SIZE / 2, 30);
+                Vector3f expectedShallow = referencePixel(water, camera, wideNear, view,
+                        SIZE / 2, 30, 3, background);
+                assertTrue(expectedShallow.distance(background) > 0.05f,
+                        "the blocker fixture must otherwise show water");
+                assertPixel(expectedShallow, actual, shallowAngle, 1.0e-3f,
+                        "the foreground test pixel must show water without the blocker");
+                renderSource(source, wideNear, 0.15f);
+                var blocked = render(device, pass, source, target,
+                        camera, wideNear, view, water, 0, false);
+                assertPixel(background, blocked, shallowAngle, 0, "opaque foreground occludes water");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
     private static FloatBuffer render(GlRenderDevice device, WaterSurfacePass pass, Framebuffer source,
                                       Framebuffer target, Camera camera, Matrix4f projection,
                                       Matrix4f view, WaterSurfaceSettings settings,

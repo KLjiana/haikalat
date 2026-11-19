@@ -26,7 +26,9 @@ import java.util.Objects;
  * fragment reconstructs the world position from depth and inverse
  * view-projection and writes
  * {@code scene * exp(-density * path) + scatter * (1 - exp(-density * path))},
- * with {@code path = min(|world - camera|, maximumDistance)}.  With a camera at
+ * with {@code path} limited to the visible ray segment below the surface and
+ * inside its XZ footprint, capped at the maximum distance. The level-only
+ * overload retains the legacy whole-ray behaviour. With a camera at
  * or above the plane the executor copies the producer into the target
  * unchanged, so the frame stays byte-identical while the graph topology stays
  * stable.</p>
@@ -71,7 +73,7 @@ public final class UnderwaterVolumePass implements AutoCloseable {
         try {
             createdShader = ShaderProgram.builder()
                     .resource(UnderwaterVolumePass.class, ShaderStage.VERTEX, VERTEX_SHADER)
-                    .resource(UnderwaterVolumePass.class, ShaderStage.FRAGMENT, FRAGMENT_SHADER)
+                    .stage(ShaderStage.FRAGMENT, WaterShaderSource.fragment(FRAGMENT_SHADER, ""), FRAGMENT_SHADER)
                     .link();
             createdScreen = screenMesh();
             shader = createdShader;
@@ -103,6 +105,25 @@ public final class UnderwaterVolumePass implements AutoCloseable {
                        int sceneColorTexture, int singleSampleDepthTexture,
                        TemporalFrameState.FrameParameters frame,
                        UnderwaterVolumeSettings settings, float waterLevelMetres) {
+        record(cmd, sceneColorSource, target, sceneColorTexture, singleSampleDepthTexture,
+                frame, settings, waterLevelMetres, null);
+    }
+
+    /** Uses the active finite surface footprint as the volume's side boundaries. */
+    public void record(CommandBuffer cmd, Framebuffer sceneColorSource, Framebuffer target,
+                       int sceneColorTexture, int singleSampleDepthTexture,
+                       TemporalFrameState.FrameParameters frame,
+                       UnderwaterVolumeSettings settings, WaterSurfaceSettings surface) {
+        Objects.requireNonNull(surface, "surface");
+        record(cmd, sceneColorSource, target, sceneColorTexture, singleSampleDepthTexture,
+                frame, settings, surface.level(), surface);
+    }
+
+    private void record(CommandBuffer cmd, Framebuffer sceneColorSource, Framebuffer target,
+                        int sceneColorTexture, int singleSampleDepthTexture,
+                        TemporalFrameState.FrameParameters frame,
+                        UnderwaterVolumeSettings settings, float waterLevelMetres,
+                        WaterSurfaceSettings surface) {
         ensureOpen();
         Objects.requireNonNull(cmd, "cmd");
         Objects.requireNonNull(sceneColorSource, "sceneColorSource");
@@ -152,6 +173,11 @@ public final class UnderwaterVolumePass implements AutoCloseable {
                 .setUniformMat4(shader, "uInverseViewProjection", inverseViewProjection)
                 .setUniformVec3(shader, "uCameraPosition", cameraPosition)
                 .setUniformFloat(shader, "uWaterLevel", waterLevelMetres)
+                .setUniformInt(shader, "uFiniteWater", surface == null ? 0 : 1)
+                .setUniformVec2(shader, "uWaterMinimum",
+                        surface == null ? 0.0f : surface.minX(), surface == null ? 0.0f : surface.minZ())
+                .setUniformVec2(shader, "uWaterMaximum",
+                        surface == null ? 0.0f : surface.maxX(), surface == null ? 0.0f : surface.maxZ())
                 .setUniformFloat(shader, "uAbsorptionDensity", settings.absorptionDensity())
                 .setUniformVec3(shader, "uScatterColor", scatterColor)
                 .setUniformFloat(shader, "uMaximumDistance", settings.maximumDistanceMetres())

@@ -6,14 +6,15 @@
 // strictly below the water plane the fragment reconstructs the world position
 // of the visible surface from the single-sample scene depth and computes
 //
-//     path        = clamp(length(world - camera), 0, uMaximumDistance)
+//     path        = min(length of the visible ray segment inside water, uMaximumDistance)
 //     attenuation = exp(-clamp(uAbsorptionDensity, 0, 8) * path)
 //     output.rgb  = scene.rgb * attenuation + uScatterColor * (1 - attenuation)
 //
 // This is a Beer-Lambert path attenuation plus a scatter tint. There is no
 // dispersion, no multi-layer water, no wave displacement of the entry plane and
-// no absorption between the camera and the first visible surface beyond the
-// reconstructed depth. Only the visible depth buffer can be attenuated.
+// no absorption beyond the first visible surface. Finite water clips the ray
+// against the top and sides; opaque depth supplies the endpoint (no fake floor).
+// The level-only compatibility path retains whole-ray attenuation.
 //
 // A camera at or above the water plane keeps the scene colour unchanged. The
 // production executor records only the colour blit on that path, so the frame
@@ -29,7 +30,7 @@ uniform sampler2D uSceneDepth;
 uniform mat4 uInverseViewProjection;
 uniform vec3 uCameraPosition;
 uniform vec2 uViewportSize;
-uniform float uWaterLevel;
+uniform int uFiniteWater;
 uniform float uAbsorptionDensity;
 uniform vec3 uScatterColor;
 uniform float uMaximumDistance;
@@ -70,13 +71,22 @@ void main() {
     }
     vec3 world = worldHomogeneous.xyz / worldHomogeneous.w;
 
-    float path = length(world - uCameraPosition);
-    if (!(path >= 0.0)) {
+    vec3 ray = world - uCameraPosition;
+    float path = length(ray);
+    if (!(path > 1.0e-6)) {
         FragColor = scene;
         return;
     }
     float maximumDistance = clamp(uMaximumDistance, MINIMUM_DISTANCE_METRES,
             MAXIMUM_DISTANCE_METRES);
+    if (uFiniteWater != 0) {
+        vec2 interval = waterInterval(uCameraPosition, ray / path, path);
+        path = interval.y - interval.x;
+        if (!(path > 0.0)) {
+            FragColor = scene;
+            return;
+        }
+    }
     path = min(path, maximumDistance);
     float density = clamp(uAbsorptionDensity, 0.0, MAXIMUM_DENSITY);
 
