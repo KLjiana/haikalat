@@ -380,6 +380,17 @@ RGBA16F 颜色附件、无深度附件，激活要求 HDR、单采样和不透�
 `docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、限制与接线验证见
 [体积云技术卡](../../planning/v0.28.1-s4-clouds.md)与[体积烟雾技术卡](../../planning/v0.28.1-s5-smoke.md)。
 
+#40 展位增强：advanced `VolumetricCloudSettings` record 末尾增加 `shapeDetail`、
+`skyLightColor`、`aerialPerspectiveDistanceMetres`；保留原 20 参数构造器，新增值均默认为零。
+可通过 `withCloudscape(float, Vector3f, float)` 选择开启，`withEnabled()`、`withCoverageField()`
+保留新配置；`skyLightColor()` 返回防御性拷贝。依赖 record 组件列表的调用方需更新；未新增顶层类型，
+稳定 API 不变。详见[技术卡](../../planning/v0.28.1-s4-clouds.md#2026-11-18-展位增强独立于首版验收)。
+
+#40 云体模型：`VolumetricCloudSettings` 再追加 `bodyStrength`、`multipleScatteringStrength` 组件。
+旧 20/23 参数构造器均保留，两项默认为零；通过 `withCloudModel(float, float)` 独立启用，既有
+`with*` 保留其值。反射读取固定 record 组件列表的调用方需更新；稳定 API 不变，无新增 public 顶层
+类型。详见[云体模型与内部接线](../../planning/v0.28.1-s4-clouds.md#2026-11-18-云体模型与内部接线)。
+
 v0.28.1（候选）S3 #28/#30/#36 生产接线没有删除 stable 类型或修改稳定签名。advanced
 `RenderFeatureSettings` canonical record 由 22 个组件扩展为 25 个（末尾新增 `weightedOit`、
 `planarReflections`、`caustics`，默认各自 `disabled()`）；**本次保留原 19 参数构造器**，它委托给新
@@ -420,6 +431,12 @@ shadow map。默认关闭时无 pass/资源/draw，拓扑与基线一致；MSAA/
 没有新增 public 顶层类型，`docs/architecture/public-api/render3d.allowlist` 无需新增条目。技术范围、顺序、
 限制与验证见[DDGI 技术卡](../../planning/v0.28.1-s5-ddgi.md)、[VCT 技术卡](../../planning/v0.28.1-s5-vct.md)
 与[发束技术卡](../../planning/v0.28.1-s4-hair.md)。
+
+v0.28.1（候选）#45 轮廓修复收紧了 advanced `VctPass.recordComposite(...)`：直接调用时，在
+`sceneDepthTexture` 和 `ExternalCamera` 之间传入 `int sceneNormalTexture`。它是与深度、HDR 目标
+逐像素对齐的单采样 2D 纹理，RG 保存 signed oct 世界空间几何法线（例如 +Z 编码为 `(0, 0)`）。
+旧的仅深度签名已移除，因为相邻深度不能可靠区分斜面和遮挡轮廓。`RenderPipeline` 自动提供共享法线，
+其 VCT 入口无需迁移。
 
 v0.28.1（候选）S5 #39/S4 #41/#42 的 feature-control 接线（`codex/render-wiring-b4`）没有删除
 stable 类型或修改稳定签名，也没有新增 public 顶层类型。`RenderFeatureSettings` 的 19 个 canonical

@@ -110,8 +110,12 @@ LocalShadowPipelineSettings quality = new LocalShadowPipelineSettings(
 
 `HARD`、`PCF_3X3` 和 `PCF_5X5` 分别采 1、9、25 个 tap。point face、spot tile 和 CSM tile 都按
 kernel 半径保留 guard band，不能跨槽采样。`LocalShadowSettings.bias()` 是 depth base bias；
-`normalBias` 是沿接收面法线的世界空间偏移。先保持接近默认值并在实际模型尺度下观察 acne，再逐步
-调整；过大的 base/normal bias 会产生 peter-panning。
+`normalBias` 是沿接收面法线的世界空间偏移。PBR 点光用偏移后的位置选面和投影，正好落在面边界的
+采样仍留在该 tile 内；PBR 聚光根据光栅三角形在光源投影下的接收面斜率，在每个实际深度 texel 中心
+比较深度。先保持接近默认 bias 并在实际模型尺度下观察 acne；过大的 base/normal bias 会产生 peter-panning。
+
+真实 GL 回归 `LocalShadowsGlTest` 比较线性 HDR 的无光、无遮挡和有遮挡读回，分别检查跨面同一遮挡体、
+`legacyDefaults`/`balanced` 下的无遮挡掠射面与真实遮挡。仅验证矩阵、槽位或绘制次数无法发现这些采样错误。
 
 balanced 的预算基线 atlas 为两个 512² point block（总 1536×2048）和四个 512² spot tile（总
 1024×1024），加上 4 级 1024² CSM 时估算 depth memory 为 20 MiB。`runRender3dShadowBudgetDemo`

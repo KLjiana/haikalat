@@ -1,5 +1,9 @@
 # 变更记录
 
+## v0.28.1 候选（未发布）
+
+- 修复 VCT 轮廓处的间接光跳变、PBR 点光图集跨面漏光和聚光掠射面误遮挡。VCT 从共享表面读取同像素世界法线；advanced `VctPass.recordComposite(...)` 直接调用者须[传入法线纹理](../architecture/public-api/migrations.md)，`RenderPipeline` 入口不变。
+
 ## v0.27.0 第一阶段（构建版本仍为 0.25.0）
 
 - 2026-11-07 当前候选补充验收完成：补齐 FP32 缓存的资源核算与 SSBO 绑定清单；完整独立参考质量/时序各 12 组按原门槛通过，真实 Minecraft 17 操作/两世界/18 抓图通过。求积质量取舍单列，性能复用相同运行输入的正式样本，详见[当前候选报告](../releases/v0.27.0-current-candidate-review-2026-11-07.md)。

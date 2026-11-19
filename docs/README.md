@@ -24,6 +24,8 @@
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
 - [后续计划](planning/future-plans.md)
 - [实时渲染技术未来计划大纲](planning/realtime-rendering-roadmap.md) — 46 项技术分组、依赖、模块归属、验收与近期版本建议
+- [46 项渲染功能展览馆计划书](planning/render-feature-exhibition-plan.md) — 统一可交互视觉观察入口、46 个展位映射、实施批次与人工验收合同
+- [46 项渲染功能展览馆人工视觉验收记录](planning/render-feature-exhibition-acceptance.md) — 逐站 A/B 截图归档、观察人登记与检查清单
 
 ### 版本计划与设计快照
 

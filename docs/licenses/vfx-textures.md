@@ -13,6 +13,7 @@ Code references the original packaged assets directly:
 | scorch decal | `decals/kenney/particle_pack/scorch_01.png` | Kenney Particle Pack | luminance | linear data |
 | impact ring | `masks/kenney/light_masks/transparent/ring_a_streaks.png` | Kenney Light Masks 1.0 | alpha | linear data |
 | directional streak | `masks/kenney/light_masks/transparent/streaks_composed_a_noise.png` | Kenney Light Masks 1.0 | alpha | linear data |
+| exhibition projected decals | `masks/kenney/light_masks/transparent/circle_{a,b,c}_streaks_noise.png` | Kenney Light Masks 1.0 | alpha | linear data |
 
 Mask textures are data textures and must not receive sRGB decoding.
 
