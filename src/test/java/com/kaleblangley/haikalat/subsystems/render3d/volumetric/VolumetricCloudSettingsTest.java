@@ -72,6 +72,60 @@ class VolumetricCloudSettingsTest {
     }
 
     @Test
+    void cloudscapeIsOptInAndSurvivesSettingsCopies() {
+        VolumetricCloudSettings original = settings();
+        assertEquals(0.0f, original.shapeDetail());
+        assertEquals(new Vector3f(), original.skyLightColor());
+        assertEquals(0.0f, original.aerialPerspectiveDistanceMetres());
+
+        Vector3f sky = new Vector3f(0.30f, 0.39f, 0.50f);
+        VolumetricCloudSettings styled = original.withCloudscape(0.88f, sky, 11_500.0f);
+        sky.zero();
+        styled.skyLightColor().zero();
+        VolumetricCloudSettings copied = styled.withEnabled(false)
+                .withCoverageField(CloudShadowSettings.disabled());
+        assertEquals(0.88f, copied.shapeDetail());
+        assertEquals(new Vector3f(0.30f, 0.39f, 0.50f), copied.skyLightColor());
+        assertEquals(11_500.0f, copied.aerialPerspectiveDistanceMetres());
+        assertEquals(original, styled.withCloudscape(0.0f, new Vector3f(), 0.0f));
+
+        for (float invalid : new float[]{-0.01f, 1.01f, Float.NaN}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> original.withCloudscape(invalid, sky, 0.0f));
+        }
+        for (float invalid : new float[]{-1.0f, 200_001.0f, Float.POSITIVE_INFINITY}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> original.withCloudscape(0.0f, sky, invalid));
+        }
+        for (float invalid : new float[]{-0.01f, 16.01f, Float.NaN}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> original.withCloudscape(0.0f, new Vector3f(0, invalid, 0), 0.0f));
+        }
+    }
+
+    @Test
+    void cloudModelStrengthsAreIndependentOptInsAndSurviveCopies() {
+        VolumetricCloudSettings original = settings().withCloudscape(0.4f, new Vector3f(0.3f), 4000.0f);
+        assertEquals(original, original.withCloudModel(0.0f, 0.0f));
+        VolumetricCloudSettings shaped = original.withCloudModel(0.9f, 0.0f);
+        VolumetricCloudSettings lit = original.withCloudModel(0.0f, 0.8f);
+        assertEquals(0.0f, shaped.multipleScatteringStrength());
+        assertEquals(0.0f, lit.bodyStrength());
+        VolumetricCloudSettings copied = original.withCloudModel(0.9f, 0.8f)
+                .withEnabled(false).withCoverageField(CloudShadowSettings.disabled())
+                .withCloudscape(0.25f, new Vector3f(), 0.0f);
+        assertEquals(0.9f, copied.bodyStrength());
+        assertEquals(0.8f, copied.multipleScatteringStrength());
+        assertEquals(0.4f, shaped.shapeDetail());
+        assertEquals(original.skyLightColor(), lit.skyLightColor());
+        assertEquals(original.aerialPerspectiveDistanceMetres(), lit.aerialPerspectiveDistanceMetres());
+        for (float invalid : new float[]{-0.01f, 1.01f, Float.NaN, Float.POSITIVE_INFINITY}) {
+            assertThrows(IllegalArgumentException.class, () -> original.withCloudModel(invalid, 0.0f));
+            assertThrows(IllegalArgumentException.class, () -> original.withCloudModel(0.0f, invalid));
+        }
+    }
+
+    @Test
     void lightDirectionIsNormalizedAndCoefficientHelpersAreConsistent() {
         VolumetricCloudSettings settings = settings();
         assertEquals(1.0f, settings.lightDirection().length(), 1.0e-6f);

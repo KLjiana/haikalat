@@ -171,7 +171,7 @@ class VolumetricCloudSmokeWiringTest {
                     .noClear()
                     .execute((res, cmd) -> { });
 
-            RenderPipeline.addVolumetricCloudPass(graph, VolumetricPassBuilder.TRANSPARENT_PASS,
+            PipelineGeneration.addVolumetricCloudPass(graph, VolumetricPassBuilder.TRANSPARENT_PASS,
                     PostProcessTargets.GEOMETRY_PASS, (res, cmd) -> { });
             RenderPipeline.addSmokeSimulationPass(graph, (res, cmd) -> { });
             RenderPipeline.addSmokeVolumePass(graph, VolumetricCloudPass.PASS_NAME,

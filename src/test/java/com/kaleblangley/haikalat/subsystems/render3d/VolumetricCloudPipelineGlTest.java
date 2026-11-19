@@ -2,6 +2,7 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.presentation.PresentationTarget;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
@@ -195,6 +196,17 @@ class VolumetricCloudPipelineGlTest {
                     assertEquals(16, generation.volumetricClouds().lowResolutionHeight());
                     assertTrue(generation.volumetricClouds().id() != oldId,
                             "resize must publish a fresh, fully allocated cloud owner");
+
+                    // Keep the resized render extent instead of adopting the GLFW framebuffer size.
+                    pipeline.execute(new GlRenderDevice(), camera(),
+                            PresentationTarget.defaultFramebuffer(48, 32));
+                    float[] scene = pipeline.graph().readColorAttachmentRgbaFloat(
+                            PostProcessTargets.SCENE_COLOR);
+                    float[] cloud = pipeline.graph().readColorAttachmentRgbaFloat(
+                            VolumetricCloudPass.COLOR_TEXTURE);
+                    assertEquals(48 * 32 * 4, cloud.length);
+                    assertTrue(VolumetricPipelineGlFixture.countDifferences(scene, cloud) > 0,
+                            "the graph must composite clouds with the replacement pass and resized depth");
 
                     pipeline.resize(48, 32);
                     assertEquals(generation.volumetricClouds().id(),

@@ -4,19 +4,14 @@ import com.kaleblangley.haikalat.backend.GlException;
 import com.kaleblangley.haikalat.backend.GlResource;
 import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.backend.framebuffer.FramebufferDescriptor;
-import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
-import com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad;
 import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 
 /**
@@ -24,7 +19,7 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
  * full-resolution spatial/temporal reconstruction.
  *
  * <p>The pass owns a low-resolution {@code RGBA16F} cloud target (premultiplied
- * single scatter + transmittance), a full-resolution {@code RGBA16F} output
+ * scatter + remaining scene weight), a full-resolution {@code RGBA16F} output
  * target, two full-resolution history slots (cloud + depth/exposure state) and
  * three shader programs sharing one screen quad. It borrows the caller's
  * single-sample HDR colour source and one single-sample opaque depth texture;
@@ -84,22 +79,13 @@ public final class VolumetricCloudPass implements GlResource {
     /** Largest accepted target edge in pixels. */
     public static final int MAXIMUM_EXTENT = 16_384;
 
-    private static final String VERTEX_RESOURCE = "/shaders/render3d/volumetric/cloud.vert";
-    private static final String MARCH_RESOURCE = "/shaders/render3d/volumetric/cloud-march.frag";
-    private static final String RECONSTRUCT_RESOURCE =
-            "/shaders/render3d/volumetric/cloud-reconstruct.frag";
-    private static final String COMPOSITE_RESOURCE =
-            "/shaders/render3d/volumetric/cloud-composite.frag";
     private static final String FAIL_RESIZE_PROPERTY =
             "haikalat.test.failVolumetricCloudResizeAllocation";
     private static final float PROJECTION_RELATIVE_TOLERANCE = 1.0e-4f;
     private static final float DIRECTION_EPSILON = 1.0e-6f;
 
     private final VolumetricCloudSettings settings;
-    private final ShaderProgram marchProgram;
-    private final ShaderProgram reconstructProgram;
-    private final ShaderProgram compositeProgram;
-    private final ScreenQuad screen;
+    private final CloudDraws draws;
     private final CloudHistory history;
     private final Matrix4f viewScratch = new Matrix4f();
     private final Matrix4f projectionScratch = new Matrix4f();
@@ -138,26 +124,17 @@ public final class VolumetricCloudPass implements GlResource {
             throw new IllegalArgumentException("volumetric clouds are disabled");
         }
         validateExtent(width, height);
-        ShaderProgram createdMarch = null;
-        ShaderProgram createdReconstruct = null;
-        ShaderProgram createdComposite = null;
-        ScreenQuad createdScreen = null;
+        CloudDraws createdDraws = null;
         CloudHistory createdHistory = null;
         Framebuffer createdLow = null;
         Framebuffer createdOutput = null;
         try {
-            createdMarch = ShaderProgram.fromSources(vertexSource(), marchSource());
-            createdReconstruct = ShaderProgram.fromSources(vertexSource(), reconstructSource());
-            createdComposite = ShaderProgram.fromSources(vertexSource(), compositeSource());
-            createdScreen = new ScreenQuad();
+            createdDraws = new CloudDraws(settings);
             createdHistory = new CloudHistory(width, height);
             createdLow = createColorTarget(settings.lowResolutionExtent(width),
                     settings.lowResolutionExtent(height));
             createdOutput = createColorTarget(width, height);
-            marchProgram = createdMarch;
-            reconstructProgram = createdReconstruct;
-            compositeProgram = createdComposite;
-            screen = createdScreen;
+            draws = createdDraws;
             history = createdHistory;
             lowTarget = createdLow;
             outputTarget = createdOutput;
@@ -169,10 +146,7 @@ public final class VolumetricCloudPass implements GlResource {
             closeSuppressed(createdOutput, failure);
             closeSuppressed(createdLow, failure);
             closeSuppressed(createdHistory, failure);
-            closeSuppressed(createdScreen, failure);
-            closeSuppressed(createdComposite, failure);
-            closeSuppressed(createdReconstruct, failure);
-            closeSuppressed(createdMarch, failure);
+            closeSuppressed(createdDraws, failure);
             throw failure;
         }
     }
@@ -301,87 +275,12 @@ public final class VolumetricCloudPass implements GlResource {
         frameCamera = camera;
         frameExposure = exposure;
 
-        CloudShadowSettings coverage = settings.coverageField();
-        // Render the low-resolution march.
-        cmd.enableScissor(false)
-                .enableBlend(false)
-                .enableDepthTest(false)
-                .depthMask(false)
-                .enableCullFace(false)
-                .enableFramebufferSrgb(false)
-                .bindFramebuffer(lowTarget)
-                .viewport(0, 0, lowWidth, lowHeight)
-                .bindShader(marchProgram)
-                .bindTexture(DEPTH_UNIT, sceneDepthTexture)
-                .setUniformInt(marchProgram, "uSceneDepth", DEPTH_UNIT)
-                .setUniformVec2(marchProgram, "uFullExtent", width, height)
-                .setUniformVec2(marchProgram, "uLowExtent", lowWidth, lowHeight)
-                .setUniformMat4(marchProgram, "uInverseProjection", inverseProjectionScratch)
-                .setUniformMat4(marchProgram, "uInverseView", inverseViewScratch)
-                .setUniformFloat(marchProgram, "uLayerBase", settings.baseAltitudeMetres())
-                .setUniformFloat(marchProgram, "uLayerTop", settings.topAltitudeMetres())
-                .setUniformVec3(marchProgram, "uLightDirection", settings.lightDirectionInternal())
-                .setUniformVec3(marchProgram, "uLightColor", settings.lightColorInternal())
-                .setUniformFloat(marchProgram, "uDensity", settings.density())
-                .setUniformFloat(marchProgram, "uAbsorption", settings.absorption())
-                .setUniformFloat(marchProgram, "uScattering", settings.scattering())
-                .setUniformFloat(marchProgram, "uAnisotropy", settings.anisotropy())
-                .setUniformFloat(marchProgram, "uStepSizeMetres", settings.stepSizeMetres())
-                .setUniformInt(marchProgram, "uMaximumSteps", settings.maximumSteps())
-                .setUniformInt(marchProgram, "uLightSteps", settings.lightSteps())
-                .setUniformFloat(marchProgram, "uMaximumLightDistance",
-                        settings.maximumLightDistanceMetres())
-                .setUniformFloat(marchProgram, "uCloudShadowCoverage", coverage.coverage())
-                .setUniformFloat(marchProgram, "uCloudShadowSoftness", coverage.softness())
-                .setUniformFloat(marchProgram, "uCloudShadowScale", coverage.scale())
-                .setUniformFloat(marchProgram, "uCloudShadowSpeed", coverage.speed())
-                .setUniformFloat(marchProgram, "uCloudShadowTime", (float) timeSeconds)
-                .bindVertexArray(screen.id())
-                .drawArrays(GL_TRIANGLES, 0, 6);
-
-        // Reconstruct to the target extent and write the history candidate.
-        cmd.bindFramebuffer(history.writeFramebuffer())
-                .viewport(0, 0, width, height)
-                .bindShader(reconstructProgram)
-                .bindTexture(CLOUD_UNIT, lowTarget.colorAttachment())
-                .bindTexture(DEPTH_UNIT, sceneDepthTexture)
-                .bindTexture(HISTORY_CLOUD_UNIT, history.readCloudTexture())
-                .bindTexture(HISTORY_STATE_UNIT, history.readStateTexture())
-                .setUniformInt(reconstructProgram, "uCloud", CLOUD_UNIT)
-                .setUniformInt(reconstructProgram, "uSceneDepth", DEPTH_UNIT)
-                .setUniformInt(reconstructProgram, "uHistoryCloud", HISTORY_CLOUD_UNIT)
-                .setUniformInt(reconstructProgram, "uHistoryState", HISTORY_STATE_UNIT)
-                .setUniformMat4(reconstructProgram, "uView", viewScratch)
-                .setUniformMat4(reconstructProgram, "uInverseView", inverseViewScratch)
-                .setUniformMat4(reconstructProgram, "uInverseProjection", inverseProjectionScratch)
-                .setUniformMat4(reconstructProgram, "uPreviousView", previousView)
-                .setUniformMat4(reconstructProgram, "uPreviousViewProjection", previousViewProjection)
-                .setUniformVec2(reconstructProgram, "uFullExtent", width, height)
-                .setUniformVec2(reconstructProgram, "uLowExtent", lowWidth, lowHeight)
-                .setUniformFloat(reconstructProgram, "uLayerBase", settings.baseAltitudeMetres())
-                .setUniformFloat(reconstructProgram, "uLayerTop", settings.topAltitudeMetres())
-                .setUniformFloat(reconstructProgram, "uDepthToleranceMetres",
-                        settings.depthToleranceMetres())
-                .setUniformFloat(reconstructProgram, "uHistoryBlend", settings.historyBlend())
-                .setUniformFloat(reconstructProgram, "uExposure", exposure)
-                .setUniformInt(reconstructProgram, "uHistoryValid", historyAccepted ? 1 : 0)
-                .bindVertexArray(screen.id())
-                .drawArrays(GL_TRIANGLES, 0, 6);
-
-        // Composite S + T * scene into the pass output.
-        cmd.bindFramebuffer(outputTarget)
-                .viewport(0, 0, width, height)
-                .bindShader(compositeProgram)
-                .bindTexture(CLOUD_UNIT, history.writeCloudTexture())
-                .bindTexture(COLOR_UNIT, colorSource.colorAttachment())
-                .setUniformInt(compositeProgram, "uCloud", CLOUD_UNIT)
-                .setUniformInt(compositeProgram, "uColorSource", COLOR_UNIT)
-                .bindVertexArray(screen.id())
-                .drawArrays(GL_TRIANGLES, 0, 6)
-                .enableBlend(false)
-                .depthMask(true)
-                .enableDepthTest(true)
-                .enableScissor(false);
+        draws.recordMarch(cmd, lowTarget, width, height, sceneDepthTexture,
+                inverseProjectionScratch, inverseViewScratch, (float) timeSeconds);
+        draws.recordReconstruction(cmd, lowTarget, history, sceneDepthTexture, viewScratch,
+                inverseViewScratch, inverseProjectionScratch, previousView, previousViewProjection,
+                exposure, historyAccepted);
+        draws.recordComposite(cmd, outputTarget, colorSource, history.writeCloudTexture());
         frameRecorded = true;
     }
 
@@ -528,10 +427,7 @@ public final class VolumetricCloudPass implements GlResource {
         failure = close(previousOutput, failure);
         failure = close(previousLow, failure);
         failure = close(history, failure);
-        failure = close(screen, failure);
-        failure = close(compositeProgram, failure);
-        failure = close(reconstructProgram, failure);
-        failure = close(marchProgram, failure);
+        failure = close(draws, failure);
         if (failure != null) {
             throw failure;
         }
@@ -643,39 +539,7 @@ public final class VolumetricCloudPass implements GlResource {
         }
     }
 
-    /** @return the packaged vertex stage; no variant is generated for this pass */
-    static String vertexSource() {
-        return resource(VERTEX_RESOURCE);
-    }
-
-    /** @return the packaged low-resolution march stage */
-    static String marchSource() {
-        return resource(MARCH_RESOURCE);
-    }
-
-    /** @return the packaged reconstruction stage */
-    static String reconstructSource() {
-        return resource(RECONSTRUCT_RESOURCE);
-    }
-
-    /** @return the packaged composite stage */
-    static String compositeSource() {
-        return resource(COMPOSITE_RESOURCE);
-    }
-
-    static String resource(String path) {
-        try (var stream = VolumetricCloudPass.class.getResourceAsStream(path)) {
-            if (stream == null) {
-                throw new IllegalStateException("missing volumetric cloud shader " + path);
-            }
-            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException failure) {
-            throw new IllegalStateException(
-                    "cannot read volumetric cloud shader " + path, failure);
-        }
-    }
-
-    private static RuntimeException close(AutoCloseable resource, RuntimeException failure) {
+    static RuntimeException close(AutoCloseable resource, RuntimeException failure) {
         if (resource == null) {
             return failure;
         }
@@ -691,7 +555,7 @@ public final class VolumetricCloudPass implements GlResource {
         return failure;
     }
 
-    private static void closeSuppressed(AutoCloseable resource, RuntimeException primary) {
+    static void closeSuppressed(AutoCloseable resource, RuntimeException primary) {
         if (resource == null) {
             return;
         }

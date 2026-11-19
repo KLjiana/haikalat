@@ -53,8 +53,9 @@ import static org.lwjgl.opengl.GL30.glReadBuffer;
  * <p>The fixture renders a fixed perspective top-down sky view (for the
  * reference comparison) or a perspective horizon view (for the rejection
  * cases) into an RGBA16F target with a single-sample depth texture. Expected
- * values always come from the independent double reference
- * {@link VolumetricCloudReference}. Cases:</p>
+ * for the original path come from the independent double reference
+ * {@link VolumetricCloudReference}; cloudscape tests measure the HDR signal
+ * separately against black and white backgrounds. Cases:</p>
  *
  * <ul>
  *   <li>a) the per-pixel transmittance and single scatter match the independent
@@ -70,7 +71,9 @@ import static org.lwjgl.opengl.GL30.glReadBuffer;
  *   <li>f) disabled settings create no pass and leave the baseline byte
  *       identical;</li>
  *   <li>g) resize/close are transactional and release every tracked
- *       resource.</li>
+ *       resource;</li>
+ *   <li>h) optional depth-varying erosion removes extinction, sky fill adds only
+ *       scattered light, and the cloud signal fades out before the horizon.</li>
  * </ul>
  *
  * <p>Temporal reprojection accuracy under continuous motion, MSAA raw depth,
@@ -330,6 +333,197 @@ class VolumetricCloudGlTest {
                 }
             }
             GlDebug.assertNoError("cloud horizon/depth rejection");
+        }
+    }
+
+    @Test
+    void distanceFadeRemovesBothCloudScatterAndBackgroundOcclusion() {
+        try (GlfwWindow window = hiddenWindow()) {
+            bind(window);
+            GlRenderDevice device = new GlRenderDevice();
+            ExternalCamera camera = CloudTestCameras.horizon();
+            // Use high coverage here so the near-ray control samples medium,
+            // rather than testing the random presence of a cloud over the camera.
+            VolumetricCloudSettings original = settings(1.0f, 0.004f, 0.0f)
+                    .withCoverageField(new CloudShadowSettings(true, 1.0f, 0.4f, 0.0004f, 0.0f, 0.65f));
+            Vector3f sky = new Vector3f(0.20f, 0.30f, 0.40f);
+            try (Framebuffer scene = sceneTarget()) {
+                float[][] unfaded = renderAgainstBackgrounds(device,
+                        original.withCloudscape(0.0f, sky, 0.0f), camera, scene, 0.0);
+                float[][] faded = renderAgainstBackgrounds(device,
+                        original.withCloudscape(0.0f, sky, 12_000.0f), camera, scene, 0.0);
+                // The fixture eye is 600 m below the base. Rows 32..34 enter
+                // beyond 12 km. The first visible row (35) enters > 11.7 km,
+                // so smoothstep leaves at most ~0.003 of any segment opacity.
+                int formerlyOccluded = 0;
+                for (int x = 0; x < SIZE; x++) {
+                    for (int y = 32; y <= 35; y++) {
+                        for (int channel = 0; channel < 3; channel++) {
+                            int sample = (y * SIZE + x) * 4 + channel;
+                            float tolerance = y <= 34 ? 0.0f : 0.004f;
+                            assertEquals(0.0f, faded[0][sample], tolerance,
+                                    "distant cloud scatter must converge to zero");
+                            assertEquals(1.0f, faded[1][sample], tolerance,
+                                    "distant cloud occlusion must converge to zero");
+                            if (y <= 34 && unfaded[1][sample] < 0.90f) {
+                                formerlyOccluded++;
+                            }
+                        }
+                    }
+                }
+                assertTrue(formerlyOccluded > SIZE, "far rows contain clouds without distance fade");
+                // Every ray in the top four rows exits before 3 km, where fade
+                // has not begun. Check the entire region, not a single weather cell.
+                int nearClouds = 0;
+                for (int y = SIZE - 4; y < SIZE; y++) {
+                    for (int x = 0; x < SIZE; x++) {
+                        int near = (y * SIZE + x) * 4;
+                        assertEquals(unfaded[0][near], faded[0][near], 0.001f);
+                        assertEquals(unfaded[1][near], faded[1][near], 0.001f);
+                        if (faded[0][near] > 0.015f && faded[1][near] < 0.90f) {
+                            nearClouds++;
+                        }
+                    }
+                }
+                assertTrue(nearClouds > 32, "near clouds must scatter and occlude; got " + nearClouds);
+            }
+            GlDebug.assertNoError("cloud distance fade");
+        }
+    }
+
+    @Test
+    void cloudscapeErodesExtinctionAndSkyFillDoesNotChangeTransmittance() {
+        try (GlfwWindow window = hiddenWindow()) {
+            bind(window);
+            GlRenderDevice device = new GlRenderDevice();
+            ExternalCamera camera = CloudTestCameras.topDown();
+            VolumetricCloudSettings original = settings(1.0f, 0.004f, 0.0f);
+            Vector3f sky = new Vector3f(0.20f, 0.30f, 0.40f);
+            try (Framebuffer scene = sceneTarget()) {
+                float[][] baseline = renderAgainstBackgrounds(device, original, camera, scene, 0.0);
+                float[][] eroded = renderAgainstBackgrounds(device,
+                        original.withCloudscape(0.88f, new Vector3f(), 0.0f), camera, scene, 0.0);
+                float[][] filled = renderAgainstBackgrounds(device,
+                        original.withCloudscape(0.88f, sky, 0.0f), camera, scene, 0.0);
+                int carvedPixels = 0;
+                for (int index = 0; index < SIZE * SIZE * 4; index += 4) {
+                    float transmission = eroded[1][index];
+                    // Difference of two RGBA16F readbacks near unit radiance.
+                    float quantization = 0.002f;
+                    assertTrue(transmission + quantization >= baseline[1][index],
+                            "3D erosion must not add extinction");
+                    if (transmission > baseline[1][index] + 0.05f) {
+                        carvedPixels++;
+                    }
+                    assertEquals(transmission, filled[1][index], quantization,
+                            "sky fill changes scatter, not transmittance");
+                    float opacity = 1.0f - transmission;
+                    float maxFill = original.scatteringAlbedo() * sky.x * opacity;
+                    float fill = filled[0][index] - eroded[0][index];
+                    assertTrue(fill >= 0.54f * maxFill - quantization
+                                    && fill <= maxFill + quantization,
+                            "added sky radiance must be bounded by the cloud scattering albedo and opacity");
+                }
+                assertTrue(carvedPixels > 64, "the erosion must measurably change the cloud field");
+            }
+            GlDebug.assertNoError("cloud erosion and sky fill");
+        }
+    }
+
+    @Test
+    void cloudBodyChangesTheVerticalDistributionIndependentlyOfCoverage() {
+        try (GlfwWindow window = hiddenWindow(); Framebuffer scene = bindAndCreateScene(window)) {
+            GlRenderDevice device = new GlRenderDevice();
+            Vector3f position = new Vector3f(350.0f, 1450.0f, 0.0f);
+            Matrix4f view = new Matrix4f().lookAt(position, new Vector3f(position.x, 0.0f, position.z),
+                    new Vector3f(0.0f, 0.0f, -1.0f));
+            Matrix4f projection = new Matrix4f().ortho(-300.0f, 300.0f, -300.0f, 300.0f, 1.0f, 550.0f);
+            ExternalCamera camera = ExternalCamera.of(view, projection, position, 0.0f);
+            VolumetricCloudSettings legacy = settings(1.0f, 0.004f, 0.0f)
+                    .withCoverageField(new CloudShadowSettings(true, 0.45f, 0.3f, 0.0025f, 0.0f, 0.65f));
+            VolumetricCloudSettings body = legacy.withCloudModel(1.0f, 0.0f);
+            // The opaque plane bisects the layer with the same XZ for both halves of every ray.
+            float middleDepth = projection.transformProject(new Vector3f(0.0f, 0.0f, -250.0f)).z
+                    * 0.5f + 0.5f;
+            float[] legacyFull = renderAgainstBackgrounds(device, legacy, camera, scene, 0.0)[1];
+            float[] legacyHalf = renderAgainstBackgrounds(device, legacy, camera, scene, 0.0, middleDepth)[1];
+            float[] bodyFull = renderAgainstBackgrounds(device, body, camera, scene, 0.0)[1];
+            float[] bodyHalf = renderAgainstBackgrounds(device, body, camera, scene, 0.0, middleDepth)[1];
+            int clear = 0;
+            int covered = 0;
+            double minUpperFraction = 1.0;
+            double maxUpperFraction = 0.0;
+            double maxLegacyDeviation = 0.0;
+            for (int i = 0; i < bodyFull.length; i += 4) {
+                if (legacyFull[i] >= 1.0f) {
+                    assertEquals(1.0f, bodyFull[i], 0.002f, "the 3D body must respect clear weather");
+                    clear++;
+                }
+                if (legacyFull[i] < 0.82f && bodyFull[i] < 0.82f) {
+                    assertTrue(bodyHalf[i] + 0.002f >= bodyFull[i], "removing part of the layer cannot add extinction");
+                    double bodyFraction = Math.log(bodyHalf[i]) / Math.log(bodyFull[i]);
+                    double legacyFraction = Math.log(legacyHalf[i]) / Math.log(legacyFull[i]);
+                    minUpperFraction = Math.min(minUpperFraction, bodyFraction);
+                    maxUpperFraction = Math.max(maxUpperFraction, bodyFraction);
+                    maxLegacyDeviation = Math.max(maxLegacyDeviation, Math.abs(legacyFraction - 0.5));
+                    covered++;
+                }
+            }
+            String fractions = "vertical optical-depth ratios: legacy half deviation=" + maxLegacyDeviation
+                    + ", 3D body range=[" + minUpperFraction + ", " + maxUpperFraction
+                    + "], covered=" + covered + ", clear=" + clear;
+            System.out.println(fractions);
+            assertTrue(clear > 64 && covered > 64, fractions);
+            assertTrue(maxLegacyDeviation < 0.01, fractions);
+            assertTrue(maxUpperFraction - minUpperFraction > 0.25, fractions);
+            GlDebug.assertNoError("3D cloud body");
+        }
+    }
+
+    @Test
+    void higherScatteringOrdersMatchTheReferenceWithoutChangingTransmittance() {
+        try (GlfwWindow window = hiddenWindow(); Framebuffer scene = bindAndCreateScene(window)) {
+            GlRenderDevice device = new GlRenderDevice();
+            ExternalCamera camera = CloudTestCameras.topDown();
+            VolumetricCloudSettings original = settings(1.0f, 0.010f, 0.0f);
+            VolumetricCloudSettings multiple = original.withCloudModel(0.0f, 1.0f);
+            float[][] single = renderAgainstBackgrounds(device, original, camera, scene, 0.0);
+            float[][] softened = renderAgainstBackgrounds(device, multiple, camera, scene, 0.0);
+            Matrix4f inverseProjection = new Matrix4f(camera.projection()).invert();
+            Matrix4f inverseView = camera.getViewMatrix(new Matrix4f()).invert();
+            int clear = 0;
+            int lit = 0;
+            double maximumError = 0.0;
+            for (int y = 0; y < SIZE; y++) {
+                for (int x = 0; x < SIZE; x++) {
+                    int index = (y * SIZE + x) * 4;
+                    float t = single[1][index];
+                    assertEquals(t, softened[1][index], 0.002f, "extra scattering must not change T");
+                    double added = softened[0][index] - single[0][index];
+                    assertTrue(added >= -0.0001, "extra scattering cannot subtract light");
+                    if (t == 1.0f) {
+                        assertEquals(0.0, added, 0.0001, "vacuum does not scatter");
+                        clear++;
+                    }
+                    if (x >= 26 && x < 38 && y >= 26 && y < 38 && t < 0.85f) {
+                        var ray = VolumetricCloudReference.rayForPixel(
+                                inverseProjection, inverseView, SIZE, SIZE, x, y, 1.0f);
+                        double mask = VolumetricCloudReference.fittedMask(original, ray, t);
+                        double expected = VolumetricCloudReference.marchWithUniformMask(multiple, ray, 0.0, mask).red()
+                                - VolumetricCloudReference.marchWithUniformMask(original, ray, 0.0, mask).red();
+                        maximumError = Math.max(maximumError, Math.abs(added - expected));
+                        if (added > 0.002f) {
+                            lit++;
+                        }
+                    }
+                }
+            }
+            String result = "additional sun scattering: max HDR red error=" + maximumError
+                    + ", lit=" + lit + ", clear=" + clear;
+            System.out.println(result);
+            assertTrue(clear > 64 && lit > 30, result);
+            assertTrue(maximumError < 0.0015, result);
+            GlDebug.assertNoError("higher-order cloud scattering");
         }
     }
 
@@ -636,6 +830,11 @@ class VolumetricCloudGlTest {
         return sceneTarget(SIZE, SIZE);
     }
 
+    private static Framebuffer bindAndCreateScene(GlfwWindow window) {
+        bind(window);
+        return sceneTarget();
+    }
+
     private static Framebuffer sceneTarget(int width, int height) {
         return Framebuffer.fromDescriptor(FramebufferDescriptor.builder(width, height)
                 .colorTexture(RenderFormat.RGBA16F)
@@ -648,10 +847,17 @@ class VolumetricCloudGlTest {
                                                       VolumetricCloudSettings settings,
                                                       ExternalCamera camera, Framebuffer scene,
                                                       double time) {
+        return renderAgainstBackgrounds(device, settings, camera, scene, time, 1.0f);
+    }
+
+    private static float[][] renderAgainstBackgrounds(GlRenderDevice device,
+                                                      VolumetricCloudSettings settings,
+                                                      ExternalCamera camera, Framebuffer scene,
+                                                      double time, float depth) {
         try (VolumetricCloudPass pass = new VolumetricCloudPass(settings, SIZE, SIZE)) {
-            clear(scene, new float[]{BACKGROUND, BACKGROUND, BACKGROUND}, 1.0f);
+            clear(scene, new float[]{BACKGROUND, BACKGROUND, BACKGROUND}, depth);
             FloatBuffer dark = render(device, pass, scene, camera, time, 1.0f);
-            clear(scene, new float[]{1.0f, 1.0f, 1.0f}, 1.0f);
+            clear(scene, new float[]{1.0f, 1.0f, 1.0f}, depth);
             FloatBuffer bright = render(device, pass, scene, camera, time, 1.0f);
             float[] scatter = new float[SIZE * SIZE * 4];
             float[] transmittance = new float[SIZE * SIZE * 4];

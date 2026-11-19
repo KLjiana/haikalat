@@ -10,7 +10,7 @@ import java.util.Objects;
  * Bounded, GL-free configuration of the volumetric cloud layer.
  *
  * <p>The layer is the slab {@code baseAltitudeMetres <= y <= topAltitudeMetres}.
- * Its density at a world position {@code p} is</p>
+ * With both cloudscape erosion and the 3D body disabled, its density at world position {@code p} is</p>
  *
  * <pre>{@code
  * extinction * coverage(p.xz) * verticalProfile(p.y)
@@ -27,16 +27,21 @@ import java.util.Objects;
  * through the origin along the light direction; this layer evaluates the same
  * field at the cloud's own world {@code xz}. Sharing the parameters and the
  * mask functions keeps one authored cloud field instead of two, but the shadow
- * footprint and the visible layer are not the same projection (documented
- * limitation, not a hidden promise).</p>
+ * footprint and the visible layer are not the same projection. The optional 3D
+ * body and erosion affect the visible medium, not the ground shadow mask.</p>
  *
  * <p>Lighting is a bounded single-scatter model: for every march sample the
  * shader performs at most {@link #lightSteps()} optical-depth samples toward
  * the light (the direction is {@code -lightDirection}) over at most
  * {@link #maximumLightDistanceMetres()}, then accumulates
  * {@code light * phase * albedo * lightTransmittance * (1 - exp(-sigma * delta))}
- * front to back. There is no multiple scattering, no shadow map and no
- * participating-light coupling.</p>
+ * front to back. {@link #withCloudModel(float, float)} opts into a procedural
+ * 3D body and a bounded higher-order scattering approximation; there is no full
+ * multiple-scattering solve or participating-light coupling.
+ * {@link #withCloudscape(float, Vector3f, float)}
+ * opts into volumetric erosion of the shared coverage, a diffuse sky term, and
+ * a finite distance over which the clouds lose contrast against the scene.
+ * This last term is an aerial-perspective approximation, not an atmosphere LUT.</p>
  *
  * <p>The cloud signal is rendered at {@link #renderScale()} and reconstructed to
  * the target extent by a depth-aware spatial filter plus an optional temporal
@@ -64,7 +69,12 @@ public record VolumetricCloudSettings(
         float exposureThreshold,
         float depthToleranceMetres,
         float cameraCutTranslationMetres,
-        float cameraCutAngleDegrees) {
+        float cameraCutAngleDegrees,
+        float shapeDetail,
+        Vector3f skyLightColor,
+        float aerialPerspectiveDistanceMetres,
+        float bodyStrength,
+        float multipleScatteringStrength) {
     /** Largest accepted density scale. */
     public static final float MAXIMUM_DENSITY = 64.0f;
     /** Largest accepted absorption or scattering coefficient at unit density. */
@@ -113,6 +123,37 @@ public record VolumetricCloudSettings(
             0.5f, 0.9f, 0.1f, 2.0f,
             5.0f, 30.0f);
 
+    /** Construct the original single-scatter layer without cloudscape styling. */
+    public VolumetricCloudSettings(
+            boolean enabled, CloudShadowSettings coverageField,
+            float baseAltitudeMetres, float topAltitudeMetres, float density, float absorption,
+            float scattering, Vector3f lightDirection, Vector3f lightColor, float anisotropy,
+            int maximumSteps, float stepSizeMetres, int lightSteps, float maximumLightDistanceMetres,
+            float renderScale, float historyBlend, float exposureThreshold, float depthToleranceMetres,
+            float cameraCutTranslationMetres, float cameraCutAngleDegrees) {
+        this(enabled, coverageField, baseAltitudeMetres, topAltitudeMetres, density, absorption,
+                scattering, lightDirection, lightColor, anisotropy, maximumSteps, stepSizeMetres,
+                lightSteps, maximumLightDistanceMetres, renderScale, historyBlend, exposureThreshold,
+                depthToleranceMetres, cameraCutTranslationMetres, cameraCutAngleDegrees,
+                0.0f, new Vector3f(), 0.0f);
+    }
+
+    /** Construct a cloudscape without the optional 3D body or higher-order lighting. */
+    public VolumetricCloudSettings(
+            boolean enabled, CloudShadowSettings coverageField,
+            float baseAltitudeMetres, float topAltitudeMetres, float density, float absorption,
+            float scattering, Vector3f lightDirection, Vector3f lightColor, float anisotropy,
+            int maximumSteps, float stepSizeMetres, int lightSteps, float maximumLightDistanceMetres,
+            float renderScale, float historyBlend, float exposureThreshold, float depthToleranceMetres,
+            float cameraCutTranslationMetres, float cameraCutAngleDegrees,
+            float shapeDetail, Vector3f skyLightColor, float aerialPerspectiveDistanceMetres) {
+        this(enabled, coverageField, baseAltitudeMetres, topAltitudeMetres, density, absorption,
+                scattering, lightDirection, lightColor, anisotropy, maximumSteps, stepSizeMetres,
+                lightSteps, maximumLightDistanceMetres, renderScale, historyBlend, exposureThreshold,
+                depthToleranceMetres, cameraCutTranslationMetres, cameraCutAngleDegrees,
+                shapeDetail, skyLightColor, aerialPerspectiveDistanceMetres, 0.0f, 0.0f);
+    }
+
     public VolumetricCloudSettings {
         if (coverageField == null) {
             throw new IllegalArgumentException("coverageField must not be null");
@@ -143,7 +184,7 @@ public record VolumetricCloudSettings(
                     + MAXIMUM_COEFFICIENT + "]");
         }
         lightDirection = normalizeDirection(lightDirection);
-        lightColor = lightColor(lightColor);
+        lightColor = radiance(lightColor, "lightColor");
         if (!finite(anisotropy) || Math.abs(anisotropy) > MAXIMUM_ANISOTROPY) {
             throw new IllegalArgumentException("anisotropy must be finite and in [-"
                     + MAXIMUM_ANISOTROPY + ", " + MAXIMUM_ANISOTROPY + "]");
@@ -193,6 +234,22 @@ public record VolumetricCloudSettings(
             throw new IllegalArgumentException("cameraCutAngleDegrees must be finite and in [0, "
                     + MAXIMUM_CAMERA_CUT_ANGLE + "]");
         }
+        if (!finite(shapeDetail) || shapeDetail < 0.0f || shapeDetail > 1.0f) {
+            throw new IllegalArgumentException("shapeDetail must be finite and in [0, 1]");
+        }
+        if (!finite(bodyStrength) || bodyStrength < 0.0f || bodyStrength > 1.0f) {
+            throw new IllegalArgumentException("bodyStrength must be finite and in [0, 1]");
+        }
+        if (!finite(multipleScatteringStrength) || multipleScatteringStrength < 0.0f
+                || multipleScatteringStrength > 1.0f) {
+            throw new IllegalArgumentException("multipleScatteringStrength must be finite and in [0, 1]");
+        }
+        skyLightColor = radiance(skyLightColor, "skyLightColor");
+        if (!finite(aerialPerspectiveDistanceMetres) || aerialPerspectiveDistanceMetres < 0.0f
+                || aerialPerspectiveDistanceMetres > 200_000.0f) {
+            throw new IllegalArgumentException(
+                    "aerialPerspectiveDistanceMetres must be finite and in [0, 200000]");
+        }
     }
 
     /** Exact no-op value: no cloud pass or GPU resource exists while disabled. */
@@ -208,10 +265,12 @@ public record VolumetricCloudSettings(
     /** @return a bounded copy with only the enabled flag changed */
     public VolumetricCloudSettings withEnabled(boolean value) {
         return new VolumetricCloudSettings(value, coverageField, baseAltitudeMetres,
-                topAltitudeMetres, density, absorption, scattering, new Vector3f(lightDirection),
-                new Vector3f(lightColor), anisotropy, maximumSteps, stepSizeMetres, lightSteps,
+                topAltitudeMetres, density, absorption, scattering, lightDirection,
+                lightColor, anisotropy, maximumSteps, stepSizeMetres, lightSteps,
                 maximumLightDistanceMetres, renderScale, historyBlend, exposureThreshold,
-                depthToleranceMetres, cameraCutTranslationMetres, cameraCutAngleDegrees);
+                depthToleranceMetres, cameraCutTranslationMetres, cameraCutAngleDegrees,
+                shapeDetail, skyLightColor, aerialPerspectiveDistanceMetres,
+                bodyStrength, multipleScatteringStrength);
     }
 
     /**
@@ -221,10 +280,42 @@ public record VolumetricCloudSettings(
     public VolumetricCloudSettings withCoverageField(CloudShadowSettings value) {
         return new VolumetricCloudSettings(enabled, Objects.requireNonNull(value, "value"),
                 baseAltitudeMetres, topAltitudeMetres, density, absorption, scattering,
-                new Vector3f(lightDirection), new Vector3f(lightColor), anisotropy, maximumSteps,
+                lightDirection, lightColor, anisotropy, maximumSteps,
                 stepSizeMetres, lightSteps, maximumLightDistanceMetres, renderScale, historyBlend,
                 exposureThreshold, depthToleranceMetres, cameraCutTranslationMetres,
-                cameraCutAngleDegrees);
+                cameraCutAngleDegrees, shapeDetail, skyLightColor, aerialPerspectiveDistanceMetres,
+                bodyStrength, multipleScatteringStrength);
+    }
+
+    /**
+     * @param detail strength of height-varying 3D erosion in [0, 1]; zero disables erosion
+     * @param skyRadiance effective diffuse sky radiance, each linear RGB component in [0, 16]; black adds no fill
+     * @param fadeDistanceMetres march distance in [0, 200000] at which the cloud contribution disappears;
+     *                           fade begins at a quarter of that distance, zero disables the fade
+     * @return a copy with the cloudscape styling replaced
+     */
+    public VolumetricCloudSettings withCloudscape(float detail, Vector3f skyRadiance,
+                                                 float fadeDistanceMetres) {
+        return new VolumetricCloudSettings(enabled, coverageField, baseAltitudeMetres,
+                topAltitudeMetres, density, absorption, scattering, lightDirection, lightColor,
+                anisotropy, maximumSteps, stepSizeMetres, lightSteps, maximumLightDistanceMetres,
+                renderScale, historyBlend, exposureThreshold, depthToleranceMetres,
+                cameraCutTranslationMetres, cameraCutAngleDegrees, detail, skyRadiance,
+                fadeDistanceMetres, bodyStrength, multipleScatteringStrength);
+    }
+
+    /**
+     * @param body strength in [0, 1] of the 3D body inside the shared 2D coverage
+     * @param multipleScattering strength in [0, 1] of the two approximate higher scattering orders
+     * @return a copy with the optional cloud model parameters replaced; zero preserves each legacy term
+     */
+    public VolumetricCloudSettings withCloudModel(float body, float multipleScattering) {
+        return new VolumetricCloudSettings(enabled, coverageField, baseAltitudeMetres,
+                topAltitudeMetres, density, absorption, scattering, lightDirection, lightColor,
+                anisotropy, maximumSteps, stepSizeMetres, lightSteps, maximumLightDistanceMetres,
+                renderScale, historyBlend, exposureThreshold, depthToleranceMetres,
+                cameraCutTranslationMetres, cameraCutAngleDegrees, shapeDetail, skyLightColor,
+                aerialPerspectiveDistanceMetres, body, multipleScattering);
     }
 
     /** Extinction coefficient at unit coverage, in 1/metre. */
@@ -267,6 +358,16 @@ public record VolumetricCloudSettings(
         return new Vector3f(lightColor);
     }
 
+    /** @return a defensive copy of the effective diffuse sky radiance */
+    @Override
+    public Vector3f skyLightColor() {
+        return new Vector3f(skyLightColor);
+    }
+
+    Vector3f skyLightColorInternal() {
+        return skyLightColor;
+    }
+
     Vector3f lightDirectionInternal() {
         return lightDirection;
     }
@@ -284,12 +385,12 @@ public record VolumetricCloudSettings(
         return new Vector3f(value).mul(1.0f / (float) Math.sqrt(lengthSquared));
     }
 
-    private static Vector3f lightColor(Vector3f value) {
-        Objects.requireNonNull(value, "lightColor");
+    private static Vector3f radiance(Vector3f value, String name) {
+        Objects.requireNonNull(value, name);
         if (!value.isFinite() || value.x < 0.0f || value.y < 0.0f || value.z < 0.0f
                 || value.x > MAXIMUM_LIGHT_COMPONENT || value.y > MAXIMUM_LIGHT_COMPONENT
                 || value.z > MAXIMUM_LIGHT_COMPONENT) {
-            throw new IllegalArgumentException("lightColor components must be in [0, "
+            throw new IllegalArgumentException(name + " components must be in [0, "
                     + MAXIMUM_LIGHT_COMPONENT + "]");
         }
         return new Vector3f(value);

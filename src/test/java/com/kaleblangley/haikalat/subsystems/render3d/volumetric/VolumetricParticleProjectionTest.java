@@ -83,6 +83,14 @@ class VolumetricParticleProjectionTest {
     }
 
     @Test
+    void bodyToTheSideOfTheCameraDoesNotCountAsFullCoverageWhenItStraddlesTheEyePlane() {
+        Matrix4f perspective = new Matrix4f().perspective((float) Math.toRadians(90.0f), 1.0f,
+                0.1f, 100.0f);
+        var side = body(new Vector3f(4f, 0f, -0.05f), new Vector3f(1f));
+        assertFalse(VolumetricParticlePass.project(side, perspective, SIZE, SIZE).visible());
+    }
+
+    @Test
     void offScreenBodyIsClippedAndFullyOffScreenBodyIsEmpty() {
         Matrix4f orthographic = new Matrix4f().ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
         VolumetricParticlePass.Projection clipped = VolumetricParticlePass.project(

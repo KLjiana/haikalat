@@ -306,7 +306,7 @@ final class VolumetricCloudReference {
     }
 
     /**
-     * The same single-scatter model with one uniform mask value (no hash
+     * The cloud lighting model with one uniform mask value (no hash
      * evaluation). Used to predict the measured in-scatter from an effective
      * mask fitted out of the measured transmittance.
      */
@@ -325,9 +325,7 @@ final class VolumetricCloudReference {
         double delta = span / steps;
         double extinction = settings.extinction();
         double albedo = settings.scatteringAlbedo();
-        double toLightX = -settings.lightDirectionInternal().x;
         double toLightY = -settings.lightDirectionInternal().y;
-        double toLightZ = -settings.lightDirectionInternal().z;
         double cosine = clamp(settings.lightDirectionInternal().x * -ray.directionX()
                 + settings.lightDirectionInternal().y * -ray.directionY()
                 + settings.lightDirectionInternal().z * -ray.directionZ(), -1.0, 1.0);
@@ -336,18 +334,27 @@ final class VolumetricCloudReference {
         double transmittance = 1.0;
         for (int step = 0; step < steps; step++) {
             double distance = start + (step + 0.5) * delta;
-            double x = ray.originX() + ray.directionX() * distance;
             double y = ray.originY() + ray.directionY() * distance;
-            double z = ray.originZ() + ray.directionZ() * distance;
             double sigma = extinction * maskValue * profile(settings, y);
             if (!(sigma > 0.0)) {
                 continue;
             }
             double lightTau = lightTauUniform(settings, y, maskValue, toLightY);
             double slabTransmittance = Math.exp(-Math.min(sigma * delta, MAXIMUM_OPTICAL_DEPTH));
-            double weight = phase * albedo
-                    * Math.exp(-Math.min(lightTau, MAXIMUM_OPTICAL_DEPTH))
-                    * (1.0 - slabTransmittance);
+            double direct = Math.exp(-Math.min(lightTau, MAXIMUM_OPTICAL_DEPTH));
+            double radiance = phase * direct;
+            if (toLightY > 1.0e-4 && settings.multipleScatteringStrength() > 0.0f) {
+                double interaction = -Math.expm1(-Math.min(lightTau, MAXIMUM_OPTICAL_DEPTH));
+                double nextOrder = settings.multipleScatteringStrength() * albedo * interaction;
+                for (int order = 1; order <= 2; order++) {
+                    double phaseScale = order == 1 ? 0.45 : 0.20;
+                    double extinctionScale = Math.scalb(1.0, -order);
+                    radiance += Math.pow(0.5 * nextOrder, order)
+                            * phase(settings.anisotropy() * phaseScale, cosine)
+                            * Math.exp(-extinctionScale * lightTau);
+                }
+            }
+            double weight = radiance * albedo * (1.0 - slabTransmittance);
             scatter += transmittance * weight;
             transmittance *= slabTransmittance;
         }

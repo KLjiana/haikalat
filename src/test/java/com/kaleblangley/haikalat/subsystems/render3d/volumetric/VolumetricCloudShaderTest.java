@@ -30,7 +30,11 @@ class VolumetricCloudShaderTest {
             "33f1e751b5b5556feae1644344965c9be832646370573b5f5eadb4ce4a805363";
     /** SHA-256 of the accepted {@code cloud-march.frag}, matching assets.tsv. */
     private static final String MARCH_SHA256 =
-            "863addf706e5a2e51f9d14cbb3f13638d305445a21fdefabaa64a17701aee70c";
+            "fd277683c473c1f3970824ba9e08f9ca48c0dfe7e84cf9011c477b3b682b96e7";
+    private static final String DENSITY_SHA256 =
+            "584eaebee83e7e443c182090e3adf004ceeed22eb72a2b8e68fcf1855f104b94";
+    private static final String LIGHTING_SHA256 =
+            "17bac97d7ee363afab4030d484609db5e64e9d561a719786d188d2bdaeb930fa";
     /** SHA-256 of the accepted {@code cloud-reconstruct.frag}, matching assets.tsv. */
     private static final String RECONSTRUCT_SHA256 =
             "4393a495e7208923f50ba9ad8628ee58fba536d8e797841d9c4d7b011cb5c85d";
@@ -41,16 +45,19 @@ class VolumetricCloudShaderTest {
 
     @Test
     void stagesArePackagedAndPinned() {
-        String vertex = VolumetricCloudPass.vertexSource();
-        String march = VolumetricCloudPass.marchSource();
-        String reconstruct = VolumetricCloudPass.reconstructSource();
-        String composite = VolumetricCloudPass.compositeSource();
+        String vertex = CloudDraws.vertexSource();
+        String march = CloudDraws.marchSource();
+        String reconstruct = CloudDraws.reconstructSource();
+        String composite = CloudDraws.compositeSource();
         for (String source : List.of(vertex, march, reconstruct, composite)) {
             assertTrue(source.startsWith("#version 460 core"), "every stage targets GL 4.6");
             assertBalanced(source);
         }
         assertEquals(VERTEX_SHA256, sha256(vertex));
-        assertEquals(MARCH_SHA256, sha256(march));
+        assertEquals(MARCH_SHA256, sha256(CloudDraws.resource(CloudDraws.MARCH_RESOURCE)));
+        assertEquals(DENSITY_SHA256, sha256(CloudDraws.resource(CloudDraws.DENSITY_RESOURCE)));
+        assertEquals(LIGHTING_SHA256, sha256(CloudDraws.resource(CloudDraws.LIGHTING_RESOURCE)));
+        assertFalse(march.contains("CLOUD_MODEL_HELPERS"));
         assertEquals(RECONSTRUCT_SHA256, sha256(reconstruct));
         assertEquals(COMPOSITE_SHA256, sha256(composite));
         assertTrue(vertex.contains("layout (location = 0) in vec2 aPosition;"));
@@ -59,8 +66,8 @@ class VolumetricCloudShaderTest {
 
     @Test
     void sharedCloudShadowMaskTextIsIdenticalToThePbrShader() {
-        String pbr = VolumetricCloudPass.resource(PBR_FORWARD);
-        String march = VolumetricCloudPass.marchSource();
+        String pbr = CloudDraws.resource(PBR_FORWARD);
+        String march = CloudDraws.marchSource();
         for (String function : List.of("cloudShadowHash", "cloudShadowNoise",
                 "cloudShadowDensity")) {
             assertEquals(normalize(function(pbr, function)), normalize(function(march, function)),
@@ -82,12 +89,15 @@ class VolumetricCloudShaderTest {
 
     @Test
     void marchDeclaresEveryUniformThePassUploadsAndStaysBounded() {
-        String source = VolumetricCloudPass.marchSource();
+        String source = CloudDraws.marchSource();
         for (String uniform : List.of("uniform sampler2D uSceneDepth", "uniform vec2 uFullExtent",
                 "uniform vec2 uLowExtent", "uniform mat4 uInverseProjection",
                 "uniform mat4 uInverseView", "uniform float uLayerBase",
                 "uniform float uLayerTop", "uniform vec3 uLightDirection",
-                "uniform vec3 uLightColor", "uniform float uDensity",
+                "uniform vec3 uLightColor", "uniform float uShapeDetail",
+                "uniform float uCloudBodyStrength", "uniform float uMultipleScatteringStrength",
+                "uniform vec3 uSkyLightColor", "uniform float uAerialPerspectiveDistance",
+                "uniform float uDensity",
                 "uniform float uAbsorption", "uniform float uScattering",
                 "uniform float uAnisotropy", "uniform float uStepSizeMetres",
                 "uniform int uMaximumSteps", "uniform int uLightSteps",
@@ -99,9 +109,9 @@ class VolumetricCloudShaderTest {
         assertEquals(1, occurrences(source, "texelFetch(uSceneDepth"),
                 "exactly one opaque-depth fetch per low-resolution fragment");
         assertTrue(source.contains(
-                "float stepLength = max(span / float(uMaximumSteps), uStepSizeMetres);"));
+                "float stepLength = max(budgetSpan / float(uMaximumSteps), uStepSizeMetres);"));
         assertTrue(source.contains(
-                "int steps = int(clamp(ceil(span / stepLength), 1.0, float(uMaximumSteps)));"),
+                "int steps = int(clamp(ceil(budgetSpan / stepLength), 1.0, float(uMaximumSteps)));"),
                 "the view march must clamp the step budget");
         assertTrue(source.contains("for (int step = 0; step < uMaximumSteps; step++) {"));
         assertTrue(source.contains("if (step >= steps) {"), "the budget must break the loop");
@@ -113,9 +123,9 @@ class VolumetricCloudShaderTest {
                 "float slabTransmittance = exp(-min(sigma * delta, CLOUD_MAX_OPTICAL_DEPTH));"));
         assertTrue(source.contains("(1.0 - slabTransmittance)"),
                 "single scatter must be energy-consistent with the slab transmittance");
-        assertTrue(source.contains("scatter += transmittance * uLightColor * weight;"),
+        assertTrue(source.contains("float weight = transmittance * (1.0 - slabTransmittance);"),
                 "front-to-back accumulation");
-        assertTrue(source.contains("outCloud = vec4(max(scatter, vec3(0.0)), clamp(transmittance"),
+        assertTrue(source.contains("outCloud = vec4(max(scatter, vec3(0.0)), clamp(sceneWeight"),
                 "premultiplied scatter and transmittance are the only outputs");
         assertEquals(1, occurrences(source, "layout (location = 0) out vec4 outCloud;"));
         assertFalse(source.contains("layout (location = 1)"),
@@ -130,7 +140,7 @@ class VolumetricCloudShaderTest {
 
     @Test
     void reconstructionWritesTwoTargetsAndRejectsBeforeClamping() {
-        String source = VolumetricCloudPass.reconstructSource();
+        String source = CloudDraws.reconstructSource();
         assertTrue(source.contains("layout (location = 0) out vec4 outCloud;"));
         assertTrue(source.contains("layout (location = 1) out vec4 outState;"));
         for (String uniform : List.of("uniform sampler2D uCloud",
@@ -166,7 +176,7 @@ class VolumetricCloudShaderTest {
 
     @Test
     void compositeIsExactlyScatterPlusTransmittanceTimesTheScene() {
-        String source = VolumetricCloudPass.compositeSource();
+        String source = CloudDraws.compositeSource();
         assertTrue(source.contains("uniform sampler2D uCloud;"));
         assertTrue(source.contains("uniform sampler2D uColorSource;"));
         assertTrue(source.contains("vec4 cloud = texelFetch(uCloud, pixel, 0);"));

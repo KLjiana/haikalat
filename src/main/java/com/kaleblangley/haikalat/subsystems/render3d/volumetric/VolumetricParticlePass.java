@@ -192,7 +192,7 @@ public final class VolumetricParticlePass implements GlResource {
                     "volumetric particles require the single-sample opaque scene depth");
         }
         prepareMatrices(camera);
-        Projection projection = project(settings, viewProjectionScratch, width, height);
+        Projection projection = project(settings, viewProjectionScratch, width, height, cornerScratch);
         if (projection.visible()
                 && projection.coverage() > settings.maximumScreenCoverage() + COVERAGE_EPSILON) {
             throw new IllegalStateException("volumetric particle coverage "
@@ -300,8 +300,16 @@ public final class VolumetricParticlePass implements GlResource {
         }
     }
 
+    /** Tests the same coverage budget used by {@link #record} before scheduling a view. */
+    public static boolean exceedsCoverage(VolumetricParticleSettings settings, Matrix4fc viewProjection,
+                                          int width, int height) {
+        return project(settings, viewProjection, width, height).coverage()
+                > settings.maximumScreenCoverage() + COVERAGE_EPSILON;
+    }
+
     /**
-     * Projects the eight corners of the local body's bounding box.
+     * Projects the eight corners of the local body's bounding box after
+     * rejecting boxes completely outside a clip plane.
      *
      * <p>Package-private and GL-free so the projection/coverage contract can be
      * checked by a JVM test. A body that straddles the eye plane is reported as
@@ -310,6 +318,11 @@ public final class VolumetricParticlePass implements GlResource {
      */
     static Projection project(VolumetricParticleSettings settings, Matrix4fc viewProjection,
                               int width, int height) {
+        return project(settings, viewProjection, width, height, new Vector4f());
+    }
+
+    private static Projection project(VolumetricParticleSettings settings, Matrix4fc viewProjection,
+                                      int width, int height, Vector4f corner) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(viewProjection, "viewProjection");
         if (width <= 0 || height <= 0) {
@@ -321,19 +334,20 @@ public final class VolumetricParticlePass implements GlResource {
         float extentX = settings.boundsHalfExtentInternal().x;
         float extentY = settings.boundsHalfExtentInternal().y;
         float extentZ = settings.boundsHalfExtentInternal().z;
-        Vector4f corner = new Vector4f();
         float minimumX = Float.POSITIVE_INFINITY;
         float minimumY = Float.POSITIVE_INFINITY;
         float maximumX = Float.NEGATIVE_INFINITY;
         float maximumY = Float.NEGATIVE_INFINITY;
         boolean behind = false;
         boolean front = false;
+        int commonOutsidePlanes = 0b111111;
         for (int mask = 0; mask < 8; mask++) {
             corner.set(centerX + (((mask & 1) == 0) ? -extentX : extentX),
                     centerY + (((mask & 2) == 0) ? -extentY : extentY),
                     centerZ + (((mask & 4) == 0) ? -extentZ : extentZ),
                     1.0f);
             corner.mul(viewProjection);
+            commonOutsidePlanes &= outsidePlanes(corner);
             if (!(corner.w > BEHIND_EYE_EPSILON)) {
                 behind = true;
                 continue;
@@ -350,7 +364,7 @@ public final class VolumetricParticlePass implements GlResource {
             maximumX = Math.max(maximumX, pixelX);
             maximumY = Math.max(maximumY, pixelY);
         }
-        if (!front) {
+        if (!front || commonOutsidePlanes != 0) {
             return Projection.EMPTY;
         }
         int x0;
@@ -374,6 +388,16 @@ public final class VolumetricParticlePass implements GlResource {
         float coverage = (float) ((long) (x1 - x0) * (y1 - y0))
                 / (float) ((long) width * height);
         return new Projection(x0, y0, x1 - x0, y1 - y0, coverage, true);
+    }
+
+    private static int outsidePlanes(Vector4f corner) {
+        // Homogeneous clip inequalities hold even for corners behind the eye.
+        return (corner.x < -corner.w ? 1 : 0)
+                | (corner.x > corner.w ? 2 : 0)
+                | (corner.y < -corner.w ? 4 : 0)
+                | (corner.y > corner.w ? 8 : 0)
+                | (corner.z < -corner.w ? 16 : 0)
+                | (corner.z > corner.w ? 32 : 0);
     }
 
     /** Projected scissor rectangle and its fraction of the target pixels. */
