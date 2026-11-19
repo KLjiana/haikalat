@@ -322,7 +322,8 @@ class ArchitectureBoundaryTest {
                         + "|\\bcom\\.kaleblangley\\.haikalat\\.subsystems\\.render3d\\.pipeline\\.");
         Set<String> violations = new java.util.HashSet<>();
         for (String module : Set.of("scene", "geometry", "surface", "lighting", "shadow",
-                "ao", "volumetric", "environment", "pbr", "gltf", "vfx", "preview")) {
+                "ao", "volumetric", "environment", "pbr", "gltf", "vfx", "preview", "water",
+                "hair", "ddgi", "vct", "transparency", "caustics", "planar")) {
             Path root = render3d.resolve(module);
             if (!Files.isDirectory(root)) continue;
             violations.addAll(dependenciesUnder(root, dependency));
@@ -347,7 +348,7 @@ class ArchitectureBoundaryTest {
                 "PipelineTopology", "Render3dDiagnostics", "RenderPipeline", "RenderPipelineKind",
                 "RenderFeature", "RenderFeatureActivity", "RenderFeaturePolicy",
                 "RenderFeatureReason", "RenderFeatureSettings", "RenderFeatureState",
-                "RenderFeatureStatus", "RenderFeaturesControl",
+                "RenderFeatureStatus", "RenderFeaturesControl", "RenderScalePolicy",
                 "Scene", "SceneLight", "SceneLightEntry", "SceneObject", "ShadowFilterMode",
                 "ShadowLightHints", "ShadowSelectionMode", "ShadowSettings", "StylizedSkySettings",
                 "Transform", "VisualSettings", "VolumetricFogSettings",
@@ -426,6 +427,28 @@ class ArchitectureBoundaryTest {
             assertFalse(code.contains(forbidden),
                     "GPU particle experiment must remain GPU-only; found " + forbidden);
         }
+    }
+
+    @Test
+    void gpuParticleSystemKeepsTheActiveCountOnTheGpu() throws IOException {
+        Path source = HAIKALAT.resolve(Path.of("subsystems", "render3d", "vfx",
+                "GpuParticleSystem.java"));
+        String code = Files.readString(source);
+
+        for (String forbidden : Set.of("glGetNamedBufferSubData", "glGetBufferSubData",
+                ".read(", "glMapNamedBuffer", "glReadPixels", ".custom(")) {
+            assertFalse(code.contains(forbidden),
+                    "GPU particle system must not read the active count on the CPU; found "
+                            + forbidden);
+        }
+        assertTrue(code.contains("drawArraysIndirect"),
+                "the owner must consume the GPU indirect command");
+        assertTrue(code.contains("GL_COMMAND_BARRIER_BIT"),
+                "the draw count must be published with an explicit command barrier");
+        assertTrue(code.contains("blendEquation(GL_FUNC_ADD)"),
+                "the additive pass must not inherit the caller's blend equation");
+        assertTrue(code.contains(".enableCullFace(true)"),
+                "the recorder must restore the opaque cull default after the draw");
     }
 
     @Test

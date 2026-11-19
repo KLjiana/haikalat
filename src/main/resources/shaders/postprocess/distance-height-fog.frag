@@ -23,7 +23,8 @@ vec3 reconstructWorldPosition(float depth) {
 }
 
 void main() {
-    vec3 sceneColor = texture(uScene, vUv).rgb;
+    vec4 sceneSample = texture(uScene, vUv);
+    vec3 sceneColor = sceneSample.rgb;
     float depth = texture(uDepth, vUv).r;
     vec3 worldPosition = reconstructWorldPosition(depth);
     vec3 ray = worldPosition - uCameraPosition;
@@ -38,5 +39,7 @@ void main() {
     float opticalDepth = uDistanceDensity * distanceToCamera
             + uHeightDensity * distanceToCamera * averageHeightDensity;
     float fog = min(uMaximumOpacity, 1.0 - exp(-max(opticalDepth, 0.0)));
-    FragColor = vec4(mix(sceneColor, uFogColor, fog), 1.0);
+    // Preserve the incoming alpha: the opaque HDR alpha carries the bounded
+    // subsurface diffuse share and is not a fog colour channel.
+    FragColor = vec4(mix(sceneColor, uFogColor, fog), sceneSample.a);
 }

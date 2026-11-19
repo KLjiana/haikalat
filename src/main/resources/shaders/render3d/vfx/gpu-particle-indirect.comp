@@ -1,0 +1,110 @@
+#version 460 core
+
+// Compute update for the production GPU particle owner.
+//
+// A fixed ring window [uEmitStart, uEmitStart + uEmitCount) is the only source
+// of new particles: a target slot that is still alive keeps its particle and
+// the emission is dropped. Live particles append their slot index to the
+// compacted active list with one atomic increment of the counter that also is
+// the indirect draw count. Slots beyond capacity are never written, so the
+// active count can not exceed capacity.
+layout (local_size_x = 64) in;
+
+struct Particle {
+    vec4 positionLife;   // xyz world position, w remaining lifetime in seconds
+    vec4 velocitySeed;   // xyz velocity, w deterministic per-spawn seed
+};
+
+layout (std430, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout (std430, binding = 1) buffer CounterBuffer {
+    uint activeCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint baseInstance;
+} counters;
+
+layout (std430, binding = 2) buffer ActiveIndexBuffer {
+    uint activeIndices[];
+};
+
+uniform int uCapacity;
+uniform int uEmitStart;
+uniform int uEmitCount;
+uniform int uClearParticles;
+uniform int uFrameIndex;
+uniform float uDeltaSeconds;
+uniform float uLifetimeSeconds;
+uniform float uGravity;
+uniform float uMinimumSpeed;
+uniform float uMaximumSpeed;
+uniform vec3 uSpawnMin;
+uniform vec3 uSpawnMax;
+
+uint hash(uint value) {
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16);
+}
+
+float random01(inout uint state) {
+    state = hash(state);
+    return float(state) / 4294967295.0;
+}
+
+void spawn(uint index, uint emissionOffset, inout Particle particle) {
+    uint generation = uint(uFrameIndex) * uint(uCapacity) + uint(uEmitStart) + emissionOffset;
+    uint state = hash(index * 747796405u + generation * 2891336453u + 277803737u);
+    float x = random01(state);
+    float y = random01(state);
+    float z = random01(state);
+    particle.positionLife = vec4(mix(uSpawnMin, uSpawnMax, vec3(x, y, z)), uLifetimeSeconds);
+    float azimuth = random01(state) * 6.28318530718;
+    float vertical = random01(state) * 2.0 - 1.0;
+    float radial = sqrt(max(0.0, 1.0 - vertical * vertical));
+    float speed = mix(uMinimumSpeed, uMaximumSpeed, random01(state));
+    particle.velocitySeed = vec4(cos(azimuth) * radial * speed, vertical * speed,
+            sin(azimuth) * radial * speed, random01(state));
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= uint(uCapacity)) {
+        return;
+    }
+
+    Particle particle;
+    if (uClearParticles != 0) {
+        // Replay reset: do not read the previous contents at all.
+        particle.positionLife = vec4(0.0);
+        particle.velocitySeed = vec4(0.0);
+    } else {
+        particle = particles[index];
+    }
+
+    int emissionOffset = int(index) - uEmitStart;
+    if (emissionOffset < 0) {
+        emissionOffset += uCapacity;
+    }
+    if (particle.positionLife.w <= 0.0 && emissionOffset < uEmitCount) {
+        spawn(index, uint(emissionOffset), particle);
+    }
+
+    if (particle.positionLife.w > 0.0) {
+        particle.velocitySeed.y -= uGravity * uDeltaSeconds;
+        particle.positionLife.xyz += particle.velocitySeed.xyz * uDeltaSeconds;
+        particle.positionLife.w -= uDeltaSeconds;
+        if (particle.positionLife.w > 0.0) {
+            uint slot = atomicAdd(counters.activeCount, 1u);
+            if (slot < uint(uCapacity)) {
+                activeIndices[slot] = index;
+            }
+        }
+    }
+
+    particles[index] = particle;
+}

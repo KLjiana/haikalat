@@ -13,6 +13,7 @@ import com.kaleblangley.haikalat.backend.texture.Sampler;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
 import com.kaleblangley.haikalat.backend.texture.Texture3D;
 import com.kaleblangley.haikalat.backend.texture.TextureCube;
+import com.kaleblangley.haikalat.backend.vrs.VariableRateShadingState;
 import com.kaleblangley.haikalat.core.mesh.InstancedMeshBatch;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
 import org.joml.Matrix4f;
@@ -28,10 +29,12 @@ import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_R8UI;
 import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.glBlitFramebuffer;
 import static org.lwjgl.opengl.GL31.glDrawArraysInstanced;
 import static org.lwjgl.opengl.GL31.glDrawElementsInstanced;
+import static org.lwjgl.opengl.GL40.glDrawArraysIndirect;
 import static org.lwjgl.opengl.GL42.glMemoryBarrier;
 import static org.lwjgl.opengl.GL43.glDispatchCompute;
 import static org.lwjgl.opengl.GL45.glGenerateTextureMipmap;
@@ -60,6 +63,8 @@ final class CommandExecutor {
         ArrayDeque<InstancedMeshBatch> preparedBatches = new ArrayDeque<>();
         ArrayDeque<InstancedMeshBatch> persistentPreparedBatches = new ArrayDeque<>();
         ArrayDeque<GpuTimer> activeGpuTimers = new ArrayDeque<>();
+        ArrayDeque<VariableRateShadingState.Snapshot> variableRateShadingScopes =
+                new ArrayDeque<>();
         Throwable commandFailure = null;
         int debugGroupDepth = 0;
         try {
@@ -191,6 +196,25 @@ final class CommandExecutor {
                 case BLEND_EQUATION -> cache.blendEquation(stream.integerAt(integerCursor++));
                 case SAMPLE_SHADING -> cache.sampleShading(stream.integerAt(integerCursor++) != 0,
                         Float.intBitsToFloat(stream.integerAt(integerCursor++)));
+                case BEGIN_VARIABLE_RATE_SHADING -> {
+                    Texture2D rateImage = (Texture2D) stream.objectAt(objectCursor++);
+                    int[] palette = (int[]) stream.objectAt(objectCursor++);
+                    if (rateImage.isClosed()) {
+                        throw new GlException("shading-rate image is closed");
+                    }
+                    if (rateImage.format() != GL_R8UI) {
+                        throw new GlException("shading-rate image must use the GL_R8UI format");
+                    }
+                    variableRateShadingScopes.addLast(
+                            VariableRateShadingState.begin(rateImage.id(), palette));
+                }
+                case END_VARIABLE_RATE_SHADING -> {
+                    if (variableRateShadingScopes.isEmpty()) {
+                        throw new IllegalStateException(
+                                "endVariableRateShading without a matching begin");
+                    }
+                    variableRateShadingScopes.removeLast().restore();
+                }
                 case GENERATE_CUBE_MIPMAPS -> {
                     TextureCube texture = (TextureCube) stream.objectAt(objectCursor++);
                     texture.ensureOpen();
@@ -214,6 +238,18 @@ final class CommandExecutor {
                     glDrawArraysInstanced(stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++), stream.integerAt(integerCursor++),
                             stream.integerAt(integerCursor++));
+                    failAfterDrawIfRequested(injectFailureAfterDraw, cache);
+                }
+                case DRAW_ARRAYS_INDIRECT -> {
+                    int mode = stream.integerAt(integerCursor++);
+                    long offset = stream.longAt(longCursor++);
+                    BufferUploadTarget target =
+                            (BufferUploadTarget) stream.objectAt(objectCursor++);
+                    if (target instanceof GlResource resource && resource.isClosed()) {
+                        throw new GlException("Buffer is closed");
+                    }
+                    cache.bindDrawIndirectBuffer(target.id());
+                    glDrawArraysIndirect(mode, offset);
                     failAfterDrawIfRequested(injectFailureAfterDraw, cache);
                 }
                 case DRAW_ELEMENTS_INSTANCED -> {
@@ -408,25 +444,61 @@ final class CommandExecutor {
                 default -> throw new IllegalStateException("Unknown command opcode " + opcode);
                 }
             }
+            if (!variableRateShadingScopes.isEmpty()) {
+                throw new IllegalStateException("unbalanced beginVariableRateShading: "
+                        + variableRateShadingScopes.size()
+                        + " scope(s) were not ended before the command stream ended");
+            }
         } catch (RuntimeException | Error failure) {
             commandFailure = failure;
             failPendingGpuFenceTargets(stream, gpuFenceTargetCursor, failure);
             throw failure;
         } finally {
             try {
-                abortGpuTimers(activeGpuTimers, commandFailure);
+                restoreVariableRateShadingScopes(variableRateShadingScopes, commandFailure);
             } finally {
                 try {
-                    abortPersistentPreparedBatches(persistentPreparedBatches, cache, commandFailure);
+                    abortGpuTimers(activeGpuTimers, commandFailure);
                 } finally {
                     try {
-                        finishPreparedBatches(preparedBatches, cache, commandFailure);
+                        abortPersistentPreparedBatches(persistentPreparedBatches, cache, commandFailure);
                     } finally {
-                        while (debugGroupDepth-- > 0) GlDebug.popGroup();
+                        try {
+                            finishPreparedBatches(preparedBatches, cache, commandFailure);
+                        } finally {
+                            while (debugGroupDepth-- > 0) GlDebug.popGroup();
+                        }
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Restores every shading-rate scope still active when execution stopped.
+     *
+     * <p>This is the failure-path half of the host-restore contract: a draw that
+     * throws after the scope began must not leave its rate image or palette
+     * active for the next frame.  Snapshots are restored in reverse order so
+     * nested scopes unwind exactly.</p>
+     */
+    private static void restoreVariableRateShadingScopes(
+            ArrayDeque<VariableRateShadingState.Snapshot> scopes, Throwable commandFailure) {
+        RuntimeException cleanupFailure = null;
+        while (!scopes.isEmpty()) {
+            try {
+                scopes.removeLast().restore();
+            } catch (RuntimeException failure) {
+                if (cleanupFailure == null) cleanupFailure = failure;
+                else cleanupFailure.addSuppressed(failure);
+            }
+        }
+        if (cleanupFailure == null) return;
+        if (commandFailure != null) {
+            commandFailure.addSuppressed(cleanupFailure);
+            return;
+        }
+        throw cleanupFailure;
     }
 
     private static void failAfterDrawIfRequested(boolean requested, StateCache cache) {

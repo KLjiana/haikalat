@@ -350,6 +350,125 @@ class LocalShadowsGlTest {
         }
     }
 
+    @Test
+    void pointShadowKeepsTheBiasedReceiverInShadowAcrossAtlasFaces() {
+        withLinearHdrFixture((window, device, quad, material, environment, settings) -> {
+            int width = window.width();
+            int height = window.height();
+            float pixelSpacing = (float) (10.0 * Math.tan(Math.PI / 8.0) / height);
+            // The center ray hits x=2.999 at z=0, just inside the -Z face.
+            // The balanced normal offset puts that sample on +X instead.
+            float cameraX = 2.999f - pixelSpacing * 0.5f;
+            Scene scene = new Scene(new Camera(new Vector3f(cameraX, 0f, 5f)));
+            scene.add(MeshRenderer.of(quad, material,
+                    Transform.at(3f, 0f, 0f).scale(2f)).withoutShadows());
+            scene.add(MeshRenderer.of(quad, material, Transform.at(1.5f, 0f, 1.5f).scale(0.38f)));
+            Vector3f position = new Vector3f(0f, 0f, 3f);
+            Vector3f color = new Vector3f(1f);
+            var quality = LocalShadowPipelineSettings.balanced();
+            float[] ambient = linearHdr(window, device, scene, settings, environment, quality, 0, 0);
+            scene.addLight(SceneLight.point(position, color, 100f, 10f));
+            float[] direct = linearHdr(window, device, scene, settings, environment, quality, 0, 0);
+            scene.removeLight(0);
+            scene.addLight(SceneLight.shadowedPoint(position, color, 100f, 10f));
+            float[] shadowed = linearHdr(window, device, scene, settings, environment, quality, 6, 0);
+            for (int x = width / 2 - 2; x <= width / 2 + 2; x++) {
+                int pixel = (height / 2 * width + x) * 4;
+                assertTrue(direct[pixel] > ambient[pixel] + 0.1f,
+                        "unshadowed fixture must light receiver x=" + x);
+                assertEquals(ambient[pixel], shadowed[pixel], 0.001f,
+                        "the same blocker must cover both sides and the seam at x=" + x
+                                + ", unshadowed=" + direct[pixel]);
+            }
+        });
+    }
+
+    @Test
+    void unoccludedSpotReceiverStaysLitAtGrazingIncidence() {
+        withLinearHdrFixture((window, device, quad, material, environment, settings) -> {
+            Scene scene = new Scene(new Camera(new Vector3f(0f, 0f, 0.7f)));
+            // The plane casts its own depth, but has no blocker in front of it.
+            scene.add(MeshRenderer.of(quad, material, Transform.at(0f, 0f, 0f).scale(0.24f)));
+            Vector3f position = new Vector3f(-0.38f, 0f, 0.015f);
+            Vector3f direction = new Vector3f(position).negate();
+            Vector3f color = new Vector3f(1f);
+            var legacy = LocalShadowPipelineSettings.legacyDefaults();
+            float[] ambient = linearHdr(window, device, scene, settings, environment, legacy, 0, 0);
+            scene.addLight(SceneLight.spot(position, direction, color, 20f, 4f, 0.15f, 0.5f));
+            float[] direct = linearHdr(window, device, scene, settings, environment, legacy, 0, 0);
+            scene.removeLight(0);
+            scene.addLight(SceneLight.shadowedSpot(position, direction, color, 20f, 4f, 0.15f, 0.5f));
+            for (var quality : new LocalShadowPipelineSettings[] {
+                    legacy, LocalShadowPipelineSettings.balanced()}) {
+                float[] shadowed = linearHdr(window, device, scene, settings, environment, quality, 0, 1);
+                int width = window.width();
+                for (int x = width / 2 - 4; x <= width / 2 + 4; x++) {
+                    int pixel = (window.height() / 2 * width + x) * 4;
+                    float directRed = direct[pixel] - ambient[pixel];
+                    assertTrue(directRed > 0.02f, "receiver must be measurably lit at x=" + x);
+                    assertEquals(direct[pixel], shadowed[pixel], directRed * 0.01f,
+                            (quality == legacy ? "legacy" : "balanced")
+                                    + " must retain direct light at x=" + x);
+                }
+            }
+            // At the tested center, the spot ray crosses this blocker halfway
+            // along its path. The receiver stays visible from the camera.
+            scene.add(MeshRenderer.of(quad, material, Transform.at(-0.19f, 0f, 0.026f)
+                    .rotationRadians(0f, -(float) Math.PI / 2f, 0f).scale(0.07f)));
+            float[] blocked = linearHdr(window, device, scene, settings, environment, legacy, 0, 2);
+            int center = (window.height() / 2 * window.width() + window.width() / 2) * 4;
+            assertEquals(ambient[center], blocked[center], 0.001f,
+                    "receiver-plane compensation must not erase a real spot shadow");
+        });
+    }
+
+    private static void withLinearHdrFixture(LinearHdrFixture fixture) {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (ShaderProgram shader = ShaderProgram.fromResource(LocalShadowsGlTest.class,
+                    "/shaders/render3d/pbr/pbr-forward.vert", "/shaders/render3d/pbr/pbr-forward.frag");
+                 PbrFallbackTextures fallbacks = new PbrFallbackTextures();
+                 Mesh quad = Mesh.from(TangentGenerator.generate(
+                         BuiltinMeshData.texturedQuad("local-shadow-hdr-quad")).mesh());
+                 PbrEnvironment environment = PbrEnvironmentLoader.load(device, LocalShadowsGlTest.class,
+                         "/environments/pbr/studio-small.hdr", PbrEnvironmentSettings.testQuality());
+                 Material material = PbrMaterials.create(shader,
+                         new PbrMaterialProperties(new Vector4f(0.72f, 0.68f, 0.62f, 1f),
+                                 0f, 0.8f, 1f, 1f, new Vector3f(), Map.of()), Map.of(), fallbacks)) {
+                RenderSettings settings = RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                        .bloomSettings(BloomSettings.disabled()).vsync(false).build();
+                fixture.run(window, device, quad, material, environment, settings);
+            }
+        }
+    }
+
+    private static float[] linearHdr(GlfwWindow window, GlRenderDevice device, Scene scene,
+                                    RenderSettings settings, PbrEnvironment environment,
+                                    LocalShadowPipelineSettings quality, int pointDraws, int spotDraws) {
+        RenderPipeline pipeline = new RenderPipeline(window, scene, null, settings, environment)
+                .localShadows(quality);
+        try {
+            pipeline.build();
+            pipeline.execute(device);
+            assertEquals(pointDraws, pipeline.lastPointShadowCasterDrawCount());
+            assertEquals(spotDraws, pipeline.lastSpotShadowCasterDrawCount());
+            float[] rgba = pipeline.captureLinearHdrRgbaFloat();
+            assertEquals(GL_NO_ERROR, glGetError());
+            return rgba;
+        } finally {
+            pipeline.close();
+        }
+    }
+
+    @FunctionalInterface
+    private interface LinearHdrFixture {
+        void run(GlfwWindow window, GlRenderDevice device, Mesh quad, Material material,
+                 PbrEnvironment environment, RenderSettings settings);
+    }
+
     private static Scene scene(Mesh quad, Material material, boolean shadows) {
         Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 5.0f)));
         scene.add(MeshRenderer.of(quad, material, Transform.at(0.0f, 0.0f, 0.0f).scale(3.2f))

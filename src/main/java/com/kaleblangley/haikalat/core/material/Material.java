@@ -43,6 +43,11 @@ public final class Material implements GlResource {
     private final MaterialModel model;
     private final CullMode cullMode;
     private final boolean volumetricFogOptOut;
+    private final RefractionSettings refraction;
+    private final ClearcoatSettings clearcoat;
+    private final AnisotropicSettings anisotropic;
+    private final ParallaxOcclusionSettings parallaxOcclusion;
+    private final SubsurfaceScatteringSettings subsurfaceScattering;
     private boolean closed;
 
     private Material(Builder builder) {
@@ -55,6 +60,11 @@ public final class Material implements GlResource {
         this.model = builder.model;
         this.cullMode = builder.cullMode;
         this.volumetricFogOptOut = builder.volumetricFogOptOut;
+        this.refraction = builder.refraction;
+        this.clearcoat = builder.clearcoat;
+        this.anisotropic = builder.anisotropic;
+        this.parallaxOcclusion = builder.parallaxOcclusion;
+        this.subsurfaceScattering = builder.subsurfaceScattering;
     }
 
     public CommandBuffer bind(CommandBuffer cmd) {
@@ -113,6 +123,26 @@ public final class Material implements GlResource {
 
     public CullMode cullMode() { return cullMode; }
     public boolean volumetricFogOptOut() { return volumetricFogOptOut; }
+    /** Single-layer transmissive material contract; disabled by default. */
+    public RefractionSettings refraction() { return refraction; }
+
+    /** Bounded clearcoat overlay contract; disabled is the exact no-op default. */
+    public ClearcoatSettings clearcoat() { return clearcoat; }
+
+    /** Bounded anisotropic highlight contract; disabled is the exact no-op default. */
+    public AnisotropicSettings anisotropic() { return anisotropic; }
+
+    /**
+     * Bounded tangent-space parallax occlusion contract; disabled is the exact
+     * no-op default and never changes the sampled UV.
+     */
+    public ParallaxOcclusionSettings parallaxOcclusion() { return parallaxOcclusion; }
+
+    /**
+     * Bounded subsurface-scattering contract; disabled is the exact no-op
+     * default and writes a zero screen-space material mask.
+     */
+    public SubsurfaceScatteringSettings subsurfaceScattering() { return subsurfaceScattering; }
 
     public Map<UniformKey<?>, UniformValue> defaultUniforms() {
         return defaultUniforms;
@@ -183,9 +213,81 @@ public final class Material implements GlResource {
         private MaterialModel model = MaterialModel.LEGACY;
         private CullMode cullMode = CullMode.NONE;
         private boolean volumetricFogOptOut;
+        private RefractionSettings refraction = RefractionSettings.disabled();
+        private ClearcoatSettings clearcoat = ClearcoatSettings.disabled();
+        private AnisotropicSettings anisotropic = AnisotropicSettings.disabled();
+        private ParallaxOcclusionSettings parallaxOcclusion = ParallaxOcclusionSettings.disabled();
+        private SubsurfaceScatteringSettings subsurfaceScattering =
+                SubsurfaceScatteringSettings.disabled();
 
         /** Explicitly exempts a custom transparent shader from the depth-aware volume contract. */
         public Builder volumetricFogOptOut(boolean value) { volumetricFogOptOut = value; return this; }
+
+        /**
+         * Marks this material as a bounded single-layer transmissive surface.
+         * The pipeline snapshots the resolved scene colour and draws the
+         * material after the normal forward queue; disabled settings keep the
+         * ordinary opaque/transparent path.
+         */
+        public Builder refraction(RefractionSettings value) {
+            refraction = Objects.requireNonNull(value, "refraction");
+            return this;
+        }
+
+        /**
+         * Declares the bounded clearcoat overlay stored on this material as
+         * template metadata. {@code PbrMaterials} applies the matching
+         * {@code uClearcoat*} uniforms and normal-map binding; a raw
+         * {@code Material.builder(...)} caller must upload those uniforms
+         * itself. {@link ClearcoatSettings#disabled()} keeps the original
+         * single-layer output.
+         */
+        public Builder clearcoat(ClearcoatSettings value) {
+            clearcoat = Objects.requireNonNull(value, "clearcoat");
+            return this;
+        }
+
+        /**
+         * Declares the bounded anisotropic highlight stored on this material
+         * as template metadata. {@code PbrMaterials} applies the matching
+         * {@code uAnisotropic*} uniforms; a raw {@code Material.builder(...)}
+         * caller must upload those uniforms itself. The settings record
+         * validates strength and rotation, so an invalid value cannot reach
+         * this builder. {@link AnisotropicSettings#disabled()} keeps the
+         * original isotropic output.
+         */
+        public Builder anisotropic(AnisotropicSettings value) {
+            anisotropic = Objects.requireNonNull(value, "anisotropic");
+            return this;
+        }
+
+        /**
+         * Declares the bounded tangent-space parallax occlusion stored on this
+         * material as template metadata. {@code PbrMaterials} applies the
+         * matching {@code uParallax*} uniforms and the {@code uHeightMap}
+         * binding at its fixed unit; a raw {@code Material.builder(...)} caller
+         * must upload those uniforms and bind the height map itself.
+         * {@link ParallaxOcclusionSettings#disabled()} or a zero height scale
+         * keeps the original {@code vTexCoord} sampling sequence exactly.
+         */
+        public Builder parallaxOcclusion(ParallaxOcclusionSettings value) {
+            parallaxOcclusion = Objects.requireNonNull(value, "parallaxOcclusion");
+            return this;
+        }
+
+        /**
+         * Declares the bounded subsurface-scattering input stored on this
+         * material as template metadata. {@code PbrMaterials} applies the
+         * matching {@code uSubsurface*} uniforms and the surface pass writes
+         * the {@code SUBSURFACE} mask from the same settings; a raw
+         * {@code Material.builder(...)} caller must upload those uniforms
+         * itself. An active value requires an opaque metallic-roughness
+         * material, and cannot be combined with the refraction path.
+         */
+        public Builder subsurfaceScattering(SubsurfaceScatteringSettings value) {
+            subsurfaceScattering = Objects.requireNonNull(value, "subsurfaceScattering");
+            return this;
+        }
 
         private Builder(ShaderProgram shader) {
             this.shader = shader;
@@ -316,6 +418,18 @@ public final class Material implements GlResource {
         }
 
         public Material build() {
+            if (refraction.active()
+                    && (blendMode != BlendMode.ALPHA || model != MaterialModel.METALLIC_ROUGHNESS)) {
+                throw new IllegalArgumentException(
+                        "refraction materials require BlendMode.ALPHA and METALLIC_ROUGHNESS");
+            }
+            if (subsurfaceScattering.active()
+                    && (blendMode != BlendMode.OPAQUE || model != MaterialModel.METALLIC_ROUGHNESS
+                    || refraction.active())) {
+                throw new IllegalArgumentException(
+                        "subsurface-scattering materials require opaque METALLIC_ROUGHNESS "
+                                + "and cannot use the refraction path");
+            }
             return new Material(this);
         }
 

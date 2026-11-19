@@ -42,8 +42,8 @@ class ScenePipelineTest {
         }
 
         assertTrue(source.contains("vec2 guard = texel * (float(radius) + 0.5)"));
-        assertTrue(source.contains("vec2 tileMinimum = offset + guard"));
-        assertTrue(source.contains("vec2 tileMaximum = offset + scale - guard"));
+        assertTrue(source.contains("tileMinimum = offset + guard;"));
+        assertTrue(source.contains("tileMaximum = offset + scale - guard;"));
         assertTrue(source.contains("clamp(projected.xy + vec2(x, y) * texel,"));
         assertTrue(source.contains("ivec4 uPointShadowMeta["
                 + LocalShadowPipelineSettings.MAX_POINT_SHADOW_LIGHTS + "]"));

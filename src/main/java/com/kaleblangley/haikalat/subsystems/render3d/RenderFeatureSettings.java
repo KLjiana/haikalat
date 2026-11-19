@@ -2,7 +2,21 @@ package com.kaleblangley.haikalat.subsystems.render3d;
 
 import com.kaleblangley.haikalat.runtime.RenderSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings;
+import com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings;
 
 import java.util.Objects;
 
@@ -14,6 +28,17 @@ import java.util.Objects;
  * before (master pause, direct/IBL contribution, per-family shadow switches,
  * HDR VFX and preview gating) get new booleans.  AO, volumetric fog, sky and
  * the colour-chain effects remain controlled by their existing settings.</p>
+ *
+ * <p>The opt-in composition passes ({@code volumetricParticles},
+ * {@code stochasticTransparency}, {@code weightedOit}, {@code planarReflections}
+ * and {@code caustics}) and the volumetric simulation passes ({@code
+ * volumetricClouds}, {@code smokeSimulation}, {@code smokeRender}) are appended
+ * components whose defaults are the exact {@code disabled()} value of their
+ * settings type.  The indirect-light and strand requests ({@code ddgi},
+ * {@code vct}, {@code hairStrands}) are appended after those S3 components with
+ * the same disabled defaults.  The 19-component constructor used before the S3
+ * wiring is retained and delegates with those disabled defaults, so existing
+ * source does not break.</p>
  */
 public record RenderFeatureSettings(
         boolean enabled,
@@ -31,7 +56,21 @@ public record RenderFeatureSettings(
         DirectionalShadowMap directionalShadowMap,
         DirectionalCascadeSettings directionalCascades,
         LocalShadowPipelineSettings localShadows,
-        ClusteredLightingSettings clusteredLighting) {
+        ClusteredLightingSettings clusteredLighting,
+        WaterSurfaceSettings waterSurface,
+        VolumetricParticleSettings volumetricParticles,
+        StochasticTransparencySettings stochasticTransparency,
+        VolumetricCloudSettings volumetricClouds,
+        SmokeSimulationSettings smokeSimulation,
+        SmokeRenderSettings smokeRender,
+        WeightedOitSettings weightedOit,
+        PlanarReflectionSettings planarReflections,
+        CausticsSettings caustics,
+        DdgiSettings ddgi,
+        VctSettings vct,
+        HairStrandSettings hairStrands,
+        WaterRefractionSettings waterRefraction,
+        ProjectedDecalSettings projectedDecals) {
     public RenderFeatureSettings {
         Objects.requireNonNull(render, "render");
         Objects.requireNonNull(postProcess, "postProcess");
@@ -41,6 +80,56 @@ public record RenderFeatureSettings(
         Objects.requireNonNull(directionalCascades, "directionalCascades");
         Objects.requireNonNull(localShadows, "localShadows");
         Objects.requireNonNull(clusteredLighting, "clusteredLighting");
+        Objects.requireNonNull(waterSurface, "waterSurface");
+        Objects.requireNonNull(volumetricParticles, "volumetricParticles");
+        Objects.requireNonNull(stochasticTransparency, "stochasticTransparency");
+        Objects.requireNonNull(volumetricClouds, "volumetricClouds");
+        Objects.requireNonNull(smokeSimulation, "smokeSimulation");
+        Objects.requireNonNull(smokeRender, "smokeRender");
+        Objects.requireNonNull(weightedOit, "weightedOit");
+        Objects.requireNonNull(planarReflections, "planarReflections");
+        Objects.requireNonNull(caustics, "caustics");
+        Objects.requireNonNull(ddgi, "ddgi");
+        Objects.requireNonNull(vct, "vct");
+        Objects.requireNonNull(hairStrands, "hairStrands");
+        Objects.requireNonNull(waterRefraction, "waterRefraction");
+        Objects.requireNonNull(projectedDecals, "projectedDecals");
+    }
+
+    /**
+     * Source-compatible constructor for the pre-S3-single wiring shape.  The
+     * composition and volumetric requests default to their exact no-op values.
+     */
+    public RenderFeatureSettings(
+            boolean enabled,
+            boolean directLighting,
+            boolean imageBasedLighting,
+            boolean directionalShadows,
+            boolean pointShadows,
+            boolean spotShadows,
+            boolean hdrVfx,
+            boolean preview,
+            RenderSettings render,
+            PostProcessSettings postProcess,
+            VolumetricFogSettings volumetricFog,
+            OutdoorEnvironmentSettings outdoorEnvironment,
+            DirectionalShadowMap directionalShadowMap,
+            DirectionalCascadeSettings directionalCascades,
+            LocalShadowPipelineSettings localShadows,
+            ClusteredLightingSettings clusteredLighting,
+            WaterSurfaceSettings waterSurface,
+            VolumetricParticleSettings volumetricParticles,
+            StochasticTransparencySettings stochasticTransparency) {
+        this(enabled, directLighting, imageBasedLighting, directionalShadows, pointShadows,
+                spotShadows, hdrVfx, preview, render, postProcess, volumetricFog,
+                outdoorEnvironment, directionalShadowMap, directionalCascades, localShadows,
+                clusteredLighting, waterSurface, volumetricParticles, stochasticTransparency,
+                VolumetricCloudSettings.disabled(), SmokeSimulationSettings.disabled(),
+                SmokeRenderSettings.disabled(), WeightedOitSettings.disabled(),
+                PlanarReflectionSettings.disabled(), CausticsSettings.disabled(),
+                DdgiSettings.disabled(), VctSettings.disabled(),
+                HairStrandSettings.disabled(), WaterRefractionSettings.disabled(),
+                ProjectedDecalSettings.disabled());
     }
 
     public static RenderFeatureSettings defaults() {
@@ -64,7 +153,21 @@ public record RenderFeatureSettings(
                 .directionalShadowMap(directionalShadowMap)
                 .directionalCascades(directionalCascades)
                 .localShadows(localShadows)
-                .clusteredLighting(clusteredLighting);
+                .clusteredLighting(clusteredLighting)
+                .waterSurface(waterSurface)
+                .volumetricParticles(volumetricParticles)
+                .stochasticTransparency(stochasticTransparency)
+                .volumetricClouds(volumetricClouds)
+                .smokeSimulation(smokeSimulation)
+                .smokeRender(smokeRender)
+                .weightedOit(weightedOit)
+                .planarReflections(planarReflections)
+                .caustics(caustics)
+                .ddgi(ddgi)
+                .vct(vct)
+                .hairStrands(hairStrands)
+                .waterRefraction(waterRefraction)
+                .projectedDecals(projectedDecals);
     }
 
     public static Builder builder() {
@@ -88,6 +191,24 @@ public record RenderFeatureSettings(
         private DirectionalCascadeSettings directionalCascades = DirectionalCascadeSettings.defaults();
         private LocalShadowPipelineSettings localShadows = LocalShadowPipelineSettings.legacyDefaults();
         private ClusteredLightingSettings clusteredLighting = ClusteredLightingSettings.defaults();
+        private WaterSurfaceSettings waterSurface = WaterSurfaceSettings.disabled();
+        private VolumetricParticleSettings volumetricParticles =
+                VolumetricParticleSettings.disabled();
+        private StochasticTransparencySettings stochasticTransparency =
+                StochasticTransparencySettings.disabled();
+        private VolumetricCloudSettings volumetricClouds = VolumetricCloudSettings.disabled();
+        private SmokeSimulationSettings smokeSimulation = SmokeSimulationSettings.disabled();
+        private SmokeRenderSettings smokeRender = SmokeRenderSettings.disabled();
+        private WeightedOitSettings weightedOit = WeightedOitSettings.disabled();
+        private PlanarReflectionSettings planarReflections =
+                PlanarReflectionSettings.disabled();
+        private CausticsSettings caustics = CausticsSettings.disabled();
+        private DdgiSettings ddgi = DdgiSettings.disabled();
+        private VctSettings vct = VctSettings.disabled();
+        private HairStrandSettings hairStrands = HairStrandSettings.disabled();
+        private WaterRefractionSettings waterRefraction =
+                WaterRefractionSettings.disabled();
+        private ProjectedDecalSettings projectedDecals = ProjectedDecalSettings.disabled();
 
         private Builder() {
         }
@@ -172,11 +293,84 @@ public record RenderFeatureSettings(
             return this;
         }
 
+        public Builder waterSurface(WaterSurfaceSettings value) {
+            waterSurface = Objects.requireNonNull(value, "waterSurface");
+            return this;
+        }
+
+        public Builder volumetricParticles(VolumetricParticleSettings value) {
+            volumetricParticles = Objects.requireNonNull(value, "volumetricParticles");
+            return this;
+        }
+
+        public Builder stochasticTransparency(StochasticTransparencySettings value) {
+            stochasticTransparency = Objects.requireNonNull(value, "stochasticTransparency");
+            return this;
+        }
+
+        public Builder volumetricClouds(VolumetricCloudSettings value) {
+            volumetricClouds = Objects.requireNonNull(value, "volumetricClouds");
+            return this;
+        }
+
+        public Builder smokeSimulation(SmokeSimulationSettings value) {
+            smokeSimulation = Objects.requireNonNull(value, "smokeSimulation");
+            return this;
+        }
+
+        public Builder smokeRender(SmokeRenderSettings value) {
+            smokeRender = Objects.requireNonNull(value, "smokeRender");
+            return this;
+        }
+
+        public Builder weightedOit(WeightedOitSettings value) {
+            weightedOit = Objects.requireNonNull(value, "weightedOit");
+            return this;
+        }
+
+        public Builder planarReflections(PlanarReflectionSettings value) {
+            planarReflections = Objects.requireNonNull(value, "planarReflections");
+            return this;
+        }
+
+        public Builder caustics(CausticsSettings value) {
+            caustics = Objects.requireNonNull(value, "caustics");
+            return this;
+        }
+
+        public Builder ddgi(DdgiSettings value) {
+            ddgi = Objects.requireNonNull(value, "ddgi");
+            return this;
+        }
+
+        public Builder vct(VctSettings value) {
+            vct = Objects.requireNonNull(value, "vct");
+            return this;
+        }
+
+        public Builder hairStrands(HairStrandSettings value) {
+            hairStrands = Objects.requireNonNull(value, "hairStrands");
+            return this;
+        }
+
+        public Builder waterRefraction(WaterRefractionSettings value) {
+            waterRefraction = Objects.requireNonNull(value, "waterRefraction");
+            return this;
+        }
+
+        public Builder projectedDecals(ProjectedDecalSettings value) {
+            projectedDecals = Objects.requireNonNull(value, "projectedDecals");
+            return this;
+        }
+
         public RenderFeatureSettings build() {
             return new RenderFeatureSettings(enabled, directLighting, imageBasedLighting,
                     directionalShadows, pointShadows, spotShadows, hdrVfx, preview, render,
                     postProcess, volumetricFog, outdoorEnvironment, directionalShadowMap,
-                    directionalCascades, localShadows, clusteredLighting);
+                    directionalCascades, localShadows, clusteredLighting, waterSurface,
+                    volumetricParticles, stochasticTransparency, volumetricClouds,
+                    smokeSimulation, smokeRender, weightedOit, planarReflections, caustics,
+                    ddgi, vct, hairStrands, waterRefraction, projectedDecals);
         }
     }
 }

@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.Camera;
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
 
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.MeshRenderer;
 
 import com.kaleblangley.haikalat.core.material.MaterialInstance;
@@ -91,6 +92,36 @@ public final class SceneFrameBuilder {
     private boolean shadowEnabledKey;
     private int shadowCount;
 
+    private SceneFrame subview;
+    private int[] subviewForward = new int[0];
+    private float[] subviewDepth = new float[0];
+
+    /** Re-culls and sorts the frozen entries for a second camera without re-evaluating model sources. */
+    public SceneFrame buildForwardSubview(SceneFrame primary, Matrix4fc subviewView,
+                                          Matrix4fc subviewClip, boolean cullingEnabled) {
+        if (primary != frame) throw new IllegalArgumentException("subview requires this builder's frame");
+        if (subview == null) subview = new SceneFrame();
+        if (subviewForward.length < primary.rendererCount()) {
+            subviewForward = new int[renderers.length];
+            subviewDepth = new float[renderers.length];
+        }
+        // The primary cache keys and queue are separate. Frustum and sort scratch
+        // are used only while building a queue and are safe to reuse here.
+        if (cullingEnabled) cameraFrustum.set(subviewClip);
+        int visible = 0;
+        for (int index = 0; index < primary.rendererCount(); index++) {
+            if (cullingEnabled && cameraFrustum.outside(bounds[index].view())) continue;
+            if (queueClass[index] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()) {
+                subviewDepth[index] = cameraDepth(index, subviewView);
+            }
+            subviewForward[visible++] = index;
+        }
+        RenderQueueSorter.forward(subviewForward, visible, scratch, queueClass,
+                subviewDepth, shader, material, mesh);
+        subview.publishForwardSubview(primary, subviewForward, visible);
+        return subview;
+    }
+
     public SceneFrame build(Scene scene, int width, int height, Matrix4fc shadowMatrix,
                      boolean shadowEnabled, boolean cullingEnabled, int frameIndex) {
         return build(scene, scene.camera(), width, height, shadowMatrix,
@@ -143,12 +174,17 @@ public final class SceneFrameBuilder {
             int finite = 0;
             int changedCount = 0;
             long stageStart = System.nanoTime();
-            if (staticCacheEnabled && allModelsImmutable && immutableSceneCacheReady) {
+            boolean immutableCandidates = staticCacheEnabled && allModelsImmutable
+                    && immutableSceneCacheReady;
+            boolean immutableBindingsUnchanged = immutableCandidates
+                    && immutableBindingsUnchanged();
+            if (immutableCandidates && immutableBindingsUnchanged) {
                 staticRenderers = entryCount;
                 modelHits = entryCount;
                 boundsHits = entryCount;
                 finite = immutableFiniteCount;
             } else {
+                if (immutableCandidates) immutableSceneCacheReady = false;
                 for (int index = 0; index < entryCount; index++) {
                     MeshRenderer renderer = renderers[index];
                     boolean revisioned = renderer.revisionedModel();
@@ -192,7 +228,8 @@ public final class SceneFrameBuilder {
                 Bounds3f local = renderers[index].mesh().localBounds();
                 Matrix4fc model = modelMiss[index] ? pendingModels[index] : models[index];
                 try {
-                    BoundsTransforms.world(local, model, pendingBounds[index]);
+                    BoundsTransforms.world(local, model,
+                            renderers[index].drawBinding().boundsPadding(), pendingBounds[index]);
                 } catch (RuntimeException | Error failure) {
                     throw stageFailure(index, "world bounds", failure);
                 }
@@ -232,7 +269,7 @@ public final class SceneFrameBuilder {
                 for (int index = 0; index < entryCount; index++) {
                     if (!cullingEnabled || !cameraFrustum.outside(bounds[index].view())) {
                         if (queueClass[index] == RenderQueueClass.TRANSPARENT_ALPHA.ordinal()) {
-                            cameraDepth[index] = cameraDepth(index);
+                            cameraDepth[index] = cameraDepth(index, view);
                             transparentAlphaCount++;
                         }
                         forward[forwardCount++] = index;
@@ -303,6 +340,17 @@ public final class SceneFrameBuilder {
         }
     }
 
+    private boolean immutableBindingsUnchanged() {
+        for (int index = 0; index < entryCount; index++) {
+            SceneDrawBinding binding = renderers[index].drawBinding();
+            if (binding.deformsVertices()
+                    || binding.boundsRevision() != cachedDeformationRevisions[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private boolean canReuseImmutableFrame(Camera camera, long sceneRevision, int width, int height,
                                            Matrix4fc shadowMatrix, boolean shadowEnabled,
                                            boolean cullingEnabled, boolean shadowCulling,
@@ -312,6 +360,7 @@ public final class SceneFrameBuilder {
         return camera.getClass() == Camera.class
                 && staticCacheEnabled && queueCacheEnabled
                 && allModelsImmutable && immutableSceneCacheReady
+                && immutableBindingsUnchanged()
                 && cachedRevision == sceneRevision
                 && cachedCameraRevision == camera.visibilityRevision()
                 && cachedWidth == width && cachedHeight == height
@@ -531,7 +580,7 @@ public final class SceneFrameBuilder {
         observedMaterialMutationEpoch = mutationEpoch;
     }
 
-    private float cameraDepth(int index) {
+    private float cameraDepth(int index, Matrix4fc view) {
         WorldBounds world = bounds[index].view();
         float x = world.unbounded() ? models[index].m30() : (world.minX() + world.maxX()) * 0.5f;
         float y = world.unbounded() ? models[index].m31() : (world.minY() + world.maxY()) * 0.5f;

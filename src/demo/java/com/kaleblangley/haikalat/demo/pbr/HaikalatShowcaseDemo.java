@@ -42,7 +42,10 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrFallbackTextures;
 import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterials;
-import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem;
+import com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleVfx;
 import com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.ui.UiConfig;
@@ -140,6 +143,12 @@ public final class HaikalatShowcaseDemo {
         Matrix4f inverseViewProjection = new Matrix4f();
         float[] visualRootMotion = {0.0f};
         Path profilePath = Path.of("build", "vfx-authoring", "showcase-combat-vfx.properties");
+        GpuParticleSettings particleSettings = gpuParticleSettings(options.gpuParticles());
+        GpuParticleSortingSettings particleSorting = GpuParticleSortingSettings.enabled(
+                GpuParticleSortingSettings.SortKey.VIEW_DEPTH,
+                GpuParticleSortingSettings.SortDirection.BACK_TO_FRONT,
+                particleSettings.capacity(),
+                GpuParticleSortingSettings.EqualKeyPolicy.STABLE);
 
         try (FrameDriver driver = new FrameDriver(renderSettings);
              PbrEnvironment environment = PbrEnvironmentLoader.load(driver.device(),
@@ -155,21 +164,32 @@ public final class HaikalatShowcaseDemo {
                              new Vector3f(0.025f, 0.05f, 0.09f), Map.of()),
                      Map.of(), fallbacks);
              VfxRenderer cpuVfxRenderer = new VfxRenderer();
-             GpuParticleExperiment gpuParticles = new GpuParticleExperiment(options.gpuParticles());
+             GpuParticleSystem gpuParticles = new GpuParticleSystem(particleSettings,
+                     particleSorting);
              VolumetricLightPass volumetric = new VolumetricLightPass();
              CombatVfxController combat = new CombatVfxController(CombatVfxCatalog.showcase(),
                      cpuVfxRenderer, CombatVfxProfile.defaults(), profilePath)) {
+            cpuVfxRenderer.gpuParticleSettings(new GpuParticleVfx.Settings(
+                    FIXED_DELTA_SECONDS,
+                    Math.min(particleSettings.capacity(), 24),
+                    GpuParticleVfx.SortingMode.GPU));
             Scene scene = scene(camera, sphere, material, pose, visualRootMotion);
             RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                     renderSettings, environment).postProcessSettings(postProcessSettings(options.fog()))
                     .maxVfxLights(4)
                     .hdrVfx((resources, commands) -> {
                         EffectSnapshot snapshot = effectSnapshot[0];
+                        int sceneDepth = resources.depthAttachment(
+                                PostProcessTargets.VFX_SCENE_DEPTH);
                         if (snapshot != null) {
                             cpuVfxRenderer.record(commands, snapshot, projection, view,
-                                    resources.depthAttachment(PostProcessTargets.VFX_SCENE_DEPTH),
-                                    window.width(), window.height());
+                                    sceneDepth, window.width(), window.height());
                         }
+                        // The GPU particle draw is a standalone depth-tested draw,
+                        // recorded before any OIT/stochastic collector on this target.
+                        cpuVfxRenderer.recordGpuParticles(commands, gpuParticles,
+                                particleSettings, projection, view, sceneDepth,
+                                window.width(), window.height());
                     });
             try {
                 pipeline.build();
@@ -192,8 +212,6 @@ public final class HaikalatShowcaseDemo {
                         commands.bindDefaultFramebuffer().viewport(0, 0, window.width(), window.height());
                         volumetric.recordIntoCurrentTarget(commands, inverseViewProjection,
                                 cameraPosition, volumetricSettings);
-                        gpuParticles.record(commands, FIXED_DELTA_SECONDS, viewProjection,
-                                window.width() / (float) window.height());
                     });
                     return renderFrames(window, options, driver, pipeline, ui, authoring,
                             mixer, pose, combat, effectSnapshot, cameraPosition,
@@ -214,7 +232,7 @@ public final class HaikalatShowcaseDemo {
                                         Matrix4f projection, Matrix4f view, Matrix4f viewProjection,
                                         Matrix4f inverseViewProjection, float[] visualRootMotion,
                                         VfxRenderer cpuVfxRenderer,
-                                        GpuParticleExperiment gpuParticles,
+                                        GpuParticleSystem gpuParticles,
                                         VolumetricLightPass volumetric) {
         FrameClock clock = new FrameClock();
         long animationEvents = 0L;
@@ -311,14 +329,19 @@ public final class HaikalatShowcaseDemo {
                 || !sawParticles || !sawRibbons || !sawDecals || !sawMeshes || !sawLights
                 || !sawRim || !sawUvFlow || !sawDissolve
                 || cpuVfxRenderer.textureCount() <= 0
-                || gpuParticles.statistics().framesRecorded() != options.frames()
+                || cpuVfxRenderer.gpuParticleVfx().statistics().framesRecorded() != options.frames()
                 || volumetric.statistics().framesRecorded() != options.frames()
                 || uiStats.quads() <= 0 || uiAnimations.started() <= 0L) {
             throw new IllegalStateException("showcase did not exercise every required subsystem: "
                     + "particles=" + sawParticles + " ribbons=" + sawRibbons
                     + " decals=" + sawDecals + " meshes=" + sawMeshes + " lights=" + sawLights
                     + " rim=" + sawRim + " uvFlow=" + sawUvFlow
-                    + " dissolve=" + sawDissolve);
+                    + " dissolve=" + sawDissolve
+                    + " gpuFrames=" + cpuVfxRenderer.gpuParticleVfx()
+                            .statistics().framesRecorded()
+                    + " volumeFrames=" + volumetric.statistics().framesRecorded()
+                    + " uiQuads=" + uiStats.quads() + " uiAnimations="
+                    + uiAnimations.started());
         }
         if (options.stability()) verifyStableResources(stableResources, GlDebug.resources());
         return new Summary(frame, animationEvents, rootMotionDistance,
@@ -352,6 +375,13 @@ public final class HaikalatShowcaseDemo {
         scene.addLight(SceneLight.point(new Vector3f(2.0f, 2.2f, 3.0f),
                 new Vector3f(0.1f, 0.45f, 1.0f), 12.0f, 10.0f));
         return scene;
+    }
+
+    private static GpuParticleSettings gpuParticleSettings(int capacity) {
+        return new GpuParticleSettings(capacity,
+                new Vector3f(-1.6f, -0.9f, -0.35f), new Vector3f(1.6f, 1.0f, 0.35f),
+                2.0f, 0.22f, 0.08f, 0.45f, 0.075f,
+                new Vector3f(1.0f, 0.42f, 0.1f), 0.7f);
     }
 
     private static Skeleton skeleton() {

@@ -79,3 +79,8 @@ advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageData
 advanced com.kaleblangley.haikalat.core.assets.gltf.GltfImageDecoder
 stable com.kaleblangley.haikalat.core.assets.gltf.GltfAssetLoader
 stable com.kaleblangley.haikalat.core.assets.gltf.LoadedGltfScene
+advanced com.kaleblangley.haikalat.core.material.RefractionSettings
+advanced com.kaleblangley.haikalat.core.material.ClearcoatSettings
+advanced com.kaleblangley.haikalat.core.material.AnisotropicSettings
+advanced com.kaleblangley.haikalat.core.material.ParallaxOcclusionSettings
+advanced com.kaleblangley.haikalat.core.material.SubsurfaceScatteringSettings

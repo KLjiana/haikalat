@@ -22,6 +22,7 @@ import com.kaleblangley.haikalat.subsystems.postprocess.exposure.AutoExposureCha
 import com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain;
 import com.kaleblangley.haikalat.core.graph.PassResources;
 import com.kaleblangley.haikalat.subsystems.postprocess.FogSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
 import com.kaleblangley.haikalat.runtime.ToneMappingMode;
 import com.kaleblangley.haikalat.runtime.RenderSettings;
@@ -118,11 +119,25 @@ class RenderPipelineTest {
         assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS, PostProcessTargets.TAA_PASS,
                         PostProcessTargets.TONE_MAPPING_PASS, PostProcessTargets.PRESENT_PASS),
                 RenderPipeline.passNamesFor(AntiAliasingMode.TAA, ToneMappingMode.ACES));
+        assertEquals(List.of(PostProcessTargets.GEOMETRY_PASS,
+                        PostProcessTargets.TONE_MAPPING_PASS,
+                        PostProcessTargets.SMAA_EDGE_DETECTION_PASS,
+                        PostProcessTargets.SMAA_BLENDING_WEIGHT_PASS,
+                        PostProcessTargets.SMAA_PASS),
+                RenderPipeline.passNamesFor(AntiAliasingMode.SMAA, ToneMappingMode.ACES));
     }
 
     @Test
     void finalBackbufferAnchorCoversEveryLdrAndHdrAaCombination() {
         for (AntiAliasingMode mode : AntiAliasingMode.values()) {
+            if (mode == AntiAliasingMode.SMAA) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.NONE),
+                        "SMAA rejects the LDR chain");
+                assertEquals(PostProcessTargets.SMAA_PASS,
+                        PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.ACES));
+                continue;
+            }
             assertEquals(PostProcessTargets.PRESENT_PASS,
                     PostProcessPipeline.finalPassNameFor(mode, ToneMappingMode.NONE),
                     "LDR final pass for " + mode);
@@ -216,6 +231,21 @@ class RenderPipelineTest {
                 RenderSettings.builder().build()).hdrVfx((resources, commands) -> { });
         assertThrows(IllegalStateException.class, ldr::build);
 
+    }
+
+    @Test
+    void reducedRenderScaleRejectsLegacyFullResolutionCompositionsBeforeBuild() {
+        RenderWindowStub window = new RenderWindowStub();
+        RenderPipeline pipeline = new RenderPipeline(window, new Scene(new Camera()), null,
+                RenderSettings.builder().toneMappingMode(ToneMappingMode.ACES)
+                        .renderScale(0.5f).build())
+                .postProcessSettings(PostProcessSettings.builder()
+                        .depthOfField(DepthOfFieldSettings.of(4.0f, 2.8f, 8.0f)).build());
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                pipeline::build,
+                "the legacy setter path must fail closed before candidate preparation");
+        assertTrue(failure.getMessage().contains("depth-of-field"), failure.getMessage());
     }
 
     @Test

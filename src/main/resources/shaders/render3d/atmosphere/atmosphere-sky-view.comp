@@ -1,0 +1,68 @@
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba16f, binding = 0) writeonly uniform image2D uSkyViewLut;
+
+uniform sampler2D uTransmittanceLut;
+
+uniform float uTopRadius;
+uniform float uObserverRadius;
+uniform vec3 uRayleighScatteringUnit;
+uniform float uRayleighScaleHeightUnit;
+uniform float uMieScatteringUnit;
+uniform float uMieExtinctionUnit;
+uniform float uMieScaleHeightUnit;
+uniform float uMieAnisotropy;
+uniform vec3 uSunDirectionLocal;
+uniform int uSampleCount;
+
+void main() {
+    ivec2 size = imageSize(uSkyViewLut);
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(texel, size))) return;
+
+    vec2 uv = (vec2(texel) + vec2(0.5)) / vec2(size);
+    // The sky-view LUT covers the upper hemisphere in local coordinates where
+    // +Y is the zenith and +Z is the sun azimuth.  The shading pass rotates
+    // world directions into this frame.
+    float zenithAngle = uv.x * (0.5 * ATMOSPHERE_PI);
+    float azimuth = (uv.y * 2.0 - 1.0) * ATMOSPHERE_PI;
+    vec3 viewDirection = vec3(sin(zenithAngle) * sin(azimuth), cos(zenithAngle),
+            sin(zenithAngle) * cos(azimuth));
+
+    vec3 radiance = vec3(0.0);
+    float pathLength = atmosphereDistanceToTop(uObserverRadius, viewDirection.y, uTopRadius);
+    if (pathLength > ATMOSPHERE_PATH_EPSILON) {
+        vec3 origin = vec3(0.0, uObserverRadius, 0.0);
+        vec3 viewOpticalDepth = vec3(0.0);
+        float cosTheta = dot(viewDirection, uSunDirectionLocal);
+        float rayleighPhase = atmosphereRayleighPhase(cosTheta);
+        float miePhase = atmosphereMiePhase(cosTheta, uMieAnisotropy);
+        for (int i = 0; i < uSampleCount; ++i) {
+            float f = (float(i) + 0.5) / float(uSampleCount);
+            float t = atmosphereQuadraticDistance(pathLength, f);
+            float ds = atmosphereQuadraticWeight(pathLength, f, uSampleCount);
+            vec3 position = origin + viewDirection * t;
+            float sampleRadius = length(position);
+            if (sampleRadius > uTopRadius) break;
+            float altitude = max(sampleRadius - 1.0, 0.0);
+            float rayleighDensity = exp(-altitude / uRayleighScaleHeightUnit);
+            float mieDensity = exp(-altitude / uMieScaleHeightUnit);
+            vec3 viewTransmittance = exp(-viewOpticalDepth);
+            float sunMu = dot(position / sampleRadius, uSunDirectionLocal);
+            vec3 sunTransmittance = vec3(0.0);
+            if (sunMu > 0.0) {
+                sunTransmittance = texture(uTransmittanceLut, atmosphereTransmittanceUv(
+                        sampleRadius, sunMu, 1.0, uTopRadius)).rgb;
+            }
+            vec3 inScatter = (uRayleighScatteringUnit * rayleighDensity * rayleighPhase
+                    + vec3(uMieScatteringUnit * mieDensity * miePhase))
+                    * viewTransmittance * sunTransmittance;
+            radiance += inScatter * ds;
+            viewOpticalDepth += (uRayleighScatteringUnit * rayleighDensity
+                    + vec3(uMieExtinctionUnit * mieDensity)) * ds;
+        }
+    }
+
+    imageStore(uSkyViewLut, texel, vec4(radiance, 1.0));
+}

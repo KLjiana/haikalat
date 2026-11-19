@@ -11,9 +11,22 @@ public final class BoundsTransforms {
     }
 
     public static void world(Bounds3f local, Matrix4fc matrix, WorldBounds.Scratch destination) {
+        world(local, matrix, 0.0f, destination);
+    }
+
+    /**
+     * Transforms a local AABB after conservatively expanding it by
+     * {@code padding} on every local axis.  Used by vertex-deformation owners
+     * whose animated positions can leave the rest-pose mesh bounds.
+     */
+    public static void world(Bounds3f local, Matrix4fc matrix, float padding,
+                             WorldBounds.Scratch destination) {
         Objects.requireNonNull(local, "local");
         Objects.requireNonNull(matrix, "matrix");
         Objects.requireNonNull(destination, "destination");
+        if (!Float.isFinite(padding) || padding < 0.0f) {
+            throw new IllegalArgumentException("bounds padding must be finite and non-negative");
+        }
         requireFiniteAffine(matrix);
         if (local.isUnbounded()) {
             destination.setUnbounded();
@@ -23,9 +36,9 @@ public final class BoundsTransforms {
         float centerX = (local.minX() + local.maxX()) * 0.5f;
         float centerY = (local.minY() + local.maxY()) * 0.5f;
         float centerZ = (local.minZ() + local.maxZ()) * 0.5f;
-        float extentX = (local.maxX() - local.minX()) * 0.5f;
-        float extentY = (local.maxY() - local.minY()) * 0.5f;
-        float extentZ = (local.maxZ() - local.minZ()) * 0.5f;
+        float extentX = (local.maxX() - local.minX()) * 0.5f + padding;
+        float extentY = (local.maxY() - local.minY()) * 0.5f + padding;
+        float extentZ = (local.maxZ() - local.minZ()) * 0.5f + padding;
 
         float worldCenterX = matrix.m00() * centerX + matrix.m10() * centerY
                 + matrix.m20() * centerZ + matrix.m30();

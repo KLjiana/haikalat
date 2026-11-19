@@ -94,6 +94,9 @@ public final class CommandBuffer {
     static final byte BIND_IMAGE_3D_LAYER = 56;
     static final byte SAMPLE_SHADING = 57;
     static final byte BLEND_EQUATION = 58;
+    static final byte DRAW_ARRAYS_INDIRECT = 59;
+    static final byte BEGIN_VARIABLE_RATE_SHADING = 60;
+    static final byte END_VARIABLE_RATE_SHADING = 61;
 
     private final CommandStream stream = new CommandStream();
     private final PendingPipelineState pendingState = new PendingPipelineState();
@@ -138,6 +141,54 @@ public final class CommandBuffer {
             throw new IllegalArgumentException("minimum sample shading must be in [0, 1]");
         flushPendingState();
         opcode(SAMPLE_SHADING); integer(enabled ? 1 : 0); integer(floatBits(minimumFraction));
+        return this;
+    }
+
+    /**
+     * Records the beginning of a selective fragment shading-rate scope.
+     *
+     * <p>The execution side captures the currently bound shading-rate image and
+     * the palette entries this scope replaces, applies the supplied image and
+     * palette, and restores the captured host state at the paired
+     * {@link #endVariableRateShading()}.  Capture cannot happen while the
+     * command stream is being recorded because an earlier command may still
+     * change that state before execution, which is why this is a typed
+     * begin/end pair and not an immediate GL call.</p>
+     *
+     * <p>Both calls must be recorded in the same {@link CommandBuffer}.  The
+     * elapsed scope applies to every draw recorded between them, which lets a
+     * pass shade its full-screen consumer at the selected rate without changing
+     * any shader.  Disabled requests must not record either call at all.</p>
+     *
+     * @param rateImage {@code R8UI} palette-index image owned by the caller
+     * @param palette   NV shading-rate values indexed by the image texels
+     * @return this command stream
+     */
+    public CommandBuffer beginVariableRateShading(Texture2D rateImage, int... palette) {
+        Objects.requireNonNull(rateImage, "rateImage");
+        if (rateImage.isClosed()) throw new GlException("shading-rate image is closed");
+        Objects.requireNonNull(palette, "palette");
+        if (palette.length < 2) {
+            throw new IllegalArgumentException(
+                    "a shading-rate palette needs at least a fine and a coarse entry");
+        }
+        flushPendingState();
+        opcode(BEGIN_VARIABLE_RATE_SHADING);
+        object(rateImage);
+        object(palette.clone());
+        return this;
+    }
+
+    /**
+     * Records the end of the shading-rate scope opened by
+     * {@link #beginVariableRateShading(Texture2D, int...)} and restores the
+     * exact image and palette that were active before the scope.
+     *
+     * @return this command stream
+     */
+    public CommandBuffer endVariableRateShading() {
+        flushPendingState();
+        opcode(END_VARIABLE_RATE_SHADING);
         return this;
     }
     /** Applies the same blend equation to RGB and alpha. */
@@ -267,7 +318,8 @@ public final class CommandBuffer {
         Objects.requireNonNull(texture, "texture").ensureOpen();
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(format, "format");
-        if (unit < 0 || mipLevel != 0 || layer < 0 || layer >= texture.depth()) {
+        if (unit < 0 || mipLevel < 0 || mipLevel >= texture.mipLevels()
+                || layer < 0 || layer >= texture.levelDepth(mipLevel)) {
             throw new IllegalArgumentException("invalid 3D image unit/level/layer");
         }
         if (texture.format() != format) throw new IllegalArgumentException("3D image format must match storage format");
@@ -563,6 +615,34 @@ public final class CommandBuffer {
         return this;
     }
 
+    /**
+     * 记录由 GPU 写入参数缓冲的 indirect non-indexed draw。
+     *
+     * <p>参数缓冲按 {@code DrawArraysIndirectCommand} 布局读取：绘制数量、实例数、
+     * 起始顶点和 base instance 各一个 uint，命令使用 {@code offsetBytes} 处的记录。
+     * 绑定目标只在执行期校验存活状态；命令本身不读取也不缓存计数，因此调用方
+     * 无法用 CPU 读回决定每帧 draw 数量。</p>
+     *
+     * @param mode           图元模式，例如 {@code GL_POINTS}
+     * @param indirectBuffer 保存 indirect 命令的 buffer
+     * @param offsetBytes    命令在 buffer 中的字节偏移，必须非负
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer drawArraysIndirect(int mode, BufferUploadTarget indirectBuffer,
+                                            long offsetBytes) {
+        Objects.requireNonNull(indirectBuffer, "indirectBuffer");
+        requireOpenBuffer(indirectBuffer);
+        if (offsetBytes < 0L) {
+            throw new IllegalArgumentException("indirect draw offset must be non-negative");
+        }
+        flushPendingState();
+        opcode(DRAW_ARRAYS_INDIRECT);
+        integer(mode);
+        longValue(offsetBytes);
+        object(indirectBuffer);
+        return this;
+    }
+
     public CommandBuffer drawMeshInstanced(Mesh mesh, int instanceCount) {
         Objects.requireNonNull(mesh, "mesh");
         flushPendingState();
@@ -735,6 +815,27 @@ public final class CommandBuffer {
 
     public CommandBuffer blendFunc(int sourceRgb, int destinationRgb) {
         pendingState.blendFunc(sourceRgb, destinationRgb);
+        return this;
+    }
+
+    /**
+     * Sets independent RGB and alpha blend factors.
+     *
+     * <p>The command stream keeps one blend-function packet; if the alpha
+     * factors equal the RGB factors the backend still receives the cheaper
+     * {@code glBlendFunc} form. Passing {@code GL_ONE, GL_ONE, GL_ZERO,
+     * GL_ONE_MINUS_SRC_ALPHA} is the weighted-OIT accumulation contract:
+     * RGB sums while alpha accumulates surface transmittance.</p>
+     *
+     * @param sourceRgb      RGB source factor
+     * @param destinationRgb RGB destination factor
+     * @param sourceAlpha    alpha source factor
+     * @param destinationAlpha alpha destination factor
+     * @return 当前命令缓冲区
+     */
+    public CommandBuffer blendFuncSeparate(int sourceRgb, int destinationRgb,
+                                           int sourceAlpha, int destinationAlpha) {
+        pendingState.blendFuncSeparate(sourceRgb, destinationRgb, sourceAlpha, destinationAlpha);
         return this;
     }
 
@@ -1050,6 +1151,32 @@ public final class CommandBuffer {
 
     byte recordedOpcodeAt(int commandIndex) {
         return stream.opcodeAt(commandIndex);
+    }
+
+    /**
+     * 返回录制流中按顺序保存的 integer payload。
+     *
+     * <p>advanced diagnostics：只用于命令解码与容量测试，调用方不能据此重建
+     * opcode 边界或执行命令。{@link #reset()} 后清空。</p>
+     *
+     * @param payloadIndex integer payload 下标
+     * @return 对应位置的原始 int
+     */
+    int recordedIntegerAt(int payloadIndex) {
+        return stream.integerAt(payloadIndex);
+    }
+
+    /**
+     * 返回录制流中按顺序保存的 long payload。
+     *
+     * <p>advanced diagnostics：与 {@link #recordedIntegerAt(int)} 同属解码测试入口，
+     * 不承诺 opcode 边界或执行语义。{@link #reset()} 后清空。</p>
+     *
+     * @param payloadIndex long payload 下标
+     * @return 对应位置的原始 long
+     */
+    long recordedLongAt(int payloadIndex) {
+        return stream.longAt(payloadIndex);
     }
 
     Object objectPayloadAt(int payloadIndex) {

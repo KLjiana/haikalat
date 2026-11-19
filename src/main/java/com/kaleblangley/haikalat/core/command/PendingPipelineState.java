@@ -34,6 +34,8 @@ final class PendingPipelineState {
     private boolean blendEnabled;
     private int blendSourceRgb;
     private int blendDestinationRgb;
+    private int blendSourceAlpha;
+    private int blendDestinationAlpha;
     private boolean depthWriteEnabled;
     private int depthFunction = org.lwjgl.opengl.GL11.GL_LESS;
     private boolean depthTestEnabled;
@@ -69,10 +71,25 @@ final class PendingPipelineState {
     }
 
     void blendFunc(int sourceRgb, int destinationRgb) {
+        blendFunction(sourceRgb, destinationRgb, sourceRgb, destinationRgb);
+    }
+
+    void blendFuncSeparate(int sourceRgb, int destinationRgb,
+                           int sourceAlpha, int destinationAlpha) {
+        blendFunction(sourceRgb, destinationRgb, sourceAlpha, destinationAlpha);
+    }
+
+    /** Stores one four-factor blend state; equal alpha factors keep the glBlendFunc packet. */
+    private void blendFunction(int sourceRgb, int destinationRgb,
+                               int sourceAlpha, int destinationAlpha) {
         if ((known & BLEND_FUNCTION) != 0 && blendSourceRgb == sourceRgb
-                && blendDestinationRgb == destinationRgb) return;
+                && blendDestinationRgb == destinationRgb
+                && blendSourceAlpha == sourceAlpha
+                && blendDestinationAlpha == destinationAlpha) return;
         blendSourceRgb = sourceRgb;
         blendDestinationRgb = destinationRgb;
+        blendSourceAlpha = sourceAlpha;
+        blendDestinationAlpha = destinationAlpha;
         known |= BLEND_FUNCTION;
         dirty |= BLEND_FUNCTION;
     }
@@ -185,7 +202,12 @@ final class PendingPipelineState {
             target.clearColor(clearRed, clearGreen, clearBlue, clearAlpha);
         }
         if ((changes & BLEND_FUNCTION) != 0) {
-            target.blendFunc(blendSourceRgb, blendDestinationRgb);
+            if (blendSourceAlpha == blendSourceRgb && blendDestinationAlpha == blendDestinationRgb) {
+                target.blendFunc(blendSourceRgb, blendDestinationRgb);
+            } else {
+                target.blendFuncSeparate(blendSourceRgb, blendDestinationRgb,
+                        blendSourceAlpha, blendDestinationAlpha);
+            }
         }
         if ((changes & BLEND_ENABLE) != 0) target.enableBlend(blendEnabled);
         if ((changes & DEPTH_MASK) != 0) target.depthMask(depthWriteEnabled);
@@ -222,6 +244,8 @@ final class PendingPipelineState {
         if ((changes & BLEND_FUNCTION) != 0) {
             stream.integer(blendSourceRgb);
             stream.integer(blendDestinationRgb);
+            stream.integer(blendSourceAlpha);
+            stream.integer(blendDestinationAlpha);
         }
         if ((changes & BLEND_ENABLE) != 0) stream.integer(blendEnabled ? 1 : 0);
         if ((changes & DEPTH_MASK) != 0) stream.integer(depthWriteEnabled ? 1 : 0);
@@ -254,7 +278,16 @@ final class PendingPipelineState {
                     Float.intBitsToFloat(stream.integerAt(cursor++)));
         }
         if ((changes & BLEND_FUNCTION) != 0) {
-            target.blendFunc(stream.integerAt(cursor++), stream.integerAt(cursor++));
+            int sourceRgb = stream.integerAt(cursor++);
+            int destinationRgb = stream.integerAt(cursor++);
+            int sourceAlpha = stream.integerAt(cursor++);
+            int destinationAlpha = stream.integerAt(cursor++);
+            if (sourceAlpha == sourceRgb && destinationAlpha == destinationRgb) {
+                target.blendFunc(sourceRgb, destinationRgb);
+            } else {
+                target.blendFuncSeparate(sourceRgb, destinationRgb,
+                        sourceAlpha, destinationAlpha);
+            }
         }
         if ((changes & BLEND_ENABLE) != 0) target.enableBlend(stream.integerAt(cursor++) != 0);
         if ((changes & DEPTH_MASK) != 0) target.depthMask(stream.integerAt(cursor++) != 0);

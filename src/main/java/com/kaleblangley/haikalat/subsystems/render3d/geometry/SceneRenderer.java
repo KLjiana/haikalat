@@ -40,6 +40,14 @@ public final class SceneRenderer {
 
         boolean sharedDepth();
 
+        /**
+         * True for the volumetric-fog transparency replay: those transparent
+         * draws use the fog-composited material variant and its premultiplied
+         * blend contract. The ordinary transparent forward half keeps the
+         * material's own blend function.
+         */
+        boolean volumeTransparency();
+
         InstancedRenderer instanced();
 
         SceneDeformationDefaults deformationDefaults();
@@ -105,13 +113,16 @@ public final class SceneRenderer {
             Matrix4f model = frame.copyModel(entry, modelScratch);
             MaterialInstance material = renderer.material();
             Material materialTemplate = material.material();
+            // Refraction materials own a separate shader and are recorded by
+            // RefractionPass after the resolved scene-colour snapshot exists.
+            if (materialTemplate.refraction().active()) continue;
             if (segment == 3 && materialTemplate.volumetricFogOptOut()) continue;
             ShaderProgram shader = segment >= 2
                     ? host.transparentShader(materialTemplate, materialTemplate.shader())
                     : materialTemplate.shader();
             boolean castsOpaque = gtaoEnabled && frame.castsOpaqueShadow(entry);
             boolean materialHasOverrides = material.hasOverrides();
-            boolean mirrored = frame.mirrored(entry);
+            boolean mirrored = frame.mirrored(entry) ^ mirroredView;
             if (!frontFaceBound || mirrored != boundMirrored) {
                 cmd.frontFace(mirrored ? FrontFace.CW : FrontFace.CCW);
                 frontFaceBound = true;
@@ -121,9 +132,11 @@ public final class SceneRenderer {
             boolean materialBindingChanged = materialChanged
                     && (boundMaterialTemplate != materialTemplate
                     || boundMaterialHasOverrides || materialHasOverrides);
+            boolean fogComposited = segment >= 2 && host.volumeTransparency()
+                    && !materialTemplate.volumetricFogOptOut();
             if (materialBindingChanged) {
                 material.bind(cmd, shader);
-                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) {
+                if (fogComposited) {
                     cmd.blendFunc(org.lwjgl.opengl.GL11.GL_ONE,
                                     materialTemplate.blendMode() == BlendMode.ADDITIVE
                                             ? org.lwjgl.opengl.GL11.GL_ONE
@@ -149,7 +162,7 @@ public final class SceneRenderer {
                 if (gtaoEnabled) boundGtaoTexture = materialGtaoTexture;
                 boundSkinningEnabled = -1;
                 boundMorphTargetCount = -1;
-                if (segment >= 2 && !materialTemplate.volumetricFogOptOut()) {
+                if (fogComposited) {
                     host.bindVolumeQuery(cmd, shader);
                 }
             }
@@ -160,6 +173,7 @@ public final class SceneRenderer {
             }
             cmd.setUniformMat4(shader, "uModel", model);
             SceneDrawBinding drawBinding = renderer.drawBinding();
+            drawBinding.recordVertexDisplacement(cmd, shader, SceneDrawBinding.Pass.FORWARD);
             int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = drawBinding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {
@@ -187,6 +201,7 @@ public final class SceneRenderer {
             cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
             host.bindFrameState(instanced.shader(), cmd, shadowTexture, pointShadowTexture,
                     spotShadowTexture, gtaoEnabled ? gtaoTexture : 0);
+            cmd.frontFace(mirroredView ? FrontFace.CW : FrontFace.CCW);
             instanced.render(cmd);
         }
     }
@@ -194,7 +209,14 @@ public final class SceneRenderer {
     private final Matrix4f modelScratch = new Matrix4f();
     private final Host host;
 
+    private final boolean mirroredView;
+
     public SceneRenderer(Host host) {
+        this(host, false);
+    }
+
+    public SceneRenderer(Host host, boolean mirroredView) {
         this.host = Objects.requireNonNull(host, "host");
+        this.mirroredView = mirroredView;
     }
 }

@@ -11,13 +11,29 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets
 advanced com.kaleblangley.haikalat.subsystems.postprocess.SurfaceInputs
 advanced com.kaleblangley.haikalat.subsystems.postprocess.LateSurfaceProducer
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortion
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenDistortionSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsrEnvironmentSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource
+advanced com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalDenoiseSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.TemporalUpscalingSource
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ScreenQuad
 
 # Effect settings and public effect passes.
 advanced com.kaleblangley.haikalat.subsystems.postprocess.ColorGradingSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.FilmGrainSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ChromaticAberrationSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.DepthOfFieldSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.MotionBlurSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.FogSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoQuality
 advanced com.kaleblangley.haikalat.subsystems.postprocess.GtaoSettings
+advanced com.kaleblangley.haikalat.subsystems.postprocess.VignetteSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.VolumetricLightSettings
 advanced com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomPass
@@ -31,6 +47,20 @@ advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaInvalidati
 advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalAccumulationPass
 advanced com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalFramePose
 advanced com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.vignette.VignettePass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.film.FilmGrainPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.chromatic.ChromaticAberrationPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.distortion.ScreenDistortionPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.smaa.SmaaPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.ssgi.SsgiPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.sss.SubsurfaceScatteringPass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoiseInputs
+advanced com.kaleblangley.haikalat.subsystems.postprocess.denoise.TemporalDenoisePass
+advanced com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingInputs
+advanced com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPass
 
 # Cross-package effect owners: public for the colour chain only.
 internal com.kaleblangley.haikalat.subsystems.postprocess.bloom.BloomChain
@@ -40,3 +70,7 @@ internal com.kaleblangley.haikalat.subsystems.postprocess.fxaa.FxaaChain
 internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TaaHistory
 internal com.kaleblangley.haikalat.subsystems.postprocess.temporal.TemporalChain
 internal com.kaleblangley.haikalat.subsystems.postprocess.tonemapping.ToneMappingChain
+
+# v0.28.1 S4 #42 selective shading-rate request and pass-owned rate image.
+advanced com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings
+internal com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingPass

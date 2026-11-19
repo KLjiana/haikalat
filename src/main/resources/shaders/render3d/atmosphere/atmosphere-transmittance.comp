@@ -1,0 +1,45 @@
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba16f, binding = 0) writeonly uniform image2D uTransmittanceLut;
+
+uniform float uTopRadius;
+uniform vec3 uRayleighScatteringUnit;
+uniform float uRayleighScaleHeightUnit;
+uniform float uMieExtinctionUnit;
+uniform float uMieScaleHeightUnit;
+uniform int uSampleCount;
+
+void main() {
+    ivec2 size = imageSize(uTransmittanceLut);
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(texel, size))) return;
+
+    vec2 uv = (vec2(texel) + vec2(0.5)) / vec2(size);
+    // x^2 parameterization keeps more rows near the dense ground.
+    float radius = mix(1.0, uTopRadius, uv.x * uv.x);
+    // The LUT covers the upper hemisphere; the sky-view shader rejects
+    // occluded sun rays before sampling it.
+    float mu = uv.y;
+
+    float pathLength = atmosphereDistanceToTop(radius, mu, uTopRadius);
+    vec3 rayleighDepth = vec3(0.0);
+    float mieDepth = 0.0;
+    if (pathLength > ATMOSPHERE_PATH_EPSILON) {
+        for (int i = 0; i < uSampleCount; ++i) {
+            float f = (float(i) + 0.5) / float(uSampleCount);
+            float t = atmosphereQuadraticDistance(pathLength, f);
+            float ds = atmosphereQuadraticWeight(pathLength, f, uSampleCount);
+            vec3 position = vec3(sqrt(max(0.0, 1.0 - mu * mu)) * t, radius + mu * t, 0.0);
+            float sampleRadius = length(position);
+            if (sampleRadius > uTopRadius) break;
+            float altitude = max(sampleRadius - 1.0, 0.0);
+            rayleighDepth += exp(-altitude / uRayleighScaleHeightUnit) * ds;
+            mieDepth += exp(-altitude / uMieScaleHeightUnit) * ds;
+        }
+    }
+
+    vec3 opticalDepth = uRayleighScatteringUnit * rayleighDepth
+            + vec3(uMieExtinctionUnit * mieDepth);
+    imageStore(uTransmittanceLut, texel, vec4(exp(-opticalDepth), 1.0));
+}

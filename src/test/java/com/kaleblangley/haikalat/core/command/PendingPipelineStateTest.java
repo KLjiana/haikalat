@@ -15,6 +15,7 @@ import static org.lwjgl.opengl.GL11.GL_ONE;
 import static org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.GL_ZERO;
 
 class PendingPipelineStateTest {
     @Test
@@ -39,6 +40,77 @@ class PendingPipelineStateTest {
 
         pending.flush(sink);
         assertEquals(3, sink.events.size(), "A clean flush must emit no backend checks");
+    }
+
+    @Test
+    void separateAlphaBlendIsEncodedOnceAndFallsBackToBlendFuncWhenEqual() {
+        PendingPipelineState pending = new PendingPipelineState();
+        RecordingSink sink = new RecordingSink();
+
+        pending.blendFunc(GL_ONE, GL_ONE);
+        pending.blendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+        pending.flush(sink);
+        assertEquals(List.of("blendFuncSeparate:" + GL_ONE + ":" + GL_ONE + ":"
+                + GL_ZERO + ":" + GL_ONE_MINUS_SRC_ALPHA), sink.events,
+                "last-write-wins must retain the four-factor state in one packet");
+        assertFalse(pending.isDirty());
+
+        pending.blendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+        pending.flush(sink);
+        assertEquals("blendFunc:" + GL_ONE + ":" + GL_ONE, sink.events.get(1),
+                "equal alpha factors must use the cheaper glBlendFunc form");
+    }
+
+    @Test
+    void separateAlphaBlendRoundTripsThroughStatePacketsWithoutObjectPayloads() {
+        CommandBuffer commands = new CommandBuffer()
+                .blendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA)
+                .drawArrays(GL_TRIANGLES, 0, 3);
+
+        assertEquals(2, commands.commandCount(),
+                "separate blend state and its draw remain two ordered commands");
+        assertEquals(0, commands.objectPayloadCount());
+    }
+
+    @Test
+    void encodedBlendPacketCarriesAllFourFactorsAndDecodesThem() {
+        CommandStream stream = new CommandStream();
+        PendingPipelineState pending = new PendingPipelineState();
+        pending.blendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+        pending.writeTo(stream, CommandBuffer.APPLY_PIPELINE_STATE);
+
+        assertEquals(CommandBuffer.APPLY_PIPELINE_STATE, stream.opcodeAt(0));
+        assertEquals(1, stream.commandCount());
+        assertEquals(4, stream.integerAt(0), "only the BLEND_FUNCTION dirty bit is set");
+        assertEquals(GL_ONE, stream.integerAt(1));
+        assertEquals(GL_ONE, stream.integerAt(2));
+        assertEquals(GL_ZERO, stream.integerAt(3));
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(4));
+
+        RecordingSink sink = new RecordingSink();
+        int cursor = PendingPipelineState.applyEncoded(stream, 0, sink);
+        assertEquals(5, cursor, "one flags integer plus four blend factors");
+        assertEquals(List.of("blendFuncSeparate:" + GL_ONE + ":" + GL_ONE + ":"
+                + GL_ZERO + ":" + GL_ONE_MINUS_SRC_ALPHA), sink.events);
+    }
+
+    @Test
+    void encodedBlendFuncPacketKeepsTheTwoFactorForm() {
+        CommandStream stream = new CommandStream();
+        PendingPipelineState pending = new PendingPipelineState();
+        pending.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        pending.writeTo(stream, CommandBuffer.APPLY_PIPELINE_STATE);
+
+        assertEquals(GL_SRC_ALPHA, stream.integerAt(1));
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(2));
+        assertEquals(GL_SRC_ALPHA, stream.integerAt(3),
+                "a plain blendFunc must also carry equal alpha factors");
+        assertEquals(GL_ONE_MINUS_SRC_ALPHA, stream.integerAt(4));
+
+        RecordingSink sink = new RecordingSink();
+        assertEquals(5, PendingPipelineState.applyEncoded(stream, 0, sink));
+        assertEquals(List.of("blendFunc:" + GL_SRC_ALPHA + ":" + GL_ONE_MINUS_SRC_ALPHA),
+                sink.events, "equal RGB/alpha factors must stay on the glBlendFunc path");
     }
 
     @Test
@@ -71,6 +143,7 @@ class PendingPipelineStateTest {
                 .enableScissor(true)
                 .enableFramebufferSrgb(false)
                 .blendFunc(GL_ONE, GL_ONE)
+                .blendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA)
                 .clearColor(0, 0, 0, 1)
                 .materialState(BlendMode.OPAQUE, true);
 
@@ -183,6 +256,12 @@ class PendingPipelineStateTest {
 
         @Override public void blendFunc(int sourceRgb, int destinationRgb) {
             events.add("blendFunc:" + sourceRgb + ":" + destinationRgb);
+        }
+
+        @Override public void blendFuncSeparate(int sourceRgb, int destinationRgb,
+                                               int sourceAlpha, int destinationAlpha) {
+            events.add("blendFuncSeparate:" + sourceRgb + ":" + destinationRgb
+                    + ":" + sourceAlpha + ":" + destinationAlpha);
         }
 
         @Override public void depthMask(boolean write) { events.add("depthMask:" + write); }

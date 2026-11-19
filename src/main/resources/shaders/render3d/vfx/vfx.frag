@@ -14,6 +14,7 @@ uniform mat4 uInverseProjection;
 uniform float uSoftParticleDistance;
 uniform int uDepthEnabled;
 uniform float uFlipbookBlend;
+uniform int uFlipbook;
 uniform vec4 uUvRegion;
 uniform vec4 uNextUvRegion;
 
@@ -72,9 +73,18 @@ void main() {
     vec2 inset = clamp(0.5 * texel / cellSize, vec2(0.0), vec2(0.5));
     local = clamp(local, inset, vec2(1.0) - inset);
 
-    vec4 sampled = mix(texture(uTexture, mix(uUvRegion.xy, uUvRegion.zw, local)),
-            texture(uTexture, mix(uNextUvRegion.xy, uNextUvRegion.zw, local)),
-            uFlipbookBlend);
+    vec2 currentUv = mix(uUvRegion.xy, uUvRegion.zw, local);
+    vec2 nextUv = mix(uNextUvRegion.xy, uNextUvRegion.zw, local);
+    vec4 sampled;
+    if (uFlipbook != 0) {
+        // An unpadded frame atlas must not average neighbouring cells through
+        // mip selection; use the base level and the explicit half-texel inset.
+        sampled = mix(textureLod(uTexture, currentUv, 0.0),
+                textureLod(uTexture, nextUv, 0.0), uFlipbookBlend);
+    } else {
+        sampled = mix(texture(uTexture, currentUv),
+                texture(uTexture, nextUv), uFlipbookBlend);
+    }
     float mask = 1.0;
     vec3 sampledColor = vec3(1.0);
     if (uMaskMode == 1 || uMaskMode == 2 || uMaskMode == 3) {

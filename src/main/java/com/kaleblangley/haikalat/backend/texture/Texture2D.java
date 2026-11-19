@@ -15,6 +15,7 @@ import java.util.Objects;
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_LINEAR_MIPMAP_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL11.GL_RED;
 import static org.lwjgl.opengl.GL11.GL_RGB;
 import static org.lwjgl.opengl.GL11.GL_RGB8;
@@ -44,6 +45,8 @@ import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.opengl.GL30.GL_RG;
 import static org.lwjgl.opengl.GL30.GL_HALF_FLOAT;
 import static org.lwjgl.opengl.GL30.GL_R8;
+import static org.lwjgl.opengl.GL30.GL_R8UI;
+import static org.lwjgl.opengl.GL30.GL_RED_INTEGER;
 import static org.lwjgl.opengl.GL30.GL_R32F;
 import static org.lwjgl.opengl.GL30.GL_RG8;
 import static org.lwjgl.opengl.GL30.GL_RG16F;
@@ -61,6 +64,8 @@ import static org.lwjgl.opengl.GL45.glGenerateTextureMipmap;
 public final class Texture2D implements GlResource {
     private static final UploadFormat R8_UPLOAD = new UploadFormat(
             GL_RED, GL_UNSIGNED_BYTE, 1, TextureColorSpace.LINEAR);
+    private static final UploadFormat R8UI_UPLOAD = new UploadFormat(
+            GL_RED_INTEGER, GL_UNSIGNED_BYTE, 1, TextureColorSpace.LINEAR);
     private static final UploadFormat RG8_UPLOAD = new UploadFormat(
             GL_RG, GL_UNSIGNED_BYTE, 2, TextureColorSpace.LINEAR);
     private static final UploadFormat RGB8_UPLOAD = new UploadFormat(
@@ -106,8 +111,9 @@ public final class Texture2D implements GlResource {
     /**
      * 使用 OpenGL DSA 创建单 mip level 的空纹理存储。
      *
-     * <p>当前支持 R8、RG8、RGB8、RGBA8、SRGB8 和 SRGB8_ALPHA8。创建过程不改变
-     * active texture 或纹理绑定，因此不会使 {@code StateCache} 失效。</p>
+     * <p>当前支持 R8、R8UI、RG8、RGB8、RGBA8、SRGB8 和 SRGB8_ALPHA8。整数格式
+     * 按 OpenGL 完整性规则固定使用 NEAREST 采样。创建过程不改变 active texture 或
+     * 纹理绑定，因此不会使 {@code StateCache} 失效。</p>
      *
      * @param width 纹理宽度，必须为正
      * @param height 纹理高度，必须为正
@@ -126,8 +132,11 @@ public final class Texture2D implements GlResource {
                     org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
             glTextureParameteri(textureId, GL_TEXTURE_WRAP_T,
                     org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
-            glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            boolean integerStorage = internalFormat == GL_R8UI;
+            glTextureParameteri(textureId, GL_TEXTURE_MIN_FILTER,
+                    integerStorage ? GL_NEAREST : GL_LINEAR);
+            glTextureParameteri(textureId, GL_TEXTURE_MAG_FILTER,
+                    integerStorage ? GL_NEAREST : GL_LINEAR);
             Texture2D texture = new Texture2D(textureId, width, height, internalFormat,
                     uploadFormat.colorSpace());
             textureId = 0;
@@ -148,6 +157,22 @@ public final class Texture2D implements GlResource {
      */
     public static Texture2D createR8(int width, int height) {
         return createEmpty(width, height, GL_R8);
+    }
+
+    /**
+     * Creates an immutable {@code R8UI} texture for integer data such as an
+     * {@code NV_shading_rate_image} tile palette-index map.
+     *
+     * <p>Integer textures must use NEAREST filtering; {@link #createEmpty}
+     * applies that rule automatically.  Uploads use {@code GL_RED_INTEGER} with
+     * {@code GL_UNSIGNED_BYTE} through the normal {@link #uploadRegion} entry.</p>
+     *
+     * @param width tile-map width in texels
+     * @param height tile-map height in texels
+     * @return a linear {@code R8UI} texture with one mip level
+     */
+    public static Texture2D createR8ui(int width, int height) {
+        return createEmpty(width, height, GL_R8UI);
     }
 
     /** Creates an immutable mipmapped R8 texture from tightly packed decoded bytes. */
@@ -638,7 +663,7 @@ public final class Texture2D implements GlResource {
 
     private static int bytesPerPixel(int internalFormat) {
         return switch (internalFormat) {
-            case GL_R8, GL_RED -> 1;
+            case GL_R8, GL_R8UI, GL_RED -> 1;
             case GL_RG8 -> 2;
             case GL_RGB8, GL_SRGB8, GL_RGB -> 3;
             case GL_R32F -> Float.BYTES;
@@ -662,6 +687,7 @@ public final class Texture2D implements GlResource {
     private static UploadFormat uploadFormat(int internalFormat) {
         return switch (internalFormat) {
             case GL_R8, GL_RED -> R8_UPLOAD;
+            case GL_R8UI -> R8UI_UPLOAD;
             case GL_RG8, GL_RG -> RG8_UPLOAD;
             case GL_RGB8, GL_RGB -> RGB8_UPLOAD;
             case GL_RGBA8, GL_RGBA -> RGBA8_UPLOAD;
@@ -679,6 +705,7 @@ public final class Texture2D implements GlResource {
     private static UploadFormat storageUploadFormat(int internalFormat) {
         return switch (internalFormat) {
             case GL_R8 -> R8_UPLOAD;
+            case GL_R8UI -> R8UI_UPLOAD;
             case GL_RG8 -> RG8_UPLOAD;
             case GL_RGB8 -> RGB8_UPLOAD;
             case GL_RGBA8 -> RGBA8_UPLOAD;

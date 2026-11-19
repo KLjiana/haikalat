@@ -7,7 +7,9 @@ import com.kaleblangley.haikalat.subsystems.render3d.ClusterDebugMode;
 import com.kaleblangley.haikalat.subsystems.render3d.DirectionalCascadeSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.LocalShadowPipelineSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraUniforms;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap;
+import com.kaleblangley.haikalat.subsystems.render3d.shadow.PcssSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFrameBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowFramePlan;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
@@ -39,6 +41,21 @@ public final class FrameLightBinder {
     private final boolean gtaoEnabled;
     private final boolean directLightingEnabled;
     private final boolean imageBasedLightingEnabled;
+    private final CloudShadowFrameTime cloudShadowFrameTime = new CloudShadowFrameTime();
+    private boolean forwardContactShadowsEnabled = true;
+
+    /**
+     * Suppresses the material-level shadow-map-space contact term while the
+     * production screen-space pass is the single contact-shadow consumer.
+     */
+    public void forwardContactShadowsEnabled(boolean value) {
+        forwardContactShadowsEnabled = value;
+    }
+
+    /** @return whether the material-level contact term is currently bound */
+    public boolean forwardContactShadowsEnabled() {
+        return forwardContactShadowsEnabled;
+    }
 
     public FrameLightBinder(CameraUniforms cameraUniforms, ShadowFrameBinder shadowFrameBinder,
                             ShadowSamplingBlock shadowSamplingBlock,
@@ -73,6 +90,31 @@ public final class FrameLightBinder {
         cmd.trySetUniformInt(shader, "uHasDirectionalShadow", hasShadow ? 1 : 0)
                 .trySetUniformInt(shader, "uShadowMap", SHADOW_TEXTURE_UNIT)
                 .trySetUniformFloat(shader, "uShadowBias", directionalShadowMap.settings().bias());
+        PcssSettings pcss = directionalShadowMap.settings().pcss();
+        cmd.trySetUniformInt(shader, "uPcssEnabled", pcss.active() ? 1 : 0)
+                .trySetUniformFloat(shader, "uPcssLightSize", pcss.lightWorldSize())
+                .trySetUniformInt(shader, "uPcssBlockerRadiusTexels", pcss.blockerRadiusTexels())
+                .trySetUniformInt(shader, "uPcssBlockerTaps", pcss.blockerTaps())
+                .trySetUniformInt(shader, "uPcssFilterRadiusTexels", pcss.filterRadiusTexels())
+                .trySetUniformInt(shader, "uPcssFilterTaps", pcss.filterTaps())
+                .trySetUniformFloat(shader, "uPcssDepthBias", pcss.depthBias());
+        bindCascadeTexelWorld(shader, cmd, shadowPlan);
+        var contactShadows = directionalShadowMap.settings().contactShadows();
+        cmd.trySetUniformInt(shader, "uContactShadowEnabled",
+                        contactShadows.active() && forwardContactShadowsEnabled ? 1 : 0)
+                .trySetUniformFloat(shader, "uContactShadowDistance", contactShadows.distance())
+                .trySetUniformFloat(shader, "uContactShadowThickness", contactShadows.thickness())
+                .trySetUniformInt(shader, "uContactShadowSteps", contactShadows.steps())
+                .trySetUniformFloat(shader, "uContactShadowStrength", contactShadows.strength());
+        CloudShadowSettings cloudShadows = directionalShadowMap.settings().cloudShadows();
+        float cloudShadowTime = cloudShadowFrameTime.advance(shadowPlan.frameTiming());
+        cmd.trySetUniformInt(shader, "uCloudShadowEnabled", cloudShadows.active() ? 1 : 0)
+                .trySetUniformFloat(shader, "uCloudShadowCoverage", cloudShadows.coverage())
+                .trySetUniformFloat(shader, "uCloudShadowSoftness", cloudShadows.softness())
+                .trySetUniformFloat(shader, "uCloudShadowScale", cloudShadows.scale())
+                .trySetUniformFloat(shader, "uCloudShadowSpeed", cloudShadows.speed())
+                .trySetUniformFloat(shader, "uCloudShadowStrength", cloudShadows.strength())
+                .trySetUniformFloat(shader, "uCloudShadowTime", cloudShadowTime);
         if (hasShadow) {
             cmd.bindTexture(SHADOW_TEXTURE_UNIT, shadowTexture);
         }
@@ -107,5 +149,48 @@ public final class FrameLightBinder {
         cmd.trySetUniformInt(shader, "uEnableDirect", directLightingEnabled ? 1 : 0)
                 .trySetUniformInt(shader, "uEnableDiffuseIbl", imageBasedLightingEnabled ? 1 : 0)
                 .trySetUniformInt(shader, "uEnableSpecularIbl", imageBasedLightingEnabled ? 1 : 0);
+    }
+
+    /**
+     * Uploads the world-space size of one shadow-map texel for the selected
+     * cascade.  The cascade plan owns the value; the legacy single-map path
+     * derives it from its symmetric orthographic radius and resolution.
+     */
+    private void bindCascadeTexelWorld(ShaderProgram shader, CommandBuffer cmd,
+                                       ShadowFramePlan plan) {
+        float legacyTexelWorld = 2.0f * directionalShadowMap.settings().sceneRadius()
+                / directionalShadowMap.settings().resolution();
+        float[] texelWorldSizes = cascadeTexelWorldSizes(legacyTexelWorld,
+                cascadeSettings.enabled(),
+                plan.directional().map(ShadowFramePlan.DirectionalPlan::texelWorldSizes)
+                        .orElse(new float[0]));
+        for (int index = 0; index < texelWorldSizes.length; index++) {
+            cmd.trySetUniformFloat(shader,
+                    "uDirectionalCascadeTexelWorld[" + index + "]", texelWorldSizes[index]);
+        }
+    }
+
+    /**
+     * Resolves four cascade texel sizes for the uniform array.  The legacy
+     * single-map plan deliberately stores a culling placeholder, so its real
+     * footprint must come from the symmetric orthographic radius; cascaded
+     * plans already carry the per-cascade value and the last entry is repeated
+     * for unused slots.
+     */
+    static float[] cascadeTexelWorldSizes(float legacyTexelWorld, boolean cascaded,
+                                          float[] planTexelWorldSizes) {
+        if (!Float.isFinite(legacyTexelWorld) || legacyTexelWorld <= 0.0f) {
+            throw new IllegalArgumentException("legacyTexelWorld must be finite and positive");
+        }
+        if (planTexelWorldSizes == null) {
+            throw new IllegalArgumentException("planTexelWorldSizes must not be null");
+        }
+        float[] result = new float[4];
+        for (int index = 0; index < result.length; index++) {
+            result[index] = !cascaded || planTexelWorldSizes.length == 0
+                    ? legacyTexelWorld
+                    : planTexelWorldSizes[Math.min(index, planTexelWorldSizes.length - 1)];
+        }
+        return result;
     }
 }

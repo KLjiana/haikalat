@@ -56,6 +56,7 @@ public final class SceneReactivePass implements AutoCloseable {
             cmd.setUniformMat4(program, "uModel", frame.copyModel(entry, modelScratch))
                     .setUniformFloat(program, "uTemporalReactive", reactive);
             SceneDrawBinding binding = renderer.drawBinding();
+            binding.recordVertexDisplacement(cmd, program, SceneDrawBinding.Pass.SURFACE);
             cmd.trySetUniformInt(program, "uSkinningEnabled", binding.skinningEnabled() ? 1 : 0)
                     .trySetUniformInt(program, "uMorphTargetCount", binding.morphTargetCount());
             if (binding != SceneDrawBinding.NONE) {

@@ -17,6 +17,11 @@ import java.util.Objects;
 public interface SurfaceInputs {
     enum Channel {
         DEPTH,
+        NORMAL,
+        ROUGHNESS,
+        /** Linear material albedo; consumed by screen-space indirect diffuse. */
+        ALBEDO,
+        SUBSURFACE,
         VELOCITY,
         PREVIOUS_SURFACE_DEPTH,
         VALIDITY,

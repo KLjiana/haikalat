@@ -162,6 +162,115 @@ class MaterialTest {
         assertEquals(3.0f, mat.value().m32(), 0.0f);
     }
 
+    @Test
+    void refractionDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.refraction().active(),
+                "existing materials must keep the exact no-op refraction path");
+
+        RefractionSettings glass = RefractionSettings.of(1.52f, 0.4f, 0.2f, 0.9f, 0.1f);
+        Material refractive = Material.builder(shader(8))
+                .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA)
+                .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                .refraction(glass).build();
+        assertEquals(glass, refractive.refraction());
+        assertTrue(refractive.refraction().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).refraction(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).refraction(glass).build());
+    }
+
+    @Test
+    void clearcoatDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.clearcoat().active(),
+                "existing materials must keep the exact no-op clearcoat path");
+        assertEquals(ClearcoatSettings.disabled(), plain.clearcoat());
+
+        ClearcoatSettings coat = ClearcoatSettings.of(0.2f, 0.5f);
+        Material coated = Material.builder(shader(8)).clearcoat(coat).build();
+        assertEquals(coat, coated.clearcoat());
+        assertTrue(coated.clearcoat().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).clearcoat(null));
+    }
+
+    @Test
+    void anisotropicDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.anisotropic().active(),
+                "existing materials must keep the exact no-op anisotropic path");
+        assertEquals(AnisotropicSettings.disabled(), plain.anisotropic());
+
+        AnisotropicSettings settings = AnisotropicSettings.of(0.8f, 0.6f);
+        Material anisotropic = Material.builder(shader(8)).anisotropic(settings).build();
+        assertEquals(settings, anisotropic.anisotropic());
+        assertTrue(anisotropic.anisotropic().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).anisotropic(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).anisotropic(
+                        AnisotropicSettings.of(1.5f, 0.0f)),
+                "the settings record must reject an out-of-range strength before the builder stores it");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11)).anisotropic(
+                        AnisotropicSettings.of(0.5f, Float.NaN)),
+                "the settings record must reject a non-finite rotation before the builder stores it");
+    }
+
+    @Test
+    void parallaxOcclusionDefaultsToDisabledAndIsTemplateState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.parallaxOcclusion().active(),
+                "existing materials must keep the exact original-UV path");
+        assertEquals(ParallaxOcclusionSettings.disabled(), plain.parallaxOcclusion());
+
+        ParallaxOcclusionSettings settings = ParallaxOcclusionSettings.builder()
+                .heightScale(0.1f).steps(6, 24).build();
+        Material marked = Material.builder(shader(8)).parallaxOcclusion(settings).build();
+        assertEquals(settings, marked.parallaxOcclusion());
+        assertTrue(marked.parallaxOcclusion().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).parallaxOcclusion(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10)).parallaxOcclusion(
+                        ParallaxOcclusionSettings.of(1.5f)),
+                "the settings record must reject an out-of-range height scale before the builder stores it");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11)).parallaxOcclusion(
+                        ParallaxOcclusionSettings.builder().steps(16, 8).build()),
+                "the settings record must reject an inverted step range before the builder stores it");
+    }
+
+    @Test
+    void subsurfaceScatteringDefaultsToDisabledAndRejectsUnsupportedRasterState() {
+        Material plain = Material.builder(shader(7)).build();
+        assertFalse(plain.subsurfaceScattering().active(),
+                "existing materials must keep the exact no-op subsurface path");
+        assertEquals(SubsurfaceScatteringSettings.disabled(), plain.subsurfaceScattering());
+
+        SubsurfaceScatteringSettings settings = SubsurfaceScatteringSettings.ofSkin();
+        Material scattering = Material.builder(shader(8))
+                .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                .subsurfaceScattering(settings).build();
+        assertEquals(settings, scattering.subsurfaceScattering());
+        assertTrue(scattering.subsurfaceScattering().active());
+        assertThrows(NullPointerException.class,
+                () -> Material.builder(shader(9)).subsurfaceScattering(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(10))
+                        .model(com.kaleblangley.haikalat.core.assets.MaterialModel.METALLIC_ROUGHNESS)
+                        .blendMode(com.kaleblangley.haikalat.core.BlendMode.ALPHA)
+                        .subsurfaceScattering(settings).build(),
+                "an active subsurface material must stay opaque");
+        assertThrows(IllegalArgumentException.class,
+                () -> Material.builder(shader(11))
+                        .model(com.kaleblangley.haikalat.core.assets.MaterialModel.LEGACY)
+                        .subsurfaceScattering(settings).build(),
+                "an active subsurface material must use the metallic-roughness model");
+    }
+
     private static ShaderProgram shader(int id) {
         try {
             Constructor<ShaderProgram> ctor = ShaderProgram.class.getDeclaredConstructor(int.class);

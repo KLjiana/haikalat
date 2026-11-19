@@ -18,6 +18,18 @@ uniform sampler2DMS uPreviousDepth;
 layout(location = SCENE_SLOT_VALIDITY) out float outValidity;
 uniform sampler2DMS uValidity;
 #endif
+#ifdef SCENE_SLOT_ROUGHNESS
+layout(location = SCENE_SLOT_ROUGHNESS) out float outRoughness;
+uniform sampler2DMS uRoughness;
+#endif
+#ifdef SCENE_SLOT_ALBEDO
+layout(location = SCENE_SLOT_ALBEDO) out vec4 outAlbedo;
+uniform sampler2DMS uAlbedo;
+#endif
+#ifdef SCENE_SLOT_SUBSURFACE
+layout(location = SCENE_SLOT_SUBSURFACE) out vec4 outSubsurface;
+uniform sampler2DMS uSubsurface;
+#endif
 layout(location = SCENE_SLOT_DEPTH) out float outDepth;
 uniform sampler2DMS uDepth;
 uniform int uSamples;
@@ -47,6 +59,15 @@ void main() {
 #ifdef SCENE_SLOT_VALIDITY
         outValidity = 0.0;
 #endif
+#ifdef SCENE_SLOT_ROUGHNESS
+        outRoughness = 1.0;
+#endif
+#ifdef SCENE_SLOT_ALBEDO
+        outAlbedo = vec4(0.0);
+#endif
+#ifdef SCENE_SLOT_SUBSURFACE
+        outSubsurface = vec4(0.0);
+#endif
         outDepth = 1.0;
         return;
     }
@@ -62,6 +83,15 @@ void main() {
 #endif
 #ifdef SCENE_SLOT_VALIDITY
     outValidity = texelFetch(uValidity, pixel, best).r;
+#endif
+#ifdef SCENE_SLOT_ROUGHNESS
+    outRoughness = texelFetch(uRoughness, pixel, best).r;
+#endif
+#ifdef SCENE_SLOT_ALBEDO
+    outAlbedo = texelFetch(uAlbedo, pixel, best);
+#endif
+#ifdef SCENE_SLOT_SUBSURFACE
+    outSubsurface = texelFetch(uSubsurface, pixel, best);
 #endif
     outDepth = bestDepth;
 }

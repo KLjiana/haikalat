@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.lwjgl.opengl.GL11.GL_RGBA;
 import static org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE;
@@ -112,7 +113,7 @@ class VfxLightingGlTest {
             Scene scene = new Scene(new Camera(new Vector3f(0.0f, 0.0f, 4.0f)));
             scene.add(SceneObject.fixed(sphere, material,
                     new org.joml.Matrix4f().scale(1.6f)));
-            scene.addLight(SceneLight.directional(new Vector3f(-0.4f, -1.0f, -0.5f),
+            scene.addLight(SceneLight.shadowedDirectional(new Vector3f(-0.4f, -1.0f, -0.5f),
                     new Vector3f(1.0f, 0.95f, 0.9f), 0.35f));
             if (manualLight) {
                 scene.addLight(SceneLight.point(LIGHT_POSITION, LIGHT_COLOR,
@@ -155,6 +156,9 @@ class VfxLightingGlTest {
                     assertEquals(builds,
                             pipeline.lastRender3dDiagnostics().caches().generationBuilds(),
                             "moving an effect light must not rebuild the RenderGraph");
+                    assertFalse(pipeline.lastRender3dDiagnostics().invalidationReasons()
+                                    .contains("LIGHTING"),
+                            "moving an effect light must not invalidate scene lighting history");
                     pipeline.maxVfxLights(1);
                     pipeline.execute(driver.device());
                     assertEquals(builds,

@@ -10,6 +10,7 @@ import com.kaleblangley.haikalat.subsystems.vfx.Decal;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectAsset;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectInstance;
 import com.kaleblangley.haikalat.subsystems.vfx.EffectSnapshot;
+import com.kaleblangley.haikalat.subsystems.vfx.FlipbookConfig;
 import com.kaleblangley.haikalat.subsystems.vfx.ParticleEmitter;
 import com.kaleblangley.haikalat.subsystems.vfx.RibbonEmitter;
 import com.kaleblangley.haikalat.subsystems.vfx.MeshVfx;
@@ -18,8 +19,14 @@ import com.kaleblangley.haikalat.subsystems.vfx.VfxMaskMode;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxMaterial;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxRimLight;
 import com.kaleblangley.haikalat.subsystems.vfx.VfxUvFlow;
+import com.kaleblangley.haikalat.subsystems.vfx.VfxVisualSet;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
+import com.kaleblangley.haikalat.core.mesh.MeshData;
+import com.kaleblangley.haikalat.backend.vertex.VertexAttribute;
+import com.kaleblangley.haikalat.backend.vertex.VertexLayout;
+import com.kaleblangley.haikalat.backend.vertex.VertexSemantic;
 import com.kaleblangley.haikalat.subsystems.windowing.GlfwWindow;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
@@ -227,6 +234,197 @@ class VfxRendererGlTest {
         }
     }
 
+    @Test
+    void rimLightingTracksRotatedNonUniformAndMirroredMeshes() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (VfxRenderer renderer = new VfxRenderer()) {
+                Matrix4f rotated = new Matrix4f().rotateY(0.7f).rotateX(0.2f);
+                int rotatedBase = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(false), rotated, 0.0f, 0.0f));
+                int rotatedRim = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(true), rotated, 0.0f, 0.0f));
+                assertTrue(rotatedRim > rotatedBase + 400,
+                        "rotated mesh rim must add visible edge energy");
+
+                Matrix4f nonUniform = new Matrix4f().scale(1.8f, 0.55f, 1.0f);
+                int nonUniformBase = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(false), nonUniform, 0.0f, 0.0f));
+                int nonUniformRim = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(true), nonUniform, 0.0f, 0.0f));
+                assertTrue(nonUniformRim > nonUniformBase + 400,
+                        "non-uniform scale must use the inverse-transpose normal matrix");
+
+                Matrix4f mirrored = new Matrix4f().scale(-1.0f, 1.0f, 1.0f).rotateY(0.4f);
+                int mirroredBase = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(false), mirrored, 0.0f, 0.0f));
+                int mirroredRim = renderSum(renderer, device,
+                        meshSnapshot(meshMaterial(true), mirrored, 0.0f, 0.0f));
+                assertTrue(mirroredRim > mirroredBase + 400,
+                        "mirrored mesh rim must remain finite and visible");
+
+                int sharp = renderSum(renderer, device,
+                        meshSnapshot(rimMaterial(1.0f), rotated, 0.0f, 0.0f));
+                int soft = renderSum(renderer, device,
+                        meshSnapshot(rimMaterial(4.0f), rotated, 0.0f, 0.0f));
+                assertTrue(sharp > soft + 100,
+                        "higher rim exponent must narrow the edge contribution");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
+    void flipbookSamplesOnlyItsAtlasCellAtFixedTime() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (VfxRenderer renderer = new VfxRenderer()) {
+                VfxMaterial redCell = atlasMaterial(false);
+                render(renderer, device, atlasSnapshot(redCell, 0.0f));
+                ByteBuffer red = readFrame();
+                assertEquals(0, maximumChannel(red, 1),
+                        "frame 0 must not sample the adjacent green cell");
+                assertTrue(centerChannel(red, 0) > 80);
+                assertTrue(centerChannel(red, 1) < 20);
+
+                render(renderer, device, atlasSnapshot(redCell, 0.0f, 1.5f));
+                ByteBuffer minified = readFrame();
+                assertEquals(0, maximumChannel(minified, 1),
+                        "a small sprite must not sample the adjacent atlas cell");
+
+                render(renderer, device, atlasSnapshot(redCell, 1.0f));
+                ByteBuffer green = readFrame();
+                assertEquals(0, maximumChannel(green, 0),
+                        "frame 1 must not sample the red cell");
+                assertTrue(centerChannel(green, 1) > 80);
+                assertTrue(centerChannel(green, 0) < 20);
+
+                render(renderer, device, atlasSnapshot(atlasMaterial(true), 0.5f));
+                ByteBuffer blended = readFrame();
+                assertTrue(centerChannel(blended, 0) > 24);
+                assertTrue(centerChannel(blended, 1) > 24,
+                        "flipbook interpolation must blend current and next cell");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
+    void rimWeightMatchesAnalyticNormalMatrixOnSlantedSurface() {
+        try (GlfwWindow window = hiddenWindow()) {
+            window.bindContext();
+            GL.createCapabilities();
+            GlDebug.enableDebugCallback();
+            GlRenderDevice device = new GlRenderDevice();
+            try (VfxRenderer renderer = new VfxRenderer()) {
+                VfxMaterial material = VfxMaterial.builder("analytic-rim")
+                        .maskMode(VfxMaskMode.WHITE)
+                        .blendMode(BlendMode.ALPHA)
+                        .emissiveIntensity(0.0f)
+                        .rimLight(new VfxRimLight(new Vector3f(1.0f, 0.0f, 0.0f), 1.0f, 2.0f))
+                        .build();
+                Matrix4f model = new Matrix4f().scale(1.6f, 0.75f, 1.0f)
+                        .rotateY(0.6f).rotateX(0.2f);
+                MeshVfx mesh = new MeshVfx(1, 10.0f, slantedQuad(), 2.2f, 2.2f,
+                        new Vector4f(1.0f), new Vector4f(1.0f));
+                try (EffectAsset asset = EffectAsset.builder("analytic-rim-scene")
+                        .meshes(mesh).meshMaterial(material).build();
+                     EffectInstance instance = asset.instantiate(1L)) {
+                    instance.spawnMesh(model);
+                    instance.update(0.1f, new Vector3f());
+                    render(renderer, device, instance.snapshot(new Vector3f(0.0f, 0.0f, 4.0f)));
+                    int actual = centerChannel(readFrame(), 0);
+                    int expected = Math.round(analyticRimWeight(model) * 255.0f);
+                    assertEquals(expected, actual, 8,
+                            "rim pixel must use the inverse-transpose normal matrix");
+                }
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    private static float analyticRimWeight(Matrix4f model) {
+        Matrix3f normalMatrix = new Matrix3f(model).invert().transpose();
+        Vector3f normal = normalMatrix.transform(
+                new Vector3f(1.0f, 0.0f, 0.7f).normalize(), new Vector3f()).normalize();
+        Vector3f view = new Vector3f(0.0f, 0.0f, 4.0f)
+                .sub(model.transformPosition(new Vector3f())).normalize();
+        float weight = 1.0f - Math.max(0.0f, Math.min(1.0f, normal.dot(view)));
+        return weight * weight;
+    }
+
+    private static MeshData slantedQuad() {
+        Vector3f normal = new Vector3f(1.0f, 0.0f, 0.7f).normalize();
+        VertexLayout layout = VertexLayout.interleaved(8 * Float.BYTES,
+                VertexAttribute.builder().index(0).size(3).offsetBytes(0)
+                        .semantic(VertexSemantic.POSITION).build(),
+                VertexAttribute.builder().index(1).size(2).offsetBytes(3L * Float.BYTES)
+                        .semantic(VertexSemantic.TEXCOORD_0).build(),
+                VertexAttribute.builder().index(2).size(3).offsetBytes(5L * Float.BYTES)
+                        .semantic(VertexSemantic.NORMAL).build());
+        return MeshData.indexed("slanted-rim-quad", new float[]{
+                -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, normal.x, normal.y, normal.z,
+                1.0f, -1.0f, 0.0f, 1.0f, 0.0f, normal.x, normal.y, normal.z,
+                1.0f, 1.0f, 0.0f, 1.0f, 1.0f, normal.x, normal.y, normal.z,
+                -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, normal.x, normal.y, normal.z
+        }, new int[]{0, 1, 2, 0, 2, 3}, layout);
+    }
+
+    private static int renderSum(VfxRenderer renderer, GlRenderDevice device,
+                                 EffectSnapshot snapshot) {
+        render(renderer, device, snapshot);
+        return colorSum(readFrame());
+    }
+
+    private static VfxMaterial rimMaterial(float exponent) {
+        return VfxMaterial.builder("rim-exponent-" + exponent)
+                .maskMode(VfxMaskMode.WHITE)
+                .blendMode(BlendMode.ALPHA)
+                .emissiveIntensity(0.15f)
+                .rimLight(new VfxRimLight(new Vector3f(1.0f, 0.0f, 0.0f), 5.0f, exponent))
+                .build();
+    }
+
+    private static VfxMaterial atlasMaterial(boolean interpolate) {
+        return VfxMaterial.builder("atlas-" + interpolate)
+                .texture(AssetRef.of("/vfx/test/two-cell-atlas.png"))
+                .maskMode(VfxMaskMode.RGBA_COLOR)
+                .blendMode(BlendMode.ALPHA)
+                .flipbook(new FlipbookConfig(2, 1, 2, 1.0f, false, interpolate))
+                .build();
+    }
+
+    private static EffectSnapshot atlasSnapshot(VfxMaterial material, float ageSeconds) {
+        return atlasSnapshot(material, ageSeconds, 32.0f);
+    }
+
+    private static EffectSnapshot atlasSnapshot(VfxMaterial material, float ageSeconds,
+                                                float size) {
+        EffectSnapshot.ParticleSprite particle = new EffectSnapshot.ParticleSprite(
+                1L, new Vector3f(0.0f, 0.0f, -3.0f), size, 0.0f,
+                new Vector4f(1.0f), 49.0f, new Vector3f(), 0.0f, ageSeconds, 0);
+        return new EffectSnapshot(List.of(particle), List.of(), List.of(), List.of(particle),
+                new VfxVisualSet(material, material, material, material));
+    }
+
+    private static int centerChannel(ByteBuffer pixels, int channel) {
+        return Byte.toUnsignedInt(pixels.get((16 * 32 + 16) * 4 + channel));
+    }
+
+    private static int maximumChannel(ByteBuffer pixels, int channel) {
+        int maximum = 0;
+        for (int offset = channel; offset < pixels.capacity(); offset += 4) {
+            maximum = Math.max(maximum, Byte.toUnsignedInt(pixels.get(offset)));
+        }
+        return maximum;
+    }
+
     private static VfxRenderer.Statistics render(VfxRenderer renderer, GlRenderDevice device,
                                                   EffectSnapshot snapshot) {
         Matrix4f projection = new Matrix4f().perspective((float) Math.toRadians(50.0),
@@ -243,12 +441,17 @@ class VfxRendererGlTest {
     }
 
     private static EffectSnapshot meshSnapshot(VfxMaterial material, float time, float dissolve) {
+        return meshSnapshot(material, new Matrix4f(), time, dissolve);
+    }
+
+    private static EffectSnapshot meshSnapshot(VfxMaterial material, Matrix4f model,
+                                               float time, float dissolve) {
         MeshVfx mesh = new MeshVfx(1, 10.0f, BuiltinMeshData.coloredCube("rim-cube"),
                 1.4f, 1.4f, new Vector4f(1.0f), new Vector4f(1.0f));
         try (EffectAsset asset = EffectAsset.builder("rim-scene")
                 .meshes(mesh).meshMaterial(material).build();
              EffectInstance instance = asset.instantiate(1L)) {
-            instance.spawnMesh(new Matrix4f());
+            instance.spawnMesh(model);
             instance.update(0.1f, new Vector3f());
             instance.dissolve(dissolve);
             return instance.snapshot(new Vector3f(0.0f, 0.0f, 4.0f))

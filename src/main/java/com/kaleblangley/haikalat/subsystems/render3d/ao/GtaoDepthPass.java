@@ -89,6 +89,7 @@ public final class GtaoDepthPass implements AutoCloseable {
             }
             cmd.setUniformMat4(shader, "uModel", frame.copyModel(entry, modelScratch));
             SceneDrawBinding binding = renderer.drawBinding();
+            binding.recordVertexDisplacement(cmd, shader, SceneDrawBinding.Pass.DEPTH_PREPASS);
             int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = binding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {

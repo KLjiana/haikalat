@@ -29,6 +29,8 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.RenderFeaturesControl
 advanced com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics
 advanced com.kaleblangley.haikalat.subsystems.render3d.Scene
 advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneDrawBinding
+advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.geometry.VertexDisplacementDrawBinding
 advanced com.kaleblangley.haikalat.subsystems.render3d.SceneLight
 advanced com.kaleblangley.haikalat.subsystems.render3d.SceneObject
 advanced com.kaleblangley.haikalat.subsystems.render3d.ShadowSettings
@@ -41,7 +43,11 @@ advanced com.kaleblangley.haikalat.subsystems.render3d.OutdoorEnvironmentSetting
 advanced com.kaleblangley.haikalat.subsystems.render3d.StylizedSkySettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.VisualSettings
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxRenderer
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxDistortionProjector
 advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleExperiment
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecal
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.ProjectedDecalPass
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.EnvironmentBackgroundRenderer
 internal com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder
 internal com.kaleblangley.haikalat.subsystems.render3d.preview.PreviewAspect
@@ -57,6 +63,9 @@ stable com.kaleblangley.haikalat.subsystems.render3d.gltf.GltfSceneAsset
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironment
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentLoader
 stable com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrEnvironmentSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSet
+advanced com.kaleblangley.haikalat.subsystems.render3d.pbr.ReflectionProbeSelector
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferRequirements
 advanced com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferView
@@ -90,6 +99,10 @@ internal com.kaleblangley.haikalat.subsystems.render3d.lighting.LightVolumePacke
 internal com.kaleblangley.haikalat.subsystems.render3d.lighting.VolumetricLightingInputs
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalCascadePlan
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.DirectionalShadowMap
+advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.ContactShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.CloudShadowSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.PcssSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.shadow.ScreenSpaceContactShadowPass
 advanced com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowAtlas
 internal com.kaleblangley.haikalat.subsystems.render3d.shadow.PointShadowSlotPlan
 internal com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowAtlasAllocator
@@ -152,3 +165,67 @@ internal com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder
 internal com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer
 
 advanced com.kaleblangley.haikalat.subsystems.render3d.VfxLightDiagnostics
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfaceSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.water.WaterSurfacePass
+advanced com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.environment.AtmosphereSkyPass
+internal com.kaleblangley.haikalat.subsystems.render3d.pbr.RefractionPass
+
+# v0.28.1 S3 #30 planar reflection settings/math and pass-owned attachments.
+advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionMath
+internal com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionPass
+
+# v0.28.1 S3 #36 bounded water-caustics settings and pass-owned colour target.
+advanced com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.caustics.CausticsPass
+# v0.28.1 S3 #28 weighted blended OIT settings/surface and pass-owned MRT attachments.
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.OitSurface
+internal com.kaleblangley.haikalat.subsystems.render3d.transparency.WeightedOitPass
+
+# v0.28.1 S3 #11 bounded screen-space water refraction settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.WaterRefractionSettings
+# v0.28.1 S3 #11/#30 bounded underwater volume Beer-Lambert settings and pass-owned colour target.
+advanced com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumeSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.water.UnderwaterVolumePass
+# v0.28.1 S2 #27 production GPU particle indirect owner and bounded settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystem
+# v0.28.1 S3 #26 bounded GPU particle sorting settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingSettings
+# v0.28.1 S3 #15 bounded depth-based GPU particle collision settings.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionSettings
+# v0.28.1 F2 #15/#26/#27 production VFX consumer for the GPU particle owner.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleVfx
+# v0.28.1 S4 #38 bounded local volumetric-particle settings and pass.
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticlePass
+# v0.28.1 S4 #37 stochastic transparency settings/inputs and pass-owned history.
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencySettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyInputs
+internal com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPass
+
+# v0.28.1 S4 #46 deterministic hair-strand settings and pass-owned resources.
+advanced com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass
+
+# v0.28.1 S5 #43 bounded GPU smoke simulation and volume-rendering consumer.
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulationSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeRenderSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeSimulation
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.SmokeVolumePass
+# v0.28.1 S4 #40 bounded volumetric-cloud layer, low-resolution reconstruction and history.
+advanced com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudPass
+# v0.28.1 S5 #44 dynamic DDGI probe settings and pass-owned probe/query resources.
+advanced com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiProbeVolume
+internal com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiIndirectPass
+# v0.28.1 S5 #45 bounded voxel-cone-tracing settings, scene snapshot, probes, owner and JVM oracle.
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctBox
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctSceneInput
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctProbeBatch
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctPass
+advanced com.kaleblangley.haikalat.subsystems.render3d.vct.VctVoxelMath

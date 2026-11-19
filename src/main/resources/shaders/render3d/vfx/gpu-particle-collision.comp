@@ -1,0 +1,255 @@
+#version 460 core
+
+// Compute update for the production GPU particle owner with bounded,
+// screen-space scene-depth collision.
+//
+// This is the enabled companion of the unmodified #27 update program in
+// gpu-particle-indirect.comp: emission, lifetime integration and active-set
+// compaction are identical. A live particle that ends up behind the sampled
+// opaque surface by at most uCollisionThickness (world units) is pushed back to
+// the reconstructed surface and its inward normal velocity is reflected with
+// uRestitution and damped tangential friction.
+//
+// Depth is fetched with texelFetch from a single-sample depth texture in the
+// same viewport as uViewProjection; there is no CPU readback, no mapping and no
+// draw-count decision on the CPU. Particles behind the camera, outside the depth
+// viewport, in front of the surface, or deeper than the thickness band keep
+// free flight. The search for a nearby surface is bounded by
+// uMaximumSearchSteps and uSearchRadiusPixels; the default samples only the
+// particle's own texel.
+layout (local_size_x = 64) in;
+
+struct Particle {
+    vec4 positionLife;   // xyz world position, w remaining lifetime in seconds
+    vec4 velocitySeed;   // xyz velocity, w deterministic per-spawn seed
+};
+
+layout (std430, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout (std430, binding = 1) buffer CounterBuffer {
+    uint activeCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint baseInstance;
+} counters;
+
+layout (std430, binding = 2) buffer ActiveIndexBuffer {
+    uint activeIndices[];
+};
+
+uniform sampler2D uSceneDepth;
+
+uniform int uCapacity;
+uniform int uEmitStart;
+uniform int uEmitCount;
+uniform int uClearParticles;
+uniform int uFrameIndex;
+uniform float uDeltaSeconds;
+uniform float uLifetimeSeconds;
+uniform float uGravity;
+uniform float uMinimumSpeed;
+uniform float uMaximumSpeed;
+uniform vec3 uSpawnMin;
+uniform vec3 uSpawnMax;
+
+uniform mat4 uViewProjection;
+uniform mat4 uInverseViewProjection;
+uniform vec3 uCameraPosition;
+uniform vec2 uViewportSize;
+uniform float uCollisionThickness;
+uniform float uRestitution;
+uniform float uFriction;
+uniform int uMaximumSearchSteps;
+uniform float uSearchRadiusPixels;
+uniform int uDepthSampling;
+
+uint hash(uint value) {
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16);
+}
+
+float random01(inout uint state) {
+    state = hash(state);
+    return float(state) / 4294967295.0;
+}
+
+void spawn(uint index, uint emissionOffset, inout Particle particle) {
+    uint generation = uint(uFrameIndex) * uint(uCapacity) + uint(uEmitStart) + emissionOffset;
+    uint state = hash(index * 747796405u + generation * 2891336453u + 277803737u);
+    float x = random01(state);
+    float y = random01(state);
+    float z = random01(state);
+    particle.positionLife = vec4(mix(uSpawnMin, uSpawnMax, vec3(x, y, z)), uLifetimeSeconds);
+    float azimuth = random01(state) * 6.28318530718;
+    float vertical = random01(state) * 2.0 - 1.0;
+    float radial = sqrt(max(0.0, 1.0 - vertical * vertical));
+    float speed = mix(uMinimumSpeed, uMaximumSpeed, random01(state));
+    particle.velocitySeed = vec4(cos(azimuth) * radial * speed, vertical * speed,
+            sin(azimuth) * radial * speed, random01(state));
+}
+
+bool insideViewport(ivec2 texel) {
+    return all(greaterThanEqual(texel, ivec2(0)))
+            && all(lessThan(texel, ivec2(uViewportSize)));
+}
+
+float sampleDepth(ivec2 texel) {
+    ivec2 extent = ivec2(uViewportSize);
+    ivec2 maximum = extent - ivec2(1);
+    if (uDepthSampling == 1) {
+        // Conservative minimum of the 2x2 block that contains the texel.
+        ivec2 base = clamp(texel - ivec2(1), ivec2(0), maximum);
+        ivec2 upper = clamp(texel, ivec2(0), maximum);
+        float depth = texelFetch(uSceneDepth, base, 0).r;
+        depth = min(depth, texelFetch(uSceneDepth, ivec2(upper.x, base.y), 0).r);
+        depth = min(depth, texelFetch(uSceneDepth, ivec2(base.x, upper.y), 0).r);
+        depth = min(depth, texelFetch(uSceneDepth, upper, 0).r);
+        return depth;
+    }
+    return texelFetch(uSceneDepth, clamp(texel, ivec2(0), maximum), 0).r;
+}
+
+vec3 unprojectAt(ivec2 texel, float depth) {
+    vec2 uv = (vec2(texel) + 0.5) / uViewportSize;
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = uInverseViewProjection * clip;
+    return world.xyz / world.w;
+}
+
+vec3 cameraFacingNormal(vec3 surface) {
+    vec3 direction = uCameraPosition - surface;
+    float lengthSquared = dot(direction, direction);
+    return lengthSquared > 1.0e-20 ? direction * inversesqrt(lengthSquared)
+            : vec3(0.0, 1.0, 0.0);
+}
+
+vec3 surfaceNormal(ivec2 texel, vec3 surface) {
+    ivec2 extent = ivec2(uViewportSize);
+    if (texel.x <= 0 || texel.y <= 0 || texel.x >= extent.x - 1
+            || texel.y >= extent.y - 1) {
+        return cameraFacingNormal(surface);
+    }
+    float left = texelFetch(uSceneDepth, texel + ivec2(-1, 0), 0).r;
+    float right = texelFetch(uSceneDepth, texel + ivec2(1, 0), 0).r;
+    float down = texelFetch(uSceneDepth, texel + ivec2(0, -1), 0).r;
+    float up = texelFetch(uSceneDepth, texel + ivec2(0, 1), 0).r;
+    if (left >= 1.0 || right >= 1.0 || down >= 1.0 || up >= 1.0) {
+        return cameraFacingNormal(surface);
+    }
+    vec3 worldLeft = unprojectAt(texel + ivec2(-1, 0), left);
+    vec3 worldRight = unprojectAt(texel + ivec2(1, 0), right);
+    vec3 worldDown = unprojectAt(texel + ivec2(0, -1), down);
+    vec3 worldUp = unprojectAt(texel + ivec2(0, 1), up);
+    vec3 crossProduct = cross(worldRight - worldLeft, worldUp - worldDown);
+    float lengthSquared = dot(crossProduct, crossProduct);
+    if (!(lengthSquared > 1.0e-20)) {
+        return cameraFacingNormal(surface);
+    }
+    vec3 normal = crossProduct * inversesqrt(lengthSquared);
+    if (dot(normal, uCameraPosition - surface) < 0.0) {
+        normal = -normal;
+    }
+    return normal;
+}
+
+void collide(inout Particle particle) {
+    vec3 position = particle.positionLife.xyz;
+    vec4 clip = uViewProjection * vec4(position, 1.0);
+    if (!(clip.w > 1.0e-6)) {
+        return;
+    }
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0)))) {
+        return;
+    }
+    ivec2 centre = ivec2(uv * uViewportSize);
+    int steps = max(1, uMaximumSearchSteps);
+    bool found = false;
+    float bestPenetration = 0.0;
+    vec3 bestNormal = vec3(0.0, 1.0, 0.0);
+    for (int step = 0; step < steps; ++step) {
+        ivec2 texel;
+        if (step == 0) {
+            texel = centre;
+        } else {
+            float angle = float(step) * 2.39996323;
+            float radius = uSearchRadiusPixels * sqrt(float(step) / float(steps - 1));
+            texel = centre + ivec2(round(cos(angle) * radius), round(sin(angle) * radius));
+        }
+        if (!insideViewport(texel)) {
+            continue;
+        }
+        float depth = sampleDepth(texel);
+        if (!(depth < 1.0)) {
+            continue;
+        }
+        vec3 surface = unprojectAt(texel, depth);
+        if (any(isnan(surface)) || any(isinf(surface))) {
+            continue;
+        }
+        vec3 normal = surfaceNormal(texel, surface);
+        float penetration = dot(position - surface, normal);
+        if (penetration < 0.0 && -penetration <= uCollisionThickness
+                && (!found || penetration < bestPenetration)) {
+            found = true;
+            bestPenetration = penetration;
+            bestNormal = normal;
+        }
+    }
+    if (!found) {
+        return;
+    }
+    float skin = max(1.0e-3, uCollisionThickness * 1.0e-3);
+    vec3 resolved = position + bestNormal * (-bestPenetration + skin);
+    float normalVelocity = dot(particle.velocitySeed.xyz, bestNormal);
+    if (normalVelocity < 0.0) {
+        vec3 tangential = particle.velocitySeed.xyz - bestNormal * normalVelocity;
+        particle.velocitySeed.xyz = tangential * (1.0 - uFriction)
+                - bestNormal * (uRestitution * normalVelocity);
+    }
+    particle.positionLife.xyz = resolved;
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= uint(uCapacity)) {
+        return;
+    }
+
+    Particle particle;
+    if (uClearParticles != 0) {
+        // Replay reset: do not read the previous contents at all.
+        particle.positionLife = vec4(0.0);
+        particle.velocitySeed = vec4(0.0);
+    } else {
+        particle = particles[index];
+    }
+
+    int emissionOffset = int(index) - uEmitStart;
+    if (emissionOffset < 0) {
+        emissionOffset += uCapacity;
+    }
+    if (particle.positionLife.w <= 0.0 && emissionOffset < uEmitCount) {
+        spawn(index, uint(emissionOffset), particle);
+    }
+
+    if (particle.positionLife.w > 0.0) {
+        particle.velocitySeed.y -= uGravity * uDeltaSeconds;
+        particle.positionLife.xyz += particle.velocitySeed.xyz * uDeltaSeconds;
+        particle.positionLife.w -= uDeltaSeconds;
+        if (particle.positionLife.w > 0.0) {
+            collide(particle);
+            uint slot = atomicAdd(counters.activeCount, 1u);
+            if (slot < uint(uCapacity)) {
+                activeIndices[slot] = index;
+            }
+        }
+    }
+
+    particles[index] = particle;
+}

@@ -54,6 +54,35 @@ class RenderFrameContextTest {
     }
 
     @Test
+    void contextSeparatesSceneRasterExtentFromTheChainExtent() {
+        Scene scene = new Scene(new Camera());
+
+        RenderFrameContext legacy = RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 1.0f / 60.0f, 0, 0L, 1L, null);
+        assertEquals(320, legacy.width());
+        assertEquals(180, legacy.height());
+        assertEquals(320, legacy.sceneWidth(),
+                "the source-compatible capture keeps the scene raster at the target extent");
+        assertEquals(180, legacy.sceneHeight());
+        assertFalse(legacy.hasReducedSceneExtent());
+
+        RenderFrameContext reduced = RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 160, 90,
+                1.0f / 60.0f, 0, 0L, 1L, null);
+        assertEquals(320, reduced.width(), "the chain extent keeps its established meaning");
+        assertEquals(180, reduced.height());
+        assertEquals(160, reduced.sceneWidth());
+        assertEquals(90, reduced.sceneHeight());
+        assertTrue(reduced.hasReducedSceneExtent());
+
+        assertThrows(IllegalArgumentException.class, () -> RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 0, 90, 0.0f, 0, 0L, 1L, null));
+        assertThrows(IllegalArgumentException.class, () -> RenderFrameContext.capture(
+                scene, scene.camera(), 320, 180, 321, 90, 0.0f, 0, 0L, 1L, null),
+                "a scene raster wider than the chain target is invalid");
+    }
+
+    @Test
     void contextFreezesCameraAndLightsAndComparesWithLastSuccessfulFrame() {
         Camera camera = new Camera(new Vector3f(1.0f, 2.0f, 5.0f));
         SceneLight originalLight = SceneLight.directional(
@@ -83,6 +112,22 @@ class RenderFrameContextTest {
                 scene, camera, 640, 360, 1.0f / 60.0f, 3, 3L, 2L, changed);
         assertEquals(List.of(FrameInvalidation.Domain.TOPOLOGY_SETTINGS),
                 resized.invalidation().reasons());
+    }
+
+    @Test
+    void clipDistancesReachTheFrozenProjectionAndInvalidateTheCameraRevision() {
+        Camera camera = new Camera();
+        Scene scene = new Scene(camera);
+        var before = RenderFrameContext.capture(scene, camera, 640, 360, 0f, 0, 0L, 1L, null);
+
+        camera.setClipPlanes(0.25f, 250f);
+        var after = RenderFrameContext.capture(scene, camera, 640, 360, 0f, 1, 1L, 1L, before);
+        assertTrue(after.invalidation().invalidated(FrameInvalidation.Domain.CAMERA));
+        assertEquals(0.25f, after.camera().nearPlane());
+        assertEquals(250f, after.camera().farPlane());
+        assertTrue(before.camera().projection().transformProject(new Vector3f(0, 0, -200f)).z > 1f);
+        assertTrue(after.camera().projection().transformProject(new Vector3f(0, 0, -200f)).z < 1f);
+        assertThrows(IllegalArgumentException.class, () -> camera.setClipPlanes(0.25f, 0.2f));
     }
 
     @Test

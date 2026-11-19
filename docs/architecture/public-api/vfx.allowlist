@@ -21,3 +21,4 @@ advanced com.kaleblangley.haikalat.subsystems.vfx.VfxDissolve
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxLight
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxRimLight
 advanced com.kaleblangley.haikalat.subsystems.vfx.VfxUvFlow
+advanced com.kaleblangley.haikalat.subsystems.vfx.VfxDistortion

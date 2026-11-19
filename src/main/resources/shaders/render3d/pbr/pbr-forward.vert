@@ -32,6 +32,77 @@ uniform int uSkinningEnabled;
 uniform int uMorphTargetCount;
 uniform int uMorphVertexCount;
 
+// BEGIN VERTEX_DISPLACEMENT
+uniform int uDisplacementEnabled;
+uniform float uDisplacementAmplitude;
+uniform float uDisplacementFrequency;
+uniform float uDisplacementSpeed;
+uniform float uDisplacementPhase;
+uniform vec3 uDisplacementAxis;
+uniform vec3 uDisplacementWaveDirection;
+uniform float uDisplacementTime;
+uniform float uDisplacementPreviousTime;
+
+vec3 vertexDisplacementOffset(vec3 localPosition, float timeSeconds) {
+    if (uDisplacementEnabled == 0 || uDisplacementAmplitude <= 0.0) {
+        return vec3(0.0);
+    }
+    vec3 axis = uDisplacementAxis;
+    float axisLengthSquared = dot(axis, axis);
+    if (axisLengthSquared <= 1.0e-12) {
+        return vec3(0.0);
+    }
+    vec3 waveDirection = uDisplacementWaveDirection;
+    float waveLengthSquared = dot(waveDirection, waveDirection);
+    if (waveLengthSquared <= 1.0e-12) {
+        return vec3(0.0);
+    }
+    axis *= inversesqrt(axisLengthSquared);
+    waveDirection *= inversesqrt(waveLengthSquared);
+    float phase = 6.28318530718 * (uDisplacementFrequency
+            * dot(localPosition, waveDirection) + uDisplacementSpeed * timeSeconds)
+            + uDisplacementPhase;
+    return axis * (uDisplacementAmplitude * sin(phase));
+}
+
+vec3 vertexDisplacementPosition(vec3 localPosition, float timeSeconds) {
+    if (uDisplacementEnabled == 0 || uDisplacementAmplitude <= 0.0) {
+        return localPosition;
+    }
+    return localPosition + vertexDisplacementOffset(localPosition, timeSeconds);
+}
+
+vec3 vertexDisplacementNormal(vec3 localPosition, vec3 localNormal, float timeSeconds) {
+    if (uDisplacementEnabled == 0 || uDisplacementAmplitude <= 0.0) {
+        return localNormal;
+    }
+    vec3 axis = uDisplacementAxis;
+    float axisLengthSquared = dot(axis, axis);
+    if (axisLengthSquared <= 1.0e-12) {
+        return localNormal;
+    }
+    vec3 waveDirection = uDisplacementWaveDirection;
+    float waveLengthSquared = dot(waveDirection, waveDirection);
+    if (waveLengthSquared <= 1.0e-12) {
+        return localNormal;
+    }
+    axis *= inversesqrt(axisLengthSquared);
+    waveDirection *= inversesqrt(waveLengthSquared);
+    float phase = 6.28318530718 * (uDisplacementFrequency
+            * dot(localPosition, waveDirection) + uDisplacementSpeed * timeSeconds)
+            + uDisplacementPhase;
+    float slope = 6.28318530718 * uDisplacementFrequency * uDisplacementAmplitude * cos(phase);
+    float denominator = 1.0 + slope * dot(axis, waveDirection);
+    if (abs(denominator) <= 1.0e-4) {
+        return localNormal;
+    }
+    vec3 perturbed = localNormal
+            - waveDirection * (slope * dot(axis, localNormal) / denominator);
+    float lengthSquared = dot(perturbed, perturbed);
+    return lengthSquared > 1.0e-12 ? normalize(perturbed) : localNormal;
+}
+// END VERTEX_DISPLACEMENT
+
 out vec2 vTexCoord;
 out vec3 vWorldPosition;
 out vec3 vNormal;
@@ -80,6 +151,12 @@ void main() {
     if (dot(localTangent, localTangent) <= 1.0e-12) {
         localTangent = aTangent.xyz;
     }
+    // Fixed deformation order: morph -> local vertex displacement -> skinning.
+    // The analytic normal uses the pre-displacement position so the gradient
+    // matches the evaluated height field.
+    vec3 restPosition = position;
+    position = vertexDisplacementPosition(restPosition, uDisplacementTime);
+    localNormal = vertexDisplacementNormal(restPosition, localNormal, uDisplacementTime);
     mat4 modelSkin = uModel * skinMatrix();
     vec4 world = modelSkin * vec4(position, 1.0);
     mat3 normalMatrix = transpose(inverse(mat3(modelSkin)));

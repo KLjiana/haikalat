@@ -302,7 +302,331 @@ tasks.register('releaseVerificationContracts') {
         }
         List<Map<String, Object>> policies = parseGlPolicy()
         // M7 retires the three policies belonging exclusively to the archived Outdoor runner.
-        assert policies.size() == 40
+        // v0.28.1 adds bounded contact-shadow, cloud-shadow, depth-of-field,
+        // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
+        // particle-indirect and VFX sampler policies, the S6 interaction-matrix
+        // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
+        // transmission-shadow cold-link policy. Hair-normal and exhibition
+        // warmup/readback policies bring the current total to 77.
+        assert policies.size() == 77
+        def exhibitionPolicies = [
+                'render3d/exhibition-warmup': [131218, 96, '.*runRenderFeatureExhibitionIntegration.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-readback': [131154, 1, '.*runRenderFeatureExhibitionIntegration.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-integration-warmup': [131218, 256, '.*RenderFeatureExhibitionGlTest.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-integration-readback': [131154, 128, '.*RenderFeatureExhibitionGlTest.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-capture-readback': [131154, 256, '.*runRenderFeatureExhibitionCapture.*', LocalDate.of(2027, 11, 17)],
+                'render3d/exhibition-capture-warmup': [131218, 64, '.*runRenderFeatureExhibitionCapture.*', LocalDate.of(2027, 11, 17)],
+                'demo/exhibition-floor': [131218, 4,
+                                          'TEST-com\\.kaleblangley\\.haikalat\\.demo\\.pbr\\.RenderFeatureExhibitionGlTest\\.xml',
+                                          LocalDate.of(2027, 5, 18)]
+        ]
+        exhibitionPolicies.each { owner, expected ->
+            def policy = policies.find { it.owner == owner }
+            assert policy != null
+            assert policy.id == expected[0]
+            assert policy.severity == 'MEDIUM' && policy.source == 'API' && policy.type == 'PERFORMANCE'
+            assert policy.maximum == expected[1]
+            assert policy.entry == expected[2]
+            assert policy.expiry == expected[3]
+        }
+        def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
+        assert displacementWarmup != null && displacementWarmup.id == 131218
+        assert displacementWarmup.maximum == 4
+        assert displacementWarmup.entry.contains('VfxLightingGlTest')
+        def contactShadowPolicy = policies.find { it.owner == 'render3d/contact-shadows' }
+        assert contactShadowPolicy != null && contactShadowPolicy.id == 131218
+        assert contactShadowPolicy.maximum == 4
+        assert contactShadowPolicy.entry.contains('ContactShadowsGlTest')
+        def contactCombinationPolicy =
+                policies.find { it.owner == 'render3d/contact-shadow-combinations' }
+        assert contactCombinationPolicy != null && contactCombinationPolicy.id == 131218
+        assert contactCombinationPolicy.maximum == 4
+        assert contactCombinationPolicy.entry ==
+                '.*ScreenSpaceContactShadowCompositionGlTest.*'
+        assert contactCombinationPolicy.expiry == LocalDate.of(2027, 5, 16)
+        def cloudShadowPolicy = policies.find { it.owner == 'render3d/cloud-shadows' }
+        assert cloudShadowPolicy != null && cloudShadowPolicy.id == 131218
+        assert cloudShadowPolicy.maximum == 4
+        assert cloudShadowPolicy.entry.contains('CloudShadowsGlTest')
+        def depthOfFieldPolicy = policies.find { it.owner == 'render3d/depth-of-field' }
+        assert depthOfFieldPolicy != null && depthOfFieldPolicy.id == 131218
+        assert depthOfFieldPolicy.maximum == 2
+        assert depthOfFieldPolicy.entry == '.*DepthOfFieldPassGlTest.*'
+        def ssrMsaaPolicy = policies.find { it.owner == 'render3d/ssr-msaa-resolve' }
+        assert ssrMsaaPolicy != null && ssrMsaaPolicy.id == 131218
+        assert ssrMsaaPolicy.maximum == 4
+        assert ssrMsaaPolicy.entry == '.*SsrPassGlTest.*'
+        assert ssrMsaaPolicy.expiry == LocalDate.of(2027, 5, 16)
+        def ssrMsaaDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def ssrMsaaMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Fragment shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.ssr.SsrPassGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage * 5, policies).violations.isEmpty()
+        def hairNormalConsumerPolicy = policies.find { it.owner == 'render3d/hair-normal-consumer' }
+        assert hairNormalConsumerPolicy != null && hairNormalConsumerPolicy.id == 131218
+        assert hairNormalConsumerPolicy.maximum == 2
+        assert hairNormalConsumerPolicy.entry == '.*HairTaaInvalidationGlTest.*'
+        assert hairNormalConsumerPolicy.expiry == LocalDate.of(2027, 5, 17)
+        def hairNormalConsumerEntry =
+                'TEST-com.kaleblangley.haikalat.subsystems.render3d.HairTaaInvalidationGlTest.xml'
+        def hairNormalConsumerMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: ' +
+                'Program/shader state performance warning: Vertex shader in program 1 is being ' +
+                'recompiled based on GL state.\n'
+        assert auditGlText(hairNormalConsumerEntry,
+                ssrMsaaDevice + hairNormalConsumerMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(hairNormalConsumerEntry,
+                ssrMsaaDevice + hairNormalConsumerMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                ssrMsaaDevice + hairNormalConsumerMessage, policies).violations.isEmpty()
+        def thinTransmissionShadowPolicy =
+                policies.find { it.owner == 'render3d/thin-translucency-transmission-shadow' }
+        assert thinTransmissionShadowPolicy != null && thinTransmissionShadowPolicy.id == 131218
+        assert thinTransmissionShadowPolicy.maximum == 18
+        assert thinTransmissionShadowPolicy.entry == '.*ThinTranslucencyTransmissionShadowGlTest.*'
+        assert thinTransmissionShadowPolicy.expiry == LocalDate.of(2027, 5, 16)
+        def thinTransmissionShadowEntry = 'TEST-com.kaleblangley.haikalat.integration.ThinTranslucencyTransmissionShadowGlTest.xml'
+        assert auditGlText(thinTransmissionShadowEntry,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 18,
+                policies).violations.isEmpty()
+        assert !auditGlText(thinTransmissionShadowEntry,
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex') * 19,
+                policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.OtherGlTest.xml',
+                ssrMsaaDevice + ssrMsaaMessage.replace('Fragment', 'Vertex'), policies).violations.isEmpty()
+        def pcssPolicy = policies.find { it.owner == 'render3d/pcss' }
+        assert pcssPolicy != null && pcssPolicy.id == 131218
+        assert pcssPolicy.severity == 'MEDIUM'
+        assert pcssPolicy.source == 'API'
+        assert pcssPolicy.type == 'PERFORMANCE'
+        assert pcssPolicy.maximum == 4
+        assert pcssPolicy.entry == '.*PcssGlTest.*'
+        assert pcssPolicy.expiry == LocalDate.of(2027, 5, 11)
+        def pcssDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def pcssMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.PcssGlTest.xml',
+                pcssDevice + pcssMessage.replace('Vertex', 'Geometry'), policies).violations.isEmpty()
+        def atmospherePolicy = policies.find { it.owner == 'render3d/atmosphere-pipeline' }
+        assert atmospherePolicy != null && atmospherePolicy.id == 131218
+        assert atmospherePolicy.maximum == 2
+        assert atmospherePolicy.entry == '.*AtmospherePipelineGlTest.*'
+        def atmosphereDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def atmosphereMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.AtmospherePipelineGlTest.xml',
+                atmosphereDevice + atmosphereMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.AtmospherePipelineGlTest.xml',
+                atmosphereDevice + atmosphereMessage * 3, policies).violations.isEmpty()
+        def anisotropicPolicy = policies.find { it.owner == 'render3d/anisotropic' }
+        assert anisotropicPolicy != null && anisotropicPolicy.id == 131218
+        assert anisotropicPolicy.maximum == 2
+        assert anisotropicPolicy.entry == '.*AnisotropicGlTest.*'
+        def anisotropicDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def anisotropicMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.AnisotropicGlTest.xml',
+                anisotropicDevice + anisotropicMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.AnisotropicGlTest.xml',
+                anisotropicDevice + anisotropicMessage * 3, policies).violations.isEmpty()
+        def clusterGlPolicy = policies.find { it.owner == 'render3d/cluster-lighting-gl' }
+        assert clusterGlPolicy != null && clusterGlPolicy.id == 131218
+        assert clusterGlPolicy.maximum == 4
+        assert clusterGlPolicy.entry.contains('ClusterLightingGlTest')
+        def clusterDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def clusterMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.ClusterLightingGlTest.xml',
+                clusterDevice + clusterMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.ClusterLightingGlTest.xml',
+                clusterDevice + clusterMessage * 5, policies).violations.isEmpty()
+        def vfxSamplerPolicy = policies.find { it.owner == 'render3d/vfx-sampler' }
+        assert vfxSamplerPolicy != null && vfxSamplerPolicy.id == 131218
+        assert vfxSamplerPolicy.maximum == 2
+        assert vfxSamplerPolicy.entry == '.*VfxSamplerContractGlTest.*'
+        def vfxSamplerEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.VfxSamplerContractGlTest.xml'
+        assert auditGlText(vfxSamplerEntry,
+                clusterDevice + clusterMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(vfxSamplerEntry,
+                clusterDevice + clusterMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.OtherGlTest.xml',
+                clusterDevice + clusterMessage, policies).violations.isEmpty()
+        def particleIndirectPolicy = policies.find { it.owner == 'render3d/particle-indirect' }
+        assert particleIndirectPolicy != null && particleIndirectPolicy.id == 131186
+        assert particleIndirectPolicy.maximum == 40
+        assert particleIndirectPolicy.entry.contains('GpuParticleSystemGlTest')
+        def particleDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def particleMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_DRAW_INDIRECT_BUFFER, and GL_SHADER_STORAGE_BUFFER (1), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystemGlTest.xml',
+                particleDevice + particleMessage * 40, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSystemGlTest.xml',
+                particleDevice + particleMessage * 41, policies).violations.isEmpty()
+        def particleSortingPolicy = policies.find { it.owner == 'render3d/particle-sorting' }
+        assert particleSortingPolicy != null && particleSortingPolicy.id == 131186
+        assert particleSortingPolicy.maximum == 40
+        assert particleSortingPolicy.entry.contains('GpuParticleSortingGlTest')
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingGlTest.xml',
+                particleDevice + particleMessage * 40, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleSortingGlTest.xml',
+                particleDevice + particleMessage * 41, policies).violations.isEmpty()
+        def particleCollisionPolicy = policies.find { it.owner == 'render3d/particle-collision' }
+        assert particleCollisionPolicy != null && particleCollisionPolicy.id == 131186
+        assert particleCollisionPolicy.maximum == 40
+        assert particleCollisionPolicy.entry.contains('GpuParticleCollisionGlTest')
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionGlTest.xml',
+                particleDevice + particleMessage * 40, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.vfx.GpuParticleCollisionGlTest.xml',
+                particleDevice + particleMessage * 41, policies).violations.isEmpty()
+        def temporalUpscalingPolicy = policies.find { it.owner == 'render3d/temporal-upscaling' }
+        assert temporalUpscalingPolicy != null && temporalUpscalingPolicy.id == 131218
+        assert temporalUpscalingPolicy.maximum == 4
+        assert temporalUpscalingPolicy.entry == '.*TemporalUpscaling(?:Pass|Pipeline)GlTest.*'
+        def upscaleDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def upscaleMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPassGlTest.xml',
+                upscaleDevice + upscaleMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPassGlTest.xml',
+                upscaleDevice + upscaleMessage * 5, policies).violations.isEmpty()
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPipelineGlTest.xml',
+                upscaleDevice + upscaleMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.upscale.TemporalUpscalingPipelineGlTest.xml',
+                upscaleDevice + upscaleMessage * 5, policies).violations.isEmpty()
+        def lowResolutionTemporalPolicy = policies.find {
+            it.owner == 'render3d/lowres-temporal'
+        }
+        assert lowResolutionTemporalPolicy != null
+        assert lowResolutionTemporalPolicy.id == 131218
+        assert lowResolutionTemporalPolicy.severity == 'MEDIUM'
+        assert lowResolutionTemporalPolicy.source == 'API'
+        assert lowResolutionTemporalPolicy.type == 'PERFORMANCE'
+        assert lowResolutionTemporalPolicy.maximum == 2
+        assert lowResolutionTemporalPolicy.entry == '.*LowResolutionMainChainGlTest.*'
+        assert lowResolutionTemporalPolicy.expiry == LocalDate.of(2027, 5, 17)
+        def lowResolutionEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.LowResolutionMainChainGlTest.xml'
+        assert auditGlText(lowResolutionEntry,
+                upscaleDevice + upscaleMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(lowResolutionEntry,
+                upscaleDevice + upscaleMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                upscaleDevice + upscaleMessage, policies).violations.isEmpty()
+        def volumetricParticleReadback = policies.find { it.owner == 'render3d/volumetric-particle-readback' }
+        assert volumetricParticleReadback != null && volumetricParticleReadback.id == 131186
+        assert volumetricParticleReadback.maximum == 2
+        assert volumetricParticleReadback.entry == '.*VolumetricParticleGlTest.*'
+        def volumetricParticleCold = policies.find { it.owner == 'render3d/volumetric-particle-cold' }
+        assert volumetricParticleCold != null && volumetricParticleCold.id == 131218
+        assert volumetricParticleCold.maximum == 4
+        assert volumetricParticleCold.entry == '.*VolumetricParticleGlTest.*'
+        def volumetricParticleDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def volumetricParticleEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricParticleGlTest.xml'
+        def volumetricParticleReadbackMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_SHADER_STORAGE_BUFFER, and GL_SHADER_STORAGE_BUFFER (3), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        def volumetricParticleColdMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleReadbackMessage * 2 + volumetricParticleColdMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleReadbackMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText(volumetricParticleEntry,
+                volumetricParticleDevice + volumetricParticleColdMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.OtherGlTest.xml',
+                volumetricParticleDevice + volumetricParticleReadbackMessage, policies).violations.isEmpty()
+        def vctReadbackPolicy = policies.find { it.owner == 'render3d/vct-readback' }
+        assert vctReadbackPolicy != null && vctReadbackPolicy.id == 131186
+        assert vctReadbackPolicy.maximum == 8
+        assert vctReadbackPolicy.entry == '.*VctGlTest.*'
+        def vctEntry = 'TEST-com.kaleblangley.haikalat.integration.VctGlTest.xml'
+        def vctMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131186: Buffer performance warning: Buffer object GlBuffer target=37074 (bound to GL_SHADER_STORAGE_BUFFER, and GL_SHADER_STORAGE_BUFFER (1), usage hint is GL_DYNAMIC_DRAW) is being copied/moved from VIDEO memory to HOST memory.\n'
+        assert auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 8, policies).violations.isEmpty()
+        assert !auditGlText(vctEntry, volumetricParticleDevice + vctMessage * 9, policies).violations.isEmpty()
+        def vrsColdPolicy = policies.find { it.owner == 'render3d/vrs-cold' }
+        assert vrsColdPolicy != null && vrsColdPolicy.id == 131218
+        assert vrsColdPolicy.maximum == 4
+        assert vrsColdPolicy.entry == '.*VariableRateShadingGlTest.*'
+        def vrsEntry = 'TEST-com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingGlTest.xml'
+        def vrsMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText(vrsEntry, volumetricParticleDevice + vrsMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText(vrsEntry, volumetricParticleDevice + vrsMessage * 5, policies).violations.isEmpty()
+        def subsurfaceForwardPolicy = policies.find { it.owner == 'render3d/subsurface-forward-cold' }
+        assert subsurfaceForwardPolicy != null && subsurfaceForwardPolicy.id == 131218
+        assert subsurfaceForwardPolicy.maximum == 2
+        assert subsurfaceForwardPolicy.entry == '.*SubsurfaceScatteringForwardGlTest.*'
+        def subsurfaceDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def subsurfaceMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 22 is being recompiled based on GL state.\n'
+        def subsurfaceEntry = 'TEST-com.kaleblangley.haikalat.integration.SubsurfaceScatteringForwardGlTest.xml'
+        assert auditGlText(subsurfaceEntry, subsurfaceDevice + subsurfaceMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText(subsurfaceEntry, subsurfaceDevice + subsurfaceMessage * 3, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.OtherGlTest.xml',
+                subsurfaceDevice + subsurfaceMessage, policies).violations.isEmpty()
+        def stochasticPolicy = policies.find { it.owner == 'render3d/stochastic-transparency-cold' }
+        assert stochasticPolicy != null && stochasticPolicy.id == 131218
+        assert stochasticPolicy.maximum == 10
+        assert stochasticPolicy.entry == '.*StochasticTransparencyPassGlTest.*'
+        def stochasticEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.transparency.StochasticTransparencyPassGlTest.xml'
+        def stochasticMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 10 is being recompiled based on GL state.\n'
+        assert auditGlText(stochasticEntry, upscaleDevice + stochasticMessage * 10, policies).violations.isEmpty()
+        assert !auditGlText(stochasticEntry, upscaleDevice + stochasticMessage * 11, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.transparency.OtherGlTest.xml',
+                upscaleDevice + stochasticMessage, policies).violations.isEmpty()
+        def cloudColdPolicy = policies.find { it.owner == 'render3d/volumetric-cloud-cold' }
+        assert cloudColdPolicy != null && cloudColdPolicy.id == 131218
+        assert cloudColdPolicy.maximum == 10
+        assert cloudColdPolicy.entry == '.*VolumetricCloudGlTest.*'
+        def cloudEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudGlTest.xml'
+        def cloudColdMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 7 is being recompiled based on GL state.\n'
+        assert auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 10, policies).violations.isEmpty()
+        assert !auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 11, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.OtherGlTest.xml',
+                subsurfaceDevice + cloudColdMessage, policies).violations.isEmpty()
+        def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def dofMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
+                dofDevice + dofMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.depthoffield.DepthOfFieldPassGlTest.xml',
+                dofDevice + dofMessage * 3, policies).violations.isEmpty()
+        def motionBlurPolicy = policies.find { it.owner == 'render3d/motion-blur' }
+        assert motionBlurPolicy != null && motionBlurPolicy.id == 131218
+        assert motionBlurPolicy.maximum == 2
+        assert motionBlurPolicy.entry == '.*MotionBlurPassGlTest.*'
+        def motionBlurDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def motionBlurMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPassGlTest.xml',
+                motionBlurDevice + motionBlurMessage * 2, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.postprocess.motionblur.MotionBlurPassGlTest.xml',
+                motionBlurDevice + motionBlurMessage * 3, policies).violations.isEmpty()
+        def refractionPolicy = policies.find { it.owner == 'render3d/refraction' }
+        assert refractionPolicy != null && refractionPolicy.id == 131218
+        assert refractionPolicy.maximum == 4
+        assert refractionPolicy.entry == '.*RefractionGlTest.*'
+        def refractionDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def refractionMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 7 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.RefractionGlTest.xml',
+                refractionDevice + refractionMessage.replace('Vertex', 'Geometry'),
+                policies).violations.isEmpty()
+        def clearcoatPolicy = policies.find { it.owner == 'render3d/clearcoat' }
+        assert clearcoatPolicy != null && clearcoatPolicy.id == 131218
+        assert clearcoatPolicy.severity == 'MEDIUM'
+        assert clearcoatPolicy.source == 'API'
+        assert clearcoatPolicy.type == 'PERFORMANCE'
+        assert clearcoatPolicy.maximum == 4
+        assert clearcoatPolicy.entry == '.*ClearcoatGlTest.*'
+        assert clearcoatPolicy.expiry == LocalDate.of(2027, 5, 11)
+        def clearcoatDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def clearcoatMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.integration.ClearcoatGlTest.xml',
+                clearcoatDevice + clearcoatMessage * 4, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.ClearcoatGlTest.xml',
+                clearcoatDevice + clearcoatMessage * 5, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.integration.ClearcoatGlTest.xml',
+                clearcoatDevice + clearcoatMessage.replace('Vertex', 'Geometry'),
+                policies).violations.isEmpty()
+        def cloudDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def cloudMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 18 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-CloudShadowsGlTest.xml', cloudDevice + cloudMessage, policies).violations.isEmpty()
+        assert !auditGlText('TEST-CloudShadowsGlTest.xml',
+                cloudDevice + cloudMessage.replace('Vertex', 'Geometry'), policies).violations.isEmpty()
         def featureControlPolicy = policies.find { it.owner == 'render3d/feature-control' }
         assert featureControlPolicy != null && featureControlPolicy.id == 131218
         assert featureControlPolicy.maximum == 4
@@ -477,6 +801,25 @@ tasks.register('releaseVerificationContracts') {
         assert gtaoPixelPolicy.maximum == 12
         assert !policies.any { it.owner == 'render3d/outdoor' }
         assert gtaoPixelPolicy.expiry == LocalDate.of(2027, 2, 20)
+        def s6InteractionMatrixPolicy = policies.find {
+            it.owner == 'render3d/s6-interaction-matrix'
+        }
+        assert s6InteractionMatrixPolicy != null
+        assert s6InteractionMatrixPolicy.id == 131218
+        assert s6InteractionMatrixPolicy.severity == 'MEDIUM'
+        assert s6InteractionMatrixPolicy.source == 'API'
+        assert s6InteractionMatrixPolicy.type == 'PERFORMANCE'
+        assert s6InteractionMatrixPolicy.maximum == 26
+        assert s6InteractionMatrixPolicy.entry == '.*S6InteractionMatrixGlTest.*'
+        assert s6InteractionMatrixPolicy.expiry == LocalDate.of(2027, 5, 13)
+        def s6MatrixDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'
+        def s6MatrixMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 21 is being recompiled based on GL state.\n'
+        assert auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage * 26, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.S6InteractionMatrixGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage * 27, policies).violations.isEmpty()
+        assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.OtherGlTest.xml',
+                s6MatrixDevice + s6MatrixMessage, policies).violations.isEmpty()
         def allowed = auditGlText('TEST-com.example.DiagnosticsContractsGlTest.xml',
                 'OpenGL debug output enabled vendor=Any renderer=Any version=4.6\n'
                         + 'OpenGL ERROR [HIGH] source=APPLICATION id=99999: must-survive', policies)

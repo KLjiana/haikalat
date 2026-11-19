@@ -34,6 +34,18 @@ import java.util.Objects;
  * central render pipeline.</p>
  */
 public final class ShadowCasterRecorder {
+    /**
+     * Late caster draw executed inside one dirty directional cascade tile.
+     *
+     * <p>The hook owns its program/VAO and must not change the atlas, viewport,
+     * scissor or the {@code uLightSpace * uModel} convention. The recorder
+     * re-binds its own program for the next cascade.</p>
+     */
+    @FunctionalInterface
+    public interface DirectionalTileHook {
+        void record(CommandBuffer cmd, Matrix4f lightSpace, int cascade);
+    }
+
     private static final int POINT_FACE_COUNT = PointShadowAtlas.FACE_COUNT;
 
     private final Matrix4f modelScratch = new Matrix4f();
@@ -73,6 +85,20 @@ public final class ShadowCasterRecorder {
     public int recordDirectional(CommandBuffer cmd, SceneFrame frame,
                                  ShadowFramePlan.DirectionalPlan plan,
                                  ShadowCasterPlanner.ShadowCasterPlan culling) {
+        return recordDirectional(cmd, frame, plan, culling, null);
+    }
+
+    /**
+     * Records dirty directional cascades and lets an optional late caster hook
+     * add its own draw inside the same tile viewport/scissor. The hook is called
+     * once per dirty cascade after the ordinary and instanced casters; it keeps
+     * the existing atlas/light-space convention and never allocates a second
+     * shadow map.
+     */
+    public int recordDirectional(CommandBuffer cmd, SceneFrame frame,
+                                 ShadowFramePlan.DirectionalPlan plan,
+                                 ShadowCasterPlanner.ShadowCasterPlan culling,
+                                 DirectionalTileHook hook) {
         if (shadowShader == null) {
             return 0;
         }
@@ -107,6 +133,9 @@ public final class ShadowCasterRecorder {
             }
             count += recordDirectionalCasters(cmd, frame, matrices.get(cascade), cascade, culling);
             renderInstanced(cmd, matrices.get(cascade), cascade, culling);
+            if (hook != null) {
+                hook.record(cmd, matrices.get(cascade), cascade);
+            }
         }
         cmd.enableScissor(false);
         return count;
@@ -267,6 +296,7 @@ public final class ShadowCasterRecorder {
             bindMaskedShadowMaterial(cmd, shader, renderer.material());
             cmd.setUniformMat4(shader, "uModel", frame.copyModel(entry, modelScratch));
             SceneDrawBinding binding = renderer.drawBinding();
+            binding.recordVertexDisplacement(cmd, shader, SceneDrawBinding.Pass.SHADOW);
             int skinningEnabled = binding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = binding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {
@@ -326,6 +356,7 @@ public final class ShadowCasterRecorder {
             bindMaskedShadowMaterial(cmd, entryShader, renderer.material());
             cmd.setUniformMat4(entryShader, "uModel", frame.copyModel(entry, modelScratch));
             SceneDrawBinding drawBinding = renderer.drawBinding();
+            drawBinding.recordVertexDisplacement(cmd, entryShader, SceneDrawBinding.Pass.SHADOW);
             int skinningEnabled = drawBinding.skinningEnabled() ? 1 : 0;
             int morphTargetCount = drawBinding.morphTargetCount();
             if (skinningEnabled != boundSkinningEnabled) {

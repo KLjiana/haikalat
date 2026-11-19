@@ -21,6 +21,6 @@ public final class CameraProjection {
             return external.projection(destination);
         }
         return destination.identity().perspective((float) Math.toRadians(camera.zoom()),
-                width / (float) height, NEAR_PLANE, FAR_PLANE);
+                width / (float) height, camera.nearPlane(), camera.farPlane());
     }
 }

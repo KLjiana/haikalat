@@ -143,6 +143,7 @@ def animationBenchmarkMain =
 def vfxMain = 'com.kaleblangley.haikalat.demo.vfx.VfxDemo'
 def vfxCurveBenchmarkMain = 'com.kaleblangley.haikalat.demo.vfx.VfxCurveBenchmark'
 def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
+def exhibitionMain = 'com.kaleblangley.haikalat.demo.pbr.RenderFeatureExhibitionDemo'
 [
         runDemoIntegration                 : [learnMain,
                 ['--deterministic', '--frames=8', '--aa=FXAA'],
@@ -197,6 +198,12 @@ def showcaseMain = 'com.kaleblangley.haikalat.demo.pbr.HaikalatShowcaseDemo'
                 ['--hidden', '--frames=3600', '--warmup=120', '--size=320x180',
                  '--gpu-particles=256', '--stability'],
                 'Runs the combined showcase for 3600 frames and verifies stable live GL resources.'],
+        runRenderFeatureExhibitionIntegration: [exhibitionMain,
+                ['--hidden', '--tour', '--size=640x360', '--verify'],
+                'Visits all 46 exhibition stations in fixed order, switches both A/B phases and reports production feature status; it is not human visual acceptance.'],
+        runRenderFeatureExhibitionCapture: [exhibitionMain,
+                ['--hidden', '--size=960x540', '--capture-dir=build/exhibition/stations'],
+                'Archives one PNG per exhibition station and phase plus an index.csv with human_result=NOT_EVALUATED; it is evidence for, not a substitute for, human visual acceptance.'],
         runAsyncIntegration                : ['com.kaleblangley.haikalat.demo.async.AsyncDemo',
                 ['--deterministic', '--frames=8'],
                 'Runs the async upload/render-thread demo hidden for a finite number of frames.'],
@@ -901,6 +908,7 @@ def registerDemoApplication = { taskName, descriptionText, mainClassName, launch
         runAnimationDemo  : animationMain,
         runVfxDemo        : vfxMain,
         runHaikalatShowcaseDemo: showcaseMain,
+        runRenderFeatureExhibitionDemo: exhibitionMain,
         runAsyncDemo      : 'com.kaleblangley.haikalat.demo.async.AsyncDemo',
         runStressDemo     : 'com.kaleblangley.haikalat.demo.stress.StressDemo'
         ,runPbrDemo       : pbrMain

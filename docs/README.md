@@ -4,13 +4,13 @@
 
 ## 当前入口
 
-2026-11-11 复核：当前构建为 0.28.0；0.28 战斗 VFX 材质与动态光照已接入 Showcase 生产调用链。
+2026-11-20 复核：当前构建版本为 0.28.1（未发布候选）；0.28 战斗 VFX 材质与动态光照已接入 Showcase 生产调用链。
 正式性能、完整视觉、真实宿主与自动选测仍未完成。
 
 - 开发与验证：[测试指南](guides/testing.md)、[测试合同索引](guides/test-contracts.md)、[有侧重验收规范](guides/focused-acceptance-policy.md)。
 - 仓库协作：[根级 AGENTS.md](../AGENTS.md)，按任务路由到构建、测试和 Render3D 局部指引。
 - 当前实现：[能力矩阵](planning/capability-matrix.md)、[0.27.3 模块合同](architecture/v0.27.3-render3d-module-contracts.md)、[包迁移清单](architecture/v0.27.3-render3d-package-migration.md)、[0.27.4 统一控制合同](architecture/v0.27.4-render3d-feature-control.md)、[0.28 战斗 VFX 指南](guides/render3d-combat-vfx.md)。
-- 当前结果：[0.28.0 验收](releases/v0.28.0-review.md)、[0.27.5 验收（治理范围）](releases/v0.27.5-review.md)、[0.27.4 验收](releases/v0.27.4-review.md)；聚焦通过不等于正式发布就绪。
+- 当前结果：[0.28.1 候选变更记录](history/changelog.md)、[0.28.0 验收](releases/v0.28.0-review.md)、[0.27.5 验收（治理范围）](releases/v0.27.5-review.md)、[0.27.4 验收](releases/v0.27.4-review.md)；聚焦通过不等于正式发布就绪。
 - 治理进度：[0.27.5 Agent 指引与测试治理计划](planning/v0.27.5-agent-and-test-governance.md)、[测试治理实施记录](history/v0.27.5-test-governance-2026-11-09.md)。
 - 本轮整理：[文档清理记录](history/v0.27.5-documentation-cleanup-2026-11-09.md)。
 
@@ -24,6 +24,8 @@
 - [核心能力矩阵](planning/capability-matrix.md) — 实现状态、证明入口与当前限制
 - [后续计划](planning/future-plans.md)
 - [实时渲染技术未来计划大纲](planning/realtime-rendering-roadmap.md) — 46 项技术分组、依赖、模块归属、验收与近期版本建议
+- [46 项渲染功能展览馆计划书](planning/render-feature-exhibition-plan.md) — 统一可交互视觉观察入口、46 个展位映射、实施批次与人工验收合同
+- [46 项渲染功能展览馆人工视觉验收记录](planning/render-feature-exhibition-acceptance.md) — 逐站 A/B 截图归档、观察人登记与检查清单
 
 ### 版本计划与设计快照
 

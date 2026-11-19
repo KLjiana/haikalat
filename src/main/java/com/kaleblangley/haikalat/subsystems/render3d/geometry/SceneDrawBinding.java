@@ -19,6 +19,27 @@ public interface SceneDrawBinding {
 
     void record(CommandBuffer commands, ShaderProgram shader, int frameIndex, Pass pass);
 
+    /**
+     * Binds the optional vertex-displacement uniforms for this draw.  The
+     * default writes the default-off gate so an enabled object cannot leak its
+     * uniform state into the next draw that shares the same shader program.
+     */
+    default void recordVertexDisplacement(CommandBuffer commands, ShaderProgram shader, Pass pass) {
+        Objects.requireNonNull(commands, "commands");
+        Objects.requireNonNull(shader, "shader");
+        Objects.requireNonNull(pass, "pass");
+        commands.trySetUniformInt(shader, "uDisplacementEnabled", 0);
+    }
+
+    /**
+     * Conservative local-space expansion required by this binding before the
+     * model transform.  Non-zero values participate in scene/shadow culling and
+     * must be paired with a matching {@link #boundsRevision()} change.
+     */
+    default float boundsPadding() {
+        return 0.0f;
+    }
+
     default boolean skinningEnabled() {
         return false;
     }

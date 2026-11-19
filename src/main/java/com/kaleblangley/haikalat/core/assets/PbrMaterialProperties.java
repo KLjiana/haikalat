@@ -16,6 +16,9 @@ import java.util.Objects;
  * @param occlusionStrength 环境遮蔽强度
  * @param emissiveFactor 自发光因子
  * @param textures 各 PBR 角色对应的纹理资产名称
+ * @param thicknessFactor 薄表面归一化厚度 [0,1]，0 表示最薄
+ * @param transmissionFactor 背光透射强度 [0,1]，0 关闭
+ * @param backlightFactor 背光艺术增益 [0,1]，0 关闭
  */
 public record PbrMaterialProperties(
         Vector4f baseColorFactor,
@@ -24,7 +27,10 @@ public record PbrMaterialProperties(
         float normalScale,
         float occlusionStrength,
         Vector3f emissiveFactor,
-        Map<PbrTextureRole, String> textures
+        Map<PbrTextureRole, String> textures,
+        float thicknessFactor,
+        float transmissionFactor,
+        float backlightFactor
 ) {
     public PbrMaterialProperties {
         baseColorFactor = new Vector4f(Objects.requireNonNull(baseColorFactor, "baseColorFactor"));
@@ -41,6 +47,9 @@ public record PbrMaterialProperties(
         requireFiniteNonNegative(emissiveFactor.x, "emissiveFactor.x");
         requireFiniteNonNegative(emissiveFactor.y, "emissiveFactor.y");
         requireFiniteNonNegative(emissiveFactor.z, "emissiveFactor.z");
+        requireUnitRange(thicknessFactor, "thicknessFactor");
+        requireUnitRange(transmissionFactor, "transmissionFactor");
+        requireUnitRange(backlightFactor, "backlightFactor");
         for (Map.Entry<PbrTextureRole, String> entry : textures.entrySet()) {
             Objects.requireNonNull(entry.getKey(), "texture role");
             String value = Objects.requireNonNull(entry.getValue(), "texture name").strip();
@@ -48,9 +57,23 @@ public record PbrMaterialProperties(
         }
     }
 
+    /** 保留 v0.12 七参数构造契约；薄表面控制默认关闭且不改变原 PBR 输出。 */
+    public PbrMaterialProperties(
+            Vector4f baseColorFactor,
+            float metallicFactor,
+            float roughnessFactor,
+            float normalScale,
+            float occlusionStrength,
+            Vector3f emissiveFactor,
+            Map<PbrTextureRole, String> textures
+    ) {
+        this(baseColorFactor, metallicFactor, roughnessFactor, normalScale, occlusionStrength,
+                emissiveFactor, textures, 0.0f, 0.0f, 0.0f);
+    }
+
     public static PbrMaterialProperties defaults() {
         return new PbrMaterialProperties(new Vector4f(1.0f), 0.0f, 1.0f,
-                1.0f, 1.0f, new Vector3f(), Map.of());
+                1.0f, 1.0f, new Vector3f(), Map.of(), 0.0f, 0.0f, 0.0f);
     }
 
     @Override

@@ -17,6 +17,32 @@ public enum SceneBufferChannel {
     VALIDITY,
     /** 0 = normal history, 1 = strongly reduce or reject history. */
     REACTIVE,
+    /**
+     * Material roughness in {@code [0,1]} used by screen-space reflections.
+     * First version carries the PBR material's scalar roughness factor; legacy
+     * materials report 1 (fully rough) so they never qualify as reflectors.
+     */
+    ROUGHNESS,
+    /**
+     * Linear material albedo (RGB) used as the screen-space indirect-diffuse
+     * receiver weight.
+     *
+     * <p>The first version carries the scalar base-colour factor; a per-texel
+     * base-colour map is not sampled in the surface pass, matching the existing
+     * roughness-factor approximation. Legacy materials report white.</p>
+     */
+    ALBEDO,
+    /**
+     * Subsurface-scattering material mask written by the surface pass.
+     *
+     * <p>{@code rgba}: red is the screen-space coverage in {@code [0,1]}
+     * (material intensity, faded by camera distance and zero when the material
+     * disables screen-space participation), green is the thickness-attenuated
+     * diffusion radius in metres, blue is the resolved thickness in metres and
+     * alpha is {@code 1} when this pixel contributes to the screen-space pass.
+     * A zero red channel means the pixel is not a scattering surface.</p>
+     */
+    SUBSURFACE,
     /** Positive view-space depth of the current surface in world units, materialized on demand. */
     LINEAR_DEPTH
 }

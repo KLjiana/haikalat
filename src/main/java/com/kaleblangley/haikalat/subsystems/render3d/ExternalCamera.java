@@ -110,10 +110,12 @@ public final class ExternalCamera extends Camera {
         return partialTick;
     }
 
+    @Override
     public float nearPlane() {
         return nearPlane;
     }
 
+    @Override
     public float farPlane() {
         return farPlane;
     }

@@ -49,6 +49,9 @@ public final class ShadowCacheState {
                             LocalShadowPipelineSettings settings,
                             DirectionalCascadeSettings cascades,
                             ShadowCasterPlanner.ShadowCasterPlan planner) {
+        // Carry the validated frame clock with the one-frame plan so frame-derived
+        // effects in the light binder do not need a RenderPipeline call-site change.
+        source = source.withFrameTiming(context.frameSequence(), context.deltaSeconds());
         if (!settings.cacheStaticTiles()) {
             return prepareUncached(source);
         }
@@ -173,6 +176,24 @@ public final class ShadowCacheState {
         List<SpotShadowSlotPlan> spots = source.spots().stream()
                 .map(plan -> plan.withCache(true, ShadowFramePlan.MissReason.SETTINGS)).toList();
         return source.withCache(directionalPlan, points, spots);
+    }
+
+    /**
+     * Forces the next cached prepare to redraw every shadow view.
+     *
+     * <p>The cache key is derived from scene/light/planner revisions and the
+     * camera/settings hash. Dynamic casters that are not part of that key (for
+     * example the procedurally placed hair lock) call this when their placement
+     * changes, so a static tile cannot keep a stale depth image.</p>
+     */
+    public void invalidateAll() {
+        Arrays.fill(directional, null);
+        for (ShadowCacheKey[] faces : points) {
+            Arrays.fill(faces, null);
+        }
+        Arrays.fill(spots, null);
+        pending = null;
+        uncachedPending = false;
     }
 
     public void frameSucceeded() {

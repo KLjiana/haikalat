@@ -54,6 +54,15 @@ public final class SceneBufferRequirements {
         return of(SceneBufferChannel.DEPTH);
     }
 
+    /**
+     * Motion blur consumes the single-sample velocity plus its validity
+     * companions; {@link #validated()} adds the previous-surface depth and
+     * validity channels that make the velocity trustworthy.
+     */
+    public static SceneBufferRequirements motionBlur() {
+        return of(SceneBufferChannel.VELOCITY);
+    }
+
     /** GTAO always needs depth and world normals; temporal AO also needs motion data. */
     public static SceneBufferRequirements gtao(boolean temporal) {
         return temporal
@@ -61,6 +70,57 @@ public final class SceneBufferRequirements {
                 SceneBufferChannel.VELOCITY, SceneBufferChannel.PREVIOUS_SURFACE_DEPTH,
                 SceneBufferChannel.VALIDITY)
                 : of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL);
+    }
+
+    /** Screen-space reflections need the surface depth, world normal and roughness. */
+    public static SceneBufferRequirements ssr() {
+        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
+                SceneBufferChannel.ROUGHNESS);
+    }
+
+    /**
+     * Screen-space subsurface diffusion needs the shared depth and world normal
+     * for boundary rejection, plus the material mask/radius/thickness channel.
+     */
+    public static SceneBufferRequirements subsurfaceScattering() {
+        return of(SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL,
+                SceneBufferChannel.SUBSURFACE);
+    }
+
+    /**
+     * The temporal denoiser consumes the frozen single-sample velocity and the
+     * previous-surface depth for its rigid-motion reprojection contract. The
+     * colour chain falls back to the previous-stable-view-projection mode when
+     * the topology cannot provide them, but requesting them here makes the
+     * motion path structural for the production graph.
+     */
+    public static SceneBufferRequirements temporalDenoise() {
+        return of(SceneBufferChannel.VELOCITY,
+                SceneBufferChannel.PREVIOUS_SURFACE_DEPTH);
+    }
+
+    /**
+     * Screen-space indirect diffuse needs depth and world normals for the
+     * hemisphere march, the hit roughness gate and the receiver albedo weight.
+     * The temporal variant additionally reprojects its history through the
+     * shared single-sample velocity and validates disocclusion with the
+     * previous-surface depth and validity channels.
+     */
+    public static SceneBufferRequirements ssgi() {
+        return ssgi(false);
+    }
+
+    /** @see #ssgi() */
+    public static SceneBufferRequirements ssgi(boolean temporal) {
+        EnumSet<SceneBufferChannel> set = EnumSet.of(SceneBufferChannel.DEPTH,
+                SceneBufferChannel.NORMAL, SceneBufferChannel.ROUGHNESS,
+                SceneBufferChannel.ALBEDO);
+        if (temporal) {
+            set.add(SceneBufferChannel.VELOCITY);
+            set.add(SceneBufferChannel.PREVIOUS_SURFACE_DEPTH);
+            set.add(SceneBufferChannel.VALIDITY);
+        }
+        return of(set, 1);
     }
 
     /** Native TAA surface data; reactive is requested only when a producer exists. */

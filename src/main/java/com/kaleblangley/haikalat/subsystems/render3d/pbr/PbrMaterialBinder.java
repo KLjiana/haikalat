@@ -70,6 +70,41 @@ public final class PbrMaterialBinder implements AutoCloseable {
         this.rotationRadians = rotationRadians;
     }
 
+    /**
+     * Binds the borrowed prefiltered specular cube for a reflection consumer
+     * that samples the environment directly (for example screen-space
+     * reflections).  The caller must use a cube sampler with mipmapped linear
+     * filtering; this binder's sampler matches the PBR forward pass.
+     *
+     * @return the highest valid mip level
+     */
+    public float bindPrefilteredSpecular(CommandBuffer cmd, int unit) {
+        cmd.bindTextureCube(unit, environment.prefilteredSpecular(), cubeSampler);
+        return environment.prefilteredSpecular().mipLevels() - 1.0f;
+    }
+
+    /**
+     * Binds the borrowed irradiance cube for an ambient/GI consumer that samples
+     * the same environment the forward IBL diffuse term uses. The caller owns
+     * the unit assignment; this binder's sampler matches the PBR forward pass.
+     *
+     * @return true when the borrowed irradiance cube was bound
+     */
+    public boolean bindIrradiance(CommandBuffer cmd, int unit) {
+        cmd.bindTextureCube(unit, environment.irradiance(), cubeSampler);
+        return true;
+    }
+
+    /** @return the current environment intensity override */
+    public float environmentIntensity() {
+        return intensity;
+    }
+
+    /** @return the current environment rotation override in radians */
+    public float environmentRotationRadians() {
+        return rotationRadians;
+    }
+
     @Override
     public void close() {
         RuntimeException failure = null;

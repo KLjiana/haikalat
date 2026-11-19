@@ -304,9 +304,9 @@ class VolumetricCompositeGlTest {
         for (int i=0;i<3;i++) background[i]+=t*color.w*color.get(i);
         return background;
     }
-    private static void assertCenter(float[] actual,double[] expected) {
+    private static void assertCenter(float[] actual,double[] expected,String settings) {
         int offset=(8*33+16)*4;
-        for (int c=0;c<3;c++) assertEquals(expected[c],actual[offset+c],.004,"HDR channel "+c);
+        for (int c=0;c<3;c++) assertEquals(expected[c],actual[offset+c],.004,settings+", HDR channel "+c);
     }
 
     @Test void nativeFineIntervalsReplaceTheStoredFilteredContributionOnce() {
@@ -621,13 +621,21 @@ class VolumetricCompositeGlTest {
                         var pipeline=pipeline(scene,aa,4,enabled);
                         try {
                             pipeline.build();pipeline.execute(new GlRenderDevice());
-                            assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(alpha(opaque(bg,10,enabled),far,8,enabled),near,6,enabled),spark,3,enabled));
+                            String settings="aa="+aa+", fog="+enabled+", alpha="+a;
+                            assertCenter(pipeline.captureLinearHdrRgbaFloat(),
+                                    additive(alpha(alpha(opaque(bg,10,enabled),far,8,enabled),near,6,enabled),spark,3,enabled), settings);
                             if (enabled) {
-                                var order=pipeline.graph().description().executionOrder();
+                                var graph=pipeline.graph().description();
+                                var order=graph.executionOrder();
                                 assertTrue(order.indexOf(VolumetricPassBuilder.COMPOSITE_PASS)<order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS));
-                                if (aa==AntiAliasingMode.MSAA) assertTrue(order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS)<order.indexOf(PostProcessTargets.HDR_RESOLVE_PASS));
+                                if (aa==AntiAliasingMode.MSAA) {
+                                    var resolve=graph.passes().stream().filter(p -> p.name().equals(PostProcessTargets.HDR_RESOLVE_PASS))
+                                            .findFirst().orElseThrow();
+                                    assertTrue(resolve.directDependencies().contains(VolumetricPassBuilder.TRANSPARENT_PASS),
+                                            "HDR resolve must consume the fogged transparency replay: "+settings);
+                                }
                             }
-                            GlDebug.assertNoError("alpha fog matrix "+aa+" alpha="+a);
+                            GlDebug.assertNoError(settings);
                         } finally { pipeline.close(); }
                     }
                 }
@@ -755,7 +763,7 @@ class VolumetricCompositeGlTest {
                     assertEquals(0,glGetInteger(GL_READ_FRAMEBUFFER_BINDING));
                     var view=BufferUtils.createIntBuffer(4);glGetIntegerv(GL_VIEWPORT,view);
                     assertArrayEquals(new int[]{2,3,19,13},new int[]{view.get(0),view.get(1),view.get(2),view.get(3)});
-                    assertCenter(pipeline.captureLinearHdrRgbaFloat(),opaque(new Vector4f(.7f,.2f,.1f,1),6,true));
+                    assertCenter(pipeline.captureLinearHdrRgbaFloat(),opaque(new Vector4f(.7f,.2f,.1f,1),6,true),"embedded MSAA");
                     GlDebug.assertNoError("embedded per-sample fog host");
                 } finally { pipeline.close();glDisable(GL_SAMPLE_SHADING);glMinSampleShading(0);glBlendEquation(GL_FUNC_ADD); }
                 assertTrue(glIsFramebuffer(fbo));assertTrue(glIsTexture(color));
@@ -781,7 +789,7 @@ class VolumetricCompositeGlTest {
                             renderer.record(cmd,snapshot,camera.projection(),camera.view(),soft,33,17,fog);
                         });
                         pipeline.build();pipeline.execute(new GlRenderDevice());
-                        assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(opaque(bg,10,true),smoke,6,true),spark,3,true));
+                        assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(opaque(bg,10,true),smoke,6,true),spark,3,true),"aa="+aa);
                         GlDebug.assertNoError("HDR VFX fog "+aa);
                     } finally { pipeline.close(); }
                 }
@@ -834,6 +842,85 @@ class VolumetricCompositeGlTest {
                         GlDebug.assertNoError("VFX dissolve fog color/reactive "+aa);
                     } finally { pipeline.close(); }
                 }
+            }
+        }
+    }
+
+    @Test void taaDissolveRejectsHistoryAfterCameraMoveAndOccluderReveal() {
+        try(var window=VolumetricGenerationGlTest.window()) {
+            window.bindContext();GL.createCapabilities();
+            try(var shader=ShaderProgram.fromSources(VERTEX,FRAGMENT);
+                var background=Mesh.from(BuiltinMeshData.texturedQuad("dissolve-camera-background"));
+                var occluderMesh=Mesh.from(BuiltinMeshData.texturedQuad("dissolve-camera-occluder"));
+                var renderer=new VfxRenderer(true);
+                var asset=EffectAsset.builder("dissolve-camera")
+                        .meshes(new MeshVfx(1,10.0f,BuiltinMeshData.texturedQuad("dissolve-camera-vfx"),
+                                32.0f,32.0f,new Vector4f(1.0f,0.0f,0.0f,1.0f),
+                                new Vector4f(1.0f,0.0f,0.0f,1.0f)))
+                        .meshMaterial(VfxMaterial.builder("dissolve-camera-material")
+                                .blendMode(BlendMode.ADDITIVE)
+                                .dissolve(VfxDissolve.explicit(0.1f,
+                                        new Vector3f(1.0f,0.1f,0.1f),2.0f,6.0f,19L))
+                                .build())
+                        .build();
+                var instance=asset.instantiate(1L)) {
+                instance.spawnMesh(new org.joml.Matrix4f().translation(0,0,-3));
+                instance.update(0.1f,new Vector3f());
+                var camera=new Camera(new Vector3f(0,0,4));
+                var scene=new Scene(camera);
+                add(scene,background,shader,10,new Vector4f(.1f,.2f,.3f,1),BlendMode.OPAQUE);
+                float[] occluderX={0.0f};
+                var occluderMaterial=Material.builder(shader).blendMode(BlendMode.OPAQUE)
+                        .setVec4("uColor",new Vector4f(.8f,.6f,.2f,1)).setInt("uAdditive",0).build();
+                scene.add(new SceneObject(occluderMesh,occluderMaterial,
+                        (out,frame)->out.identity().translation(occluderX[0],0,-1).scale(8),false));
+                var pipeline=pipeline(scene,AntiAliasingMode.TAA,1,true);
+                EffectSnapshot[] current={instance.snapshot(new Vector3f())
+                        .withFrameValues(0.0f,0.0f,List.of())};
+                try {
+                    pipeline.hdrVfxWithFog((res,cmd,frameCamera,fog)->renderer.record(cmd,current[0],
+                            frameCamera.projection(),frameCamera.view(),
+                            res.colorAttachment(fog.softParticleDepthName()),33,17,fog));
+                    pipeline.build();
+                    var device=new GlRenderDevice();
+                    pipeline.execute(device);
+                    camera.processKeyboard(Camera.Movement.RIGHT,0.08f);
+                    occluderX[0]=100.0f;
+                    pipeline.execute(device);
+                    float[] revealed=pipeline.captureLinearHdrRgbaFloat();
+                    current[0]=current[0].withFrameValues(0.0f,1.0f,List.of());
+                    pipeline.execute(device);
+                    pipeline.execute(device);
+                    float[] gone=pipeline.captureLinearHdrRgbaFloat();
+                    int offset=(8*33+16)*4;
+                    assertTrue(revealed[offset]-gone[offset]>.015f,
+                            "TAA history must not retain a dissolved VFX after camera move/reveal");
+
+                    var referenceCamera=new Camera(new Vector3f(0,0,4));
+                    var referenceScene=new Scene(referenceCamera);
+                    add(referenceScene,background,shader,10,new Vector4f(.1f,.2f,.3f,1),BlendMode.OPAQUE);
+                    float[] referenceOccluderX={0.0f};
+                    referenceScene.add(new SceneObject(occluderMesh,occluderMaterial,
+                            (out,frame)->out.identity().translation(referenceOccluderX[0],0,-1).scale(8),false));
+                    var referencePipeline=pipeline(referenceScene,AntiAliasingMode.TAA,1,true);
+                    try {
+                        referencePipeline.hdrVfxWithFog((res,cmd,frameCamera,fog)->{});
+                        referencePipeline.build();
+                        var referenceDevice=new GlRenderDevice();
+                        referencePipeline.execute(referenceDevice);
+                        referenceCamera.processKeyboard(Camera.Movement.RIGHT,0.08f);
+                        referenceOccluderX[0]=100.0f;
+                        referencePipeline.execute(referenceDevice);
+                        referencePipeline.execute(referenceDevice);
+                        referencePipeline.execute(referenceDevice);
+                        float[] reference=referencePipeline.captureLinearHdrRgbaFloat();
+                        for (int channel=0;channel<3;channel++) {
+                            assertEquals(reference[offset+channel],gone[offset+channel],.015f,
+                                    "dissolved VFX must match the no-VFX TAA reference channel "+channel);
+                        }
+                    } finally { referencePipeline.close(); }
+                    GlDebug.assertNoError("TAA dissolve camera/occluder reveal");
+                } finally { pipeline.close(); }
             }
         }
     }

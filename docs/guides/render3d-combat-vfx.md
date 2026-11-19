@@ -15,6 +15,8 @@
 
 四项都可关闭；关闭时材质默认值与旧行为一致。`VfxMaterial.requiresNormals()` 只表示启用了轮廓光。
 
+屏幕空间冲击波／热浪是独立的场景颜色消费者（路线图 #4，0.28.1 S1），不属于本表的材质 UV Flow；数据、Pass 顺序与限制见[屏幕空间扭曲技术卡](../planning/v0.28.1-s1-screen-distortion.md)。
+
 ## 2. 材质参数
 
 ```java
@@ -34,6 +36,7 @@ VfxMaterial energy = VfxMaterial.builder("energy")
 - UV 顺序固定为：局部 UV → 速度 × 显式效果时间 → 线性噪声扭曲 → cell 内 half-texel 内缩/夹取 → Flipbook 当前/下一 cell → 两次采样混合。速度为 UV/秒，shader 不读取墙钟。
 - 溶解可见侧为 `noise >= progress`；`progress=0` 恢复完整材质，`progress=1` 完全消失。`edgeWidth=0` 时没有边缘发光且不除零。边缘发光只增加线性 HDR 颜色，不增加 alpha；最终仍受原 mask、alpha/additive 与雾变体预乘约定限制。
 - 噪声是 renderer 自有、确定性的 128×128 线性 R8 资源；材质 seed 只偏移采样坐标，不按材质复制纹理。噪声使用 REPEAT 与 base level 采样，避免 dissolve 阈值随 mip 模糊。
+- Sprite 纹理的 sampler 合同已冻结：颜色纹理为 `GL_SRGB8_ALPHA8`，mask 为线性 `GL_R8`；两者都是完整 immutable mip 链、`GL_LINEAR_MIPMAP_LINEAR` 缩小、`GL_LINEAR` 放大、`GL_CLAMP_TO_EDGE`、无 anisotropic filtering。sRGB 在线性光中解码/生成 mip；具体数值、UV 与 atlas 边界交互、限制见 [F6 采样器验收卡](../planning/v0.28.1-s2-uv-flow.md)。
 
 ## 3. 效果时间、暂停、取消与重放
 
@@ -100,17 +103,19 @@ VfxLightDiagnostics lights = pipeline.vfxLightDiagnostics();
 ## 7. 验证入口
 
 ```powershell
-.\gradlew.bat test --tests "*VfxMaterialTest" --tests "*EffectInstanceTest" --tests "*VfxRendererMathTest" --tests "*VfxLightBridgeTest" --tests "*CombatVfxProfileCodecTest" --tests "*CombatVfxControllerTest"
-.\gradlew.bat glSmoke --tests "*VfxRendererGlTest" --tests "*VfxTextureCacheGlTest"
+.\gradlew.bat test --tests "*VfxMaterialTest" --tests "*EffectInstanceTest" --tests "*VfxRendererMathTest" --tests "*VfxLightBridgeTest" --tests "*CombatVfxProfileCodecTest" --tests "*CombatVfxControllerTest" --tests "*VfxSamplerReferenceTest"
+.\gradlew.bat glSmoke --tests "*VfxRendererGlTest" --tests "*VfxTextureCacheGlTest" --tests "*VfxSamplerContractGlTest"
 .\gradlew.bat runShowcaseIntegration
 ```
 
-`VfxRendererGlTest` 覆盖轮廓 HDR 增量、固定时间 UV Flow 采样变化、溶解端点/边缘与纹理准备事务；`VfxLightBridgeTest` 覆盖 ID/容量/门控/冻结；`CombatVfxProfileCodecTest` 覆盖 schema 与坏输入。像素通过不等于人工视觉通过；正式性能、Minecraft 客户端与完整 TAA/雾矩阵仍需单独记录。
+`VfxRendererGlTest` 覆盖轮廓 HDR 增量、固定时间 UV Flow 采样变化、溶解端点/边缘与纹理准备事务；`VfxTextureCacheGlTest` 覆盖导入格式与缓存事务；`VfxSamplerReferenceTest` 从 fixture 独立推导 sRGB/mip/bilinear 数值，`VfxSamplerContractGlTest` 在生产纹理对象上冻结过滤、wrap、mip 链、sRGB 解码、放大双折中点、缩小 mip 平均与 Flipbook cell 边界；`VfxLightBridgeTest` 覆盖 ID/容量/门控/冻结；`CombatVfxProfileCodecTest` 覆盖 schema 与坏输入。像素通过不等于人工视觉通过；正式性能、Minecraft 客户端与完整 TAA/雾矩阵仍需单独记录。
 
 ## 8. 已知限制
 
 - 轮廓只对带 NORMAL 的 MeshVfx 生效；旧 quad/Ribbon/Decal 继续走旧路径。
 - 首版噪声为 renderer 自有程序化纹理，不是可替换的外部噪声资产；不支持任意噪声资源热替换。
+- 非 padded Flipbook 图集固定使用 LOD0 采样，避免 mip 选择把相邻 cell 平均进来；代价是缩小粒子不参与 mip 过滤，高细节/抗锯齿不保证。真实 GL 证据证明 cell 选择、half-texel inset 与缩小 sprite 都不串 cell；同一 12×4 图集的 3×1 mip 确实跨过 cell 边界，因此 LOD0 是必要条件而不是像素巧合。
+- 非 Flipbook 但手工设置 `uvRegion` 的子区域没有 LOD0 保护：clamp-to-edge 只保护整张纹理的外边界，高缩小率选到粗 mip 时可能跨过子区域边界。需要缩小抗锯齿时应使用 padded atlas、保持放大或改用 Flipbook；详见 [F6 采样器验收卡](../planning/v0.28.1-s2-uv-flow.md)。
 - `LIFECYCLE` 溶解进度由 particle 的归一化年龄和 mesh 的 `lifetimeProgress` 提供；Ribbon/Decal 当前没有年龄字段，使用 0，需要时间驱动时应配置 `EXPLICIT` 并由效果阶段显式设置进度。
 - 溶解是 VFX 材质效果，不是场景材质通用溶解；没有逐 primitive 的独立噪声相位。
 - 特效灯只有无阴影点光；不支持聚光、投影、逐粒子灯或空间参数混合。

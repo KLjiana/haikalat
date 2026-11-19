@@ -4,6 +4,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogVie
 
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.backend.texture.Texture2D;
+import com.kaleblangley.haikalat.core.BlendMode;
+import com.kaleblangley.haikalat.core.FrontFace;
 import com.kaleblangley.haikalat.core.command.CommandBuffer;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -20,9 +22,11 @@ import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Quaternionf;
+import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 
+import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +42,11 @@ public final class VfxRenderer implements AutoCloseable {
     private final Mesh quad;
     private final VfxTextureCache textureCache;
     private final VfxNoiseTexture noiseTexture;
+    private final GpuParticleVfx gpuParticles = new GpuParticleVfx();
+    // Projected decals are optional: the program and volume cube are created on
+    // the first active frame so a disabled renderer owns no extra GPU resource.
+    private ShaderProgram projectedDecalShader;
+    private Mesh projectedDecalCube;
     private final Map<MeshData, Mesh> meshCache = new IdentityHashMap<>();
     private Vector3f[] ribbonSides = new Vector3f[0];
     private Vector3f[] ribbonStartOffsets = new Vector3f[0];
@@ -90,11 +99,26 @@ public final class VfxRenderer implements AutoCloseable {
      * candidate that leaves the previous configuration intact.
      */
     public Preparation prepare(EffectSnapshot snapshot) {
+        return prepare(snapshot, List.of());
+    }
+
+    /**
+     * Prepares every material texture and projected-decal colour texture for
+     * the frame that will publish them.
+     *
+     * <p>Both input sets are retained together, so preparing a snapshot does
+     * not evict decal textures that the same frame uses, and vice versa.  A
+     * thrown failure leaves the previous cache contents usable.</p>
+     */
+    public Preparation prepare(EffectSnapshot snapshot,
+                               Collection<ProjectedDecal> projectedDecals) {
         ensureOpen();
         Objects.requireNonNull(snapshot, "snapshot");
+        Objects.requireNonNull(projectedDecals, "projectedDecals");
         VfxTextureCache.Preparation preparation = textureCache.prepare(List.of(
                 snapshot.visuals().particle(), snapshot.visuals().ribbon(),
-                snapshot.visuals().decal(), snapshot.visuals().mesh()));
+                snapshot.visuals().decal(), snapshot.visuals().mesh()),
+                projectedDecals);
         return new Preparation(preparation.loaded(), preparation.evicted(),
                 preparation.size(), textureCache.maximumEntries());
     }
@@ -131,6 +155,235 @@ public final class VfxRenderer implements AutoCloseable {
         }
         return result;
     }
+
+    /**
+     * Records one bounded projected-decal batch into the current scene colour
+     * target.
+     *
+     * <p>Each decal rasterizes its receiver volume (the far-side faces of an
+     * oriented box) and reconstructs the receiver from the supplied
+     * single-sample scene depth.  A fragment contributes only when the
+     * reconstructed position is inside the volume, the depth lies in
+     * {@code [-thickness, +surfaceOffset]} along the decal normal, and the
+     * reconstructed receiver normal passes the front/back filter.  The caller
+     * binds the colour target and viewport, owns the depth texture, and must
+     * pass the same resolved depth the scene used.  Disabled settings, an empty
+     * list or zero-alpha decals record no command and return zero draws.</p>
+     *
+     * <p>Overlapping batches are ordered far-to-near by camera distance and
+     * bounded by {@link ProjectedDecalSettings#maximumDecals()}; the nearest
+     * decals are kept.  The depth texture is sampled at unit 1 and each decal
+     * colour texture at unit 0.  The caller's framebuffer, depth attachment and
+     * viewport are borrowed, never created or closed here.</p>
+     */
+    public ProjectedDecalStatistics recordProjectedDecals(CommandBuffer commands,
+                                                          ProjectedDecalSettings settings,
+                                                          List<ProjectedDecal> decals,
+                                                          Matrix4fc projection,
+                                                          Matrix4fc view,
+                                                          int sceneDepthTexture,
+                                                          int viewportWidth,
+                                                          int viewportHeight) {
+        ensureOpen();
+        Objects.requireNonNull(commands, "commands");
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(decals, "decals");
+        Objects.requireNonNull(projection, "projection");
+        Objects.requireNonNull(view, "view");
+        if (!settings.active() || decals.isEmpty()) {
+            return new ProjectedDecalStatistics(decals.size(), 0, decals.size(), 0);
+        }
+        Matrix4f inverseView = new Matrix4f(view).invert();
+        Vector3f cameraPosition = inverseView.getTranslation(new Vector3f());
+        ProjectedDecalPlan plan = ProjectedDecalPlan.build(settings, decals, view,
+                cameraPosition);
+        if (plan.isEmpty()) {
+            return new ProjectedDecalStatistics(plan.submitted(), 0, plan.rejected(), 0);
+        }
+        if (sceneDepthTexture <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
+            throw new IllegalArgumentException(
+                    "projected decals require a scene depth texture and positive viewport");
+        }
+        ensureProjectedDecalProgram();
+        Matrix4f projectionView = new Matrix4f(projection).mul(view);
+        Matrix4f inverseProjection = new Matrix4f(projection).invert();
+        Matrix4f model = new Matrix4f();
+        Matrix4f inverseModel = new Matrix4f();
+        ShaderProgram shader = projectedDecalShader;
+        commands.bindShader(shader)
+                .bindMesh(projectedDecalCube)
+                .materialState(BlendMode.ALPHA, false)
+                .blendEquation(org.lwjgl.opengl.GL14.GL_FUNC_ADD)
+                .enableCullFace(true)
+                // The decal model basis has a negative determinant, so the
+                // far/exit faces of the volume are CCW after the model
+                // transform. Keeping CCW faces (and culling the near ones)
+                // is what lets the receiver be reconstructed when the camera
+                // is inside the volume or the near face is clipped.
+                .frontFace(FrontFace.CCW)
+                .bindTexture(1, sceneDepthTexture)
+                .setUniformInt(shader, "uSceneDepth", 1)
+                .setUniformInt(shader, "uTexture", 0)
+                .setUniformMat4(shader, "uProjectionView", projectionView)
+                .setUniformMat4(shader, "uInverseProjection", inverseProjection)
+                .setUniformMat4(shader, "uInverseView", inverseView)
+                .setUniformVec3(shader, "uCameraPosition", cameraPosition)
+                .setUniformVec2(shader, "uViewportSize", viewportWidth, viewportHeight)
+                .setUniformFloat(shader, "uFacingCosine", plan.settings().facingCosine())
+                .setUniformInt(shader, "uReceiveBackFaces",
+                        plan.settings().receiveBackFaces() ? 1 : 0)
+                .setUniformInt(shader, "uAlphaMask", plan.settings().alphaMask() ? 1 : 0);
+        try {
+            for (int index = 0; index < plan.size(); index++) {
+                ProjectedDecal decal = plan.decal(index);
+                projectedDecalModel(decal, plan.settings(), model);
+                inverseModel.set(model).invert();
+                commands.bindTexture(0, textureCache.get(decal.texture()))
+                        .setUniformMat4(shader, "uModel", model)
+                        .setUniformMat4(shader, "uInverseModel", inverseModel)
+                        .setUniformVec3(shader, "uDecalNormal", decal.normal())
+                        .setUniformVec4(shader, "uColor", decal.color())
+                        .setUniformFloat(shader, "uEmissive", decal.emissiveScale())
+                        .drawMesh(projectedDecalCube);
+            }
+        } finally {
+            // The unusual winding state is local to this pass; restore the
+            // engine default even if a lazy texture load rejects the frame.
+            commands.enableCullFace(false).frontFace(FrontFace.CCW);
+        }
+        return new ProjectedDecalStatistics(plan.submitted(), plan.size(),
+                plan.rejected(), plan.size());
+    }
+
+    /**
+     * The production GPU-particle consumer owned by this renderer.
+     *
+     * <p>It carries the fixed-step lifecycle, emission budget, sorting
+     * selection and bounded statistics; the caller still owns the
+     * {@link GpuParticleSystem} and passes it to {@link #recordGpuParticles}.
+     * The consumer allocates no GL resource, so closing this renderer needs no
+     * extra GPU teardown for it.</p>
+     *
+     * @return the GPU-particle consumer
+     */
+    public GpuParticleVfx gpuParticleVfx() {
+        ensureOpen();
+        return gpuParticles;
+    }
+
+    /**
+     * Replaces the GPU-particle consumer configuration.
+     *
+     * @param settings fixed step, emission budget and sorting selection
+     * @return this renderer
+     */
+    public VfxRenderer gpuParticleSettings(GpuParticleVfx.Settings settings) {
+        ensureOpen();
+        gpuParticles.configure(settings);
+        return this;
+    }
+
+    /**
+     * Records the fixed-step GPU-particle consumer into the caller's current
+     * scene colour target.
+     *
+     * <p>This is the required production entry point. It uses the caller's
+     * same-frame single-sample scene depth, draws with depth testing enabled
+     * and never writes depth, and records before OIT/stochastic collectors by
+     * contract. See {@link GpuParticleVfx} for the pause/cancel/replay and
+     * transparent-boundary semantics.</p>
+     *
+     * @param commands         target command buffer
+     * @param system           published GPU particle owner
+     * @param settings         particle settings with the owner's capacity
+     * @param projection       camera projection
+     * @param view             camera view
+     * @param sceneDepthTexture same-frame single-sample opaque scene depth, or
+     *                          0 for a depth-less/free-flight owner
+     * @param viewportWidth    colour target width
+     * @param viewportHeight   colour target height
+     * @return bounded consumer statistics
+     */
+    public GpuParticleVfx.Statistics recordGpuParticles(CommandBuffer commands,
+                                                        GpuParticleSystem system,
+                                                        GpuParticleSettings settings,
+                                                        Matrix4fc projection, Matrix4fc view,
+                                                        int sceneDepthTexture,
+                                                        int viewportWidth,
+                                                        int viewportHeight) {
+        ensureOpen();
+        return gpuParticles.record(commands, system, settings, projection, view,
+                sceneDepthTexture, viewportWidth, viewportHeight);
+    }
+
+    /**
+     * Records the fixed-step GPU-particle consumer with an explicit
+     * transparent-collector boundary claim.
+     *
+     * <p>{@link GpuParticleVfx.Boundary#BEFORE_TRANSPARENT_COLLECTORS} is the
+     * only accepted claim. Claiming that the same draw is part of a weighted-OIT
+     * or stochastic-transparency surface set fails closed before any command is
+     * recorded instead of silently double-compositing.</p>
+     *
+     * @param commands         target command buffer
+     * @param system           published GPU particle owner
+     * @param settings         particle settings with the owner's capacity
+     * @param projection       camera projection
+     * @param view             camera view
+     * @param sceneDepthTexture same-frame single-sample opaque scene depth, or
+     *                          0 for a depth-less/free-flight owner
+     * @param viewportWidth    colour target width
+     * @param viewportHeight   colour target height
+     * @param boundary         caller claim about transparent collectors
+     * @return bounded consumer statistics
+     */
+    public GpuParticleVfx.Statistics recordGpuParticles(CommandBuffer commands,
+                                                        GpuParticleSystem system,
+                                                        GpuParticleSettings settings,
+                                                        Matrix4fc projection, Matrix4fc view,
+                                                        int sceneDepthTexture,
+                                                        int viewportWidth,
+                                                        int viewportHeight,
+                                                        GpuParticleVfx.Boundary boundary) {
+        ensureOpen();
+        return gpuParticles.record(commands, system, settings, projection, view,
+                sceneDepthTexture, viewportWidth, viewportHeight, boundary);
+    }
+
+    /**
+     * Prepares a replacement GPU-particle owner with another capacity.
+     *
+     * <p>The candidate is complete before this method returns; the caller
+     * publishes it and closes the previous owner. A failure leaves the previous
+     * owner and the consumer state untouched.</p>
+     *
+     * @param system      currently published owner
+     * @param newCapacity capacity in [1, {@link GpuParticleSettings#MAXIMUM_CAPACITY}]
+     * @return the replacement candidate
+     */
+    public GpuParticleSystem resizeGpuParticles(GpuParticleSystem system, int newCapacity) {
+        ensureOpen();
+        return gpuParticles.resize(system, newCapacity);
+    }
+
+    private void ensureProjectedDecalProgram() {
+        if (projectedDecalShader != null) return;
+        ShaderProgram shader = null;
+        Mesh cube = null;
+        try {
+            shader = ShaderProgram.fromResource(VfxRenderer.class,
+                    "/shaders/render3d/vfx/projected-decal.vert",
+                    "/shaders/render3d/vfx/projected-decal.frag");
+            cube = Mesh.from(BuiltinMeshData.coloredCube("projected-decal-volume"));
+        } catch (RuntimeException | Error failure) {
+            closeSuppressing(cube, failure);
+            closeSuppressing(shader, failure);
+            throw failure;
+        }
+        projectedDecalShader = shader;
+        projectedDecalCube = cube;
+    }
+
     private Statistics recordInternal(CommandBuffer commands, EffectSnapshot snapshot,
                              Matrix4fc projection, Matrix4fc view,int sceneDepthTexture,int viewportWidth,int viewportHeight,
                              com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricFogView fog,boolean reactiveOnly) {
@@ -241,7 +494,9 @@ public final class VfxRenderer implements AutoCloseable {
                         .setUniformInt(shader, "uDepthEnabled", sceneDepthTexture == 0 ? 0 : 1)
                         .setUniformVec4(shader, "uUvRegion", uvVector(uv))
                         .setUniformVec4(shader, "uNextUvRegion", uvVector(uv))
-                        .setUniformFloat(shader, "uFlipbookBlend", 0.0f);
+                        .setUniformFloat(shader, "uFlipbookBlend", 0.0f)
+                        .setUniformInt(shader, "uFlipbook",
+                                material.flipbook().isPresent() ? 1 : 0);
                 uploadUvFlow(commands, shader, material.uvFlow().orElse(null));
                 uploadDissolve(commands, shader, material.dissolve().orElse(null));
                 uploadRim(commands, shader, material.rimLight().orElse(null));
@@ -417,6 +672,8 @@ public final class VfxRenderer implements AutoCloseable {
             failure = closeCollecting(mesh, failure);
         }
         meshCache.clear();
+        failure = closeCollecting(projectedDecalCube, failure);
+        failure = closeCollecting(projectedDecalShader, failure);
         failure = closeCollecting(textureCache, failure);
         failure = closeCollecting(noiseTexture, failure);
         failure = closeCollecting(quad, failure);
@@ -573,6 +830,37 @@ public final class VfxRenderer implements AutoCloseable {
                 .scale(decal.size().x, decal.size().y, 1.0f);
     }
 
+    /**
+     * Builds the projected-decal volume transform.
+     *
+     * <p>Local {@code x/y} in {@code [-0.5, 0.5]} covers the receiver
+     * rectangle; local {@code z} in {@code [0, 1]} maps from
+     * {@code +surfaceOffset} in front of the decal plane to
+     * {@code -thickness} behind it.  The shader reconstructs the receiver into
+     * this local volume, so the same matrix defines both rasterization bounds
+     * and the depth-thickness contract.</p>
+     */
+    static void projectedDecalModel(ProjectedDecal decal, ProjectedDecalSettings settings,
+                                    Matrix4f out) {
+        Objects.requireNonNull(decal, "decal");
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(out, "out");
+        Vector3f normal = decal.normal();
+        Vector3f up = decal.up();
+        Vector3f right = up.cross(normal, new Vector3f()).normalize();
+        Vector2f size = decal.size();
+        Vector3f center = decal.center();
+        float depth = settings.thickness() + settings.surfaceOffset();
+        float offset = settings.surfaceOffset();
+        out.identity()
+                .m00(right.x * size.x).m01(right.y * size.x).m02(right.z * size.x)
+                .m10(up.x * size.y).m11(up.y * size.y).m12(up.z * size.y)
+                .m20(-normal.x * depth).m21(-normal.y * depth).m22(-normal.z * depth)
+                .m30(center.x + normal.x * offset)
+                .m31(center.y + normal.y * offset)
+                .m32(center.z + normal.z * offset);
+    }
+
     private Mesh meshFor(MeshData meshData) {
         Mesh cached = meshCache.get(meshData);
         if (cached != null) return cached;
@@ -610,6 +898,7 @@ public final class VfxRenderer implements AutoCloseable {
     }
 
     private static RuntimeException closeCollecting(AutoCloseable value, RuntimeException failure) {
+        if (value == null) return failure;
         try {
             value.close();
         } catch (Exception closeFailure) {
@@ -661,6 +950,32 @@ public final class VfxRenderer implements AutoCloseable {
         public Preparation {
             if (loaded < 0 || evicted < 0 || textureCount < 0 || maximumEntries <= 0) {
                 throw new IllegalArgumentException("preparation counts must be non-negative");
+            }
+        }
+    }
+
+    /**
+     * One projected-decal recording outcome.
+     *
+     * @param submitted decals offered by the author this frame
+     * @param drawn     decals that produced a volume draw
+     * @param rejected  decals dropped by the bound or by zero coverage
+     * @param drawCalls volume draws recorded (equal to {@code drawn})
+     */
+    public record ProjectedDecalStatistics(int submitted, int drawn, int rejected,
+                                           int drawCalls) {
+        public ProjectedDecalStatistics {
+            if (submitted < 0 || drawn < 0 || rejected < 0 || drawCalls < 0) {
+                throw new IllegalArgumentException(
+                        "projected decal statistics must be non-negative");
+            }
+            if (drawn + rejected != submitted) {
+                throw new IllegalArgumentException(
+                        "drawn plus rejected must equal submitted");
+            }
+            if (drawCalls != drawn) {
+                throw new IllegalArgumentException(
+                        "each drawn projected decal records one volume draw");
             }
         }
     }

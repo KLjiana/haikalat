@@ -1,0 +1,41 @@
+#version 460 core
+
+layout (points) in;
+layout (triangle_strip, max_vertices = 4) out;
+
+uniform mat4 uViewProjection;
+uniform float uViewportAspect;
+uniform float uParticleSize;
+
+layout (location = 0) in vec4 vColor[];
+layout (location = 0) out vec4 gColor;
+layout (location = 1) out vec2 gUv;
+
+void emitCorner(vec2 corner) {
+    vec4 center = gl_in[0].gl_Position;
+    // uViewProjection[1][1] is the projection Y scale (1/tan(fovY/2) for a
+    // standard perspective matrix, 1/halfHeight for an orthographic one). The
+    // clip-space offset is therefore constant and the perspective divide gives
+    // NDC size = uParticleSize * projectionScale / center.w, i.e. a world-size
+    // billboard. Multiplying the offset by center.w here would cancel in that
+    // division and turn the size into a constant screen fraction.
+    vec2 offset = vec2(corner.x / uViewportAspect, corner.y)
+            * uParticleSize * uViewProjection[1][1];
+    gl_Position = center + vec4(offset, 0.0, 0.0);
+    gColor = vColor[0];
+    gUv = corner;
+    EmitVertex();
+}
+
+void main() {
+    // A centre behind the eye has a non-positive clip w; emitting its mirrored
+    // billboard would be wrong, so the primitive is culled on the GPU.
+    if (gl_in[0].gl_Position.w <= 0.0) {
+        return;
+    }
+    emitCorner(vec2(-1.0, -1.0));
+    emitCorner(vec2( 1.0, -1.0));
+    emitCorner(vec2(-1.0,  1.0));
+    emitCorner(vec2( 1.0,  1.0));
+    EndPrimitive();
+}

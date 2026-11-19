@@ -1,0 +1,109 @@
+#version 460 core
+
+// Sort preparation for the bounded alpha-particle sort (#26).
+//
+// The update dispatch has already compacted the live storage indices into
+// activeIndices[0, activeCount) and the counter is only read here on the GPU.
+// Each invocation turns one sort slot into a (primary key, tie) pair plus the
+// particle storage index that the draw stage must consume:
+//
+//   * slots [0, min(activeCount, uMaximumSortedParticles)) receive a valid
+//     depth key and the matching active index;
+//   * every other slot receives a sentinel whose primary key sorts after all
+//     valid keys in the configured direction, so the padded bitonic network
+//     finishes with a sorted valid prefix and sentinels at the tail. The draw
+//     never reads those slots because it is bounded by activeCount.
+//
+// The primary key is the order-preserving unsigned image of the floating-point
+// metric, optionally bit-inverted for far-to-near order. Equal policies are
+// encoded through the secondary key: the stable policy stores the slot itself,
+// so equal depths keep the published active-list order; the unstable policy
+// stores zero and leaves equal keys without a promised order.
+layout (local_size_x = 64) in;
+
+struct Particle {
+    vec4 positionLife;   // xyz world position, w remaining lifetime in seconds
+    vec4 velocitySeed;
+};
+
+layout (std430, binding = 0) readonly buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout (std430, binding = 1) readonly buffer CounterBuffer {
+    uint activeCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint baseInstance;
+} counters;
+
+layout (std430, binding = 2) readonly buffer ActiveIndexBuffer {
+    uint activeIndices[];
+};
+
+layout (std430, binding = 3) buffer SortKeyBuffer {
+    uvec2 sortKeys[];    // x primary key, y tie key
+};
+
+layout (std430, binding = 4) buffer SortedIndexBuffer {
+    uint sortedIndices[];
+};
+
+uniform int uCapacity;
+uniform int uSortCapacity;
+uniform int uMaximumSortedParticles;
+uniform mat4 uView;
+uniform int uSortKey;        // 0 = view depth, 1 = eye distance
+uniform int uBackToFront;    // 1 = far to near
+uniform int uStableTies;     // 1 = keep the active-list order for equal keys
+
+const uint SENTINEL_INDEX = 0xFFFFFFFFu;
+const uint MAXIMUM_KEY = 0xFFFFFFFFu;
+
+// Maps a float to a uint whose unsigned order matches the float order, so the
+// bitonic network only has to compare unsigned integers (NaNs are ordered by
+// their bit pattern; particle positions are finite in practice).
+uint orderableKey(float value) {
+    uint bits = floatBitsToUint(value);
+    return (bits & 0x80000000u) != 0u ? ~bits : (bits | 0x80000000u);
+}
+
+void main() {
+    uint position = gl_GlobalInvocationID.x;
+    if (position >= uint(uSortCapacity)) {
+        return;
+    }
+
+    // Padding must sort after every valid key in both directions. The
+    // order-preserving image of a finite float is always below MAXIMUM_KEY, and
+    // inverting it for far-to-near stays inside the same finite range, so
+    // MAXIMUM_KEY always sorts last.
+    uint sentinel = MAXIMUM_KEY;
+    uint capacity = uint(uCapacity);
+    uint count = min(counters.activeCount, capacity);
+    uint sorted = min(count, uint(uMaximumSortedParticles));
+    if (position >= sorted) {
+        sortKeys[position] = uvec2(sentinel, 0u);
+        sortedIndices[position] = SENTINEL_INDEX;
+        return;
+    }
+
+    uint index = activeIndices[position];
+    if (index >= capacity) {
+        // Defensive: a corrupt active entry must not sample particle storage.
+        sortKeys[position] = uvec2(sentinel, 0u);
+        sortedIndices[position] = SENTINEL_INDEX;
+        return;
+    }
+
+    vec3 world = particles[index].positionLife.xyz;
+    vec4 viewPosition = uView * vec4(world, 1.0);
+    float metric = uSortKey == 0 ? -viewPosition.z : length(viewPosition.xyz);
+    uint primary = orderableKey(metric);
+    if (uBackToFront != 0) {
+        primary = ~primary;
+    }
+    uint tie = uStableTies != 0 ? position : 0u;
+    sortKeys[position] = uvec2(primary, tie);
+    sortedIndices[position] = index;
+}

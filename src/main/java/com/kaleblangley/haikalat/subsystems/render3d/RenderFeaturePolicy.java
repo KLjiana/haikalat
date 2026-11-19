@@ -1,5 +1,14 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.postprocess.AdaptiveSamplingSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsgiSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.SsrSettings;
+import com.kaleblangley.haikalat.subsystems.postprocess.vrs.VariableRateShadingSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.ddgi.DdgiSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
+import com.kaleblangley.haikalat.subsystems.render3d.vct.VctSettings;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -10,13 +19,114 @@ import java.util.Objects;
  * <p>Inputs are only configuration values and immutable scene facts; no GL
  * resource is touched and no topology is allocated here.  Illegal combinations
  * fail the whole request before candidate preparation.</p>
+ *
+ * <p>The three advanced post-process features (SSGI, adaptive sampling and
+ * variable rate shading) are not duplicated in {@link RenderFeatureSettings}:
+ * their request lives in {@link PostProcessSettings} and this policy resolves
+ * the effective participation plus a human-readable reason.  A requested
+ * feature whose static consumer or capability is missing is reported as
+ * {@link RenderFeatureReason#UNAVAILABLE} and removed from
+ * {@link Resolved#effectivePostProcess()}, so the candidate generation can be
+ * built as the safe baseline instead of failing the whole request.  A
+ * configuration conflict (SSGI with temporal upscaling, or an adaptive
+ * ceiling above the SSR hard bound) still fails the request.</p>
  */
 final class RenderFeaturePolicy {
     /** Current scene and external-resource facts used to resolve a request. */
     record Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
                  boolean spotCaster, boolean pbrEnvironmentAvailable,
                  boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
-                 boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
+                 boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+                 boolean directionalLightDownward, boolean weightedOitSetDeclared,
+                 boolean transparentSetsOverlap, boolean directionalLightPresent,
+                 boolean variableRateShadingAvailable,
+                 boolean temporalUpscalingSourceAvailable,
+                 boolean projectedDecalSourcePresent,
+                 boolean singleSampleDepthAvailable) {
+        /** Source-compatible shape used by pre-decal callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent,
+              boolean variableRateShadingAvailable,
+              boolean temporalUpscalingSourceAvailable) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    variableRateShadingAvailable, temporalUpscalingSourceAvailable,
+                    false, false);
+        }
+
+        /** Source-compatible shape used by pre-#35 callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent,
+              boolean variableRateShadingAvailable) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    variableRateShadingAvailable, false);
+        }
+
+        /** Source-compatible shape used by pre-S3-single callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false, false, false);
+        }
+
+        /** Source-compatible shape used by the S3 composition callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, false, false);
+        }
+
+        /**
+         * Source-compatible shape used by the direct-light (b3) callers/tests.
+         * The tenth boolean is {@code directionalLightPresent}; the VRS
+         * capability fact defaults to unavailable.
+         */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightPresent) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, false, false, false,
+                    directionalLightPresent, false);
+        }
+
+        /** Source-compatible shape used by the pre-VRS (HEAD canonical) callers/tests. */
+        Facts(boolean pbrMaterials, boolean directionalCaster, boolean pointCaster,
+              boolean spotCaster, boolean pbrEnvironmentAvailable,
+              boolean hdrVfxRecorderPresent, boolean hdrVfxFogAware,
+              boolean hdrVfxFogOptOut, boolean previewSourceSelected,
+              boolean directionalLightDownward, boolean weightedOitSetDeclared,
+              boolean transparentSetsOverlap, boolean directionalLightPresent) {
+            this(pbrMaterials, directionalCaster, pointCaster, spotCaster,
+                    pbrEnvironmentAvailable, hdrVfxRecorderPresent, hdrVfxFogAware,
+                    hdrVfxFogOptOut, previewSourceSelected, directionalLightDownward,
+                    weightedOitSetDeclared, transparentSetsOverlap, directionalLightPresent,
+                    false);
+        }
     }
 
     /** Effective switches and their observed participation. */
@@ -26,8 +136,21 @@ final class RenderFeaturePolicy {
                     boolean volumetricFog, boolean sky, boolean bloom, boolean autoExposure,
                     boolean analyticFog, boolean antiAliasing, boolean toneMapping,
                     boolean colorGrading, boolean hdrVfx, boolean preview,
+                    boolean waterSurface, boolean volumetricParticles,
+                    boolean stochasticTransparency,
+                    boolean volumetricClouds, boolean volumetricSmoke,
+                    boolean weightedOit,
+                    boolean planarReflections, boolean caustics,
+                    boolean ddgi, boolean vct, boolean hairStrands,
+                    boolean waterRefraction,
+                    boolean ssgi,
+                    boolean adaptiveSampling, boolean variableRateShading,
+                    boolean temporalUpscaling,
+                    boolean projectedDecals,
+                    PostProcessSettings effectivePostProcess,
                     List<RenderFeatureActivity> activities) {
         Resolved {
+            Objects.requireNonNull(effectivePostProcess, "effectivePostProcess");
             activities = List.copyOf(activities);
         }
     }
@@ -62,6 +185,116 @@ final class RenderFeaturePolicy {
         boolean colorGrading = settings.postProcess().colorGrading().enabled();
         boolean hdrVfx = settings.hdrVfx() && facts.hdrVfxRecorderPresent();
         boolean preview = settings.preview() && facts.previewSourceSelected();
+        boolean waterSurface = settings.waterSurface().active();
+        boolean waterRefractionEligible = settings.waterRefraction().active() && waterSurface;
+        boolean particlesEligible = PipelineTopology.volumetricParticleCompositionActive(
+                settings.render(), settings.volumetricFog(), settings.volumetricParticles());
+        boolean stochasticEligible = PipelineTopology.stochasticTransparencyCompositionActive(
+                settings.render(), settings.stochasticTransparency());
+        boolean weightedOitEligible = PipelineTopology.weightedOitCompositionActive(
+                settings.render(), settings.weightedOit(), facts.weightedOitSetDeclared());
+        boolean planarEligible = PipelineTopology.planarReflectionCompositionActive(
+                settings.render(), settings.planarReflections());
+        boolean causticsEligible = PipelineTopology.causticsCompositionActive(
+                settings.render(), settings.waterSurface(), settings.caustics(),
+                facts.directionalLightDownward());
+        boolean cloudsEligible = PipelineTopology.volumetricCloudCompositionActive(
+                settings.render(), settings.volumetricClouds(), cloudShadowsActive(settings, facts),
+                settings.directionalShadowMap().settings().cloudShadows());
+        boolean smokeEligible = PipelineTopology.volumetricSmokeCompositionActive(
+                settings.render(), settings.smokeSimulation(), settings.smokeRender());
+        boolean ddgiEligible = PipelineTopology.ddgiCompositionActive(settings.render(),
+                settings.ddgi(), facts.directionalLightPresent());
+        boolean vctEligible = PipelineTopology.vctCompositionActive(settings.render(),
+                settings.vct());
+        boolean hairEligible = PipelineTopology.hairStrandCompositionActive(settings.render(),
+                settings.hairStrands(), facts.directionalLightPresent());
+        boolean volumetricParticles = particlesEligible;
+        boolean stochasticTransparency = stochasticEligible;
+        boolean ddgi = ddgiEligible;
+        boolean vct = vctEligible;
+        boolean hairStrands = hairEligible;
+        RenderFeatureReason particleReason = !settings.volumetricParticles().active()
+                ? RenderFeatureReason.DISABLED
+                : !particlesEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason stochasticReason = !settings.stochasticTransparency().active()
+                ? RenderFeatureReason.DISABLED
+                : !stochasticEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason cloudReason = !settings.volumetricClouds().active()
+                ? RenderFeatureReason.DISABLED
+                : !cloudsEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason smokeReason = !settings.smokeRender().active()
+                ? RenderFeatureReason.DISABLED
+                : !smokeEligible ? RenderFeatureReason.UNAVAILABLE
+                : RenderFeatureReason.DISABLED;
+        RenderFeatureReason ddgiReason = ddgiReason(settings.ddgi(), settings.render(),
+                facts.directionalLightPresent(), ddgiEligible);
+        RenderFeatureReason vctReason = vctReason(settings.vct(), settings.render(), vctEligible);
+        RenderFeatureReason hairReason = hairReason(settings.hairStrands(), settings.render(),
+                facts.directionalLightPresent(), hairEligible);
+
+        PostProcessSettings requestedEffects = settings.postProcess();
+        boolean hdr = settings.render().hdrEnabled();
+        SsgiSettings ssgiRequest = requestedEffects.ssgi();
+        AdaptiveSamplingSettings adaptiveRequest = requestedEffects.adaptiveSampling();
+        VariableRateShadingSettings vrsRequest = requestedEffects.variableRateShading();
+        boolean temporalUpscalingActive = requestedEffects.temporalUpscaling().active();
+        boolean ssrActive = requestedEffects.ssr().active();
+        boolean subsurfaceActive = requestedEffects.subsurfaceScattering().screenSpaceActive();
+        boolean ssgiEligible = ssgiRequest.active() && hdr && facts.pbrMaterials()
+                && !temporalUpscalingActive;
+        boolean adaptiveEligible = adaptiveRequest.active() && ssrActive && hdr
+                && adaptiveRequest.maximumSteps() <= requestedEffects.ssr().maxSteps();
+        // The NV path is a fallback decision, not a configuration failure: the
+        // request stays in the effective snapshot so PostProcessPipeline can
+        // report "fallback:" and allocate no VRS resource.
+        boolean vrsEligible = vrsRequest.active() && hdr && subsurfaceActive;
+        boolean vrsActive = vrsEligible && facts.variableRateShadingAvailable();
+        boolean ssgi = master && ssgiEligible;
+        boolean adaptiveSampling = master && adaptiveEligible;
+        boolean variableRateShading = master && vrsActive;
+        boolean temporalUpscalingEligible = temporalUpscalingActive
+                && facts.temporalUpscalingSourceAvailable();
+        boolean temporalUpscaling = master && temporalUpscalingEligible;
+        boolean waterRefraction = master && waterRefractionEligible;
+        boolean projectedDecalRequest = settings.projectedDecals().active();
+        boolean projectedDecalEligible = PipelineTopology.projectedDecalCompositionActive(
+                settings.render(), settings.projectedDecals(),
+                facts.projectedDecalSourcePresent(), facts.singleSampleDepthAvailable());
+        boolean projectedDecals = master && projectedDecalEligible;
+        String projectedDecalDetail = projectedDecalRequest
+                ? projectedDecalUnavailableDetail(facts.projectedDecalSourcePresent(),
+                facts.singleSampleDepthAvailable(), hdr) : "";
+
+        PostProcessSettings effectiveEffects = requestedEffects;
+        if (master) {
+            if (ssgiRequest.active() && !ssgiEligible) {
+                effectiveEffects = effectiveEffects.withSsgi(ssgiRequest.withEnabled(false));
+            }
+            if (adaptiveRequest.active() && !adaptiveEligible) {
+                effectiveEffects = effectiveEffects.withAdaptiveSampling(
+                        adaptiveRequest.withEnabled(false));
+            }
+            if (vrsRequest.active() && !vrsEligible) {
+                effectiveEffects = effectiveEffects.withVariableRateShading(
+                        vrsRequest.withEnabled(false));
+            }
+            if (temporalUpscalingActive && !temporalUpscalingEligible) {
+                effectiveEffects = effectiveEffects.withTemporalUpscaling(
+                        requestedEffects.temporalUpscaling().withEnabled(false));
+            }
+        }
+
+        String ssgiDetail = ssgiRequest.active()
+                ? ssgiUnavailableDetail(hdr, facts.pbrMaterials()) : "";
+        String adaptiveDetail = adaptiveRequest.active()
+                ? adaptiveUnavailableDetail(ssrActive, hdr) : "";
+        String vrsDetail = vrsRequest.active()
+                ? vrsUnavailableDetail(hdr, subsurfaceActive,
+                facts.variableRateShadingAvailable()) : "";
 
         List<RenderFeatureActivity> activities = new ArrayList<>();
         activities.add(activity(RenderFeature.MASTER, master,
@@ -97,6 +330,39 @@ final class RenderFeaturePolicy {
         activities.add(child(RenderFeature.PREVIEW, master, preview,
                 facts.previewSourceSelected()
                         ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE));
+        activities.add(child(RenderFeature.WATER_SURFACE, master, waterSurface,
+                RenderFeatureReason.DISABLED));
+        activities.add(child(RenderFeature.WATER_REFRACTION, master, waterRefraction,
+                RenderFeatureReason.DISABLED));
+        activities.add(unavailableActivity(RenderFeature.PROJECTED_DECALS, master,
+                projectedDecals, projectedDecalRequest, projectedDecalDetail));
+        activities.add(child(RenderFeature.VOLUMETRIC_PARTICLES, master, volumetricParticles,
+                particleReason));
+        activities.add(child(RenderFeature.STOCHASTIC_TRANSPARENCY, master,
+                stochasticTransparency, stochasticReason));
+        activities.add(child(RenderFeature.VOLUMETRIC_CLOUDS, master, cloudsEligible,
+                cloudReason));
+        activities.add(child(RenderFeature.VOLUMETRIC_SMOKE, master, smokeEligible,
+                smokeReason));
+        activities.add(child(RenderFeature.WEIGHTED_OIT, master, weightedOitEligible,
+                oitReason(settings, facts)));
+        activities.add(child(RenderFeature.PLANAR_REFLECTIONS, master, planarEligible,
+                planarReason(settings)));
+        activities.add(child(RenderFeature.CAUSTICS, master, causticsEligible,
+                causticsReason(settings, facts)));
+        activities.add(child(RenderFeature.DDGI, master, ddgi, ddgiReason));
+        activities.add(child(RenderFeature.VOXEL_CONE_TRACING, master, vct, vctReason));
+        activities.add(child(RenderFeature.HAIR_STRANDS, master, hairStrands, hairReason));
+        activities.add(unavailableActivity(RenderFeature.SSGI, master, ssgi, ssgiRequest.active(),
+                ssgiDetail));
+        activities.add(unavailableActivity(RenderFeature.ADAPTIVE_SAMPLING, master,
+                adaptiveSampling, adaptiveRequest.active(), adaptiveDetail));
+        activities.add(unavailableActivity(RenderFeature.VARIABLE_RATE_SHADING, master,
+                variableRateShading, vrsRequest.active(), vrsDetail));
+        activities.add(unavailableActivity(RenderFeature.TEMPORAL_UPSCALING, master,
+                temporalUpscaling, temporalUpscalingActive,
+                temporalUpscalingUnavailableDetail(
+                        facts.temporalUpscalingSourceAvailable())));
         return new Resolved(master, effective(master, direct),
                 effective(master, ibl), effective(master, directionalShadows),
                 effective(master, pointShadows), effective(master, spotShadows),
@@ -105,7 +371,27 @@ final class RenderFeaturePolicy {
                 effective(master, analyticFog), effective(master, antiAliasing),
                 effective(master, toneMapping), effective(master, colorGrading),
                 effective(master, hdrVfx), effective(master, preview),
+                effective(master, waterSurface), effective(master, volumetricParticles),
+                effective(master, stochasticTransparency), effective(master, cloudsEligible),
+                effective(master, smokeEligible),
+                effective(master, weightedOitEligible),
+                effective(master, planarEligible), effective(master, causticsEligible),
+                effective(master, ddgi),
+                effective(master, vct), effective(master, hairStrands),
+                effective(master, waterRefractionEligible),
+                ssgi, adaptiveSampling, variableRateShading, temporalUpscaling,
+                projectedDecals,
+                effectiveEffects,
                 List.copyOf(activities));
+    }
+
+    /**
+     * The #10 cloud shadow is one authored field. While it is enabled on the
+     * selected directional caster, the visible layer must use the same value
+     * instead of silently creating a second cloud field.
+     */
+    private static boolean cloudShadowsActive(RenderFeatureSettings settings, Facts facts) {
+        return settings.directionalShadows() && facts.directionalCaster();
     }
 
     private static boolean effective(boolean master, boolean requested) {
@@ -140,6 +426,30 @@ final class RenderFeaturePolicy {
         return new RenderFeatureActivity(feature, active, reason);
     }
 
+    private static RenderFeatureActivity activity(RenderFeature feature, boolean active,
+                                                  RenderFeatureReason reason, String detail) {
+        return new RenderFeatureActivity(feature, active, reason, detail);
+    }
+
+    /**
+     * Post-process features stay requested in the master snapshot; only their
+     * effective participation is downgraded.  A paused pipeline therefore keeps
+     * the complete request for the resume path.
+     */
+    private static RenderFeatureActivity unavailableActivity(RenderFeature feature, boolean master,
+                                                             boolean active, boolean requested,
+                                                             String detail) {
+        if (!master) {
+            return activity(feature, false, RenderFeatureReason.PAUSED_BY_MASTER);
+        }
+        if (!requested) {
+            return activity(feature, false, RenderFeatureReason.DISABLED);
+        }
+        return active
+                ? activity(feature, true, RenderFeatureReason.ACTIVE)
+                : activity(feature, false, RenderFeatureReason.UNAVAILABLE, detail);
+    }
+
     private static RenderFeatureReason iblReason(RenderFeatureSettings settings, Facts facts) {
         if (!settings.imageBasedLighting()) return RenderFeatureReason.DISABLED;
         if (!facts.pbrMaterials()) return RenderFeatureReason.NO_PBR_MATERIAL;
@@ -147,7 +457,167 @@ final class RenderFeaturePolicy {
         return RenderFeatureReason.DISABLED;
     }
 
+    private static RenderFeatureReason oitReason(RenderFeatureSettings settings, Facts facts) {
+        if (!settings.weightedOit().active()) return RenderFeatureReason.DISABLED;
+        com.kaleblangley.haikalat.core.AntiAliasingMode aa =
+                settings.render().antiAliasingMode();
+        if (!settings.render().hdrEnabled()
+                || aa == com.kaleblangley.haikalat.core.AntiAliasingMode.MSAA
+                || aa == com.kaleblangley.haikalat.core.AntiAliasingMode.TAA) {
+            return RenderFeatureReason.UNAVAILABLE;
+        }
+        if (!facts.weightedOitSetDeclared()) return RenderFeatureReason.NO_TRANSPARENT_SET;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason planarReason(RenderFeatureSettings settings) {
+        if (!settings.planarReflections().active()) return RenderFeatureReason.DISABLED;
+        if (!settings.planarReflections().hasPlane()) return RenderFeatureReason.NO_PLANE;
+        if (!settings.render().hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason causticsReason(RenderFeatureSettings settings,
+                                                      Facts facts) {
+        if (!settings.caustics().active()) return RenderFeatureReason.DISABLED;
+        if (!settings.waterSurface().active()) return RenderFeatureReason.NO_WATER;
+        if (!settings.render().hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (settings.render().antiAliasingMode()
+                == com.kaleblangley.haikalat.core.AntiAliasingMode.MSAA) {
+            return RenderFeatureReason.UNAVAILABLE;
+        }
+        if (!facts.directionalLightDownward()) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
+        return RenderFeatureReason.DISABLED;
+    }
+
+    private static RenderFeatureReason ddgiReason(DdgiSettings ddgi,
+                                                  com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                  boolean directionalLightPresent,
+                                                  boolean eligible) {
+        if (!ddgi.active()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (!directionalLightPresent) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
+    }
+
+    private static RenderFeatureReason vctReason(VctSettings vct,
+                                                 com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                 boolean eligible) {
+        if (!vct.enabled()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
+    }
+
+    private static RenderFeatureReason hairReason(HairStrandSettings hair,
+                                                  com.kaleblangley.haikalat.runtime.RenderSettings render,
+                                                  boolean directionalLightPresent,
+                                                  boolean eligible) {
+        if (!hair.active()) return RenderFeatureReason.DISABLED;
+        if (!render.hdrEnabled()) return RenderFeatureReason.UNAVAILABLE;
+        if (!directionalLightPresent) return RenderFeatureReason.NO_ELIGIBLE_LIGHT;
+        return eligible ? RenderFeatureReason.DISABLED : RenderFeatureReason.UNAVAILABLE;
+    }
+
+    private static String ssgiUnavailableDetail(boolean hdr, boolean pbrMaterials) {
+        if (!hdr) return "requires HDR tone mapping";
+        if (!pbrMaterials) {
+            return "requires at least one metallic-roughness PBR material with ALBEDO/ROUGHNESS";
+        }
+        return "";
+    }
+
+    private static String adaptiveUnavailableDetail(boolean ssrActive, boolean hdr) {
+        if (!ssrActive) return "requires an active screen-space reflection sampler";
+        if (!hdr) return "requires HDR tone mapping";
+        return "";
+    }
+
+    private static String vrsUnavailableDetail(boolean hdr, boolean subsurfaceActive,
+                                               boolean capabilityAvailable) {
+        if (!hdr) return "requires HDR tone mapping";
+        if (!subsurfaceActive) {
+            return "requires the declared screen-space subsurface scattering consumer";
+        }
+        if (!capabilityAvailable) {
+            return "NV_shading_rate_image unavailable; fallback to a full-rate "
+                    + "subsurface scattering consumer";
+        }
+        return "";
+    }
+
+    private static String temporalUpscalingUnavailableDetail(boolean sourceAvailable) {
+        if (!sourceAvailable) {
+            return "requires a low-resolution colour/depth source (TemporalUpscalingSource)";
+        }
+        return "";
+    }
+
+    private static String projectedDecalUnavailableDetail(boolean sourcePresent,
+                                                          boolean depthAvailable,
+                                                          boolean hdr) {
+        if (!sourcePresent) {
+            return "requires a registered projected-decal renderer/source";
+        }
+        if (!depthAvailable) {
+            return "requires a single-sample scene depth";
+        }
+        if (!hdr) {
+            return "requires HDR tone mapping";
+        }
+        return "";
+    }
+
+    /**
+     * Rejects every requested composition that assumes full-resolution scene
+     * data while the advanced {@code renderScale} is below one.  At scale one
+     * this method returns immediately and the rest of {@link #validate} keeps
+     * today's behaviour exactly.
+     */
+    private static void validateRenderScale(RenderFeatureSettings settings, Facts facts) {
+        com.kaleblangley.haikalat.runtime.RenderSettings render = settings.render();
+        RenderScalePolicy.rejectSettingsCompositions(render, settings.postProcess());
+        float scale = render.renderScale();
+        // Dependent compositions are checked before their prerequisite so the
+        // reason names the request that needs the full-resolution scene data.
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_REFRACTION,
+                settings.waterRefraction().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CAUSTICS,
+                settings.caustics().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WATER_SURFACE,
+                settings.waterSurface().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.CONTACT_SHADOWS,
+                settings.directionalShadowMap().settings().contactShadows().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PLANAR_REFLECTIONS,
+                settings.planarReflections().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.DDGI,
+                settings.ddgi().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOXEL_CONE_TRACING,
+                settings.vct().enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.HAIR_STRANDS,
+                settings.hairStrands().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_CLOUDS,
+                settings.volumetricClouds().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_SMOKE,
+                settings.smokeSimulation().active() || settings.smokeRender().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_PARTICLES,
+                settings.volumetricParticles().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.VOLUMETRIC_FOG,
+                settings.volumetricFog().enabled());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.WEIGHTED_OIT,
+                settings.weightedOit().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.STOCHASTIC_TRANSPARENCY,
+                settings.stochasticTransparency().active());
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.PROJECTED_DECALS,
+                settings.projectedDecals().active());
+        // A caller-supplied low-resolution source owns its own scene raster;
+        // combining it with a pipeline-level reduced scene extent would create
+        // two disagreeing low-resolution owners.
+        RenderScalePolicy.reject(scale, RenderScalePolicy.Feature.TEMPORAL_UPSCALING_SOURCE,
+                facts.temporalUpscalingSourceAvailable());
+    }
+
     private static void validate(RenderFeatureSettings settings, Facts facts) {
+        validateRenderScale(settings, facts);
         boolean hdr = settings.render().hdrEnabled();
         if (!hdr && (settings.postProcess().colorGrading().enabled()
                 || settings.postProcess().fog().enabled()
@@ -171,15 +641,156 @@ final class RenderFeaturePolicy {
             throw new IllegalArgumentException(
                     "GTAO requires at least one metallic-roughness PBR material");
         }
+        if (settings.postProcess().ssr().active()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require HDR tone mapping");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require at least one metallic-roughness PBR material");
+            }
+            if (!settings.imageBasedLighting()) {
+                throw new IllegalArgumentException(
+                        "screen-space reflections require image-based lighting for the fallback contract");
+            }
+        }
+        SsgiSettings ssgi = settings.postProcess().ssgi();
+        if (ssgi.active() && settings.postProcess().temporalUpscaling().active()) {
+            throw new IllegalArgumentException(
+                    "screen-space indirect diffuse cannot compose with temporal upscaling; "
+                            + "disable one of them");
+        }
+        AdaptiveSamplingSettings adaptive = settings.postProcess().adaptiveSampling();
+        SsrSettings ssr = settings.postProcess().ssr();
+        if (adaptive.active() && ssr.active() && adaptive.maximumSteps() > ssr.maxSteps()) {
+            throw new IllegalArgumentException(
+                    "adaptive sampling maximumSteps must not exceed the screen-space "
+                            + "reflection maxSteps");
+        }
+        if (settings.directionalShadowMap().settings().contactShadows().active()) {
+            if (!settings.directionalShadows() || !facts.directionalCaster()) {
+                throw new IllegalArgumentException(
+                        "contact shadows require an enabled directional shadow caster");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "contact shadows require at least one metallic-roughness PBR material");
+            }
+        }
+        if (settings.directionalShadowMap().settings().cloudShadows().active()) {
+            if (!settings.directionalShadows() || !facts.directionalCaster()) {
+                throw new IllegalArgumentException(
+                        "cloud shadows require an enabled directional shadow caster");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "cloud shadows require at least one metallic-roughness PBR material");
+            }
+        }
+        if (settings.directionalShadowMap().settings().pcss().active()) {
+            if (!settings.directionalShadows() || !facts.directionalCaster()) {
+                throw new IllegalArgumentException(
+                        "PCSS requires an enabled directional shadow caster");
+            }
+            if (!facts.pbrMaterials()) {
+                throw new IllegalArgumentException(
+                        "PCSS requires at least one metallic-roughness PBR material");
+            }
+        }
         if (settings.volumetricFog().enabled() && settings.postProcess().fog().enabled()) {
             throw new IllegalArgumentException(
                     "volumetric fog replaces analytic fog; disable the other fog path");
+        }
+        if (settings.waterSurface().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "water surface requires HDR tone mapping for linear absorption composition");
+        }
+        if (settings.waterSurface().active() && settings.volumetricFog().enabled()) {
+            throw new IllegalArgumentException(
+                    "water surface does not compose with volumetric fog in this version");
+        }
+        if (settings.waterRefraction().active()) {
+            if (!settings.waterSurface().active()) {
+                throw new IllegalArgumentException(
+                        "water refraction requires an active finite water surface");
+            }
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "water refraction requires HDR tone mapping");
+            }
         }
         if (settings.volumetricFog().enabled() && settings.hdrVfx()
                 && facts.hdrVfxRecorderPresent() && !facts.hdrVfxFogAware()
                 && !facts.hdrVfxFogOptOut()) {
             throw new IllegalArgumentException(
                     "custom HDR VFX must use hdrVfxWithFog or explicitly opt out of fog");
+        }
+        if (settings.volumetricParticles().active() && settings.volumetricFog().enabled()) {
+            // The particle pass consumes the fog-composited colour; declaring the same
+            // body as a positive LocalFogVolume would composite that medium twice.
+            settings.volumetricParticles().validateFogComposition(settings.volumetricFog());
+        }
+        if (settings.stochasticTransparency().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "stochastic transparency requires HDR tone mapping for linear compositing");
+        }
+        if (settings.weightedOit().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "weighted OIT requires HDR tone mapping for linear compositing");
+        }
+        if (settings.planarReflections().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "planar reflections require HDR tone mapping");
+        }
+        if (settings.caustics().active()) {
+            if (!settings.waterSurface().active()) {
+                throw new IllegalArgumentException(
+                        "caustics require an active finite water surface");
+            }
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "caustics require HDR tone mapping for additive linear composition");
+            }
+        }
+        if (settings.weightedOit().active() && settings.stochasticTransparency().active()
+                && facts.transparentSetsOverlap()) {
+            throw new IllegalArgumentException(
+                    "weighted OIT and stochastic transparency claim the same transparent "
+                            + "surface set; disable one strategy for that set");
+        }
+        if (settings.ddgi().active() && settings.vct().enabled()) {
+            // Both techniques are independent indirect-light owners; running them
+            // together would pay twice and double-count the same diffuse energy.
+            throw new IllegalArgumentException(
+                    "DDGI and voxel cone tracing are mutually exclusive in this version; "
+                            + "select one indirect-light technique");
+        }
+        if (settings.ddgi().active()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "DDGI requires HDR tone mapping for linear indirect compositing");
+            }
+            if (settings.postProcess().ssgi().active()) {
+                throw new IllegalArgumentException(
+                        "DDGI and screen-space indirect diffuse both produce indirect light; "
+                                + "disable one to avoid double counting");
+            }
+        }
+        if (settings.vct().enabled()) {
+            if (!hdr) {
+                throw new IllegalArgumentException(
+                        "voxel cone tracing requires HDR tone mapping for linear compositing");
+            }
+            if (settings.postProcess().ssgi().active()) {
+                throw new IllegalArgumentException(
+                        "voxel cone tracing and screen-space indirect diffuse both produce "
+                                + "indirect light; disable one to avoid double counting");
+            }
+        }
+        if (settings.hairStrands().active() && !hdr) {
+            throw new IllegalArgumentException(
+                    "hair strands require HDR tone mapping for linear strand compositing");
         }
     }
 }

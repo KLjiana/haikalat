@@ -38,29 +38,48 @@ final class VfxTextureCache implements AutoCloseable {
         return textures.computeIfAbsent(key, this::load);
     }
 
+    /** Resolves a projected-decal colour texture through the shared bounded cache. */
+    Texture2D get(AssetRef texture) {
+        ensureOpen();
+        Objects.requireNonNull(texture, "texture");
+        return textures.computeIfAbsent(new Key(texture, VfxMaskMode.RGBA_COLOR), this::load);
+    }
+
+    Preparation prepare(Collection<VfxMaterial> materials) {
+        return prepare(materials, List.of());
+    }
+
     /**
-     * Loads every missing texture referenced by the supplied materials before a
-     * frame publishes them.
+     * Loads every missing texture referenced by the supplied materials and
+     * projected decals before a frame publishes them.
      *
      * <p>Failures close only the candidate textures loaded by this call and leave
      * the previous cache contents usable.  After a successful commit, least
      * recently used entries that are not referenced by this candidate are
      * evicted and closed, so repeated author resource switching stays bounded.</p>
      */
-    Preparation prepare(Collection<VfxMaterial> materials) {
+    Preparation prepare(Collection<VfxMaterial> materials,
+                        Collection<ProjectedDecal> projectedDecals) {
         ensureOpen();
         Objects.requireNonNull(materials, "materials");
+        Objects.requireNonNull(projectedDecals, "projectedDecals");
         Set<Key> retained = new HashSet<>();
-        List<VfxMaterial> unique = new ArrayList<>(materials.size());
+        List<Key> unique = new ArrayList<>(materials.size() + projectedDecals.size());
         for (VfxMaterial material : materials) {
             Objects.requireNonNull(material, "material");
-            unique.add(material);
-            retained.add(new Key(material.texture().orElse(null), material.maskMode()));
+            Key key = new Key(material.texture().orElse(null), material.maskMode());
+            unique.add(key);
+            retained.add(key);
+        }
+        for (ProjectedDecal decal : projectedDecals) {
+            Objects.requireNonNull(decal, "decal");
+            Key key = new Key(decal.texture(), VfxMaskMode.RGBA_COLOR);
+            unique.add(key);
+            retained.add(key);
         }
         Map<Key, Texture2D> staged = new LinkedHashMap<>();
         try {
-            for (VfxMaterial material : unique) {
-                Key key = new Key(material.texture().orElse(null), material.maskMode());
+            for (Key key : unique) {
                 if (!textures.containsKey(key) && !staged.containsKey(key)) {
                     staged.put(key, load(key));
                 }

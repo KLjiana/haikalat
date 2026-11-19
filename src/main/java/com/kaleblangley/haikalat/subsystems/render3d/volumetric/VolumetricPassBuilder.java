@@ -172,6 +172,7 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         if (closed || colorSamples != topology.sampleCount() || colorVfx != topology.hdrVfx()) return false;
         for (var renderer : scene.renderers()) {
             var material = renderer.material().material();
+            if (material.refraction().active()) continue;
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
                     && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) return false;
         }
@@ -205,14 +206,38 @@ public final class VolumetricPassBuilder implements AutoCloseable {
                 .execute((res, cmd) -> recordIntegrate(cmd));
     }
 
-    public void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
-                        RenderGraph.PassExecutor transparentExecutor) {
+    /**
+     * Declares the froxel guide and the opaque fog colour composite. Callers that
+     * insert a colour producer between the fog composite and the transparency
+     * replay call this, then {@link #addTransparentPass} with that producer;
+     * {@link #addColorPasses} remains the direct composite-to-transparency form.
+     */
+    public void addColorPrePasses(RenderGraph graph, Scene scene, PipelineTopology topology,
+                                  VolumetricSurfaceInputs surfaceInputs) {
+        addColorPrePasses(graph, scene, topology, surfaceInputs,
+                PostProcessTargets.GEOMETRY_PASS);
+    }
+
+    /**
+     * Declares the froxel guide and the opaque fog colour composite against an
+     * explicit scene-colour producer. A projected-decal batch between the
+     * opaque geometry pass and the fog composite changes the producer so fog
+     * attenuates the decal instead of the pre-decal geometry frame.
+     *
+     * @param colorSourcePass pass whose colour attachment holds the opaque
+     *                        scene colour the composite integrates over
+     */
+    public void addColorPrePasses(RenderGraph graph, Scene scene, PipelineTopology topology,
+                                  VolumetricSurfaceInputs surfaceInputs,
+                                  String colorSourcePass) {
+        java.util.Objects.requireNonNull(colorSourcePass, "colorSourcePass");
         if (surfaceInputs.surface().graph() != graph || colorSamples != topology.sampleCount()
                 || colorVfx != topology.hdrVfx()) {
             throw new IllegalArgumentException("incompatible fog surface/color inputs");
         }
         for (MeshRenderer renderer : scene.renderers()) {
             var material=renderer.material().material();
+            if (material.refraction().active()) continue;
             if (material.blendMode() != com.kaleblangley.haikalat.core.BlendMode.OPAQUE
                     && !material.volumetricFogOptOut() && !transparentVariants.containsKey(material.shader())) {
                 if (composite != null) throw new IllegalArgumentException("reused fog owner cannot compile new material variants during candidate assembly");
@@ -246,6 +271,27 @@ public final class VolumetricPassBuilder implements AutoCloseable {
                             +resource("volume-reactive.glsl")+"\n"+resource("volume-noise.glsl")+"\n"
                             +resource("volume-native-reactive.glsl")+"\n"+resource("reactive.frag"));
         }
+        RenderGraph.PassBuilder pass=graph.addPass(COMPOSITE_PASS);
+        if (ms) pass.createColorsMS(java.util.List.of(COMPOSITE_COLOR),java.util.List.of(RenderFormat.RGBA16F),topology.sampleCount());
+        else pass.createColors(java.util.List.of(COMPOSITE_COLOR,OPAQUE_REACTIVE),java.util.List.of(RenderFormat.RGBA16F,RenderFormat.R8));
+        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(colorSourcePass)
+                .dependsOn(surfaceInputs.rawDepth().producer())
+                .borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes","volume.lightHints",
+                        "volume.dirtyDomains","lighting.lightTable","lighting.clusterHeaders","lighting.clusterIndices","shadows.allocatedAtlases")
+                .execute((res, cmd) -> recordComposite(res, cmd, ms, surfaceInputs, colorSourcePass));
+    }
+
+    /**
+     * Declares the transparent replay against the colour storage produced by
+     * {@code colorSourcePass}. The default integration source is
+     * {@link #COMPOSITE_PASS}; a wired particle pass between the two changes it
+     * so the replay composites over the particle output.
+     */
+    public void addTransparentPass(RenderGraph graph, PipelineTopology topology,
+                                   VolumetricSurfaceInputs surfaceInputs,
+                                   RenderGraph.PassExecutor transparentExecutor,
+                                   String colorSourcePass) {
+        boolean ms=topology.sampleCount()>1;
         if (softParticleDepthName == null) softParticleDepthName=ms ? surfaceInputs.singleDepth().name() : "volume.softParticleDepth";
         if (topology.hdrVfx() && !ms) {
             if (softDepthCopy == null) {
@@ -259,16 +305,10 @@ public final class VolumetricPassBuilder implements AutoCloseable {
                             .bindTexture(0, surfaceInputs.singleDepth(res))
                             .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6));
         }
-        RenderGraph.PassBuilder pass=graph.addPass(COMPOSITE_PASS);
-        if (ms) pass.createColorsMS(java.util.List.of(COMPOSITE_COLOR),java.util.List.of(RenderFormat.RGBA16F),topology.sampleCount());
-        else pass.createColors(java.util.List.of(COMPOSITE_COLOR,OPAQUE_REACTIVE),java.util.List.of(RenderFormat.RGBA16F,RenderFormat.R8));
-        pass.noClear().dependsOn(SURFACE_GUIDE_PASS).dependsOn(PostProcessTargets.GEOMETRY_PASS)
-                .dependsOn(surfaceInputs.rawDepth().producer())
-                .borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes","volume.lightHints",
-                        "volume.dirtyDomains","lighting.lightTable","lighting.clusterHeaders","lighting.clusterIndices","shadows.allocatedAtlases")
-                .execute((res, cmd) -> recordComposite(res, cmd, ms, surfaceInputs));
         RenderGraph.PassBuilder transparent=graph.addPass(TRANSPARENT_PASS)
-                .shareColorTextures(java.util.List.of(SCENE_COLOR),java.util.List.of(RenderFormat.RGBA16F),COMPOSITE_PASS,topology.sampleCount())
+                .shareColorTextures(java.util.List.of(SCENE_COLOR),java.util.List.of(RenderFormat.RGBA16F),
+                        java.util.Objects.requireNonNull(colorSourcePass,"colorSourcePass"),
+                        topology.sampleCount())
                 .shareDepthTexture(surfaceInputs.rawDepth().name(), surfaceInputs.rawDepth().producer())
                 .dependsOn(surfaceInputs.rawDepth().producer())
                 .noClear().borrowsExternalStorage("volume.prefix","volume.filteredSource","volume.currentSource","volume.localVolumes",
@@ -276,6 +316,12 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         if (topology.hdrVfx()) transparent.dependsOn(ms
                 ? surfaceInputs.singleDepth().producer() : "VolumetricSoftDepthCopy");
         transparent.execute(transparentExecutor);
+    }
+
+    public void addColorPasses(RenderGraph graph, Scene scene, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
+                        RenderGraph.PassExecutor transparentExecutor) {
+        addColorPrePasses(graph, scene, topology, surfaceInputs);
+        addTransparentPass(graph, topology, surfaceInputs, transparentExecutor, COMPOSITE_PASS);
     }
     public void addReactivePass(RenderGraph graph, PipelineTopology topology, VolumetricSurfaceInputs surfaceInputs,
                          RenderGraph.PassExecutor executor) {
@@ -331,9 +377,14 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         } catch (IOException failure) { throw new IllegalStateException(failure); }
     }
 
-    private void recordComposite(PassResources inputs, CommandBuffer cmd, boolean ms, VolumetricSurfaceInputs surfaceInputs) {
-        var geometry=inputs.framebufferOfPass(PostProcessTargets.GEOMETRY_PASS);
-        var frame=requireFrame();
+    private void recordComposite(PassResources inputs, CommandBuffer cmd, boolean ms,
+                                 VolumetricSurfaceInputs surfaceInputs, String colorSourcePass) {
+        var colorSource = inputs.framebufferOfPass(colorSourcePass);
+        if (colorSource == null) {
+            throw new IllegalStateException(
+                    "fog composite requires the scene-colour producer " + colorSourcePass);
+        }
+        var frame = requireFrame();
         opaqueDepthTexture = surfaceInputs.singleDepth(inputs);
         int rasterDepth = surfaceInputs.rawDepth(inputs);
         cmd.bindShader(composite).enableBlend(false).enableDepthTest(false).depthMask(false)
@@ -343,8 +394,8 @@ public final class VolumetricPassBuilder implements AutoCloseable {
         cmd.setUniformInt(composite,"uVolumeDiagnosticsEnabled",0).setUniformInt(composite,"uFineOmittedLight",diagnosticOmittedLight)
                 .bindStorageBuffer(6,resources.volumes(),0,VolumetricResources.VOLUMES_BYTES)
                 .bindStorageBuffer(7,resources.diagnostics(),0,VolumetricResources.DIAGNOSTICS_BYTES);
-        if (ms) cmd.bindTextureMultisample(0,geometry.colorAttachment()).bindTextureMultisample(1, rasterDepth);
-        else cmd.bindTexture(0,geometry.colorAttachment()).bindTexture(1, rasterDepth);
+        if (ms) cmd.bindTextureMultisample(0,colorSource.colorAttachment()).bindTextureMultisample(1, rasterDepth);
+        else cmd.bindTexture(0,colorSource.colorAttachment()).bindTexture(1, rasterDepth);
         cmd.setUniformMat4(composite,"uFogRasterInverseProjection",rasterInverseProjection)
                 .setUniformMat4(composite,"uFogStableProjection",frame.camera().projection())
                 .bindVertexArray(compositeQuad.id()).drawArrays(GL_TRIANGLES,0,6)
@@ -382,7 +433,7 @@ public final class VolumetricPassBuilder implements AutoCloseable {
             for(int i=0;i<frame.forwardCount();i++) {
                 int entry=frame.forwardEntry(i); if(frame.castsOpaqueShadow(entry))continue;
                 var material=frame.renderer(entry).material().material();
-                if(material.volumetricFogOptOut() || transparentVariants.containsKey(material.shader())
+                if(material.refraction().active() || material.volumetricFogOptOut() || transparentVariants.containsKey(material.shader())
                         || added!=null && added.containsKey(material.shader()))continue;
                 if(added==null)added=new java.util.IdentityHashMap<>();
                 added.put(material.shader(),material.shader().withFragmentPrelude(VolumetricFogView.SHADER_CONTRACT,VolumetricFogView.fragmentPrelude()));

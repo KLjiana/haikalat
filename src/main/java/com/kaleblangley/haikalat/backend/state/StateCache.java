@@ -6,6 +6,7 @@ import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE_CUBE_MAP;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
+import static org.lwjgl.opengl.GL14.glBlendFuncSeparate;
 import static org.lwjgl.opengl.GL20.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.*;
@@ -13,10 +14,12 @@ import static org.lwjgl.opengl.GL33.glBindSampler;
 import static org.lwjgl.opengl.GL31.GL_MAX_UNIFORM_BUFFER_BINDINGS;
 import static org.lwjgl.opengl.GL31.GL_UNIFORM_BUFFER;
 import static org.lwjgl.opengl.GL31.glBindBufferRange;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL42.GL_MAX_IMAGE_UNITS;
 import static org.lwjgl.opengl.GL42.glBindImageTexture;
 import static org.lwjgl.opengl.GL43.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS;
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
+import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
 
 public final class StateCache implements PipelineStateSink {
     private int currentProgram;
@@ -41,6 +44,7 @@ public final class StateCache implements PipelineStateSink {
     private int[] imageFormats = new int[0];
     private int currentReadFramebuffer;
     private int currentDrawFramebuffer;
+    private int drawIndirectBuffer;
     private int viewportX;
     private int viewportY;
     private int viewportW;
@@ -50,6 +54,8 @@ public final class StateCache implements PipelineStateSink {
     private boolean blendCached;
     private int blendSrcRGB;
     private int blendDstRGB;
+    private int blendSrcAlpha;
+    private int blendDstAlpha;
     private boolean blendFuncCached;
     private boolean depthWriteEnabled;
     private boolean depthWriteCached;
@@ -225,6 +231,14 @@ public final class StateCache implements PipelineStateSink {
         }
     }
 
+    /** Binds the buffer consumed by the next {@code glDrawArraysIndirect}. */
+    public void bindDrawIndirectBuffer(int buffer) {
+        if (changeRequired(drawIndirectBuffer != buffer)) {
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer);
+            drawIndirectBuffer = buffer;
+        }
+    }
+
     public void bindImageTexture(int unit, int texture, int level, boolean layered,
                                  int layer, int access, int format) {
         ensureImageUnit(unit);
@@ -311,10 +325,30 @@ public final class StateCache implements PipelineStateSink {
      * @param dstRGB 目标因子
      */
     public void blendFunc(int srcRGB, int dstRGB) {
-        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB)) {
+        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB
+                || srcRGB != blendSrcAlpha || dstRGB != blendDstAlpha)) {
             glBlendFunc(srcRGB, dstRGB);
             blendSrcRGB = srcRGB;
             blendDstRGB = dstRGB;
+            blendSrcAlpha = srcRGB;
+            blendDstAlpha = dstRGB;
+            blendFuncCached = true;
+        }
+    }
+
+    /**
+     * Applies independent RGB and alpha blend factors and caches all four
+     * values; a later {@link #blendFunc(int, int)} resets the alpha factors as
+     * {@code glBlendFunc} does.
+     */
+    public void blendFuncSeparate(int srcRGB, int dstRGB, int srcAlpha, int dstAlpha) {
+        if (changeRequired(!blendFuncCached || srcRGB != blendSrcRGB || dstRGB != blendDstRGB
+                || srcAlpha != blendSrcAlpha || dstAlpha != blendDstAlpha)) {
+            glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            blendSrcRGB = srcRGB;
+            blendDstRGB = dstRGB;
+            blendSrcAlpha = srcAlpha;
+            blendDstAlpha = dstAlpha;
             blendFuncCached = true;
         }
     }
@@ -483,6 +517,7 @@ public final class StateCache implements PipelineStateSink {
         Arrays.fill(imageFormats, -1);
         currentReadFramebuffer = -1;
         currentDrawFramebuffer = -1;
+        drawIndirectBuffer = -1;
         viewportSet = false;
         blendCached = false;
         blendFuncCached = false;

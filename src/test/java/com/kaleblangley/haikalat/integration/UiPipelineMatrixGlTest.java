@@ -32,8 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** 验证 UI overlay 能在每一种合法后处理组合上保持最终合成语义。 */
 @EnabledIfSystemProperty(named = "haikalat.glSmoke", matches = "true")
 class UiPipelineMatrixGlTest {
-    private static final int EXPECTED_PIPELINE_RUNS = 40;
-    private static final int EXPECTED_UI_RUNS = 20;
+    // Four LDR AA modes; five HDR AA modes with two bloom and two exposure settings.
+    private static final int EXPECTED_SETTINGS = 4 + 5 * 2 * 2;
 
     @Test
     void uiOverlayExecutesAcrossEveryLegalPipelineCombination() {
@@ -52,8 +52,8 @@ class UiPipelineMatrixGlTest {
                     if (uiEnabled) uiRuns++;
                 }
             }
-            assertEquals(EXPECTED_PIPELINE_RUNS, pipelineRuns);
-            assertEquals(EXPECTED_UI_RUNS, uiRuns);
+            assertEquals(2 * EXPECTED_SETTINGS, pipelineRuns);
+            assertEquals(EXPECTED_SETTINGS, uiRuns);
         }
     }
 
@@ -97,7 +97,10 @@ class UiPipelineMatrixGlTest {
     private static List<RenderSettings> legalSettings() {
         List<RenderSettings> settings = new ArrayList<>();
         for (AntiAliasingMode aa : AntiAliasingMode.values()) {
-            settings.add(settings(aa, ToneMappingMode.NONE, false, ExposureMode.MANUAL));
+            // SMAA consumes the display-referred tone-mapped image and rejects LDR.
+            if (aa != AntiAliasingMode.SMAA) {
+                settings.add(settings(aa, ToneMappingMode.NONE, false, ExposureMode.MANUAL));
+            }
             for (boolean bloom : List.of(false, true)) {
                 for (ExposureMode exposure : ExposureMode.values()) {
                     settings.add(settings(aa, ToneMappingMode.ACES, bloom, exposure));
