@@ -236,6 +236,7 @@ float gSubsurfaceThickness;
 // screen-space diffuse-share signal is requested; the existing colour
 // arithmetic never reads them.
 vec3 gDirectSpecularRadiance;
+vec3 gSpotReceiverDx, gSpotReceiverDy;
 vec3 gSubsurfaceNonDiffuseRadiance;
 // World-space thin-panel thickness active for the current directional shadow
 // lookup. Zero (the default and the exact direct-light path) disables the
@@ -702,11 +703,14 @@ vec2 parallaxOcclusionUv(vec3 geometricNormal, vec3 viewDirection) {
     return mix(previousUv, currentUv, blend);
 }
 
-vec2 receiverPlaneGradient(vec3 projected) {
-    vec3 dx = dFdx(projected), dy = dFdy(projected);
+vec2 receiverPlaneGradient(vec3 dx, vec3 dy) {
     float determinant = dx.x * dy.y - dx.y * dy.x;
     if (abs(determinant) < 1e-10) return vec2(0.0);
     return vec2(dx.z * dy.y - dy.z * dx.y, dy.z * dx.x - dx.z * dy.x) / determinant;
+}
+
+vec2 receiverPlaneGradient(vec3 projected) {
+    return receiverPlaneGradient(dFdx(projected), dFdy(projected));
 }
 
 /**
@@ -1183,16 +1187,15 @@ int pointShadowFace(vec3 direction) {
 
 float pointShadowFactor(int slot, vec3 lightPosition, vec3 n, vec3 l) {
     if (uHasPointShadow == 0 || uPointShadowMeta[slot].y == 0) return 0.0;
-    vec3 fromLight = vWorldPosition - lightPosition;
-    int face = pointShadowFace(fromLight);
     vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
+    int face = pointShadowFace(samplePosition - lightPosition);
     int matrixIndex = slot * POINT_SHADOW_FACE_COUNT + face;
     vec4 clip = uPointSlotMatrices[matrixIndex] * vec4(samplePosition, 1.0);
-    vec3 projected = clip.xyz / clip.w;
-    projected = projected * 0.5 + 0.5;
-    if (projected.z <= 0.0 || projected.z >= 1.0
-            || any(lessThanEqual(projected.xy, vec2(0.0)))
-            || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
+    if (!(clip.w > 0.0)) return 0.0;
+    vec3 projected = clip.xyz / clip.w * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0) return 0.0;
+    // A dominant-axis face includes its edges. Keep seam samples in that
+    // tile (including projection roundoff) via the PCF tap clamp below.
     vec4 rect = uPointFaceRects[matrixIndex];
     vec2 atlasUv = mix(rect.xy, rect.zw, projected.xy);
     vec2 atlasTexel = 1.0 / vec2(textureSize(uPointShadowMap, 0));
@@ -1215,26 +1218,38 @@ float pointShadowFactor(int slot, vec3 lightPosition, vec3 n, vec3 l) {
 float spotShadowFactor(int slot, vec3 n, vec3 l) {
     if (uHasSpotShadow == 0 || uSpotShadowMeta[slot].y == 0) return 0.0;
     vec3 samplePosition = vWorldPosition + n * shadowNormalBias();
-    vec4 clip = uSpotSlotMatrices[slot] * vec4(samplePosition, 1.0);
-    vec3 projected = clip.xyz / clip.w;
-    projected = projected * 0.5 + 0.5;
+    mat4 lightMatrix = uSpotSlotMatrices[slot];
+    vec4 clip = lightMatrix * vec4(samplePosition, 1.0);
+    if (!(clip.w > 0.0)) return 0.0;
+    vec3 ndc = clip.xyz / clip.w;
+    vec3 projected = ndc * 0.5 + 0.5;
     if (projected.z <= 0.0 || projected.z >= 1.0
             || any(lessThanEqual(projected.xy, vec2(0.0)))
             || any(greaterThanEqual(projected.xy, vec2(1.0)))) return 0.0;
     float bias = shadowDepthBias(intBitsToFloat(uShadowQualityMeta.w), n, l);
-    vec2 texel = 1.0 / vec2(textureSize(uSpotShadowMap, 0));
-    vec4 rect = uSpotTileRects[slot];
-    vec2 atlasUv = mix(rect.xy, rect.zw, projected.xy);
+    // Project the raster triangle's tangents at the biased receiver. Using
+    // the quotient rule gives the plane's depth slope in the spot tile even
+    // when neighboring fragments enter different clustered light loops.
+    vec4 clipDx = lightMatrix * vec4(gSpotReceiverDx, 0.0);
+    vec4 clipDy = lightMatrix * vec4(gSpotReceiverDy, 0.0);
+    vec2 gradient = receiverPlaneGradient((clipDx.xyz - ndc * clipDx.w) / clip.w,
+                                          (clipDy.xyz - ndc * clipDy.w) / clip.w);
+    vec2 atlasSize = vec2(textureSize(uSpotShadowMap, 0));
+    vec4 rect = uSpotTileRects[slot] * vec4(atlasSize, atlasSize);
+    vec2 atlasPixel = mix(rect.xy, rect.zw, projected.xy);
+    ivec2 center = ivec2(floor(atlasPixel));
     int radius = shadowKernelRadius();
-    vec2 guard = texel * (float(radius) + 0.5);
-    vec2 tileMinimum = rect.xy + guard;
-    vec2 tileMaximum = rect.zw - guard;
+    ivec2 tileMinimum = ivec2(round(rect.xy)) + radius;
+    ivec2 tileMaximum = ivec2(round(rect.zw)) - (radius + 1);
+    vec2 tileSpan = rect.zw - rect.xy;
     float shadow = 0.0;
     for (int x = -2; x <= 2; ++x) for (int y = -2; y <= 2; ++y) {
         if (abs(x) > radius || abs(y) > radius) continue;
-        shadow += projected.z - bias
-                > texture(uSpotShadowMap, clamp(atlasUv + vec2(x, y) * texel,
-                    tileMinimum, tileMaximum)).r ? 1.0 : 0.0;
+        ivec2 samplePixel = clamp(center + ivec2(x, y), tileMinimum, tileMaximum);
+        // Compare at the center of the actual (possibly clamped) depth texel.
+        vec2 deltaUv = (vec2(samplePixel) + 0.5 - atlasPixel) / tileSpan;
+        float receiverDepth = projected.z + dot(gradient, deltaUv) - bias;
+        shadow += receiverDepth > texelFetch(uSpotShadowMap, samplePixel, 0).r ? 1.0 : 0.0;
     }
     float width = float(radius * 2 + 1);
     return shadow / (width * width);
@@ -1454,6 +1469,11 @@ vec3 clusterDebugColor(int cluster) {
 }
 
 void main() {
+    // Capture primitive tangents before alpha discard and non-uniform light selection.
+    if (uHasSpotShadow != 0) {
+        gSpotReceiverDx = dFdx(vWorldPosition);
+        gSpotReceiverDy = dFdy(vWorldPosition);
+    }
     gDirectSpecularRadiance = vec3(0.0);
     gSubsurfaceNonDiffuseRadiance = vec3(0.0);
     vec3 geometricNormal = normalize(vNormal);

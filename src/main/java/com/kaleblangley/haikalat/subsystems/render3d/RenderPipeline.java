@@ -3369,8 +3369,13 @@ public final class RenderPipeline {
                 candidate.volumetric().addTransparentPass(candidate.graph(), topology, volumeInputs,
                         volumetricTransparentExecutor(), transparentColorSource);
                 candidate.volumetric().addReactivePass(candidate.graph(), topology, volumeInputs, volumetricReactiveExecutor());
-                candidate.postProcess().sceneColorInput(VolumetricPassBuilder.SCENE_COLOR, VolumetricPassBuilder.TRANSPARENT_PASS);
+                sceneColorTexture = VolumetricPassBuilder.SCENE_COLOR;
                 sceneColorProducer = VolumetricPassBuilder.TRANSPARENT_PASS;
+            }
+            // Resolve the same colour that single-sample consumers see, including transparency replay.
+            candidate.postProcess().sceneColorInput(sceneColorTexture, sceneColorProducer);
+            if (topology.sampleCount() > 1) {
+                candidate.postProcess().hdrResolveSource(sceneColorProducer);
             }
             java.util.List<String> waterDependencies = new java.util.ArrayList<>();
             if (splitDecals) {
@@ -3384,10 +3389,6 @@ public final class RenderPipeline {
                 }
                 if (candidate.hairStrands() != null) {
                     waterDependencies.add(HairStrandPass.PASS_NAME);
-                }
-                candidate.postProcess().sceneColorInput(sceneColorTexture, sceneColorProducer);
-                if (topology.sampleCount() > 1) {
-                    candidate.postProcess().hdrResolveSource(sceneColorProducer);
                 }
             }
             if (candidate.planarReflection() != null) {

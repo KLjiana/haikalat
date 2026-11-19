@@ -306,8 +306,29 @@ tasks.register('releaseVerificationContracts') {
         // motion-blur, refraction, clearcoat, PCSS, atmosphere, anisotropic, OIT, cluster,
         // particle-indirect and VFX sampler policies, the S6 interaction-matrix
         // cold-link policy, the SSR MSAA-resolve cold-link policy, and the thin
-        // transmission-shadow cold-link policy.
-        assert policies.size() == 70
+        // transmission-shadow cold-link policy. Hair-normal and exhibition
+        // warmup/readback policies bring the current total to 77.
+        assert policies.size() == 77
+        def exhibitionPolicies = [
+                'render3d/exhibition-warmup': [131218, 96, '.*runRenderFeatureExhibitionIntegration.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-readback': [131154, 1, '.*runRenderFeatureExhibitionIntegration.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-integration-warmup': [131218, 256, '.*RenderFeatureExhibitionGlTest.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-integration-readback': [131154, 128, '.*RenderFeatureExhibitionGlTest.*', LocalDate.of(2027, 5, 17)],
+                'render3d/exhibition-capture-readback': [131154, 256, '.*runRenderFeatureExhibitionCapture.*', LocalDate.of(2027, 11, 17)],
+                'render3d/exhibition-capture-warmup': [131218, 64, '.*runRenderFeatureExhibitionCapture.*', LocalDate.of(2027, 11, 17)],
+                'demo/exhibition-floor': [131218, 4,
+                                          'TEST-com\\.kaleblangley\\.haikalat\\.demo\\.pbr\\.RenderFeatureExhibitionGlTest\\.xml',
+                                          LocalDate.of(2027, 5, 18)]
+        ]
+        exhibitionPolicies.each { owner, expected ->
+            def policy = policies.find { it.owner == owner }
+            assert policy != null
+            assert policy.id == expected[0]
+            assert policy.severity == 'MEDIUM' && policy.source == 'API' && policy.type == 'PERFORMANCE'
+            assert policy.maximum == expected[1]
+            assert policy.entry == expected[2]
+            assert policy.expiry == expected[3]
+        }
         def displacementWarmup = policies.find { it.owner == 'render3d/vertex-displacement-warmup' }
         assert displacementWarmup != null && displacementWarmup.id == 131218
         assert displacementWarmup.maximum == 4
@@ -547,12 +568,12 @@ tasks.register('releaseVerificationContracts') {
                 upscaleDevice + stochasticMessage, policies).violations.isEmpty()
         def cloudColdPolicy = policies.find { it.owner == 'render3d/volumetric-cloud-cold' }
         assert cloudColdPolicy != null && cloudColdPolicy.id == 131218
-        assert cloudColdPolicy.maximum == 3
+        assert cloudColdPolicy.maximum == 10
         assert cloudColdPolicy.entry == '.*VolumetricCloudGlTest.*'
         def cloudEntry = 'TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.VolumetricCloudGlTest.xml'
         def cloudColdMessage = 'OpenGL PERFORMANCE [MEDIUM] source=API id=131218: Program/shader state performance warning: Vertex shader in program 7 is being recompiled based on GL state.\n'
-        assert auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 3, policies).violations.isEmpty()
-        assert !auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 4, policies).violations.isEmpty()
+        assert auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 10, policies).violations.isEmpty()
+        assert !auditGlText(cloudEntry, subsurfaceDevice + cloudColdMessage * 11, policies).violations.isEmpty()
         assert !auditGlText('TEST-com.kaleblangley.haikalat.subsystems.render3d.volumetric.OtherGlTest.xml',
                 subsurfaceDevice + cloudColdMessage, policies).violations.isEmpty()
         def dofDevice = 'OpenGL debug output enabled vendor=NVIDIA Corporation renderer=NVIDIA GeForce RTX version=4.6\n'

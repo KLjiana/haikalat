@@ -2,7 +2,9 @@
 
 ## v0.28.1 候选（未发布）
 
+- 构建版本设为 `0.28.1`；当前仅标记为未发布候选，不代表正式发布门禁已通过。
 - 修复 VCT 轮廓处的间接光跳变、PBR 点光图集跨面漏光和聚光掠射面误遮挡。VCT 从共享表面读取同像素世界法线；advanced `VctPass.recordComposite(...)` 直接调用者须[传入法线纹理](../architecture/public-api/migrations.md)，`RenderPipeline` 入口不变。
+- 修复体积雾透明回放后的 MSAA HDR resolve 来源，并校准 NVIDIA 体积云冷态 shader 告警预算；验收范围见[体积云技术卡](../planning/v0.28.1-s4-clouds.md)。
 
 ## v0.27.0 第一阶段（构建版本仍为 0.25.0）
 

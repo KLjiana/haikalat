@@ -304,9 +304,9 @@ class VolumetricCompositeGlTest {
         for (int i=0;i<3;i++) background[i]+=t*color.w*color.get(i);
         return background;
     }
-    private static void assertCenter(float[] actual,double[] expected) {
+    private static void assertCenter(float[] actual,double[] expected,String settings) {
         int offset=(8*33+16)*4;
-        for (int c=0;c<3;c++) assertEquals(expected[c],actual[offset+c],.004,"HDR channel "+c);
+        for (int c=0;c<3;c++) assertEquals(expected[c],actual[offset+c],.004,settings+", HDR channel "+c);
     }
 
     @Test void nativeFineIntervalsReplaceTheStoredFilteredContributionOnce() {
@@ -621,13 +621,21 @@ class VolumetricCompositeGlTest {
                         var pipeline=pipeline(scene,aa,4,enabled);
                         try {
                             pipeline.build();pipeline.execute(new GlRenderDevice());
-                            assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(alpha(opaque(bg,10,enabled),far,8,enabled),near,6,enabled),spark,3,enabled));
+                            String settings="aa="+aa+", fog="+enabled+", alpha="+a;
+                            assertCenter(pipeline.captureLinearHdrRgbaFloat(),
+                                    additive(alpha(alpha(opaque(bg,10,enabled),far,8,enabled),near,6,enabled),spark,3,enabled), settings);
                             if (enabled) {
-                                var order=pipeline.graph().description().executionOrder();
+                                var graph=pipeline.graph().description();
+                                var order=graph.executionOrder();
                                 assertTrue(order.indexOf(VolumetricPassBuilder.COMPOSITE_PASS)<order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS));
-                                if (aa==AntiAliasingMode.MSAA) assertTrue(order.indexOf(VolumetricPassBuilder.TRANSPARENT_PASS)<order.indexOf(PostProcessTargets.HDR_RESOLVE_PASS));
+                                if (aa==AntiAliasingMode.MSAA) {
+                                    var resolve=graph.passes().stream().filter(p -> p.name().equals(PostProcessTargets.HDR_RESOLVE_PASS))
+                                            .findFirst().orElseThrow();
+                                    assertTrue(resolve.directDependencies().contains(VolumetricPassBuilder.TRANSPARENT_PASS),
+                                            "HDR resolve must consume the fogged transparency replay: "+settings);
+                                }
                             }
-                            GlDebug.assertNoError("alpha fog matrix "+aa+" alpha="+a);
+                            GlDebug.assertNoError(settings);
                         } finally { pipeline.close(); }
                     }
                 }
@@ -755,7 +763,7 @@ class VolumetricCompositeGlTest {
                     assertEquals(0,glGetInteger(GL_READ_FRAMEBUFFER_BINDING));
                     var view=BufferUtils.createIntBuffer(4);glGetIntegerv(GL_VIEWPORT,view);
                     assertArrayEquals(new int[]{2,3,19,13},new int[]{view.get(0),view.get(1),view.get(2),view.get(3)});
-                    assertCenter(pipeline.captureLinearHdrRgbaFloat(),opaque(new Vector4f(.7f,.2f,.1f,1),6,true));
+                    assertCenter(pipeline.captureLinearHdrRgbaFloat(),opaque(new Vector4f(.7f,.2f,.1f,1),6,true),"embedded MSAA");
                     GlDebug.assertNoError("embedded per-sample fog host");
                 } finally { pipeline.close();glDisable(GL_SAMPLE_SHADING);glMinSampleShading(0);glBlendEquation(GL_FUNC_ADD); }
                 assertTrue(glIsFramebuffer(fbo));assertTrue(glIsTexture(color));
@@ -781,7 +789,7 @@ class VolumetricCompositeGlTest {
                             renderer.record(cmd,snapshot,camera.projection(),camera.view(),soft,33,17,fog);
                         });
                         pipeline.build();pipeline.execute(new GlRenderDevice());
-                        assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(opaque(bg,10,true),smoke,6,true),spark,3,true));
+                        assertCenter(pipeline.captureLinearHdrRgbaFloat(),additive(alpha(opaque(bg,10,true),smoke,6,true),spark,3,true),"aa="+aa);
                         GlDebug.assertNoError("HDR VFX fog "+aa);
                     } finally { pipeline.close(); }
                 }
