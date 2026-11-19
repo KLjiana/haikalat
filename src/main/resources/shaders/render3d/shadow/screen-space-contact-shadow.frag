@@ -13,7 +13,9 @@
 // geometric normal with screen-space derivatives, rejects receivers facing away
 // from the light, then marches toward the light in view space. A tap occludes
 // when the sampled scene surface is in front of the ray point by more than a
-// small bias and no farther than the configured thickness. The result is
+// small bias and no farther than the configured thickness. The depth interval
+// is softened at both ends, and the strongest valid tap is retained instead
+// of making the result depend on the first threshold crossing. The result is
 // premultiplied darkening for blendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR):
 // dst' = dst * (1 - rgb). Alpha stays 0 so the copied source alpha survives.
 //
@@ -89,7 +91,9 @@ void main() {
 
     // Small bias relative to the contact band, plus a normal offset so the
     // receiver never touches its own depth slice at the first tap.
-    float bias = max(thickness * 0.02, 1.0e-4);
+    float bias = min(max(thickness * 0.02, 1.0e-4), thickness * 0.25);
+    float fadeWidth = min(thickness * 0.35,
+            max(thickness * 0.15, bias * 4.0));
     vec3 origin = viewPosition + normal * min(thickness * 0.05, distance * 0.01);
 
     float occlusion = 0.0;
@@ -119,11 +123,17 @@ void main() {
         // Positive separation means the sampled visible surface is closer to
         // the camera than the ray point, i.e. the ray has passed behind it.
         float separation = -ray.z - (-sampleView.z);
-        if (separation > bias && separation <= thickness) {
-            // Early-out weighted by the travelled fraction keeps the contact
-            // band strongest at the receiver and bounded to one march.
-            occlusion = 1.0 - 0.65 * along;
-            break;
+        float nearConfidence = smoothstep(bias, bias + fadeWidth, separation);
+        float farConfidence = 1.0 - smoothstep(thickness - fadeWidth,
+                thickness, separation);
+        float candidate = nearConfidence * farConfidence * (1.0 - 0.65 * along);
+        occlusion = max(occlusion, candidate);
+
+        // Later taps can never exceed their travelled-distance weight. Stop
+        // once even a fully confident later hit cannot improve this result.
+        if (step < steps) {
+            float bestRemaining = 1.0 - 0.65 * float(step + 1) / float(steps);
+            if (occlusion >= bestRemaining) break;
         }
     }
 

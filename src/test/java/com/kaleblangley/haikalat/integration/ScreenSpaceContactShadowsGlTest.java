@@ -206,16 +206,27 @@ class ScreenSpaceContactShadowsGlTest {
 
                         int darker = 0;
                         int brighter = 0;
+                        int softlyDarkened = 0;
                         for (int pixel = 0; pixel < baseline.length / 4; pixel++) {
                             float delta = luminance(withContact, pixel)
                                     - luminance(baseline, pixel);
                             if (delta < -1.0e-4f) darker++;
                             if (delta > 1.0e-4f) brighter++;
+                            if (sameColor(baseline, pixel, FLOOR_COLOR, COLOR_TOLERANCE)) {
+                                float baseLuminance = luminance(baseline, pixel);
+                                float attenuation = -delta / Math.max(baseLuminance, 1.0e-6f);
+                                if (attenuation > 0.01f && attenuation < 0.30f) {
+                                    softlyDarkened++;
+                                }
+                            }
                         }
                         assertTrue(darker > 0,
                                 "enabling the pass must darken at least one pixel");
                         assertEquals(0, brighter,
                                 "the contact-shadow composite may only attenuate colour");
+                        assertTrue(softlyDarkened > 0,
+                                "the thickness boundary must include partial attenuation, "
+                                        + "not only a binary shadow edge");
 
                         submit(pipeline, disabled, false);
                         pipeline.execute(device, 1.0f / 60.0f);

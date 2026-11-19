@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ContactShadowShaderTest {
     private static final String PBR = "/shaders/render3d/pbr/pbr-forward.frag";
     private static final String REFERENCE = "/shaders/clustered/full-scan-reference.frag";
+    private static final String SCREEN_SPACE =
+            "/shaders/render3d/shadow/screen-space-contact-shadow.frag";
 
     @Test
     void contactShadowIsExplicitBoundedAndGatedBeforeAnySample() throws IOException {
@@ -42,6 +44,16 @@ class ContactShadowShaderTest {
         assertTrue(reference.contains("uniform int uContactShadowEnabled"));
         assertTrue(reference.contains("smoothstep(0.0, 0.05, edge)"));
         assertTrue(production.contains("float directionalContactShadow(vec3 n, vec3 l)"));
+    }
+
+    @Test
+    void screenSpaceContactShadowSoftensTheDepthBandAndKeepsItsStrongestTap()
+            throws IOException {
+        String source = resource(SCREEN_SPACE).replace("\r\n", "\n");
+        assertTrue(source.contains("smoothstep(bias, bias + fadeWidth, separation)"));
+        assertTrue(source.contains("1.0 - smoothstep(thickness - fadeWidth,"));
+        assertTrue(source.contains("occlusion = max(occlusion, candidate)"));
+        assertTrue(source.contains("if (occlusion >= bestRemaining) break;"));
     }
 
     private static String resource(String path) throws IOException {
