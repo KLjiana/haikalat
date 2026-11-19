@@ -111,7 +111,7 @@ void main() {
             float incidence = max(dot(normal, -lightDirection), 0.0);
             vec3 direct = uSurfaceAlbedo * (incidence / 3.14159265359) * uLightRadiance;
             vec3 bounce = uSurfaceAlbedo
-                    * ddgiSampleIrradiance(hitPosition, -rayDirection);
+                    * ddgiSampleIrradiance(hitPosition, -rayDirection, false);
             incident = direct + bounce;
             break;
         }

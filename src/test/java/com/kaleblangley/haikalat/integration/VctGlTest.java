@@ -63,9 +63,14 @@ import static org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_COMPONENT24;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_RG;
+import static org.lwjgl.opengl.GL30.GL_RG16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30.glReadBuffer;
+import static org.lwjgl.opengl.GL44.glClearTexImage;
+import static org.lwjgl.opengl.GL45.glCreateTextures;
+import static org.lwjgl.opengl.GL45.glTextureStorage2D;
 import static org.lwjgl.opengl.GL45.glTexStorage2D;
 import static org.lwjgl.opengl.GL45.glTexSubImage2D;
 
@@ -359,6 +364,7 @@ class VctGlTest {
     @Test
     void compositeAddsIndirectAndDisabledRestoresExactColor() {
         int depthTexture = 0;
+        int normalTexture = 0;
         try (VctPass pass = new VctPass(SETTINGS)) {
             VctSceneInput scene = VctSceneInput.builder(1L)
                     .addBox(new Vector3f(0.0f, 0.0f, 1.0f), new Vector3f(2.0f, 2.0f, 2.0f),
@@ -384,6 +390,9 @@ class VctGlTest {
             ExternalCamera external = ExternalCamera.of(view, projection,
                     new Vector3f(0.0f, 0.0f, 4.0f), 0.0f);
             depthTexture = createDepthTexture(WIDTH, HEIGHT, depth);
+            normalTexture = glCreateTextures(GL_TEXTURE_2D);
+            glTextureStorage2D(normalTexture, 1, GL_RG16F, WIDTH, HEIGHT);
+            clearNormal(normalTexture, 0f, 0f); // +Z in signed octahedral coordinates.
             assertEquals(depth, readDepthTexture(depthTexture, WIDTH, HEIGHT), 1.0e-4f,
                     "the composite fixture depth upload must be readable");
 
@@ -392,7 +401,7 @@ class VctGlTest {
             try {
                 float[] baseline = clearAndRead(target);
                 CommandBuffer composite = new CommandBuffer();
-                pass.recordComposite(composite, target, depthTexture, external, 0.5f,
+                pass.recordComposite(composite, target, depthTexture, normalTexture, external, 0.5f,
                         new Vector3f(1.0f, 1.0f, 1.0f));
                 execute(composite, "indirect composite");
                 float[] lit = readColor(target);
@@ -402,11 +411,54 @@ class VctGlTest {
                         "voxel indirect light must be added to the HDR target: baseline="
                                 + baselineMaximum + " lit=" + litMaximum);
 
+                // The original surface stays at z=0 to the left of x=33. Only
+                // the right-hand background moves, inside the old derivative quad.
+                int boundary = 33;
+                writeDepthRegion(depthTexture, boundary, WIDTH - boundary, planeDepth(projection, 6f));
+                clearAndRead(target);
+                CommandBuffer edgeComposite = new CommandBuffer();
+                pass.recordComposite(edgeComposite, target, depthTexture, normalTexture, external, 0.5f,
+                        new Vector3f(1f));
+                execute(edgeComposite, "composite beside the depth discontinuity");
+                float[] atDiscontinuity = readColor(target);
+                for (int x = boundary - 3; x < boundary; x++) {
+                    int red = (HEIGHT / 2 * WIDTH + x) * 4;
+                    assertTrue(lit[red] > baseline[red] + 0.1f, "receiver must get indirect light at x=" + x);
+                    assertEquals(lit[red], atDiscontinuity[red], 0.001f,
+                            "unchanged receiver radiance must not depend on its neighbor's depth at x=" + x);
+                }
+
+                clearNormal(normalTexture, -0.75f, 0.25f);
+                clearAndRead(target);
+                CommandBuffer tiltedComposite = new CommandBuffer();
+                pass.recordComposite(tiltedComposite, target, depthTexture, normalTexture, external, 0.5f,
+                        new Vector3f(1f));
+                execute(tiltedComposite, "change only the signed world normal");
+                int edgeRed = (HEIGHT / 2 * WIDTH + boundary - 1) * 4;
+                assertTrue(Math.abs(readColor(target)[edgeRed] - lit[edgeRed]) > 0.1f,
+                        "cone radiance must respond to the supplied normal, not just the depth");
+                clearNormal(normalTexture, 0f, 0f);
+                writeDepthRegion(depthTexture, boundary, WIDTH - boundary, depth);
+
+                // Keep the source inside but place the z=0 receiver 0.1 m outside.
+                // Its biased cone origin can still reach the first occupied voxels.
+                pass.reconfigure(SETTINGS.withBounds(new Vector3f(0f, 0f, 8.1f), 8f));
+                CommandBuffer outsideVolume = new CommandBuffer();
+                pass.recordVoxelize(outsideVolume, scene, List.of());
+                execute(outsideVolume, "voxelize next to the outside receiver");
+                clearAndRead(target);
+                CommandBuffer outsideComposite = new CommandBuffer();
+                pass.recordComposite(outsideComposite, target, depthTexture, normalTexture, external, 0.5f,
+                        new Vector3f(1f));
+                execute(outsideComposite, "composite outside the volume");
+                assertArrayEquals(baseline, readColor(target), 0.0f,
+                        "a receiver outside the voxel cube must keep its original HDR colour");
+
                 pass.reconfigure(VctSettings.disabled());
                 assertFalse(pass.active());
                 assertEquals(null, pass.volumeTexture());
                 CommandBuffer disabled = new CommandBuffer();
-                pass.recordComposite(disabled, target, depthTexture, external, 0.5f,
+                pass.recordComposite(disabled, target, depthTexture, normalTexture, external, 0.5f,
                         new Vector3f(1.0f, 1.0f, 1.0f));
                 assertEquals(0, disabled.commandCount(),
                         "a disabled pass must record no composite command");
@@ -424,6 +476,7 @@ class VctGlTest {
             }
             GlDebug.assertNoError("indirect composite");
         } finally {
+            if (normalTexture != 0) glDeleteTextures(normalTexture);
             if (depthTexture != 0) glDeleteTextures(depthTexture);
         }
     }
@@ -577,6 +630,22 @@ class VctGlTest {
         projection.transform(clip);
         float ndc = clip.z / clip.w;
         return ndc * 0.5f + 0.5f;
+    }
+
+    private static void clearNormal(int texture, float octX, float octY) {
+        glClearTexImage(texture, 0, GL_RG, GL_FLOAT, new float[] {octX, octY});
+        GlDebug.assertNoError("upload the constant VCT normal");
+    }
+
+    private static void writeDepthRegion(int texture, int x, int width, float depth) {
+        FloatBuffer data = BufferUtils.createFloatBuffer(width * HEIGHT);
+        for (int index = 0; index < width * HEIGHT; index++) data.put(depth);
+        data.flip();
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, 0, width, HEIGHT,
+                org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT, GL_FLOAT, data);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        GlDebug.assertNoError("update only depths neighboring the VCT receiver");
     }
 
     private static int createDepthTexture(int width, int height, float depth) {        int texture = glGenTextures();

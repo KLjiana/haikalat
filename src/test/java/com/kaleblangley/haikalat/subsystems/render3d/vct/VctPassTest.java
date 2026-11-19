@@ -42,7 +42,7 @@ class VctPassTest {
             assertEquals(0, command.commandCount());
             assertEquals(0, pass.recordProbeTrace(command, probes));
             assertEquals(0, command.commandCount());
-            pass.recordComposite(command, null, 0, null, 0.5f, new Vector3f(1.0f));
+            pass.recordComposite(command, null, 0, 0, null, 0.5f, new Vector3f(1.0f));
             assertEquals(0, command.commandCount());
             assertThrows(IllegalStateException.class, pass::probeResults);
 

@@ -48,8 +48,8 @@ import static org.lwjgl.opengl.GL44.GL_BUFFER_UPDATE_BARRIER_BIT;
  * triangle voxelization and affected mip updates. {@link #recordProbeTrace}
  * traces explicit probes into an owned SSBO. {@link #recordComposite} adds
  * per-pixel diffuse and specular indirect light to an HDR target using scene
- * depth. The pass owns the volume, programs, buffers, sampler and screen quad;
- * the colour target and scene depth are borrowed and never resized.</p>
+ * depth and world normals. The pass owns the volume, programs, buffers, sampler and screen quad;
+ * the colour target and scene textures are borrowed and never resized.</p>
  *
  * <p><b>Lifecycle.</b> {@link VctSettings#disabled()} allocates no GL resource
  * and every record entry point is a zero-command no-op. {@link #reconfigure}
@@ -75,6 +75,7 @@ public final class VctPass implements AutoCloseable {
     public static final int DEPTH_UNIT = 0;
     /** Texture unit of the voxel volume in the composite. */
     public static final int VOLUME_UNIT = 1;
+    private static final int NORMAL_UNIT = 2;
     /** Texture unit of the voxel volume in the probe trace. */
     public static final int TRACE_VOLUME_UNIT = 0;
 
@@ -329,18 +330,19 @@ public final class VctPass implements AutoCloseable {
 
     /**
      * Adds per-pixel voxel indirect light to an HDR colour target with additive
-     * blending. The target and depth texture are borrowed; the caller keeps
-     * ownership and must supply a single-sample target and matching depth.
+     * blending. The target and both textures are borrowed. They must be
+     * single-sample and pixel-aligned at the same resolution.
      *
-     * @param cmd               GPU-owner command buffer
-     * @param colorTarget       resolved single-sample HDR target
-     * @param sceneDepthTexture 2D depth texture matching the camera
-     * @param camera            frozen camera for the depth target
-     * @param surfaceRoughness  scene-wide roughness used for the specular cone
-     * @param surfaceAlbedo     scene-wide diffuse albedo
+     * @param cmd                GPU-owner command buffer
+     * @param colorTarget        resolved single-sample HDR target
+     * @param sceneDepthTexture  2D device depth matching the camera
+     * @param sceneNormalTexture 2D signed octahedral world normal in RG, matching the depth surface
+     * @param camera             frozen camera for the depth target
+     * @param surfaceRoughness   scene-wide roughness used for the specular cone
+     * @param surfaceAlbedo      scene-wide diffuse albedo
      */
     public void recordComposite(CommandBuffer cmd, Framebuffer colorTarget,
-                                int sceneDepthTexture, ExternalCamera camera,
+                                int sceneDepthTexture, int sceneNormalTexture, ExternalCamera camera,
                                 float surfaceRoughness, Vector3f surfaceAlbedo) {
         ensureOpen();
         Objects.requireNonNull(cmd, "cmd");
@@ -353,8 +355,8 @@ public final class VctPass implements AutoCloseable {
         if (!active.volumeValid) {
             throw new IllegalStateException("voxelize before compositing indirect light");
         }
-        if (sceneDepthTexture <= 0) {
-            throw new IllegalArgumentException("voxel composite requires a scene depth texture");
+        if (sceneDepthTexture <= 0 || sceneNormalTexture <= 0) {
+            throw new IllegalArgumentException("voxel composite requires scene depth and normal textures");
         }
         if (colorTarget.multisampled()) {
             throw new IllegalArgumentException(
@@ -381,8 +383,11 @@ public final class VctPass implements AutoCloseable {
                 .bindShader(composite)
                 .bindTexture(DEPTH_UNIT, sceneDepthTexture)
                 .bindSampler(DEPTH_UNIT, null)
+                .bindTexture(NORMAL_UNIT, sceneNormalTexture)
+                .bindSampler(NORMAL_UNIT, null)
                 .bindTexture3D(VOLUME_UNIT, active.volume.texture, active.volumeSampler)
                 .setUniformInt(composite, "uSceneDepth", DEPTH_UNIT)
+                .setUniformInt(composite, "uSceneNormal", NORMAL_UNIT)
                 .setUniformInt(composite, "uVoxels", VOLUME_UNIT)
                 .setUniformVec3(composite, "uCameraPosition", camera.position())
                 .setUniformMat4(composite, "uInverseProjection", camera.inverseProjection())

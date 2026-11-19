@@ -205,7 +205,9 @@ class DdgiProbePassGlTest {
             try (Geometry geometry = Geometry.create();
                  Framebuffer sceneSource = cameraSource();
                  Texture2D normal = constantUpNormal()) {
-                DdgiSettings settings = probeSettings();
+                // Leave the grazing samples beyond the border fade so an
+                // aliased visibility result cannot pass as a nearly black pixel.
+                DdgiSettings settings = probeSettings().toBuilder().borderFadeMetres(0.12f).build();
                 GlRenderDevice device = new GlRenderDevice();
                 try (DdgiProbeVolume volume = new DdgiProbeVolume(settings)) {
                     recordUpdate(device, volume,
@@ -244,6 +246,20 @@ class DdgiProbePassGlTest {
                         assertPixel(BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE,
                                 pixels, outside, BACKGROUND_TOLERANCE,
                                 "outside-grid receiver must receive exactly nothing");
+
+                        // At this grazing angle the closest 8x8 texel measures the very
+                        // same plane nearer to the probe. The plane is still unoccluded.
+                        int grazing = findPixel(depth, cameraFrame, position ->
+                                position.x >= 1.3f && position.x <= 2.7f
+                                        && position.z >= 3.82f && position.z <= 3.97f);
+                        Vector3f grazingWorld = worldAt(depth, cameraFrame, grazing);
+                        float grazingLight = probeRadiance * settings.surfaceAlbedo()
+                                * settings.intensity() * settings.borderWeight(
+                                grazingWorld.x, grazingWorld.y, grazingWorld.z);
+                        assertTrue(grazingLight > 0.035f, "the grazing case must expect visible light");
+                        assertPixel(BACKGROUND_RED + grazingLight, BACKGROUND_GREEN + grazingLight,
+                                BACKGROUND_BLUE + grazingLight, pixels, grazing, BACKGROUND_TOLERANCE,
+                                "a sloped receiver through a coarse probe texel must not shadow itself");
                         assertEquals(GL_NO_ERROR, glGetError());
                     }
                 }
@@ -541,9 +557,9 @@ class DdgiProbePassGlTest {
     }
 
     private static Texture2D constantUpNormal() {
-        // Octahedral encoding of world +Y is (0.5, 1.0).
+        // Match SceneSurfacePass: the signed octahedral encoding of +Y is (0, 1).
         return Texture2D.fromRgba8(1, 1,
-                new byte[]{(byte) 128, (byte) 255, (byte) 128, (byte) 255},
+                new byte[]{0, (byte) 255, 0, (byte) 255},
                 TextureColorSpace.LINEAR);
     }
 

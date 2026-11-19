@@ -111,7 +111,7 @@ class DdgiShaderContractTest {
                 "uniform int uIrradianceFaceResolution;")) {
             assertTrue(source.contains(uniform), "indirect shader must declare " + uniform);
         }
-        assertTrue(source.contains("ddgiSampleIrradiance(worldPosition.xyz, normal)"),
+        assertTrue(source.contains("ddgiSampleIrradiance(worldPosition.xyz, normal, true)"),
                 "the indirect pass must query the shared probe weighting");
         assertTrue(source.contains("depth < 0.999999"),
                 "background pixels must not receive indirect light");
@@ -151,7 +151,9 @@ class DdgiShaderContractTest {
                 "probes behind the surface must not receive a fixed 5% leak bias");
         assertTrue(shared.contains("float tolerance = max(uSpacing * 0.05, distance * 0.02);"));
         assertTrue(shared.contains("return difference <= tolerance ? 1.0 : 0.0;"),
-                "visibility must be a hard bounded gate");
+                "the probe-relight lookup retains the hard bounded gate");
+        assertTrue(shared.contains("smoothstep(0.5 * tolerance, tolerance, expected - recorded)"),
+                "the camera resolve must fade to zero by the bounded occlusion threshold");
         assertTrue(shared.contains("return border * sum / weightSum;"));
         assertTrue(shared.contains("clamp(nearest / fade, 0.0, 1.0);"));
 

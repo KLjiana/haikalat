@@ -149,6 +149,49 @@ float ddgiProbeVisibility(int probe, vec3 receiver) {
     return difference <= tolerance ? 1.0 : 0.0;
 }
 
+// Filter visibility comparisons, not stored depths: interpolating depths
+// before comparing would invent a surface at occluder silhouettes.
+float ddgiFilteredProbeVisibility(int probe, vec3 relative, vec3 normal) {
+    float distance = length(relative);
+    if (distance <= 1.0e-4) return 1.0;
+
+    int face = ddgiFaceIndex(relative);
+    float resolution = float(uDepthFaceResolution);
+    vec2 texel = ddgiFaceUv(face, relative) * resolution - 0.5;
+    ivec2 first = ivec2(floor(texel));
+    vec2 fraction = fract(texel);
+    vec3 forward = ddgiFaceForward(face);
+    float axialDepth = dot(forward, relative);
+    float tolerance = max(uSpacing * 0.05, distance * 0.02) * axialDepth / distance;
+    float planeOffset = dot(normal, relative);
+    vec2 planeSlope = vec2(dot(normal, ddgiFaceRight(face)), dot(normal, ddgiFaceUp(face)));
+    float planeForward = dot(normal, forward);
+    int atlasColumn = (probe * 6 + face) * uDepthFaceResolution;
+    float visible = 0.0;
+    for (int y = 0; y < 2; y++) {
+        for (int x = 0; x < 2; x++) {
+            ivec2 tap = clamp(first + ivec2(x, y), ivec2(0), ivec2(uDepthFaceResolution - 1));
+            float recorded = ddgiLinearDepth(texelFetch(uProbeDepthAtlas,
+                    tap + ivec2(atlasColumn, 0), 0).r);
+
+            // Compare at this texel's ray, where the depth was actually rasterized.
+            // The tangent plane predicts the receiver's depth for that direction.
+            vec2 rayUv = (vec2(tap) + 0.5) * (2.0 / resolution) - 1.0;
+            float planeRay = planeForward + dot(planeSlope, rayUv);
+            float expected = axialDepth;
+            if (planeOffset < -0.05 * distance && planeRay < -0.05) {
+                float planeDepth = planeOffset / planeRay;
+                if (abs(planeDepth - axialDepth) <= 0.25 * axialDepth) expected = planeDepth;
+            }
+            float transmittance = 1.0 - smoothstep(0.5 * tolerance, tolerance, expected - recorded);
+            float weight = (x == 0 ? 1.0 - fraction.x : fraction.x)
+                    * (y == 0 ? 1.0 - fraction.y : fraction.y);
+            visible += transmittance * weight;
+        }
+    }
+    return visible;
+}
+
 vec3 ddgiAtlasTexel(int probe, int face, ivec2 localTexel) {
     int tileWidth = 3 * uIrradianceFaceResolution;
     int faceX = face % 3;
@@ -183,7 +226,7 @@ vec3 ddgiSampleProbeRadiance(int probe, vec3 normal) {
 // visibility. Out-of-grid samples return exactly zero, and the result fades to
 // zero over uBorderFadeMetres at the grid border so probe light cannot leak
 // past the allocated grid.
-vec3 ddgiSampleIrradiance(vec3 position, vec3 normal) {
+vec3 ddgiSampleIrradiance(vec3 position, vec3 normal, bool filterVisibility) {
     float border = ddgiBorderWeight(position);
     if (!(border > 0.0)) {
         return vec3(0.0);
@@ -204,11 +247,13 @@ vec3 ddgiSampleIrradiance(vec3 position, vec3 normal) {
         int probe = ddgiProbeIndex(coordinate);
         vec3 toProbe = ddgiProbePosition(probe) - position;
         float normalWeight = max(dot(normalize(toProbe + vec3(1.0e-5)), normal), 0.0);
-        float visibility = ddgiProbeVisibility(probe, position);
         float weight = (dx == 1 ? fraction.x : 1.0 - fraction.x)
                 * (dy == 1 ? fraction.y : 1.0 - fraction.y)
                 * (dz == 1 ? fraction.z : 1.0 - fraction.z)
                 * normalWeight;
+        if (weight <= 0.0) continue;
+        float visibility = filterVisibility ? ddgiFilteredProbeVisibility(probe, -toProbe, normal)
+                : ddgiProbeVisibility(probe, position);
         sum += ddgiSampleProbeRadiance(probe, normal) * weight * visibility;
         weightSum += weight;
     }

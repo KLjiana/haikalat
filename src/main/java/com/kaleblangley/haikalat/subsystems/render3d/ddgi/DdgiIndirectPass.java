@@ -30,11 +30,11 @@ import static org.lwjgl.opengl.GL30.GL_RGBA16F;
  * then adds the probe contribution with {@code GL_ONE/GL_ONE}. It never samples
  * a target it is writing and never writes the shared depth.</p>
  *
- * <p>The probe query is the same shared-formula weighting used by the relight
- * stage: trilinear probe weights, a normal-side gate, per-probe visibility from
- * the rasterized probe depth, and a border fade that is exactly zero outside
- * the probe grid bounds. Receivers outside the grid or hidden behind a surface
- * recorded by the probe depth atlas therefore receive no indirect light.</p>
+ * <p>The probe query shares trilinear probe weights, a normal-side gate and
+ * the grid border fade with the relight stage. The camera resolve filters four
+ * visibility comparisons per contributing probe using the receiver tangent
+ * plane. Receivers outside the grid or occluded in all contributing taps
+ * receive zero indirect light.</p>
  *
  * <p>Disabled DDGI settings cannot create a volume, so this pass has no
  * disabled instance and no no-op draw. The constructor prepares the complete
@@ -145,7 +145,7 @@ public final class DdgiIndirectPass implements GlResource {
      * @param cmd              GPU-owner command buffer
      * @param colorSource      framebuffer holding the resolved scene colour
      * @param sceneDepthTexture single-sample shared scene depth
-     * @param sceneNormalTexture octahedral shared world normal
+     * @param sceneNormalTexture shared world normal in signed octahedral coordinates
      * @param frame            current frame matrices and extent
      */
     public void record(CommandBuffer cmd, Framebuffer colorSource, int sceneDepthTexture,

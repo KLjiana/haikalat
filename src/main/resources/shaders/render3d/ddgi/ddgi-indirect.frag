@@ -28,11 +28,12 @@ uniform float uSurfaceAlbedo;
 out vec4 fragColor;
 
 // Decodes the shared SceneBufferChannel.NORMAL octahedral world normal.
-vec3 ddgiDecodeNormal(vec2 encoded) {
-    vec2 octahedral = encoded * 2.0 - 1.0;
+vec3 ddgiDecodeNormal(vec2 octahedral) {
+    // The shared scene surface stores signed octahedral coordinates.
     vec3 normal = vec3(octahedral, 1.0 - abs(octahedral.x) - abs(octahedral.y));
     if (normal.z < 0.0) {
-        normal.xy = (1.0 - abs(normal.yx)) * sign(normal.xy);
+        normal.xy = (1.0 - abs(normal.yx))
+                * vec2(normal.x >= 0.0 ? 1.0 : -1.0, normal.y >= 0.0 ? 1.0 : -1.0);
     }
     float lengthSquared = dot(normal, normal);
     return lengthSquared > 1.0e-12 ? normal / sqrt(lengthSquared) : vec3(0.0);
@@ -57,7 +58,7 @@ void main() {
         return;
     }
 
-    vec3 radiance = ddgiSampleIrradiance(worldPosition.xyz, normal);
+    vec3 radiance = ddgiSampleIrradiance(worldPosition.xyz, normal, true);
     vec3 contribution = radiance * (uSurfaceAlbedo * uIntensity);
     if (any(isnan(contribution)) || any(isinf(contribution))) {
         contribution = vec3(0.0);
