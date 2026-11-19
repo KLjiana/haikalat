@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.geometry.SceneRenderer;
 import com.kaleblangley.haikalat.subsystems.render3d.lighting.FrameLightBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowCasterRecorder;
 
+import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.PipelineTopology;
 
 import com.kaleblangley.haikalat.subsystems.render3d.Scene;
@@ -41,6 +42,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.planar.PlanarReflectionSett
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandPass;
 import com.kaleblangley.haikalat.subsystems.render3d.hair.HairStrandSettings;
 import com.kaleblangley.haikalat.subsystems.render3d.scene.SceneFrameBuilder;
+import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneReactivePass;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceInputs;
 import com.kaleblangley.haikalat.subsystems.render3d.surface.SceneSurfaceLayout;
@@ -78,6 +80,7 @@ import com.kaleblangley.haikalat.subsystems.render3d.shadow.ShadowSamplingBlock;
 
 import com.kaleblangley.haikalat.core.graph.RenderGraph;
 import com.kaleblangley.haikalat.backend.RenderFormat;
+import com.kaleblangley.haikalat.backend.framebuffer.Framebuffer;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessPipeline;
 import com.kaleblangley.haikalat.subsystems.postprocess.PostProcessTargets;
 import com.kaleblangley.haikalat.subsystems.postprocess.SsgiEnvironmentSource;
@@ -87,6 +90,8 @@ import com.kaleblangley.haikalat.subsystems.render3d.pbr.PbrMaterialBinder;
 import com.kaleblangley.haikalat.subsystems.render3d.preview.GraphPreviewRenderer;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.DoubleSupplier;
+import java.util.function.Supplier;
 
 /** Exclusive owner of one complete RenderGraph/pass-resource generation. */
 public final class PipelineGeneration implements AutoCloseable {
@@ -122,6 +127,7 @@ public final class PipelineGeneration implements AutoCloseable {
     private WeightedOitPass weightedOit;
     private WeightedOitSettings weightedOitSettings = WeightedOitSettings.disabled();
     private PlanarReflectionPass planarReflection;
+    private CameraUniforms reflectionCameraUniforms;
     private PlanarReflectionSettings planarReflectionSettings = PlanarReflectionSettings.disabled();
     private CausticsPass caustics;
     private CausticsSettings causticsSettings = CausticsSettings.disabled();
@@ -374,6 +380,58 @@ public final class PipelineGeneration implements AutoCloseable {
         volumetricClouds = new VolumetricCloudPass(settings, topology.width(), topology.height());
     }
 
+    /** Wires the cloud layer between the last scene-colour composite and HDR post-processing. */
+    public void wireVolumetricClouds(String colorSourcePass, Supplier<ExternalCamera> camera,
+                                     DoubleSupplier exposure) {
+        addVolumetricCloudPass(graph, colorSourcePass, requireCloudDepth().producer(), (res, cmd) -> {
+            // Resize replaces the cloud owner and graph attachments without rebuilding this executor.
+            VolumetricCloudPass clouds = volumetricClouds;
+            if (clouds == null) {
+                throw new IllegalStateException("volumetric cloud pass is absent from the active topology");
+            }
+            Framebuffer source = res.framebufferOfPass(colorSourcePass);
+            if (source == null) {
+                throw new IllegalStateException(
+                        "volumetric clouds require the preceding scene-colour producer " + colorSourcePass);
+            }
+            int depth = surfaceInputs.frame().require(res, requireCloudDepth());
+            clouds.record(cmd, source, depth, camera.get(), cloudTimeSeconds(), (float) exposure.getAsDouble());
+            Framebuffer target = res.currentTarget();
+            if (target == null) {
+                throw new IllegalStateException("volumetric clouds require a managed colour target");
+            }
+            cmd.bindFramebuffer(target)
+                    .viewport(0, 0, target.width(), target.height())
+                    .blitColor(clouds.colorTarget(), target);
+        });
+        postProcess.sceneColorInput(VolumetricCloudPass.COLOR_TEXTURE, VolumetricCloudPass.PASS_NAME);
+    }
+
+    private SceneSurfaceLayout.Attachment requireCloudDepth() {
+        var depth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
+        if (depth == null) {
+            throw new IllegalStateException("volumetric clouds require the shared single-sample opaque depth");
+        }
+        return depth;
+    }
+
+    /**
+     * Declares the cloud-layer colour bridge after every scene-colour composite.
+     * The graph pass owns its RGBA16F target, has no depth attachment, and lets
+     * the next colour consumer read the pass-owned composited image.
+     */
+    public static void addVolumetricCloudPass(RenderGraph graph, String colorSourcePass,
+                                              String depthProducer, RenderGraph.PassExecutor executor) {
+        var pass = graph.addPass(VolumetricCloudPass.PASS_NAME)
+                .createColor(VolumetricCloudPass.COLOR_TEXTURE, RenderFormat.RGBA16F)
+                .noClear()
+                .dependsOn(colorSourcePass);
+        if (!depthProducer.equals(colorSourcePass)) {
+            pass.dependsOn(depthProducer);
+        }
+        pass.execute(executor);
+    }
+
     /**
      * Owns the optional fixed-step smoke simulation and its volume pass. The
      * simulation is stateful, so a donor with identical settings is borrowed to
@@ -439,6 +497,8 @@ public final class PipelineGeneration implements AutoCloseable {
                 && source.planarReflection.settings().equals(settings);
         planarReflection = reuse ? borrow(source.planarReflection)
                 : new PlanarReflectionPass(settings, topology.width(), topology.height());
+        reflectionCameraUniforms = source != null && source.reflectionCameraUniforms != null
+                ? borrow(source.reflectionCameraUniforms) : new CameraUniforms();
         planarReflectionSettings = settings;
     }
 
@@ -749,6 +809,7 @@ public final class PipelineGeneration implements AutoCloseable {
     public WeightedOitPass weightedOit() { return weightedOit; }
     public WeightedOitSettings weightedOitSettings() { return weightedOitSettings; }
     public PlanarReflectionPass planarReflection() { return planarReflection; }
+    public CameraUniforms reflectionCameraUniforms() { return reflectionCameraUniforms; }
     public PlanarReflectionSettings planarReflectionSettings() { return planarReflectionSettings; }
     public CausticsPass caustics() { return caustics; }
     public CausticsSettings causticsSettings() { return causticsSettings; }
@@ -1183,6 +1244,7 @@ public final class PipelineGeneration implements AutoCloseable {
         StochasticTransparencyPass localStochastic = stochasticTransparency;
         WeightedOitPass localWeightedOit = weightedOit;
         PlanarReflectionPass localPlanar = planarReflection;
+        CameraUniforms localReflectionCamera = reflectionCameraUniforms;
         CausticsPass localCaustics = caustics;
         ScreenSpaceContactShadowPass localContactShadow = screenSpaceContactShadows;
         DdgiProbeVolume localDdgiVolume = ddgiVolume;
@@ -1218,6 +1280,7 @@ public final class PipelineGeneration implements AutoCloseable {
         stochasticTransparency = null;
         weightedOit = null;
         planarReflection = null;
+        reflectionCameraUniforms = null;
         caustics = null;
         screenSpaceContactShadows = null;
         ddgiVolume = null;
@@ -1255,6 +1318,7 @@ public final class PipelineGeneration implements AutoCloseable {
         failure = closeCollecting(localStochastic, failure);
         failure = closeCollecting(localWeightedOit, failure);
         failure = closeCollecting(localPlanar, failure);
+        failure = closeCollecting(localReflectionCamera, failure);
         failure = closeCollecting(localCaustics, failure);
         failure = closeCollecting(localContactShadow, failure);
         failure = closeCollecting(localDdgiIndirect, failure);

@@ -13,6 +13,8 @@ public final class SceneFrame {
     private int[] forwardIndices;
     private int[] shadowIndices;
     private int[] changedIndices;
+    private int rendererCount;
+    private int forwardCount;
     private int changedCount;
     private long frameIndex;
     private Statistics statistics = Statistics.UNAVAILABLE;
@@ -30,17 +32,32 @@ public final class SceneFrame {
         forwardIndices = forward;
         shadowIndices = shadow;
         changedIndices = changed;
+        rendererCount = statistics.candidateRenderers();
+        forwardCount = statistics.forwardVisible();
         this.changedCount = changedCount;
         this.frameIndex = Integer.toUnsignedLong(frameIndex);
         this.statistics = statistics;
     }
 
+    // Shares the primary frame's frozen entries, not its queues or diagnostics.
+    void publishForwardSubview(SceneFrame primary, int[] forward, int count) {
+        renderers = primary.renderers;
+        models = primary.models;
+        bounds = primary.bounds;
+        mirrored = primary.mirrored;
+        queueClasses = primary.queueClasses;
+        rendererCount = primary.rendererCount;
+        forwardIndices = forward;
+        forwardCount = count;
+        frameIndex = primary.frameIndex;
+    }
+
     void invalidate() {
-        changedCount = 0;
+        rendererCount = forwardCount = changedCount = 0;
         statistics = Statistics.UNAVAILABLE;
     }
 
-    public int forwardCount() { return statistics.forwardVisible(); }
+    public int forwardCount() { return forwardCount; }
     public int shadowCount() { return statistics.shadowVisible(); }
     public int changedCount() { return changedCount; }
     public int changedEntry(int index) { return changedIndices[index]; }
@@ -61,7 +78,7 @@ public final class SceneFrame {
     }
 
     public int rendererCount() {
-        return statistics.candidateRenderers();
+        return rendererCount;
     }
 
     boolean rendererChanged(int ordinal) {

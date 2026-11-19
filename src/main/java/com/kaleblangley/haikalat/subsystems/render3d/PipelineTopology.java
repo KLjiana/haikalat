@@ -980,15 +980,11 @@ public record PipelineTopology(int width,
         if (volumetricClouds || volumetricSmoke) {
             requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
-        // DDGI queries trilinearly against the shared single-sample depth and
-        // octahedral world normal; it never writes either channel.
-        if (ddgi) {
+        // Both indirect composites read the single-sample world normal and
+        // reconstruct world position from the corresponding surface depth.
+        if (ddgi || vct) {
             requirements = requirements.mergeView(SceneBufferRequirements.of(
                     SceneBufferChannel.DEPTH, SceneBufferChannel.NORMAL));
-        }
-        // VCT reconstructs world position from the shared single-sample depth.
-        if (vct) {
-            requirements = requirements.mergeView(SceneBufferRequirements.fog());
         }
         // Hair depth-tests against the raster depth of the geometry pass.
         if (hairStrands) {

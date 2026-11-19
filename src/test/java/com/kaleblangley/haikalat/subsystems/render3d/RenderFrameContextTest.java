@@ -115,6 +115,22 @@ class RenderFrameContextTest {
     }
 
     @Test
+    void clipDistancesReachTheFrozenProjectionAndInvalidateTheCameraRevision() {
+        Camera camera = new Camera();
+        Scene scene = new Scene(camera);
+        var before = RenderFrameContext.capture(scene, camera, 640, 360, 0f, 0, 0L, 1L, null);
+
+        camera.setClipPlanes(0.25f, 250f);
+        var after = RenderFrameContext.capture(scene, camera, 640, 360, 0f, 1, 1L, 1L, before);
+        assertTrue(after.invalidation().invalidated(FrameInvalidation.Domain.CAMERA));
+        assertEquals(0.25f, after.camera().nearPlane());
+        assertEquals(250f, after.camera().farPlane());
+        assertTrue(before.camera().projection().transformProject(new Vector3f(0, 0, -200f)).z > 1f);
+        assertTrue(after.camera().projection().transformProject(new Vector3f(0, 0, -200f)).z < 1f);
+        assertThrows(IllegalArgumentException.class, () -> camera.setClipPlanes(0.25f, 0.2f));
+    }
+
+    @Test
     void sceneGenerationIsStableAndProcessUnique() {
         Scene first = new Scene(new Camera());
         Scene second = new Scene(new Camera());

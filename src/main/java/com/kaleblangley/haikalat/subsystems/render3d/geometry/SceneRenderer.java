@@ -122,7 +122,7 @@ public final class SceneRenderer {
                     : materialTemplate.shader();
             boolean castsOpaque = gtaoEnabled && frame.castsOpaqueShadow(entry);
             boolean materialHasOverrides = material.hasOverrides();
-            boolean mirrored = frame.mirrored(entry);
+            boolean mirrored = frame.mirrored(entry) ^ mirroredView;
             if (!frontFaceBound || mirrored != boundMirrored) {
                 cmd.frontFace(mirrored ? FrontFace.CW : FrontFace.CCW);
                 frontFaceBound = true;
@@ -201,6 +201,7 @@ public final class SceneRenderer {
             cmd.enableBlend(false).depthMask(true).enableDepthTest(true);
             host.bindFrameState(instanced.shader(), cmd, shadowTexture, pointShadowTexture,
                     spotShadowTexture, gtaoEnabled ? gtaoTexture : 0);
+            cmd.frontFace(mirroredView ? FrontFace.CW : FrontFace.CCW);
             instanced.render(cmd);
         }
     }
@@ -208,7 +209,14 @@ public final class SceneRenderer {
     private final Matrix4f modelScratch = new Matrix4f();
     private final Host host;
 
+    private final boolean mirroredView;
+
     public SceneRenderer(Host host) {
+        this(host, false);
+    }
+
+    public SceneRenderer(Host host, boolean mirroredView) {
         this.host = Objects.requireNonNull(host, "host");
+        this.mirroredView = mirroredView;
     }
 }

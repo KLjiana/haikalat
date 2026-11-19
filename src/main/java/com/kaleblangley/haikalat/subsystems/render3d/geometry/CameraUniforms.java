@@ -49,6 +49,10 @@ public final class CameraUniforms implements AutoCloseable {
         cmd.bindUniformBlock(BLOCK_BINDING, block);
     }
 
+    public void rebind(CommandBuffer cmd) {
+        cmd.bindUniformBlock(BLOCK_BINDING, block);
+    }
+
     public void bind(ShaderProgram shader) {
         if (boundPrograms.add(shader)) {
             shader.bindUniformBlock(BLOCK_NAME, BLOCK_BINDING);

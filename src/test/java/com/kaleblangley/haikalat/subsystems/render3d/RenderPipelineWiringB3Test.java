@@ -175,14 +175,20 @@ class RenderPipelineWiringB3Test {
         assertTrue(topology.sceneSurface().single(
                 com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.DEPTH)
                 != null, "VCT must expose the shared single-sample depth");
+        assertTrue(topology.sceneSurface().single(
+                com.kaleblangley.haikalat.subsystems.render3d.surface.SceneBufferChannel.NORMAL)
+                != null, "VCT must expose the shared single-sample world normal");
 
         try (RenderGraph graph = GraphRecordingFixture.graph(64, 48)) {
             graph.addPass(PostProcessTargets.GEOMETRY_PASS)
                     .createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F)
                     .createDepthTexture("scene.depth")
                     .execute((res, cmd) -> { });
+            String normalProducer = "TestSharedNormalPass";
+            graph.addPass(normalProducer).createColor("scene.normal", RenderFormat.RG16F)
+                    .execute((res, cmd) -> { });
             RenderPipeline.addVctPasses(graph, PostProcessTargets.GEOMETRY_PASS,
-                    PostProcessTargets.GEOMETRY_PASS, RenderFormat.RGBA16F,
+                    PostProcessTargets.GEOMETRY_PASS, normalProducer, RenderFormat.RGBA16F,
                     (res, cmd) -> { }, (res, cmd) -> { }, (res, cmd) -> { });
             graph.addPass(PostProcessTargets.TONE_MAPPING_PASS)
                     .computeOnly()
@@ -214,6 +220,8 @@ class RenderPipelineWiringB3Test {
                     .contains(RenderPipeline.VCT_TRACE_PASS));
             assertTrue(composite.directDependencies()
                     .contains(PostProcessTargets.GEOMETRY_PASS));
+            assertTrue(composite.directDependencies().contains(normalProducer),
+                    "VCT must run after the normal producer even when it is separate from depth");
         }
     }
 

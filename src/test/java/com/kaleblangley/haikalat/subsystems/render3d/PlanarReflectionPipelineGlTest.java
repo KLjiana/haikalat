@@ -4,6 +4,7 @@ import com.kaleblangley.haikalat.backend.GlDebug;
 import com.kaleblangley.haikalat.backend.shader.ShaderProgram;
 import com.kaleblangley.haikalat.core.AntiAliasingMode;
 import com.kaleblangley.haikalat.core.device.GlRenderDevice;
+import com.kaleblangley.haikalat.core.CullMode;
 import com.kaleblangley.haikalat.core.material.Material;
 import com.kaleblangley.haikalat.core.mesh.BuiltinMeshData;
 import com.kaleblangley.haikalat.core.mesh.Mesh;
@@ -59,6 +60,12 @@ class PlanarReflectionPipelineGlTest {
                 gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
             }
             """;
+    private static final String MARKER_FRAGMENT = """
+            #version 330 core
+            uniform vec3 uMarker;
+            out vec4 FragColor;
+            void main() { FragColor = vec4(uMarker, 1.0); }
+            """;
     private static final String FRAGMENT = """
             #version 330 core
             out vec4 FragColor;
@@ -74,11 +81,20 @@ class PlanarReflectionPipelineGlTest {
             GL.createCapabilities();
             try (var tracking = GlDebug.acquireResourceTracking()) {
                 Mesh mesh = Mesh.from(BuiltinMeshData.coloredTriangle("planar-wiring"));
-                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, FRAGMENT);
-                Material material = Material.builder(shader).build();
-                Scene scene = new Scene(new Camera(new Vector3f(0.0f, 2.0f, 5.0f)));
-                scene.add(new SceneObject(mesh, material, (model, frame) ->
-                        model.identity().translate(0.0f, 1.0f, 0.0f)));
+                ShaderProgram shader = ShaderProgram.fromSources(VERTEX, MARKER_FRAGMENT);
+                Material material = Material.builder(shader).setVec3("uMarker", new Vector3f(0.9f, 0, 0))
+                        .cullMode(CullMode.BACK).build();
+                Material below = Material.builder(shader).setVec3("uMarker", new Vector3f(0, 0.9f, 0)).build();
+                Scene scene = new Scene(new Camera(new Vector3f(0, 2, 5), new Vector3f(0, 1, 0), -90, -32));
+                var modelReads = new java.util.concurrent.atomic.AtomicInteger();
+                // Red is outside the main frustum but on the reflected centre ray.
+                // Green is between the mirrored eye and the plane: oblique clip must remove it.
+                scene.add(new SceneObject(mesh, material, (model, frame) -> {
+                    modelReads.incrementAndGet();
+                    model.identity().translate(0f, 2f, -1.4f);
+                }));
+                scene.add(new SceneObject(mesh, below, (model, frame) ->
+                        model.identity().translate(0f, -0.6f, 2.76f)));
                 RenderPipeline pipeline = new RenderPipeline(window, scene, null,
                         hdrSettings());
                 try {
@@ -91,7 +107,10 @@ class PlanarReflectionPipelineGlTest {
                             .enabled(true).planeY(0.0f).maxResolution(128).build();
                     pipeline.applyPlanarReflections(active);
                     assertTrue(pipeline.graph().hasPass(PlanarReflectionPass.PASS_NAME));
+                    int readsBeforeMirror = modelReads.get();
                     pipeline.execute(new GlRenderDevice(), 1f / 60f);
+                    assertEquals(1, modelReads.get() - readsBeforeMirror,
+                            "reflection must reuse the primary frame's frozen model");
 
                     PlanarReflectionPass pass = pipeline.activeGenerationForTest()
                             .planarReflection();
@@ -101,8 +120,13 @@ class PlanarReflectionPipelineGlTest {
                     int width = pass.width();
                     int height = pass.height();
                     float[] reflection = readTexture(pass.colorTexture(), width, height);
-                    assertTrue(hasNonZero(reflection),
-                            "the mirrored scene must visibly contribute inside the reflection target");
+                    int centre = (height / 2 * width + width / 2) * 4;
+                    assertTrue(reflection[centre] > 0.85f,
+                            "mirror centre must see the red object outside the main view");
+                    for (int i = 1; i < reflection.length; i += 4) {
+                        assertEquals(0.0f, reflection[i], "below-plane green marker must be clipped");
+                    }
+                    assertTrue(hasNonZero(baseline), "the ordinary view has its own visible geometry");
                     assertArrayEquals(baseline, pipeline.captureLinearHdrRgbaFloat(),
                             "the auxiliary reflection view must not change the main scene pixels");
 
@@ -113,6 +137,7 @@ class PlanarReflectionPipelineGlTest {
                             "disabling the reflection must restore the byte-identical main view");
                 } finally {
                     pipeline.close();
+                    below.close();
                     material.close();
                     shader.close();
                     mesh.close();

@@ -1,7 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d.ao;
 
 import com.kaleblangley.haikalat.subsystems.render3d.Camera;
-import com.kaleblangley.haikalat.subsystems.render3d.ExternalCamera;
 import com.kaleblangley.haikalat.subsystems.render3d.Render3dDiagnostics;
 
 import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
@@ -324,13 +323,8 @@ public final class GtaoPasses implements AutoCloseable {
         // additional samples. The view matrix is used instead of the jittered
         // view-projection matrix, so TAA jitter cannot reintroduce shimmer.
         samplePhase = samplePhaseForMotion(frameIndex, settings.temporal(), phaseMotionActive);
-        if (camera instanceof ExternalCamera external) {
-            nearPlane = external.nearPlane();
-            farPlane = external.farPlane();
-        } else {
-            nearPlane = CameraProjection.NEAR_PLANE;
-            farPlane = CameraProjection.FAR_PLANE;
-        }
+        nearPlane = camera.nearPlane();
+        farPlane = camera.farPlane();
         if (previousCameraValid
                 && (Float.floatToIntBits(nearPlane) != Float.floatToIntBits(uploadedNearPlane)
                 || Float.floatToIntBits(farPlane) != Float.floatToIntBits(uploadedFarPlane))) {

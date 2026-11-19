@@ -175,12 +175,14 @@ public record RenderFrameContext(ExternalCamera camera,
         Matrix4f projection = CameraProjection.stable(required, width, height, new Matrix4f());
         Matrix4f viewProjection = new Matrix4f(projection).mul(view);
         var position = required.position();
+        float near = required.nearPlane();
+        float far = required.farPlane();
         long after = required.visibilityRevision();
         if (before != after) {
             throw new IllegalStateException("camera changed while capturing RenderFrameContext");
         }
         return new ExternalCamera(view, projection, viewProjection, position, 0.0f,
-                CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE, after);
+                near, far, after);
     }
 
     private static List<SceneLightEntry> freezeLightEntries(List<SceneLightEntry> entries,

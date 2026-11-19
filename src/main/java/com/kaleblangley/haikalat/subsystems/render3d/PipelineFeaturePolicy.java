@@ -195,9 +195,10 @@ public record PipelineFeaturePolicy(PipelineTopology topology, boolean pbrEnviro
                 throw new IllegalStateException(
                         "voxel cone tracing requires a resolved single-sample HDR target");
             }
-            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null) {
+            if (topology.sceneSurface().single(SceneBufferChannel.DEPTH) == null
+                    || topology.sceneSurface().single(SceneBufferChannel.NORMAL) == null) {
                 throw new IllegalStateException(
-                        "voxel cone tracing requires the shared single-sample scene depth");
+                        "voxel cone tracing requires the shared single-sample depth and world normal");
             }
         }
         if (topology.ddgi() && topology.voxelConeTracing()) {

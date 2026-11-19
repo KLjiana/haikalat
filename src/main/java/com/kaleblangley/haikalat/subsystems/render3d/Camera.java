@@ -1,5 +1,6 @@
 package com.kaleblangley.haikalat.subsystems.render3d;
 
+import com.kaleblangley.haikalat.subsystems.render3d.geometry.CameraProjection;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -30,6 +31,8 @@ public class Camera {
     private float movementSpeed = SPEED;
     private float mouseSensitivity = SENSITIVITY;
     private float zoom = ZOOM;
+    private float nearPlane = CameraProjection.NEAR_PLANE;
+    private float farPlane = CameraProjection.FAR_PLANE;
     private long visibilityRevision;
 
     public Camera() {
@@ -76,6 +79,21 @@ public class Camera {
     public float movementSpeed() { return movementSpeed; }
     /** @return 缩放/FOV 值 */
     public float zoom() { return zoom; }
+
+    public float nearPlane() { return nearPlane; }
+    public float farPlane() { return farPlane; }
+
+    /** Sets the near and far perspective distances in the camera's scene units. */
+    public void setClipPlanes(float nearPlane, float farPlane) {
+        if (!Float.isFinite(nearPlane) || !Float.isFinite(farPlane) || nearPlane <= 0f || farPlane <= nearPlane) {
+            throw new IllegalArgumentException("camera planes must satisfy 0 < near < far");
+        }
+        if (same(this.nearPlane, nearPlane) && same(this.farPlane, farPlane)) return;
+        long nextRevision = Math.incrementExact(visibilityRevision);
+        this.nearPlane = nearPlane;
+        this.farPlane = farPlane;
+        visibilityRevision = nextRevision;
+    }
 
     /** Sets the perspective field-of-view used by the scene projection. */
     public void setZoom(float zoom) {

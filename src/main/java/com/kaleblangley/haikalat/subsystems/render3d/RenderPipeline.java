@@ -2227,8 +2227,7 @@ public final class RenderPipeline {
                         "underwater volume requires a prepared temporal frame state");
             }
             generation.underwaterVolumePass().record(cmd, source, target, colorTextureId,
-                    depthTextureId, frame, underwaterVolumeSettings,
-                    waterSurfaceSettings.level());
+                    depthTextureId, frame, underwaterVolumeSettings, waterSurfaceSettings);
         };
     }
 
@@ -2882,23 +2881,6 @@ public final class RenderPipeline {
     }
 
     /**
-     * Declares the cloud-layer colour bridge after every scene-colour composite.
-     * The graph pass owns its RGBA16F target, has no depth attachment, and lets
-     * the next colour consumer read the pass-owned composited image.
-     */
-    static void addVolumetricCloudPass(RenderGraph graph, String colorSourcePass,
-                                       String depthProducer, PassExecutor executor) {
-        var pass = graph.addPass(VolumetricCloudPass.PASS_NAME)
-                .createColor(VolumetricCloudPass.COLOR_TEXTURE, RenderFormat.RGBA16F)
-                .noClear()
-                .dependsOn(colorSourcePass);
-        if (!depthProducer.equals(colorSourcePass)) {
-            pass.dependsOn(depthProducer);
-        }
-        pass.execute(executor);
-    }
-
-    /**
      * Declares the smoke volume colour bridge after the fog/particle/cloud
      * composite. The pass has no depth attachment and never writes the shared
      * opaque depth.
@@ -2969,6 +2951,7 @@ public final class RenderPipeline {
                         sampleCount)
                 .noClear();
         if (!depthProducer.equals(colorProducer)) pass.dependsOn(depthProducer);
+        if (graph.hasPass(DirectionalShadowMap.PASS_NAME)) pass.dependsOn(DirectionalShadowMap.PASS_NAME);
         pass.execute(executor);
     }
 
@@ -3025,10 +3008,10 @@ public final class RenderPipeline {
      * Declares the bounded VCT chain: dirty-region voxelization after the opaque
      * forward pass, optional explicit probe trace, then the screen-space
      * composite that copies the current colour and adds cone-traced radiance
-     * before Bloom/TAA. The composite never writes the shared depth.
+     * before post-processing. The composite only reads shared depth and normal.
      */
     static void addVctPasses(RenderGraph graph, String colorProducer, String depthProducer,
-                             RenderFormat format, PassExecutor voxelizeExecutor,
+                             String normalProducer, RenderFormat format, PassExecutor voxelizeExecutor,
                              PassExecutor traceExecutor, PassExecutor compositeExecutor) {
         graph.addPass(VCT_VOXELIZE_PASS)
                 .computeOnly()
@@ -3046,6 +3029,9 @@ public final class RenderPipeline {
                 .dependsOn(colorProducer);
         if (!depthProducer.equals(colorProducer)) {
             composite.dependsOn(depthProducer);
+        }
+        if (!normalProducer.equals(colorProducer) && !normalProducer.equals(depthProducer)) {
+            composite.dependsOn(normalProducer);
         }
         composite.execute(compositeExecutor);
     }
@@ -3566,20 +3552,8 @@ public final class RenderPipeline {
                 }
             }
             if (candidate.volumetricClouds() != null) {
-                // Clouds integrate their own medium once, after every colour
-                // composite (atmosphere/fog/particles/transparency/water/glass)
-                // and after the stochastic collection, but before the
-                // post-process HDR chain. The pass-owned target is handed back
-                // to the graph colour chain with one full-screen copy.
-                var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
-                if (singleDepth == null) {
-                    throw new IllegalStateException(
-                            "volumetric clouds require the shared single-sample opaque depth");
-                }
-                addVolumetricCloudPass(candidate.graph(), sceneColorProducer,
-                        singleDepth.producer(), volumetricCloudExecutor(candidate, sceneColorProducer));
-                candidate.postProcess().sceneColorInput(VolumetricCloudPass.COLOR_TEXTURE,
-                        VolumetricCloudPass.PASS_NAME);
+                candidate.wireVolumetricClouds(sceneColorProducer,
+                        this::externalFrameCamera, () -> settings.exposure());
                 sceneColorTexture = VolumetricCloudPass.COLOR_TEXTURE;
                 sceneColorProducer = VolumetricCloudPass.PASS_NAME;
             }
@@ -3619,12 +3593,13 @@ public final class RenderPipeline {
             }
             if (candidate.vct() != null) {
                 var singleDepth = topology.sceneSurface().single(SceneBufferChannel.DEPTH);
-                if (singleDepth == null) {
+                var singleNormal = topology.sceneSurface().single(SceneBufferChannel.NORMAL);
+                if (singleDepth == null || singleNormal == null) {
                     throw new IllegalStateException(
-                            "voxel cone tracing requires the shared single-sample scene depth");
+                            "voxel cone tracing requires the shared single-sample depth and world normal");
                 }
                 addVctPasses(candidate.graph(), sceneColorProducer, singleDepth.producer(),
-                        ForwardPassBuilder.sceneColorFormat(settings),
+                        singleNormal.producer(), ForwardPassBuilder.sceneColorFormat(settings),
                         vctVoxelizeExecutor(candidate), vctTraceExecutor(candidate),
                         vctCompositeExecutor(candidate, sceneColorProducer));
                 candidate.postProcess().sceneColorInput(VCT_COLOR, VCT_COMPOSITE_PASS);
@@ -5187,12 +5162,15 @@ public final class RenderPipeline {
             }
             var depth = generation.topology().sceneSurface()
                     .single(SceneBufferChannel.DEPTH);
-            if (depth == null) {
+            var normal = generation.topology().sceneSurface()
+                    .single(SceneBufferChannel.NORMAL);
+            if (depth == null || normal == null) {
                 throw new IllegalStateException(
-                        "voxel cone tracing requires the shared single-sample scene depth");
+                        "voxel cone tracing requires the shared single-sample depth and world normal");
             }
             int depthTexture = generation.surfaceInputs().frame().require(res, depth);
-            pass.recordComposite(cmd, target, depthTexture, externalFrameCamera(),
+            int normalTexture = generation.surfaceInputs().frame().require(res, normal);
+            pass.recordComposite(cmd, target, depthTexture, normalTexture, externalFrameCamera(),
                     vctSurfaceRoughness, vctSurfaceAlbedo);
         };
     }
@@ -5254,22 +5232,16 @@ public final class RenderPipeline {
         Matrix4f stableViewProjection = new Matrix4f(stableProjection).mul(view);
         Matrix4f inverseStableViewProjection = new Matrix4f(stableViewProjection).invert();
         Matrix4f inverseJitteredProjection = new Matrix4f(jitteredProjection).invert();
-        float nearPlane;
-        float farPlane;
         Vector3f forward;
         if (camera instanceof ExternalCamera external) {
-            nearPlane = external.nearPlane();
-            farPlane = external.farPlane();
             forward = external.inverseView().transformDirection(0.0f, 0.0f, -1.0f,
                     new Vector3f()).normalize();
         } else {
-            nearPlane = CameraProjection.NEAR_PLANE;
-            farPlane = CameraProjection.FAR_PLANE;
             forward = camera.front();
         }
         Vector3f position = camera.position();
         return new TemporalFrameState.FrameParameters(context.frameSequence(), width, height,
-                nearPlane, farPlane, position.x, position.y, position.z,
+                camera.nearPlane(), camera.farPlane(), position.x, position.y, position.z,
                 forward.x, forward.y, forward.z, jitterUv.x, jitterUv.y,
                 stableProjection, jitteredProjection, inverseJitteredProjection, view,
                 stableViewProjection, inverseStableViewProjection,
@@ -5522,40 +5494,6 @@ public final class RenderPipeline {
         };
     }
 
-    private PassExecutor volumetricCloudExecutor(PipelineGeneration generation,
-                                                 String colorSourcePass) {
-        return (res, cmd) -> {
-            var clouds = generation.volumetricClouds();
-            if (clouds == null) {
-                throw new IllegalStateException(
-                        "volumetric cloud pass is absent from the active topology");
-            }
-            Framebuffer source = res.framebufferOfPass(colorSourcePass);
-            if (source == null) {
-                throw new IllegalStateException(
-                        "volumetric clouds require the preceding scene-colour producer "
-                                + colorSourcePass);
-            }
-            var singleDepth = generation.topology().sceneSurface()
-                    .single(SceneBufferChannel.DEPTH);
-            if (singleDepth == null) {
-                throw new IllegalStateException(
-                        "volumetric clouds require the shared single-sample opaque depth");
-            }
-            int depth = generation.surfaceInputs().frame().require(res, singleDepth);
-            clouds.record(cmd, source, depth, externalFrameCamera(),
-                    generation.cloudTimeSeconds(), settings.exposure());
-            Framebuffer target = res.currentTarget();
-            if (target == null) {
-                throw new IllegalStateException(
-                        "volumetric clouds require a managed colour target");
-            }
-            cmd.bindFramebuffer(target)
-                    .viewport(0, 0, target.width(), target.height())
-                    .blitColor(clouds.colorTarget(), target);
-        };
-    }
-
     private PassExecutor smokeVolumeExecutor(PipelineGeneration generation,
                                              String colorSourcePass) {
         return (res, cmd) -> {
@@ -5675,11 +5613,9 @@ public final class RenderPipeline {
             planar.record(cmd, frameCamera(), frameWidth(), frameHeight(), restore,
                     (recordingCmd, frame) -> recordMirrorScene(recordingCmd, generation,
                             frame, shadowTexture, pointShadowTexture, spotShadowTexture));
-            // The reflection recorder uploaded its own camera block. Restore the
-            // main scene block so later passes that bind CameraUniforms still see
-            // the primary camera, not the mirrored one.
-            generation.cameraUniforms().update(cmd, frameCamera(), frameWidth(), frameHeight(),
-                    settings.antiAliasingMode(), activeFrameIndex);
+            // Commands retain UBO references until graph submission. Rebind the
+            // main block without overwriting the subview's recorded matrices.
+            generation.cameraUniforms().rebind(cmd);
         };
     }
 
@@ -5697,7 +5633,7 @@ public final class RenderPipeline {
                 frame.viewProjection(), frame.position(), 0.0f,
                 CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE, 0L);
         SceneRenderer renderer = new SceneRenderer(new ReflectionDrawHost(generation, camera,
-                frame.width(), frame.height()));
+                frame.width(), frame.height()), true);
         renderer.render(cmd, shadowTexture, pointShadowTexture, spotShadowTexture, 0, 0);
     }
 
@@ -5718,7 +5654,8 @@ public final class RenderPipeline {
 
         @Override
         public SceneFrame frame() {
-            return sceneFrame();
+            return generation.sceneFrameBuilder().buildForwardSubview(sceneFrame(), camera.view(),
+                    camera.viewProjection(), settings.sceneVisibility());
         }
 
         @Override
@@ -5769,7 +5706,7 @@ public final class RenderPipeline {
         @Override
         public void updateCameraUniforms(CommandBuffer cmd) {
             // The oblique reflection projection cannot accept a second TAA jitter.
-            generation.cameraUniforms().update(cmd, camera, width, height,
+            generation.reflectionCameraUniforms().update(cmd, camera, width, height,
                     AntiAliasingMode.NONE, activeFrameIndex);
         }
 
@@ -5836,18 +5773,30 @@ public final class RenderPipeline {
                 throw new IllegalStateException(
                         "caustics require a prepared temporal frame state");
             }
-            SceneLight light = firstDirectionalLight();
-            if (light == null) {
-                throw new IllegalStateException("caustics require a directional light");
-            }
+            var light = requireFrameContext().lightEntries().stream()
+                    .filter(entry -> entry.light().type() == LightType.DIRECTIONAL)
+                    .findFirst().orElseThrow(() ->
+                            new IllegalStateException("caustics require a directional light"));
+            int atlas = res.depthAttachment(DirectionalShadowMap.TEXTURE_NAME);
+            var shadow = shadowFramePlan().directional()
+                    .filter(directional -> directional.entry().stableId() == light.stableId())
+                    .orElse(null);
             Framebuffer source = res.framebufferOfPass(colorSourcePass);
             Framebuffer target = res.currentTarget();
             if (source == null || target == null) {
                 throw new IllegalStateException(
                         "caustics require the scene colour target to copy");
             }
-            caustics.record(cmd, source, res.depthAttachment(rasterDepth.name()), frame,
-                    light.direction(), waterTimeSeconds);
+            if (atlas <= 0 || shadow == null) {
+                caustics.record(cmd, source, res.depthAttachment(rasterDepth.name()), frame,
+                        light.light().direction(), waterTimeSeconds);
+            } else {
+                caustics.record(cmd, source, res.depthAttachment(rasterDepth.name()), frame,
+                        light.light().direction(), waterTimeSeconds, shadow,
+                        atlas,
+                        directionalShadowMap.settings().bias(), directionalCascadeSettings.blendRange(),
+                        localShadowSettings);
+            }
             cmd.bindFramebuffer(target)
                     .viewport(0, 0, target.width(), target.height())
                     .blitColor(caustics.colorTarget(), target);
@@ -6380,10 +6329,8 @@ public final class RenderPipeline {
 
     private DirectionalCascadePlan directionalCascadePlan(Camera camera, int width, int height,
                                                            SceneLight light) {
-        float near = camera instanceof ExternalCamera external
-                ? external.nearPlane() : CameraProjection.NEAR_PLANE;
-        float far = camera instanceof ExternalCamera external
-                ? external.farPlane() : CameraProjection.FAR_PLANE;
+        float near = camera.nearPlane();
+        float far = camera.farPlane();
         float verticalFov;
         float aspect;
         org.joml.Vector3f forward;
@@ -6617,7 +6564,7 @@ public final class RenderPipeline {
                 camera, frameWidth(), frameHeight(), new Matrix4f());
         return new ExternalCamera(view, projection,
                 new Matrix4f(projection).mul(view), camera.position(), 0.0f,
-                CameraProjection.NEAR_PLANE, CameraProjection.FAR_PLANE,
+                camera.nearPlane(), camera.farPlane(),
                 camera.visibilityRevision());
     }
 
