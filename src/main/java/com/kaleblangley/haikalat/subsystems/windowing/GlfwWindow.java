@@ -34,10 +34,12 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     private double mouseDeltaY;
     private boolean firstMouse = true;
     private boolean closed;
+    private CursorMode cursorMode = CursorMode.NORMAL;
 
     private GlfwWindow(Builder b) {
         this.width = b.width;
         this.height = b.height;
+        this.cursorMode = b.cursorMode;
 
         GLFWErrorCallback.createPrint(System.err).set();
         if (!glfwInit()) {
@@ -76,12 +78,7 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
         glfwSetInputMode(handle, GLFW_RAW_MOUSE_MOTION, b.rawMouseMotion ? GLFW_TRUE : GLFW_FALSE);
         glfwSetInputMode(handle, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
 
-        int cursorMode = switch (b.cursorMode) {
-            case NORMAL -> GLFW_CURSOR_NORMAL;
-            case HIDDEN -> GLFW_CURSOR_HIDDEN;
-            case DISABLED -> GLFW_CURSOR_DISABLED;
-            case CAPTURED -> GLFW_CURSOR_CAPTURED;
-        };
+        int cursorMode = glfwCursorMode(b.cursorMode);
         glfwSetInputMode(handle, GLFW_CURSOR, cursorMode);
 
         inputCollector = new WindowInputCollector();
@@ -250,6 +247,32 @@ public final class GlfwWindow implements AutoCloseable, RenderWindow {
     /** 为当前窗口已经绑定的 context 设置 swap interval。 */
     public void setVsync(boolean enabled) {
         glfwSwapInterval(enabled ? 1 : 0);
+    }
+
+    /**
+     * Switches the cursor mode at runtime, for example to trade a locked
+     * mouse-look camera ({@link CursorMode#DISABLED}) for UI pointer control
+     * ({@link CursorMode#NORMAL}).
+     */
+    public void setCursorMode(CursorMode mode) {
+        if (closed) {
+            throw new IllegalStateException("window is closed");
+        }
+        java.util.Objects.requireNonNull(mode, "mode");
+        if (cursorMode == mode) return;
+        cursorMode = mode;
+        resetMouseDelta();
+        firstMouse = true;
+        glfwSetInputMode(handle, GLFW_CURSOR, glfwCursorMode(mode));
+    }
+
+    private static int glfwCursorMode(CursorMode mode) {
+        return switch (mode) {
+            case NORMAL -> GLFW_CURSOR_NORMAL;
+            case HIDDEN -> GLFW_CURSOR_HIDDEN;
+            case DISABLED -> GLFW_CURSOR_DISABLED;
+            case CAPTURED -> GLFW_CURSOR_CAPTURED;
+        };
     }
 
     public boolean shouldClose() {

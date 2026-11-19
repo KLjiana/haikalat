@@ -68,6 +68,46 @@ class ReflectionProbeHdrFixtureTest {
         }
     }
 
+    @Test
+    void exhibitionProbeEnvironmentHasOpposingWarmAndCoolPanels() throws IOException {
+        byte[] bytes;
+        try (InputStream input = ReflectionProbeHdrFixtureTest.class.getResourceAsStream(
+                "/environments/pbr/reflection-probe-gallery.hdr")) {
+            assertNotNull(input, "missing exhibition reflection probe HDR");
+            bytes = input.readAllBytes();
+        }
+        ByteBuffer source = memAlloc(bytes.length);
+        try {
+            source.put(bytes).flip();
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                IntBuffer width = stack.mallocInt(1);
+                IntBuffer height = stack.mallocInt(1);
+                IntBuffer channels = stack.mallocInt(1);
+                FloatBuffer image = STBImage.stbi_loadf_from_memory(source, width, height,
+                        channels, 4);
+                assertNotNull(image, "STB failed to decode exhibition probe HDR: "
+                        + STBImage.stbi_failure_reason());
+                try {
+                    assertEquals(64, width.get(0));
+                    assertEquals(32, height.get(0));
+                    int warm = (16 * width.get(0) + 48) * 4;
+                    int cool = (16 * width.get(0) + 16) * 4;
+                    int dark = (2 * width.get(0) + 32) * 4;
+                    assertTrue(image.get(warm) > image.get(warm + 2) * 4.0f,
+                            "the +Z panel must be warm; RGB=" + rgb(image, warm));
+                    assertTrue(image.get(cool + 2) > image.get(cool) * 4.0f,
+                            "the -Z panel must be cool; RGB=" + rgb(image, cool));
+                    assertTrue(image.get(dark) < image.get(warm) * 0.1f,
+                            "the environment needs dark contrast outside its panels");
+                } finally {
+                    STBImage.stbi_image_free(image);
+                }
+            }
+        } finally {
+            memFree(source);
+        }
+    }
+
     private static void assertFixture(String name, float red, float green, float blue)
             throws IOException {
         byte[] bytes;
@@ -106,5 +146,10 @@ class ReflectionProbeHdrFixtureTest {
         } finally {
             memFree(source);
         }
+    }
+
+    private static String rgb(FloatBuffer image, int offset) {
+        return "[" + image.get(offset) + ", " + image.get(offset + 1) + ", "
+                + image.get(offset + 2) + "]";
     }
 }
