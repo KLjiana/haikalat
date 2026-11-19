@@ -42,6 +42,7 @@ import static org.lwjgl.opengl.GL11.glGetError;
 import static org.lwjgl.opengl.GL11.glReadPixels;
 import static org.lwjgl.opengl.GL11.glViewport;
 import static org.lwjgl.opengl.GL30.GL_R32F;
+import static org.lwjgl.opengl.GL30.GL_RGBA16F;
 import static org.lwjgl.opengl.GL30.GL_RGBA32F;
 import static org.lwjgl.opengl.GL45.glTextureSubImage3D;
 
@@ -243,6 +244,70 @@ class SsgiPassGlTest {
     }
 
     @Test
+    void halfResolutionResolveInterpolatesWithinTheSurfaceAndRejectsEdges() {
+        try (GlfwWindow window = window("SSGI half-resolution edges")) {
+            GlRenderDevice device = new GlRenderDevice();
+            SsgiSettings settings = oneBounce().halfResolution(true).build();
+            int reconstructedPixel = pixel(19, 24);
+            Fixture sharedSurface = Fixture.surround(-5f, 2f, 1f, true)
+                    .receiver(18, 24, -6f, 0.5f).build()
+                    .receiver(19, 24, -6f, 0.5f).build();
+            float[] onSurface = render(device, sharedSurface, settings, null);
+            float base = sharedSurface.colour()[reconstructedPixel * 4];
+            assertTrue(onSurface[reconstructedPixel * 4] > base + 0.05f,
+                    "a full-resolution pixel between matching taps should receive the bounce");
+
+            Fixture depthEdge = sharedSurface.copy();
+            depthEdge.depth()[reconstructedPixel] = deviceDepth(-8f);
+            float[] acrossDepth = render(device, depthEdge, settings, null);
+            assertEquals(base, acrossDepth[reconstructedPixel * 4], 0f);
+
+            Fixture normalEdge = sharedSurface.copy();
+            normalEdge.normal()[reconstructedPixel * 4] = 1f;
+            normalEdge.normal()[reconstructedPixel * 4 + 1] = 1f;
+            normalEdge.depth()[pixel(20, 24)] = 1f;
+            float[] acrossNormal = render(device, normalEdge, settings, null);
+            assertEquals(base, acrossNormal[reconstructedPixel * 4], 0f);
+            assertEquals(GL_NO_ERROR, glGetError());
+        }
+    }
+
+    @Test
+    void halfResolutionFilterSmoothsASlopedReceiverWithoutCrossingADepthStep() {
+        try (GlfwWindow window = window("SSGI sloped receiver")) {
+            GlRenderDevice device = new GlRenderDevice();
+            int traceSize = SIZE / 2;
+            float[] signal = new float[traceSize * traceSize * 4];
+            for (int y = 0; y < traceSize; y++) {
+                for (int x = 0; x < traceSize; x++) {
+                    int pixel = (y * traceSize + x) * 4;
+                    signal[pixel] = x == 4 ? 1f : 0f;
+                    signal[pixel + 3] = 2f + 0.016f * x + (x >= 16 ? 0.7f : 0f);
+                }
+            }
+            // A zero signed octahedral coordinate is the same +Z normal across both planes.
+            try (Texture2D trace = floatTexture(traceSize, 4, signal);
+                 Texture2D normal = floatTexture(4, new float[SIZE * SIZE * 4]);
+                 Framebuffer filtered = Framebuffer.mrt(traceSize, traceSize, GL_RGBA32F);
+                 SsgiPass pass = new SsgiPass(SsgiSettings.defaults().withHalfResolution(true))) {
+                filtered.bind();
+                glViewport(0, 0, traceSize, traceSize);
+                device.execute(pass.recordHalfResolutionFilter(device.createCommandBuffer(),
+                        trace.id(), normal.id(), true));
+                FloatBuffer rgba = BufferUtils.createFloatBuffer(4);
+                glReadPixels(12, 12, 1, 1, GL_RGBA, GL_FLOAT, rgba);
+                assertTrue(rgba.get(0) > 0.02f,
+                        "a bright sample eight taps away on the same slope should smooth into this receiver");
+                assertEquals(2f + 12 * 0.016f, rgba.get(3), 1.0e-6f,
+                        "a filter must keep the centre's geometry depth");
+                glReadPixels(18, 12, 1, 1, GL_RGBA, GL_FLOAT, rgba);
+                assertEquals(0f, rgba.get(0), 0f, "a depth step must stop the colour from bleeding");
+                assertEquals(GL_NO_ERROR, glGetError());
+            }
+        }
+    }
+
+    @Test
     void pipelineInsertsOnePassAndDisabledResizeCloseStayClean() {
         try (GlfwWindow window = window("SSGI pipeline")) {
             RenderSettings hdr = RenderSettings.builder()
@@ -294,6 +359,25 @@ class SsgiPassGlTest {
 
                 pipeline.resize(SIZE + 16, SIZE + 16);
                 pipeline.prepareResize(SIZE + 16, SIZE + 16).close();
+            }
+
+            try (PostProcessPipeline pipeline = PostProcessPipeline.create(hdr,
+                    PostProcessSettings.defaults().withSsgi(settings.withHalfResolution(true)),
+                    49, 51, null, SSGI_SURFACE, null, null, null, null);
+                 RenderGraph graph = new RenderGraph(49, 51)) {
+                graph.addPass(PostProcessTargets.GEOMETRY_PASS)
+                        .createColor(PostProcessTargets.SCENE_COLOR, RenderFormat.RGBA16F)
+                        .noClear().execute((resources, commands) -> {});
+                pipeline.addFinalPass(graph);
+                var halfSizePasses = graph.description().passes().stream()
+                        .filter(pass -> pass.width() == 25 && pass.height() == 26).toList();
+                assertEquals(3, halfSizePasses.size(), "trace and both filters round odd extents up");
+                var composite = graph.description().passes().stream()
+                        .filter(pass -> pass.name().equals(PostProcessTargets.SSGI_PASS))
+                        .findFirst().orElseThrow();
+                assertEquals(49, composite.width());
+                assertEquals(51, composite.height());
+                assertEquals(PostProcessTargets.SSGI_COLOR, pipeline.linearHdrTextureName());
             }
 
             assertThrows(IllegalArgumentException.class,
@@ -370,6 +454,10 @@ class SsgiPassGlTest {
                      : uniformCube(uniformIrradiance[0], uniformIrradiance[1],
                              uniformIrradiance[2]);
              Framebuffer target = Framebuffer.mrt(SIZE, SIZE, GL_RGBA32F);
+             Framebuffer trace = settings.halfResolution() ? Framebuffer.mrt(SIZE / 2, SIZE / 2,
+                     GL_RGBA16F) : null;
+             Framebuffer filtered = settings.halfResolution() ? Framebuffer.mrt(SIZE / 2, SIZE / 2,
+                     GL_RGBA16F) : null;
              SsgiPass pass = new SsgiPass(settings)) {
             SsgiEnvironmentSource environment = cube == null ? null
                     : new SsgiEnvironmentSource() {
@@ -389,13 +477,27 @@ class SsgiPassGlTest {
                             return 1.0f;
                         }
                     };
-            target.bind();
-            glViewport(0, 0, SIZE, SIZE);
+            Framebuffer spatial = trace == null ? target : trace;
+            spatial.bind();
+            glViewport(0, 0, spatial.width(), spatial.height());
             CommandBuffer commands = device.createCommandBuffer();
             pass.recordIntoCurrentTarget(commands, colour.id(), depth.id(), normal.id(),
                     roughness.id(), albedo.id(), INVERSE_PROJECTION, PROJECTION,
                     new Matrix4f(), environment, SIZE, SIZE);
             device.execute(commands);
+            if (trace != null) {
+                filtered.bind();
+                device.execute(pass.recordHalfResolutionFilter(device.createCommandBuffer(),
+                        trace.colorAttachment(), normal.id(), true));
+                trace.bind();
+                device.execute(pass.recordHalfResolutionFilter(device.createCommandBuffer(),
+                        filtered.colorAttachment(), normal.id(), false));
+                target.bind();
+                glViewport(0, 0, SIZE, SIZE);
+                device.execute(pass.recordHalfResolutionResolve(device.createCommandBuffer(),
+                        trace.colorAttachment(), colour.id(), depth.id(), normal.id(), albedo.id(),
+                        INVERSE_PROJECTION));
+            }
             target.bind();
             glViewport(0, 0, SIZE, SIZE);
             FloatBuffer pixels = BufferUtils.createFloatBuffer(SIZE * SIZE * 4);
@@ -407,12 +509,16 @@ class SsgiPassGlTest {
     }
 
     private static Texture2D floatTexture(int channels, float[] data) {
+        return floatTexture(SIZE, channels, data);
+    }
+
+    private static Texture2D floatTexture(int size, int channels, float[] data) {
         int format = channels == 1 ? GL_R32F : GL_RGBA32F;
-        Texture2D texture = Texture2D.createEmpty(SIZE, SIZE, format);
+        Texture2D texture = Texture2D.createEmpty(size, size, format);
         ByteBuffer upload = BufferUtils.createByteBuffer(
-                SIZE * SIZE * channels * Float.BYTES);
+                size * size * channels * Float.BYTES);
         upload.asFloatBuffer().put(data);
-        texture.uploadRegion(0, 0, SIZE, SIZE, upload);
+        texture.uploadRegion(0, 0, size, size, upload);
         texture.setFiltering(GL_NEAREST, GL_NEAREST);
         return texture;
     }

@@ -57,6 +57,10 @@ package com.kaleblangley.haikalat.subsystems.postprocess;
  *       ambient baseline, so the fallback can never create energy from zero.</li>
  * </ul>
  *
+ * <p>Half-resolution spatial mode traces one receiver per 2×2 block and reconstructs
+ * the bounce at full resolution using depth and normals. It cannot be combined
+ * with temporal accumulation.</p>
+ *
  * <h2>Optional temporal accumulation</h2>
  *
  * <p>When {@link #temporalBlend()} is positive the pass also owns a GI-specific
@@ -105,7 +109,8 @@ public record SsgiSettings(
         int historyFrames,
         float temporalDepthRejection,
         float temporalNormalRejection,
-        float temporalVelocityRejection
+        float temporalVelocityRejection,
+        boolean halfResolution
 ) {
     /** Largest accepted hemisphere sample budget. Matches the shader's {@code SSGI_MAX_SAMPLES}. */
     public static final int MAXIMUM_SAMPLES = 16;
@@ -163,7 +168,25 @@ public record SsgiSettings(
                 0.0f, 8, 0.02f, 0.9f, 64.0f);
     }
 
+    /** Constructor for callers using full-resolution spatial or temporal SSGI. */
+    public SsgiSettings(boolean enabled, int sampleCount, int stepCount,
+                        float maxDistanceMetres, float thicknessMetres, float strength,
+                        float minimumSampleRoughness, float maximumOffscreenFraction,
+                        float edgeFadePixels, float ambientFallbackRed,
+                        float ambientFallbackGreen, float ambientFallbackBlue,
+                        float temporalBlend, int historyFrames, float temporalDepthRejection,
+                        float temporalNormalRejection, float temporalVelocityRejection) {
+        this(enabled, sampleCount, stepCount, maxDistanceMetres, thicknessMetres, strength,
+                minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
+                ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection, false);
+    }
+
     public SsgiSettings {
+        if (halfResolution && temporalBlend > 0f) {
+            throw new IllegalArgumentException("half-resolution SSGI is spatial only");
+        }
         if (sampleCount < MINIMUM_SAMPLES || sampleCount > MAXIMUM_SAMPLES) {
             throw new IllegalArgumentException("sampleCount must be in ["
                     + MINIMUM_SAMPLES + ", " + MAXIMUM_SAMPLES + "]");
@@ -297,7 +320,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withSampleCount(int value) {
@@ -305,7 +328,7 @@ public record SsgiSettings(
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
                 ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
                 historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withStepCount(int value) {
@@ -313,7 +336,7 @@ public record SsgiSettings(
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
                 ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
                 historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withMaxDistanceMetres(float value) {
@@ -321,7 +344,7 @@ public record SsgiSettings(
                 thicknessClamped(value, thicknessMetres), strength, minimumSampleRoughness,
                 maximumOffscreenFraction, edgeFadePixels, ambientFallbackRed,
                 ambientFallbackGreen, ambientFallbackBlue, temporalBlend, historyFrames,
-                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection);
+                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withThicknessMetres(float value) {
@@ -329,7 +352,7 @@ public record SsgiSettings(
                 strength, minimumSampleRoughness, maximumOffscreenFraction, edgeFadePixels,
                 ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
                 historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withStrength(float value) {
@@ -337,7 +360,7 @@ public record SsgiSettings(
                 thicknessMetres, value, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withMinimumSampleRoughness(float value) {
@@ -345,7 +368,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, value, maximumOffscreenFraction, edgeFadePixels,
                 ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
                 historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withMaximumOffscreenFraction(float value) {
@@ -353,7 +376,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, value, edgeFadePixels,
                 ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue, temporalBlend,
                 historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withEdgeFadePixels(float value) {
@@ -361,14 +384,14 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 value, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withAmbientFallback(float red, float green, float blue) {
         return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, red, green, blue, temporalBlend, historyFrames,
-                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection);
+                temporalDepthRejection, temporalNormalRejection, temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withTemporalBlend(float value) {
@@ -376,7 +399,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 value, historyFrames, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withHistoryFrames(int value) {
@@ -384,7 +407,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, value, temporalDepthRejection, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withTemporalDepthRejection(float value) {
@@ -392,7 +415,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, value, temporalNormalRejection,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withTemporalNormalRejection(float value) {
@@ -400,7 +423,7 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, temporalDepthRejection, value,
-                temporalVelocityRejection);
+                temporalVelocityRejection, halfResolution);
     }
 
     public SsgiSettings withTemporalVelocityRejection(float value) {
@@ -408,7 +431,15 @@ public record SsgiSettings(
                 thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
                 edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
                 temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
-                value);
+                value, halfResolution);
+    }
+
+    public SsgiSettings withHalfResolution(boolean value) {
+        return new SsgiSettings(enabled, sampleCount, stepCount, maxDistanceMetres,
+                thicknessMetres, strength, minimumSampleRoughness, maximumOffscreenFraction,
+                edgeFadePixels, ambientFallbackRed, ambientFallbackGreen, ambientFallbackBlue,
+                temporalBlend, historyFrames, temporalDepthRejection, temporalNormalRejection,
+                temporalVelocityRejection, value);
     }
 
     public static Builder builder() {
@@ -447,6 +478,7 @@ public record SsgiSettings(
         private float temporalDepthRejection = 0.02f;
         private float temporalNormalRejection = 0.9f;
         private float temporalVelocityRejection = 64.0f;
+        private boolean halfResolution;
 
         private Builder() {
         }
@@ -528,6 +560,11 @@ public record SsgiSettings(
             return this;
         }
 
+        public Builder halfResolution(boolean value) {
+            halfResolution = value;
+            return this;
+        }
+
         public SsgiSettings build() {
             return new SsgiSettings(enabled, sampleCount, stepCount,
                     maxDistanceMetres, thicknessClamped(maxDistanceMetres, thicknessMetres),
@@ -535,7 +572,7 @@ public record SsgiSettings(
                     edgeFadePixels, ambientFallbackRed, ambientFallbackGreen,
                     ambientFallbackBlue, temporalBlend, historyFrames,
                     temporalDepthRejection, temporalNormalRejection,
-                    temporalVelocityRejection);
+                    temporalVelocityRejection, halfResolution);
         }
     }
 }

@@ -77,7 +77,8 @@ public final class SsgiPass implements GlResource {
     private static final int ROTATION_SEQUENCE_LENGTH = 64;
 
     private final ShaderProgram program;
-    private final ShaderProgram temporalProgram;
+    private final ShaderProgram resolveProgram;
+    private final ShaderProgram filterProgram;
     private final ScreenQuad quad;
     private final SsgiSettings settings;
     private final SsgiTemporalStorage temporalStorage;
@@ -117,7 +118,8 @@ public final class SsgiPass implements GlResource {
                     "temporal SSGI requires an explicit positive viewport extent");
         }
         ShaderProgram createdProgram = null;
-        ShaderProgram createdTemporalProgram = null;
+        ShaderProgram createdResolveProgram = null;
+        ShaderProgram createdFilterProgram = null;
         ScreenQuad createdQuad = null;
         SsgiTemporalStorage createdStorage = null;
         try {
@@ -126,20 +128,29 @@ public final class SsgiPass implements GlResource {
                     "/shaders/postprocess/ssgi.frag");
             createdQuad = new ScreenQuad();
             if (temporal) {
-                createdTemporalProgram = ShaderProgram.fromResource(SsgiPass.class,
+                createdResolveProgram = ShaderProgram.fromResource(SsgiPass.class,
                         "/shaders/postprocess/screen-quad.vert",
                         "/shaders/postprocess/ssgi-temporal.frag");
                 createdStorage = new SsgiTemporalStorage(width, height);
+            } else if (settings.halfResolution()) {
+                createdResolveProgram = ShaderProgram.fromResource(SsgiPass.class,
+                        "/shaders/postprocess/screen-quad.vert",
+                        "/shaders/postprocess/ssgi-upsample.frag");
+                createdFilterProgram = ShaderProgram.fromResource(SsgiPass.class,
+                        "/shaders/postprocess/screen-quad.vert",
+                        "/shaders/postprocess/ssgi-filter.frag");
             }
         } catch (RuntimeException | Error failure) {
             closeSuppressed(createdStorage, failure);
-            closeSuppressed(createdTemporalProgram, failure);
+            closeSuppressed(createdFilterProgram, failure);
+            closeSuppressed(createdResolveProgram, failure);
             closeSuppressed(createdQuad, failure);
             closeSuppressed(createdProgram, failure);
             throw failure;
         }
         program = createdProgram;
-        temporalProgram = createdTemporalProgram;
+        resolveProgram = createdResolveProgram;
+        filterProgram = createdFilterProgram;
         quad = createdQuad;
         temporalStorage = createdStorage;
     }
@@ -171,7 +182,9 @@ public final class SsgiPass implements GlResource {
     }
 
     /**
-     * Records the pure spatial pass into the currently bound target.
+     * Records the spatial pass into the currently bound target. Half-resolution mode
+     * writes a bounce-only signal into a graph target of ceil(width/2) by ceil(height/2).
+     * The provided dimensions always describe the full-resolution input textures.
      *
      * <p>This is the pre-existing stateless entry point. A temporal request must
      * use {@link #recordTemporal(CommandBuffer, TemporalInputs)} so the shared
@@ -193,6 +206,58 @@ public final class SsgiPass implements GlResource {
         }
         return recordSpatial(cmd, colorTexture, depthTexture, normalTexture, roughnessTexture,
                 albedoTexture, inverseProjection, projection, view, environment, width, height);
+    }
+
+    /** Filters the half-resolution bounce along one axis, preserving geometric edges. */
+    public CommandBuffer recordHalfResolutionFilter(CommandBuffer cmd, int inputTexture,
+                                                     int normalTexture, boolean horizontal) {
+        ensureOpen();
+        if (filterProgram == null) {
+            throw new IllegalStateException("SSGI filtering requires half-resolution mode");
+        }
+        return cmd.enableBlend(false)
+                .enableDepthTest(false)
+                .enableCullFace(false)
+                .enableFramebufferSrgb(false)
+                .bindShader(filterProgram)
+                .bindTexture(COLOR_UNIT, inputTexture)
+                .bindTexture(NORMAL_UNIT, normalTexture)
+                .setUniformInt(filterProgram, "uBounce", COLOR_UNIT)
+                .setUniformInt(filterProgram, "uNormal", NORMAL_UNIT)
+                .setUniformInt(filterProgram, "uHorizontal", horizontal ? 1 : 0)
+                .bindVertexArray(quad.id())
+                .drawArrays(GL_TRIANGLES, 0, 6)
+                .enableDepthTest(true);
+    }
+
+    /** Reconstructs the half-resolution bounce and adds it to full-resolution HDR. */
+    public CommandBuffer recordHalfResolutionResolve(CommandBuffer cmd, int traceTexture,
+                                                      int colorTexture, int depthTexture,
+                                                      int normalTexture, int albedoTexture,
+                                                      Matrix4f inverseProjection) {
+        ensureOpen();
+        if (!settings.halfResolution()) {
+            throw new IllegalStateException("SSGI upsample requires half-resolution mode");
+        }
+        return cmd.enableBlend(false)
+                .enableDepthTest(false)
+                .enableCullFace(false)
+                .enableFramebufferSrgb(false)
+                .bindShader(resolveProgram)
+                .bindTexture(COLOR_UNIT, colorTexture)
+                .bindTexture(DEPTH_UNIT, depthTexture)
+                .bindTexture(NORMAL_UNIT, normalTexture)
+                .bindTexture(ALBEDO_UNIT, albedoTexture)
+                .bindTexture(ROUGHNESS_UNIT, traceTexture)
+                .setUniformInt(resolveProgram, "uColor", COLOR_UNIT)
+                .setUniformInt(resolveProgram, "uDepth", DEPTH_UNIT)
+                .setUniformInt(resolveProgram, "uNormal", NORMAL_UNIT)
+                .setUniformInt(resolveProgram, "uAlbedo", ALBEDO_UNIT)
+                .setUniformInt(resolveProgram, "uTrace", ROUGHNESS_UNIT)
+                .setUniformMat4(resolveProgram, "uInverseProjection", inverseProjection)
+                .bindVertexArray(quad.id())
+                .drawArrays(GL_TRIANGLES, 0, 6)
+                .enableDepthTest(true);
     }
 
     /**
@@ -258,7 +323,7 @@ public final class SsgiPass implements GlResource {
                 .enableDepthTest(false)
                 .enableCullFace(false)
                 .enableFramebufferSrgb(false)
-                .bindShader(temporalProgram)
+                .bindShader(resolveProgram)
                 .bindTexture(TEMPORAL_SPATIAL_GI_UNIT,
                         temporalStorage.spatialFramebuffer().colorAttachment(0))
                 .bindTexture(TEMPORAL_COLOR_UNIT, inputs.colorTexture())
@@ -271,31 +336,31 @@ public final class SsgiPass implements GlResource {
                         temporalStorage.readHistoryColorTexture())
                 .bindTexture(TEMPORAL_HISTORY_STATE_UNIT, temporalStorage.readStateTexture())
                 .bindTexture(TEMPORAL_ALBEDO_UNIT, inputs.albedoTexture())
-                .setUniformInt(temporalProgram, "uSpatialGi", TEMPORAL_SPATIAL_GI_UNIT)
-                .setUniformInt(temporalProgram, "uColor", TEMPORAL_COLOR_UNIT)
-                .setUniformInt(temporalProgram, "uDepth", TEMPORAL_DEPTH_UNIT)
-                .setUniformInt(temporalProgram, "uNormal", TEMPORAL_NORMAL_UNIT)
-                .setUniformInt(temporalProgram, "uAlbedo", TEMPORAL_ALBEDO_UNIT)
-                .setUniformInt(temporalProgram, "uVelocity", TEMPORAL_VELOCITY_UNIT)
-                .setUniformInt(temporalProgram, "uPreviousDepth", TEMPORAL_PREVIOUS_DEPTH_UNIT)
-                .setUniformInt(temporalProgram, "uValidity", TEMPORAL_VALIDITY_UNIT)
-                .setUniformInt(temporalProgram, "uHistoryColor", TEMPORAL_HISTORY_COLOR_UNIT)
-                .setUniformInt(temporalProgram, "uHistoryState", TEMPORAL_HISTORY_STATE_UNIT)
-                .setUniformVec2(temporalProgram, "uViewportSize", target.width(), target.height())
-                .setUniformMat4(temporalProgram, "uInverseProjection",
+                .setUniformInt(resolveProgram, "uSpatialGi", TEMPORAL_SPATIAL_GI_UNIT)
+                .setUniformInt(resolveProgram, "uColor", TEMPORAL_COLOR_UNIT)
+                .setUniformInt(resolveProgram, "uDepth", TEMPORAL_DEPTH_UNIT)
+                .setUniformInt(resolveProgram, "uNormal", TEMPORAL_NORMAL_UNIT)
+                .setUniformInt(resolveProgram, "uAlbedo", TEMPORAL_ALBEDO_UNIT)
+                .setUniformInt(resolveProgram, "uVelocity", TEMPORAL_VELOCITY_UNIT)
+                .setUniformInt(resolveProgram, "uPreviousDepth", TEMPORAL_PREVIOUS_DEPTH_UNIT)
+                .setUniformInt(resolveProgram, "uValidity", TEMPORAL_VALIDITY_UNIT)
+                .setUniformInt(resolveProgram, "uHistoryColor", TEMPORAL_HISTORY_COLOR_UNIT)
+                .setUniformInt(resolveProgram, "uHistoryState", TEMPORAL_HISTORY_STATE_UNIT)
+                .setUniformVec2(resolveProgram, "uViewportSize", target.width(), target.height())
+                .setUniformMat4(resolveProgram, "uInverseProjection",
                         inputs.inverseProjection())
-                .setUniformInt(temporalProgram, "uHistoryValid", historyValid)
-                .setUniformFloat(temporalProgram, "uHistoryWeight", historyWeight)
-                .setUniformVec2(temporalProgram, "uCurrentJitter",
+                .setUniformInt(resolveProgram, "uHistoryValid", historyValid)
+                .setUniformFloat(resolveProgram, "uHistoryWeight", historyWeight)
+                .setUniformVec2(resolveProgram, "uCurrentJitter",
                         inputs.jitterUvX(), inputs.jitterUvY())
-                .setUniformVec2(temporalProgram, "uPreviousJitter",
+                .setUniformVec2(resolveProgram, "uPreviousJitter",
                         historyValid != 0 ? previousJitterU : inputs.jitterUvX(),
                         historyValid != 0 ? previousJitterV : inputs.jitterUvY())
-                .setUniformFloat(temporalProgram, "uDepthRejection",
+                .setUniformFloat(resolveProgram, "uDepthRejection",
                         settings.temporalDepthRejection())
-                .setUniformFloat(temporalProgram, "uNormalRejection",
+                .setUniformFloat(resolveProgram, "uNormalRejection",
                         settings.temporalNormalRejection())
-                .setUniformFloat(temporalProgram, "uVelocityRejection",
+                .setUniformFloat(resolveProgram, "uVelocityRejection",
                         settings.temporalVelocityRejection())
                 .bindVertexArray(quad.id())
                 .drawArrays(GL_TRIANGLES, 0, 6)
@@ -470,9 +535,17 @@ public final class SsgiPass implements GlResource {
                 failure = closeFailure;
             }
         }
-        if (temporalProgram != null) {
+        if (resolveProgram != null) {
             try {
-                temporalProgram.close();
+                resolveProgram.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
+        }
+        if (filterProgram != null) {
+            try {
+                filterProgram.close();
             } catch (RuntimeException closeFailure) {
                 if (failure == null) failure = closeFailure;
                 else failure.addSuppressed(closeFailure);
@@ -566,6 +639,7 @@ public final class SsgiPass implements GlResource {
                 .setUniformFloat(program, "uEdgeFadePixels", settings.edgeFadePixels())
                 .setUniformFloat(program, "uFrameRotation", frameRotation)
                 .setUniformInt(program, "uTemporalMode", temporalMode ? 1 : 0)
+                .setUniformInt(program, "uHalfResolution", settings.halfResolution() ? 1 : 0)
                 .setUniformVec3(program, "uAmbientFallback",
                         new Vector3f(settings.ambientFallbackRed(),
                                 settings.ambientFallbackGreen(),

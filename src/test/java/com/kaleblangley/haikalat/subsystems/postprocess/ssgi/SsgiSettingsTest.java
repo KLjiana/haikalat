@@ -55,6 +55,16 @@ class SsgiSettingsTest {
     }
 
     @Test
+    void halfResolutionIsOptInAndDoesNotSilentlyDisableTemporalAccumulation() {
+        assertFalse(SsgiSettings.defaults().halfResolution());
+        SsgiSettings half = SsgiSettings.defaults().withHalfResolution(true);
+        assertTrue(half.withStrength(0.5f).withEnabled(false).halfResolution());
+        assertThrows(IllegalArgumentException.class, () -> half.withTemporalBlend(0.9f));
+        assertThrows(IllegalArgumentException.class, () -> SsgiSettings.builder()
+                .temporalBlend(0.9f).halfResolution(true).build());
+    }
+
+    @Test
     void temporalTimingAndRejectionBoundsAreValidated() {
         assertThrows(IllegalArgumentException.class,
                 () -> SsgiSettings.disabled().withTemporalBlend(-0.01f));

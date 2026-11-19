@@ -69,6 +69,7 @@ uniform float uFrameRotation;
 // 0 = composite base + bounce into the graph target (spatial path);
 // 1 = emit the added bounce only into the pass-owned temporal staging target.
 uniform int uTemporalMode;
+uniform int uHalfResolution;
 
 // Mirrors octDecode() in shaders/postprocess/ssr.frag.
 vec3 octDecode(vec2 oct) {
@@ -108,6 +109,15 @@ float interleavedGradientNoise(vec2 pixel) {
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
+// The half-resolution lattice would repeat portions of the full-resolution
+// gradient pattern. Hash neighbouring trace coordinates before rotating rays.
+float traceRotation(uvec2 pixel) {
+    uint bits = pixel.x * 0x9E3779B9u + pixel.y * 0x85EBCA6Bu;
+    bits = (bits ^ (bits >> 16u)) * 0x7FEB352Du;
+    bits = (bits ^ (bits >> 15u)) * 0x846CA68Bu;
+    return float((bits ^ (bits >> 16u)) >> 8u) / 16777216.0;
+}
+
 // Deterministic cosine-weighted hemisphere direction. The estimator for the
 // incoming irradiance of n cosine-weighted samples is PI / n * sum(radiance).
 vec3 cosineHemisphere(vec3 normal, int index, int sampleCount, float rotation) {
@@ -137,20 +147,23 @@ float sampleRoughnessWeight(float roughness) {
 }
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / uViewportSize;
-    vec4 baseSample = texture(uColor, uv);
+    bool halfResolution = uHalfResolution != 0;
+    ivec2 centerPixel = ivec2(gl_FragCoord.xy);
+    if (halfResolution) centerPixel *= 2;
+    vec2 uv = (vec2(centerPixel) + 0.5) / uViewportSize;
+    vec4 baseSample = halfResolution ? vec4(0.0) : texture(uColor, uv);
     vec3 base = baseSample.rgb;
     float depth = fetchPixel(uDepth, uv).r;
 
     // Background pixels are not receivers: the pass is an exact no-op there.
     if (depth >= 1.0) {
-        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
+        FragColor = halfResolution || uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
         return;
     }
 
     vec3 albedo = clamp(fetchPixel(uAlbedo, uv).rgb, 0.0, 1.0);
     if (albedo.r + albedo.g + albedo.b <= 0.0) {
-        FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
+        FragColor = halfResolution || uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);
         return;
     }
     vec3 normal = octDecode(fetchPixel(uNormal, uv).rg);
@@ -170,14 +183,15 @@ void main() {
     vec3 ambientRadiance = ambientIrradiance / SSGI_PI;
 
     float rotation = interleavedGradientNoise(gl_FragCoord.xy);
-    if (uTemporalMode != 0) {
+    if (halfResolution) {
+        rotation = traceRotation(uvec2(gl_FragCoord.xy));
+    } else if (uTemporalMode != 0) {
         rotation += uFrameRotation;
     }
     int sampleCount = clamp(uSampleCount, 1, SSGI_MAX_SAMPLES);
     int stepCount = clamp(uStepCount, 1, SSGI_MAX_STEPS);
     float maximumDistance = max(uMaxDistance, 1.0e-4);
     float thickness = clamp(uThickness, 1.0e-4, maximumDistance);
-    ivec2 centerPixel = ivec2(gl_FragCoord.xy);
 
     vec3 hitRadiance = vec3(0.0);
     int offscreenSamples = 0;
@@ -233,6 +247,14 @@ void main() {
     float offscreenBudget = min(offscreenFraction, max(uMaximumOffscreenFraction, 0.0));
     gathered += ambientRadiance * offscreenBudget * SSGI_PI;
 
+    if (halfResolution) {
+        // Store incident light separately from receiver albedo. Alpha is positive
+        // view depth for the edge-aware resolve, and zero for invalid samples.
+        vec3 bounce = max(gathered, vec3(0.0)) * clamp(uStrength, 0.0, 1.0) / SSGI_PI;
+        FragColor = any(isnan(bounce)) || any(isinf(bounce)) || -viewPosition.z > 65504.0
+                ? vec4(0.0) : vec4(bounce, -viewPosition.z);
+        return;
+    }
     vec3 added = albedo * max(gathered, vec3(0.0)) * clamp(uStrength, 0.0, 1.0) / SSGI_PI;
     if (uTemporalMode != 0) {
         if (any(isnan(added)) || any(isinf(added))) {

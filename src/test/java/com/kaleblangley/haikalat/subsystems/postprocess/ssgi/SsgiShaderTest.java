@@ -76,7 +76,8 @@ class SsgiShaderTest {
                 "uniform float uEnvironmentIntensity;",
                 "uniform float uEnvironmentRotation;",
                 "uniform float uFrameRotation;",
-                "uniform int uTemporalMode;"}) {
+                "uniform int uTemporalMode;",
+                "uniform int uHalfResolution;"}) {
             assertTrue(source.contains(uniform), "missing SSGI uniform " + uniform);
         }
         Matcher declaration = Pattern.compile("uniform\\s+\\w+\\s+(u\\w+)").matcher(source);
@@ -94,7 +95,7 @@ class SsgiShaderTest {
                         "uMaxDistance", "uThickness", "uStrength", "uMinimumSampleRoughness",
                         "uMaximumOffscreenFraction", "uEdgeFadePixels", "uAmbientFallback",
                         "uEnvironmentAvailable", "uEnvironmentIntensity",
-                        "uEnvironmentRotation", "uFrameRotation", "uTemporalMode"),
+                        "uEnvironmentRotation", "uFrameRotation", "uTemporalMode", "uHalfResolution"),
                 declared,
                 "the shader uniform set must match the pass upload set");
     }
@@ -195,7 +196,8 @@ class SsgiShaderTest {
         // subsurface diffuse share). The two early paths select that tuple in the
         // temporal staging branch as well; the NaN result fallback writes it directly.
         assertEquals(2, occurrences(source,
-                        "FragColor = uTemporalMode != 0 ? vec4(0.0) : vec4(base, baseSample.a);"),
+                        "FragColor = halfResolution || uTemporalMode != 0 "
+                                + "? vec4(0.0) : vec4(base, baseSample.a);"),
                 "background and albedo-zero pixels must keep the exact base RGB while "
                         + "propagating the incoming alpha");
         assertTrue(source.contains("FragColor = vec4(base, baseSample.a);"),
@@ -330,15 +332,19 @@ class SsgiShaderTest {
         }
         assertTrue(uploaded.containsAll(Set.of("uColor", "uDepth", "uNormal", "uRoughness",
                 "uAlbedo", "uIrradiance", "uEnvironmentAvailable", "uSampleCount",
-                "uStepCount", "uMaximumOffscreenFraction", "uFrameRotation", "uTemporalMode")),
+                "uStepCount", "uMaximumOffscreenFraction", "uFrameRotation", "uTemporalMode",
+                "uHalfResolution")),
                 "the pass must upload every input the shader consumes: " + uploaded);
     }
 
     @Test
     void temporalPassUniformNamesMatchTheTemporalShaderText() throws IOException {
         String shader = resource(SSGI_TEMPORAL);
+        String source = javaSource();
+        String record = source.substring(source.indexOf("public CommandBuffer recordTemporal"),
+                source.indexOf("public void frameSucceeded"));
         Matcher upload = Pattern.compile("setUniform(?:Int|Float|Vec2|Vec3|Mat4)\\("
-                + "temporalProgram, \"(u[A-Za-z0-9_]*)\"").matcher(javaSource());
+                + "resolveProgram, \"(u[A-Za-z0-9_]*)\"").matcher(record);
         Set<String> uploaded = new LinkedHashSet<>();
         while (upload.find()) {
             assertTrue(uploaded.add(upload.group(1)),

@@ -25,6 +25,12 @@ public final class PostProcessTargets {
     public static final String MOTION_BLUR_PASS = "MotionBlurPass";
     public static final String SSR_PASS = "SsrPass";
     public static final String SSGI_PASS = "SsgiPass";
+    static final String SSGI_TRACE_PASS = "SsgiTracePass";
+    static final String SSGI_TRACE_COLOR = "ssgiTrace";
+    static final String SSGI_FILTER_HORIZONTAL_PASS = "SsgiHorizontalFilterPass";
+    static final String SSGI_FILTER_HORIZONTAL_COLOR = "ssgiFilteredHorizontal";
+    static final String SSGI_FILTER_VERTICAL_PASS = "SsgiVerticalFilterPass";
+    static final String SSGI_FILTER_VERTICAL_COLOR = "ssgiFilteredVertical";
     public static final String SUBSURFACE_SCATTERING_PASS = "SubsurfaceScatteringPass";
     public static final String TEMPORAL_DENOISE_PASS = "TemporalDenoisePass";
     public static final String TEMPORAL_DENOISE_COMPOSITE_PASS = "TemporalDenoiseCompositePass";

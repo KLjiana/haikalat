@@ -1394,6 +1394,7 @@ public final class PostProcessPipeline implements AutoCloseable {
             final String indirectInput = hdrTexture;
             final String indirectProducer = hdrProducer;
             final boolean temporalSsgi = ssgi.temporalActive();
+            final boolean halfResolutionSsgi = ssgi.settings().halfResolution();
             SurfaceInputs.Input giDepth = requireInput(SurfaceInputs.Channel.DEPTH);
             SurfaceInputs.Input giNormal = requireInput(SurfaceInputs.Channel.NORMAL);
             SurfaceInputs.Input giRoughness = requireInput(SurfaceInputs.Channel.ROUGHNESS);
@@ -1404,7 +1405,8 @@ public final class PostProcessPipeline implements AutoCloseable {
                     ? requireInput(SurfaceInputs.Channel.PREVIOUS_SURFACE_DEPTH) : null;
             SurfaceInputs.Input giValidity = temporalSsgi
                     ? requireInput(SurfaceInputs.Channel.VALIDITY) : null;
-            var indirectPass = graph.addPass(PostProcessTargets.SSGI_PASS)
+            var indirectPass = graph.addPass(halfResolutionSsgi
+                            ? PostProcessTargets.SSGI_TRACE_PASS : PostProcessTargets.SSGI_PASS)
                     .noClear();
             if (temporalSsgi) {
                 var target = ssgi.writeFramebuffer();
@@ -1412,6 +1414,9 @@ public final class PostProcessPipeline implements AutoCloseable {
                         ExternalAttachment.borrowedColor(ssgi.writeColorTexture(),
                                 RenderFormat.RGBA16F, target.width(), target.height()));
                 indirectPass.writeToExternalTarget();
+            } else if (halfResolutionSsgi) {
+                indirectPass.relativeSizeCeil(0.5f)
+                        .createColor(PostProcessTargets.SSGI_TRACE_COLOR, RenderFormat.RGBA16F);
             } else {
                 indirectPass.createColor(PostProcessTargets.SSGI_COLOR,
                         RenderFormat.RGBA16F);
@@ -1469,6 +1474,40 @@ public final class PostProcessPipeline implements AutoCloseable {
                             view, ssgiEnvironment, graph.width(), graph.height());
                 }
             });
+            if (halfResolutionSsgi) {
+                var horizontal = graph.addPass(PostProcessTargets.SSGI_FILTER_HORIZONTAL_PASS)
+                        .noClear().relativeSizeCeil(0.5f)
+                        .createColor(PostProcessTargets.SSGI_FILTER_HORIZONTAL_COLOR, RenderFormat.RGBA16F)
+                        .dependsOn(PostProcessTargets.SSGI_TRACE_PASS);
+                var vertical = graph.addPass(PostProcessTargets.SSGI_FILTER_VERTICAL_PASS)
+                        .noClear().relativeSizeCeil(0.5f)
+                        .createColor(PostProcessTargets.SSGI_FILTER_VERTICAL_COLOR, RenderFormat.RGBA16F)
+                        .dependsOn(PostProcessTargets.SSGI_FILTER_HORIZONTAL_PASS);
+                for (String producer : uniqueSurfaceProducers(indirectProducer, List.of(giNormal))) {
+                    horizontal.dependsOn(producer);
+                    vertical.dependsOn(producer);
+                }
+                horizontal.execute((res, cmd) -> ssgi.recordHalfResolutionFilter(cmd,
+                        res.colorAttachment(PostProcessTargets.SSGI_TRACE_COLOR),
+                        surfaceInputs.texture(res, giNormal), true));
+                vertical.execute((res, cmd) -> ssgi.recordHalfResolutionFilter(cmd,
+                        res.colorAttachment(PostProcessTargets.SSGI_FILTER_HORIZONTAL_COLOR),
+                        surfaceInputs.texture(res, giNormal), false));
+                var resolve = graph.addPass(PostProcessTargets.SSGI_PASS)
+                        .noClear()
+                        .createColor(PostProcessTargets.SSGI_COLOR, RenderFormat.RGBA16F)
+                        .dependsOn(PostProcessTargets.SSGI_FILTER_VERTICAL_PASS)
+                        .dependsOn(indirectProducer);
+                for (String producer : uniqueSurfaceProducers(indirectProducer,
+                        List.of(giDepth, giNormal, giAlbedo))) {
+                    resolve.dependsOn(producer);
+                }
+                resolve.execute((res, cmd) -> ssgi.recordHalfResolutionResolve(cmd,
+                        res.colorAttachment(PostProcessTargets.SSGI_FILTER_VERTICAL_COLOR),
+                        res.colorAttachment(indirectInput),
+                        surfaceInputs.texture(res, giDepth), surfaceInputs.texture(res, giNormal),
+                        surfaceInputs.texture(res, giAlbedo), framePose.inverseJitteredProjection()));
+            }
             hdrTexture = PostProcessTargets.SSGI_COLOR;
             hdrProducer = PostProcessTargets.SSGI_PASS;
         }
