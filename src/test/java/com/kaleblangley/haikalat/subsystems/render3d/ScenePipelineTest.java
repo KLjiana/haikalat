@@ -41,7 +41,9 @@ class ScenePipelineTest {
             source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        assertTrue(source.contains("vec2 guard = texel * (float(radius) + 0.5)"));
+        assertTrue(source.contains("vec2 guard = texel * (tapRadiusTexels + 0.5)"));
+        assertTrue(source.contains(
+                "directionalCascadeTile(cascade, float(radius), scale, offset, tileMinimum, tileMaximum);"));
         assertTrue(source.contains("tileMinimum = offset + guard;"));
         assertTrue(source.contains("tileMaximum = offset + scale - guard;"));
         assertTrue(source.contains("clamp(projected.xy + vec2(x, y) * texel,"));
